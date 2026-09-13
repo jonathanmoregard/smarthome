@@ -339,6 +339,19 @@ pub enum CurveToggleOutcome {
     Unfrozen,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DailyResetOutcome {
+    NotDue,
+    MarkerInitialized,
+    Unfroze,
+}
+
+impl DailyResetOutcome {
+    pub fn durable_state_changed(self) -> bool {
+        matches!(self, Self::MarkerInitialized | Self::Unfroze)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScopeState {
     on: bool,
@@ -675,24 +688,27 @@ impl AutomationState {
         reset_time: TimeOfDay,
         monotonic_now: MonotonicTime,
         convergence_duration: ConvergenceDuration,
-    ) -> Result<bool, StateError> {
+    ) -> Result<DailyResetOutcome, StateError> {
         let scheduled_date = if local_time >= reset_time {
             local_date
-        } else if let Some(last_reset_date) = self.last_reset_date {
+        } else {
             let previous_date = local_date.previous_day()?;
+            let Some(last_reset_date) = self.last_reset_date else {
+                // Establish an unambiguous durable boundary before commands can freeze state.
+                // Initialization records history only; it must not alter current scope modes.
+                self.last_reset_date = Some(previous_date);
+                return Ok(DailyResetOutcome::MarkerInitialized);
+            };
             if last_reset_date >= previous_date {
-                return Ok(false);
+                return Ok(DailyResetOutcome::NotDue);
             }
             previous_date
-        } else {
-            // No persisted history means no evidence that yesterday's run was missed.
-            return Ok(false);
         };
         if self
             .last_reset_date
             .is_some_and(|date| date >= scheduled_date)
         {
-            return Ok(false);
+            return Ok(DailyResetOutcome::NotDue);
         }
 
         // Clone-then-replace makes all scope transitions and reset marker one aggregate update.
@@ -702,7 +718,7 @@ impl AutomationState {
         }
         next.last_reset_date = Some(scheduled_date);
         *self = next;
-        Ok(true)
+        Ok(DailyResetOutcome::Unfroze)
     }
 
     pub fn snapshot(&self) -> AutomationSnapshot {
@@ -851,8 +867,8 @@ mod tests {
 
     use super::{
         AutomationSnapshot, AutomationState, ControlId, ControlState, ConvergenceDuration,
-        CurveMode, CurveToggleOutcome, LocalDate, MonotonicTime, Scope, ScopeId, ScopeMembership,
-        ScopeState, StateError, UserOffsets,
+        CurveMode, CurveToggleOutcome, DailyResetOutcome, LocalDate, MonotonicTime, Scope, ScopeId,
+        ScopeMembership, ScopeState, StateError, UserOffsets,
     };
 
     fn time(hour: u8) -> TimeOfDay {
@@ -1310,7 +1326,7 @@ mod tests {
             .unwrap();
 
         let date = LocalDate::new(2026, 9, 13).unwrap();
-        assert!(
+        assert_eq!(
             state
                 .reset_circadian_if_due(
                     date,
@@ -1319,7 +1335,8 @@ mod tests {
                     MonotonicTime::from_seconds(50.0).unwrap(),
                     duration,
                 )
-                .unwrap()
+                .unwrap(),
+            DailyResetOutcome::Unfroze
         );
         for scope in [&kitchen, &bedroom] {
             assert!(matches!(
@@ -1347,8 +1364,8 @@ mod tests {
         let duration = ConvergenceDuration::from_seconds(20.0).unwrap();
         let mut state = AutomationState::default();
 
-        assert!(
-            !state
+        assert_eq!(
+            state
                 .reset_circadian_if_due(
                     date,
                     TimeOfDay::from_hms(3, 59, 59).unwrap(),
@@ -1356,9 +1373,14 @@ mod tests {
                     MonotonicTime::from_seconds(10.0).unwrap(),
                     duration,
                 )
-                .unwrap()
+                .unwrap(),
+            DailyResetOutcome::MarkerInitialized
         );
-        assert!(
+        assert_eq!(
+            state.last_reset_date(),
+            Some(LocalDate::new(2026, 9, 12).unwrap())
+        );
+        assert_eq!(
             state
                 .reset_circadian_if_due(
                     date,
@@ -1367,11 +1389,12 @@ mod tests {
                     MonotonicTime::from_seconds(20.0).unwrap(),
                     duration,
                 )
-                .unwrap()
+                .unwrap(),
+            DailyResetOutcome::Unfroze
         );
         let after = state.clone();
-        assert!(
-            !state
+        assert_eq!(
+            state
                 .reset_circadian_if_due(
                     date,
                     TimeOfDay::from_hms(23, 0, 0).unwrap(),
@@ -1379,7 +1402,8 @@ mod tests {
                     MonotonicTime::from_seconds(30.0).unwrap(),
                     duration,
                 )
-                .unwrap()
+                .unwrap(),
+            DailyResetOutcome::NotDue
         );
         assert_eq!(state, after);
         assert_eq!(state.last_reset_date(), Some(date));
@@ -1393,19 +1417,21 @@ mod tests {
         let duration = ConvergenceDuration::from_seconds(20.0).unwrap();
         let mut after_four =
             AutomationState::with_last_reset_date(LocalDate::new(2026, 9, 12).unwrap());
-        assert!(
+        assert_eq!(
             after_four
                 .reset_circadian_if_due(today, time(12), reset_time, now, duration)
-                .unwrap()
+                .unwrap(),
+            DailyResetOutcome::Unfroze
         );
         assert_eq!(after_four.last_reset_date(), Some(today));
 
         let mut missed_yesterday =
             AutomationState::with_last_reset_date(LocalDate::new(2026, 9, 11).unwrap());
-        assert!(
+        assert_eq!(
             missed_yesterday
                 .reset_circadian_if_due(today, time(3), reset_time, now, duration)
-                .unwrap()
+                .unwrap(),
+            DailyResetOutcome::Unfroze
         );
         assert_eq!(
             missed_yesterday.last_reset_date(),
@@ -1413,10 +1439,11 @@ mod tests {
         );
         let mut completed_yesterday =
             AutomationState::with_last_reset_date(LocalDate::new(2026, 9, 12).unwrap());
-        assert!(
-            !completed_yesterday
+        assert_eq!(
+            completed_yesterday
                 .reset_circadian_if_due(today, time(3), reset_time, now, duration)
-                .unwrap()
+                .unwrap(),
+            DailyResetOutcome::NotDue
         );
     }
 
@@ -1431,7 +1458,7 @@ mod tests {
             let mut state = AutomationState::with_last_reset_date(
                 LocalDate::new(last.0, last.1, last.2).unwrap(),
             );
-            assert!(
+            assert_eq!(
                 state
                     .reset_circadian_if_due(
                         LocalDate::new(today.0, today.1, today.2).unwrap(),
@@ -1440,13 +1467,84 @@ mod tests {
                         MonotonicTime::from_seconds(1.0).unwrap(),
                         ConvergenceDuration::from_seconds(20.0).unwrap(),
                     )
-                    .unwrap()
+                    .unwrap(),
+                DailyResetOutcome::Unfroze
             );
             assert_eq!(
                 state.last_reset_date(),
                 Some(LocalDate::new(expected.0, expected.1, expected.2).unwrap())
             );
         }
+    }
+
+    #[test]
+    fn fresh_marker_persists_before_commands_and_stale_freeze_resets_once() {
+        let kitchen = room("kitchen");
+        let duration = ConvergenceDuration::from_seconds(20.0).unwrap();
+        let mut state = configured_state();
+
+        let initialized = state
+            .reset_circadian_if_due(
+                LocalDate::new(2026, 9, 13).unwrap(),
+                time(1),
+                time(4),
+                MonotonicTime::from_seconds(1.0).unwrap(),
+                duration,
+            )
+            .unwrap();
+        assert_eq!(initialized, DailyResetOutcome::MarkerInitialized);
+        assert!(initialized.durable_state_changed());
+        assert_eq!(
+            state.last_reset_date(),
+            Some(LocalDate::new(2026, 9, 12).unwrap())
+        );
+        assert_eq!(
+            state.scope_state(&kitchen).unwrap().mode(),
+            &CurveMode::Follow
+        );
+
+        state
+            .toggle_scope_curve(
+                &kitchen,
+                point(0.4, 2_700.0),
+                MonotonicTime::from_seconds(2.0).unwrap(),
+                duration,
+            )
+            .unwrap();
+        let encoded = serde_json::to_string(&state.snapshot()).unwrap();
+        let snapshot: AutomationSnapshot = serde_json::from_str(&encoded).unwrap();
+        let mut restored = AutomationState::restore(snapshot).unwrap();
+
+        let reset = restored
+            .reset_circadian_if_due(
+                LocalDate::new(2026, 9, 15).unwrap(),
+                time(3),
+                time(4),
+                MonotonicTime::from_seconds(0.0).unwrap(),
+                duration,
+            )
+            .unwrap();
+        assert_eq!(reset, DailyResetOutcome::Unfroze);
+        assert!(reset.durable_state_changed());
+        assert!(matches!(
+            restored.scope_state(&kitchen).unwrap().mode(),
+            CurveMode::Converging { .. }
+        ));
+        let after_first = restored.clone();
+        assert_eq!(
+            restored
+                .reset_circadian_if_due(
+                    LocalDate::new(2026, 9, 15).unwrap(),
+                    time(3),
+                    time(4),
+                    MonotonicTime::from_seconds(1.0).unwrap(),
+                    duration,
+                )
+                .unwrap(),
+            DailyResetOutcome::NotDue
+        );
+        assert!(!DailyResetOutcome::NotDue.durable_state_changed());
+        assert_eq!(restored, after_first);
     }
 
     #[test]
