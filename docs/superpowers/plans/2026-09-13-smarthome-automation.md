@@ -25,7 +25,7 @@
 ### Task 1: Scaffold reproducible workspace
 
 - [ ] Add workspace manifests, pinned stable Rust toolchain, `.gitignore`, and minimal library/binary entry points.
-- [ ] Run `cargo metadata --no-deps`; expect both crates and no warnings.
+- [ ] Run `cargo metadata --no-deps --format-version 1`; expect both crates and no warnings. Current Cargo versions warn when format version is omitted.
 - [ ] Add `flake.nix`/`nix/package.nix` using pinned nixpkgs and `rustPlatform.buildRustPackage` with `Cargo.lock`.
 - [ ] Run `nix flake show`; expect package, module, dev shell, and check attributes to evaluate.
 - [ ] Commit `chore: scaffold Rust and Nix workspace`.
@@ -120,4 +120,3 @@
 - [ ] Add pinned GitHub Actions workflow running `nix flake check -L`; keep token permissions read-only.
 - [ ] Run `git diff --check`, `cargo fmt --check`, Clippy, tests, build, and `nix flake check -L`.
 - [ ] Commit `docs: add smarthome operations guide and CI`.
-
