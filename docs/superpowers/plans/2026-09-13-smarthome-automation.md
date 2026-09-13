@@ -40,7 +40,7 @@
 
 ### Task 3: Circadian curve
 
-- [ ] RED: tests cover exact anchors, between-anchor interpolation, midnight wrap, monotonic no-overshoot, malformed anchors, and brightness/CCT clamping.
+- [ ] RED: tests cover exact anchors, between-anchor interpolation, midnight wrap, monotonic no-overshoot, malformed anchors, and brightness/CCT bounds between neighboring anchors. Apply device-specific limits only after offsets and overlays compose.
 - [ ] Run `cargo test -p house-automation-core curve`; verify expected missing-API failures.
 - [ ] GREEN: implement cyclic fixed-time anchors and monotone cubic interpolation with linear fallback for two points.
 - [ ] Refactor shared interpolation without changing behavior; rerun core tests.
