@@ -34,6 +34,10 @@ impl OverlayId {
 
         Ok(Self(value))
     }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
@@ -158,6 +162,10 @@ struct ActiveOverlay {
     expires_at: f64,
 }
 
+/// In-memory overlays ordered from lower to higher priority.
+///
+/// Equal-priority overlays apply in insertion order, so later sequences win
+/// for absolute fields. Replacing a key assigns a new insertion sequence.
 #[derive(Debug, Clone, PartialEq)]
 pub struct OverlaySet {
     overlays: BTreeMap<OverlayId, ActiveOverlay>,
@@ -174,7 +182,8 @@ impl OverlaySet {
         }
     }
 
-    pub fn active_count(&self) -> usize {
+    /// Number of stored entries. Expired entries are pruned by [`Self::compose`].
+    pub fn stored_count(&self) -> usize {
         self.overlays.len()
     }
 
@@ -296,6 +305,9 @@ impl AcknowledgementSettings {
         if amplitude <= 0.0 {
             return Err(OverlayError::NonPositiveAmplitude);
         }
+        if amplitude > 0.5 {
+            return Err(OverlayError::AmplitudeTooLarge);
+        }
         Ok(Self {
             id,
             amplitude,
@@ -307,30 +319,43 @@ impl AcknowledgementSettings {
     pub fn for_toggle(
         &self,
         outcome: CurveToggleOutcome,
-        target: &LightTarget,
+        target: &LayeredLightTarget,
         capabilities: Capabilities,
     ) -> Option<AcknowledgementRequest> {
         if !target.on || !capabilities.dimming {
             return None;
         }
-        let brightness = target.brightness?.get();
-        let headroom = 1.0 - brightness;
-        let delta = if headroom + f64::EPSILON >= self.amplitude {
+        let brightness = target.brightness?.clamp(0.0, 1.0);
+        let primary_delta = if brightness <= 0.5 {
             self.amplitude
-        } else if brightness + f64::EPSILON >= self.amplitude {
-            -self.amplitude
-        } else if headroom >= brightness {
-            headroom
         } else {
-            -brightness
+            -self.amplitude
+        };
+        let frozen_target = (brightness + primary_delta).clamp(0.0, 1.0);
+        let opposite_target = brightness - primary_delta;
+        let unfrozen_target = if (0.0..=1.0).contains(&opposite_target) {
+            opposite_target
+        } else {
+            (brightness + 2.0 * primary_delta).clamp(0.0, 1.0)
+        };
+        let pulse_target = match outcome {
+            CurveToggleOutcome::Frozen => frozen_target,
+            CurveToggleOutcome::Unfrozen => unfrozen_target,
         };
 
         Some(AcknowledgementRequest {
             kind: outcome.into(),
             overlay: OverlayRequest::new(
                 self.id.clone(),
-                OverlayEffect::brightness_delta(delta)
-                    .expect("finite brightness and amplitude produce a finite bounded delta"),
+                OverlayEffect::scene(
+                    Some(
+                        Brightness::new(pulse_target)
+                            .expect("clamped acknowledgement target is normalized"),
+                    ),
+                    None,
+                    None,
+                )
+                .expect("acknowledgement scene always contains brightness"),
                 self.priority,
                 self.duration,
             ),
@@ -360,6 +385,7 @@ pub enum OverlayError {
     NonFinite,
     NonPositiveDuration,
     NonPositiveAmplitude,
+    AmplitudeTooLarge,
     EmptyScene,
     ExpiryOverflow,
     MonotonicClockRegressed,
@@ -379,6 +405,9 @@ impl Display for OverlayError {
             }
             Self::NonPositiveAmplitude => {
                 formatter.write_str("acknowledgement amplitude must be greater than zero")
+            }
+            Self::AmplitudeTooLarge => {
+                formatter.write_str("acknowledgement amplitude must be at most 0.5")
             }
             Self::EmptyScene => formatter.write_str("overlay scene must set at least one field"),
             Self::ExpiryOverflow => formatter.write_str("overlay expiry exceeds monotonic range"),
@@ -417,9 +446,7 @@ mod tests {
 
     use crate::{
         state::{AutomationState, CurveToggleOutcome, MonotonicTime},
-        value::{
-            Brightness, Capabilities, Color, Kelvin, KelvinRange, LayeredLightTarget, LightTarget,
-        },
+        value::{Brightness, Capabilities, Color, Kelvin, KelvinRange, LayeredLightTarget},
     };
 
     use super::{
@@ -454,16 +481,6 @@ mod tests {
             occupancy: false,
             temperature: false,
             power_metering: false,
-        }
-    }
-
-    fn target(on: bool, brightness: Option<f64>) -> LightTarget {
-        LightTarget {
-            on,
-            brightness: brightness.map(|value| Brightness::new(value).unwrap()),
-            color_temperature: Some(Kelvin::new(3_000.0).unwrap()),
-            color: None,
-            transition_ms: None,
         }
     }
 
@@ -519,7 +536,7 @@ mod tests {
             .compose(layers(true, Some(0.7), None), now(15.0), range())
             .unwrap();
         assert_eq!(expired.brightness.unwrap().get(), 0.7);
-        assert_eq!(overlays.active_count(), 0);
+        assert_eq!(overlays.stored_count(), 0);
     }
 
     #[test]
@@ -558,7 +575,7 @@ mod tests {
             .compose(layers(true, Some(0.5), None), now(2.0), range())
             .unwrap();
         assert_eq!(composed.brightness.unwrap().get(), 0.3);
-        assert_eq!(overlays.active_count(), 2);
+        assert_eq!(overlays.stored_count(), 2);
     }
 
     #[test]
@@ -670,6 +687,7 @@ mod tests {
     #[test]
     fn overlay_inputs_expiry_math_and_clock_regression_fail_explicitly() {
         assert!(OverlayId::new("bad/key").is_err());
+        assert_eq!(id("hourly-signal").as_str(), "hourly-signal");
         for invalid in [f64::NAN, f64::NEG_INFINITY, f64::INFINITY] {
             assert!(OverlayEffect::brightness_delta(invalid).is_err());
             assert!(OverlayEffect::color_temperature_delta(invalid).is_err());
@@ -721,17 +739,53 @@ mod tests {
             ),
             Err(OverlayError::SequenceExhausted)
         );
-        assert_eq!(overlays.active_count(), 0);
+        assert_eq!(overlays.stored_count(), 0);
     }
 
     #[test]
-    fn acknowledgement_pulses_up_with_headroom_and_down_near_maximum() {
+    fn acknowledgement_kinds_choose_distinct_absolute_targets_at_boundaries() {
         let settings = AcknowledgementSettings::new(id("circadian-ack"), 0.1, 0.5, 100).unwrap();
-        for (starting, expected) in [(0.0, 0.1), (0.5, 0.6), (0.9, 1.0), (1.0, 0.9)] {
+        for (starting, expected_frozen, expected_unfrozen) in [
+            (0.0, 0.1, 0.2),
+            (0.05, 0.15, 0.25),
+            (0.5, 0.6, 0.4),
+            (0.95, 0.85, 0.75),
+            (1.0, 0.9, 0.8),
+        ] {
+            for (outcome, expected) in [
+                (CurveToggleOutcome::Frozen, expected_frozen),
+                (CurveToggleOutcome::Unfrozen, expected_unfrozen),
+            ] {
+                let underlying = layers(true, Some(starting), None);
+                let request = settings
+                    .for_toggle(outcome, &underlying, full_capabilities(true))
+                    .unwrap();
+                let mut overlays = OverlaySet::new();
+                overlays
+                    .insert_request(request.into_overlay(), now(0.0))
+                    .unwrap();
+                let composed = overlays.compose(underlying, now(0.1), range()).unwrap();
+                assert!(
+                    (composed.brightness.unwrap().get() - expected).abs() < 1e-12,
+                    "starting {starting}, outcome {outcome:?}"
+                );
+                assert!(composed.on);
+            }
+        }
+    }
+
+    #[test]
+    fn acknowledgement_is_visible_when_raw_brightness_is_outside_final_bounds() {
+        let settings = AcknowledgementSettings::new(id("circadian-ack"), 0.1, 0.5, 100).unwrap();
+        for (raw, normal, acknowledged) in [(1.2, 1.0, 0.9), (-0.2, 0.0, 0.1)] {
+            let underlying = layers(true, Some(raw), None);
+            let normal_target = underlying.finalize(range()).unwrap();
+            assert_eq!(normal_target.brightness.unwrap().get(), normal);
+
             let request = settings
                 .for_toggle(
                     CurveToggleOutcome::Frozen,
-                    &target(true, Some(starting)),
+                    &underlying,
                     full_capabilities(true),
                 )
                 .unwrap();
@@ -739,14 +793,9 @@ mod tests {
             overlays
                 .insert_request(request.into_overlay(), now(0.0))
                 .unwrap();
-            let composed = overlays
-                .compose(layers(true, Some(starting), None), now(0.1), range())
-                .unwrap();
-            assert!(
-                (composed.brightness.unwrap().get() - expected).abs() < 1e-12,
-                "starting {starting}"
-            );
-            assert!(composed.on);
+            let signalled = overlays.compose(underlying, now(0.1), range()).unwrap();
+            assert_eq!(signalled.brightness.unwrap().get(), acknowledged);
+            assert_ne!(signalled.brightness, normal_target.brightness);
         }
     }
 
@@ -758,7 +807,7 @@ mod tests {
             settings
                 .for_toggle(
                     CurveToggleOutcome::Frozen,
-                    &target(false, Some(0.5)),
+                    &layers(false, Some(0.5), None),
                     full_capabilities(true),
                 )
                 .is_none()
@@ -767,7 +816,7 @@ mod tests {
             settings
                 .for_toggle(
                     CurveToggleOutcome::Frozen,
-                    &target(true, Some(0.5)),
+                    &layers(true, Some(0.5), None),
                     full_capabilities(false),
                 )
                 .is_none()
@@ -776,7 +825,7 @@ mod tests {
             settings
                 .for_toggle(
                     CurveToggleOutcome::Frozen,
-                    &target(true, None),
+                    &layers(true, None, None),
                     full_capabilities(true),
                 )
                 .is_none()
@@ -789,14 +838,14 @@ mod tests {
         let freeze = settings
             .for_toggle(
                 CurveToggleOutcome::Frozen,
-                &target(true, Some(0.5)),
+                &layers(true, Some(0.5), None),
                 full_capabilities(true),
             )
             .unwrap();
         let unfreeze = settings
             .for_toggle(
                 CurveToggleOutcome::Unfrozen,
-                &target(true, Some(0.5)),
+                &layers(true, Some(0.5), None),
                 full_capabilities(true),
             )
             .unwrap();
@@ -807,10 +856,18 @@ mod tests {
         overlays
             .insert_request(freeze.into_overlay(), now(0.0))
             .unwrap();
+        let frozen = overlays
+            .compose(layers(true, Some(0.5), None), now(0.05), range())
+            .unwrap();
+        assert_eq!(frozen.brightness.unwrap().get(), 0.6);
         overlays
             .insert_request(unfreeze.into_overlay(), now(0.1))
             .unwrap();
-        assert_eq!(overlays.active_count(), 1);
+        assert_eq!(overlays.stored_count(), 1);
+        let unfrozen = overlays
+            .compose(layers(true, Some(0.5), None), now(0.11), range())
+            .unwrap();
+        assert_eq!(unfrozen.brightness.unwrap().get(), 0.4);
         let expired = overlays
             .compose(layers(true, Some(0.4), None), now(0.6), range())
             .unwrap();
@@ -825,6 +882,10 @@ mod tests {
             );
         }
         assert!(AcknowledgementSettings::new(id("circadian-ack"), 0.1, 0.0, 100).is_err());
+        assert_eq!(
+            AcknowledgementSettings::new(id("circadian-ack"), 0.500_001, 0.5, 100),
+            Err(OverlayError::AmplitudeTooLarge)
+        );
     }
 
     #[test]
