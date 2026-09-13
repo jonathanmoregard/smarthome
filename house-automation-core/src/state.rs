@@ -83,6 +83,26 @@ pub enum Scope {
     House,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScopeMembership {
+    room: ScopeId,
+    floor: ScopeId,
+}
+
+impl ScopeMembership {
+    pub fn new(room: ScopeId, floor: ScopeId) -> Self {
+        Self { room, floor }
+    }
+
+    pub fn is_in(&self, scope: &Scope) -> bool {
+        match scope {
+            Scope::Room(room) => room == &self.room,
+            Scope::Floor(floor) => floor == &self.floor,
+            Scope::House => true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(try_from = "LocalDateRepr", into = "LocalDateRepr")]
 pub struct LocalDate {
@@ -93,19 +113,43 @@ pub struct LocalDate {
 
 impl LocalDate {
     pub fn new(year: i32, month: u8, day: u8) -> Result<Self, StateError> {
-        let max_day = match month {
-            1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-            4 | 6 | 9 | 11 => 30,
-            2 if is_leap_year(year) => 29,
-            2 => 28,
-            _ => return Err(StateError::InvalidLocalDate),
-        };
+        let max_day = days_in_month(year, month).ok_or(StateError::InvalidLocalDate)?;
         if day == 0 || day > max_day {
             return Err(StateError::InvalidLocalDate);
         }
 
         Ok(Self { year, month, day })
     }
+
+    fn previous_day(self) -> Result<Self, StateError> {
+        if self.day > 1 {
+            return Self::new(self.year, self.month, self.day - 1);
+        }
+
+        if self.month > 1 {
+            let previous_month = self.month - 1;
+            let day = days_in_month(self.year, previous_month)
+                .expect("month preceding a validated month is valid");
+            return Self::new(self.year, previous_month, day);
+        }
+
+        let previous_year = self
+            .year
+            .checked_sub(1)
+            .ok_or(StateError::LocalDateOutOfRange)?;
+        Self::new(previous_year, 12, 31)
+    }
+}
+
+fn days_in_month(year: i32, month: u8) -> Option<u8> {
+    let days = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if is_leap_year(year) => 29,
+        2 => 28,
+        _ => return None,
+    };
+    Some(days)
 }
 
 fn is_leap_year(year: i32) -> bool {
@@ -289,6 +333,7 @@ pub enum CurveMode {
     Frozen {
         baseline: CircadianBaseline,
     },
+    /// Already unfrozen: output approaches the current live curve without a visible jump.
     Converging {
         from: CircadianBaseline,
         started_at: MonotonicTime,
@@ -341,6 +386,8 @@ impl ControlState {
     }
 
     pub fn unfreeze(&mut self, started_at: MonotonicTime, duration: ConvergenceDuration) {
+        // Converging controls are already following a return path, so another global or manual
+        // unfreeze does not restart their transition.
         if let CurveMode::Frozen { baseline } = self.mode {
             self.mode = CurveMode::Converging {
                 from: baseline,
@@ -426,7 +473,6 @@ impl AutomationState {
         self.last_reset_date
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn reset_circadian_if_due(
         &mut self,
         local_date: LocalDate,
@@ -434,25 +480,34 @@ impl AutomationState {
         reset_time: TimeOfDay,
         monotonic_now: MonotonicTime,
         convergence_duration: ConvergenceDuration,
-        live_baselines: &BTreeMap<Scope, CurvePoint>,
     ) -> Result<bool, StateError> {
-        if local_time < reset_time || self.last_reset_date.is_some_and(|date| date >= local_date) {
+        let scheduled_date = if local_time >= reset_time {
+            local_date
+        } else if let Some(last_reset_date) = self.last_reset_date {
+            let previous_date = local_date.previous_day()?;
+            if last_reset_date >= previous_date {
+                return Ok(false);
+            }
+            previous_date
+        } else {
+            // With no persisted history, waiting for today's scheduled time avoids guessing
+            // whether a prior installation existed and should have reset yesterday.
+            return Ok(false);
+        };
+        if self
+            .last_reset_date
+            .is_some_and(|date| date >= scheduled_date)
+        {
             return Ok(false);
         }
 
-        for control in self.controls.values() {
-            if matches!(control.mode, CurveMode::Frozen { .. })
-                && !live_baselines.contains_key(control.scope())
-            {
-                return Err(StateError::MissingLiveBaseline(control.scope().clone()));
-            }
-        }
-
+        // Clone-then-replace makes global transition one aggregate state update. Frozen controls
+        // start smooth convergence; Converging controls are already unfrozen; Follow stays Follow.
         let mut next = self.clone();
         for control in next.controls.values_mut() {
             control.unfreeze(monotonic_now, convergence_duration);
         }
-        next.last_reset_date = Some(local_date);
+        next.last_reset_date = Some(scheduled_date);
         *self = next;
         Ok(true)
     }
@@ -462,11 +517,11 @@ impl AutomationState {
 pub enum StateError {
     InvalidIdentifier,
     InvalidLocalDate,
+    LocalDateOutOfRange,
     NonFinite,
     NegativeMonotonicTime,
     NonPositiveConvergenceDuration,
     MonotonicClockRegressed,
-    MissingLiveBaseline(Scope),
     InvalidValue(ValueError),
 }
 
@@ -477,6 +532,9 @@ impl Display for StateError {
                 "identifier must be nonempty and have no leading or trailing whitespace",
             ),
             Self::InvalidLocalDate => formatter.write_str("invalid Gregorian local date"),
+            Self::LocalDateOutOfRange => {
+                formatter.write_str("previous local date cannot be represented")
+            }
             Self::NonFinite => formatter.write_str("value must be finite"),
             Self::NegativeMonotonicTime => {
                 formatter.write_str("monotonic time must not be negative")
@@ -485,12 +543,6 @@ impl Display for StateError {
                 formatter.write_str("convergence duration must be greater than zero")
             }
             Self::MonotonicClockRegressed => formatter.write_str("monotonic clock regressed"),
-            Self::MissingLiveBaseline(scope) => {
-                write!(
-                    formatter,
-                    "missing live circadian baseline for scope {scope:?}"
-                )
-            }
             Self::InvalidValue(error) => write!(formatter, "invalid composed value: {error}"),
         }
     }
@@ -507,8 +559,6 @@ impl Error for StateError {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
     use serde::{Serialize, de::DeserializeOwned};
 
     use crate::{
@@ -518,7 +568,7 @@ mod tests {
 
     use super::{
         AutomationState, ControlId, ControlState, ConvergenceDuration, CurveMode, LocalDate,
-        MonotonicTime, Scope, ScopeId, StateError, UserOffsets,
+        MonotonicTime, Scope, ScopeId, ScopeMembership, StateError, UserOffsets,
     };
 
     fn time(hour: u8) -> TimeOfDay {
@@ -578,6 +628,21 @@ mod tests {
     }
 
     #[test]
+    fn scope_membership_matches_configured_room_floor_and_house() {
+        let membership = ScopeMembership::new(
+            ScopeId::new("kitchen").unwrap(),
+            ScopeId::new("ground").unwrap(),
+        );
+
+        assert!(membership.is_in(&room("kitchen")));
+        assert!(membership.is_in(&Scope::Floor(ScopeId::new("ground").unwrap())));
+        assert!(membership.is_in(&Scope::House));
+        assert!(!membership.is_in(&room("bedroom")));
+        assert!(!membership.is_in(&Scope::Floor(ScopeId::new("upper").unwrap())));
+        assert_json_round_trip(&membership);
+    }
+
+    #[test]
     fn local_dates_validate_calendar_boundaries() {
         assert!(LocalDate::new(2024, 2, 29).is_ok());
         assert!(LocalDate::new(2026, 2, 29).is_err());
@@ -602,8 +667,8 @@ mod tests {
     #[test]
     fn freeze_captures_baseline_and_offsets_still_compose() {
         let mut state = control(room("kitchen"), false);
-        state.set_offsets(UserOffsets::new(0.15, -300.0).unwrap());
         state.freeze(point(0.45, 2_700.0));
+        state.set_offsets(UserOffsets::new(0.15, -300.0).unwrap());
 
         let target = state
             .compose_target(
@@ -617,6 +682,32 @@ mod tests {
         assert!((target.brightness.unwrap().get() - 0.6).abs() < 1e-12);
         assert_eq!(target.color_temperature.unwrap().get(), 2_400.0);
         assert!(matches!(state.mode(), CurveMode::Frozen { .. }));
+    }
+
+    #[test]
+    fn frozen_baseline_stays_constant_as_time_and_live_curve_advance() {
+        let mut state = control(room("kitchen"), true);
+        state.freeze(point(0.45, 2_700.0));
+        let range = KelvinRange::new(2_200.0, 6_500.0).unwrap();
+
+        let first = state
+            .compose_target(
+                point(0.2, 4_000.0),
+                MonotonicTime::from_seconds(100.0).unwrap(),
+                range,
+            )
+            .unwrap();
+        let later = state
+            .compose_target(
+                point(0.9, 6_000.0),
+                MonotonicTime::from_seconds(10_000.0).unwrap(),
+                range,
+            )
+            .unwrap();
+
+        assert_eq!(first, later);
+        assert_eq!(later.brightness.unwrap().get(), 0.45);
+        assert_eq!(later.color_temperature.unwrap().get(), 2_700.0);
     }
 
     #[test]
@@ -700,17 +791,21 @@ mod tests {
         kitchen_control.freeze(point(0.4, 2_700.0));
         let mut bedroom_control = control(bedroom.clone(), true);
         bedroom_control.freeze(point(0.3, 2_500.0));
+        let mut already_converging = control(room("office"), true);
+        already_converging.freeze(point(0.5, 3_000.0));
+        already_converging.unfreeze(
+            MonotonicTime::from_seconds(40.0).unwrap(),
+            ConvergenceDuration::from_seconds(60.0).unwrap(),
+        );
+        let converging_before_reset = *already_converging.mode();
         state.insert(ControlId::new("kitchen_remote").unwrap(), kitchen_control);
         state.insert(ControlId::new("bedroom_remote").unwrap(), bedroom_control);
+        state.insert(ControlId::new("office_remote").unwrap(), already_converging);
         state.insert(
             ControlId::new("floor_panel").unwrap(),
             control(floor.clone(), true),
         );
 
-        let mut live = BTreeMap::new();
-        live.insert(kitchen, point(0.2, 3_500.0));
-        live.insert(bedroom, point(0.2, 3_500.0));
-        live.insert(floor, point(0.2, 3_500.0));
         let date = LocalDate::new(2026, 9, 13).unwrap();
 
         assert!(
@@ -721,7 +816,6 @@ mod tests {
                     TimeOfDay::from_hms(4, 0, 0).unwrap(),
                     MonotonicTime::from_seconds(50.0).unwrap(),
                     ConvergenceDuration::from_seconds(20.0).unwrap(),
-                    &live,
                 )
                 .unwrap()
         );
@@ -747,6 +841,13 @@ mod tests {
                 .mode(),
             &CurveMode::Follow
         );
+        assert_eq!(
+            state
+                .control(&ControlId::new("office_remote").unwrap())
+                .unwrap()
+                .mode(),
+            &converging_before_reset
+        );
         assert_eq!(state.last_reset_date(), Some(date));
         let kitchen_after = state
             .control(&ControlId::new("kitchen_remote").unwrap())
@@ -759,26 +860,22 @@ mod tests {
     }
 
     #[test]
-    fn missing_live_scope_leaves_global_reset_state_unchanged() {
+    fn due_reset_records_date_even_without_controls_or_live_baselines() {
         let mut state = AutomationState::default();
-        let mut kitchen = control(room("kitchen"), true);
-        kitchen.freeze(point(0.4, 2_700.0));
-        state.insert(ControlId::new("kitchen_remote").unwrap(), kitchen);
-        let before = state.clone();
+        let date = LocalDate::new(2026, 9, 13).unwrap();
 
-        let error = state
-            .reset_circadian_if_due(
-                LocalDate::new(2026, 9, 13).unwrap(),
-                TimeOfDay::from_hms(4, 0, 0).unwrap(),
-                TimeOfDay::from_hms(4, 0, 0).unwrap(),
-                MonotonicTime::from_seconds(50.0).unwrap(),
-                ConvergenceDuration::from_seconds(20.0).unwrap(),
-                &BTreeMap::new(),
-            )
-            .unwrap_err();
-
-        assert!(matches!(error, StateError::MissingLiveBaseline(_)));
-        assert_eq!(state, before);
+        assert!(
+            state
+                .reset_circadian_if_due(
+                    date,
+                    TimeOfDay::from_hms(4, 0, 0).unwrap(),
+                    TimeOfDay::from_hms(4, 0, 0).unwrap(),
+                    MonotonicTime::from_seconds(50.0).unwrap(),
+                    ConvergenceDuration::from_seconds(20.0).unwrap(),
+                )
+                .unwrap()
+        );
+        assert_eq!(state.last_reset_date(), Some(date));
     }
 
     #[test]
@@ -788,7 +885,6 @@ mod tests {
         let mut kitchen_control = control(kitchen.clone(), true);
         kitchen_control.freeze(point(0.4, 2_700.0));
         state.insert(ControlId::new("kitchen_remote").unwrap(), kitchen_control);
-        let live = BTreeMap::from([(kitchen, point(0.2, 3_500.0))]);
         let date = LocalDate::new(2026, 9, 13).unwrap();
         let reset_time = TimeOfDay::from_hms(4, 0, 0).unwrap();
         let duration = ConvergenceDuration::from_seconds(20.0).unwrap();
@@ -801,7 +897,6 @@ mod tests {
                     reset_time,
                     MonotonicTime::from_seconds(10.0).unwrap(),
                     duration,
-                    &live,
                 )
                 .unwrap()
         );
@@ -822,7 +917,6 @@ mod tests {
                     reset_time,
                     MonotonicTime::from_seconds(20.0).unwrap(),
                     duration,
-                    &live,
                 )
                 .unwrap()
         );
@@ -835,7 +929,6 @@ mod tests {
                     reset_time,
                     MonotonicTime::from_seconds(30.0).unwrap(),
                     duration,
-                    &live,
                 )
                 .unwrap()
         );
@@ -849,7 +942,6 @@ mod tests {
         let mut kitchen_control = control(kitchen.clone(), true);
         kitchen_control.freeze(point(0.4, 2_700.0));
         state.insert(ControlId::new("kitchen_remote").unwrap(), kitchen_control);
-        let live = BTreeMap::from([(kitchen, point(0.2, 3_500.0))]);
         let date = LocalDate::new(2026, 9, 13).unwrap();
 
         assert!(
@@ -860,7 +952,6 @@ mod tests {
                     TimeOfDay::from_hms(4, 0, 0).unwrap(),
                     MonotonicTime::from_seconds(1.0).unwrap(),
                     ConvergenceDuration::from_seconds(20.0).unwrap(),
-                    &live,
                 )
                 .unwrap()
         );
@@ -873,10 +964,72 @@ mod tests {
                     TimeOfDay::from_hms(4, 0, 0).unwrap(),
                     MonotonicTime::from_seconds(2.0).unwrap(),
                     ConvergenceDuration::from_seconds(20.0).unwrap(),
-                    &live,
                 )
                 .unwrap()
         );
+    }
+
+    #[test]
+    fn startup_before_four_catches_only_resets_older_than_yesterdays() {
+        let reset_time = TimeOfDay::from_hms(4, 0, 0).unwrap();
+        let before_reset = TimeOfDay::from_hms(3, 0, 0).unwrap();
+        let now = MonotonicTime::from_seconds(1.0).unwrap();
+        let duration = ConvergenceDuration::from_seconds(20.0).unwrap();
+        let today = LocalDate::new(2026, 9, 13).unwrap();
+
+        let mut missed =
+            AutomationState::with_last_reset_date(LocalDate::new(2026, 9, 11).unwrap());
+        assert!(
+            missed
+                .reset_circadian_if_due(today, before_reset, reset_time, now, duration)
+                .unwrap()
+        );
+        assert_eq!(
+            missed.last_reset_date(),
+            Some(LocalDate::new(2026, 9, 12).unwrap())
+        );
+
+        let mut current =
+            AutomationState::with_last_reset_date(LocalDate::new(2026, 9, 12).unwrap());
+        assert!(
+            !current
+                .reset_circadian_if_due(today, before_reset, reset_time, now, duration)
+                .unwrap()
+        );
+        assert_eq!(
+            current.last_reset_date(),
+            Some(LocalDate::new(2026, 9, 12).unwrap())
+        );
+    }
+
+    #[test]
+    fn missed_reset_date_handles_month_leap_day_and_year_boundaries() {
+        let cases = [
+            ((2024, 2, 28), (2024, 3, 1), (2024, 2, 29)),
+            ((2026, 2, 27), (2026, 3, 1), (2026, 2, 28)),
+            ((2025, 12, 30), (2026, 1, 1), (2025, 12, 31)),
+        ];
+
+        for ((last_year, last_month, last_day), (year, month, day), expected) in cases {
+            let mut state = AutomationState::with_last_reset_date(
+                LocalDate::new(last_year, last_month, last_day).unwrap(),
+            );
+            assert!(
+                state
+                    .reset_circadian_if_due(
+                        LocalDate::new(year, month, day).unwrap(),
+                        TimeOfDay::from_hms(3, 0, 0).unwrap(),
+                        TimeOfDay::from_hms(4, 0, 0).unwrap(),
+                        MonotonicTime::from_seconds(1.0).unwrap(),
+                        ConvergenceDuration::from_seconds(20.0).unwrap(),
+                    )
+                    .unwrap()
+            );
+            assert_eq!(
+                state.last_reset_date(),
+                Some(LocalDate::new(expected.0, expected.1, expected.2).unwrap())
+            );
+        }
     }
 
     #[test]
@@ -886,6 +1039,13 @@ mod tests {
         kitchen.set_offsets(UserOffsets::new(-0.2, 150.0).unwrap());
         kitchen.freeze(point(0.4, 2_700.0));
         state.insert(ControlId::new("kitchen_remote").unwrap(), kitchen);
+        let mut bedroom = control(room("bedroom"), false);
+        bedroom.freeze(point(0.3, 2_500.0));
+        bedroom.unfreeze(
+            MonotonicTime::from_seconds(40.0).unwrap(),
+            ConvergenceDuration::from_seconds(60.0).unwrap(),
+        );
+        state.insert(ControlId::new("bedroom_remote").unwrap(), bedroom);
 
         assert_json_round_trip(&state);
     }
