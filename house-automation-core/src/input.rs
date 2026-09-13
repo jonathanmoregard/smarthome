@@ -28,6 +28,11 @@ impl ClickWindow {
         }
         Ok(Self(seconds))
     }
+
+    /// Maximum inclusive interval between click prefixes for a double click.
+    pub fn seconds(self) -> f64 {
+        self.0
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
@@ -42,6 +47,14 @@ impl AmbiguousHoldWindow {
             return Err(InputError::NonPositiveAmbiguousHoldWindow);
         }
         Ok(Self(seconds))
+    }
+
+    /// Delay before an ambiguous prefix becomes a single click.
+    ///
+    /// Configure this from the longest documented adapter hold-prefix latency;
+    /// it must not be shorter than the normal double-click window.
+    pub fn seconds(self) -> f64 {
+        self.0
     }
 }
 
@@ -409,6 +422,14 @@ impl ClickClassifier {
             pending: BTreeMap::new(),
             last_observed: None,
         })
+    }
+
+    pub fn click_window(&self) -> ClickWindow {
+        self.window
+    }
+
+    pub fn ambiguous_hold_window(&self) -> AmbiguousHoldWindow {
+        self.ambiguous_hold_window
     }
 
     pub fn ingest(
@@ -989,6 +1010,9 @@ mod tests {
             )
             .is_err()
         );
+        let classifier = classifier();
+        assert_eq!(classifier.click_window().seconds(), 0.35);
+        assert_eq!(classifier.ambiguous_hold_window().seconds(), 1.2);
     }
 
     #[test]

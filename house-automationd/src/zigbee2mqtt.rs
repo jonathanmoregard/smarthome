@@ -47,7 +47,7 @@ pub struct DeviceBinding {
     id: DeviceId,
     friendly_name: String,
     capabilities: Capabilities,
-    mired_range: MiredRange,
+    mired_range: Option<MiredRange>,
     single_transition_attribute: bool,
 }
 
@@ -56,9 +56,14 @@ impl DeviceBinding {
         id: DeviceId,
         friendly_name: impl Into<String>,
         capabilities: Capabilities,
-        mired_range: MiredRange,
+        mired_range: Option<MiredRange>,
         single_transition_attribute: bool,
     ) -> Result<Self, AdapterError> {
+        if capabilities.color_temperature.is_some() != mired_range.is_some() {
+            return Err(AdapterError::configuration(
+                "mired range must be present exactly when color-temperature capability is present",
+            ));
+        }
         Ok(Self {
             id,
             friendly_name: validate_friendly_name(friendly_name.into())?,
@@ -304,25 +309,46 @@ impl Zigbee2MqttAdapter {
                     })
                 })
             }
-            Some(StateBinding::Control(_)) if message.retain || message.duplicate => Ok(None),
+            // Action topics are subscribed at QoS 0, so MQTT does not redeliver
+            // them. DUP may still be set by a publisher and is not evidence that
+            // this process has already handled the event. Retained actions are
+            // always stale and must never replay a physical gesture.
+            Some(StateBinding::Control(_)) if message.retain => Ok(None),
             Some(StateBinding::Control(binding)) => parse_control_input(binding, payload),
             None => Ok(None),
         }
     }
 
     pub fn subscriptions(&self) -> Vec<Subscription> {
-        let topics: BTreeSet<_> = std::iter::once(format!("{}/bridge/state", self.base_topic))
-            .chain(self.state_topics.keys().cloned())
-            .chain(self.availability_topics.keys().cloned())
-            .collect();
+        let mut topics = BTreeMap::from([(
+            format!("{}/bridge/state", self.base_topic),
+            Qos::AtLeastOnce,
+        )]);
+        for (topic, binding) in &self.state_topics {
+            let qos = match binding {
+                StateBinding::Device(_) => Qos::AtLeastOnce,
+                StateBinding::Control(_) => Qos::AtMostOnce,
+            };
+            topics.insert(topic.clone(), qos);
+        }
+        for topic in self.availability_topics.keys() {
+            topics.insert(topic.clone(), Qos::AtLeastOnce);
+        }
         topics
             .into_iter()
-            .map(|topic| Subscription::new(topic, Qos::AtLeastOnce))
+            .map(|(topic, qos)| Subscription::new(topic, qos))
             .collect()
     }
 
-    pub fn apply_actions(&self, actions: &[ReconcileAction]) -> Result<AdapterPlan, AdapterError> {
-        let mut plan = AdapterPlan::default();
+    pub fn apply_actions(
+        &self,
+        epoch: PlanEpoch,
+        actions: &[ReconcileAction],
+    ) -> Result<AdapterPlan, AdapterError> {
+        let mut plan = AdapterPlan {
+            epoch,
+            operations: Vec::new(),
+        };
         if actions
             .iter()
             .any(|action| matches!(action, ReconcileAction::Resubscribe))
@@ -349,6 +375,8 @@ impl Zigbee2MqttAdapter {
                     None,
                 )?));
         }
+        let mut timed_commands = Vec::new();
+        let mut command_sequence = 0_usize;
         for action in actions {
             if let ReconcileAction::Command {
                 token,
@@ -373,23 +401,36 @@ impl Zigbee2MqttAdapter {
                         })?;
                         (
                             binding.friendly_name.as_str(),
-                            binding.mired_range,
+                            Some(binding.mired_range),
                             binding.single_transition_attribute,
                         )
                     }
                 };
-                for (payload, not_before_ms) in command_payloads(*target, mired_range, split) {
-                    plan.operations
-                        .push(AdapterOperation::Publish(Publication::json(
+                for timed in command_payloads(*target, mired_range, split)? {
+                    timed_commands.push((
+                        timed.not_before_ms,
+                        command_sequence,
+                        AdapterOperation::Publish(Publication::json(
                             format!("{base}/{friendly_name}/set", base = self.base_topic),
-                            &payload,
+                            &timed.payload,
                             Qos::AtLeastOnce,
-                            not_before_ms,
+                            timed.not_before_ms,
                             Some(*token),
-                        )?));
+                        )?),
+                    ));
+                    command_sequence = command_sequence
+                        .checked_add(1)
+                        .ok_or_else(|| AdapterError::configuration("command sequence overflow"))?;
                 }
             }
         }
+        timed_commands
+            .sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
+        plan.operations.extend(
+            timed_commands
+                .into_iter()
+                .map(|(_, _, operation)| operation),
+        );
         Ok(plan)
     }
 }
@@ -487,6 +528,7 @@ fn parse_device_state(
         .transpose()?;
     let color_temperature = object
         .get("color_temp")
+        .filter(|_| binding.capabilities.color_temperature.is_some())
         .map(|value| {
             let raw = value
                 .as_u64()
@@ -497,7 +539,13 @@ fn parse_device_state(
                         "color_temp must be a positive integer mired value",
                     )
                 })?;
-            if !binding.mired_range.contains(raw) {
+            let range = binding.mired_range.ok_or_else(|| {
+                AdapterError::configuration(format!(
+                    "device {} has CCT state without a mired range",
+                    binding.id.as_str()
+                ))
+            })?;
+            if !range.contains(raw) {
                 return Err(AdapterError::message(
                     context,
                     "color_temp is outside configured mired range",
@@ -609,11 +657,21 @@ fn parse_control_input(
     }))
 }
 
+struct TimedPayload {
+    payload: Map<String, Value>,
+    not_before_ms: u64,
+}
+
 fn command_payloads(
     target: DeviceTarget,
-    mired_range: MiredRange,
+    mired_range: Option<MiredRange>,
     single_transition_attribute: bool,
-) -> Vec<(Map<String, Value>, u64)> {
+) -> Result<Vec<TimedPayload>, AdapterError> {
+    if target.color_temperature.is_some() && mired_range.is_none() {
+        return Err(AdapterError::configuration(
+            "color-temperature command requires a configured mired range",
+        ));
+    }
     let split = single_transition_attribute
         && target.transition_ms.is_some()
         && target.brightness.is_some()
@@ -629,12 +687,18 @@ fn command_payloads(
             &mut color_temperature,
             target.color_temperature,
             mired_range,
-        );
+        )?;
         add_transition(&mut color_temperature, target.transition_ms);
-        return vec![
-            (brightness, 0),
-            (color_temperature, target.transition_ms.unwrap_or_default()),
-        ];
+        return Ok(vec![
+            TimedPayload {
+                payload: brightness,
+                not_before_ms: 0,
+            },
+            TimedPayload {
+                payload: color_temperature,
+                not_before_ms: target.transition_ms.unwrap_or_default(),
+            },
+        ]);
     }
 
     let mut payload = Map::new();
@@ -643,15 +707,18 @@ fn command_payloads(
     if let Some(color) = target.color {
         add_color(&mut payload, color);
     } else {
-        add_color_temperature(&mut payload, target.color_temperature, mired_range);
+        add_color_temperature(&mut payload, target.color_temperature, mired_range)?;
     }
     if target.brightness.is_some() || target.color_temperature.is_some() || target.color.is_some() {
         add_transition(&mut payload, target.transition_ms);
     }
     if payload.is_empty() {
-        Vec::new()
+        Ok(Vec::new())
     } else {
-        vec![(payload, 0)]
+        Ok(vec![TimedPayload {
+            payload,
+            not_before_ms: 0,
+        }])
     }
 }
 
@@ -685,12 +752,18 @@ fn add_brightness(payload: &mut Map<String, Value>, brightness: Option<Brightnes
 fn add_color_temperature(
     payload: &mut Map<String, Value>,
     color_temperature: Option<Kelvin>,
-    range: MiredRange,
-) {
+    range: Option<MiredRange>,
+) -> Result<(), AdapterError> {
     if let Some(color_temperature) = color_temperature {
+        let range = range.ok_or_else(|| {
+            AdapterError::configuration(
+                "color-temperature command requires a configured mired range",
+            )
+        })?;
         let raw = range.clamp(1_000_000.0 / color_temperature.get());
         payload.insert("color_temp".to_owned(), Value::from(raw));
     }
+    Ok(())
 }
 
 fn add_color(payload: &mut Map<String, Value>, color: Color) {
@@ -801,10 +874,14 @@ impl Publication {
         self.qos
     }
 
+    /// Minimum delay from the containing `AdapterPlan` epoch, not from the
+    /// previous operation.
     pub fn not_before_ms(&self) -> u64 {
         self.not_before_ms
     }
 
+    /// Correlates all publications in one reconciler batch. For delayed
+    /// publications, check token validity immediately before MQTT enqueue.
     pub fn dispatch_token(&self) -> Option<DispatchToken> {
         self.dispatch_token
     }
@@ -839,12 +916,38 @@ impl AdapterOperation {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct PlanEpoch(u64);
+
+impl PlanEpoch {
+    pub fn new(sequence: u64) -> Self {
+        Self(sequence)
+    }
+
+    pub fn get(self) -> u64 {
+        self.0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdapterPlan {
+    epoch: PlanEpoch,
     operations: Vec<AdapterOperation>,
 }
 
 impl AdapterPlan {
+    /// Identifies the instant from which every operation's `not_before_ms` is
+    /// measured. Executors must not reinterpret offsets relative to each prior
+    /// publication.
+    pub fn epoch(&self) -> PlanEpoch {
+        self.epoch
+    }
+
+    /// Ordered execution plan: subscriptions, reads, zero-delay commands, then
+    /// delayed command phases. Equal offsets preserve input/action order.
+    /// Before enqueueing any delayed command, executors must verify its
+    /// `dispatch_token` with `Reconciler::is_dispatch_token_valid` and skip it
+    /// if invalidated.
     pub fn operations(&self) -> &[AdapterOperation] {
         &self.operations
     }
@@ -854,6 +957,7 @@ impl AdapterPlan {
 pub struct AdapterError {
     context: String,
     reason: String,
+    permanent: bool,
 }
 
 impl AdapterError {
@@ -861,6 +965,7 @@ impl AdapterError {
         Self {
             context: "configuration".to_owned(),
             reason: reason.into(),
+            permanent: true,
         }
     }
 
@@ -868,7 +973,15 @@ impl AdapterError {
         Self {
             context: context.into(),
             reason: reason.into(),
+            permanent: false,
         }
+    }
+
+    /// Permanent errors are invalid adapter configuration/encoding and must
+    /// cancel the staged token. Transient MQTT enqueue errors occur outside the
+    /// adapter and use the reconciler's bounded dispatch backoff instead.
+    pub fn is_permanent(&self) -> bool {
+        self.permanent
     }
 }
 
@@ -895,7 +1008,7 @@ mod tests {
 
     use super::{
         AdapterOperation, AdapterPlan, DeviceBinding, GroupBinding, InboundEvent, InboundMessage,
-        MiredRange, Publication, Qos, Zigbee2MqttAdapter,
+        MiredRange, PlanEpoch, Publication, Qos, Zigbee2MqttAdapter,
     };
 
     fn device_id(value: &str) -> DeviceId {
@@ -954,6 +1067,10 @@ mod tests {
         token
     }
 
+    fn plan_epoch() -> PlanEpoch {
+        PlanEpoch::new(42)
+    }
+
     fn parse(
         adapter: &Zigbee2MqttAdapter,
         topic: &str,
@@ -990,7 +1107,7 @@ mod tests {
                     device_id("ikea_lamp"),
                     "living/ikea lamp",
                     capabilities(),
-                    MiredRange::new(250, 454).unwrap(),
+                    Some(MiredRange::new(250, 454).unwrap()),
                     single_transition_attribute,
                 )
                 .unwrap(),
@@ -998,7 +1115,7 @@ mod tests {
                     device_id("hue_lamp"),
                     "living/hue lamp",
                     capabilities(),
-                    MiredRange::new(153, 500).unwrap(),
+                    Some(MiredRange::new(153, 500).unwrap()),
                     false,
                 )
                 .unwrap(),
@@ -1021,6 +1138,16 @@ mod tests {
         DeviceTarget {
             on: Some(true),
             brightness: Some(Brightness::new(0.5).unwrap()),
+            color_temperature: Some(Kelvin::new(2700.0).unwrap()),
+            color: None,
+            transition_ms: Some(750),
+        }
+    }
+
+    fn target_for_test(brightness: f64) -> LightTarget {
+        LightTarget {
+            on: true,
+            brightness: Some(Brightness::new(brightness).unwrap()),
             color_temperature: Some(Kelvin::new(2700.0).unwrap()),
             color: None,
             transition_ms: Some(750),
@@ -1069,7 +1196,7 @@ mod tests {
                 device_id("looks_like_availability"),
                 "room/lamp/availability",
                 capabilities(),
-                range,
+                Some(range),
                 false,
             )
             .is_err()
@@ -1077,8 +1204,14 @@ mod tests {
 
         for forbidden in ["1234", "room/1234", "room/left", "room/right", "room/set"] {
             assert!(
-                DeviceBinding::new(device_id("lamp"), forbidden, capabilities(), range, false,)
-                    .is_err(),
+                DeviceBinding::new(
+                    device_id("lamp"),
+                    forbidden,
+                    capabilities(),
+                    Some(range),
+                    false,
+                )
+                .is_err(),
                 "accepted forbidden terminal segment {forbidden:?}"
             );
         }
@@ -1213,11 +1346,14 @@ mod tests {
     #[test]
     fn combined_capable_command_uses_exact_fields_and_is_never_retained() {
         let plan = adapter(false)
-            .apply_actions(&[ReconcileAction::Command {
-                token: dispatch_token(),
-                entity: CommandEntity::Device(device_id("ikea_lamp")),
-                target: command_target(),
-            }])
+            .apply_actions(
+                plan_epoch(),
+                &[ReconcileAction::Command {
+                    token: dispatch_token(),
+                    entity: CommandEntity::Device(device_id("ikea_lamp")),
+                    target: command_target(),
+                }],
+            )
             .unwrap();
         let publications = publications(&plan);
         assert_eq!(publications.len(), 1);
@@ -1238,11 +1374,14 @@ mod tests {
     #[test]
     fn single_attribute_transition_splits_brightness_and_cct_sparsely() {
         let plan = adapter(true)
-            .apply_actions(&[ReconcileAction::Command {
-                token: dispatch_token(),
-                entity: CommandEntity::Device(device_id("ikea_lamp")),
-                target: command_target(),
-            }])
+            .apply_actions(
+                plan_epoch(),
+                &[ReconcileAction::Command {
+                    token: dispatch_token(),
+                    entity: CommandEntity::Device(device_id("ikea_lamp")),
+                    target: command_target(),
+                }],
+            )
             .unwrap();
         let publications = publications(&plan);
         assert_eq!(publications.len(), 2);
@@ -1267,11 +1406,14 @@ mod tests {
             transition_ms: None,
         };
         let plan = adapter(false)
-            .apply_actions(&[ReconcileAction::Command {
-                token: dispatch_token(),
-                entity: CommandEntity::Device(device_id("hue_lamp")),
-                target,
-            }])
+            .apply_actions(
+                plan_epoch(),
+                &[ReconcileAction::Command {
+                    token: dispatch_token(),
+                    entity: CommandEntity::Device(device_id("hue_lamp")),
+                    target,
+                }],
+            )
             .unwrap();
         let publications = publications(&plan);
         assert_eq!(
@@ -1292,11 +1434,14 @@ mod tests {
                 transition_ms: None,
             };
             let plan = adapter
-                .apply_actions(&[ReconcileAction::Command {
-                    token: dispatch_token(),
-                    entity: CommandEntity::Device(device_id("ikea_lamp")),
-                    target,
-                }])
+                .apply_actions(
+                    plan_epoch(),
+                    &[ReconcileAction::Command {
+                        token: dispatch_token(),
+                        entity: CommandEntity::Device(device_id("ikea_lamp")),
+                        target,
+                    }],
+                )
                 .unwrap();
             assert_eq!(object(publications(&plan)[0])["color_temp"], expected);
         }
@@ -1306,10 +1451,13 @@ mod tests {
     fn reconnect_plan_subscribes_and_nonretained_reads_exact_topics() {
         let adapter = adapter(false);
         let plan: AdapterPlan = adapter
-            .apply_actions(&[
-                ReconcileAction::Resubscribe,
-                ReconcileAction::RequestState(device_id("ikea_lamp")),
-            ])
+            .apply_actions(
+                plan_epoch(),
+                &[
+                    ReconcileAction::Resubscribe,
+                    ReconcileAction::RequestState(device_id("ikea_lamp")),
+                ],
+            )
             .unwrap();
         let subscriptions = subscriptions(&plan);
         let publications = publications(&plan);
@@ -1339,25 +1487,28 @@ mod tests {
     #[test]
     fn group_command_uses_configured_group_topic() {
         let plan = adapter(false)
-            .apply_actions(&[ReconcileAction::Command {
-                token: dispatch_token(),
-                entity: CommandEntity::Group(entity_id("living_group")),
-                target: command_target(),
-            }])
+            .apply_actions(
+                plan_epoch(),
+                &[ReconcileAction::Command {
+                    token: dispatch_token(),
+                    entity: CommandEntity::Group(entity_id("living_group")),
+                    target: command_target(),
+                }],
+            )
             .unwrap();
         let publications = publications(&plan);
         assert_eq!(publications[0].topic(), "zigbee2mqtt/living/all lights/set");
     }
 
     #[test]
-    fn retained_and_duplicate_controls_are_ignored_but_retained_state_is_accepted() {
+    fn retained_controls_are_ignored_but_qos0_dup_controls_and_retained_state_are_accepted() {
         let adapter = adapter(false);
         let control = InboundMessage::new(
             "zigbee2mqtt/living/remote",
             br#"{"action":"toggle"}"#,
             true,
             false,
-            Qos::AtLeastOnce,
+            Qos::AtMostOnce,
         );
         assert_eq!(adapter.parse(&control).unwrap(), None);
         let duplicate = InboundMessage::new(
@@ -1365,9 +1516,15 @@ mod tests {
             br#"{"action":"toggle"}"#,
             false,
             true,
-            Qos::AtLeastOnce,
+            Qos::AtMostOnce,
         );
-        assert_eq!(adapter.parse(&duplicate).unwrap(), None);
+        assert_eq!(
+            adapter.parse(&duplicate).unwrap(),
+            Some(InboundEvent::Input {
+                control: control_id("living_remote"),
+                event: RawInputEvent::AmbiguousCenterPrefix,
+            })
+        );
 
         let state = InboundMessage::new(
             "zigbee2mqtt/living/ikea lamp",
@@ -1404,7 +1561,10 @@ mod tests {
             ReconcileAction::RequestState(device_id("ikea_lamp")),
             ReconcileAction::Resubscribe,
         ];
-        let plan = adapter(false).apply_actions(&actions).unwrap();
+        let plan = adapter(false)
+            .apply_actions(plan_epoch(), &actions)
+            .unwrap();
+        assert_eq!(plan.epoch(), plan_epoch());
         let operations = plan.operations();
         let first_publish = operations
             .iter()
@@ -1421,10 +1581,28 @@ mod tests {
             .collect();
         assert!(publications[0].topic().ends_with("/get"));
         assert!(publications[1].topic().ends_with("/set"));
-        assert!(
-            operations
+        let subscriptions: Vec<_> = operations
+            .iter()
+            .filter_map(AdapterOperation::subscription)
+            .collect();
+        assert_eq!(
+            subscriptions
                 .iter()
-                .all(|operation| operation.qos() == Qos::AtLeastOnce)
+                .find(|subscription| subscription.topic() == "zigbee2mqtt/living/remote")
+                .unwrap()
+                .qos(),
+            Qos::AtMostOnce
+        );
+        assert!(
+            subscriptions
+                .iter()
+                .filter(|subscription| { subscription.topic() != "zigbee2mqtt/living/remote" })
+                .all(|subscription| subscription.qos() == Qos::AtLeastOnce)
+        );
+        assert!(
+            publications
+                .iter()
+                .all(|publication| publication.qos() == Qos::AtLeastOnce)
         );
         assert_eq!(publications[1].dispatch_token(), Some(dispatch_token()));
     }
@@ -1432,11 +1610,14 @@ mod tests {
     #[test]
     fn split_transition_delays_second_attribute_until_first_transition_finishes() {
         let plan = adapter(true)
-            .apply_actions(&[ReconcileAction::Command {
-                token: dispatch_token(),
-                entity: CommandEntity::Device(device_id("ikea_lamp")),
-                target: command_target(),
-            }])
+            .apply_actions(
+                plan_epoch(),
+                &[ReconcileAction::Command {
+                    token: dispatch_token(),
+                    entity: CommandEntity::Device(device_id("ikea_lamp")),
+                    target: command_target(),
+                }],
+            )
             .unwrap();
         let publications: Vec<_> = plan
             .operations()
@@ -1445,6 +1626,180 @@ mod tests {
             .collect();
         assert_eq!(publications[0].not_before_ms(), 0);
         assert_eq!(publications[1].not_before_ms(), 750);
+    }
+
+    #[test]
+    fn command_offsets_are_plan_relative_and_globally_phase_sorted_stably() {
+        let adapter = Zigbee2MqttAdapter::new(
+            "zigbee2mqtt",
+            vec![
+                DeviceBinding::new(
+                    device_id("a"),
+                    "a",
+                    capabilities(),
+                    Some(MiredRange::new(153, 500).unwrap()),
+                    true,
+                )
+                .unwrap(),
+                DeviceBinding::new(
+                    device_id("b"),
+                    "b",
+                    capabilities(),
+                    Some(MiredRange::new(153, 500).unwrap()),
+                    true,
+                )
+                .unwrap(),
+            ],
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap();
+        let epoch = PlanEpoch::new(7);
+        let plan = adapter
+            .apply_actions(
+                epoch,
+                &[
+                    ReconcileAction::Command {
+                        token: dispatch_token(),
+                        entity: CommandEntity::Device(device_id("a")),
+                        target: command_target(),
+                    },
+                    ReconcileAction::Command {
+                        token: dispatch_token(),
+                        entity: CommandEntity::Device(device_id("b")),
+                        target: command_target(),
+                    },
+                ],
+            )
+            .unwrap();
+        assert_eq!(plan.epoch(), epoch);
+        let publications = publications(&plan);
+        assert_eq!(
+            publications
+                .iter()
+                .map(|publication| (publication.topic(), publication.not_before_ms()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("zigbee2mqtt/a/set", 0),
+                ("zigbee2mqtt/b/set", 0),
+                ("zigbee2mqtt/a/set", 750),
+                ("zigbee2mqtt/b/set", 750),
+            ]
+        );
+    }
+
+    #[test]
+    fn delayed_publications_expose_tokens_that_new_desired_state_invalidates() {
+        let lamp = device_id("lamp");
+        let mut reconciler = Reconciler::new(
+            vec![DeviceDefinition::new(lamp.clone(), capabilities())],
+            Vec::new(),
+            RetryPolicy::new(2.0, 3).unwrap(),
+        )
+        .unwrap();
+        reconciler
+            .broker_connected(MonotonicTime::from_seconds(0.0).unwrap())
+            .unwrap();
+        let adapter = Zigbee2MqttAdapter::new(
+            "zigbee2mqtt",
+            vec![
+                DeviceBinding::new(
+                    lamp.clone(),
+                    "lamp",
+                    capabilities(),
+                    Some(MiredRange::new(153, 500).unwrap()),
+                    true,
+                )
+                .unwrap(),
+            ],
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap();
+
+        let old_actions = reconciler
+            .set_device_desired(
+                &lamp,
+                target_for_test(0.5),
+                MonotonicTime::from_seconds(1.0).unwrap(),
+            )
+            .unwrap();
+        let ReconcileAction::Command { token: old, .. } = old_actions[0] else {
+            unreachable!()
+        };
+        let old_plan = adapter
+            .apply_actions(PlanEpoch::new(1), &old_actions)
+            .unwrap();
+        assert!(
+            publications(&old_plan)
+                .iter()
+                .all(|publication| publication.dispatch_token() == Some(old))
+        );
+
+        let new_actions = reconciler
+            .set_device_desired(
+                &lamp,
+                target_for_test(0.8),
+                MonotonicTime::from_seconds(1.1).unwrap(),
+            )
+            .unwrap();
+        let ReconcileAction::Command { token: new, .. } = new_actions[0] else {
+            unreachable!()
+        };
+        let new_plan = adapter
+            .apply_actions(PlanEpoch::new(2), &new_actions)
+            .unwrap();
+        assert!(!reconciler.is_dispatch_token_valid(old));
+        assert!(reconciler.is_dispatch_token_valid(new));
+        assert!(
+            publications(&new_plan)
+                .iter()
+                .all(|publication| publication.dispatch_token() == Some(new))
+        );
+    }
+
+    #[test]
+    fn mired_range_is_required_exactly_for_cct_capability_and_commands() {
+        let no_cct = Capabilities {
+            color_temperature: None,
+            ..capabilities()
+        };
+        assert!(
+            DeviceBinding::new(
+                device_id("rgb"),
+                "rgb",
+                no_cct,
+                Some(MiredRange::new(153, 500).unwrap()),
+                false,
+            )
+            .is_err()
+        );
+        assert!(DeviceBinding::new(device_id("cct"), "cct", capabilities(), None, false,).is_err());
+
+        let adapter = Zigbee2MqttAdapter::new(
+            "zigbee2mqtt",
+            vec![DeviceBinding::new(device_id("rgb"), "rgb", no_cct, None, false).unwrap()],
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap();
+        let error = adapter
+            .apply_actions(
+                plan_epoch(),
+                &[ReconcileAction::Command {
+                    token: dispatch_token(),
+                    entity: CommandEntity::Device(device_id("rgb")),
+                    target: DeviceTarget {
+                        on: None,
+                        brightness: None,
+                        color_temperature: Some(Kelvin::new(2700.0).unwrap()),
+                        color: None,
+                        transition_ms: None,
+                    },
+                }],
+            )
+            .unwrap_err();
+        assert!(error.is_permanent());
     }
 
     #[test]
@@ -1478,14 +1833,16 @@ mod tests {
         let adapter =
             Zigbee2MqttAdapter::new("zigbee2mqtt", Vec::new(), Vec::new(), Vec::new()).unwrap();
 
-        assert!(adapter.apply_actions(&actions).is_err());
-        let retry = reconciler
-            .dispatch_failed(token, MonotonicTime::from_seconds(1.1).unwrap())
+        let error = adapter.apply_actions(plan_epoch(), &actions).unwrap_err();
+        assert!(error.is_permanent());
+        reconciler
+            .cancel_dispatch(token, MonotonicTime::from_seconds(1.1).unwrap())
             .unwrap();
-        assert_eq!(retry.len(), 1);
-        assert_ne!(
-            retry[0], actions[0],
-            "restaged command must carry a fresh token"
+        assert!(
+            reconciler
+                .retry_due(MonotonicTime::from_seconds(100.0).unwrap())
+                .unwrap()
+                .is_empty()
         );
         assert!(
             reconciler
@@ -1516,32 +1873,21 @@ mod tests {
         let adapter = Zigbee2MqttAdapter::new(
             "zigbee2mqtt",
             vec![
-                DeviceBinding::new(
-                    device_id("switch"),
-                    "switch",
-                    on_only,
-                    MiredRange::new(153, 500).unwrap(),
-                    false,
-                )
-                .unwrap(),
-                DeviceBinding::new(
-                    device_id("rgb"),
-                    "rgb",
-                    rgb,
-                    MiredRange::new(153, 500).unwrap(),
-                    false,
-                )
-                .unwrap(),
+                DeviceBinding::new(device_id("switch"), "switch", on_only, None, false).unwrap(),
+                DeviceBinding::new(device_id("rgb"), "rgb", rgb, None, false).unwrap(),
             ],
             Vec::new(),
             Vec::new(),
         )
         .unwrap();
         let plan = adapter
-            .apply_actions(&[
-                ReconcileAction::RequestState(device_id("switch")),
-                ReconcileAction::RequestState(device_id("rgb")),
-            ])
+            .apply_actions(
+                plan_epoch(),
+                &[
+                    ReconcileAction::RequestState(device_id("switch")),
+                    ReconcileAction::RequestState(device_id("rgb")),
+                ],
+            )
             .unwrap();
         let publications: Vec<_> = plan
             .operations()
@@ -1575,7 +1921,7 @@ mod tests {
                     device_id("lamp"),
                     name,
                     capabilities,
-                    MiredRange::new(153, 500).unwrap(),
+                    Some(MiredRange::new(153, 500).unwrap()),
                     false,
                 )
                 .is_err()
@@ -1590,7 +1936,7 @@ mod tests {
                 device_id("lamp"),
                 "x".repeat(257),
                 capabilities,
-                MiredRange::new(153, 500).unwrap(),
+                Some(MiredRange::new(153, 500).unwrap()),
                 false,
             )
             .is_err()
