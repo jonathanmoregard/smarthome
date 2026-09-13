@@ -100,7 +100,8 @@ id = "living-room-zigbee"
 friendly_name = "demo/living-room/lights"
 members = ["reading-light", "color-light"]
 single_transition_attribute = true
-capabilities = { on_off = true, dimming = true, color_temperature = { minimum_kelvin = 2200, maximum_kelvin = 4000, minimum_mired = 250, maximum_mired = 454 } }
+# Omitted group mired bounds keep CCT on per-device fallback while group power/brightness stay usable.
+capabilities = { on_off = true, dimming = true, color_temperature = { minimum_kelvin = 2200, maximum_kelvin = 4000 } }
 
 [[controls]]
 id = "living-room-remote"

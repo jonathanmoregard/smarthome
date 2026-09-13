@@ -1,8 +1,17 @@
 use house_automation_core::{
     input::{Action, Gesture},
-    state::Scope,
+    reconcile::{DeviceId, ReconcileAction, Reconciler},
+    state::{MonotonicTime, Scope},
+    value::{Kelvin, LightTarget},
 };
-use house_automationd::config::ValidatedConfig;
+use house_automationd::config::{
+    GroupId, MAX_ACKNOWLEDGEMENT_DURATION_MS, MAX_AMBIGUOUS_HOLD_WINDOW_MS,
+    MAX_DISPATCH_ACCEPTANCE_MARGIN_SECONDS, MAX_DISPATCH_FAILURE_BACKOFF_SECONDS,
+    MAX_DOUBLE_CLICK_WINDOW_MS, MAX_RECONCILE_RETRY_INTERVAL_SECONDS, MAX_SPARSE_REFRESH_SECONDS,
+    MAX_SPARSE_TICK_SECONDS, MAX_UNFREEZE_CONVERGENCE_SECONDS, MAX_WHOLE_HOUR_DURATION_MS,
+    ValidatedConfig,
+};
+use house_automationd::zigbee2mqtt::{InboundEvent, InboundMessage, PlanEpoch, Qos};
 
 const EXAMPLE: &str = include_str!("../../examples/house.toml");
 
@@ -94,6 +103,16 @@ fn credential_source_accepts_only_safe_runtime_file_and_environment_names() {
         ),
         replace(
             EXAMPLE,
+            "environment_file = \"/run/credentials/house-automationd.service/mqtt.env\"",
+            "environment_file = \"/run/../nix/store/plaintext-mqtt.env\"",
+        ),
+        replace(
+            EXAMPLE,
+            "environment_file = \"/run/credentials/house-automationd.service/mqtt.env\"",
+            "environment_file = \"/run/./credentials/mqtt.env\"",
+        ),
+        replace(
+            EXAMPLE,
             "username_variable = \"MQTT_USERNAME\"",
             "username_variable = \"bad-name\"",
         ),
@@ -107,6 +126,25 @@ fn credential_source_accepts_only_safe_runtime_file_and_environment_names() {
     for source in cases {
         assert!(ValidatedConfig::parse(&source).is_err());
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn existing_credential_symlink_into_nix_store_is_rejected_without_path_leak() {
+    use std::os::unix::fs::symlink;
+
+    let directory = tempfile::tempdir().unwrap();
+    let link = directory.path().join("credential-link");
+    symlink("/nix/store", &link).unwrap();
+    let source = replace(
+        EXAMPLE,
+        "/run/credentials/house-automationd.service/mqtt.env",
+        link.to_str().unwrap(),
+    );
+    let error = reject(&source);
+
+    assert!(error.contains("Nix store"));
+    assert!(!error.contains(link.to_str().unwrap()));
 }
 
 #[test]
@@ -166,6 +204,32 @@ fn e1810_mapping_is_declarative_and_acknowledges_circadian_toggle() {
             .iter()
             .any(|scope| matches!(scope.scope, Scope::House))
     );
+}
+
+#[test]
+fn typed_runtime_topology_preserves_primary_ids_group_ids_and_members() {
+    let parts = ValidatedConfig::parse(EXAMPLE)
+        .unwrap()
+        .into_runtime_parts();
+
+    assert_eq!(parts.devices[0].id, DeviceId::new("reading-light").unwrap());
+    assert_eq!(
+        parts.devices[0].aliases,
+        [DeviceId::new("ikea-led2111g6-example").unwrap()]
+    );
+    assert_ne!(parts.devices[0].id, parts.devices[0].aliases[0]);
+    assert_eq!(
+        parts.groups[0].id,
+        GroupId::new("living-room-zigbee").unwrap()
+    );
+    assert_eq!(
+        parts.groups[0].members,
+        [
+            DeviceId::new("reading-light").unwrap(),
+            DeviceId::new("color-light").unwrap(),
+        ]
+    );
+    assert_eq!(parts.groups[0].mired_range, None);
 }
 
 #[test]
@@ -229,7 +293,14 @@ fn mqtt_namespaces_reject_wildcards_reserved_components_and_overlap() {
 
 #[test]
 fn application_namespace_requires_nonzero_terminal_version() {
-    for namespace in ["house", "house/v0", "house/version1", "house/v1/events"] {
+    for namespace in [
+        "house",
+        "house/v0",
+        "house/v00",
+        "house/v01",
+        "house/version1",
+        "house/v1/events",
+    ] {
         let source = replace(
             EXAMPLE,
             "application_namespace = \"house/v1\"",
@@ -237,6 +308,22 @@ fn application_namespace_requires_nonzero_terminal_version() {
         );
         assert!(reject(&source).contains("version"));
     }
+
+    for namespace in ["house/v1", "house/v10"] {
+        let source = replace(
+            EXAMPLE,
+            "application_namespace = \"house/v1\"",
+            &format!("application_namespace = \"{namespace}\""),
+        );
+        ValidatedConfig::parse(&source).expect("canonical nonzero version must validate");
+    }
+}
+
+#[test]
+fn selected_is_reserved_from_configured_scope_ids() {
+    let source = EXAMPLE.replace("living-room-lights", "selected");
+
+    assert!(reject(&source).contains("reserved"));
 }
 
 #[test]
@@ -351,47 +438,166 @@ fn invalid_capabilities_ranges_and_gamut_are_rejected() {
 }
 
 #[test]
-fn group_capabilities_cannot_exceed_members_and_cct_needs_bounds() {
+fn group_capabilities_cannot_exceed_members_and_optional_mired_is_all_or_nothing() {
+    let explicit_mired = replace(
+        EXAMPLE,
+        "minimum_kelvin = 2200, maximum_kelvin = 4000 } }\n\n[[controls]]",
+        "minimum_kelvin = 2200, maximum_kelvin = 4000, minimum_mired = 250, maximum_mired = 454 } }\n\n[[controls]]",
+    );
+    ValidatedConfig::parse(&explicit_mired).expect("consistent group mired bounds may be declared");
+
     let exceeds_member = replace(
         EXAMPLE,
-        "capabilities = { on_off = true, dimming = true, color_temperature = { minimum_kelvin = 2200, maximum_kelvin = 4000, minimum_mired = 250, maximum_mired = 454 } }\n\n[[controls]]",
+        "capabilities = { on_off = true, dimming = true, color_temperature = { minimum_kelvin = 2200, maximum_kelvin = 4000 } }\n\n[[controls]]",
         "capabilities = { on_off = true, dimming = true, color_xy = true }\n\n[[controls]]",
     );
     let exceeds_member = replace(
         &exceeds_member,
-        "single_transition_attribute = true\ncapabilities = { on_off = true, dimming = true, color_xy = true }",
-        "single_transition_attribute = false\ncapabilities = { on_off = true, dimming = true, color_xy = true }",
+        "members = [\"reading-light\", \"color-light\"]\nsingle_transition_attribute = true",
+        "members = [\"reading-light\", \"color-light\"]\nsingle_transition_attribute = false",
     );
     assert!(reject(&exceeds_member).contains("every member"));
 
     let no_cct = replace(
         EXAMPLE,
-        "capabilities = { on_off = true, dimming = true, color_temperature = { minimum_kelvin = 2200, maximum_kelvin = 4000, minimum_mired = 250, maximum_mired = 454 } }\n\n[[controls]]",
+        "capabilities = { on_off = true, dimming = true, color_temperature = { minimum_kelvin = 2200, maximum_kelvin = 4000 } }\n\n[[controls]]",
         "capabilities = { on_off = true, dimming = true }\n\n[[controls]]",
     );
     let no_cct = replace(
         &no_cct,
-        "single_transition_attribute = true\ncapabilities = { on_off = true, dimming = true }",
-        "single_transition_attribute = false\ncapabilities = { on_off = true, dimming = true }",
+        "members = [\"reading-light\", \"color-light\"]\nsingle_transition_attribute = true",
+        "members = [\"reading-light\", \"color-light\"]\nsingle_transition_attribute = false",
     );
     ValidatedConfig::parse(&no_cct).expect("non-CCT group needs no mired bounds");
 
-    let missing_mired = replace(
+    let one_mired_endpoint = replace(
         EXAMPLE,
-        "minimum_mired = 250, maximum_mired = 454 } }\n\n[[controls]]",
-        "maximum_mired = 454 } }\n\n[[controls]]",
+        "minimum_kelvin = 2200, maximum_kelvin = 4000 } }\n\n[[controls]]",
+        "minimum_kelvin = 2200, maximum_kelvin = 4000, minimum_mired = 250 } }\n\n[[controls]]",
     );
-    assert!(reject(&missing_mired).contains("schema"));
+    assert!(reject(&one_mired_endpoint).contains("both be present"));
 
     let wider_than_members = replace(
         EXAMPLE,
-        "minimum_kelvin = 2200, maximum_kelvin = 4000, minimum_mired = 250, maximum_mired = 454 } }\n\n[[controls]]",
-        "minimum_kelvin = 1500, maximum_kelvin = 8000, minimum_mired = 100, maximum_mired = 600 } }\n\n[[controls]]",
+        "minimum_kelvin = 2200, maximum_kelvin = 4000 } }\n\n[[controls]]",
+        "minimum_kelvin = 1500, maximum_kelvin = 8000 } }\n\n[[controls]]",
     );
     assert!(
         reject(&wider_than_members).contains("every member"),
         "group command range must fit every member"
     );
+
+    let wider_mired_than_member = replace(
+        EXAMPLE,
+        "minimum_kelvin = 2200, maximum_kelvin = 4000 } }\n\n[[controls]]",
+        "minimum_kelvin = 2200, maximum_kelvin = 4000, minimum_mired = 200, maximum_mired = 454 } }\n\n[[controls]]",
+    );
+    assert!(reject(&wider_mired_than_member).contains("every member"));
+
+    let malformed_mired = replace(
+        EXAMPLE,
+        "minimum_kelvin = 2200, maximum_kelvin = 4000 } }\n\n[[controls]]",
+        "minimum_kelvin = 2200, maximum_kelvin = 4000, minimum_mired = 0, maximum_mired = 454 } }\n\n[[controls]]",
+    );
+    assert!(reject(&malformed_mired).contains("mired range"));
+
+    let device_without_mired = replace(
+        EXAMPLE,
+        "minimum_kelvin = 2200, maximum_kelvin = 4000, minimum_mired = 250, maximum_mired = 454",
+        "minimum_kelvin = 2200, maximum_kelvin = 4000",
+    );
+    assert!(reject(&device_without_mired).contains("device CCT"));
+}
+
+#[test]
+fn cct_kelvin_and_mired_endpoints_must_round_trip_within_reconcile_tolerance() {
+    let contradictory_device = replace(
+        EXAMPLE,
+        "minimum_kelvin = 2200, maximum_kelvin = 6500, minimum_mired = 153, maximum_mired = 454",
+        "minimum_kelvin = 2200, maximum_kelvin = 6500, minimum_mired = 250, maximum_mired = 454",
+    );
+    assert!(reject(&contradictory_device).contains("round-trip"));
+
+    let contradictory_group = replace(
+        EXAMPLE,
+        "minimum_kelvin = 2200, maximum_kelvin = 4000 } }\n\n[[controls]]",
+        "minimum_kelvin = 2200, maximum_kelvin = 4000, minimum_mired = 300, maximum_mired = 454 } }\n\n[[controls]]",
+    );
+    assert!(reject(&contradictory_group).contains("round-trip"));
+
+    ValidatedConfig::parse(EXAMPLE)
+        .expect("2200 K and 454 mired realistic endpoint quantization stays within 1%");
+}
+
+#[test]
+fn validated_device_cct_endpoints_round_trip_through_real_adapter_contract() {
+    for endpoint in [2200.0, 4000.0] {
+        let parts = ValidatedConfig::parse(EXAMPLE)
+            .unwrap()
+            .into_runtime_parts();
+        let definitions = parts
+            .devices
+            .iter()
+            .map(|device| device.definition.clone())
+            .collect();
+        let groups = parts
+            .groups
+            .iter()
+            .map(|group| group.definition.clone())
+            .collect();
+        let mut reconciler = Reconciler::new(definitions, groups, parts.retry_policy).unwrap();
+        let at = |seconds| MonotonicTime::from_seconds(seconds).unwrap();
+        reconciler.broker_connected(at(0.0)).unwrap();
+        let actions = reconciler
+            .set_device_desired(
+                &DeviceId::new("reading-light").unwrap(),
+                LightTarget {
+                    on: true,
+                    brightness: None,
+                    color_temperature: Some(Kelvin::new(endpoint).unwrap()),
+                    color: None,
+                    transition_ms: None,
+                },
+                at(1.0),
+            )
+            .unwrap();
+        assert!(matches!(
+            actions.as_slice(),
+            [ReconcileAction::Command { .. }]
+        ));
+        let plan = parts
+            .zigbee2mqtt
+            .apply_actions(PlanEpoch::new(at(1.0)), &actions)
+            .unwrap();
+        let publication = plan
+            .operations()
+            .iter()
+            .find_map(|operation| operation.publication())
+            .unwrap();
+        let command: serde_json::Value = serde_json::from_slice(publication.payload()).unwrap();
+        let mired = command["color_temp"].as_u64().unwrap();
+        let state_topic = publication.topic().strip_suffix("/set").unwrap();
+        let observed_payload = serde_json::to_vec(
+            &serde_json::json!({"color_temp": mired, "color_mode": "color_temp"}),
+        )
+        .unwrap();
+        let event = parts
+            .zigbee2mqtt
+            .parse(&InboundMessage::new(
+                state_topic,
+                &observed_payload,
+                false,
+                false,
+                Qos::AtLeastOnce,
+            ))
+            .unwrap()
+            .unwrap();
+        let InboundEvent::DeviceState { state, .. } = event else {
+            panic!("state topic must produce device state")
+        };
+        let observed = state.color_temperature.unwrap().get();
+        assert!((endpoint - observed).abs() <= endpoint * 0.01);
+    }
 }
 
 #[test]
@@ -473,6 +679,166 @@ fn timing_windows_thresholds_and_durations_are_validated() {
         ),
     ];
     for source in cases {
+        assert!(ValidatedConfig::parse(&source).is_err());
+    }
+}
+
+#[test]
+fn every_operational_duration_accepts_ceiling_and_rejects_just_over() {
+    let mut ceiling = EXAMPLE.to_owned();
+    for (old, new) in [
+        (
+            "double_click_window_ms = 350".to_owned(),
+            format!("double_click_window_ms = {MAX_DOUBLE_CLICK_WINDOW_MS}"),
+        ),
+        (
+            "ambiguous_center_hold_window_ms = 1200".to_owned(),
+            format!("ambiguous_center_hold_window_ms = {MAX_AMBIGUOUS_HOLD_WINDOW_MS}"),
+        ),
+        (
+            "unfreeze_convergence_seconds = 30".to_owned(),
+            format!("unfreeze_convergence_seconds = {MAX_UNFREEZE_CONVERGENCE_SECONDS}"),
+        ),
+        (
+            "tick_seconds = 30".to_owned(),
+            format!("tick_seconds = {MAX_SPARSE_TICK_SECONDS}"),
+        ),
+        (
+            "maximum_refresh_seconds = 300".to_owned(),
+            format!("maximum_refresh_seconds = {MAX_SPARSE_REFRESH_SECONDS}"),
+        ),
+        (
+            "duration_ms = 180\npriority = 100".to_owned(),
+            format!("duration_ms = {MAX_ACKNOWLEDGEMENT_DURATION_MS}\npriority = 100"),
+        ),
+        (
+            "duration_ms = 500\npriority = 10".to_owned(),
+            format!("duration_ms = {MAX_WHOLE_HOUR_DURATION_MS}\npriority = 10"),
+        ),
+        (
+            "retry_interval_seconds = 5".to_owned(),
+            format!("retry_interval_seconds = {MAX_RECONCILE_RETRY_INTERVAL_SECONDS}"),
+        ),
+        (
+            "dispatch_acceptance_margin_seconds = 5".to_owned(),
+            format!(
+                "dispatch_acceptance_margin_seconds = {MAX_DISPATCH_ACCEPTANCE_MARGIN_SECONDS}"
+            ),
+        ),
+        (
+            "dispatch_failure_backoff_seconds = 0.5".to_owned(),
+            format!("dispatch_failure_backoff_seconds = {MAX_DISPATCH_FAILURE_BACKOFF_SECONDS}"),
+        ),
+    ] {
+        ceiling = replace(&ceiling, &old, &new);
+    }
+    let parts = ValidatedConfig::parse(&ceiling)
+        .expect("every exact ceiling must validate")
+        .into_runtime_parts();
+    for seconds in [
+        parts.input.double_click_window.seconds(),
+        parts.input.ambiguous_hold_window.seconds(),
+        parts.circadian.convergence_duration_seconds,
+        parts.circadian.tick_seconds,
+        parts.circadian.maximum_refresh_seconds,
+        parts.reconciliation_timing.retry_interval_seconds,
+        parts
+            .reconciliation_timing
+            .dispatch_acceptance_margin_seconds,
+        parts.reconciliation_timing.dispatch_failure_backoff_seconds,
+    ] {
+        std::time::Duration::try_from_secs_f64(seconds)
+            .expect("bounded validated duration converts without panic");
+    }
+    let _ = std::time::Duration::from_millis(parts.acknowledgement_duration_ms);
+    let _ = std::time::Duration::from_millis(parts.whole_hour.duration_ms);
+
+    let just_over = [
+        (
+            "double_click_window_ms = 350",
+            format!(
+                "double_click_window_ms = {}",
+                MAX_DOUBLE_CLICK_WINDOW_MS + 1
+            ),
+        ),
+        (
+            "ambiguous_center_hold_window_ms = 1200",
+            format!(
+                "ambiguous_center_hold_window_ms = {}",
+                MAX_AMBIGUOUS_HOLD_WINDOW_MS + 1
+            ),
+        ),
+        (
+            "unfreeze_convergence_seconds = 30",
+            format!(
+                "unfreeze_convergence_seconds = {}",
+                MAX_UNFREEZE_CONVERGENCE_SECONDS + 1.0
+            ),
+        ),
+        (
+            "tick_seconds = 30",
+            format!("tick_seconds = {}", MAX_SPARSE_TICK_SECONDS + 1.0),
+        ),
+        (
+            "maximum_refresh_seconds = 300",
+            format!(
+                "maximum_refresh_seconds = {}",
+                MAX_SPARSE_REFRESH_SECONDS + 1.0
+            ),
+        ),
+        (
+            "duration_ms = 180\npriority = 100",
+            format!(
+                "duration_ms = {}\npriority = 100",
+                MAX_ACKNOWLEDGEMENT_DURATION_MS + 1
+            ),
+        ),
+        (
+            "duration_ms = 500\npriority = 10",
+            format!(
+                "duration_ms = {}\npriority = 10",
+                MAX_WHOLE_HOUR_DURATION_MS + 1
+            ),
+        ),
+        (
+            "retry_interval_seconds = 5",
+            format!(
+                "retry_interval_seconds = {}",
+                MAX_RECONCILE_RETRY_INTERVAL_SECONDS + 1.0
+            ),
+        ),
+        (
+            "dispatch_acceptance_margin_seconds = 5",
+            format!(
+                "dispatch_acceptance_margin_seconds = {}",
+                MAX_DISPATCH_ACCEPTANCE_MARGIN_SECONDS + 1.0
+            ),
+        ),
+        (
+            "dispatch_failure_backoff_seconds = 0.5",
+            format!(
+                "dispatch_failure_backoff_seconds = {}",
+                MAX_DISPATCH_FAILURE_BACKOFF_SECONDS + 1.0
+            ),
+        ),
+    ];
+    for (old, new) in just_over {
+        assert!(ValidatedConfig::parse(&replace(EXAMPLE, old, &new)).is_err());
+    }
+}
+
+#[test]
+fn huge_finite_float_durations_are_rejected() {
+    for field in [
+        "unfreeze_convergence_seconds = 30",
+        "tick_seconds = 30",
+        "maximum_refresh_seconds = 300",
+        "retry_interval_seconds = 5",
+        "dispatch_acceptance_margin_seconds = 5",
+        "dispatch_failure_backoff_seconds = 0.5",
+    ] {
+        let name = field.split(" = ").next().unwrap();
+        let source = replace(EXAMPLE, field, &format!("{name} = 1e308"));
         assert!(ValidatedConfig::parse(&source).is_err());
     }
 }

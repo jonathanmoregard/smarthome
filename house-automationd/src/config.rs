@@ -6,7 +6,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     error::Error,
-    fmt,
+    fmt, fs,
     net::SocketAddr,
     path::PathBuf,
 };
@@ -33,6 +33,19 @@ use crate::zigbee2mqtt::{
 
 const MAX_CONFIG_BYTES: usize = 1024 * 1024;
 const MAX_TOPIC_LENGTH: usize = 256;
+
+/// Upper bounds keep every accepted timer practical and losslessly convertible
+/// to `std::time::Duration`/Tokio timers for one always-on house process.
+pub const MAX_DOUBLE_CLICK_WINDOW_MS: u64 = 2_000;
+pub const MAX_AMBIGUOUS_HOLD_WINDOW_MS: u64 = 10_000;
+pub const MAX_UNFREEZE_CONVERGENCE_SECONDS: f64 = 3_600.0;
+pub const MAX_SPARSE_TICK_SECONDS: f64 = 3_600.0;
+pub const MAX_SPARSE_REFRESH_SECONDS: f64 = 86_400.0;
+pub const MAX_ACKNOWLEDGEMENT_DURATION_MS: u64 = 5_000;
+pub const MAX_WHOLE_HOUR_DURATION_MS: u64 = 60_000;
+pub const MAX_RECONCILE_RETRY_INTERVAL_SECONDS: f64 = 3_600.0;
+pub const MAX_DISPATCH_ACCEPTANCE_MARGIN_SECONDS: f64 = 300.0;
+pub const MAX_DISPATCH_FAILURE_BACKOFF_SECONDS: f64 = 300.0;
 
 /// Fully validated runtime configuration.
 pub struct ValidatedConfig {
@@ -116,8 +129,10 @@ pub struct RuntimeConfigParts {
     pub input: InputSettings,
     pub circadian: CircadianSettings,
     pub acknowledgement: AcknowledgementSettings,
+    pub acknowledgement_duration_ms: u64,
     pub whole_hour: WholeHourSettings,
     pub retry_policy: RetryPolicy,
+    pub reconciliation_timing: ReconciliationTiming,
     pub health: HealthSettings,
     pub curves: BTreeMap<ScopeId, CircadianCurve>,
     pub scopes: Vec<ScopeConfiguration>,
@@ -190,6 +205,13 @@ pub struct WholeHourSettings {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub struct ReconciliationTiming {
+    pub retry_interval_seconds: f64,
+    pub dispatch_acceptance_margin_seconds: f64,
+    pub dispatch_failure_backoff_seconds: f64,
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct HealthSettings {
     pub bind: SocketAddr,
 }
@@ -201,6 +223,7 @@ pub struct ScopeConfiguration {
 }
 
 pub struct DeviceConfiguration {
+    pub id: DeviceId,
     pub definition: DeviceDefinition,
     pub binding: DeviceBinding,
     pub membership: ScopeMembership,
@@ -208,7 +231,12 @@ pub struct DeviceConfiguration {
     is_controllable_light: bool,
 }
 
+pub type GroupId = EntityId;
+
 pub struct GroupConfiguration {
+    pub id: GroupId,
+    pub members: Vec<DeviceId>,
+    pub mired_range: Option<MiredRange>,
     pub definition: GroupDefinition,
     pub binding: GroupBinding,
 }
@@ -309,7 +337,7 @@ struct RawMqtt {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawCredentials {
-    environment_file: PathBuf,
+    environment_file: String,
     username_variable: String,
     password_variable: String,
 }
@@ -508,8 +536,8 @@ struct RawCapabilities {
 struct RawColorTemperature {
     minimum_kelvin: f64,
     maximum_kelvin: f64,
-    minimum_mired: u16,
-    maximum_mired: u16,
+    minimum_mired: Option<u16>,
+    maximum_mired: Option<u16>,
 }
 
 #[derive(Deserialize)]
@@ -597,8 +625,10 @@ impl RawConfig {
         let mqtt = self.mqtt.validate()?;
         let input = self.input.validate()?;
         let circadian = self.circadian.validate()?;
+        let acknowledgement_duration_ms = self.acknowledgement.duration_ms;
         let acknowledgement = self.acknowledgement.validate()?;
         let whole_hour = self.whole_hour.validate()?;
+        let reconciliation_timing = self.reconciliation.timing();
         let retry_policy = self.reconciliation.validate()?;
         let health = self.health.validate()?;
         let floors = validate_floors(self.floors)?;
@@ -628,8 +658,10 @@ impl RawConfig {
             input,
             circadian,
             acknowledgement,
+            acknowledgement_duration_ms,
             whole_hour,
             retry_policy,
+            reconciliation_timing,
             health,
             curves,
             scopes,
@@ -689,17 +721,23 @@ impl RawMqtt {
 
 impl RawCredentials {
     fn validate(self) -> Result<MqttCredentialSource, ConfigError> {
-        if !self.environment_file.is_absolute()
-            || self.environment_file.starts_with("/nix/store")
-            || self.environment_file.as_os_str().is_empty()
-            || self
-                .environment_file
-                .to_str()
-                .is_none_or(|path| path.chars().any(char::is_control))
+        let has_lexical_alias = self
+            .environment_file
+            .split('/')
+            .any(|component| matches!(component, "." | ".."));
+        let environment_file = PathBuf::from(&self.environment_file);
+        let canonicalized_into_store = fs::canonicalize(&environment_file)
+            .is_ok_and(|canonical| canonical.starts_with("/nix/store"));
+        if !environment_file.is_absolute()
+            || environment_file.starts_with("/nix/store")
+            || self.environment_file.is_empty()
+            || self.environment_file.chars().any(char::is_control)
+            || has_lexical_alias
+            || canonicalized_into_store
         {
             return Err(ConfigError::validation(
                 "mqtt.credentials.environment_file",
-                "must be an absolute runtime path outside the Nix store",
+                "must be an absolute, normalized runtime path outside the Nix store",
             ));
         }
         if !valid_environment_name(&self.username_variable)
@@ -712,7 +750,7 @@ impl RawCredentials {
             ));
         }
         Ok(MqttCredentialSource {
-            environment_file: self.environment_file,
+            environment_file,
             username_variable: self.username_variable,
             password_variable: self.password_variable,
         })
@@ -721,6 +759,18 @@ impl RawCredentials {
 
 impl RawInput {
     fn validate(self) -> Result<InputSettings, ConfigError> {
+        if self.double_click_window_ms > MAX_DOUBLE_CLICK_WINDOW_MS {
+            return Err(ConfigError::validation(
+                "input.double_click_window_ms",
+                "exceeds the 2000 ms ceiling",
+            ));
+        }
+        if self.ambiguous_center_hold_window_ms > MAX_AMBIGUOUS_HOLD_WINDOW_MS {
+            return Err(ConfigError::validation(
+                "input.ambiguous_center_hold_window_ms",
+                "exceeds the 10000 ms ceiling",
+            ));
+        }
         let double_click_window = seconds_from_ms(self.double_click_window_ms)
             .and_then(|seconds| ClickWindow::from_seconds(seconds).map_err(|_| ()))
             .map_err(|_| {
@@ -749,6 +799,12 @@ impl RawCircadian {
         let daily_reset_time = parse_time_of_day(&self.daily_reset_time).map_err(|_| {
             ConfigError::validation("circadian.daily_reset_time", "must be HH:MM or HH:MM:SS")
         })?;
+        if self.unfreeze_convergence_seconds > MAX_UNFREEZE_CONVERGENCE_SECONDS {
+            return Err(ConfigError::validation(
+                "circadian.unfreeze_convergence_seconds",
+                "exceeds the one-hour ceiling",
+            ));
+        }
         let convergence_duration =
             ConvergenceDuration::from_seconds(self.unfreeze_convergence_seconds).map_err(|_| {
                 ConfigError::validation(
@@ -757,15 +813,17 @@ impl RawCircadian {
                 )
             })?;
         if !positive_finite(self.tick_seconds)
+            || self.tick_seconds > MAX_SPARSE_TICK_SECONDS
             || !positive_finite(self.brightness_change_threshold)
             || self.brightness_change_threshold > 1.0
             || !positive_finite(self.color_temperature_change_threshold_kelvin)
             || !positive_finite(self.maximum_refresh_seconds)
+            || self.maximum_refresh_seconds > MAX_SPARSE_REFRESH_SECONDS
             || self.maximum_refresh_seconds < self.tick_seconds
         {
             return Err(ConfigError::validation(
                 "circadian sparse update settings",
-                "thresholds and intervals must be positive; maximum refresh must be at least one tick",
+                "thresholds and intervals must be positive and within documented ceilings; maximum refresh must be at least one tick",
             ));
         }
         Ok(CircadianSettings {
@@ -786,6 +844,12 @@ impl RawAcknowledgement {
         let id = OverlayId::new(self.overlay_id).map_err(|_| {
             ConfigError::validation("acknowledgement.overlay_id", "invalid identifier")
         })?;
+        if self.duration_ms > MAX_ACKNOWLEDGEMENT_DURATION_MS {
+            return Err(ConfigError::validation(
+                "acknowledgement.duration_ms",
+                "exceeds the 5000 ms ceiling",
+            ));
+        }
         let duration = seconds_from_ms(self.duration_ms).map_err(|_| {
             ConfigError::validation("acknowledgement.duration_ms", "must be positive")
         })?;
@@ -800,6 +864,12 @@ impl RawAcknowledgement {
 
 impl RawWholeHour {
     fn validate(self) -> Result<WholeHourSettings, ConfigError> {
+        if self.duration_ms > MAX_WHOLE_HOUR_DURATION_MS {
+            return Err(ConfigError::validation(
+                "whole_hour.duration_ms",
+                "exceeds the 60000 ms ceiling",
+            ));
+        }
         let duration_seconds = seconds_from_ms(self.duration_ms)
             .map_err(|_| ConfigError::validation("whole_hour.duration_ms", "must be positive"))?;
         OverlayDuration::from_seconds(duration_seconds)
@@ -822,7 +892,24 @@ impl RawWholeHour {
 }
 
 impl RawReconciliation {
+    fn timing(&self) -> ReconciliationTiming {
+        ReconciliationTiming {
+            retry_interval_seconds: self.retry_interval_seconds,
+            dispatch_acceptance_margin_seconds: self.dispatch_acceptance_margin_seconds,
+            dispatch_failure_backoff_seconds: self.dispatch_failure_backoff_seconds,
+        }
+    }
+
     fn validate(self) -> Result<RetryPolicy, ConfigError> {
+        if self.retry_interval_seconds > MAX_RECONCILE_RETRY_INTERVAL_SECONDS
+            || self.dispatch_acceptance_margin_seconds > MAX_DISPATCH_ACCEPTANCE_MARGIN_SECONDS
+            || self.dispatch_failure_backoff_seconds > MAX_DISPATCH_FAILURE_BACKOFF_SECONDS
+        {
+            return Err(ConfigError::validation(
+                "reconciliation",
+                "timing exceeds a documented one-house service ceiling",
+            ));
+        }
         RetryPolicy::new(self.retry_interval_seconds, self.maximum_attempts)
             .and_then(|policy| {
                 policy.with_dispatch_timing(
@@ -992,7 +1079,8 @@ fn validate_devices(
         let floor = rooms
             .get(&room)
             .ok_or_else(|| ConfigError::validation("devices.room", "references unknown room"))?;
-        let (capabilities, mired_range) = device.capabilities.validate("devices.capabilities")?;
+        let (capabilities, mired_range) =
+            device.capabilities.validate("devices.capabilities", true)?;
         if device.single_transition_attribute
             && (!capabilities.dimming || capabilities.color_temperature.is_none())
         {
@@ -1024,7 +1112,7 @@ fn validate_devices(
             )
         })?;
         caps_by_id.insert(
-            id,
+            id.clone(),
             ValidatedCapabilities {
                 capabilities,
                 mired_range,
@@ -1032,6 +1120,7 @@ fn validate_devices(
         );
         bindings.push(binding.clone());
         configurations.push(DeviceConfiguration {
+            id,
             definition,
             binding,
             membership: ScopeMembership::new(room, floor.clone()),
@@ -1056,7 +1145,8 @@ fn validate_groups(
         if !group_ids.insert(id.clone()) {
             return Err(ConfigError::validation("groups.id", "duplicate identifier"));
         }
-        let (capabilities, mired_range) = group.capabilities.validate("groups.capabilities")?;
+        let (capabilities, mired_range) =
+            group.capabilities.validate("groups.capabilities", false)?;
         if group.single_transition_attribute
             && (!capabilities.dimming || capabilities.color_temperature.is_none())
         {
@@ -1100,11 +1190,12 @@ fn validate_groups(
             }
             members.push(member);
         }
-        let definition = GroupDefinition::new(id.clone(), members, capabilities).map_err(|_| {
-            ConfigError::validation("groups", "invalid group membership or capabilities")
-        })?;
+        let definition =
+            GroupDefinition::new(id.clone(), members.clone(), capabilities).map_err(|_| {
+                ConfigError::validation("groups", "invalid group membership or capabilities")
+            })?;
         let binding = GroupBinding::new(
-            id,
+            id.clone(),
             group.friendly_name,
             mired_range,
             group.single_transition_attribute,
@@ -1117,6 +1208,9 @@ fn validate_groups(
         })?;
         bindings.push(binding.clone());
         configurations.push(GroupConfiguration {
+            id,
+            members,
+            mired_range,
             definition,
             binding,
         });
@@ -1162,6 +1256,12 @@ fn validate_scopes(
             RawScope::House { id, curve } => (id, Scope::House, curve),
         };
         let id = scope_id(raw_id, "scopes.id")?;
+        if id.as_str() == "selected" {
+            return Err(ConfigError::validation(
+                "scopes.id",
+                "selected is reserved for the current control scope target",
+            ));
+        }
         let curve = scope_id(raw_curve, "scopes.curve")?;
         if !curves.contains_key(&curve) {
             return Err(ConfigError::validation(
@@ -1288,6 +1388,7 @@ impl RawCapabilities {
     fn validate(
         self,
         field: &'static str,
+        require_mired: bool,
     ) -> Result<(Capabilities, Option<MiredRange>), ConfigError> {
         let any = self.on_off
             || self.dimming
@@ -1317,12 +1418,36 @@ impl RawCapabilities {
             .map(|raw| {
                 let kelvin = KelvinRange::new(raw.minimum_kelvin, raw.maximum_kelvin)
                     .map_err(|_| ConfigError::validation(field, "invalid Kelvin range"))?;
-                let mired = MiredRange::new(raw.minimum_mired, raw.maximum_mired)
-                    .map_err(|_| ConfigError::validation(field, "invalid mired range"))?;
+                let mired = match (raw.minimum_mired, raw.maximum_mired) {
+                    (Some(minimum), Some(maximum)) => {
+                        let range = MiredRange::new(minimum, maximum)
+                            .map_err(|_| ConfigError::validation(field, "invalid mired range"))?;
+                        validate_cct_round_trip(kelvin, range).map_err(|_| {
+                            ConfigError::validation(
+                                field,
+                                "Kelvin and mired endpoints must round-trip within 1%",
+                            )
+                        })?;
+                        Some(range)
+                    }
+                    (None, None) if !require_mired => None,
+                    (None, None) => {
+                        return Err(ConfigError::validation(
+                            field,
+                            "device CCT minimum_mired and maximum_mired must both be present",
+                        ));
+                    }
+                    _ => {
+                        return Err(ConfigError::validation(
+                            field,
+                            "minimum_mired and maximum_mired must both be present or both be omitted",
+                        ));
+                    }
+                };
                 Ok((kelvin, mired))
             })
             .transpose()?
-            .map_or((None, None), |(kelvin, mired)| (Some(kelvin), Some(mired)));
+            .map_or((None, None), |(kelvin, mired)| (Some(kelvin), mired));
         Ok((
             Capabilities {
                 on_off: self.on_off,
@@ -1338,6 +1463,19 @@ impl RawCapabilities {
             mired_range,
         ))
     }
+}
+
+fn validate_cct_round_trip(kelvin: KelvinRange, mired: MiredRange) -> Result<(), ()> {
+    for endpoint in [kelvin.min().get(), kelvin.max().get()] {
+        let command_mired = (1_000_000.0 / endpoint)
+            .round()
+            .clamp(f64::from(mired.min()), f64::from(mired.max()));
+        let observed_kelvin = 1_000_000.0 / command_mired;
+        if (endpoint - observed_kelvin).abs() > endpoint * 0.01 {
+            return Err(());
+        }
+    }
+    Ok(())
 }
 
 impl RawColorComparison {
@@ -1517,11 +1655,12 @@ fn validate_topic_namespace(value: &str, require_version: bool) -> Result<(), &'
     }
     if require_version {
         let version = parts.last().copied().unwrap_or_default();
-        if parts.len() < 2
-            || !version.strip_prefix('v').is_some_and(|digits| {
-                !digits.is_empty() && digits.chars().all(|ch| ch.is_ascii_digit()) && digits != "0"
-            })
-        {
+        let bytes = version.as_bytes();
+        let canonical = bytes.len() >= 2
+            && bytes[0] == b'v'
+            && (b'1'..=b'9').contains(&bytes[1])
+            && bytes[2..].iter().all(u8::is_ascii_digit);
+        if parts.len() < 2 || !canonical {
             return Err("must end with a non-zero version segment such as v1");
         }
     }
