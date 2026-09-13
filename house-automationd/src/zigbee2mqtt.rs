@@ -410,7 +410,13 @@ impl Zigbee2MqttAdapter {
                         )
                     }
                 };
-                for timed in command_payloads(*target, mired_range, split)? {
+                let payloads = command_payloads(*target, mired_range, split)?;
+                if payloads.is_empty() {
+                    return Err(AdapterError::configuration(format!(
+                        "command for {friendly_name} has no controllable fields"
+                    )));
+                }
+                for timed in payloads {
                     timed_commands.push((
                         timed.not_before_ms,
                         command_sequence,
@@ -594,14 +600,21 @@ fn parse_device_state(
         .map(|value| parse_transition(context, value))
         .transpose()?;
 
+    let (color_temperature, color) = match (color_temperature, color) {
+        (Some(color_temperature), Some(color)) => {
+            match object.get("color_mode").and_then(Value::as_str) {
+                Some("color_temp") => (Some(color_temperature), None),
+                Some("xy" | "hs") => (None, Some(color)),
+                _ => (None, None),
+            }
+        }
+        representations => representations,
+    };
+
     Ok(DeviceTarget {
         on,
         brightness,
-        color_temperature: if color.is_some() {
-            None
-        } else {
-            color_temperature
-        },
+        color_temperature,
         color,
         transition_ms,
     })
@@ -1361,6 +1374,38 @@ mod tests {
     }
 
     #[test]
+    fn cached_color_representations_follow_reported_active_color_mode() {
+        let fixture: Vec<Value> =
+            serde_json::from_slice(include_bytes!("../tests/fixtures/color-mode-states.json"))
+                .unwrap();
+        let mut states = Vec::new();
+        for case in fixture {
+            let payload = serde_json::to_vec(&case["payload"]).unwrap();
+            let event = parse(&adapter(false), "zigbee2mqtt/living/hue lamp", &payload)
+                .unwrap()
+                .unwrap();
+            let InboundEvent::DeviceState { state, .. } = event else {
+                panic!("expected device state for {}", case["name"])
+            };
+            states.push(state);
+        }
+
+        assert!(states[0].color_temperature.is_some());
+        assert!(states[0].color.is_none());
+        assert!(states[1].color_temperature.is_none());
+        assert_eq!(states[1].color.unwrap().xy_components(), Some((0.31, 0.33)));
+        assert!(states[2].color_temperature.is_none());
+        assert_eq!(
+            states[2].color.unwrap().hs_components(),
+            Some((210.0, 0.65))
+        );
+        for ambiguous in &states[3..] {
+            assert!(ambiguous.color_temperature.is_none());
+            assert!(ambiguous.color.is_none());
+        }
+    }
+
+    #[test]
     fn bridge_and_device_availability_are_parsed() {
         let adapter = adapter(false);
         assert_eq!(
@@ -1495,6 +1540,28 @@ mod tests {
                 "transition": 0.75,
             })
         );
+    }
+
+    #[test]
+    fn empty_command_is_a_permanent_adapter_error_not_an_unregistered_plan() {
+        let error = adapter(false)
+            .apply_actions(
+                plan_epoch(),
+                &[ReconcileAction::Command {
+                    token: dispatch_token(),
+                    entity: CommandEntity::Device(device_id("ikea_lamp")),
+                    target: DeviceTarget {
+                        on: None,
+                        brightness: None,
+                        color_temperature: None,
+                        color: None,
+                        transition_ms: None,
+                    },
+                }],
+            )
+            .unwrap_err();
+
+        assert!(error.is_permanent());
     }
 
     #[test]
