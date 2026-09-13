@@ -13,6 +13,8 @@ use crate::{
 };
 
 const MAX_OVERLAY_ID_LENGTH: usize = 64;
+const MIN_ACKNOWLEDGEMENT_AMPLITUDE: f64 = 0.01;
+const MAX_ACKNOWLEDGEMENT_AMPLITUDE: f64 = 0.25;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct OverlayId(String);
@@ -302,11 +304,8 @@ impl AcknowledgementSettings {
         priority: i32,
     ) -> Result<Self, OverlayError> {
         validate_finite(amplitude)?;
-        if amplitude <= 0.0 {
-            return Err(OverlayError::NonPositiveAmplitude);
-        }
-        if amplitude > 0.5 {
-            return Err(OverlayError::AmplitudeTooLarge);
+        if !(MIN_ACKNOWLEDGEMENT_AMPLITUDE..=MAX_ACKNOWLEDGEMENT_AMPLITUDE).contains(&amplitude) {
+            return Err(OverlayError::AmplitudeOutOfRange);
         }
         Ok(Self {
             id,
@@ -384,8 +383,7 @@ pub enum OverlayError {
     InvalidIdentifier,
     NonFinite,
     NonPositiveDuration,
-    NonPositiveAmplitude,
-    AmplitudeTooLarge,
+    AmplitudeOutOfRange,
     EmptyScene,
     ExpiryOverflow,
     MonotonicClockRegressed,
@@ -403,12 +401,9 @@ impl Display for OverlayError {
             Self::NonPositiveDuration => {
                 formatter.write_str("overlay duration must be greater than zero")
             }
-            Self::NonPositiveAmplitude => {
-                formatter.write_str("acknowledgement amplitude must be greater than zero")
-            }
-            Self::AmplitudeTooLarge => {
-                formatter.write_str("acknowledgement amplitude must be at most 0.5")
-            }
+            Self::AmplitudeOutOfRange => formatter.write_str(
+                "acknowledgement amplitude must be between 0.01 and 0.25 inclusive",
+            ),
             Self::EmptyScene => formatter.write_str("overlay scene must set at least one field"),
             Self::ExpiryOverflow => formatter.write_str("overlay expiry exceeds monotonic range"),
             Self::MonotonicClockRegressed => formatter.write_str("monotonic clock regressed"),
@@ -775,6 +770,45 @@ mod tests {
     }
 
     #[test]
+    fn acknowledgement_targets_remain_distinct_for_adversarial_brightness_values() {
+        let settings = AcknowledgementSettings::new(id("circadian-ack"), 0.25, 0.5, 100).unwrap();
+        for starting in [
+            f64::from_bits(0.0_f64.to_bits() + 1),
+            0.499_999_999_999_999_94,
+            f64::from_bits(0.5_f64.to_bits() + 1),
+            f64::from_bits(1.0_f64.to_bits() - 1),
+        ] {
+            let mut outputs = Vec::new();
+            for outcome in [CurveToggleOutcome::Frozen, CurveToggleOutcome::Unfrozen] {
+                let underlying = layers(true, Some(starting), None);
+                let request = settings
+                    .for_toggle(outcome, &underlying, full_capabilities(true))
+                    .unwrap();
+                let mut overlays = OverlaySet::new();
+                overlays
+                    .insert_request(request.into_overlay(), now(0.0))
+                    .unwrap();
+                outputs.push(
+                    overlays
+                        .compose(underlying, now(0.1), range())
+                        .unwrap()
+                        .brightness
+                        .unwrap()
+                        .get(),
+                );
+            }
+            assert!(outputs.iter().all(|value| value.is_finite()));
+            assert!(
+                outputs
+                    .iter()
+                    .all(|value| *value != starting.clamp(0.0, 1.0)),
+                "starting {starting}"
+            );
+            assert_ne!(outputs[0], outputs[1], "starting {starting}");
+        }
+    }
+
+    #[test]
     fn acknowledgement_is_visible_when_raw_brightness_is_outside_final_bounds() {
         let settings = AcknowledgementSettings::new(id("circadian-ack"), 0.1, 0.5, 100).unwrap();
         for (raw, normal, acknowledged) in [(1.2, 1.0, 0.9), (-0.2, 0.0, 0.1)] {
@@ -876,15 +910,26 @@ mod tests {
 
     #[test]
     fn acknowledgement_settings_reject_invalid_amplitude_and_duration() {
-        for amplitude in [0.0, -0.1, f64::NAN, f64::INFINITY] {
+        const MINIMUM: f64 = 0.01;
+        const MAXIMUM: f64 = 0.25;
+        assert!(AcknowledgementSettings::new(id("circadian-ack"), MINIMUM, 0.5, 100).is_ok());
+        assert!(AcknowledgementSettings::new(id("circadian-ack"), MAXIMUM, 0.5, 100).is_ok());
+        for amplitude in [
+            0.0,
+            -0.1,
+            f64::NAN,
+            f64::INFINITY,
+            f64::from_bits(MINIMUM.to_bits() - 1),
+            f64::from_bits(MAXIMUM.to_bits() + 1),
+        ] {
             assert!(
                 AcknowledgementSettings::new(id("circadian-ack"), amplitude, 0.5, 100).is_err()
             );
         }
         assert!(AcknowledgementSettings::new(id("circadian-ack"), 0.1, 0.0, 100).is_err());
         assert_eq!(
-            AcknowledgementSettings::new(id("circadian-ack"), 0.500_001, 0.5, 100),
-            Err(OverlayError::AmplitudeTooLarge)
+            AcknowledgementSettings::new(id("circadian-ack"), 0.251, 0.5, 100),
+            Err(OverlayError::AmplitudeOutOfRange)
         );
     }
 
