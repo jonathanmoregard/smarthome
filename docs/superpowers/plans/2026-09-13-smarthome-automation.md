@@ -57,7 +57,7 @@
 
 ### Task 5: Temporary overlays
 
-- [ ] RED: tests cover expiry recomputing current underlying target, same-key replacement, different-key nesting order, cancellation, CCT/color overlays, and non-persistence.
+- [ ] RED: tests cover expiry recomputing current underlying target, same-key replacement, different-key nesting order, cancellation, CCT/color overlays, non-persistence, and a visible clamp-aware freeze/unfreeze acknowledgement pulse for dimmable targets without flashing on/off-only targets.
 - [ ] Run targeted tests and verify missing overlay behavior fails.
 - [ ] GREEN: implement keyed overlays ordered by priority then insertion sequence, with expiry filtering during composition.
 - [ ] Run all core tests; expect pass.
@@ -65,7 +65,7 @@
 
 ### Task 6: Declarative remote classification
 
-- [ ] RED: tests cover delayed single click, double click before and exactly at deadline, timeout, third click, long press/release isolation, and declarative scope/action mapping.
+- [ ] RED: tests cover delayed single click, double click before and exactly at deadline, timeout, third click, long press/release isolation, declarative scope/action mapping, and acknowledgement-overlay requests after successful freeze/unfreeze actions.
 - [ ] Run `cargo test -p house-automation-core input`; verify expected failures without real sleeps.
 - [ ] GREEN: implement per-remote click state using injected monotonic timestamps plus `ingest` and `flush_due` APIs.
 - [ ] Run all core tests; expect pass.
@@ -90,7 +90,7 @@
 
 ### Task 9: Static configuration and validation
 
-- [ ] RED: tests load `examples/house.toml`, then reject duplicate IDs, dangling room/floor/device/scope refs, unstable MQTT namespace, invalid time windows, empty curves, unsupported remote actions, and public health bind without explicit opt-in.
+- [ ] RED: tests load `examples/house.toml`, then reject duplicate IDs, dangling room/floor/device/scope refs, unstable MQTT namespace, invalid time windows, empty curves, unsupported remote actions, invalid acknowledgement settings, and public health bind without explicit opt-in.
 - [ ] Run targeted tests; verify expected validation failures.
 - [ ] GREEN: implement serde config types, reference validation, defaults (`house/v1`, 350 ms click window, 04:00 reset, configurable convergence), and redacted debug output.
 - [ ] Run `cargo test --workspace`; expect pass.
@@ -98,7 +98,7 @@
 
 ### Task 10: Async daemon, health, and scheduling
 
-- [ ] RED: integration tests use in-memory transport boundary and paused Tokio time to cover startup migration-before-connect, delayed click dispatch, sparse curve ticks, whole-hour 500 ms overlay, graceful shutdown, reconnect, and health readiness transitions.
+- [ ] RED: integration tests use in-memory transport boundary and paused Tokio time to cover startup migration-before-connect, delayed click dispatch, visible freeze/unfreeze acknowledgement overlays, sparse curve ticks, whole-hour 500 ms overlay, graceful shutdown, reconnect, and health readiness transitions.
 - [ ] Run daemon integration tests; verify expected failures.
 - [ ] GREEN: implement MQTT event loop with retained online/offline availability only, scheduler, SQLite writer, signal handling, and loopback axum `/healthz` JSON.
 - [ ] Add structured tracing fields and payload redaction tests.

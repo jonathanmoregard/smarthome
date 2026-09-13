@@ -26,6 +26,8 @@ Normalized values are validated newtypes:
 
 Static TOML configuration defines rooms, floors, devices, Zigbee groups, aliases, capabilities, remote mappings, scope membership, fixed-time circadian anchors, transition cadence, MQTT namespace, health bind, double-click window, unfreeze convergence, daily reset time, and whole-hour overlay. Configuration rejects missing references, duplicate identifiers, invalid curves, unsupported mappings, and non-loopback health binds unless explicitly allowed.
 
+Successful manual freeze and unfreeze actions request a short configurable brightness acknowledgement overlay. Dimmable targets pulse away from their current clamp boundary, making acknowledgement visible at both low and maximum brightness. On/off-only targets are never flashed off. Expiry recomputes current composed state, so acknowledgement does not alter offsets, frozen state, or convergence.
+
 Unknown physical values stay outside this repository. The NixOS module generates TOML for the daemon from host configuration.
 
 ## Circadian composition
@@ -91,4 +93,3 @@ Core tests use fake clocks and cover every requested curve, offset, freeze, rese
 - Stable serial paths: <https://www.zigbee2mqtt.io/guide/configuration/adapter-settings.html>
 - Zigbee2MQTT security: <https://www.zigbee2mqtt.io/guide/installation/14_securing.html>
 - TellStick local API and bearer flow: <https://tellstick-server.readthedocs.io/en/v1.0.14/api.html> and <https://tellstick-server.readthedocs.io/en/latest/api/authentication.html>
-
