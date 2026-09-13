@@ -45,7 +45,7 @@ Fixed-time anchors use monotone cubic interpolation so smooth curves do not over
 
 Freeze captures current baseline, not output after offsets or overlays. Offsets remain editable while frozen. Unfreeze creates a configurable convergence interval rather than an instantaneous jump.
 
-At configured local time, default `04:00`, one atomic state transition unfreezes every frozen scope through normal smooth convergence and records reset date. Already-following scopes stay FOLLOW; scopes already converging are already unfrozen and continue uninterrupted. Startup compares reset date with latest scheduled reset so downtime across 04:00 cannot preserve stale freezes.
+At configured local time, default `04:00`, one atomic state transition unfreezes every frozen scope through normal smooth convergence and records reset date. Already-following scopes stay FOLLOW; scopes already converging are already unfrozen and continue uninterrupted. Before accepting commands, first startup initializes and persists the latest completed reset marker; later startups compare it with latest scheduled reset so downtime across 04:00 cannot preserve stale freezes.
 
 ## Input classification and scopes
 
