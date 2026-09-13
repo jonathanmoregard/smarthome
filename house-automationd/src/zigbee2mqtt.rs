@@ -6,11 +6,14 @@ use std::{
 
 use house_automation_core::{
     input::{Direction, RawInputEvent},
-    reconcile::{Availability, CommandEntity, DeviceId, EntityId, ReconcileAction},
+    reconcile::{Availability, CommandEntity, DeviceId, DispatchToken, EntityId, ReconcileAction},
     state::ControlId,
-    value::{Brightness, Color, DeviceTarget, Kelvin},
+    value::{Brightness, Capabilities, Color, DeviceTarget, Kelvin},
 };
 use serde_json::{Map, Value};
+
+const MAX_TOPIC_COMPONENT_LENGTH: usize = 256;
+const MAX_UNKNOWN_ACTION_LENGTH: usize = 128;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MiredRange {
@@ -39,10 +42,11 @@ impl MiredRange {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DeviceBinding {
     id: DeviceId,
     friendly_name: String,
+    capabilities: Capabilities,
     mired_range: MiredRange,
     single_transition_attribute: bool,
 }
@@ -51,12 +55,14 @@ impl DeviceBinding {
     pub fn new(
         id: DeviceId,
         friendly_name: impl Into<String>,
+        capabilities: Capabilities,
         mired_range: MiredRange,
         single_transition_attribute: bool,
     ) -> Result<Self, AdapterError> {
         Ok(Self {
             id,
             friendly_name: validate_friendly_name(friendly_name.into())?,
+            capabilities,
             mired_range,
             single_transition_attribute,
         })
@@ -107,9 +113,13 @@ fn validate_friendly_name(value: String) -> Result<String, AdapterError> {
     let forbidden_terminal = matches!(terminal, "left" | "right" | "set" | "get" | "availability")
         || terminal.chars().all(|character| character.is_ascii_digit());
     if value.is_empty()
+        || value.len() > MAX_TOPIC_COMPONENT_LENGTH
         || value.starts_with('/')
         || value.ends_with('/')
-        || value.contains(['\0', '#', '+'])
+        || value == "bridge"
+        || value.starts_with("bridge/")
+        || value.chars().any(char::is_control)
+        || value.contains(['#', '+'])
         || forbidden_terminal
     {
         return Err(AdapterError::configuration(
@@ -121,9 +131,11 @@ fn validate_friendly_name(value: String) -> Result<String, AdapterError> {
 
 fn validate_base_topic(value: &str) -> Result<(), AdapterError> {
     if value.is_empty()
+        || value.len() > MAX_TOPIC_COMPONENT_LENGTH
         || value.starts_with('/')
         || value.ends_with('/')
-        || value.contains(['\0', '#', '+'])
+        || value.chars().any(char::is_control)
+        || value.contains(['#', '+'])
     {
         return Err(AdapterError::configuration(
             "invalid Zigbee2MQTT base topic",
@@ -136,6 +148,54 @@ fn validate_base_topic(value: &str) -> Result<(), AdapterError> {
 enum StateBinding {
     Device(DeviceBinding),
     Control(ControlBinding),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Qos {
+    AtMostOnce,
+    AtLeastOnce,
+    ExactlyOnce,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InboundMessage<'a> {
+    topic: &'a str,
+    payload: &'a [u8],
+    retain: bool,
+    duplicate: bool,
+    qos: Qos,
+}
+
+impl<'a> InboundMessage<'a> {
+    pub fn new(topic: &'a str, payload: &'a [u8], retain: bool, duplicate: bool, qos: Qos) -> Self {
+        Self {
+            topic,
+            payload,
+            retain,
+            duplicate,
+            qos,
+        }
+    }
+
+    pub fn topic(self) -> &'a str {
+        self.topic
+    }
+
+    pub fn payload(self) -> &'a [u8] {
+        self.payload
+    }
+
+    pub fn retain(self) -> bool {
+        self.retain
+    }
+
+    pub fn duplicate(self) -> bool {
+        self.duplicate
+    }
+
+    pub fn qos(self) -> Qos {
+        self.qos
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -217,7 +277,12 @@ impl Zigbee2MqttAdapter {
         })
     }
 
-    pub fn parse(&self, topic: &str, payload: &[u8]) -> Result<Option<InboundEvent>, AdapterError> {
+    pub fn parse(
+        &self,
+        message: &InboundMessage<'_>,
+    ) -> Result<Option<InboundEvent>, AdapterError> {
+        let topic = message.topic;
+        let payload = message.payload;
         if topic == format!("{}/bridge/state", self.base_topic) {
             return parse_availability(topic, payload)
                 .map(|availability| Some(InboundEvent::BridgeAvailability(availability)));
@@ -239,6 +304,7 @@ impl Zigbee2MqttAdapter {
                     })
                 })
             }
+            Some(StateBinding::Control(_)) if message.retain || message.duplicate => Ok(None),
             Some(StateBinding::Control(binding)) => parse_control_input(binding, payload),
             None => Ok(None),
         }
@@ -249,68 +315,109 @@ impl Zigbee2MqttAdapter {
             .chain(self.state_topics.keys().cloned())
             .chain(self.availability_topics.keys().cloned())
             .collect();
-        topics.into_iter().map(Subscription::new).collect()
+        topics
+            .into_iter()
+            .map(|topic| Subscription::new(topic, Qos::AtLeastOnce))
+            .collect()
     }
 
     pub fn apply_actions(&self, actions: &[ReconcileAction]) -> Result<AdapterPlan, AdapterError> {
         let mut plan = AdapterPlan::default();
+        if actions
+            .iter()
+            .any(|action| matches!(action, ReconcileAction::Resubscribe))
+        {
+            plan.operations.extend(
+                self.subscriptions()
+                    .into_iter()
+                    .map(AdapterOperation::Subscribe),
+            );
+        }
+        for id in actions.iter().filter_map(|action| match action {
+            ReconcileAction::RequestState(id) => Some(id),
+            _ => None,
+        }) {
+            let binding = self.devices.get(id).ok_or_else(|| {
+                AdapterError::configuration(format!("unbound device {}", id.as_str()))
+            })?;
+            plan.operations
+                .push(AdapterOperation::Publish(Publication::json(
+                    format!("{}/{}/get", self.base_topic, binding.friendly_name),
+                    &read_request(binding.capabilities),
+                    Qos::AtLeastOnce,
+                    0,
+                    None,
+                )?));
+        }
         for action in actions {
-            match action {
-                ReconcileAction::Resubscribe => plan.subscriptions.extend(self.subscriptions()),
-                ReconcileAction::RequestState(id) => {
-                    let binding = self.devices.get(id).ok_or_else(|| {
-                        AdapterError::configuration(format!("unbound device {}", id.as_str()))
-                    })?;
-                    let read = Map::from_iter([
-                        ("state".to_owned(), Value::String(String::new())),
-                        ("brightness".to_owned(), Value::String(String::new())),
-                        ("color_temp".to_owned(), Value::String(String::new())),
-                    ]);
-                    plan.publications.push(Publication::json(
-                        format!("{}/{}/get", self.base_topic, binding.friendly_name),
-                        &read,
-                    )?);
-                }
-                ReconcileAction::Command { entity, target } => {
-                    let (friendly_name, mired_range, split) = match entity {
-                        CommandEntity::Device(id) => {
-                            let binding = self.devices.get(id).ok_or_else(|| {
-                                AdapterError::configuration(format!(
-                                    "unbound device {}",
-                                    id.as_str()
-                                ))
-                            })?;
-                            (
-                                binding.friendly_name.as_str(),
-                                binding.mired_range,
-                                binding.single_transition_attribute,
-                            )
-                        }
-                        CommandEntity::Group(id) => {
-                            let binding = self.groups.get(id).ok_or_else(|| {
-                                AdapterError::configuration(format!(
-                                    "unbound group {}",
-                                    id.as_str()
-                                ))
-                            })?;
-                            (
-                                binding.friendly_name.as_str(),
-                                binding.mired_range,
-                                binding.single_transition_attribute,
-                            )
-                        }
-                    };
-                    for payload in command_payloads(*target, mired_range, split) {
-                        plan.publications.push(Publication::json(
+            if let ReconcileAction::Command {
+                token,
+                entity,
+                target,
+            } = action
+            {
+                let (friendly_name, mired_range, split) = match entity {
+                    CommandEntity::Device(id) => {
+                        let binding = self.devices.get(id).ok_or_else(|| {
+                            AdapterError::configuration(format!("unbound device {}", id.as_str()))
+                        })?;
+                        (
+                            binding.friendly_name.as_str(),
+                            binding.mired_range,
+                            binding.single_transition_attribute,
+                        )
+                    }
+                    CommandEntity::Group(id) => {
+                        let binding = self.groups.get(id).ok_or_else(|| {
+                            AdapterError::configuration(format!("unbound group {}", id.as_str()))
+                        })?;
+                        (
+                            binding.friendly_name.as_str(),
+                            binding.mired_range,
+                            binding.single_transition_attribute,
+                        )
+                    }
+                };
+                for (payload, not_before_ms) in command_payloads(*target, mired_range, split) {
+                    plan.operations
+                        .push(AdapterOperation::Publish(Publication::json(
                             format!("{base}/{friendly_name}/set", base = self.base_topic),
                             &payload,
-                        )?);
-                    }
+                            Qos::AtLeastOnce,
+                            not_before_ms,
+                            Some(*token),
+                        )?));
                 }
             }
         }
         Ok(plan)
     }
+}
+
+fn read_request(capabilities: Capabilities) -> Map<String, Value> {
+    let mut read = Map::new();
+    if capabilities.on_off {
+        read.insert("state".to_owned(), Value::String(String::new()));
+    }
+    if capabilities.dimming {
+        read.insert("brightness".to_owned(), Value::String(String::new()));
+    }
+    if capabilities.color_temperature.is_some() {
+        read.insert("color_temp".to_owned(), Value::String(String::new()));
+    }
+    let mut color = Map::new();
+    if capabilities.color_xy {
+        color.insert("x".to_owned(), Value::String(String::new()));
+        color.insert("y".to_owned(), Value::String(String::new()));
+    }
+    if capabilities.color_hs {
+        color.insert("hue".to_owned(), Value::String(String::new()));
+        color.insert("saturation".to_owned(), Value::String(String::new()));
+    }
+    if !color.is_empty() {
+        read.insert("color".to_owned(), Value::Object(color));
+    }
+    read
 }
 
 fn parse_json_object(context: &str, payload: &[u8]) -> Result<Map<String, Value>, AdapterError> {
@@ -475,7 +582,7 @@ fn parse_control_input(
         .as_str()
         .ok_or_else(|| AdapterError::message(&binding.friendly_name, "action must be a string"))?;
     let event = match action {
-        "toggle" => RawInputEvent::CenterShort,
+        "toggle" => RawInputEvent::AmbiguousCenterPrefix,
         "toggle_hold" => RawInputEvent::CenterLong,
         "brightness_up_click" => RawInputEvent::Up,
         "brightness_up_hold" => RawInputEvent::DirectionHold(Direction::Up),
@@ -492,7 +599,7 @@ fn parse_control_input(
         _ => {
             return Ok(Some(InboundEvent::UnknownInputAction {
                 control: binding.id.clone(),
-                action: action.to_owned(),
+                action: truncate_utf8(action, MAX_UNKNOWN_ACTION_LENGTH),
             }));
         }
     };
@@ -506,7 +613,7 @@ fn command_payloads(
     target: DeviceTarget,
     mired_range: MiredRange,
     single_transition_attribute: bool,
-) -> Vec<Map<String, Value>> {
+) -> Vec<(Map<String, Value>, u64)> {
     let split = single_transition_attribute
         && target.transition_ms.is_some()
         && target.brightness.is_some()
@@ -524,7 +631,10 @@ fn command_payloads(
             mired_range,
         );
         add_transition(&mut color_temperature, target.transition_ms);
-        return vec![brightness, color_temperature];
+        return vec![
+            (brightness, 0),
+            (color_temperature, target.transition_ms.unwrap_or_default()),
+        ];
     }
 
     let mut payload = Map::new();
@@ -541,8 +651,19 @@ fn command_payloads(
     if payload.is_empty() {
         Vec::new()
     } else {
-        vec![payload]
+        vec![(payload, 0)]
     }
+}
+
+fn truncate_utf8(value: &str, max_bytes: usize) -> String {
+    if value.len() <= max_bytes {
+        return value.to_owned();
+    }
+    let mut end = max_bytes;
+    while !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    value[..end].to_owned()
 }
 
 fn add_power(payload: &mut Map<String, Value>, on: Option<bool>) {
@@ -617,15 +738,20 @@ pub enum InboundEvent {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Subscription {
     topic: String,
+    qos: Qos,
 }
 
 impl Subscription {
-    fn new(topic: String) -> Self {
-        Self { topic }
+    fn new(topic: String, qos: Qos) -> Self {
+        Self { topic, qos }
     }
 
     pub fn topic(&self) -> &str {
         &self.topic
+    }
+
+    pub fn qos(&self) -> Qos {
+        self.qos
     }
 }
 
@@ -634,16 +760,28 @@ pub struct Publication {
     topic: String,
     payload: Vec<u8>,
     retain: bool,
+    qos: Qos,
+    not_before_ms: u64,
+    dispatch_token: Option<DispatchToken>,
 }
 
 impl Publication {
-    fn json(topic: String, payload: &Map<String, Value>) -> Result<Self, AdapterError> {
+    fn json(
+        topic: String,
+        payload: &Map<String, Value>,
+        qos: Qos,
+        not_before_ms: u64,
+        dispatch_token: Option<DispatchToken>,
+    ) -> Result<Self, AdapterError> {
         Ok(Self {
             topic,
             payload: serde_json::to_vec(payload).map_err(|error| {
                 AdapterError::configuration(format!("cannot encode command: {error}"))
             })?,
             retain: false,
+            qos,
+            not_before_ms,
+            dispatch_token,
         })
     }
 
@@ -658,21 +796,57 @@ impl Publication {
     pub fn retain(&self) -> bool {
         self.retain
     }
+
+    pub fn qos(&self) -> Qos {
+        self.qos
+    }
+
+    pub fn not_before_ms(&self) -> u64 {
+        self.not_before_ms
+    }
+
+    pub fn dispatch_token(&self) -> Option<DispatchToken> {
+        self.dispatch_token
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AdapterOperation {
+    Subscribe(Subscription),
+    Publish(Publication),
+}
+
+impl AdapterOperation {
+    pub fn publication(&self) -> Option<&Publication> {
+        match self {
+            Self::Publish(publication) => Some(publication),
+            Self::Subscribe(_) => None,
+        }
+    }
+
+    pub fn subscription(&self) -> Option<&Subscription> {
+        match self {
+            Self::Subscribe(subscription) => Some(subscription),
+            Self::Publish(_) => None,
+        }
+    }
+
+    pub fn qos(&self) -> Qos {
+        match self {
+            Self::Subscribe(subscription) => subscription.qos(),
+            Self::Publish(publication) => publication.qos(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AdapterPlan {
-    subscriptions: Vec<Subscription>,
-    publications: Vec<Publication>,
+    operations: Vec<AdapterOperation>,
 }
 
 impl AdapterPlan {
-    pub fn subscriptions(&self) -> &[Subscription] {
-        &self.subscriptions
-    }
-
-    pub fn publications(&self) -> &[Publication] {
-        &self.publications
+    pub fn operations(&self) -> &[AdapterOperation] {
+        &self.operations
     }
 }
 
@@ -710,15 +884,18 @@ impl Error for AdapterError {}
 mod tests {
     use house_automation_core::{
         input::{Direction, Gesture, RawInputEvent},
-        reconcile::{Availability, CommandEntity, DeviceId, EntityId, ReconcileAction},
-        state::ControlId,
-        value::{Brightness, Color, DeviceTarget, Kelvin},
+        reconcile::{
+            Availability, CommandEntity, DeviceDefinition, DeviceId, DispatchToken, EntityId,
+            ReconcileAction, Reconciler, RetryPolicy,
+        },
+        state::{ControlId, MonotonicTime},
+        value::{Brightness, Capabilities, Color, DeviceTarget, Kelvin, KelvinRange, LightTarget},
     };
     use serde_json::{Value, json};
 
     use super::{
-        AdapterPlan, DeviceBinding, GroupBinding, InboundEvent, MiredRange, Publication,
-        Zigbee2MqttAdapter,
+        AdapterOperation, AdapterPlan, DeviceBinding, GroupBinding, InboundEvent, InboundMessage,
+        MiredRange, Publication, Qos, Zigbee2MqttAdapter,
     };
 
     fn device_id(value: &str) -> DeviceId {
@@ -733,6 +910,78 @@ mod tests {
         EntityId::new(value).unwrap()
     }
 
+    fn capabilities() -> Capabilities {
+        Capabilities {
+            on_off: true,
+            dimming: true,
+            color_temperature: Some(KelvinRange::new(2200.0, 6500.0).unwrap()),
+            color_xy: true,
+            color_hs: true,
+            input: false,
+            occupancy: false,
+            temperature: false,
+            power_metering: false,
+        }
+    }
+
+    fn dispatch_token() -> DispatchToken {
+        let lamp = device_id("token_lamp");
+        let mut reconciler = Reconciler::new(
+            vec![DeviceDefinition::new(lamp.clone(), capabilities())],
+            Vec::new(),
+            RetryPolicy::new(2.0, 3).unwrap(),
+        )
+        .unwrap();
+        reconciler
+            .broker_connected(MonotonicTime::from_seconds(0.0).unwrap())
+            .unwrap();
+        let actions = reconciler
+            .set_device_desired(
+                &lamp,
+                LightTarget {
+                    on: true,
+                    brightness: None,
+                    color_temperature: None,
+                    color: None,
+                    transition_ms: None,
+                },
+                MonotonicTime::from_seconds(1.0).unwrap(),
+            )
+            .unwrap();
+        let ReconcileAction::Command { token, .. } = actions[0] else {
+            unreachable!()
+        };
+        token
+    }
+
+    fn parse(
+        adapter: &Zigbee2MqttAdapter,
+        topic: &str,
+        payload: &[u8],
+    ) -> Result<Option<InboundEvent>, super::AdapterError> {
+        adapter.parse(&InboundMessage::new(
+            topic,
+            payload,
+            false,
+            false,
+            Qos::AtLeastOnce,
+        ))
+    }
+
+    fn publications(plan: &AdapterPlan) -> Vec<&Publication> {
+        plan.operations()
+            .iter()
+            .filter_map(AdapterOperation::publication)
+            .collect()
+    }
+
+    fn subscriptions(plan: &AdapterPlan) -> Vec<&super::Subscription> {
+        plan.operations()
+            .iter()
+            .filter_map(AdapterOperation::subscription)
+            .collect()
+    }
+
     fn adapter(single_transition_attribute: bool) -> Zigbee2MqttAdapter {
         Zigbee2MqttAdapter::new(
             "zigbee2mqtt",
@@ -740,6 +989,7 @@ mod tests {
                 DeviceBinding::new(
                     device_id("ikea_lamp"),
                     "living/ikea lamp",
+                    capabilities(),
                     MiredRange::new(250, 454).unwrap(),
                     single_transition_attribute,
                 )
@@ -747,6 +997,7 @@ mod tests {
                 DeviceBinding::new(
                     device_id("hue_lamp"),
                     "living/hue lamp",
+                    capabilities(),
                     MiredRange::new(153, 500).unwrap(),
                     false,
                 )
@@ -783,12 +1034,12 @@ mod tests {
     #[test]
     fn exact_configured_friendly_names_may_contain_slashes() {
         let adapter = adapter(false);
-        let event = adapter
-            .parse(
-                "zigbee2mqtt/living/ikea lamp",
-                include_bytes!("../tests/fixtures/ikea-light-state.json"),
-            )
-            .unwrap();
+        let event = parse(
+            &adapter,
+            "zigbee2mqtt/living/ikea lamp",
+            include_bytes!("../tests/fixtures/ikea-light-state.json"),
+        )
+        .unwrap();
 
         let InboundEvent::DeviceState { device, state } = event.unwrap() else {
             panic!("expected device state");
@@ -817,6 +1068,7 @@ mod tests {
             DeviceBinding::new(
                 device_id("looks_like_availability"),
                 "room/lamp/availability",
+                capabilities(),
                 range,
                 false,
             )
@@ -825,7 +1077,8 @@ mod tests {
 
         for forbidden in ["1234", "room/1234", "room/left", "room/right", "room/set"] {
             assert!(
-                DeviceBinding::new(device_id("lamp"), forbidden, range, false).is_err(),
+                DeviceBinding::new(device_id("lamp"), forbidden, capabilities(), range, false,)
+                    .is_err(),
                 "accepted forbidden terminal segment {forbidden:?}"
             );
         }
@@ -833,13 +1086,13 @@ mod tests {
 
     #[test]
     fn partial_hue_state_ignores_unknown_fields() {
-        let event = adapter(false)
-            .parse(
-                "zigbee2mqtt/living/hue lamp",
-                include_bytes!("../tests/fixtures/hue-partial-state.json"),
-            )
-            .unwrap()
-            .unwrap();
+        let event = parse(
+            &adapter(false),
+            "zigbee2mqtt/living/hue lamp",
+            include_bytes!("../tests/fixtures/hue-partial-state.json"),
+        )
+        .unwrap()
+        .unwrap();
         let InboundEvent::DeviceState { state, .. } = event else {
             panic!("expected device state");
         };
@@ -852,21 +1105,21 @@ mod tests {
     fn bridge_and_device_availability_are_parsed() {
         let adapter = adapter(false);
         assert_eq!(
-            adapter
-                .parse(
-                    "zigbee2mqtt/bridge/state",
-                    include_bytes!("../tests/fixtures/bridge-online.json"),
-                )
-                .unwrap(),
+            parse(
+                &adapter,
+                "zigbee2mqtt/bridge/state",
+                include_bytes!("../tests/fixtures/bridge-online.json"),
+            )
+            .unwrap(),
             Some(InboundEvent::BridgeAvailability(Availability::Online))
         );
         assert_eq!(
-            adapter
-                .parse(
-                    "zigbee2mqtt/living/ikea lamp/availability",
-                    include_bytes!("../tests/fixtures/device-offline.json"),
-                )
-                .unwrap(),
+            parse(
+                &adapter,
+                "zigbee2mqtt/living/ikea lamp/availability",
+                include_bytes!("../tests/fixtures/device-offline.json"),
+            )
+            .unwrap(),
             Some(InboundEvent::DeviceAvailability {
                 device: device_id("ikea_lamp"),
                 availability: Availability::Offline,
@@ -880,7 +1133,7 @@ mod tests {
             serde_json::from_slice(include_bytes!("../tests/fixtures/remote-actions.json"))
                 .unwrap();
         let expected = [
-            RawInputEvent::CenterShort,
+            RawInputEvent::AmbiguousCenterPrefix,
             RawInputEvent::CenterLong,
             RawInputEvent::Up,
             RawInputEvent::DirectionHold(Direction::Up),
@@ -899,12 +1152,12 @@ mod tests {
 
         for (payload, expected) in fixture.iter().zip(expected) {
             assert_eq!(
-                adapter(false)
-                    .parse(
-                        "zigbee2mqtt/living/remote",
-                        serde_json::to_vec(payload).unwrap().as_slice(),
-                    )
-                    .unwrap(),
+                parse(
+                    &adapter(false),
+                    "zigbee2mqtt/living/remote",
+                    serde_json::to_vec(payload).unwrap().as_slice(),
+                )
+                .unwrap(),
                 Some(InboundEvent::Input {
                     control: control_id("living_remote"),
                     event: expected,
@@ -918,17 +1171,28 @@ mod tests {
     #[test]
     fn unknown_remote_action_is_reportable_not_a_stream_error() {
         assert_eq!(
-            adapter(false)
-                .parse(
-                    "zigbee2mqtt/living/remote",
-                    br#"{"action":"future_gesture"}"#,
-                )
-                .unwrap(),
+            parse(
+                &adapter(false),
+                "zigbee2mqtt/living/remote",
+                br#"{"action":"future_gesture"}"#,
+            )
+            .unwrap(),
             Some(InboundEvent::UnknownInputAction {
                 control: control_id("living_remote"),
                 action: "future_gesture".to_owned(),
             })
         );
+
+        let long_action = "é".repeat(100);
+        let payload = serde_json::to_vec(&json!({"action": long_action})).unwrap();
+        let event = parse(&adapter(false), "zigbee2mqtt/living/remote", &payload)
+            .unwrap()
+            .unwrap();
+        let InboundEvent::UnknownInputAction { action, .. } = event else {
+            panic!("expected bounded unknown action")
+        };
+        assert!(action.len() <= super::MAX_UNKNOWN_ACTION_LENGTH);
+        assert!(action.is_char_boundary(action.len()));
     }
 
     #[test]
@@ -941,9 +1205,7 @@ mod tests {
             br#"{"state":"TOGGLE"}"#.as_slice(),
             br#"{"brightness":"bright"}"#.as_slice(),
         ] {
-            let error = adapter
-                .parse("zigbee2mqtt/living/ikea lamp", payload)
-                .unwrap_err();
+            let error = parse(&adapter, "zigbee2mqtt/living/ikea lamp", payload).unwrap_err();
             assert!(error.to_string().contains("living/ikea lamp"), "{error}");
         }
     }
@@ -952,12 +1214,14 @@ mod tests {
     fn combined_capable_command_uses_exact_fields_and_is_never_retained() {
         let plan = adapter(false)
             .apply_actions(&[ReconcileAction::Command {
+                token: dispatch_token(),
                 entity: CommandEntity::Device(device_id("ikea_lamp")),
                 target: command_target(),
             }])
             .unwrap();
-        assert_eq!(plan.publications().len(), 1);
-        let publication = &plan.publications()[0];
+        let publications = publications(&plan);
+        assert_eq!(publications.len(), 1);
+        let publication = publications[0];
         assert_eq!(publication.topic(), "zigbee2mqtt/living/ikea lamp/set");
         assert!(!publication.retain());
         assert_eq!(
@@ -975,24 +1239,22 @@ mod tests {
     fn single_attribute_transition_splits_brightness_and_cct_sparsely() {
         let plan = adapter(true)
             .apply_actions(&[ReconcileAction::Command {
+                token: dispatch_token(),
                 entity: CommandEntity::Device(device_id("ikea_lamp")),
                 target: command_target(),
             }])
             .unwrap();
-        assert_eq!(plan.publications().len(), 2);
+        let publications = publications(&plan);
+        assert_eq!(publications.len(), 2);
         assert_eq!(
-            object(&plan.publications()[0]),
+            object(publications[0]),
             json!({"state":"ON", "brightness":127, "transition":0.75})
         );
         assert_eq!(
-            object(&plan.publications()[1]),
+            object(publications[1]),
             json!({"color_temp":370, "transition":0.75})
         );
-        assert!(
-            plan.publications()
-                .iter()
-                .all(|publication| !publication.retain())
-        );
+        assert!(publications.iter().all(|publication| !publication.retain()));
     }
 
     #[test]
@@ -1006,12 +1268,14 @@ mod tests {
         };
         let plan = adapter(false)
             .apply_actions(&[ReconcileAction::Command {
+                token: dispatch_token(),
                 entity: CommandEntity::Device(device_id("hue_lamp")),
                 target,
             }])
             .unwrap();
+        let publications = publications(&plan);
         assert_eq!(
-            object(&plan.publications()[0]),
+            object(publications[0]),
             json!({"state":"ON", "color":{"hue":120.0,"saturation":25.0}})
         );
     }
@@ -1029,11 +1293,12 @@ mod tests {
             };
             let plan = adapter
                 .apply_actions(&[ReconcileAction::Command {
+                    token: dispatch_token(),
                     entity: CommandEntity::Device(device_id("ikea_lamp")),
                     target,
                 }])
                 .unwrap();
-            assert_eq!(object(&plan.publications()[0])["color_temp"], expected);
+            assert_eq!(object(publications(&plan)[0])["color_temp"], expected);
         }
     }
 
@@ -1046,38 +1311,289 @@ mod tests {
                 ReconcileAction::RequestState(device_id("ikea_lamp")),
             ])
             .unwrap();
+        let subscriptions = subscriptions(&plan);
+        let publications = publications(&plan);
         assert!(
-            plan.subscriptions()
+            subscriptions
                 .iter()
                 .any(|subscription| subscription.topic() == "zigbee2mqtt/bridge/state")
         );
         assert!(
-            plan.subscriptions()
+            subscriptions
                 .iter()
                 .any(|subscription| subscription.topic() == "zigbee2mqtt/living/ikea lamp")
         );
+        assert_eq!(publications[0].topic(), "zigbee2mqtt/living/ikea lamp/get");
         assert_eq!(
-            plan.publications()[0].topic(),
-            "zigbee2mqtt/living/ikea lamp/get"
+            object(publications[0]),
+            json!({
+                "state":"",
+                "brightness":"",
+                "color_temp":"",
+                "color":{"hue":"", "saturation":"", "x":"", "y":""}
+            })
         );
-        assert_eq!(
-            object(&plan.publications()[0]),
-            json!({"state":"", "brightness":"", "color_temp":""})
-        );
-        assert!(!plan.publications()[0].retain());
+        assert!(!publications[0].retain());
     }
 
     #[test]
     fn group_command_uses_configured_group_topic() {
         let plan = adapter(false)
             .apply_actions(&[ReconcileAction::Command {
+                token: dispatch_token(),
                 entity: CommandEntity::Group(entity_id("living_group")),
                 target: command_target(),
             }])
             .unwrap();
+        let publications = publications(&plan);
+        assert_eq!(publications[0].topic(), "zigbee2mqtt/living/all lights/set");
+    }
+
+    #[test]
+    fn retained_and_duplicate_controls_are_ignored_but_retained_state_is_accepted() {
+        let adapter = adapter(false);
+        let control = InboundMessage::new(
+            "zigbee2mqtt/living/remote",
+            br#"{"action":"toggle"}"#,
+            true,
+            false,
+            Qos::AtLeastOnce,
+        );
+        assert_eq!(adapter.parse(&control).unwrap(), None);
+        let duplicate = InboundMessage::new(
+            "zigbee2mqtt/living/remote",
+            br#"{"action":"toggle"}"#,
+            false,
+            true,
+            Qos::AtLeastOnce,
+        );
+        assert_eq!(adapter.parse(&duplicate).unwrap(), None);
+
+        let state = InboundMessage::new(
+            "zigbee2mqtt/living/ikea lamp",
+            include_bytes!("../tests/fixtures/ikea-light-state.json"),
+            true,
+            false,
+            Qos::AtLeastOnce,
+        );
+        assert!(matches!(
+            adapter.parse(&state).unwrap(),
+            Some(InboundEvent::DeviceState { .. })
+        ));
+        let availability = InboundMessage::new(
+            "zigbee2mqtt/living/ikea lamp/availability",
+            include_bytes!("../tests/fixtures/device-offline.json"),
+            true,
+            false,
+            Qos::AtLeastOnce,
+        );
+        assert!(matches!(
+            adapter.parse(&availability).unwrap(),
+            Some(InboundEvent::DeviceAvailability { .. })
+        ));
+    }
+
+    #[test]
+    fn plan_has_strict_subscribe_read_command_phases_and_explicit_qos() {
+        let actions = [
+            ReconcileAction::Command {
+                token: dispatch_token(),
+                entity: CommandEntity::Device(device_id("ikea_lamp")),
+                target: command_target(),
+            },
+            ReconcileAction::RequestState(device_id("ikea_lamp")),
+            ReconcileAction::Resubscribe,
+        ];
+        let plan = adapter(false).apply_actions(&actions).unwrap();
+        let operations = plan.operations();
+        let first_publish = operations
+            .iter()
+            .position(|operation| matches!(operation, AdapterOperation::Publish(_)))
+            .unwrap();
+        assert!(
+            operations[..first_publish]
+                .iter()
+                .all(|operation| matches!(operation, AdapterOperation::Subscribe(_)))
+        );
+        let publications: Vec<_> = operations
+            .iter()
+            .filter_map(AdapterOperation::publication)
+            .collect();
+        assert!(publications[0].topic().ends_with("/get"));
+        assert!(publications[1].topic().ends_with("/set"));
+        assert!(
+            operations
+                .iter()
+                .all(|operation| operation.qos() == Qos::AtLeastOnce)
+        );
+        assert_eq!(publications[1].dispatch_token(), Some(dispatch_token()));
+    }
+
+    #[test]
+    fn split_transition_delays_second_attribute_until_first_transition_finishes() {
+        let plan = adapter(true)
+            .apply_actions(&[ReconcileAction::Command {
+                token: dispatch_token(),
+                entity: CommandEntity::Device(device_id("ikea_lamp")),
+                target: command_target(),
+            }])
+            .unwrap();
+        let publications: Vec<_> = plan
+            .operations()
+            .iter()
+            .filter_map(AdapterOperation::publication)
+            .collect();
+        assert_eq!(publications[0].not_before_ms(), 0);
+        assert_eq!(publications[1].not_before_ms(), 750);
+    }
+
+    #[test]
+    fn adapter_failure_can_be_reported_without_spending_dispatch_attempt() {
+        let lamp = device_id("unbound_lamp");
+        let mut reconciler = Reconciler::new(
+            vec![DeviceDefinition::new(lamp.clone(), capabilities())],
+            Vec::new(),
+            RetryPolicy::new(2.0, 3).unwrap(),
+        )
+        .unwrap();
+        reconciler
+            .broker_connected(MonotonicTime::from_seconds(0.0).unwrap())
+            .unwrap();
+        let actions = reconciler
+            .set_device_desired(
+                &lamp,
+                LightTarget {
+                    on: true,
+                    brightness: None,
+                    color_temperature: None,
+                    color: None,
+                    transition_ms: None,
+                },
+                MonotonicTime::from_seconds(1.0).unwrap(),
+            )
+            .unwrap();
+        let ReconcileAction::Command { token, .. } = actions[0] else {
+            unreachable!()
+        };
+        let adapter =
+            Zigbee2MqttAdapter::new("zigbee2mqtt", Vec::new(), Vec::new(), Vec::new()).unwrap();
+
+        assert!(adapter.apply_actions(&actions).is_err());
+        let retry = reconciler
+            .dispatch_failed(token, MonotonicTime::from_seconds(1.1).unwrap())
+            .unwrap();
+        assert_eq!(retry.len(), 1);
+        assert_ne!(
+            retry[0], actions[0],
+            "restaged command must carry a fresh token"
+        );
+        assert!(
+            reconciler
+                .device_state(&lamp)
+                .unwrap()
+                .pending_command()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn sparse_reads_follow_device_capabilities() {
+        let on_only = Capabilities {
+            on_off: true,
+            dimming: false,
+            color_temperature: None,
+            color_xy: false,
+            color_hs: false,
+            input: false,
+            occupancy: false,
+            temperature: false,
+            power_metering: false,
+        };
+        let rgb = Capabilities {
+            color_xy: true,
+            ..on_only
+        };
+        let adapter = Zigbee2MqttAdapter::new(
+            "zigbee2mqtt",
+            vec![
+                DeviceBinding::new(
+                    device_id("switch"),
+                    "switch",
+                    on_only,
+                    MiredRange::new(153, 500).unwrap(),
+                    false,
+                )
+                .unwrap(),
+                DeviceBinding::new(
+                    device_id("rgb"),
+                    "rgb",
+                    rgb,
+                    MiredRange::new(153, 500).unwrap(),
+                    false,
+                )
+                .unwrap(),
+            ],
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap();
+        let plan = adapter
+            .apply_actions(&[
+                ReconcileAction::RequestState(device_id("switch")),
+                ReconcileAction::RequestState(device_id("rgb")),
+            ])
+            .unwrap();
+        let publications: Vec<_> = plan
+            .operations()
+            .iter()
+            .filter_map(AdapterOperation::publication)
+            .collect();
+        assert_eq!(object(publications[0]), json!({"state":""}));
         assert_eq!(
-            plan.publications()[0].topic(),
-            "zigbee2mqtt/living/all lights/set"
+            object(publications[1]),
+            json!({"state":"", "color":{"x":"", "y":""}})
+        );
+        assert!(object(publications[1]).get("color_temp").is_none());
+    }
+
+    #[test]
+    fn topic_names_reject_bridge_controls_and_excessive_length() {
+        let capabilities = Capabilities {
+            on_off: true,
+            dimming: false,
+            color_temperature: Some(KelvinRange::new(2200.0, 6500.0).unwrap()),
+            color_xy: false,
+            color_hs: false,
+            input: false,
+            occupancy: false,
+            temperature: false,
+            power_metering: false,
+        };
+        for name in ["bridge", "bridge/devices", "room\nlight"] {
+            assert!(
+                DeviceBinding::new(
+                    device_id("lamp"),
+                    name,
+                    capabilities,
+                    MiredRange::new(153, 500).unwrap(),
+                    false,
+                )
+                .is_err()
+            );
+        }
+        assert!(
+            Zigbee2MqttAdapter::new("x".repeat(257), Vec::new(), Vec::new(), Vec::new()).is_err()
+        );
+        assert!(Zigbee2MqttAdapter::new("bad\nbase", Vec::new(), Vec::new(), Vec::new()).is_err());
+        assert!(
+            DeviceBinding::new(
+                device_id("lamp"),
+                "x".repeat(257),
+                capabilities,
+                MiredRange::new(153, 500).unwrap(),
+                false,
+            )
+            .is_err()
         );
     }
 }

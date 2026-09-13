@@ -30,6 +30,21 @@ impl ClickWindow {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct AmbiguousHoldWindow(f64);
+
+impl AmbiguousHoldWindow {
+    pub fn from_seconds(seconds: f64) -> Result<Self, InputError> {
+        if !seconds.is_finite() {
+            return Err(InputError::NonFinite);
+        }
+        if seconds <= 0.0 {
+            return Err(InputError::NonPositiveAmbiguousHoldWindow);
+        }
+        Ok(Self(seconds))
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RawInputEvent {
     Up,
@@ -37,6 +52,10 @@ pub enum RawInputEvent {
     Left,
     Right,
     CenterShort,
+    /// A protocol adapter observed a center-button prefix that may still be
+    /// followed by a hold event. It remains eligible for a normal double click,
+    /// but a single click is not emitted until the longer hold window expires.
+    AmbiguousCenterPrefix,
     CenterLong,
     CenterRelease,
     DirectionHold(Direction),
@@ -358,17 +377,38 @@ pub enum ActionOutcome {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClickClassifier {
     window: ClickWindow,
-    pending: BTreeMap<ControlId, f64>,
+    ambiguous_hold_window: AmbiguousHoldWindow,
+    pending: BTreeMap<ControlId, PendingClick>,
     last_observed: Option<MonotonicTime>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PendingKind {
+    Definitive,
+    Ambiguous,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct PendingClick {
+    double_deadline: f64,
+    emit_deadline: f64,
+    kind: PendingKind,
+}
+
 impl ClickClassifier {
-    pub fn new(window: ClickWindow) -> Self {
-        Self {
+    pub fn new(
+        window: ClickWindow,
+        ambiguous_hold_window: AmbiguousHoldWindow,
+    ) -> Result<Self, InputError> {
+        if ambiguous_hold_window.0 < window.0 {
+            return Err(InputError::AmbiguousHoldWindowShorterThanClickWindow);
+        }
+        Ok(Self {
             window,
+            ambiguous_hold_window,
             pending: BTreeMap::new(),
             last_observed: None,
-        }
+        })
     }
 
     pub fn ingest(
@@ -378,43 +418,79 @@ impl ClickClassifier {
         now: MonotonicTime,
     ) -> Result<Vec<ClassifiedInput>, InputError> {
         self.validate_monotonic(now)?;
-        let new_deadline = if raw == RawInputEvent::CenterShort
-            && !self
+        let is_click_prefix = matches!(
+            raw,
+            RawInputEvent::CenterShort | RawInputEvent::AmbiguousCenterPrefix
+        );
+        let completes_double = is_click_prefix
+            && self
                 .pending
                 .get(&control_id)
-                .is_some_and(|deadline| now.seconds() <= *deadline)
-        {
-            let deadline = now.seconds() + self.window.0;
-            if !deadline.is_finite() || deadline <= now.seconds() {
+                .is_some_and(|pending| now.seconds() <= pending.double_deadline);
+        let new_pending = if is_click_prefix && !completes_double {
+            let double_deadline = now.seconds() + self.window.0;
+            let kind = if raw == RawInputEvent::AmbiguousCenterPrefix {
+                PendingKind::Ambiguous
+            } else {
+                PendingKind::Definitive
+            };
+            let emit_deadline = now.seconds()
+                + if kind == PendingKind::Ambiguous {
+                    self.ambiguous_hold_window.0
+                } else {
+                    self.window.0
+                };
+            if !double_deadline.is_finite()
+                || double_deadline <= now.seconds()
+                || !emit_deadline.is_finite()
+                || emit_deadline <= now.seconds()
+            {
                 return Err(InputError::DeadlineOverflow);
             }
-            Some(deadline)
+            Some(PendingClick {
+                double_deadline,
+                emit_deadline,
+                kind,
+            })
         } else {
             None
         };
         let mut events = self.take_due(now);
 
         match raw {
-            RawInputEvent::CenterShort => {
-                if let Some(deadline) = self.pending.remove(&control_id) {
-                    debug_assert!(now.seconds() <= deadline);
+            RawInputEvent::CenterShort | RawInputEvent::AmbiguousCenterPrefix => {
+                if completes_double {
+                    let pending = self
+                        .pending
+                        .remove(&control_id)
+                        .expect("eligible double click has a pending prefix");
+                    debug_assert!(now.seconds() <= pending.double_deadline);
                     events.push((control_id, Gesture::CenterDouble));
                 } else {
-                    let deadline =
-                        new_deadline.expect("new center-short sequence has a validated deadline");
-                    self.pending.insert(control_id, deadline);
+                    // A second prefix outside the double-click window resolves
+                    // the first click even when it was waiting for a late hold.
+                    if self.pending.remove(&control_id).is_some() {
+                        events.push((control_id.clone(), Gesture::CenterSingle));
+                    }
+                    self.pending.insert(
+                        control_id,
+                        new_pending.expect("new click sequence has validated deadlines"),
+                    );
                 }
             }
             RawInputEvent::CenterLong => {
-                // E1524/E1810 emits `toggle` before `toggle_hold`. The latter proves
-                // the former was a hold prefix, not a short click.
-                self.pending.remove(&control_id);
+                // Cancel only an explicitly ambiguous prefix. A definitive
+                // short-click event cannot be retroactively reclassified.
+                if self
+                    .pending
+                    .get(&control_id)
+                    .is_some_and(|pending| pending.kind == PendingKind::Ambiguous)
+                {
+                    self.pending.remove(&control_id);
+                }
                 events.push((control_id, Gesture::CenterLong));
             }
             RawInputEvent::CenterRelease => {
-                if self.pending.remove(&control_id).is_some() {
-                    events.push((control_id.clone(), Gesture::CenterSingle));
-                }
                 events.push((control_id, Gesture::CenterRelease));
             }
             RawInputEvent::Up
@@ -460,8 +536,8 @@ impl ClickClassifier {
         let mut due: Vec<_> = self
             .pending
             .iter()
-            .filter(|(_, deadline)| now.seconds() > **deadline)
-            .map(|(control_id, deadline)| (*deadline, control_id.clone()))
+            .filter(|(_, pending)| now.seconds() > pending.emit_deadline)
+            .map(|(control_id, pending)| (pending.emit_deadline, control_id.clone()))
             .collect();
         due.sort_by(|(left_deadline, left_id), (right_deadline, right_id)| {
             left_deadline
@@ -481,6 +557,8 @@ impl ClickClassifier {
 pub enum InputError {
     NonFinite,
     NonPositiveClickWindow,
+    NonPositiveAmbiguousHoldWindow,
+    AmbiguousHoldWindowShorterThanClickWindow,
     DeadlineOverflow,
     MonotonicClockRegressed,
     DuplicateGesture(Gesture),
@@ -495,6 +573,12 @@ impl Display for InputError {
             Self::NonFinite => formatter.write_str("input value must be finite"),
             Self::NonPositiveClickWindow => {
                 formatter.write_str("click window must be greater than zero")
+            }
+            Self::NonPositiveAmbiguousHoldWindow => {
+                formatter.write_str("ambiguous hold window must be greater than zero")
+            }
+            Self::AmbiguousHoldWindowShorterThanClickWindow => {
+                formatter.write_str("ambiguous hold window must not be shorter than click window")
             }
             Self::DeadlineOverflow => formatter.write_str("click deadline exceeds monotonic range"),
             Self::MonotonicClockRegressed => formatter.write_str("monotonic clock regressed"),
@@ -531,7 +615,9 @@ impl From<StateError> for InputError {
 mod tests {
     use crate::state::{ControlId, MonotonicTime};
 
-    use super::{ClickClassifier, ClickWindow, Direction, Gesture, RawInputEvent};
+    use super::{
+        AmbiguousHoldWindow, ClickClassifier, ClickWindow, Direction, Gesture, RawInputEvent,
+    };
 
     fn control(value: &str) -> ControlId {
         ControlId::new(value).unwrap()
@@ -542,7 +628,11 @@ mod tests {
     }
 
     fn classifier() -> ClickClassifier {
-        ClickClassifier::new(ClickWindow::from_seconds(0.35).unwrap())
+        ClickClassifier::new(
+            ClickWindow::from_seconds(0.35).unwrap(),
+            AmbiguousHoldWindow::from_seconds(1.2).unwrap(),
+        )
+        .unwrap()
     }
 
     fn gestures(events: &[(ControlId, Gesture)]) -> Vec<Gesture> {
@@ -630,17 +720,23 @@ mod tests {
     }
 
     #[test]
-    fn center_hold_cancels_preceding_toggle_without_single_click() {
+    fn ambiguous_center_prefix_waits_for_late_hold_without_single_click() {
         let remote = control("remote-a");
         let mut classifier = classifier();
         classifier
-            .ingest(remote.clone(), RawInputEvent::CenterShort, now(1.0))
+            .ingest(
+                remote.clone(),
+                RawInputEvent::AmbiguousCenterPrefix,
+                now(1.0),
+            )
             .unwrap();
+
+        assert!(classifier.flush_due(now(1.9)).unwrap().is_empty());
 
         assert_eq!(
             gestures(
                 &classifier
-                    .ingest(remote, RawInputEvent::CenterLong, now(1.1))
+                    .ingest(remote, RawInputEvent::CenterLong, now(2.0))
                     .unwrap()
             ),
             vec![Gesture::CenterLong]
@@ -649,7 +745,7 @@ mod tests {
     }
 
     #[test]
-    fn center_release_preserves_an_unrelated_pending_short_click() {
+    fn center_release_does_not_consume_or_break_definitive_double_click() {
         let remote = control("remote-a");
         let mut classifier = classifier();
         classifier
@@ -662,9 +758,45 @@ mod tests {
                     .ingest(remote, RawInputEvent::CenterRelease, now(1.1))
                     .unwrap()
             ),
-            vec![Gesture::CenterSingle, Gesture::CenterRelease]
+            vec![Gesture::CenterRelease]
+        );
+        assert_eq!(
+            classifier
+                .ingest(control("remote-a"), RawInputEvent::CenterShort, now(1.2),)
+                .unwrap(),
+            vec![(control("remote-a"), Gesture::CenterDouble)]
         );
         assert!(classifier.flush_due(now(2.0)).unwrap().is_empty());
+    }
+
+    #[test]
+    fn center_release_does_not_consume_or_break_ambiguous_double_click() {
+        let remote = control("remote-a");
+        let mut classifier = classifier();
+        classifier
+            .ingest(
+                remote.clone(),
+                RawInputEvent::AmbiguousCenterPrefix,
+                now(1.0),
+            )
+            .unwrap();
+
+        assert_eq!(
+            classifier
+                .ingest(remote.clone(), RawInputEvent::CenterRelease, now(1.1))
+                .unwrap(),
+            vec![(remote.clone(), Gesture::CenterRelease)]
+        );
+        assert_eq!(
+            classifier
+                .ingest(
+                    remote.clone(),
+                    RawInputEvent::AmbiguousCenterPrefix,
+                    now(1.2)
+                )
+                .unwrap(),
+            vec![(remote, Gesture::CenterDouble)]
+        );
     }
 
     #[test]
@@ -847,6 +979,89 @@ mod tests {
                 "accepted {seconds}"
             );
         }
+        for seconds in [0.0, -0.1, f64::NAN, f64::NEG_INFINITY, f64::INFINITY] {
+            assert!(AmbiguousHoldWindow::from_seconds(seconds).is_err());
+        }
+        assert!(
+            ClickClassifier::new(
+                ClickWindow::from_seconds(0.35).unwrap(),
+                AmbiguousHoldWindow::from_seconds(0.3).unwrap(),
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn ambiguous_prefix_single_waits_until_strictly_after_hold_window() {
+        let remote = control("remote-a");
+        let mut classifier = classifier();
+        classifier
+            .ingest(
+                remote.clone(),
+                RawInputEvent::AmbiguousCenterPrefix,
+                now(1.0),
+            )
+            .unwrap();
+
+        assert!(classifier.flush_due(now(2.2)).unwrap().is_empty());
+        assert_eq!(
+            classifier.flush_due(now(2.200_001)).unwrap(),
+            vec![(remote, Gesture::CenterSingle)]
+        );
+    }
+
+    #[test]
+    fn ambiguous_prefix_double_uses_inclusive_normal_double_window() {
+        for second_at in [1.349, 1.35] {
+            let remote = control("remote-a");
+            let mut classifier = classifier();
+            classifier
+                .ingest(
+                    remote.clone(),
+                    RawInputEvent::AmbiguousCenterPrefix,
+                    now(1.0),
+                )
+                .unwrap();
+
+            assert_eq!(
+                classifier
+                    .ingest(
+                        remote.clone(),
+                        RawInputEvent::AmbiguousCenterPrefix,
+                        now(second_at),
+                    )
+                    .unwrap(),
+                vec![(remote, Gesture::CenterDouble)]
+            );
+        }
+    }
+
+    #[test]
+    fn ambiguous_second_prefix_after_double_window_resolves_first_and_starts_next() {
+        let remote = control("remote-a");
+        let mut classifier = classifier();
+        classifier
+            .ingest(
+                remote.clone(),
+                RawInputEvent::AmbiguousCenterPrefix,
+                now(1.0),
+            )
+            .unwrap();
+
+        assert_eq!(
+            classifier
+                .ingest(
+                    remote.clone(),
+                    RawInputEvent::AmbiguousCenterPrefix,
+                    now(1.4),
+                )
+                .unwrap(),
+            vec![(remote.clone(), Gesture::CenterSingle)]
+        );
+        assert_eq!(
+            classifier.flush_due(now(2.600_001)).unwrap(),
+            vec![(remote, Gesture::CenterSingle)]
+        );
     }
 }
 
