@@ -9,3 +9,7 @@ publish = false
 [[bin]]
 name = "house-automationd"
 path = "src/main.rs"
+
+[dependencies]
+house-automation-core = { path = "../house-automation-core" }
+serde_json = "1"

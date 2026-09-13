@@ -39,6 +39,17 @@ pub enum RawInputEvent {
     CenterShort,
     CenterLong,
     CenterRelease,
+    DirectionHold(Direction),
+    DirectionRelease(Direction),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Direction {
+    Up,
+    Down,
+    Left,
+    Right,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -52,6 +63,8 @@ pub enum Gesture {
     CenterDouble,
     CenterLong,
     CenterRelease,
+    DirectionHold(Direction),
+    DirectionRelease(Direction),
 }
 
 pub type ClassifiedInput = (ControlId, Gesture);
@@ -392,16 +405,17 @@ impl ClickClassifier {
                     self.pending.insert(control_id, deadline);
                 }
             }
-            RawInputEvent::CenterLong | RawInputEvent::CenterRelease => {
+            RawInputEvent::CenterLong => {
+                // E1524/E1810 emits `toggle` before `toggle_hold`. The latter proves
+                // the former was a hold prefix, not a short click.
+                self.pending.remove(&control_id);
+                events.push((control_id, Gesture::CenterLong));
+            }
+            RawInputEvent::CenterRelease => {
                 if self.pending.remove(&control_id).is_some() {
                     events.push((control_id.clone(), Gesture::CenterSingle));
                 }
-                let gesture = match raw {
-                    RawInputEvent::CenterLong => Gesture::CenterLong,
-                    RawInputEvent::CenterRelease => Gesture::CenterRelease,
-                    _ => unreachable!("outer match restricts center gesture"),
-                };
-                events.push((control_id, gesture));
+                events.push((control_id, Gesture::CenterRelease));
             }
             RawInputEvent::Up
             | RawInputEvent::Down
@@ -415,6 +429,12 @@ impl ClickClassifier {
                     _ => unreachable!("outer match restricts directional gesture"),
                 };
                 events.push((control_id, gesture));
+            }
+            RawInputEvent::DirectionHold(direction) => {
+                events.push((control_id, Gesture::DirectionHold(direction)));
+            }
+            RawInputEvent::DirectionRelease(direction) => {
+                events.push((control_id, Gesture::DirectionRelease(direction)));
             }
         }
 
@@ -511,7 +531,7 @@ impl From<StateError> for InputError {
 mod tests {
     use crate::state::{ControlId, MonotonicTime};
 
-    use super::{ClickClassifier, ClickWindow, Gesture, RawInputEvent};
+    use super::{ClickClassifier, ClickWindow, Direction, Gesture, RawInputEvent};
 
     fn control(value: &str) -> ControlId {
         ControlId::new(value).unwrap()
@@ -610,23 +630,41 @@ mod tests {
     }
 
     #[test]
-    fn long_press_and_release_cannot_pair_with_pending_short_click() {
-        for (raw, expected) in [
-            (RawInputEvent::CenterLong, Gesture::CenterLong),
-            (RawInputEvent::CenterRelease, Gesture::CenterRelease),
-        ] {
-            let remote = control("remote-a");
-            let mut classifier = classifier();
-            classifier
-                .ingest(remote.clone(), RawInputEvent::CenterShort, now(1.0))
-                .unwrap();
+    fn center_hold_cancels_preceding_toggle_without_single_click() {
+        let remote = control("remote-a");
+        let mut classifier = classifier();
+        classifier
+            .ingest(remote.clone(), RawInputEvent::CenterShort, now(1.0))
+            .unwrap();
 
-            assert_eq!(
-                gestures(&classifier.ingest(remote, raw, now(1.1)).unwrap()),
-                vec![Gesture::CenterSingle, expected]
-            );
-            assert!(classifier.flush_due(now(2.0)).unwrap().is_empty());
-        }
+        assert_eq!(
+            gestures(
+                &classifier
+                    .ingest(remote, RawInputEvent::CenterLong, now(1.1))
+                    .unwrap()
+            ),
+            vec![Gesture::CenterLong]
+        );
+        assert!(classifier.flush_due(now(2.0)).unwrap().is_empty());
+    }
+
+    #[test]
+    fn center_release_preserves_an_unrelated_pending_short_click() {
+        let remote = control("remote-a");
+        let mut classifier = classifier();
+        classifier
+            .ingest(remote.clone(), RawInputEvent::CenterShort, now(1.0))
+            .unwrap();
+
+        assert_eq!(
+            gestures(
+                &classifier
+                    .ingest(remote, RawInputEvent::CenterRelease, now(1.1))
+                    .unwrap()
+            ),
+            vec![Gesture::CenterSingle, Gesture::CenterRelease]
+        );
+        assert!(classifier.flush_due(now(2.0)).unwrap().is_empty());
     }
 
     #[test]
@@ -676,6 +714,40 @@ mod tests {
             classifier.flush_due(now(1.351)).unwrap(),
             vec![(remote, Gesture::CenterSingle)]
         );
+    }
+
+    #[test]
+    fn direction_hold_and_release_are_vendor_neutral() {
+        let remote = control("remote-a");
+        let mut classifier = classifier();
+
+        for direction in [
+            Direction::Up,
+            Direction::Down,
+            Direction::Left,
+            Direction::Right,
+        ] {
+            assert_eq!(
+                classifier
+                    .ingest(
+                        remote.clone(),
+                        RawInputEvent::DirectionHold(direction),
+                        now(1.0)
+                    )
+                    .unwrap(),
+                vec![(remote.clone(), Gesture::DirectionHold(direction))]
+            );
+            assert_eq!(
+                classifier
+                    .ingest(
+                        remote.clone(),
+                        RawInputEvent::DirectionRelease(direction),
+                        now(1.0),
+                    )
+                    .unwrap(),
+                vec![(remote.clone(), Gesture::DirectionRelease(direction))]
+            );
+        }
     }
 
     #[test]

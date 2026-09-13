@@ -13,6 +13,10 @@ dependencies = [
 [[package]]
 name = "house-automationd"
 version = "0.1.0"
+dependencies = [
+ "house-automation-core",
+ "serde_json",
+]
 
 [[package]]
 name = "itoa"
