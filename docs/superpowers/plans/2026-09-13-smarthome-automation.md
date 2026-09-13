@@ -120,3 +120,13 @@
 - [ ] Add pinned GitHub Actions workflow running `nix flake check -L`; keep token permissions read-only.
 - [ ] Run `git diff --check`, `cargo fmt --check`, Clippy, tests, build, and `nix flake check -L`.
 - [ ] Commit `docs: add smarthome operations guide and CI`.
+
+### Task 13: Black-box simulated house
+
+- [ ] RED: add a NixOS VM check that boots the packaged daemon plus real Mosquitto and fails before simulation support exists.
+- [ ] Mock only the external Zigbee adapter boundary: publish representative Zigbee2MQTT device/availability/remote payloads over real MQTT and observe real command topics. Do not add test-only HTTP mutation routes.
+- [ ] Use production config seams for short scheduler/reconciliation intervals and VM wall-clock control for 04:00. Drive real flows for center single/double click, freeze/unfreeze acknowledgement, offset changes, whole-hour overlay expiry, state restore after daemon restart, Mosquitto restart/reconnect, device unavailable/recovery reconciliation, and `/healthz` readiness.
+- [ ] Assert no command/event publication is retained, SQLite excludes overlays/convergence, useful structured journal fields exist, and simulated on/off-only devices are never flashed for acknowledgement.
+- [ ] Keep hardware-only Ember coordinator startup as static Nix/config validation; document why radio firmware/USB behavior requires later physical smoke testing.
+- [ ] Expose simulation as a named flake check, run it locally, then run full `nix flake check -L`.
+- [ ] Commit `test: simulate house automation end to end`.

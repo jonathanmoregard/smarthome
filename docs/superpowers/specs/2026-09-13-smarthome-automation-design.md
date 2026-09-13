@@ -83,9 +83,9 @@ Health endpoint binds `127.0.0.1` by default and reports process readiness, data
 
 ## Testing and CI
 
-Core tests use fake clocks and cover every requested curve, offset, freeze, reset, overlay, click, persistence, reconnect, and capability behavior. Daemon integration tests use temporary SQLite and an in-process/mock MQTT transport boundary, not mock assertions. Nix module tests inspect generated service/config contracts and run the daemon health path.
+Core tests use fake clocks and cover every requested curve, offset, freeze, reset, overlay, click, persistence, reconnect, and capability behavior. Daemon integration tests use temporary SQLite and an in-process MQTT transport boundary. A black-box NixOS simulation boots the real daemon and Mosquitto, while a fake external Zigbee adapter publishes representative Zigbee2MQTT payloads and observes real command topics. Production configuration seams shorten scheduler intervals; VM wall-clock control reaches 04:00 behavior. No test-only HTTP state injection exists. The simulation exercises pairing-style discovery/state, remote clicks, command acknowledgement, overlay expiry, persistence across daemon restart, broker disconnect/reconnect, device availability recovery, health readiness, and journal output. Hardware-only coordinator startup remains a static configuration assertion because a real Ember radio cannot be meaningfully emulated.
 
-`nix flake check` exposes Rust formatting, Clippy with warnings denied, workspace tests, package build, and NixOS module evaluation. GitHub Actions runs that single flake gate on pushes and pull requests.
+`nix flake check` exposes Rust formatting, Clippy with warnings denied, workspace tests, package build, NixOS module evaluation, and the black-box simulated-house VM. GitHub Actions runs that single flake gate on pushes and pull requests.
 
 ## Source facts used by host integration
 
