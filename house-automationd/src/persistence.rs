@@ -70,19 +70,24 @@ impl SqliteStateStore {
     }
 
     fn open_path(path: &Path, create: bool) -> Result<Self, PersistenceError> {
+        Self::open_path_with_reservation_hook(path, create, |_| Ok(()))
+    }
+
+    fn open_path_with_reservation_hook(
+        path: &Path,
+        create: bool,
+        after_reservation: impl FnOnce(bool) -> Result<(), PersistenceError>,
+    ) -> Result<Self, PersistenceError> {
         reject_sqlite_pseudo_path(path)?;
         let (canonical_path, created, reservation) = prepare_database_path(path, create)?;
-        let result = Connection::open_with_flags(
+        after_reservation(created)?;
+        let connection = Connection::open_with_flags(
             &canonical_path,
             OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )
-        .map_err(|source| PersistenceError::sql("open state database", source))
-        .and_then(|connection| Self::finish_open(&canonical_path, connection));
+        .map_err(|source| PersistenceError::sql("open state database", source))?;
         drop(reservation);
-        if result.is_err() && created {
-            let _ = fs::remove_file(&canonical_path);
-        }
-        result
+        Self::finish_open(&canonical_path, connection)
     }
 
     fn finish_open(path: &Path, mut connection: Connection) -> Result<Self, PersistenceError> {
@@ -200,7 +205,14 @@ impl SqliteStateStore {
     }
 
     pub fn backup_to(&self, destination: impl AsRef<Path>) -> Result<(), PersistenceError> {
-        let destination = destination.as_ref();
+        self.backup_to_with_parent_sync(destination.as_ref(), sync_parent_directory)
+    }
+
+    fn backup_to_with_parent_sync(
+        &self,
+        destination: &Path,
+        sync_parent: impl FnOnce(&Path) -> io::Result<()>,
+    ) -> Result<(), PersistenceError> {
         reject_sqlite_pseudo_path(destination)?;
         let destination_parent = existing_parent(destination)?;
         let file_name = destination
@@ -247,16 +259,19 @@ impl SqliteStateStore {
                 operation: "sync online backup",
                 source,
             })?;
-        temporary
-            .persist_noclobber(destination)
-            .map(|_| ())
-            .map_err(|error| match error.error.kind() {
-                io::ErrorKind::AlreadyExists => PersistenceError::BackupDestinationExists,
-                _ => PersistenceError::Io {
-                    operation: "publish online backup",
-                    source: error.error,
-                },
-            })
+        let published =
+            temporary
+                .persist_noclobber(destination)
+                .map_err(|error| match error.error.kind() {
+                    io::ErrorKind::AlreadyExists => PersistenceError::BackupDestinationExists,
+                    _ => PersistenceError::Io {
+                        operation: "publish online backup",
+                        source: error.error,
+                    },
+                })?;
+        drop(published);
+        sync_parent(&destination_parent)
+            .map_err(|source| PersistenceError::BackupPublishedDirectorySync { source })
     }
 }
 
@@ -340,6 +355,18 @@ fn set_owner_only(file: &File) -> Result<(), PersistenceError> {
             source,
         })?;
     Ok(())
+}
+
+fn sync_parent_directory(path: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        File::open(path)?.sync_all()
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Ok(())
+    }
 }
 
 fn configure_connection(connection: &Connection) -> Result<(), PersistenceError> {
@@ -685,6 +712,9 @@ pub enum PersistenceError {
     BackupDestinationExists,
     InvalidFilesystemPath,
     SchemaDrift,
+    BackupPublishedDirectorySync {
+        source: io::Error,
+    },
     Io {
         operation: &'static str,
         source: io::Error,
@@ -720,6 +750,12 @@ impl Display for PersistenceError {
                 formatter.write_str("database path must name an ordinary filesystem file")
             }
             Self::SchemaDrift => formatter.write_str("physical schema drift detected"),
+            Self::BackupPublishedDirectorySync { source } => {
+                write!(
+                    formatter,
+                    "backup published but destination directory sync failed: {source}"
+                )
+            }
             Self::Io { operation, source } => write!(formatter, "{operation}: {source}"),
         }
     }
@@ -731,6 +767,7 @@ impl Error for PersistenceError {
             Self::Sql { source, .. } | Self::MigrationSql { source, .. } => Some(source),
             Self::Json { source, .. } => Some(source),
             Self::Restore(source) => Some(source),
+            Self::BackupPublishedDirectorySync { source } => Some(source),
             Self::Io { source, .. } => Some(source),
             Self::MigrationHistory(_)
             | Self::UnsupportedRecordFormat { .. }
@@ -744,7 +781,7 @@ impl Error for PersistenceError {
 
 #[cfg(test)]
 mod tests {
-    use std::{cell::Cell, sync::mpsc, thread, time::Duration};
+    use std::{cell::Cell, io, sync::mpsc, thread, time::Duration};
 
     use house_automation_core::state::{
         AutomationState, ControlId, ControlState, Scope, ScopeId, ScopeState,
@@ -812,6 +849,77 @@ mod tests {
         writer.join().unwrap();
         assert!(completed_during_read.get());
         assert_eq!(loaded.snapshot(), expected);
+    }
+
+    #[test]
+    fn failed_creator_never_unlinks_database_completed_by_concurrent_opener() {
+        let directory = TempDir::new().unwrap();
+        let path = directory.path().join("state.sqlite3");
+        let creator_path = path.clone();
+        let (reserved, observe_reservation) = mpsc::channel();
+        let (completed, allow_creator_failure) = mpsc::channel();
+        let creator = thread::spawn(move || {
+            let result =
+                SqliteStateStore::open_path_with_reservation_hook(&creator_path, true, |created| {
+                    assert!(created);
+                    reserved.send(()).unwrap();
+                    allow_creator_failure.recv().unwrap();
+                    Err(super::PersistenceError::CorruptRecord(
+                        "injected first-opener failure".to_owned(),
+                    ))
+                });
+            assert!(result.is_err());
+        });
+        observe_reservation.recv().unwrap();
+
+        let concurrent = SqliteStateStore::open(&path).unwrap();
+        let expected = state_with_control();
+        concurrent.save(&expected).unwrap();
+        drop(concurrent);
+        completed.send(()).unwrap();
+        creator.join().unwrap();
+
+        assert!(path.is_file());
+        let reopened = SqliteStateStore::open_existing(&path).unwrap();
+        assert_eq!(
+            reopened.schema_version().unwrap(),
+            super::CURRENT_SCHEMA_VERSION
+        );
+        assert_eq!(reopened.load().unwrap().snapshot(), expected.snapshot());
+    }
+
+    #[test]
+    fn parent_sync_failure_reports_published_backup_without_deleting_it() {
+        let directory = TempDir::new().unwrap();
+        let source = directory.path().join("state.sqlite3");
+        let destination = directory.path().join("backup.sqlite3");
+        let store = SqliteStateStore::open(&source).unwrap();
+        let expected = state_with_control();
+        store.save(&expected).unwrap();
+        let sync_observed_published_file = Cell::new(false);
+
+        let error = store
+            .backup_to_with_parent_sync(&destination, |parent| {
+                assert_eq!(parent, directory.path().canonicalize().unwrap());
+                sync_observed_published_file.set(destination.is_file());
+                Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "injected directory sync failure",
+                ))
+            })
+            .unwrap_err();
+
+        assert!(sync_observed_published_file.get());
+        assert!(matches!(
+            error,
+            super::PersistenceError::BackupPublishedDirectorySync { .. }
+        ));
+        assert!(error.to_string().contains("backup published"));
+        let restored = SqliteStateStore::open_existing(destination)
+            .unwrap()
+            .load()
+            .unwrap();
+        assert_eq!(restored.snapshot(), expected.snapshot());
     }
 
     #[test]
