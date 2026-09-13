@@ -49,7 +49,7 @@
 ### Task 4: Scope state, freeze, convergence, offsets, and 04:00 reset
 
 - [ ] RED: use fake wall/monotonic clocks to cover freeze capture, time-invariant frozen baseline, offsets while frozen, smooth unfreeze, full convergence, and reset of every scope at/after 04:00.
-- [ ] Include missed-reset startup test: persisted prior reset date plus startup after 04:00 returns all controls to FOLLOW in one transition.
+- [ ] Include missed-reset startup tests before and after 04:00. A due reset atomically moves every frozen control into smooth convergence; `Converging` is already unfrozen and becomes `Follow` when convergence completes.
 - [ ] Run `cargo test -p house-automation-core state`; verify expected failures.
 - [ ] GREEN: implement `ScopeId`, room/floor/house membership, `CurveMode`, convergence, `ScopeState`, composed target, and atomic daily reset transition.
 - [ ] Run all core tests; expect pass.
