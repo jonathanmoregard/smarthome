@@ -103,9 +103,10 @@ impl RetryPolicy {
 
     /// Configures local dispatch acknowledgement and retry timing.
     ///
-    /// The acceptance timeout must exceed the adapter's largest plan-relative
-    /// publication delay. The executor must drive `retry_due` often enough to
-    /// sweep expired staged tokens and release deferred work at its deadline.
+    /// The acceptance timeout is a margin added after the adapter's largest
+    /// registered plan-relative publication delay. The executor must drive
+    /// `retry_due` often enough to sweep expired staged tokens and release
+    /// deferred work at its deadline.
     pub fn with_dispatch_timing(
         mut self,
         acceptance_timeout_seconds: f64,
@@ -132,11 +133,13 @@ impl RetryPolicy {
 
     fn dispatch_acceptance_deadline(
         self,
-        now: MonotonicTime,
+        epoch: MonotonicTime,
+        max_offset_ms: u64,
     ) -> Result<MonotonicTime, ReconcileError> {
+        let max_offset_seconds = max_offset_ms as f64 / 1000.0;
         checked_deadline(
-            now,
-            self.dispatch_acceptance_timeout_seconds,
+            epoch,
+            max_offset_seconds + self.dispatch_acceptance_timeout_seconds,
             ReconcileError::DispatchAcceptanceDeadlineOverflow,
         )
     }
@@ -314,6 +317,50 @@ impl DispatchToken {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DispatchRegistrationOutcome {
+    Registered,
+    AlreadyRegistered,
+    Stale,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DispatchAcceptance {
+    OperationAccepted { remaining: usize },
+    BatchAccepted,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DispatchCancellation {
+    Cancelled,
+    Stale,
+}
+
+/// Result of claiming one ordered publication from a registered dispatch plan.
+///
+/// `Ready` contains a permit borrowing the reconciler mutably. The executor
+/// must retain that permit across the asynchronous MQTT enqueue and then
+/// consume it with exactly one completion method. This makes a desired-state
+/// mutation through the same single-owner actor impossible while enqueue is in
+/// flight. A stale or previously accepted publication is skipped benignly.
+pub enum DispatchClaim<'a> {
+    Ready(DispatchPermit<'a>),
+    AlreadyAccepted,
+    Stale,
+}
+
+/// Exclusive lease for one MQTT publication in a dispatch batch.
+///
+/// Holding this value keeps a mutable borrow of the reconciler. Runtime code
+/// must keep the reconciler in one actor and hold the permit across `.await`;
+/// do not introduce a second mutex-backed mutation path around this contract.
+#[must_use = "a dispatch permit must be completed or deliberately dropped for timeout recovery"]
+pub struct DispatchPermit<'a> {
+    reconciler: &'a mut Reconciler,
+    token: DispatchToken,
+    operation_index: usize,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum ReconcileAction {
     Resubscribe,
@@ -328,6 +375,15 @@ pub enum ReconcileAction {
 #[derive(Debug, Clone, PartialEq)]
 struct StagedDispatch {
     affected: BTreeMap<DeviceId, StagedAttempt>,
+    plan: Option<RegisteredDispatchPlan>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct RegisteredDispatchPlan {
+    epoch: MonotonicTime,
+    operation_count: usize,
+    max_offset_ms: u64,
+    next_operation_index: usize,
     acceptance_deadline: MonotonicTime,
 }
 
@@ -436,6 +492,30 @@ pub struct Reconciler {
     last_time: Option<MonotonicTime>,
 }
 
+impl DispatchPermit<'_> {
+    /// Records this publication as accepted by the MQTT client.
+    ///
+    /// The final operation completes the atomic batch and starts its on-wire
+    /// correlation deadline; earlier operations only advance plan progress.
+    pub fn accepted(self, now: MonotonicTime) -> Result<DispatchAcceptance, ReconcileError> {
+        self.reconciler
+            .accept_dispatch_operation(self.token, self.operation_index, now)
+    }
+
+    /// Moves the entire batch to local-failure backoff without consuming an
+    /// on-wire attempt, including when earlier operations were accepted.
+    pub fn transient_failure(self, now: MonotonicTime) -> Result<(), ReconcileError> {
+        self.reconciler
+            .fail_dispatch_operation(self.token, self.operation_index, now)
+    }
+
+    /// Cancels the entire batch after a permanent adapter/configuration error.
+    pub fn permanent_failure(self, now: MonotonicTime) -> Result<(), ReconcileError> {
+        self.reconciler
+            .cancel_claimed_dispatch(self.token, self.operation_index, now)
+    }
+}
+
 impl Reconciler {
     pub fn new(
         devices: Vec<DeviceDefinition>,
@@ -515,14 +595,98 @@ impl Reconciler {
             .ok_or_else(|| ReconcileError::UnknownDevice(id.clone()))
     }
 
-    /// Returns whether a staged batch may still be enqueued.
+    /// Returns whether a staged batch still exists for diagnostics/tests.
     ///
-    /// Executors must check this immediately before every delayed publication.
-    /// A broker disconnect, newer desired state, timeout sweep, failure, or
-    /// permanent cancellation invalidates the token and requires the remaining
-    /// delayed publications to be skipped.
+    /// This observation does not authorize an enqueue: executors must use
+    /// `claim_next_operation` so token validation and the enqueue lease cannot
+    /// race. A broker disconnect, newer desired state, timeout sweep, failure,
+    /// or permanent cancellation invalidates the token.
     pub fn is_dispatch_token_valid(&self, token: DispatchToken) -> bool {
         self.staged_dispatches.contains_key(&token)
+    }
+
+    /// Registers the execution shape of one adapter plan before any of its
+    /// publications are enqueued.
+    ///
+    /// The deadline is derived atomically from the plan epoch, its largest
+    /// relative delay, and the retry policy's acceptance margin. A token that
+    /// a newer desired state already invalidated returns `Stale` rather than
+    /// turning a normal actor race into a daemon error.
+    pub fn register_dispatch_plan(
+        &mut self,
+        token: DispatchToken,
+        epoch: MonotonicTime,
+        operation_count: usize,
+        max_offset_ms: u64,
+    ) -> Result<DispatchRegistrationOutcome, ReconcileError> {
+        if !self.staged_dispatches.contains_key(&token) {
+            return Ok(DispatchRegistrationOutcome::Stale);
+        }
+        self.transact_value(epoch, |next, _| {
+            if operation_count == 0 {
+                return Err(ReconcileError::InvalidDispatchOperationCount);
+            }
+            let acceptance_deadline = next
+                .retry_policy
+                .dispatch_acceptance_deadline(epoch, max_offset_ms)?;
+            let staged = next
+                .staged_dispatches
+                .get_mut(&token)
+                .expect("token existence checked before transactional clone");
+            let proposed = RegisteredDispatchPlan {
+                epoch,
+                operation_count,
+                max_offset_ms,
+                next_operation_index: 0,
+                acceptance_deadline,
+            };
+            match staged.plan {
+                None => {
+                    staged.plan = Some(proposed);
+                    Ok(DispatchRegistrationOutcome::Registered)
+                }
+                Some(existing)
+                    if existing.epoch == epoch
+                        && existing.operation_count == operation_count
+                        && existing.max_offset_ms == max_offset_ms =>
+                {
+                    Ok(DispatchRegistrationOutcome::AlreadyRegistered)
+                }
+                Some(_) => Err(ReconcileError::DispatchPlanMismatch(token)),
+            }
+        })
+    }
+
+    /// Claims the next ordered operation for exclusive MQTT enqueue.
+    ///
+    /// Claims for invalidated tokens and already accepted indices are benign.
+    /// Skipping forward is a malformed executor plan and remains an error.
+    pub fn claim_next_operation(
+        &mut self,
+        token: DispatchToken,
+        operation_index: usize,
+    ) -> Result<DispatchClaim<'_>, ReconcileError> {
+        let Some(staged) = self.staged_dispatches.get(&token) else {
+            return Ok(DispatchClaim::Stale);
+        };
+        let plan = staged
+            .plan
+            .ok_or(ReconcileError::UnregisteredDispatchPlan(token))?;
+        if operation_index < plan.next_operation_index {
+            return Ok(DispatchClaim::AlreadyAccepted);
+        }
+        if operation_index != plan.next_operation_index || operation_index >= plan.operation_count {
+            return Err(ReconcileError::UnexpectedDispatchOperation {
+                expected: plan.next_operation_index,
+                actual: operation_index,
+                operation_count: plan.operation_count,
+            });
+        }
+        Ok(DispatchClaim::Ready(DispatchPermit {
+            reconciler: self,
+            token,
+            operation_index,
+        }))
     }
 
     pub fn broker_disconnected(&mut self, now: MonotonicTime) -> Result<(), ReconcileError> {
@@ -539,7 +703,7 @@ impl Reconciler {
         &mut self,
         now: MonotonicTime,
     ) -> Result<Vec<ReconcileAction>, ReconcileError> {
-        self.transact(now, |next, now| {
+        self.transact(now, |next, _| {
             next.transport = TransportStatus::Connected;
             let mut actions = vec![ReconcileAction::Resubscribe];
             actions.extend(
@@ -548,7 +712,7 @@ impl Reconciler {
                     .cloned()
                     .map(ReconcileAction::RequestState),
             );
-            actions.extend(next.reconcile_all(now)?);
+            actions.extend(next.reconcile_all()?);
             Ok(actions)
         })
     }
@@ -558,7 +722,7 @@ impl Reconciler {
         availability: Availability,
         now: MonotonicTime,
     ) -> Result<Vec<ReconcileAction>, ReconcileError> {
-        self.transact(now, |next, now| {
+        self.transact(now, |next, _| {
             let previous = next.bridge;
             next.bridge = availability;
             if availability == Availability::Offline {
@@ -566,7 +730,7 @@ impl Reconciler {
                 next.deferred_dispatches.clear();
             }
             if previous == Availability::Offline && availability != Availability::Offline {
-                next.reconcile_all(now)
+                next.reconcile_all()
             } else {
                 Ok(Vec::new())
             }
@@ -579,7 +743,7 @@ impl Reconciler {
         availability: Availability,
         now: MonotonicTime,
     ) -> Result<Vec<ReconcileAction>, ReconcileError> {
-        self.transact(now, |next, now| {
+        self.transact(now, |next, _| {
             let previous = {
                 let state = next
                     .devices
@@ -598,9 +762,9 @@ impl Reconciler {
                 BTreeSet::new()
             };
             let mut actions =
-                next.stage_current_devices(canceled.into_iter().map(|id| (id, 1)).collect(), now)?;
+                next.stage_current_devices(canceled.into_iter().map(|id| (id, 1)).collect())?;
             if previous == Availability::Offline && availability != Availability::Offline {
-                actions.extend(next.command_device(id, 1, now)?);
+                actions.extend(next.command_device(id, 1)?);
             }
             Ok(actions)
         })
@@ -612,7 +776,7 @@ impl Reconciler {
         target: LightTarget,
         now: MonotonicTime,
     ) -> Result<Vec<ReconcileAction>, ReconcileError> {
-        self.transact(now, |next, now| {
+        self.transact(now, |next, _| {
             let in_sync = {
                 let state = next
                     .devices
@@ -631,10 +795,10 @@ impl Reconciler {
             if in_sync {
                 canceled.remove(id);
                 return next
-                    .stage_current_devices(canceled.into_iter().map(|id| (id, 1)).collect(), now);
+                    .stage_current_devices(canceled.into_iter().map(|id| (id, 1)).collect());
             }
             canceled.insert(id.clone());
-            next.stage_current_devices(canceled.into_iter().map(|id| (id, 1)).collect(), now)
+            next.stage_current_devices(canceled.into_iter().map(|id| (id, 1)).collect())
         })
     }
 
@@ -644,16 +808,13 @@ impl Reconciler {
         target: LightTarget,
         now: MonotonicTime,
     ) -> Result<Vec<ReconcileAction>, ReconcileError> {
-        self.transact(now, |next, now| {
-            next.set_group_desired_inner(id, target, now)
-        })
+        self.transact(now, |next, _| next.set_group_desired_inner(id, target))
     }
 
     fn set_group_desired_inner(
         &mut self,
         id: &EntityId,
         target: LightTarget,
-        now: MonotonicTime,
     ) -> Result<Vec<ReconcileAction>, ReconcileError> {
         let (members, group_target, group_target_changed) = {
             let group = self
@@ -694,8 +855,7 @@ impl Reconciler {
         }
         if !canceled.is_empty() {
             canceled.extend(changed_members);
-            return self
-                .stage_current_devices(canceled.into_iter().map(|id| (id, 1)).collect(), now);
+            return self.stage_current_devices(canceled.into_iter().map(|id| (id, 1)).collect());
         }
 
         self.command_group_with_fallbacks(
@@ -704,7 +864,6 @@ impl Reconciler {
             group_target,
             group_target_changed,
             &changed_members,
-            now,
         )
     }
 
@@ -714,7 +873,7 @@ impl Reconciler {
         observed: DeviceTarget,
         now: MonotonicTime,
     ) -> Result<Vec<ReconcileAction>, ReconcileError> {
-        self.transact(now, |next, now| {
+        self.transact(now, |next, _| {
             let in_sync = {
                 let state = next
                     .devices
@@ -732,7 +891,7 @@ impl Reconciler {
             }
             let mut canceled = next.cancel_work_for_device(id);
             canceled.remove(id);
-            next.stage_current_devices(canceled.into_iter().map(|id| (id, 1)).collect(), now)
+            next.stage_current_devices(canceled.into_iter().map(|id| (id, 1)).collect())
         })
     }
 
@@ -741,7 +900,7 @@ impl Reconciler {
         id: &DeviceId,
         now: MonotonicTime,
     ) -> Result<Vec<ReconcileAction>, ReconcileError> {
-        self.transact(now, |next, now| {
+        self.transact(now, |next, _| {
             let state = next
                 .devices
                 .get_mut(id)
@@ -756,26 +915,47 @@ impl Reconciler {
             let mut actions = vec![ReconcileAction::RequestState(id.clone())];
             let mut affected: BTreeMap<_, _> = canceled.into_iter().map(|id| (id, 1)).collect();
             affected.insert(id.clone(), 1);
-            actions.extend(next.stage_current_devices(affected, now)?);
+            actions.extend(next.stage_current_devices(affected)?);
             Ok(actions)
         })
     }
 
-    /// Records a complete command batch only after the MQTT client accepted
-    /// every publication in that batch. Adapter encoding and enqueue failures
-    /// must call `dispatch_failed` instead.
-    pub fn dispatch_succeeded(
+    fn accept_dispatch_operation(
         &mut self,
         token: DispatchToken,
+        operation_index: usize,
         now: MonotonicTime,
-    ) -> Result<(), ReconcileError> {
-        self.transact(now, |next, now| {
-            let staged = next
-                .staged_dispatches
-                .remove(&token)
-                .ok_or(ReconcileError::UnknownDispatchToken(token))?;
+    ) -> Result<DispatchAcceptance, ReconcileError> {
+        self.transact_value(now, |next, now| {
+            let (remaining, affected) = {
+                let staged = next
+                    .staged_dispatches
+                    .get_mut(&token)
+                    .ok_or(ReconcileError::UnknownDispatchToken(token))?;
+                let plan = staged
+                    .plan
+                    .as_mut()
+                    .ok_or(ReconcileError::UnregisteredDispatchPlan(token))?;
+                if plan.next_operation_index != operation_index {
+                    return Err(ReconcileError::UnexpectedDispatchOperation {
+                        expected: plan.next_operation_index,
+                        actual: operation_index,
+                        operation_count: plan.operation_count,
+                    });
+                }
+                plan.next_operation_index += 1;
+                let remaining = plan.operation_count - plan.next_operation_index;
+                (remaining, (remaining == 0).then(|| staged.affected.clone()))
+            };
+            if remaining != 0 {
+                return Ok(DispatchAcceptance::OperationAccepted { remaining });
+            }
             let deadline = next.retry_policy.deadline(now)?;
-            for (id, attempt) in staged.affected {
+            let affected = affected.expect("final operation clones affected batch");
+            next.staged_dispatches
+                .remove(&token)
+                .expect("accepted token remains staged until its final operation");
+            for (id, attempt) in affected {
                 let state = next
                     .devices
                     .get_mut(&id)
@@ -788,20 +968,18 @@ impl Reconciler {
                     attempts: attempt.attempts,
                 });
             }
-            Ok(Vec::new())
-        })?;
-        Ok(())
+            Ok(DispatchAcceptance::BatchAccepted)
+        })
     }
 
-    /// Defers a transient MQTT enqueue failure until the configured backoff.
-    /// No on-wire attempt is consumed and no immediate work is returned, so a
-    /// persistently rejecting client cannot create a busy retry loop.
-    pub fn dispatch_failed(
+    fn fail_dispatch_operation(
         &mut self,
         token: DispatchToken,
+        operation_index: usize,
         now: MonotonicTime,
     ) -> Result<(), ReconcileError> {
-        self.transact(now, |next, now| {
+        self.transact_value(now, |next, now| {
+            next.validate_claimed_operation(token, operation_index)?;
             let staged = next
                 .staged_dispatches
                 .remove(&token)
@@ -814,9 +992,23 @@ impl Reconciler {
                     .collect(),
                 now,
             )?;
-            Ok(Vec::new())
-        })?;
-        Ok(())
+            Ok(())
+        })
+    }
+
+    fn cancel_claimed_dispatch(
+        &mut self,
+        token: DispatchToken,
+        operation_index: usize,
+        now: MonotonicTime,
+    ) -> Result<(), ReconcileError> {
+        self.transact_value(now, |next, _| {
+            next.validate_claimed_operation(token, operation_index)?;
+            next.staged_dispatches
+                .remove(&token)
+                .expect("claimed token remains staged while permit borrows reconciler");
+            Ok(())
+        })
     }
 
     /// Permanently cancels a staged batch.
@@ -828,14 +1020,14 @@ impl Reconciler {
         &mut self,
         token: DispatchToken,
         now: MonotonicTime,
-    ) -> Result<(), ReconcileError> {
-        self.transact(now, |next, _| {
-            next.staged_dispatches
-                .remove(&token)
-                .ok_or(ReconcileError::UnknownDispatchToken(token))?;
-            Ok(Vec::new())
-        })?;
-        Ok(())
+    ) -> Result<DispatchCancellation, ReconcileError> {
+        self.transact_value(now, |next, _| {
+            Ok(if next.staged_dispatches.remove(&token).is_some() {
+                DispatchCancellation::Cancelled
+            } else {
+                DispatchCancellation::Stale
+            })
+        })
     }
 
     /// Sweeps dispatch-acceptance timeouts, releases local-failure backoff, and
@@ -854,7 +1046,11 @@ impl Reconciler {
         let expired: Vec<_> = self
             .staged_dispatches
             .iter()
-            .filter(|(_, dispatch)| now >= dispatch.acceptance_deadline)
+            .filter(|(_, dispatch)| {
+                dispatch
+                    .plan
+                    .is_some_and(|plan| now >= plan.acceptance_deadline)
+            })
             .map(|(token, _)| *token)
             .collect();
         for token in expired {
@@ -887,7 +1083,7 @@ impl Reconciler {
                 .deferred_dispatches
                 .remove(&sequence)
                 .expect("due sequence came from deferred dispatch map");
-            actions.extend(self.stage_current_devices(deferred.affected_attempts, now)?);
+            actions.extend(self.stage_current_devices(deferred.affected_attempts)?);
         }
 
         let due: Vec<_> = self
@@ -900,10 +1096,15 @@ impl Reconciler {
                     .map(|pending| (id.clone(), pending))
             })
             .collect();
-        let staged_devices: BTreeSet<_> = self
+        let scheduled_devices: BTreeSet<_> = self
             .staged_dispatches
             .values()
             .flat_map(|dispatch| dispatch.affected.keys().cloned())
+            .chain(
+                self.deferred_dispatches
+                    .values()
+                    .flat_map(|dispatch| dispatch.affected_attempts.keys().cloned()),
+            )
             .collect();
         for (id, pending) in due {
             let state = self
@@ -912,7 +1113,7 @@ impl Reconciler {
                 .expect("due command came from configured device");
             if state.availability == Availability::Offline
                 || pending.attempts >= self.retry_policy.max_attempts
-                || staged_devices.contains(&id)
+                || scheduled_devices.contains(&id)
             {
                 continue;
             }
@@ -923,11 +1124,9 @@ impl Reconciler {
                     attempts: pending.attempts + 1,
                 },
             )]);
-            actions.extend(self.stage_dispatch(
-                vec![(CommandEntity::Device(id), pending.target)],
-                affected,
-                now,
-            )?);
+            actions.extend(
+                self.stage_dispatch(vec![(CommandEntity::Device(id), pending.target)], affected)?,
+            );
         }
         Ok(actions)
     }
@@ -939,6 +1138,17 @@ impl Reconciler {
     ) -> Result<Vec<ReconcileAction>, ReconcileError>
     where
         F: FnOnce(&mut Self, MonotonicTime) -> Result<Vec<ReconcileAction>, ReconcileError>,
+    {
+        self.transact_value(now, operation)
+    }
+
+    fn transact_value<T, F>(
+        &mut self,
+        now: MonotonicTime,
+        operation: F,
+    ) -> Result<T, ReconcileError>
+    where
+        F: FnOnce(&mut Self, MonotonicTime) -> Result<T, ReconcileError>,
     {
         if self.last_time.is_some_and(|previous| now < previous) {
             return Err(ReconcileError::MonotonicClockRegressed);
@@ -954,11 +1164,32 @@ impl Reconciler {
         self.transport == TransportStatus::Connected && self.bridge != Availability::Offline
     }
 
+    fn validate_claimed_operation(
+        &self,
+        token: DispatchToken,
+        operation_index: usize,
+    ) -> Result<(), ReconcileError> {
+        let staged = self
+            .staged_dispatches
+            .get(&token)
+            .ok_or(ReconcileError::UnknownDispatchToken(token))?;
+        let plan = staged
+            .plan
+            .ok_or(ReconcileError::UnregisteredDispatchPlan(token))?;
+        if plan.next_operation_index != operation_index {
+            return Err(ReconcileError::UnexpectedDispatchOperation {
+                expected: plan.next_operation_index,
+                actual: operation_index,
+                operation_count: plan.operation_count,
+            });
+        }
+        Ok(())
+    }
+
     fn command_device(
         &mut self,
         id: &DeviceId,
         attempts: u8,
-        now: MonotonicTime,
     ) -> Result<Vec<ReconcileAction>, ReconcileError> {
         if !self.can_publish() {
             return Ok(Vec::new());
@@ -982,14 +1213,12 @@ impl Reconciler {
                     attempts,
                 },
             )]),
-            now,
         )
     }
 
     fn stage_current_devices(
         &mut self,
         affected_attempts: BTreeMap<DeviceId, u8>,
-        now: MonotonicTime,
     ) -> Result<Vec<ReconcileAction>, ReconcileError> {
         if !self.can_publish() {
             return Ok(Vec::new());
@@ -1019,19 +1248,17 @@ impl Reconciler {
                 },
             );
         }
-        self.stage_dispatch(commands, affected, now)
+        self.stage_dispatch(commands, affected)
     }
 
     fn stage_dispatch(
         &mut self,
         commands: Vec<(CommandEntity, DeviceTarget)>,
         affected: BTreeMap<DeviceId, StagedAttempt>,
-        now: MonotonicTime,
     ) -> Result<Vec<ReconcileAction>, ReconcileError> {
         if commands.is_empty() || affected.is_empty() {
             return Ok(Vec::new());
         }
-        let acceptance_deadline = self.retry_policy.dispatch_acceptance_deadline(now)?;
         let token_value = self.next_dispatch_token;
         let next_token = token_value
             .checked_add(1)
@@ -1051,7 +1278,7 @@ impl Reconciler {
             token,
             StagedDispatch {
                 affected,
-                acceptance_deadline,
+                plan: None,
             },
         );
         debug_assert!(replaced.is_none());
@@ -1111,7 +1338,6 @@ impl Reconciler {
         group_target: DeviceTarget,
         send_group: bool,
         changed_members: &BTreeSet<DeviceId>,
-        now: MonotonicTime,
     ) -> Result<Vec<ReconcileAction>, ReconcileError> {
         if !self.can_publish() {
             return Ok(Vec::new());
@@ -1163,13 +1389,10 @@ impl Reconciler {
                 );
             }
         }
-        self.stage_dispatch(commands, affected, now)
+        self.stage_dispatch(commands, affected)
     }
 
-    fn reconcile_all(
-        &mut self,
-        now: MonotonicTime,
-    ) -> Result<Vec<ReconcileAction>, ReconcileError> {
+    fn reconcile_all(&mut self) -> Result<Vec<ReconcileAction>, ReconcileError> {
         if !self.can_publish() {
             return Ok(Vec::new());
         }
@@ -1194,7 +1417,6 @@ impl Reconciler {
                 target,
                 true,
                 &all_members,
-                now,
             )?);
         }
 
@@ -1205,7 +1427,7 @@ impl Reconciler {
             .cloned()
             .collect();
         for id in ungrouped {
-            actions.extend(self.command_device(&id, 1, now)?);
+            actions.extend(self.command_device(&id, 1)?);
         }
         Ok(actions)
     }
@@ -1438,6 +1660,14 @@ pub enum ReconcileError {
     DispatchTokenOverflow,
     DeferredSequenceOverflow,
     UnknownDispatchToken(DispatchToken),
+    InvalidDispatchOperationCount,
+    UnregisteredDispatchPlan(DispatchToken),
+    DispatchPlanMismatch(DispatchToken),
+    UnexpectedDispatchOperation {
+        expected: usize,
+        actual: usize,
+        operation_count: usize,
+    },
     InvalidColorGamut,
     InvalidColorComparisonPolicy,
     MonotonicClockRegressed,
@@ -1480,6 +1710,27 @@ impl Display for ReconcileError {
             Self::UnknownDispatchToken(token) => {
                 write!(formatter, "unknown or completed dispatch token {}", token.get())
             }
+            Self::InvalidDispatchOperationCount => {
+                formatter.write_str("dispatch plan must contain at least one operation")
+            }
+            Self::UnregisteredDispatchPlan(token) => write!(
+                formatter,
+                "dispatch token {} has no registered adapter plan",
+                token.get()
+            ),
+            Self::DispatchPlanMismatch(token) => write!(
+                formatter,
+                "dispatch token {} was registered with a different adapter plan",
+                token.get()
+            ),
+            Self::UnexpectedDispatchOperation {
+                expected,
+                actual,
+                operation_count,
+            } => write!(
+                formatter,
+                "dispatch operation {actual} is out of order; expected {expected} of {operation_count}",
+            ),
             Self::InvalidColorGamut => {
                 formatter.write_str("color gamut points must be finite, normalized, and non-collinear")
             }
@@ -1517,6 +1768,7 @@ mod tests {
 
     use super::{
         Availability, ColorComparisonPolicy, ColorGamut, CommandEntity, DeviceDefinition, DeviceId,
+        DispatchAcceptance, DispatchCancellation, DispatchClaim, DispatchRegistrationOutcome,
         DispatchToken, EntityId, GroupDefinition, ReconcileAction, Reconciler, RetryPolicy,
         TransportStatus,
     };
@@ -1569,6 +1821,44 @@ mod tests {
 
     fn retry_policy() -> RetryPolicy {
         RetryPolicy::new(2.0, 3).unwrap()
+    }
+
+    fn accept_operations(
+        reconciler: &mut Reconciler,
+        token: DispatchToken,
+        operation_count: usize,
+        now: MonotonicTime,
+    ) {
+        assert_eq!(
+            reconciler
+                .register_dispatch_plan(token, now, operation_count, 0)
+                .unwrap(),
+            DispatchRegistrationOutcome::Registered
+        );
+        for operation_index in 0..operation_count {
+            let DispatchClaim::Ready(permit) = reconciler
+                .claim_next_operation(token, operation_index)
+                .unwrap()
+            else {
+                panic!("expected dispatch permit")
+            };
+            let outcome = permit.accepted(now).unwrap();
+            if operation_index + 1 == operation_count {
+                assert_eq!(outcome, DispatchAcceptance::BatchAccepted);
+            }
+        }
+    }
+
+    fn fail_first_operation(reconciler: &mut Reconciler, token: DispatchToken, now: MonotonicTime) {
+        assert_eq!(
+            reconciler.register_dispatch_plan(token, now, 1, 0).unwrap(),
+            DispatchRegistrationOutcome::Registered
+        );
+        let DispatchClaim::Ready(permit) = reconciler.claim_next_operation(token, 0).unwrap()
+        else {
+            panic!("expected dispatch permit")
+        };
+        permit.transient_failure(now).unwrap();
     }
 
     #[test]
@@ -2011,9 +2301,7 @@ mod tests {
                 .unwrap(),
             vec![first]
         );
-        reconciler
-            .dispatch_succeeded(DispatchToken(1), at(1.0))
-            .unwrap();
+        accept_operations(&mut reconciler, DispatchToken(1), 1, at(1.0));
         let pending = reconciler
             .device_state(&lamp)
             .unwrap()
@@ -2040,9 +2328,7 @@ mod tests {
                 .attempts(),
             1
         );
-        reconciler
-            .dispatch_succeeded(DispatchToken(2), at(3.0))
-            .unwrap();
+        accept_operations(&mut reconciler, DispatchToken(2), 1, at(3.0));
         assert_eq!(
             reconciler
                 .observe(&lamp, device_target(0.2), at(3.1))
@@ -2057,9 +2343,7 @@ mod tests {
                 target: device_target(0.5),
             }]
         );
-        reconciler
-            .dispatch_succeeded(DispatchToken(3), at(5.0))
-            .unwrap();
+        accept_operations(&mut reconciler, DispatchToken(3), 1, at(5.0));
         assert!(reconciler.retry_due(at(7.0)).unwrap().is_empty());
         let pending = reconciler
             .device_state(&lamp)
@@ -2084,9 +2368,7 @@ mod tests {
         reconciler
             .set_device_desired(&lamp, target(0.5), at(1.0))
             .unwrap();
-        reconciler
-            .dispatch_succeeded(DispatchToken(1), at(1.0))
-            .unwrap();
+        accept_operations(&mut reconciler, DispatchToken(1), 1, at(1.0));
 
         reconciler
             .observe(&lamp, device_target(0.5), at(1.1))
@@ -2110,9 +2392,7 @@ mod tests {
         reconciler
             .set_device_desired(&lamp, target(0.5), at(1.0))
             .unwrap();
-        reconciler
-            .dispatch_succeeded(DispatchToken(1), at(1.0))
-            .unwrap();
+        accept_operations(&mut reconciler, DispatchToken(1), 1, at(1.0));
 
         reconciler
             .observe(
@@ -2169,12 +2449,12 @@ mod tests {
         let ReconcileAction::Command { token, .. } = initial[0] else {
             unreachable!()
         };
-        reconciler.dispatch_succeeded(token, at(1.0)).unwrap();
+        accept_operations(&mut reconciler, token, 1, at(1.0));
         let retry = reconciler.retry_due(at(2.0)).unwrap();
         let ReconcileAction::Command { token, .. } = retry[0] else {
             unreachable!()
         };
-        reconciler.dispatch_succeeded(token, at(2.0)).unwrap();
+        accept_operations(&mut reconciler, token, 1, at(2.0));
         assert!(reconciler.retry_due(at(3.0)).unwrap().is_empty());
 
         reconciler.broker_disconnected(at(4.0)).unwrap();
@@ -2191,7 +2471,7 @@ mod tests {
                 _ => None,
             })
             .unwrap();
-        reconciler.dispatch_succeeded(token, at(5.0)).unwrap();
+        accept_operations(&mut reconciler, token, 1, at(5.0));
         assert_eq!(
             reconciler
                 .device_state(&lamp)
@@ -2211,7 +2491,7 @@ mod tests {
         let ReconcileAction::Command { token, .. } = recovered[0] else {
             unreachable!()
         };
-        reconciler.dispatch_succeeded(token, at(5.2)).unwrap();
+        accept_operations(&mut reconciler, token, 1, at(5.2));
         assert_eq!(
             reconciler
                 .device_state(&lamp)
@@ -2258,18 +2538,6 @@ mod tests {
         let before_regression = reconciler.clone();
         assert!(reconciler.retry_due(at(0.5)).is_err());
         assert_eq!(reconciler, before_regression);
-
-        let overflow_lamp = id("overflow_lamp");
-        let mut overflow = connected_reconciler(vec![DeviceDefinition::new(
-            overflow_lamp.clone(),
-            capabilities(),
-        )]);
-        let before_overflow = overflow.clone();
-        assert_eq!(
-            overflow.set_device_desired(&overflow_lamp, target(0.5), at(f64::MAX)),
-            Err(super::ReconcileError::DispatchAcceptanceDeadlineOverflow)
-        );
-        assert_eq!(overflow, before_overflow);
     }
 
     fn on_only_capabilities() -> Capabilities {
@@ -2372,9 +2640,7 @@ mod tests {
                 },
             ]
         );
-        reconciler
-            .dispatch_succeeded(DispatchToken(1), at(1.0))
-            .unwrap();
+        accept_operations(&mut reconciler, DispatchToken(1), 3, at(1.0));
         assert_eq!(
             reconciler
                 .device_state(&color_lamp)
@@ -2451,7 +2717,7 @@ mod tests {
                 .is_none()
         );
 
-        reconciler.dispatch_succeeded(token, at(1.1)).unwrap();
+        accept_operations(&mut reconciler, token, 1, at(1.1));
         let pending = reconciler
             .device_state(&lamp)
             .unwrap()
@@ -2461,12 +2727,10 @@ mod tests {
         assert_eq!(pending.deadline(), at(3.1));
         assert_eq!(pending.target(), device_target(0.5));
 
-        let before_duplicate_callback = reconciler.clone();
-        assert_eq!(
-            reconciler.dispatch_succeeded(token, at(1.2)),
-            Err(super::ReconcileError::UnknownDispatchToken(token))
-        );
-        assert_eq!(reconciler, before_duplicate_callback);
+        assert!(matches!(
+            reconciler.claim_next_operation(token, 0).unwrap(),
+            DispatchClaim::Stale
+        ));
     }
 
     #[test]
@@ -2484,7 +2748,7 @@ mod tests {
             panic!("expected staged command")
         };
 
-        reconciler.dispatch_failed(first_token, at(1.1)).unwrap();
+        fail_first_operation(&mut reconciler, first_token, at(1.1));
         assert!(reconciler.retry_due(at(1.599_999)).unwrap().is_empty());
         let retry = reconciler.retry_due(at(1.6)).unwrap();
         let ReconcileAction::Command {
@@ -2502,7 +2766,7 @@ mod tests {
                 .is_none()
         );
 
-        reconciler.dispatch_succeeded(retry_token, at(1.7)).unwrap();
+        accept_operations(&mut reconciler, retry_token, 1, at(1.7));
         assert_eq!(
             reconciler
                 .device_state(&lamp)
@@ -2512,6 +2776,39 @@ mod tests {
                 .attempts(),
             1
         );
+    }
+
+    #[test]
+    fn failed_correlation_retry_stays_deferred_until_exact_local_backoff_boundary() {
+        let lamp = id("lamp");
+        let mut reconciler =
+            connected_reconciler(vec![DeviceDefinition::new(lamp.clone(), capabilities())]);
+        let initial = reconciler
+            .set_device_desired(&lamp, target(0.5), at(1.0))
+            .unwrap();
+        let ReconcileAction::Command {
+            token: initial_token,
+            ..
+        } = initial[0]
+        else {
+            panic!("expected initial command")
+        };
+        accept_operations(&mut reconciler, initial_token, 1, at(1.0));
+
+        let correlation_retry = reconciler.retry_due(at(3.0)).unwrap();
+        let ReconcileAction::Command {
+            token: retry_token, ..
+        } = correlation_retry[0]
+        else {
+            panic!("expected correlation retry")
+        };
+        fail_first_operation(&mut reconciler, retry_token, at(3.1));
+
+        assert!(reconciler.retry_due(at(3.2)).unwrap().is_empty());
+        assert!(reconciler.retry_due(at(3.599_999)).unwrap().is_empty());
+        let retry = reconciler.retry_due(at(3.6)).unwrap();
+        assert_eq!(retry.len(), 1);
+        assert!(reconciler.retry_due(at(3.6)).unwrap().is_empty());
     }
 
     #[test]
@@ -2528,9 +2825,7 @@ mod tests {
             let ReconcileAction::Command { token, .. } = actions[0] else {
                 unreachable!()
             };
-            reconciler
-                .dispatch_failed(token, at(current + 0.01))
-                .unwrap();
+            fail_first_operation(&mut reconciler, token, at(current + 0.01));
             assert!(
                 reconciler
                     .retry_due(at(current + 0.509_999))
@@ -2551,9 +2846,7 @@ mod tests {
         let ReconcileAction::Command { token, .. } = actions[0] else {
             unreachable!()
         };
-        reconciler
-            .dispatch_succeeded(token, at(current + 0.01))
-            .unwrap();
+        accept_operations(&mut reconciler, token, 1, at(current + 0.01));
         assert_eq!(
             reconciler
                 .device_state(&lamp)
@@ -2606,9 +2899,12 @@ mod tests {
         assert!(reconciler.device_state(&full).unwrap().pending.is_none());
         assert!(reconciler.device_state(&limited).unwrap().pending.is_none());
 
-        reconciler
-            .dispatch_succeeded(*tokens.first().unwrap(), at(1.1))
-            .unwrap();
+        accept_operations(
+            &mut reconciler,
+            *tokens.first().unwrap(),
+            actions.len(),
+            at(1.1),
+        );
         assert!(reconciler.device_state(&full).unwrap().pending.is_some());
         assert!(reconciler.device_state(&limited).unwrap().pending.is_some());
     }
@@ -2626,12 +2922,10 @@ mod tests {
         };
 
         reconciler.broker_disconnected(at(1.1)).unwrap();
-        let before = reconciler.clone();
-        assert_eq!(
-            reconciler.dispatch_succeeded(token, at(1.2)),
-            Err(super::ReconcileError::UnknownDispatchToken(token))
-        );
-        assert_eq!(reconciler, before);
+        assert!(matches!(
+            reconciler.claim_next_operation(token, 0).unwrap(),
+            DispatchClaim::Stale
+        ));
         assert!(
             reconciler
                 .broker_connected(at(1.3))
@@ -2687,6 +2981,12 @@ mod tests {
         let ReconcileAction::Command { token: old, .. } = first[0] else {
             unreachable!()
         };
+        assert_eq!(
+            reconciler
+                .register_dispatch_plan(old, at(1.0), 1, 0)
+                .unwrap(),
+            DispatchRegistrationOutcome::Registered
+        );
         assert!(reconciler.is_dispatch_token_valid(old));
 
         assert!(reconciler.retry_due(at(1.5)).unwrap().is_empty());
@@ -2699,6 +2999,310 @@ mod tests {
         assert_ne!(old, new);
         assert!(reconciler.is_dispatch_token_valid(new));
         assert!(reconciler.device_state(&lamp).unwrap().pending.is_none());
+    }
+
+    #[test]
+    fn registered_delayed_plan_gets_its_full_offset_plus_acceptance_margin() {
+        let lamp = id("lamp");
+        let policy = retry_policy().with_dispatch_timing(0.5, 0.25).unwrap();
+        let mut reconciler = Reconciler::new(
+            vec![DeviceDefinition::new(lamp.clone(), capabilities())],
+            Vec::new(),
+            policy,
+        )
+        .unwrap();
+        reconciler.broker_connected(at(0.0)).unwrap();
+        let actions = reconciler
+            .set_device_desired(&lamp, target(0.5), at(1.0))
+            .unwrap();
+        let ReconcileAction::Command { token, .. } = actions[0] else {
+            unreachable!()
+        };
+
+        assert_eq!(
+            reconciler
+                .register_dispatch_plan(token, at(1.0), 2, 750)
+                .unwrap(),
+            DispatchRegistrationOutcome::Registered
+        );
+        assert!(reconciler.retry_due(at(1.5)).unwrap().is_empty());
+        assert!(reconciler.is_dispatch_token_valid(token));
+        assert!(reconciler.retry_due(at(2.249_999)).unwrap().is_empty());
+        assert!(reconciler.retry_due(at(2.25)).unwrap().is_empty());
+        assert!(!reconciler.is_dispatch_token_valid(token));
+        assert!(reconciler.retry_due(at(2.499_999)).unwrap().is_empty());
+        assert_eq!(reconciler.retry_due(at(2.5)).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn dispatch_plan_deadline_overflow_is_atomic() {
+        let lamp = id("lamp");
+        let policy = retry_policy().with_dispatch_timing(0.5, 0.25).unwrap();
+        let mut reconciler = Reconciler::new(
+            vec![DeviceDefinition::new(lamp.clone(), capabilities())],
+            Vec::new(),
+            policy,
+        )
+        .unwrap();
+        reconciler.broker_connected(at(0.0)).unwrap();
+        let actions = reconciler
+            .set_device_desired(&lamp, target(0.5), at(f64::MAX))
+            .unwrap();
+        let ReconcileAction::Command { token, .. } = actions[0] else {
+            unreachable!()
+        };
+        let before = reconciler.clone();
+
+        assert_eq!(
+            reconciler.register_dispatch_plan(token, at(f64::MAX), 1, 0),
+            Err(super::ReconcileError::DispatchAcceptanceDeadlineOverflow)
+        );
+        assert_eq!(reconciler, before);
+    }
+
+    #[test]
+    fn borrowed_permits_track_each_operation_and_only_finalize_the_complete_batch() {
+        let lamp = id("lamp");
+        let mut reconciler =
+            connected_reconciler(vec![DeviceDefinition::new(lamp.clone(), capabilities())]);
+        let actions = reconciler
+            .set_device_desired(&lamp, target(0.5), at(1.0))
+            .unwrap();
+        let ReconcileAction::Command { token, .. } = actions[0] else {
+            unreachable!()
+        };
+        assert_eq!(
+            reconciler
+                .register_dispatch_plan(token, at(1.0), 2, 750)
+                .unwrap(),
+            DispatchRegistrationOutcome::Registered
+        );
+
+        let DispatchClaim::Ready(permit) = reconciler.claim_next_operation(token, 0).unwrap()
+        else {
+            panic!("expected first permit")
+        };
+        assert_eq!(
+            permit.accepted(at(1.1)).unwrap(),
+            DispatchAcceptance::OperationAccepted { remaining: 1 }
+        );
+        assert!(reconciler.device_state(&lamp).unwrap().pending.is_none());
+        assert!(matches!(
+            reconciler.claim_next_operation(token, 0).unwrap(),
+            DispatchClaim::AlreadyAccepted
+        ));
+
+        let DispatchClaim::Ready(permit) = reconciler.claim_next_operation(token, 1).unwrap()
+        else {
+            panic!("expected second permit")
+        };
+        assert_eq!(
+            permit.accepted(at(1.75)).unwrap(),
+            DispatchAcceptance::BatchAccepted
+        );
+        assert_eq!(
+            reconciler
+                .device_state(&lamp)
+                .unwrap()
+                .pending_command()
+                .unwrap()
+                .attempts(),
+            1
+        );
+        assert!(matches!(
+            reconciler.claim_next_operation(token, 1).unwrap(),
+            DispatchClaim::Stale
+        ));
+        assert_eq!(
+            reconciler.cancel_dispatch(token, at(1.8)).unwrap(),
+            DispatchCancellation::Stale
+        );
+    }
+
+    #[test]
+    fn desired_change_between_delayed_operations_makes_the_next_claim_benignly_stale() {
+        let lamp = id("lamp");
+        let mut reconciler =
+            connected_reconciler(vec![DeviceDefinition::new(lamp.clone(), capabilities())]);
+        let actions = reconciler
+            .set_device_desired(&lamp, target(0.5), at(1.0))
+            .unwrap();
+        let ReconcileAction::Command { token, .. } = actions[0] else {
+            unreachable!()
+        };
+        reconciler
+            .register_dispatch_plan(token, at(1.0), 2, 750)
+            .unwrap();
+        let DispatchClaim::Ready(permit) = reconciler.claim_next_operation(token, 0).unwrap()
+        else {
+            unreachable!()
+        };
+        permit.accepted(at(1.05)).unwrap();
+
+        let replacement = reconciler
+            .set_device_desired(&lamp, target(0.8), at(1.1))
+            .unwrap();
+        assert_eq!(replacement.len(), 1);
+        assert!(matches!(
+            reconciler.claim_next_operation(token, 1).unwrap(),
+            DispatchClaim::Stale
+        ));
+    }
+
+    #[test]
+    fn transient_failure_after_partial_acceptance_defers_the_complete_batch() {
+        let left = id("left");
+        let right = id("right");
+        let group = entity("room");
+        let mut reconciler = Reconciler::new(
+            vec![
+                DeviceDefinition::new(left.clone(), capabilities()),
+                DeviceDefinition::new(right.clone(), capabilities()),
+            ],
+            vec![
+                GroupDefinition::new(
+                    group.clone(),
+                    vec![left.clone(), right.clone()],
+                    capabilities(),
+                )
+                .unwrap(),
+            ],
+            retry_policy(),
+        )
+        .unwrap();
+        reconciler.broker_connected(at(0.0)).unwrap();
+        let actions = reconciler
+            .set_group_desired(&group, target(0.5), at(1.0))
+            .unwrap();
+        let ReconcileAction::Command { token, .. } = actions[0] else {
+            unreachable!()
+        };
+        reconciler
+            .register_dispatch_plan(token, at(1.0), 2, 0)
+            .unwrap();
+        let DispatchClaim::Ready(first) = reconciler.claim_next_operation(token, 0).unwrap() else {
+            unreachable!()
+        };
+        assert_eq!(
+            first.accepted(at(1.05)).unwrap(),
+            DispatchAcceptance::OperationAccepted { remaining: 1 }
+        );
+        let DispatchClaim::Ready(second) = reconciler.claim_next_operation(token, 1).unwrap()
+        else {
+            unreachable!()
+        };
+        second.transient_failure(at(1.1)).unwrap();
+        assert!(reconciler.device_state(&left).unwrap().pending.is_none());
+        assert!(reconciler.device_state(&right).unwrap().pending.is_none());
+        assert!(reconciler.retry_due(at(1.599_999)).unwrap().is_empty());
+        let restaged = reconciler.retry_due(at(1.6)).unwrap();
+        assert_eq!(restaged.len(), 2);
+        let tokens: BTreeSet<_> = restaged
+            .iter()
+            .filter_map(|action| match action {
+                ReconcileAction::Command { token, .. } => Some(*token),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(tokens.len(), 1);
+    }
+
+    #[test]
+    fn claimed_permanent_failure_cancels_without_retry() {
+        let lamp = id("lamp");
+        let mut reconciler =
+            connected_reconciler(vec![DeviceDefinition::new(lamp.clone(), capabilities())]);
+        let actions = reconciler
+            .set_device_desired(&lamp, target(0.5), at(1.0))
+            .unwrap();
+        let ReconcileAction::Command { token, .. } = actions[0] else {
+            unreachable!()
+        };
+        reconciler
+            .register_dispatch_plan(token, at(1.0), 1, 0)
+            .unwrap();
+        let DispatchClaim::Ready(permit) = reconciler.claim_next_operation(token, 0).unwrap()
+        else {
+            unreachable!()
+        };
+        permit.permanent_failure(at(1.1)).unwrap();
+
+        assert!(matches!(
+            reconciler.claim_next_operation(token, 0).unwrap(),
+            DispatchClaim::Stale
+        ));
+        assert!(reconciler.retry_due(at(100.0)).unwrap().is_empty());
+    }
+
+    #[test]
+    fn timeout_and_duplicate_registration_races_are_typed_but_bad_order_is_an_error() {
+        let lamp = id("lamp");
+        let policy = retry_policy().with_dispatch_timing(0.5, 0.25).unwrap();
+        let mut reconciler = Reconciler::new(
+            vec![DeviceDefinition::new(lamp.clone(), capabilities())],
+            Vec::new(),
+            policy,
+        )
+        .unwrap();
+        reconciler.broker_connected(at(0.0)).unwrap();
+        let actions = reconciler
+            .set_device_desired(&lamp, target(0.5), at(1.0))
+            .unwrap();
+        let ReconcileAction::Command { token, .. } = actions[0] else {
+            unreachable!()
+        };
+        assert!(matches!(
+            reconciler.claim_next_operation(token, 0),
+            Err(super::ReconcileError::UnregisteredDispatchPlan(unregistered))
+                if unregistered == token
+        ));
+        let before_invalid_registration = reconciler.clone();
+        assert_eq!(
+            reconciler.register_dispatch_plan(token, at(1.0), 0, 0),
+            Err(super::ReconcileError::InvalidDispatchOperationCount)
+        );
+        assert_eq!(reconciler, before_invalid_registration);
+        assert_eq!(
+            reconciler
+                .register_dispatch_plan(token, at(1.0), 2, 0)
+                .unwrap(),
+            DispatchRegistrationOutcome::Registered
+        );
+        assert_eq!(
+            reconciler
+                .register_dispatch_plan(token, at(1.0), 2, 0)
+                .unwrap(),
+            DispatchRegistrationOutcome::AlreadyRegistered
+        );
+        let before_mismatch = reconciler.clone();
+        assert_eq!(
+            reconciler.register_dispatch_plan(token, at(1.0), 3, 0),
+            Err(super::ReconcileError::DispatchPlanMismatch(token))
+        );
+        assert_eq!(reconciler, before_mismatch);
+        assert!(matches!(
+            reconciler.claim_next_operation(token, 1),
+            Err(super::ReconcileError::UnexpectedDispatchOperation {
+                expected: 0,
+                actual: 1,
+                operation_count: 2,
+            })
+        ));
+        assert!(reconciler.retry_due(at(1.5)).unwrap().is_empty());
+        assert!(matches!(
+            reconciler.claim_next_operation(token, 0).unwrap(),
+            DispatchClaim::Stale
+        ));
+        assert_eq!(
+            reconciler
+                .register_dispatch_plan(token, at(1.0), 2, 0)
+                .unwrap(),
+            DispatchRegistrationOutcome::Stale
+        );
+        assert_eq!(
+            reconciler.cancel_dispatch(token, at(1.5)).unwrap(),
+            DispatchCancellation::Stale
+        );
     }
 
     #[test]
@@ -2719,14 +3323,17 @@ mod tests {
             unreachable!()
         };
 
-        reconciler.dispatch_failed(old, at(1.1)).unwrap();
+        fail_first_operation(&mut reconciler, old, at(1.1));
         assert!(!reconciler.is_dispatch_token_valid(old));
         assert!(reconciler.retry_due(at(1.349_999)).unwrap().is_empty());
         let retry = reconciler.retry_due(at(1.35)).unwrap();
         let ReconcileAction::Command { token: retry, .. } = retry[0] else {
             unreachable!()
         };
-        reconciler.cancel_dispatch(retry, at(1.36)).unwrap();
+        assert_eq!(
+            reconciler.cancel_dispatch(retry, at(1.36)).unwrap(),
+            DispatchCancellation::Cancelled
+        );
         assert!(reconciler.retry_due(at(100.0)).unwrap().is_empty());
         assert!(reconciler.device_state(&lamp).unwrap().pending.is_none());
     }
@@ -2789,9 +3396,7 @@ mod tests {
             ReconcileAction::Command { entity: CommandEntity::Device(id), target, .. }
                 if id == &right && *target == device_target(0.5)
         )));
-        reconciler
-            .dispatch_succeeded(current_token, at(1.2))
-            .unwrap();
+        accept_operations(&mut reconciler, current_token, restaged.len(), at(1.2));
         assert!(reconciler.device_state(&left).unwrap().pending.is_some());
         assert!(reconciler.device_state(&right).unwrap().pending.is_some());
     }

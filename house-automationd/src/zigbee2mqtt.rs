@@ -7,13 +7,16 @@ use std::{
 use house_automation_core::{
     input::{Direction, RawInputEvent},
     reconcile::{Availability, CommandEntity, DeviceId, DispatchToken, EntityId, ReconcileAction},
-    state::ControlId,
+    state::{ControlId, MonotonicTime},
     value::{Brightness, Capabilities, Color, DeviceTarget, Kelvin},
 };
 use serde_json::{Map, Value};
 
 const MAX_TOPIC_COMPONENT_LENGTH: usize = 256;
 const MAX_UNKNOWN_ACTION_LENGTH: usize = 128;
+/// Long circadian changes use sparse incremental commands, so adapter-side
+/// hardware transitions are deliberately bounded to one minute.
+pub const MAX_COMMAND_TRANSITION_MS: u64 = 60_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MiredRange {
@@ -78,7 +81,7 @@ impl DeviceBinding {
 pub struct GroupBinding {
     id: EntityId,
     friendly_name: String,
-    mired_range: MiredRange,
+    mired_range: Option<MiredRange>,
     single_transition_attribute: bool,
 }
 
@@ -86,7 +89,7 @@ impl GroupBinding {
     pub fn new(
         id: EntityId,
         friendly_name: impl Into<String>,
-        mired_range: MiredRange,
+        mired_range: Option<MiredRange>,
         single_transition_attribute: bool,
     ) -> Result<Self, AdapterError> {
         Ok(Self {
@@ -348,6 +351,7 @@ impl Zigbee2MqttAdapter {
         let mut plan = AdapterPlan {
             epoch,
             operations: Vec::new(),
+            dispatch_plans: Vec::new(),
         };
         if actions
             .iter()
@@ -401,7 +405,7 @@ impl Zigbee2MqttAdapter {
                         })?;
                         (
                             binding.friendly_name.as_str(),
-                            Some(binding.mired_range),
+                            binding.mired_range,
                             binding.single_transition_attribute,
                         )
                     }
@@ -426,6 +430,32 @@ impl Zigbee2MqttAdapter {
         }
         timed_commands
             .sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
+        let mut dispatch_plans = BTreeMap::<DispatchToken, (usize, u64)>::new();
+        for (_, _, operation) in &mut timed_commands {
+            let AdapterOperation::Publish(publication) = operation else {
+                unreachable!("timed commands contain publications only")
+            };
+            let token = publication
+                .dispatch_token
+                .expect("command publications always carry a dispatch token");
+            let entry = dispatch_plans.entry(token).or_insert((0, 0));
+            publication.dispatch_operation_index = Some(entry.0);
+            entry.0 = entry
+                .0
+                .checked_add(1)
+                .ok_or_else(|| AdapterError::configuration("dispatch operation count overflow"))?;
+            entry.1 = entry.1.max(publication.not_before_ms);
+        }
+        plan.dispatch_plans = dispatch_plans
+            .into_iter()
+            .map(
+                |(token, (operation_count, max_offset_ms))| DispatchPlanMetadata {
+                    token,
+                    operation_count,
+                    max_offset_ms,
+                },
+            )
+            .collect();
         plan.operations.extend(
             timed_commands
                 .into_iter()
@@ -667,7 +697,15 @@ fn command_payloads(
     mired_range: Option<MiredRange>,
     single_transition_attribute: bool,
 ) -> Result<Vec<TimedPayload>, AdapterError> {
-    if target.color_temperature.is_some() && mired_range.is_none() {
+    if target
+        .transition_ms
+        .is_some_and(|transition_ms| transition_ms > MAX_COMMAND_TRANSITION_MS)
+    {
+        return Err(AdapterError::configuration(format!(
+            "transition exceeds maximum of {MAX_COMMAND_TRANSITION_MS} ms; use sparse incremental circadian commands instead"
+        )));
+    }
+    if target.color.is_none() && target.color_temperature.is_some() && mired_range.is_none() {
         return Err(AdapterError::configuration(
             "color-temperature command requires a configured mired range",
         ));
@@ -836,6 +874,7 @@ pub struct Publication {
     qos: Qos,
     not_before_ms: u64,
     dispatch_token: Option<DispatchToken>,
+    dispatch_operation_index: Option<usize>,
 }
 
 impl Publication {
@@ -855,6 +894,7 @@ impl Publication {
             qos,
             not_before_ms,
             dispatch_token,
+            dispatch_operation_index: None,
         })
     }
 
@@ -880,10 +920,16 @@ impl Publication {
         self.not_before_ms
     }
 
-    /// Correlates all publications in one reconciler batch. For delayed
-    /// publications, check token validity immediately before MQTT enqueue.
+    /// Correlates all command publications in one reconciler batch. Pair this
+    /// with `dispatch_operation_index` when claiming the enqueue permit.
     pub fn dispatch_token(&self) -> Option<DispatchToken> {
         self.dispatch_token
+    }
+
+    /// Zero-based operation index within this publication's dispatch token.
+    /// Reads carry no dispatch token and therefore no operation index.
+    pub fn dispatch_operation_index(&self) -> Option<usize> {
+        self.dispatch_operation_index
     }
 }
 
@@ -916,23 +962,45 @@ impl AdapterOperation {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct PlanEpoch(u64);
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct PlanEpoch(MonotonicTime);
 
 impl PlanEpoch {
-    pub fn new(sequence: u64) -> Self {
-        Self(sequence)
+    pub fn new(monotonic_time: MonotonicTime) -> Self {
+        Self(monotonic_time)
     }
 
-    pub fn get(self) -> u64 {
+    pub fn monotonic_time(self) -> MonotonicTime {
         self.0
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DispatchPlanMetadata {
+    token: DispatchToken,
+    operation_count: usize,
+    max_offset_ms: u64,
+}
+
+impl DispatchPlanMetadata {
+    pub fn token(self) -> DispatchToken {
+        self.token
+    }
+
+    pub fn operation_count(self) -> usize {
+        self.operation_count
+    }
+
+    pub fn max_offset_ms(self) -> u64 {
+        self.max_offset_ms
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct AdapterPlan {
     epoch: PlanEpoch,
     operations: Vec<AdapterOperation>,
+    dispatch_plans: Vec<DispatchPlanMetadata>,
 }
 
 impl AdapterPlan {
@@ -943,11 +1011,19 @@ impl AdapterPlan {
         self.epoch
     }
 
+    /// Per-token registration data derived from the final globally ordered
+    /// command publications. Register every entry with the reconciler before
+    /// enqueueing any operation from this plan.
+    pub fn dispatch_plans(&self) -> &[DispatchPlanMetadata] {
+        &self.dispatch_plans
+    }
+
     /// Ordered execution plan: subscriptions, reads, zero-delay commands, then
     /// delayed command phases. Equal offsets preserve input/action order.
-    /// Before enqueueing any delayed command, executors must verify its
-    /// `dispatch_token` with `Reconciler::is_dispatch_token_valid` and skip it
-    /// if invalidated.
+    /// Before enqueueing every command, executors must claim its token and
+    /// `dispatch_operation_index` with `Reconciler::claim_next_operation`, hold
+    /// the returned permit across MQTT enqueue, and skip benign stale/already
+    /// accepted claims.
     pub fn operations(&self) -> &[AdapterOperation] {
         &self.operations
     }
@@ -998,8 +1074,8 @@ mod tests {
     use house_automation_core::{
         input::{Direction, Gesture, RawInputEvent},
         reconcile::{
-            Availability, CommandEntity, DeviceDefinition, DeviceId, DispatchToken, EntityId,
-            ReconcileAction, Reconciler, RetryPolicy,
+            Availability, CommandEntity, DeviceDefinition, DeviceId, DispatchClaim, DispatchToken,
+            EntityId, ReconcileAction, Reconciler, RetryPolicy,
         },
         state::{ControlId, MonotonicTime},
         value::{Brightness, Capabilities, Color, DeviceTarget, Kelvin, KelvinRange, LightTarget},
@@ -1067,8 +1143,58 @@ mod tests {
         token
     }
 
+    fn distinct_dispatch_tokens() -> (DispatchToken, DispatchToken) {
+        let first = device_id("first_token_lamp");
+        let second = device_id("second_token_lamp");
+        let mut reconciler = Reconciler::new(
+            vec![
+                DeviceDefinition::new(first.clone(), capabilities()),
+                DeviceDefinition::new(second.clone(), capabilities()),
+            ],
+            Vec::new(),
+            RetryPolicy::new(2.0, 3).unwrap(),
+        )
+        .unwrap();
+        reconciler
+            .broker_connected(MonotonicTime::from_seconds(0.0).unwrap())
+            .unwrap();
+        let first_actions = reconciler
+            .set_device_desired(
+                &first,
+                LightTarget {
+                    on: true,
+                    brightness: None,
+                    color_temperature: None,
+                    color: None,
+                    transition_ms: None,
+                },
+                MonotonicTime::from_seconds(1.0).unwrap(),
+            )
+            .unwrap();
+        let second_actions = reconciler
+            .set_device_desired(
+                &second,
+                LightTarget {
+                    on: true,
+                    brightness: None,
+                    color_temperature: None,
+                    color: None,
+                    transition_ms: None,
+                },
+                MonotonicTime::from_seconds(1.0).unwrap(),
+            )
+            .unwrap();
+        let ReconcileAction::Command { token: first, .. } = first_actions[0] else {
+            unreachable!()
+        };
+        let ReconcileAction::Command { token: second, .. } = second_actions[0] else {
+            unreachable!()
+        };
+        (first, second)
+    }
+
     fn plan_epoch() -> PlanEpoch {
-        PlanEpoch::new(42)
+        PlanEpoch::new(MonotonicTime::from_seconds(42.0).unwrap())
     }
 
     fn parse(
@@ -1124,7 +1250,7 @@ mod tests {
                 GroupBinding::new(
                     entity_id("living_group"),
                     "living/all lights",
-                    MiredRange::new(153, 500).unwrap(),
+                    Some(MiredRange::new(153, 500).unwrap()),
                     false,
                 )
                 .unwrap(),
@@ -1184,8 +1310,8 @@ mod tests {
             "zigbee2mqtt",
             Vec::new(),
             vec![
-                GroupBinding::new(entity_id("group_a"), "same/topic", range, false).unwrap(),
-                GroupBinding::new(entity_id("group_b"), "same/topic", range, false).unwrap(),
+                GroupBinding::new(entity_id("group_a"), "same/topic", Some(range), false).unwrap(),
+                GroupBinding::new(entity_id("group_b"), "same/topic", Some(range), false).unwrap(),
             ],
             Vec::new(),
         );
@@ -1501,6 +1627,56 @@ mod tests {
     }
 
     #[test]
+    fn group_mired_range_is_optional_until_a_cct_target_is_emitted() {
+        let adapter = Zigbee2MqttAdapter::new(
+            "zigbee2mqtt",
+            Vec::new(),
+            vec![GroupBinding::new(entity_id("rgb_group"), "rgb group", None, false).unwrap()],
+            Vec::new(),
+        )
+        .unwrap();
+        let token = dispatch_token();
+        let rgb = DeviceTarget {
+            on: Some(true),
+            brightness: None,
+            color_temperature: Some(Kelvin::new(2700.0).unwrap()),
+            color: Some(Color::xy(0.2, 0.3).unwrap()),
+            transition_ms: None,
+        };
+        assert!(
+            adapter
+                .apply_actions(
+                    plan_epoch(),
+                    &[ReconcileAction::Command {
+                        token,
+                        entity: CommandEntity::Group(entity_id("rgb_group")),
+                        target: rgb,
+                    }],
+                )
+                .is_ok()
+        );
+
+        let cct = DeviceTarget {
+            on: None,
+            brightness: None,
+            color_temperature: Some(Kelvin::new(2700.0).unwrap()),
+            color: None,
+            transition_ms: None,
+        };
+        let error = adapter
+            .apply_actions(
+                plan_epoch(),
+                &[ReconcileAction::Command {
+                    token,
+                    entity: CommandEntity::Group(entity_id("rgb_group")),
+                    target: cct,
+                }],
+            )
+            .unwrap_err();
+        assert!(error.is_permanent());
+    }
+
+    #[test]
     fn retained_controls_are_ignored_but_qos0_dup_controls_and_retained_state_are_accepted() {
         let adapter = adapter(false);
         let control = InboundMessage::new(
@@ -1609,11 +1785,12 @@ mod tests {
 
     #[test]
     fn split_transition_delays_second_attribute_until_first_transition_finishes() {
+        let token = dispatch_token();
         let plan = adapter(true)
             .apply_actions(
                 plan_epoch(),
                 &[ReconcileAction::Command {
-                    token: dispatch_token(),
+                    token,
                     entity: CommandEntity::Device(device_id("ikea_lamp")),
                     target: command_target(),
                 }],
@@ -1626,6 +1803,49 @@ mod tests {
             .collect();
         assert_eq!(publications[0].not_before_ms(), 0);
         assert_eq!(publications[1].not_before_ms(), 750);
+        assert_eq!(publications[0].dispatch_operation_index(), Some(0));
+        assert_eq!(publications[1].dispatch_operation_index(), Some(1));
+        assert_eq!(plan.dispatch_plans().len(), 1);
+        assert_eq!(plan.dispatch_plans()[0].token(), token);
+        assert_eq!(plan.dispatch_plans()[0].operation_count(), 2);
+        assert_eq!(plan.dispatch_plans()[0].max_offset_ms(), 750);
+    }
+
+    #[test]
+    fn transition_delay_accepts_the_documented_limit_and_rejects_overflow() {
+        let token = dispatch_token();
+        let mut boundary = command_target();
+        boundary.transition_ms = Some(super::MAX_COMMAND_TRANSITION_MS);
+        let plan = adapter(true)
+            .apply_actions(
+                plan_epoch(),
+                &[ReconcileAction::Command {
+                    token,
+                    entity: CommandEntity::Device(device_id("ikea_lamp")),
+                    target: boundary,
+                }],
+            )
+            .unwrap();
+        assert_eq!(
+            plan.dispatch_plans()[0].max_offset_ms(),
+            super::MAX_COMMAND_TRANSITION_MS
+        );
+
+        for invalid in [super::MAX_COMMAND_TRANSITION_MS + 1, u64::MAX] {
+            let mut target = command_target();
+            target.transition_ms = Some(invalid);
+            let error = adapter(true)
+                .apply_actions(
+                    plan_epoch(),
+                    &[ReconcileAction::Command {
+                        token,
+                        entity: CommandEntity::Device(device_id("ikea_lamp")),
+                        target,
+                    }],
+                )
+                .unwrap_err();
+            assert!(error.is_permanent());
+        }
     }
 
     #[test]
@@ -1654,18 +1874,19 @@ mod tests {
             Vec::new(),
         )
         .unwrap();
-        let epoch = PlanEpoch::new(7);
+        let epoch = PlanEpoch::new(MonotonicTime::from_seconds(7.0).unwrap());
+        let (first_token, second_token) = distinct_dispatch_tokens();
         let plan = adapter
             .apply_actions(
                 epoch,
                 &[
                     ReconcileAction::Command {
-                        token: dispatch_token(),
+                        token: first_token,
                         entity: CommandEntity::Device(device_id("a")),
                         target: command_target(),
                     },
                     ReconcileAction::Command {
-                        token: dispatch_token(),
+                        token: second_token,
                         entity: CommandEntity::Device(device_id("b")),
                         target: command_target(),
                     },
@@ -1673,6 +1894,10 @@ mod tests {
             )
             .unwrap();
         assert_eq!(plan.epoch(), epoch);
+        assert_eq!(
+            plan.epoch().monotonic_time(),
+            MonotonicTime::from_seconds(7.0).unwrap()
+        );
         let publications = publications(&plan);
         assert_eq!(
             publications
@@ -1686,6 +1911,17 @@ mod tests {
                 ("zigbee2mqtt/b/set", 750),
             ]
         );
+        assert_eq!(
+            publications
+                .iter()
+                .map(|publication| publication.dispatch_operation_index())
+                .collect::<Vec<_>>(),
+            vec![Some(0), Some(0), Some(1), Some(1)]
+        );
+        assert_eq!(plan.dispatch_plans().len(), 2);
+        assert!(plan.dispatch_plans().iter().all(|dispatch| {
+            dispatch.operation_count() == 2 && dispatch.max_offset_ms() == 750
+        }));
     }
 
     #[test]
@@ -1728,13 +1964,31 @@ mod tests {
             unreachable!()
         };
         let old_plan = adapter
-            .apply_actions(PlanEpoch::new(1), &old_actions)
+            .apply_actions(
+                PlanEpoch::new(MonotonicTime::from_seconds(1.0).unwrap()),
+                &old_actions,
+            )
             .unwrap();
         assert!(
             publications(&old_plan)
                 .iter()
                 .all(|publication| publication.dispatch_token() == Some(old))
         );
+        let old_dispatch = &old_plan.dispatch_plans()[0];
+        reconciler
+            .register_dispatch_plan(
+                old_dispatch.token(),
+                old_plan.epoch().monotonic_time(),
+                old_dispatch.operation_count(),
+                old_dispatch.max_offset_ms(),
+            )
+            .unwrap();
+        let DispatchClaim::Ready(permit) = reconciler.claim_next_operation(old, 0).unwrap() else {
+            panic!("expected first old-plan operation")
+        };
+        permit
+            .accepted(MonotonicTime::from_seconds(1.0).unwrap())
+            .unwrap();
 
         let new_actions = reconciler
             .set_device_desired(
@@ -1747,10 +2001,17 @@ mod tests {
             unreachable!()
         };
         let new_plan = adapter
-            .apply_actions(PlanEpoch::new(2), &new_actions)
+            .apply_actions(
+                PlanEpoch::new(MonotonicTime::from_seconds(1.1).unwrap()),
+                &new_actions,
+            )
             .unwrap();
         assert!(!reconciler.is_dispatch_token_valid(old));
         assert!(reconciler.is_dispatch_token_valid(new));
+        assert!(matches!(
+            reconciler.claim_next_operation(old, 1).unwrap(),
+            DispatchClaim::Stale
+        ));
         assert!(
             publications(&new_plan)
                 .iter()
