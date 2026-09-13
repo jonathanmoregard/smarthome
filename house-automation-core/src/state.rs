@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     curve::{CurvePoint, TimeOfDay},
-    value::{Brightness, Kelvin, KelvinRange, LightTarget, ValueError},
+    value::{Brightness, Kelvin, KelvinRange, LayeredLightTarget, LightTarget, ValueError},
 };
 
 const MAX_IDENTIFIER_LENGTH: usize = 64;
@@ -202,6 +202,10 @@ impl MonotonicTime {
             return Err(StateError::NegativeMonotonicTime);
         }
         Ok(Self(seconds))
+    }
+
+    pub(crate) fn seconds(self) -> f64 {
+        self.0
     }
 }
 
@@ -407,36 +411,24 @@ impl ScopeState {
         }
     }
 
-    fn compose(
+    fn compose_layers(
         &mut self,
         live_curve: CurvePoint,
         now: MonotonicTime,
-        color_temperature_range: KelvinRange,
-    ) -> Result<LightTarget, StateError> {
+    ) -> Result<LayeredLightTarget, StateError> {
         let (baseline, convergence_complete) = self.current_baseline(live_curve, now)?;
         if convergence_complete {
             self.mode = CurveMode::Follow;
         }
 
-        Ok(LightTarget {
-            on: self.on,
-            brightness: Some(
-                baseline
-                    .brightness
-                    .with_offset(self.offsets.brightness)
-                    .map_err(StateError::InvalidValue)?,
-            ),
-            color_temperature: Some(
-                color_temperature_range
-                    .with_offset(
-                        baseline.color_temperature,
-                        self.offsets.color_temperature_kelvin,
-                    )
-                    .map_err(StateError::InvalidValue)?,
-            ),
-            color: None,
-            transition_ms: None,
-        })
+        LayeredLightTarget::new(
+            self.on,
+            Some(baseline.brightness.get() + self.offsets.brightness),
+            Some(baseline.color_temperature.get() + self.offsets.color_temperature_kelvin),
+            None,
+            None,
+        )
+        .map_err(StateError::InvalidValue)
     }
 
     fn toggle_curve(
@@ -640,8 +632,18 @@ impl AutomationState {
         now: MonotonicTime,
         color_temperature_range: KelvinRange,
     ) -> Result<LightTarget, StateError> {
-        self.scope_state_mut(scope)?
-            .compose(live_curve, now, color_temperature_range)
+        self.compose_scope_layers(scope, live_curve, now)?
+            .finalize(color_temperature_range)
+            .map_err(StateError::InvalidValue)
+    }
+
+    pub fn compose_scope_layers(
+        &mut self,
+        scope: &Scope,
+        live_curve: CurvePoint,
+        now: MonotonicTime,
+    ) -> Result<LayeredLightTarget, StateError> {
+        self.scope_state_mut(scope)?.compose_layers(live_curve, now)
     }
 
     pub fn compose_control_target(
@@ -1284,6 +1286,31 @@ mod tests {
             ),
             Err(StateError::MonotonicClockRegressed)
         );
+    }
+
+    #[test]
+    fn layer_composition_preserves_finite_offsets_until_finalization() {
+        let mut state = configured_state();
+        let kitchen = room("kitchen");
+        state
+            .set_scope_offsets(&kitchen, UserOffsets::new(0.3, -1_000.0).unwrap())
+            .unwrap();
+
+        let layers = state
+            .compose_scope_layers(
+                &kitchen,
+                point(0.9, 7_000.0),
+                MonotonicTime::from_seconds(0.0).unwrap(),
+            )
+            .unwrap();
+
+        assert!((layers.brightness().unwrap() - 1.2).abs() < 1e-12);
+        assert_eq!(layers.color_temperature_kelvin(), Some(6_000.0));
+        let target = layers
+            .finalize(KelvinRange::new(2_200.0, 6_500.0).unwrap())
+            .unwrap();
+        assert_eq!(target.brightness.unwrap().get(), 1.0);
+        assert_eq!(target.color_temperature.unwrap().get(), 6_000.0);
     }
 
     #[test]

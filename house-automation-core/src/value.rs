@@ -252,6 +252,75 @@ pub struct LightTarget {
     pub transition_ms: Option<u64>,
 }
 
+/// Finite lighting layers before device bounds are applied.
+///
+/// Keeping this intermediate unclamped lets later layers compensate for an
+/// earlier offset before the final device target is bounded.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LayeredLightTarget {
+    pub(crate) on: bool,
+    pub(crate) brightness: Option<f64>,
+    pub(crate) color_temperature_kelvin: Option<f64>,
+    pub(crate) color: Option<Color>,
+    pub(crate) transition_ms: Option<u64>,
+}
+
+impl LayeredLightTarget {
+    pub(crate) fn new(
+        on: bool,
+        brightness: Option<f64>,
+        color_temperature_kelvin: Option<f64>,
+        color: Option<Color>,
+        transition_ms: Option<u64>,
+    ) -> Result<Self, ValueError> {
+        if brightness.is_some_and(|value| !value.is_finite())
+            || color_temperature_kelvin.is_some_and(|value| !value.is_finite())
+        {
+            return Err(ValueError::NonFinite);
+        }
+
+        Ok(Self {
+            on,
+            brightness,
+            color_temperature_kelvin,
+            color,
+            transition_ms,
+        })
+    }
+
+    pub fn brightness(self) -> Option<f64> {
+        self.brightness
+    }
+
+    pub fn color_temperature_kelvin(self) -> Option<f64> {
+        self.color_temperature_kelvin
+    }
+
+    pub fn finalize(self, color_temperature_range: KelvinRange) -> Result<LightTarget, ValueError> {
+        let brightness = self.brightness.map(Brightness::clamped).transpose()?;
+        let color_temperature = if self.color.is_some() {
+            None
+        } else {
+            self.color_temperature_kelvin
+                .map(|kelvin| {
+                    Kelvin::new(kelvin.clamp(
+                        color_temperature_range.min().get(),
+                        color_temperature_range.max().get(),
+                    ))
+                })
+                .transpose()?
+        };
+
+        Ok(LightTarget {
+            on: self.on,
+            brightness,
+            color_temperature,
+            color: self.color,
+            transition_ms: self.transition_ms,
+        })
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct DeviceTarget {
     pub on: Option<bool>,
