@@ -34,6 +34,14 @@ impl MiredRange {
         Ok(Self { min, max })
     }
 
+    pub fn min(self) -> u16 {
+        self.min
+    }
+
+    pub fn max(self) -> u16 {
+        self.max
+    }
+
     fn contains(self, value: u16) -> bool {
         (self.min..=self.max).contains(&value)
     }
