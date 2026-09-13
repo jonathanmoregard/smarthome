@@ -51,7 +51,7 @@ At configured local time, default `04:00`, one atomic state transition unfreezes
 
 Remote mappings translate adapter events into declarative actions. Initial E1810 mapping is up/down brightness offset, left/right warmth offset, center single-click on/off, and center double-click freeze toggle.
 
-Center short-click classification holds first click until configurable window closes. Second eligible click inside inclusive boundary emits only double-click. A timeout emits only single-click. Long-press and release events are separate and cancel no completed action. Tests inject monotonic and wall clocks; no test sleeps.
+Center short-click classification holds first click until configurable window closes. Second eligible click inside inclusive boundary emits only double-click. A timeout emits only single-click. Long-press and release events are separate. For E1524/E1810, `toggle_hold` cancels the pending `toggle` because that remote always emits `toggle` before a center hold and has no center-release event; a hold must not execute the single-click action. Tests inject monotonic and wall clocks; no test sleeps.
 
 Actions target configured room, floor, or house scopes. Runtime-selected scope is persisted only when selection is enabled. Normal configurations can map each remote directly to one scope.
 
@@ -69,7 +69,7 @@ SQLite lives in systemd-managed `/var/lib/house-automation/state.sqlite3`. Embed
 
 ## Protocol boundaries
 
-Zigbee2MQTT adapter parses native action/state/availability payloads and produces capability-aware commands. It does not own automation semantics.
+Zigbee2MQTT adapter requires JSON output and parses native action/state/availability payloads with unknown-field/action tolerance. It maps configured friendly names exactly because Zigbee2MQTT names may contain `/`. E1524/E1810 actions are normalized from the documented open action enum; no native double-click is assumed. LED2111G6 brightness maps to `0..254`, Kelvin maps inversely to device mired bounds, and commands/reads are never retained. Devices configured as single-transition-attribute split simultaneous brightness and color-temperature transitions instead of relying on unsupported IKEA behavior. No vendor model match enters core semantics.
 
 TellStick support starts as a disabled adapter interface with explicit traits for discovery, observed events, commands, token refresh, and polling. Current verified local API documentation establishes bearer authentication and device-list discovery but not a complete event or control endpoint set. Concrete calls remain disabled until actual ZNet Lite v2 `/api` discovery is recorded. Failure of this optional adapter cannot block Zigbee/MQTT automation.
 
