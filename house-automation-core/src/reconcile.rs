@@ -6,7 +6,10 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::value::{Capabilities, DeviceTarget, LightTarget};
+use crate::{
+    state::MonotonicTime,
+    value::{Capabilities, DeviceTarget, LightTarget},
+};
 
 const MAX_IDENTIFIER_LENGTH: usize = 64;
 
@@ -74,6 +77,35 @@ pub enum TransportStatus {
     Disconnected,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RetryPolicy {
+    interval_seconds: f64,
+    max_attempts: u8,
+}
+
+impl RetryPolicy {
+    pub fn new(interval_seconds: f64, max_attempts: u8) -> Result<Self, ReconcileError> {
+        if !interval_seconds.is_finite() || interval_seconds <= 0.0 {
+            return Err(ReconcileError::InvalidRetryInterval);
+        }
+        if !(1..=10).contains(&max_attempts) {
+            return Err(ReconcileError::InvalidRetryAttempts);
+        }
+        Ok(Self {
+            interval_seconds,
+            max_attempts,
+        })
+    }
+
+    fn deadline(self, now: MonotonicTime) -> Result<MonotonicTime, ReconcileError> {
+        let seconds = now.seconds() + self.interval_seconds;
+        if !seconds.is_finite() || seconds <= now.seconds() {
+            return Err(ReconcileError::RetryDeadlineOverflow);
+        }
+        MonotonicTime::from_seconds(seconds).map_err(|_| ReconcileError::RetryDeadlineOverflow)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct DeviceDefinition {
     id: DeviceId,
@@ -139,7 +171,29 @@ pub struct DeviceState {
     desired: Option<DeviceTarget>,
     observed: Option<DeviceTarget>,
     last_command: Option<DeviceTarget>,
+    pending: Option<PendingCommand>,
     in_sync: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PendingCommand {
+    target: DeviceTarget,
+    deadline: MonotonicTime,
+    attempts: u8,
+}
+
+impl PendingCommand {
+    pub fn target(self) -> DeviceTarget {
+        self.target
+    }
+
+    pub fn deadline(self) -> MonotonicTime {
+        self.deadline
+    }
+
+    pub fn attempts(self) -> u8 {
+        self.attempts
+    }
 }
 
 impl DeviceState {
@@ -150,6 +204,7 @@ impl DeviceState {
             desired: None,
             observed: None,
             last_command: None,
+            pending: None,
             in_sync: true,
         }
     }
@@ -170,6 +225,10 @@ impl DeviceState {
         self.last_command
     }
 
+    pub fn pending_command(&self) -> Option<PendingCommand> {
+        self.pending
+    }
+
     pub fn in_sync(&self) -> bool {
         self.in_sync
     }
@@ -178,7 +237,8 @@ impl DeviceState {
 #[derive(Debug, Clone, PartialEq)]
 struct GroupState {
     definition: GroupDefinition,
-    desired: Option<DeviceTarget>,
+    logical_desired: Option<LightTarget>,
+    command_target: Option<DeviceTarget>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -187,12 +247,15 @@ pub struct Reconciler {
     groups: BTreeMap<EntityId, GroupState>,
     transport: TransportStatus,
     bridge: Availability,
+    retry_policy: RetryPolicy,
+    last_time: Option<MonotonicTime>,
 }
 
 impl Reconciler {
     pub fn new(
         devices: Vec<DeviceDefinition>,
         groups: Vec<GroupDefinition>,
+        retry_policy: RetryPolicy,
     ) -> Result<Self, ReconcileError> {
         let mut device_states = BTreeMap::new();
         for definition in devices {
@@ -226,7 +289,8 @@ impl Reconciler {
                     id.clone(),
                     GroupState {
                         definition,
-                        desired: None,
+                        logical_desired: None,
+                        command_target: None,
                     },
                 )
                 .is_some()
@@ -240,6 +304,8 @@ impl Reconciler {
             groups: group_states,
             transport: TransportStatus::Disconnected,
             bridge: Availability::Unknown,
+            retry_policy,
+            last_time: None,
         })
     }
 
@@ -257,145 +323,270 @@ impl Reconciler {
             .ok_or_else(|| ReconcileError::UnknownDevice(id.clone()))
     }
 
-    pub fn broker_disconnected(&mut self) {
-        self.transport = TransportStatus::Disconnected;
+    pub fn broker_disconnected(&mut self, now: MonotonicTime) -> Result<(), ReconcileError> {
+        self.transact(now, |next, _| {
+            next.transport = TransportStatus::Disconnected;
+            Ok(Vec::new())
+        })?;
+        Ok(())
     }
 
-    pub fn broker_connected(&mut self) -> Vec<ReconcileAction> {
-        self.transport = TransportStatus::Connected;
-        let mut actions = vec![ReconcileAction::Resubscribe];
-        actions.extend(
-            self.devices
-                .keys()
-                .cloned()
-                .map(ReconcileAction::RequestState),
-        );
-        actions.extend(self.reconcile_all());
-        actions
+    pub fn broker_connected(
+        &mut self,
+        now: MonotonicTime,
+    ) -> Result<Vec<ReconcileAction>, ReconcileError> {
+        self.transact(now, |next, now| {
+            next.transport = TransportStatus::Connected;
+            let mut actions = vec![ReconcileAction::Resubscribe];
+            actions.extend(
+                next.devices
+                    .keys()
+                    .cloned()
+                    .map(ReconcileAction::RequestState),
+            );
+            actions.extend(next.reconcile_all(now)?);
+            Ok(actions)
+        })
     }
 
-    pub fn set_bridge_availability(&mut self, availability: Availability) -> Vec<ReconcileAction> {
-        let previous = self.bridge;
-        self.bridge = availability;
-        if previous == Availability::Offline && availability != Availability::Offline {
-            self.reconcile_all()
-        } else {
-            Vec::new()
-        }
+    pub fn set_bridge_availability(
+        &mut self,
+        availability: Availability,
+        now: MonotonicTime,
+    ) -> Result<Vec<ReconcileAction>, ReconcileError> {
+        self.transact(now, |next, now| {
+            let previous = next.bridge;
+            next.bridge = availability;
+            if previous == Availability::Offline && availability != Availability::Offline {
+                next.reconcile_all(now)
+            } else {
+                Ok(Vec::new())
+            }
+        })
     }
 
     pub fn set_device_availability(
         &mut self,
         id: &DeviceId,
         availability: Availability,
+        now: MonotonicTime,
     ) -> Result<Vec<ReconcileAction>, ReconcileError> {
-        let state = self
-            .devices
-            .get_mut(id)
-            .ok_or_else(|| ReconcileError::UnknownDevice(id.clone()))?;
-        let previous = state.availability;
-        state.availability = availability;
-        if previous == Availability::Offline && availability != Availability::Offline {
-            Ok(self.command_device(id, true).into_iter().collect())
-        } else {
-            Ok(Vec::new())
-        }
+        self.transact(now, |next, now| {
+            let state = next
+                .devices
+                .get_mut(id)
+                .ok_or_else(|| ReconcileError::UnknownDevice(id.clone()))?;
+            let previous = state.availability;
+            state.availability = availability;
+            if availability == Availability::Offline {
+                state.pending = None;
+            }
+            if previous == Availability::Offline && availability != Availability::Offline {
+                Ok(next.command_device(id, now)?.into_iter().collect())
+            } else {
+                Ok(Vec::new())
+            }
+        })
     }
 
     pub fn set_device_desired(
         &mut self,
         id: &DeviceId,
         target: LightTarget,
+        now: MonotonicTime,
     ) -> Result<Vec<ReconcileAction>, ReconcileError> {
-        let state = self
-            .devices
-            .get_mut(id)
-            .ok_or_else(|| ReconcileError::UnknownDevice(id.clone()))?;
-        let desired = state.capabilities.degrade(&target);
-        if state.desired == Some(desired) {
-            return Ok(Vec::new());
-        }
-        state.desired = Some(desired);
-        state.in_sync = targets_in_sync(state.desired, state.observed);
-        Ok(self.command_device(id, true).into_iter().collect())
+        self.transact(now, |next, now| {
+            let state = next
+                .devices
+                .get_mut(id)
+                .ok_or_else(|| ReconcileError::UnknownDevice(id.clone()))?;
+            let desired = state.capabilities.degrade(&target);
+            if state.desired == Some(desired) {
+                return Ok(Vec::new());
+            }
+            state.desired = Some(desired);
+            state.pending = None;
+            state.in_sync = targets_in_sync(state.desired, state.observed);
+            if state.in_sync {
+                return Ok(Vec::new());
+            }
+            Ok(next.command_device(id, now)?.into_iter().collect())
+        })
     }
 
     pub fn set_group_desired(
         &mut self,
         id: &EntityId,
         target: LightTarget,
+        now: MonotonicTime,
     ) -> Result<Vec<ReconcileAction>, ReconcileError> {
-        let (members, group_target, changed) = {
+        self.transact(now, |next, now| {
+            next.set_group_desired_inner(id, target, now)
+        })
+    }
+
+    fn set_group_desired_inner(
+        &mut self,
+        id: &EntityId,
+        target: LightTarget,
+        now: MonotonicTime,
+    ) -> Result<Vec<ReconcileAction>, ReconcileError> {
+        let (members, group_target, group_target_changed) = {
             let group = self
                 .groups
                 .get_mut(id)
                 .ok_or_else(|| ReconcileError::UnknownGroup(id.clone()))?;
-            let group_target = group.definition.capabilities.degrade(&target);
-            let changed = group.desired != Some(group_target);
-            if changed {
-                group.desired = Some(group_target);
+            if group.logical_desired == Some(target) {
+                return Ok(Vec::new());
             }
-            (group.definition.members.clone(), group_target, changed)
+            let group_target = group.definition.capabilities.degrade(&target);
+            let group_target_changed = group.command_target != Some(group_target);
+            group.logical_desired = Some(target);
+            group.command_target = Some(group_target);
+            (
+                group.definition.members.clone(),
+                group_target,
+                group_target_changed,
+            )
         };
-        if !changed {
-            return Ok(Vec::new());
-        }
 
+        let mut changed_members = BTreeSet::new();
         for member in &members {
             let state = self
                 .devices
                 .get_mut(member)
                 .expect("group members validated when reconciler is constructed");
             let member_target = state.capabilities.degrade(&target);
-            state.desired = Some(member_target);
-            state.in_sync = targets_in_sync(state.desired, state.observed);
+            if state.desired != Some(member_target) {
+                changed_members.insert(member.clone());
+                state.desired = Some(member_target);
+                state.pending = None;
+                state.in_sync = targets_in_sync(state.desired, state.observed);
+            }
         }
 
-        if !self.can_publish()
-            || !members.iter().any(|member| {
-                self.devices
-                    .get(member)
-                    .is_some_and(|state| state.availability != Availability::Offline)
-            })
-        {
-            return Ok(Vec::new());
-        }
-        self.mark_group_commanded(&members);
-        Ok(vec![ReconcileAction::Command {
-            entity: CommandEntity::Group(id.clone()),
-            target: group_target,
-        }])
+        self.command_group_with_fallbacks(
+            id,
+            &members,
+            group_target,
+            group_target_changed,
+            &changed_members,
+            now,
+        )
     }
 
     pub fn observe(
         &mut self,
         id: &DeviceId,
         observed: DeviceTarget,
+        now: MonotonicTime,
     ) -> Result<Vec<ReconcileAction>, ReconcileError> {
-        let state = self
-            .devices
-            .get_mut(id)
-            .ok_or_else(|| ReconcileError::UnknownDevice(id.clone()))?;
-        state.observed = Some(observed);
-        state.in_sync = targets_in_sync(state.desired, state.observed);
-        Ok(Vec::new())
+        self.transact(now, |next, _| {
+            let state = next
+                .devices
+                .get_mut(id)
+                .ok_or_else(|| ReconcileError::UnknownDevice(id.clone()))?;
+            state.observed = Some(merge_observation(state.observed, observed));
+            state.in_sync = targets_in_sync(state.desired, state.observed);
+            if state.in_sync {
+                state.pending = None;
+            }
+            Ok(Vec::new())
+        })
     }
 
     pub fn device_restarted(
         &mut self,
         id: &DeviceId,
+        now: MonotonicTime,
     ) -> Result<Vec<ReconcileAction>, ReconcileError> {
-        let state = self
-            .devices
-            .get_mut(id)
-            .ok_or_else(|| ReconcileError::UnknownDevice(id.clone()))?;
-        state.observed = None;
-        state.in_sync = state.desired.is_none();
-        if self.transport != TransportStatus::Connected {
+        self.transact(now, |next, now| {
+            let state = next
+                .devices
+                .get_mut(id)
+                .ok_or_else(|| ReconcileError::UnknownDevice(id.clone()))?;
+            state.observed = None;
+            state.pending = None;
+            state.in_sync = state.desired.is_none();
+            if next.transport != TransportStatus::Connected {
+                return Ok(Vec::new());
+            }
+            let mut actions = vec![ReconcileAction::RequestState(id.clone())];
+            actions.extend(next.command_device(id, now)?);
+            Ok(actions)
+        })
+    }
+
+    pub fn retry_due(
+        &mut self,
+        now: MonotonicTime,
+    ) -> Result<Vec<ReconcileAction>, ReconcileError> {
+        self.transact(now, |next, now| next.retry_due_inner(now))
+    }
+
+    fn retry_due_inner(
+        &mut self,
+        now: MonotonicTime,
+    ) -> Result<Vec<ReconcileAction>, ReconcileError> {
+        if !self.can_publish() {
             return Ok(Vec::new());
         }
-        let mut actions = vec![ReconcileAction::RequestState(id.clone())];
-        actions.extend(self.command_device(id, true));
+        let due: Vec<_> = self
+            .devices
+            .iter()
+            .filter_map(|(id, state)| {
+                state
+                    .pending
+                    .filter(|pending| now >= pending.deadline)
+                    .map(|pending| (id.clone(), pending))
+            })
+            .collect();
+        let mut actions = Vec::new();
+        for (id, pending) in due {
+            let state = self
+                .devices
+                .get(&id)
+                .expect("due command came from configured device");
+            if state.availability == Availability::Offline
+                || pending.attempts >= self.retry_policy.max_attempts
+            {
+                continue;
+            }
+            let deadline = self.retry_policy.deadline(now)?;
+            let state = self
+                .devices
+                .get_mut(&id)
+                .expect("due command came from configured device");
+            state.pending = Some(PendingCommand {
+                target: pending.target,
+                deadline,
+                attempts: pending.attempts + 1,
+            });
+            state.last_command = Some(pending.target);
+            state.in_sync = false;
+            actions.push(ReconcileAction::Command {
+                entity: CommandEntity::Device(id),
+                target: pending.target,
+            });
+        }
+        Ok(actions)
+    }
+
+    fn transact<F>(
+        &mut self,
+        now: MonotonicTime,
+        operation: F,
+    ) -> Result<Vec<ReconcileAction>, ReconcileError>
+    where
+        F: FnOnce(&mut Self, MonotonicTime) -> Result<Vec<ReconcileAction>, ReconcileError>,
+    {
+        if self.last_time.is_some_and(|previous| now < previous) {
+            return Err(ReconcileError::MonotonicClockRegressed);
+        }
+        let mut next = self.clone();
+        let actions = operation(&mut next, now)?;
+        next.last_time = Some(now);
+        *self = next;
         Ok(actions)
     }
 
@@ -403,42 +594,122 @@ impl Reconciler {
         self.transport == TransportStatus::Connected && self.bridge != Availability::Offline
     }
 
-    fn command_device(&mut self, id: &DeviceId, force: bool) -> Option<ReconcileAction> {
+    fn command_device(
+        &mut self,
+        id: &DeviceId,
+        now: MonotonicTime,
+    ) -> Result<Option<ReconcileAction>, ReconcileError> {
         if !self.can_publish() {
-            return None;
+            return Ok(None);
         }
-        let state = self.devices.get_mut(id)?;
+        let state = self
+            .devices
+            .get(id)
+            .ok_or_else(|| ReconcileError::UnknownDevice(id.clone()))?;
         if state.availability == Availability::Offline {
-            return None;
+            return Ok(None);
         }
-        let desired = state.desired?;
-        if !force && state.last_command == Some(desired) {
-            return None;
-        }
-        state.last_command = Some(desired);
-        state.in_sync = targets_in_sync(state.desired, state.observed);
-        Some(ReconcileAction::Command {
+        let Some(desired) = state.desired else {
+            return Ok(None);
+        };
+        self.record_command(id, desired, now)?;
+        Ok(Some(ReconcileAction::Command {
             entity: CommandEntity::Device(id.clone()),
             target: desired,
-        })
+        }))
     }
 
-    fn mark_group_commanded(&mut self, members: &[DeviceId]) {
-        for member in members {
-            let state = self
+    fn record_command(
+        &mut self,
+        id: &DeviceId,
+        combined_target: DeviceTarget,
+        now: MonotonicTime,
+    ) -> Result<(), ReconcileError> {
+        let deadline = self.retry_policy.deadline(now)?;
+        let state = self
+            .devices
+            .get_mut(id)
+            .ok_or_else(|| ReconcileError::UnknownDevice(id.clone()))?;
+        state.last_command = Some(combined_target);
+        state.pending = Some(PendingCommand {
+            target: combined_target,
+            deadline,
+            attempts: 1,
+        });
+        state.in_sync = targets_in_sync(state.desired, state.observed);
+        if state.in_sync {
+            state.pending = None;
+        }
+        Ok(())
+    }
+
+    fn command_group_with_fallbacks(
+        &mut self,
+        id: &EntityId,
+        members: &[DeviceId],
+        group_target: DeviceTarget,
+        send_group: bool,
+        changed_members: &BTreeSet<DeviceId>,
+        now: MonotonicTime,
+    ) -> Result<Vec<ReconcileAction>, ReconcileError> {
+        if !self.can_publish() {
+            return Ok(Vec::new());
+        }
+        let active: Vec<_> = members
+            .iter()
+            .filter(|member| {
+                self.devices
+                    .get(*member)
+                    .is_some_and(|state| state.availability != Availability::Offline)
+            })
+            .cloned()
+            .collect();
+        if active.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let group_has_fields = !target_is_empty(group_target);
+        let group_sent = send_group && group_has_fields;
+        let mut actions = Vec::new();
+        if group_sent {
+            actions.push(ReconcileAction::Command {
+                entity: CommandEntity::Group(id.clone()),
+                target: group_target,
+            });
+        }
+
+        for member in active {
+            let desired = self
                 .devices
-                .get_mut(member)
-                .expect("group members validated when reconciler is constructed");
-            if state.availability != Availability::Offline {
-                state.last_command = state.desired;
-                state.in_sync = targets_in_sync(state.desired, state.observed);
+                .get(&member)
+                .and_then(|state| state.desired)
+                .expect("group desired state records every member target");
+            let fallback = if group_has_fields {
+                target_difference(desired, group_target)
+            } else {
+                desired
+            };
+            let fallback_sent =
+                !target_is_empty(fallback) && (group_sent || changed_members.contains(&member));
+            if fallback_sent {
+                actions.push(ReconcileAction::Command {
+                    entity: CommandEntity::Device(member.clone()),
+                    target: fallback,
+                });
+            }
+            if group_sent || fallback_sent {
+                self.record_command(&member, desired, now)?;
             }
         }
+        Ok(actions)
     }
 
-    fn reconcile_all(&mut self) -> Vec<ReconcileAction> {
+    fn reconcile_all(
+        &mut self,
+        now: MonotonicTime,
+    ) -> Result<Vec<ReconcileAction>, ReconcileError> {
         if !self.can_publish() {
-            return Vec::new();
+            return Ok(Vec::new());
         }
 
         let groups: Vec<_> = self
@@ -446,7 +717,7 @@ impl Reconciler {
             .iter()
             .filter_map(|(id, state)| {
                 state
-                    .desired
+                    .command_target
                     .map(|target| (id.clone(), state.definition.members.clone(), target))
             })
             .collect();
@@ -454,17 +725,15 @@ impl Reconciler {
         let mut grouped = BTreeSet::new();
         for (id, members, target) in groups {
             grouped.extend(members.iter().cloned());
-            if members.iter().any(|member| {
-                self.devices
-                    .get(member)
-                    .is_some_and(|state| state.availability != Availability::Offline)
-            }) {
-                self.mark_group_commanded(&members);
-                actions.push(ReconcileAction::Command {
-                    entity: CommandEntity::Group(id),
-                    target,
-                });
-            }
+            let all_members: BTreeSet<_> = members.iter().cloned().collect();
+            actions.extend(self.command_group_with_fallbacks(
+                &id,
+                &members,
+                target,
+                true,
+                &all_members,
+                now,
+            )?);
         }
 
         let ungrouped: Vec<_> = self
@@ -474,9 +743,65 @@ impl Reconciler {
             .cloned()
             .collect();
         for id in ungrouped {
-            actions.extend(self.command_device(&id, true));
+            actions.extend(self.command_device(&id, now)?);
         }
-        actions
+        Ok(actions)
+    }
+}
+
+fn target_is_empty(target: DeviceTarget) -> bool {
+    target.on.is_none()
+        && target.brightness.is_none()
+        && target.color_temperature.is_none()
+        && target.color.is_none()
+}
+
+fn merge_observation(previous: Option<DeviceTarget>, update: DeviceTarget) -> DeviceTarget {
+    let previous = previous.unwrap_or(DeviceTarget {
+        on: None,
+        brightness: None,
+        color_temperature: None,
+        color: None,
+        transition_ms: None,
+    });
+    let (color_temperature, color) = if update.color.is_some() {
+        (None, update.color)
+    } else if update.color_temperature.is_some() {
+        (update.color_temperature, None)
+    } else {
+        (previous.color_temperature, previous.color)
+    };
+    DeviceTarget {
+        on: update.on.or(previous.on),
+        brightness: update.brightness.or(previous.brightness),
+        color_temperature,
+        color,
+        transition_ms: update.transition_ms.or(previous.transition_ms),
+    }
+}
+
+fn target_difference(desired: DeviceTarget, group: DeviceTarget) -> DeviceTarget {
+    let on = (desired.on != group.on).then_some(desired.on).flatten();
+    let brightness = (desired.brightness != group.brightness)
+        .then_some(desired.brightness)
+        .flatten();
+    let color_temperature = (desired.color_temperature != group.color_temperature)
+        .then_some(desired.color_temperature)
+        .flatten();
+    let color = (desired.color != group.color)
+        .then_some(desired.color)
+        .flatten();
+    let transition_ms = if brightness.is_some() || color_temperature.is_some() || color.is_some() {
+        desired.transition_ms
+    } else {
+        None
+    };
+    DeviceTarget {
+        on,
+        brightness,
+        color_temperature,
+        color,
+        transition_ms,
     }
 }
 
@@ -488,20 +813,49 @@ fn targets_in_sync(desired: Option<DeviceTarget>, observed: Option<DeviceTarget>
         return false;
     };
     desired.on.is_none_or(|value| observed.on == Some(value))
-        && desired
-            .brightness
-            .is_none_or(|value| observed.brightness == Some(value))
-        && desired
-            .color_temperature
-            .is_none_or(|value| observed.color_temperature == Some(value))
-        && desired
-            .color
-            .is_none_or(|value| observed.color == Some(value))
+        && desired.brightness.is_none_or(|desired| {
+            observed
+                .brightness
+                .is_some_and(|observed| (desired.get() - observed.get()).abs() <= 1.0 / 254.0)
+        })
+        && desired.color_temperature.is_none_or(|desired| {
+            observed.color_temperature.is_some_and(|observed| {
+                (desired.get() - observed.get()).abs() <= desired.get() * 0.01
+            })
+        })
+        && desired.color.is_none_or(|desired| {
+            observed
+                .color
+                .is_some_and(|observed| colors_in_sync(desired, observed))
+        })
+}
+
+fn colors_in_sync(desired: crate::value::Color, observed: crate::value::Color) -> bool {
+    match (desired.xy_components(), observed.xy_components()) {
+        (Some((desired_x, desired_y)), Some((observed_x, observed_y))) => {
+            (desired_x - observed_x).abs() <= 0.001 && (desired_y - observed_y).abs() <= 0.001
+        }
+        _ => match (desired.hs_components(), observed.hs_components()) {
+            (
+                Some((desired_hue, desired_saturation)),
+                Some((observed_hue, observed_saturation)),
+            ) => {
+                let hue_difference = (desired_hue - observed_hue).abs();
+                hue_difference.min(360.0 - hue_difference) <= 0.5
+                    && (desired_saturation - observed_saturation).abs() <= 0.01
+            }
+            _ => false,
+        },
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ReconcileError {
     InvalidIdentifier,
+    InvalidRetryInterval,
+    InvalidRetryAttempts,
+    RetryDeadlineOverflow,
+    MonotonicClockRegressed,
     DuplicateDevice(DeviceId),
     UnknownDevice(DeviceId),
     DuplicateGroup(EntityId),
@@ -517,6 +871,14 @@ impl Display for ReconcileError {
             Self::InvalidIdentifier => formatter.write_str(
                 "identifier must be 1-64 lowercase ASCII letters, digits, hyphens, or underscores and start and end with a letter or digit",
             ),
+            Self::InvalidRetryInterval => {
+                formatter.write_str("retry interval must be finite and greater than zero")
+            }
+            Self::InvalidRetryAttempts => {
+                formatter.write_str("retry attempts must be between 1 and 10")
+            }
+            Self::RetryDeadlineOverflow => formatter.write_str("retry deadline exceeds monotonic range"),
+            Self::MonotonicClockRegressed => formatter.write_str("monotonic clock regressed"),
             Self::DuplicateDevice(id) => write!(formatter, "duplicate device {}", id.as_str()),
             Self::UnknownDevice(id) => write!(formatter, "unknown device {}", id.as_str()),
             Self::DuplicateGroup(id) => write!(formatter, "duplicate group {}", id.as_str()),
@@ -534,11 +896,14 @@ impl Error for ReconcileError {}
 
 #[cfg(test)]
 mod tests {
-    use crate::value::{Brightness, Capabilities, DeviceTarget, Kelvin, KelvinRange, LightTarget};
+    use crate::state::MonotonicTime;
+    use crate::value::{
+        Brightness, Capabilities, Color, DeviceTarget, Kelvin, KelvinRange, LightTarget,
+    };
 
     use super::{
         Availability, CommandEntity, DeviceDefinition, DeviceId, EntityId, GroupDefinition,
-        ReconcileAction, Reconciler, TransportStatus,
+        ReconcileAction, Reconciler, RetryPolicy, TransportStatus,
     };
 
     fn id(value: &str) -> DeviceId {
@@ -578,9 +943,17 @@ mod tests {
     }
 
     fn connected_reconciler(devices: Vec<DeviceDefinition>) -> Reconciler {
-        let mut reconciler = Reconciler::new(devices, Vec::new()).unwrap();
-        let _ = reconciler.broker_connected();
+        let mut reconciler = Reconciler::new(devices, Vec::new(), retry_policy()).unwrap();
+        let _ = reconciler.broker_connected(at(0.0)).unwrap();
         reconciler
+    }
+
+    fn at(seconds: f64) -> MonotonicTime {
+        MonotonicTime::from_seconds(seconds).unwrap()
+    }
+
+    fn retry_policy() -> RetryPolicy {
+        RetryPolicy::new(2.0, 3).unwrap()
     }
 
     #[test]
@@ -606,7 +979,9 @@ mod tests {
             connected_reconciler(vec![DeviceDefinition::new(lamp.clone(), capabilities())]);
 
         assert_eq!(
-            reconciler.set_device_desired(&lamp, target(0.5)).unwrap(),
+            reconciler
+                .set_device_desired(&lamp, target(0.5), at(1.0))
+                .unwrap(),
             vec![ReconcileAction::Command {
                 entity: CommandEntity::Device(lamp.clone()),
                 target: device_target(0.5),
@@ -614,19 +989,19 @@ mod tests {
         );
         assert!(
             reconciler
-                .observe(&lamp, device_target(0.2))
+                .observe(&lamp, device_target(0.2), at(1.1))
                 .unwrap()
                 .is_empty()
         );
         assert!(
             reconciler
-                .observe(&lamp, device_target(0.2))
+                .observe(&lamp, device_target(0.2), at(1.2))
                 .unwrap()
                 .is_empty()
         );
         assert!(
             reconciler
-                .set_device_desired(&lamp, target(0.5))
+                .set_device_desired(&lamp, target(0.5), at(1.3))
                 .unwrap()
                 .is_empty()
         );
@@ -634,11 +1009,37 @@ mod tests {
 
         assert!(
             reconciler
-                .observe(&lamp, device_target(0.5))
+                .observe(&lamp, device_target(0.5), at(1.4))
                 .unwrap()
                 .is_empty()
         );
         assert!(reconciler.device_state(&lamp).unwrap().in_sync());
+    }
+
+    #[test]
+    fn desired_change_already_satisfied_by_observation_does_not_publish() {
+        let lamp = id("lamp");
+        let mut reconciler =
+            connected_reconciler(vec![DeviceDefinition::new(lamp.clone(), capabilities())]);
+        reconciler
+            .observe(&lamp, device_target(0.5), at(1.0))
+            .unwrap();
+
+        assert!(
+            reconciler
+                .set_device_desired(&lamp, target(0.5), at(1.1))
+                .unwrap()
+                .is_empty()
+        );
+        assert!(reconciler.device_state(&lamp).unwrap().in_sync());
+        assert!(
+            reconciler
+                .device_state(&lamp)
+                .unwrap()
+                .pending_command()
+                .is_none()
+        );
+        assert_eq!(reconciler.device_state(&lamp).unwrap().last_command(), None);
     }
 
     #[test]
@@ -648,19 +1049,19 @@ mod tests {
             connected_reconciler(vec![DeviceDefinition::new(lamp.clone(), capabilities())]);
         assert!(
             reconciler
-                .set_device_availability(&lamp, Availability::Offline)
+                .set_device_availability(&lamp, Availability::Offline, at(1.0))
                 .unwrap()
                 .is_empty()
         );
         assert!(
             reconciler
-                .set_device_desired(&lamp, target(0.3))
+                .set_device_desired(&lamp, target(0.3), at(1.1))
                 .unwrap()
                 .is_empty()
         );
         assert_eq!(
             reconciler
-                .set_device_availability(&lamp, Availability::Online)
+                .set_device_availability(&lamp, Availability::Online, at(1.2))
                 .unwrap(),
             vec![ReconcileAction::Command {
                 entity: CommandEntity::Device(lamp),
@@ -675,13 +1076,15 @@ mod tests {
         let mut reconciler =
             connected_reconciler(vec![DeviceDefinition::new(lamp.clone(), capabilities())]);
         reconciler
-            .set_device_availability(&lamp, Availability::Offline)
+            .set_device_availability(&lamp, Availability::Offline, at(1.0))
             .unwrap();
-        reconciler.set_device_desired(&lamp, target(0.3)).unwrap();
+        reconciler
+            .set_device_desired(&lamp, target(0.3), at(1.1))
+            .unwrap();
 
         assert_eq!(
             reconciler
-                .set_device_availability(&lamp, Availability::Unknown)
+                .set_device_availability(&lamp, Availability::Unknown, at(1.2))
                 .unwrap(),
             vec![ReconcileAction::Command {
                 entity: CommandEntity::Device(lamp),
@@ -701,7 +1104,7 @@ mod tests {
         );
         assert_eq!(
             reconciler
-                .set_device_desired(&lamp, target(0.4))
+                .set_device_desired(&lamp, target(0.4), at(1.0))
                 .unwrap()
                 .len(),
             1
@@ -713,13 +1116,43 @@ mod tests {
         let lamp = id("lamp");
         let mut reconciler =
             connected_reconciler(vec![DeviceDefinition::new(lamp.clone(), capabilities())]);
-        reconciler.set_device_desired(&lamp, target(0.5)).unwrap();
+        reconciler
+            .set_device_desired(&lamp, target(0.5), at(1.0))
+            .unwrap();
         let mut observed = device_target(0.5);
         observed.transition_ms = None;
 
-        reconciler.observe(&lamp, observed).unwrap();
+        reconciler.observe(&lamp, observed, at(1.1)).unwrap();
 
         assert!(reconciler.device_state(&lamp).unwrap().in_sync());
+    }
+
+    #[test]
+    fn protocol_quantization_does_not_create_false_divergence() {
+        let lamp = id("lamp");
+        let mut reconciler =
+            connected_reconciler(vec![DeviceDefinition::new(lamp.clone(), capabilities())]);
+        reconciler
+            .set_device_desired(&lamp, target(0.6), at(1.0))
+            .unwrap();
+        let observed = DeviceTarget {
+            on: Some(true),
+            brightness: Some(Brightness::new(152.0 / 254.0).unwrap()),
+            color_temperature: Some(Kelvin::new(1_000_000.0 / 370.0).unwrap()),
+            color: None,
+            transition_ms: None,
+        };
+
+        reconciler.observe(&lamp, observed, at(1.1)).unwrap();
+
+        assert!(reconciler.device_state(&lamp).unwrap().in_sync());
+        assert!(
+            reconciler
+                .device_state(&lamp)
+                .unwrap()
+                .pending_command()
+                .is_none()
+        );
     }
 
     #[test]
@@ -739,12 +1172,15 @@ mod tests {
                 DeviceDefinition::new(right.clone(), capabilities()),
             ],
             vec![definition],
+            retry_policy(),
         )
         .unwrap();
-        let _ = reconciler.broker_connected();
+        let _ = reconciler.broker_connected(at(0.0)).unwrap();
 
         assert_eq!(
-            reconciler.set_group_desired(&group, target(0.6)).unwrap(),
+            reconciler
+                .set_group_desired(&group, target(0.6), at(1.0))
+                .unwrap(),
             vec![ReconcileAction::Command {
                 entity: CommandEntity::Group(group),
                 target: device_target(0.6),
@@ -774,15 +1210,16 @@ mod tests {
                 GroupDefinition::new(group.clone(), vec![left.clone(), right], capabilities())
                     .unwrap(),
             ],
+            retry_policy(),
         )
         .unwrap();
-        let _ = reconciler.broker_connected();
+        let _ = reconciler.broker_connected(at(0.0)).unwrap();
         reconciler
-            .set_device_availability(&left, Availability::Offline)
+            .set_device_availability(&left, Availability::Offline, at(1.0))
             .unwrap();
         assert_eq!(
             reconciler
-                .set_group_desired(&group, target(0.7))
+                .set_group_desired(&group, target(0.7), at(1.1))
                 .unwrap()
                 .len(),
             1
@@ -790,7 +1227,7 @@ mod tests {
 
         assert_eq!(
             reconciler
-                .set_device_availability(&left, Availability::Online)
+                .set_device_availability(&left, Availability::Online, at(1.2))
                 .unwrap(),
             vec![ReconcileAction::Command {
                 entity: CommandEntity::Device(left),
@@ -807,13 +1244,17 @@ mod tests {
             DeviceDefinition::new(lamp_b.clone(), capabilities()),
             DeviceDefinition::new(lamp_a.clone(), capabilities()),
         ]);
-        let _ = reconciler.set_device_desired(&lamp_b, target(0.8)).unwrap();
-        let _ = reconciler.set_device_desired(&lamp_a, target(0.2)).unwrap();
-        reconciler.broker_disconnected();
+        let _ = reconciler
+            .set_device_desired(&lamp_b, target(0.8), at(1.0))
+            .unwrap();
+        let _ = reconciler
+            .set_device_desired(&lamp_a, target(0.2), at(1.1))
+            .unwrap();
+        reconciler.broker_disconnected(at(2.0)).unwrap();
         assert_eq!(reconciler.transport_status(), TransportStatus::Disconnected);
 
         assert_eq!(
-            reconciler.broker_connected(),
+            reconciler.broker_connected(at(3.0)).unwrap(),
             vec![
                 ReconcileAction::Resubscribe,
                 ReconcileAction::RequestState(lamp_a.clone()),
@@ -841,29 +1282,36 @@ mod tests {
                 DeviceDefinition::new(ungrouped.clone(), capabilities()),
             ],
             vec![GroupDefinition::new(group.clone(), vec![grouped], capabilities()).unwrap()],
+            retry_policy(),
         )
         .unwrap();
-        let _ = reconciler.broker_connected();
-        let _ = reconciler.set_group_desired(&group, target(0.7)).unwrap();
+        let _ = reconciler.broker_connected(at(0.0)).unwrap();
         let _ = reconciler
-            .set_device_desired(&ungrouped, target(0.3))
+            .set_group_desired(&group, target(0.7), at(1.0))
             .unwrap();
-        reconciler.set_bridge_availability(Availability::Offline);
+        let _ = reconciler
+            .set_device_desired(&ungrouped, target(0.3), at(1.1))
+            .unwrap();
+        reconciler
+            .set_bridge_availability(Availability::Offline, at(1.2))
+            .unwrap();
         assert!(
             reconciler
-                .set_group_desired(&group, target(0.8))
+                .set_group_desired(&group, target(0.8), at(1.3))
                 .unwrap()
                 .is_empty()
         );
         assert!(
             reconciler
-                .set_device_desired(&ungrouped, target(0.4))
+                .set_device_desired(&ungrouped, target(0.4), at(1.4))
                 .unwrap()
                 .is_empty()
         );
 
         assert_eq!(
-            reconciler.set_bridge_availability(Availability::Online),
+            reconciler
+                .set_bridge_availability(Availability::Online, at(1.5))
+                .unwrap(),
             vec![
                 ReconcileAction::Command {
                     entity: CommandEntity::Group(group),
@@ -884,7 +1332,7 @@ mod tests {
             connected_reconciler(vec![DeviceDefinition::new(lamp.clone(), capabilities())]);
         assert_eq!(
             reconciler
-                .set_device_desired(&lamp, target(0.5))
+                .set_device_desired(&lamp, target(0.5), at(1.0))
                 .unwrap()
                 .len(),
             1
@@ -892,7 +1340,8 @@ mod tests {
 
         assert!(
             reconciler
-                .set_bridge_availability(Availability::Online)
+                .set_bridge_availability(Availability::Online, at(1.1))
+                .unwrap()
                 .is_empty()
         );
     }
@@ -902,11 +1351,15 @@ mod tests {
         let lamp = id("lamp");
         let mut reconciler =
             connected_reconciler(vec![DeviceDefinition::new(lamp.clone(), capabilities())]);
-        let _ = reconciler.set_device_desired(&lamp, target(0.5)).unwrap();
-        let _ = reconciler.observe(&lamp, device_target(0.5)).unwrap();
+        let _ = reconciler
+            .set_device_desired(&lamp, target(0.5), at(1.0))
+            .unwrap();
+        let _ = reconciler
+            .observe(&lamp, device_target(0.5), at(1.1))
+            .unwrap();
 
         assert_eq!(
-            reconciler.device_restarted(&lamp).unwrap(),
+            reconciler.device_restarted(&lamp, at(1.2)).unwrap(),
             vec![
                 ReconcileAction::RequestState(lamp.clone()),
                 ReconcileAction::Command {
@@ -914,6 +1367,366 @@ mod tests {
                     target: device_target(0.5),
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn lost_command_retries_at_exact_deadline_then_stops_without_oscillation() {
+        let lamp = id("lamp");
+        let mut reconciler =
+            connected_reconciler(vec![DeviceDefinition::new(lamp.clone(), capabilities())]);
+        let expected = ReconcileAction::Command {
+            entity: CommandEntity::Device(lamp.clone()),
+            target: device_target(0.5),
+        };
+        assert_eq!(
+            reconciler
+                .set_device_desired(&lamp, target(0.5), at(1.0))
+                .unwrap(),
+            vec![expected.clone()]
+        );
+        let pending = reconciler
+            .device_state(&lamp)
+            .unwrap()
+            .pending_command()
+            .unwrap();
+        assert_eq!(pending.attempts(), 1);
+        assert_eq!(pending.deadline().seconds(), 3.0);
+
+        assert!(reconciler.retry_due(at(2.999)).unwrap().is_empty());
+        assert_eq!(
+            reconciler.retry_due(at(3.0)).unwrap(),
+            vec![expected.clone()]
+        );
+        assert_eq!(
+            reconciler
+                .observe(&lamp, device_target(0.2), at(3.1))
+                .unwrap(),
+            Vec::new()
+        );
+        assert_eq!(reconciler.retry_due(at(5.0)).unwrap(), vec![expected]);
+        assert!(reconciler.retry_due(at(7.0)).unwrap().is_empty());
+        let pending = reconciler
+            .device_state(&lamp)
+            .unwrap()
+            .pending_command()
+            .unwrap();
+        assert_eq!(pending.attempts(), 3);
+        assert!(!reconciler.device_state(&lamp).unwrap().in_sync());
+        assert!(
+            reconciler
+                .set_device_desired(&lamp, target(0.5), at(7.1))
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn matching_observation_cancels_pending_retry() {
+        let lamp = id("lamp");
+        let mut reconciler =
+            connected_reconciler(vec![DeviceDefinition::new(lamp.clone(), capabilities())]);
+        reconciler
+            .set_device_desired(&lamp, target(0.5), at(1.0))
+            .unwrap();
+
+        reconciler
+            .observe(&lamp, device_target(0.5), at(1.1))
+            .unwrap();
+
+        assert!(
+            reconciler
+                .device_state(&lamp)
+                .unwrap()
+                .pending_command()
+                .is_none()
+        );
+        assert!(reconciler.retry_due(at(10.0)).unwrap().is_empty());
+    }
+
+    #[test]
+    fn partial_observations_merge_before_clearing_pending_retry() {
+        let lamp = id("lamp");
+        let mut reconciler =
+            connected_reconciler(vec![DeviceDefinition::new(lamp.clone(), capabilities())]);
+        reconciler
+            .set_device_desired(&lamp, target(0.5), at(1.0))
+            .unwrap();
+
+        reconciler
+            .observe(
+                &lamp,
+                DeviceTarget {
+                    on: Some(true),
+                    brightness: Some(Brightness::new(0.5).unwrap()),
+                    color_temperature: None,
+                    color: None,
+                    transition_ms: None,
+                },
+                at(1.1),
+            )
+            .unwrap();
+        assert!(!reconciler.device_state(&lamp).unwrap().in_sync());
+
+        reconciler
+            .observe(
+                &lamp,
+                DeviceTarget {
+                    on: None,
+                    brightness: None,
+                    color_temperature: Some(Kelvin::new(2700.0).unwrap()),
+                    color: None,
+                    transition_ms: None,
+                },
+                at(1.2),
+            )
+            .unwrap();
+
+        assert!(reconciler.device_state(&lamp).unwrap().in_sync());
+        assert!(
+            reconciler
+                .device_state(&lamp)
+                .unwrap()
+                .pending_command()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn reconnect_and_availability_recovery_reset_retry_budget() {
+        let lamp = id("lamp");
+        let mut reconciler = Reconciler::new(
+            vec![DeviceDefinition::new(lamp.clone(), capabilities())],
+            Vec::new(),
+            RetryPolicy::new(1.0, 2).unwrap(),
+        )
+        .unwrap();
+        reconciler.broker_connected(at(0.0)).unwrap();
+        reconciler
+            .set_device_desired(&lamp, target(0.5), at(1.0))
+            .unwrap();
+        reconciler.retry_due(at(2.0)).unwrap();
+        assert!(reconciler.retry_due(at(3.0)).unwrap().is_empty());
+
+        reconciler.broker_disconnected(at(4.0)).unwrap();
+        let reconnect = reconciler.broker_connected(at(5.0)).unwrap();
+        assert!(
+            reconnect
+                .iter()
+                .any(|action| matches!(action, ReconcileAction::Command { .. }))
+        );
+        assert_eq!(
+            reconciler
+                .device_state(&lamp)
+                .unwrap()
+                .pending_command()
+                .unwrap()
+                .attempts(),
+            1
+        );
+
+        reconciler
+            .set_device_availability(&lamp, Availability::Offline, at(5.1))
+            .unwrap();
+        reconciler
+            .set_device_availability(&lamp, Availability::Online, at(5.2))
+            .unwrap();
+        assert_eq!(
+            reconciler
+                .device_state(&lamp)
+                .unwrap()
+                .pending_command()
+                .unwrap()
+                .attempts(),
+            1
+        );
+    }
+
+    #[test]
+    fn retry_policy_and_clock_failures_are_validated_and_atomic() {
+        for (seconds, attempts) in [
+            (0.0, 1),
+            (-1.0, 1),
+            (f64::NAN, 1),
+            (f64::INFINITY, 1),
+            (1.0, 0),
+            (1.0, 11),
+        ] {
+            assert!(RetryPolicy::new(seconds, attempts).is_err());
+        }
+
+        let lamp = id("lamp");
+        let mut reconciler =
+            connected_reconciler(vec![DeviceDefinition::new(lamp.clone(), capabilities())]);
+        reconciler
+            .set_device_desired(&lamp, target(0.5), at(1.0))
+            .unwrap();
+        let before_regression = reconciler.clone();
+        assert!(reconciler.retry_due(at(0.5)).is_err());
+        assert_eq!(reconciler, before_regression);
+
+        let overflow_lamp = id("overflow_lamp");
+        let mut overflow = connected_reconciler(vec![DeviceDefinition::new(
+            overflow_lamp.clone(),
+            capabilities(),
+        )]);
+        let before_overflow = overflow.clone();
+        assert!(
+            overflow
+                .set_device_desired(&overflow_lamp, target(0.5), at(f64::MAX))
+                .is_err()
+        );
+        assert_eq!(overflow, before_overflow);
+    }
+
+    fn on_only_capabilities() -> Capabilities {
+        Capabilities {
+            on_off: true,
+            dimming: false,
+            color_temperature: None,
+            color_xy: false,
+            color_hs: false,
+            input: false,
+            occupancy: false,
+            temperature: false,
+            power_metering: false,
+        }
+    }
+
+    fn color_capabilities() -> Capabilities {
+        Capabilities {
+            color_xy: true,
+            color_temperature: None,
+            ..capabilities()
+        }
+    }
+
+    #[test]
+    fn heterogeneous_group_sends_common_fields_once_and_only_missing_member_fields() {
+        let color_lamp = id("color_lamp");
+        let cct_lamp = id("cct_lamp");
+        let switch = id("switch");
+        let group = entity("mixed_group");
+        let group_capabilities = Capabilities {
+            color_temperature: None,
+            ..capabilities()
+        };
+        let mut reconciler = Reconciler::new(
+            vec![
+                DeviceDefinition::new(color_lamp.clone(), color_capabilities()),
+                DeviceDefinition::new(cct_lamp.clone(), capabilities()),
+                DeviceDefinition::new(switch.clone(), on_only_capabilities()),
+            ],
+            vec![
+                GroupDefinition::new(
+                    group.clone(),
+                    vec![switch.clone(), cct_lamp.clone(), color_lamp.clone()],
+                    group_capabilities,
+                )
+                .unwrap(),
+            ],
+            retry_policy(),
+        )
+        .unwrap();
+        reconciler.broker_connected(at(0.0)).unwrap();
+        let logical = LightTarget {
+            on: true,
+            brightness: Some(Brightness::new(0.6).unwrap()),
+            color_temperature: Some(Kelvin::new(3000.0).unwrap()),
+            color: Some(Color::xy(0.2, 0.3).unwrap()),
+            transition_ms: Some(500),
+        };
+
+        let actions = reconciler
+            .set_group_desired(&group, logical, at(1.0))
+            .unwrap();
+
+        assert_eq!(
+            actions,
+            vec![
+                ReconcileAction::Command {
+                    entity: CommandEntity::Group(group),
+                    target: DeviceTarget {
+                        on: Some(true),
+                        brightness: Some(Brightness::new(0.6).unwrap()),
+                        color_temperature: None,
+                        color: None,
+                        transition_ms: Some(500),
+                    },
+                },
+                ReconcileAction::Command {
+                    entity: CommandEntity::Device(cct_lamp.clone()),
+                    target: DeviceTarget {
+                        on: None,
+                        brightness: None,
+                        color_temperature: Some(Kelvin::new(3000.0).unwrap()),
+                        color: None,
+                        transition_ms: Some(500),
+                    },
+                },
+                ReconcileAction::Command {
+                    entity: CommandEntity::Device(color_lamp.clone()),
+                    target: DeviceTarget {
+                        on: None,
+                        brightness: None,
+                        color_temperature: None,
+                        color: Some(Color::xy(0.2, 0.3).unwrap()),
+                        transition_ms: Some(500),
+                    },
+                },
+            ]
+        );
+        assert_eq!(
+            reconciler
+                .device_state(&color_lamp)
+                .unwrap()
+                .pending_command()
+                .unwrap()
+                .target(),
+            color_capabilities().degrade(&logical)
+        );
+        assert_eq!(
+            reconciler
+                .device_state(&switch)
+                .unwrap()
+                .pending_command()
+                .unwrap()
+                .target(),
+            on_only_capabilities().degrade(&logical)
+        );
+    }
+
+    #[test]
+    fn empty_group_command_falls_back_to_members_only() {
+        let lamp = id("lamp");
+        let group = entity("empty_group_capability");
+        let empty = Capabilities {
+            on_off: false,
+            dimming: false,
+            color_temperature: None,
+            color_xy: false,
+            color_hs: false,
+            input: false,
+            occupancy: false,
+            temperature: false,
+            power_metering: false,
+        };
+        let mut reconciler = Reconciler::new(
+            vec![DeviceDefinition::new(lamp.clone(), capabilities())],
+            vec![GroupDefinition::new(group.clone(), vec![lamp.clone()], empty).unwrap()],
+            retry_policy(),
+        )
+        .unwrap();
+        reconciler.broker_connected(at(0.0)).unwrap();
+
+        assert_eq!(
+            reconciler
+                .set_group_desired(&group, target(0.4), at(1.0))
+                .unwrap(),
+            vec![ReconcileAction::Command {
+                entity: CommandEntity::Device(lamp),
+                target: device_target(0.4),
+            }]
         );
     }
 }

@@ -103,10 +103,14 @@ impl ControlBinding {
 }
 
 fn validate_friendly_name(value: String) -> Result<String, AdapterError> {
+    let terminal = value.rsplit('/').next().unwrap_or_default();
+    let forbidden_terminal = matches!(terminal, "left" | "right" | "set" | "get" | "availability")
+        || terminal.chars().all(|character| character.is_ascii_digit());
     if value.is_empty()
         || value.starts_with('/')
         || value.ends_with('/')
         || value.contains(['\0', '#', '+'])
+        || forbidden_terminal
     {
         return Err(AdapterError::configuration(
             "invalid Zigbee2MQTT friendly name",
@@ -257,9 +261,14 @@ impl Zigbee2MqttAdapter {
                     let binding = self.devices.get(id).ok_or_else(|| {
                         AdapterError::configuration(format!("unbound device {}", id.as_str()))
                     })?;
+                    let read = Map::from_iter([
+                        ("state".to_owned(), Value::String(String::new())),
+                        ("brightness".to_owned(), Value::String(String::new())),
+                        ("color_temp".to_owned(), Value::String(String::new())),
+                    ]);
                     plan.publications.push(Publication::json(
                         format!("{}/{}/get", self.base_topic, binding.friendly_name),
-                        &Map::new(),
+                        &read,
                     )?);
                 }
                 ReconcileAction::Command { entity, target } => {
@@ -804,22 +813,22 @@ mod tests {
         );
         assert!(duplicate_groups.is_err());
 
-        let state_availability_collision = Zigbee2MqttAdapter::new(
-            "zigbee2mqtt",
-            vec![
-                DeviceBinding::new(device_id("lamp"), "room/lamp", range, false).unwrap(),
-                DeviceBinding::new(
-                    device_id("looks_like_availability"),
-                    "room/lamp/availability",
-                    range,
-                    false,
-                )
-                .unwrap(),
-            ],
-            Vec::new(),
-            Vec::new(),
+        assert!(
+            DeviceBinding::new(
+                device_id("looks_like_availability"),
+                "room/lamp/availability",
+                range,
+                false,
+            )
+            .is_err()
         );
-        assert!(state_availability_collision.is_err());
+
+        for forbidden in ["1234", "room/1234", "room/left", "room/right", "room/set"] {
+            assert!(
+                DeviceBinding::new(device_id("lamp"), forbidden, range, false).is_err(),
+                "accepted forbidden terminal segment {forbidden:?}"
+            );
+        }
     }
 
     #[test]
@@ -1051,7 +1060,10 @@ mod tests {
             plan.publications()[0].topic(),
             "zigbee2mqtt/living/ikea lamp/get"
         );
-        assert_eq!(object(&plan.publications()[0]), json!({}));
+        assert_eq!(
+            object(&plan.publications()[0]),
+            json!({"state":"", "brightness":"", "color_temp":""})
+        );
         assert!(!plan.publications()[0].retain());
     }
 
