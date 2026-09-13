@@ -2,7 +2,7 @@ use std::{error::Error, fmt};
 
 use serde::{Deserialize, Serialize};
 
-use crate::value::{Brightness, Kelvin, KelvinRange, ValueError};
+use crate::value::{Brightness, Kelvin, ValueError};
 
 const SECONDS_PER_DAY: u32 = 24 * 60 * 60;
 
@@ -136,7 +136,7 @@ impl CircadianCurve {
         &self.anchors
     }
 
-    pub fn sample(&self, time: TimeOfDay, kelvin_range: KelvinRange) -> CurvePoint {
+    pub fn sample(&self, time: TimeOfDay) -> CurvePoint {
         let brightness_values: Vec<_> = self
             .anchors
             .iter()
@@ -164,10 +164,8 @@ impl CircadianCurve {
         CurvePoint {
             brightness: Brightness::clamped(brightness)
                 .expect("curve interpolation preserves finite brightness"),
-            color_temperature: kelvin_range.clamp(
-                Kelvin::new(color_temperature)
-                    .expect("curve interpolation preserves positive finite Kelvin"),
-            ),
+            color_temperature: Kelvin::new(color_temperature)
+                .expect("curve interpolation preserves positive finite Kelvin"),
         }
     }
 
@@ -322,7 +320,7 @@ fn cyclic_width(left: TimeOfDay, right: TimeOfDay) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use crate::value::{Brightness, KelvinRange};
+    use crate::value::Brightness;
 
     use super::{CircadianCurve, CurveAnchor, CurveError, TimeOfDay};
 
@@ -332,10 +330,6 @@ mod tests {
 
     fn anchor(hour: u8, brightness: f64, kelvin: f64) -> CurveAnchor {
         CurveAnchor::new(time(hour, 0), Brightness::new(brightness).unwrap(), kelvin).unwrap()
-    }
-
-    fn default_range() -> KelvinRange {
-        KelvinRange::new(2_200.0, 6_500.0).unwrap()
     }
 
     #[test]
@@ -363,7 +357,7 @@ mod tests {
         .unwrap();
 
         for expected in curve.anchors() {
-            let actual = curve.sample(expected.time(), default_range());
+            let actual = curve.sample(expected.time());
             assert_eq!(actual.brightness(), expected.brightness());
             assert_eq!(actual.color_temperature(), expected.color_temperature());
         }
@@ -374,8 +368,8 @@ mod tests {
         let curve =
             CircadianCurve::new(vec![anchor(6, 0.2, 2_700.0), anchor(18, 0.8, 5_100.0)]).unwrap();
 
-        let noon = curve.sample(time(12, 0), default_range());
-        let midnight = curve.sample(time(0, 0), default_range());
+        let noon = curve.sample(time(12, 0));
+        let midnight = curve.sample(time(0, 0));
         assert!((noon.brightness().get() - 0.5).abs() < 1e-12);
         assert!((noon.color_temperature().get() - 3_900.0).abs() < 1e-9);
         assert!((midnight.brightness().get() - 0.5).abs() < 1e-12);
@@ -391,9 +385,26 @@ mod tests {
         ])
         .unwrap();
 
-        let at_midnight = curve.sample(time(0, 0), default_range());
+        let at_midnight = curve.sample(time(0, 0));
         assert!((0.2..=0.4).contains(&at_midnight.brightness().get()));
         assert!((2_500.0..=3_100.0).contains(&at_midnight.color_temperature().get()));
+
+        let before_midnight = curve.sample(TimeOfDay::from_seconds(86_399).unwrap());
+        let after_midnight = curve.sample(TimeOfDay::from_seconds(1).unwrap());
+        assert!(
+            (before_midnight.brightness().get() - at_midnight.brightness().get()).abs() < 0.001
+        );
+        assert!((after_midnight.brightness().get() - at_midnight.brightness().get()).abs() < 0.001);
+        assert!(
+            (before_midnight.color_temperature().get() - at_midnight.color_temperature().get())
+                .abs()
+                < 1.0
+        );
+        assert!(
+            (after_midnight.color_temperature().get() - at_midnight.color_temperature().get())
+                .abs()
+                < 1.0
+        );
     }
 
     #[test]
@@ -409,7 +420,7 @@ mod tests {
 
         for second in (0..86_400).step_by(137) {
             let time = TimeOfDay::from_seconds(second).unwrap();
-            let point = curve.sample(time, default_range());
+            let point = curve.sample(time);
             let (lower, upper) = curve.neighbor_values(time);
             let brightness = point.brightness().get();
             let kelvin = point.color_temperature().get();
@@ -435,7 +446,7 @@ mod tests {
     }
 
     #[test]
-    fn sampled_values_are_clamped_to_domain_and_requested_kelvin_range() {
+    fn sampled_values_stay_within_canonical_domain() {
         let curve = CircadianCurve::new(vec![
             anchor(0, 0.0, 2_000.0),
             anchor(6, 1.0, 7_000.0),
@@ -443,13 +454,20 @@ mod tests {
             anchor(18, 1.0, 7_000.0),
         ])
         .unwrap();
-        let range = KelvinRange::new(2_700.0, 4_000.0).unwrap();
-
         for second in (0..86_400).step_by(97) {
-            let point = curve.sample(TimeOfDay::from_seconds(second).unwrap(), range);
+            let point = curve.sample(TimeOfDay::from_seconds(second).unwrap());
             assert!((0.0..=1.0).contains(&point.brightness().get()));
-            assert!((2_700.0..=4_000.0).contains(&point.color_temperature().get()));
+            assert!((2_000.0..=7_000.0).contains(&point.color_temperature().get()));
         }
+    }
+
+    #[test]
+    fn curve_preserves_canonical_kelvin_until_device_adaptation() {
+        let curve =
+            CircadianCurve::new(vec![anchor(0, 0.5, 7_000.0), anchor(12, 0.5, 7_000.0)]).unwrap();
+
+        let point = curve.sample(time(6, 0));
+        assert_eq!(point.color_temperature().get(), 7_000.0);
     }
 
     #[test]
