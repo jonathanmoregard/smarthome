@@ -13,7 +13,6 @@ use crate::{
         AutomationState, ControlId, ConvergenceDuration, CurveToggleOutcome, MonotonicTime, Scope,
         StateError, UserOffsets,
     },
-    value::{Capabilities, LayeredLightTarget},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
@@ -235,19 +234,21 @@ impl Mapping {
                 ActionOutcome::PowerToggled { scope, on }
             }
             Action::ToggleCircadian => {
+                let context = context.toggle.ok_or(InputError::MissingToggleContext)?;
+                let acknowledgement_target = context
+                    .acknowledgement
+                    .map(|_| state.compose_scope_layers(&scope, context.live_curve, context.now))
+                    .transpose()?;
                 let toggle = state.toggle_scope_curve(
                     &scope,
                     context.live_curve,
                     context.now,
                     context.convergence_duration,
                 )?;
-                let acknowledgement = context.acknowledgement.and_then(|acknowledgement| {
-                    acknowledgement.settings.for_toggle(
-                        toggle,
-                        &acknowledgement.target,
-                        acknowledgement.capabilities,
-                    )
-                });
+                let acknowledgement = context
+                    .acknowledgement
+                    .zip(acknowledgement_target)
+                    .and_then(|(settings, target)| settings.for_scope_toggle(toggle, &target));
                 ActionOutcome::CircadianToggled {
                     scope,
                     outcome: toggle,
@@ -278,35 +279,14 @@ impl From<Mapping> for Vec<MappingEntry> {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct AcknowledgementContext<'a> {
-    settings: &'a AcknowledgementSettings,
-    target: LayeredLightTarget,
-    capabilities: Capabilities,
-}
-
-impl<'a> AcknowledgementContext<'a> {
-    pub fn new(
-        settings: &'a AcknowledgementSettings,
-        target: LayeredLightTarget,
-        capabilities: Capabilities,
-    ) -> Self {
-        Self {
-            settings,
-            target,
-            capabilities,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct ActionContext<'a> {
+pub struct ToggleContext<'a> {
     live_curve: CurvePoint,
     now: MonotonicTime,
     convergence_duration: ConvergenceDuration,
-    acknowledgement: Option<AcknowledgementContext<'a>>,
+    acknowledgement: Option<&'a AcknowledgementSettings>,
 }
 
-impl<'a> ActionContext<'a> {
+impl<'a> ToggleContext<'a> {
     pub fn new(
         live_curve: CurvePoint,
         now: MonotonicTime,
@@ -320,8 +300,20 @@ impl<'a> ActionContext<'a> {
         }
     }
 
-    pub fn with_acknowledgement(mut self, acknowledgement: AcknowledgementContext<'a>) -> Self {
-        self.acknowledgement = Some(acknowledgement);
+    pub fn with_acknowledgement(mut self, settings: &'a AcknowledgementSettings) -> Self {
+        self.acknowledgement = Some(settings);
+        self
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ActionContext<'a> {
+    toggle: Option<ToggleContext<'a>>,
+}
+
+impl<'a> ActionContext<'a> {
+    pub fn with_toggle(mut self, toggle: ToggleContext<'a>) -> Self {
+        self.toggle = Some(toggle);
         self
     }
 }
@@ -445,17 +437,22 @@ impl ClickClassifier {
     }
 
     fn take_due(&mut self, now: MonotonicTime) -> Vec<ClassifiedInput> {
-        let due: Vec<_> = self
+        let mut due: Vec<_> = self
             .pending
             .iter()
             .filter(|(_, deadline)| now.seconds() > **deadline)
-            .map(|(control_id, _)| control_id.clone())
+            .map(|(control_id, deadline)| (*deadline, control_id.clone()))
             .collect();
-        for control_id in &due {
+        due.sort_by(|(left_deadline, left_id), (right_deadline, right_id)| {
+            left_deadline
+                .total_cmp(right_deadline)
+                .then_with(|| left_id.cmp(right_id))
+        });
+        for (_, control_id) in &due {
             self.pending.remove(control_id);
         }
         due.into_iter()
-            .map(|control_id| (control_id, Gesture::CenterSingle))
+            .map(|(_, control_id)| (control_id, Gesture::CenterSingle))
             .collect()
     }
 }
@@ -468,6 +465,7 @@ pub enum InputError {
     MonotonicClockRegressed,
     DuplicateGesture(Gesture),
     SelectScopeRequiresExplicitTarget,
+    MissingToggleContext,
     State(StateError),
 }
 
@@ -485,6 +483,9 @@ impl Display for InputError {
             }
             Self::SelectScopeRequiresExplicitTarget => {
                 formatter.write_str("select_scope action requires an explicit target")
+            }
+            Self::MissingToggleContext => {
+                formatter.write_str("toggle_circadian action requires current curve and time")
             }
             Self::State(error) => write!(formatter, "automation state error: {error}"),
         }
@@ -717,6 +718,56 @@ mod tests {
     }
 
     #[test]
+    fn expired_clicks_emit_by_deadline_before_control_identifier() {
+        let earlier_id_sorts_later = control("remote-z");
+        let later_id_sorts_earlier = control("remote-a");
+        let mut classifier = classifier();
+        classifier
+            .ingest(
+                earlier_id_sorts_later.clone(),
+                RawInputEvent::CenterShort,
+                now(1.0),
+            )
+            .unwrap();
+        classifier
+            .ingest(
+                later_id_sorts_earlier.clone(),
+                RawInputEvent::CenterShort,
+                now(1.1),
+            )
+            .unwrap();
+
+        assert_eq!(
+            classifier.flush_due(now(2.0)).unwrap(),
+            vec![
+                (earlier_id_sorts_later, Gesture::CenterSingle),
+                (later_id_sorts_earlier, Gesture::CenterSingle),
+            ]
+        );
+    }
+
+    #[test]
+    fn equal_deadlines_emit_by_control_identifier() {
+        let remote_z = control("remote-z");
+        let remote_a = control("remote-a");
+        let mut classifier = classifier();
+        classifier
+            .ingest(remote_z.clone(), RawInputEvent::CenterShort, now(1.0))
+            .unwrap();
+        classifier
+            .ingest(remote_a.clone(), RawInputEvent::CenterShort, now(1.0))
+            .unwrap();
+
+        assert_eq!(
+            classifier.flush_due(now(2.0)).unwrap(),
+            vec![
+                (remote_a, Gesture::CenterSingle),
+                (remote_z, Gesture::CenterSingle),
+            ]
+        );
+    }
+
+    #[test]
     fn click_window_rejects_zero_negative_and_non_finite_values() {
         for seconds in [0.0, -0.1, f64::NAN, f64::NEG_INFINITY, f64::INFINITY] {
             assert!(
@@ -731,17 +782,17 @@ mod tests {
 mod action_tests {
     use crate::{
         curve::{CircadianCurve, CurveAnchor, CurvePoint, TimeOfDay},
-        overlay::{AcknowledgementKind, AcknowledgementSettings, OverlayId},
+        overlay::{AcknowledgementKind, AcknowledgementSettings, OverlayId, OverlaySet},
         state::{
             AutomationState, ControlId, ControlState, ConvergenceDuration, CurveMode,
-            CurveToggleOutcome, MonotonicTime, Scope, ScopeId, ScopeState, StateError,
+            CurveToggleOutcome, MonotonicTime, Scope, ScopeId, ScopeState, StateError, UserOffsets,
         },
-        value::{Brightness, Capabilities, KelvinRange},
+        value::{Brightness, KelvinRange},
     };
 
     use super::{
-        AcknowledgementContext, Action, ActionContext, ActionOutcome, Gesture, InputError, Mapping,
-        MappingEntry, ScopeTarget,
+        Action, ActionContext, ActionOutcome, Gesture, InputError, Mapping, MappingEntry,
+        ScopeTarget, ToggleContext,
     };
 
     fn id(value: &str) -> ScopeId {
@@ -779,20 +830,6 @@ mod action_tests {
         .sample(TimeOfDay::from_hms(12, 0, 0).unwrap())
     }
 
-    fn capabilities() -> Capabilities {
-        Capabilities {
-            on_off: true,
-            dimming: true,
-            color_temperature: Some(KelvinRange::new(2_200.0, 6_500.0).unwrap()),
-            color_xy: false,
-            color_hs: false,
-            input: false,
-            occupancy: false,
-            temperature: false,
-            power_metering: false,
-        }
-    }
-
     fn state() -> (AutomationState, Scope, Scope, Scope, ControlId, ControlId) {
         let room = Scope::Room(id("kitchen"));
         let floor = Scope::Floor(id("ground"));
@@ -815,7 +852,7 @@ mod action_tests {
     }
 
     fn context() -> ActionContext<'static> {
-        ActionContext::new(live_curve(), now(10.0), duration())
+        ActionContext::default()
     }
 
     fn mapping(entries: Vec<MappingEntry>) -> Mapping {
@@ -841,22 +878,35 @@ mod action_tests {
         let json = serde_json::to_string(&mapping).unwrap();
         assert_eq!(serde_json::from_str::<Mapping>(&json).unwrap(), mapping);
 
+        let duplicate_entries = vec![
+            MappingEntry::new(
+                Gesture::Up,
+                ScopeTarget::SelectedScope,
+                Action::brightness_offset(0.1).unwrap(),
+            )
+            .unwrap(),
+            MappingEntry::new(
+                Gesture::Up,
+                ScopeTarget::SelectedScope,
+                Action::brightness_offset(0.2).unwrap(),
+            )
+            .unwrap(),
+        ];
         assert_eq!(
-            Mapping::new(vec![
-                MappingEntry::new(
-                    Gesture::Up,
-                    ScopeTarget::SelectedScope,
-                    Action::brightness_offset(0.1).unwrap(),
-                )
-                .unwrap(),
-                MappingEntry::new(
-                    Gesture::Up,
-                    ScopeTarget::SelectedScope,
-                    Action::brightness_offset(0.2).unwrap(),
-                )
-                .unwrap(),
-            ]),
+            Mapping::new(duplicate_entries.clone()),
             Err(InputError::DuplicateGesture(Gesture::Up))
+        );
+        assert!(
+            serde_json::from_value::<Mapping>(serde_json::to_value(duplicate_entries).unwrap())
+                .is_err()
+        );
+        assert!(
+            serde_json::from_value::<MappingEntry>(serde_json::json!({
+                "gesture": "center_long",
+                "target": "selected_scope",
+                "action": "select_scope"
+            }))
+            .is_err()
         );
     }
 
@@ -866,6 +916,29 @@ mod action_tests {
             assert!(Action::brightness_offset(delta).is_err());
             assert!(Action::color_temperature_offset(delta).is_err());
         }
+    }
+
+    #[test]
+    fn offset_addition_overflow_leaves_scope_state_unchanged() {
+        let (mut state, room, _, _, remote, _) = state();
+        state
+            .set_scope_offsets(&room, UserOffsets::new(f64::MAX, 0.0).unwrap())
+            .unwrap();
+        let before = state.snapshot();
+        let mapping = mapping(vec![
+            MappingEntry::new(
+                Gesture::Up,
+                ScopeTarget::SelectedScope,
+                Action::brightness_offset(f64::MAX).unwrap(),
+            )
+            .unwrap(),
+        ]);
+
+        assert_eq!(
+            mapping.execute(&remote, Gesture::Up, &mut state, context()),
+            Err(InputError::State(StateError::NonFinite))
+        );
+        assert_eq!(state.snapshot(), before);
     }
 
     #[test]
@@ -1007,9 +1080,6 @@ mod action_tests {
     #[test]
     fn successful_circadian_toggle_returns_outcome_and_acknowledgement_request() {
         let (mut state, room, _, _, remote, _) = state();
-        let layers = state
-            .compose_scope_layers(&room, live_curve(), now(10.0))
-            .unwrap();
         let settings =
             AcknowledgementSettings::new(OverlayId::new("circadian-ack").unwrap(), 0.1, 0.5, 100)
                 .unwrap();
@@ -1021,11 +1091,9 @@ mod action_tests {
             )
             .unwrap(),
         ]);
-        let context = context().with_acknowledgement(AcknowledgementContext::new(
-            &settings,
-            layers,
-            capabilities(),
-        ));
+        let context = ActionContext::default().with_toggle(
+            ToggleContext::new(live_curve(), now(10.0), duration()).with_acknowledgement(&settings),
+        );
 
         let outcome = mapping
             .execute(&remote, Gesture::CenterDouble, &mut state, context)
@@ -1044,13 +1112,9 @@ mod action_tests {
         let frozen_acknowledgement = acknowledgement.unwrap();
         assert_eq!(frozen_acknowledgement.kind(), AcknowledgementKind::Frozen);
 
-        let layers = state
-            .compose_scope_layers(&room, live_curve(), now(11.0))
-            .unwrap();
-        let unfreeze_context =
-            ActionContext::new(live_curve(), now(11.0), duration()).with_acknowledgement(
-                AcknowledgementContext::new(&settings, layers, capabilities()),
-            );
+        let unfreeze_context = ActionContext::default().with_toggle(
+            ToggleContext::new(live_curve(), now(11.0), duration()).with_acknowledgement(&settings),
+        );
         let unfreeze = mapping
             .execute(&remote, Gesture::CenterDouble, &mut state, unfreeze_context)
             .unwrap()
@@ -1078,6 +1142,92 @@ mod action_tests {
     }
 
     #[test]
+    fn acknowledgement_uses_layers_from_resolved_scope() {
+        let (mut state, kitchen, _, _, remote, _) = state();
+        let bedroom = Scope::Room(id("bedroom"));
+        state
+            .insert_scope(bedroom.clone(), ScopeState::new(true))
+            .unwrap();
+        state
+            .set_scope_offsets(&bedroom, UserOffsets::new(0.4, 0.0).unwrap())
+            .unwrap();
+        let range = KelvinRange::new(2_200.0, 6_500.0).unwrap();
+        assert_eq!(
+            state
+                .compose_scope_target(&bedroom, live_curve(), now(10.0), range)
+                .unwrap()
+                .brightness
+                .unwrap()
+                .get(),
+            0.8
+        );
+        let settings =
+            AcknowledgementSettings::new(OverlayId::new("circadian-ack").unwrap(), 0.1, 0.5, 100)
+                .unwrap();
+        let mapping = mapping(vec![
+            MappingEntry::new(
+                Gesture::CenterDouble,
+                ScopeTarget::Explicit(kitchen.clone()),
+                Action::ToggleCircadian,
+            )
+            .unwrap(),
+        ]);
+        let context = ActionContext::default().with_toggle(
+            ToggleContext::new(live_curve(), now(10.0), duration()).with_acknowledgement(&settings),
+        );
+
+        let outcome = mapping
+            .execute(&remote, Gesture::CenterDouble, &mut state, context)
+            .unwrap()
+            .unwrap();
+        let ActionOutcome::CircadianToggled {
+            acknowledgement: Some(acknowledgement),
+            ..
+        } = outcome
+        else {
+            panic!("toggle did not return acknowledgement");
+        };
+        let kitchen_layers = state
+            .compose_scope_layers(&kitchen, live_curve(), now(10.0))
+            .unwrap();
+        let mut overlays = OverlaySet::new();
+        overlays
+            .insert_request(acknowledgement.into_overlay(), now(10.0))
+            .unwrap();
+        let signalled = overlays.compose(kitchen_layers, now(10.1), range).unwrap();
+        assert_eq!(signalled.brightness.unwrap().get(), 0.5);
+    }
+
+    #[test]
+    fn circadian_toggle_without_toggle_context_fails_without_mutation() {
+        let (mut state, room, _, _, remote, _) = state();
+        let before = state.snapshot();
+        let mapping = mapping(vec![
+            MappingEntry::new(
+                Gesture::CenterDouble,
+                ScopeTarget::SelectedScope,
+                Action::ToggleCircadian,
+            )
+            .unwrap(),
+        ]);
+
+        assert_eq!(
+            mapping.execute(
+                &remote,
+                Gesture::CenterDouble,
+                &mut state,
+                ActionContext::default(),
+            ),
+            Err(InputError::MissingToggleContext)
+        );
+        assert_eq!(state.snapshot(), before);
+        assert!(matches!(
+            state.scope_state(&room).unwrap().mode(),
+            CurveMode::Follow
+        ));
+    }
+
+    #[test]
     fn failed_circadian_toggle_returns_no_outcome_or_acknowledgement_and_does_not_mutate() {
         let (mut state, room, _, _, remote, _) = state();
         state
@@ -1087,7 +1237,7 @@ mod action_tests {
             .toggle_scope_curve(&room, live_curve(), now(20.0), duration())
             .unwrap();
         let before = *state.scope_state(&room).unwrap().mode();
-        let layers = state
+        state
             .compose_scope_layers(&room, live_curve(), now(20.0))
             .unwrap();
         let settings =
@@ -1101,10 +1251,9 @@ mod action_tests {
             )
             .unwrap(),
         ]);
-        let failed_context =
-            ActionContext::new(live_curve(), now(19.0), duration()).with_acknowledgement(
-                AcknowledgementContext::new(&settings, layers, capabilities()),
-            );
+        let failed_context = ActionContext::default().with_toggle(
+            ToggleContext::new(live_curve(), now(19.0), duration()).with_acknowledgement(&settings),
+        );
 
         assert_eq!(
             mapping.execute(&remote, Gesture::CenterDouble, &mut state, failed_context,),

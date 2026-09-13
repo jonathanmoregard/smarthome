@@ -321,7 +321,20 @@ impl AcknowledgementSettings {
         target: &LayeredLightTarget,
         capabilities: Capabilities,
     ) -> Option<AcknowledgementRequest> {
-        if !target.on || !capabilities.dimming {
+        if !capabilities.dimming {
+            return None;
+        }
+        self.for_scope_toggle(outcome, target)
+    }
+
+    /// Build one scope-level pulse. Device adaptation later omits brightness
+    /// for members without dimming support.
+    pub fn for_scope_toggle(
+        &self,
+        outcome: CurveToggleOutcome,
+        target: &LayeredLightTarget,
+    ) -> Option<AcknowledgementRequest> {
+        if !target.on {
             return None;
         }
         let brightness = target.brightness?.clamp(0.0, 1.0);
