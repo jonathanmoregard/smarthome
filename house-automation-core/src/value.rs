@@ -41,21 +41,21 @@ impl Brightness {
         validate_finite_range(value, NORMALIZED_MIN, NORMALIZED_MAX).map(Self)
     }
 
-    pub fn clamped(value: f64) -> Self {
-        if value.is_nan() {
-            return Self(NORMALIZED_MIN);
+    pub fn clamped(value: f64) -> Result<Self, ValueError> {
+        if !value.is_finite() {
+            return Err(ValueError::NonFinite);
         }
 
-        Self(value.clamp(NORMALIZED_MIN, NORMALIZED_MAX))
+        Ok(Self(value.clamp(NORMALIZED_MIN, NORMALIZED_MAX)))
     }
 
     pub fn get(self) -> f64 {
         self.0
     }
 
-    pub fn with_offset(self, offset: f64) -> Self {
-        if offset.is_nan() {
-            return self;
+    pub fn with_offset(self, offset: f64) -> Result<Self, ValueError> {
+        if !offset.is_finite() {
+            return Err(ValueError::NonFinite);
         }
 
         Self::clamped(self.0 + offset)
@@ -141,12 +141,17 @@ impl KelvinRange {
         Kelvin(kelvin.get().clamp(self.min.get(), self.max.get()))
     }
 
-    pub fn with_offset(self, kelvin: Kelvin, offset: f64) -> Kelvin {
-        if offset.is_nan() {
-            return self.clamp(kelvin);
+    pub fn with_offset(self, kelvin: Kelvin, offset: f64) -> Result<Kelvin, ValueError> {
+        if !offset.is_finite() {
+            return Err(ValueError::NonFinite);
         }
 
-        Kelvin((kelvin.get() + offset).clamp(self.min.get(), self.max.get()))
+        let adjusted = kelvin.get() + offset;
+        if !adjusted.is_finite() {
+            return Err(ValueError::NonFinite);
+        }
+
+        Ok(Kelvin(adjusted.clamp(self.min.get(), self.max.get())))
     }
 }
 
@@ -248,6 +253,15 @@ pub struct LightTarget {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct DeviceTarget {
+    pub on: Option<bool>,
+    pub brightness: Option<Brightness>,
+    pub color_temperature: Option<Kelvin>,
+    pub color: Option<Color>,
+    pub transition_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Capabilities {
     pub on_off: bool,
     pub dimming: bool,
@@ -261,23 +275,37 @@ pub struct Capabilities {
 }
 
 impl Capabilities {
-    pub fn degrade(self, target: &LightTarget) -> LightTarget {
-        let brightness = self.dimming.then_some(target.brightness).flatten();
-        let color_temperature = self
-            .color_temperature
-            .zip(target.color_temperature)
-            .map(|(range, kelvin)| range.clamp(kelvin));
+    pub fn degrade(self, target: &LightTarget) -> DeviceTarget {
+        let on = self.on_off.then_some(target.on);
+        let brightness = if self.dimming {
+            target.brightness
+        } else {
+            None
+        };
         let color = target.color.filter(|color| {
             (self.color_xy && color.xy_components().is_some())
                 || (self.color_hs && color.hs_components().is_some())
         });
+        let color_temperature = if color.is_none() {
+            self.color_temperature
+                .zip(target.color_temperature)
+                .map(|(range, kelvin)| range.clamp(kelvin))
+        } else {
+            None
+        };
+        let transition_ms =
+            if brightness.is_some() || color_temperature.is_some() || color.is_some() {
+                target.transition_ms
+            } else {
+                None
+            };
 
-        LightTarget {
-            on: target.on,
+        DeviceTarget {
+            on,
             brightness,
             color_temperature,
             color,
-            transition_ms: target.transition_ms,
+            transition_ms,
         }
     }
 }
@@ -295,7 +323,22 @@ fn validate_finite_range(value: f64, minimum: f64, maximum: f64) -> Result<f64, 
 
 #[cfg(test)]
 mod tests {
-    use super::{Brightness, Capabilities, Color, Kelvin, KelvinRange, LightTarget};
+    use std::fmt::Debug;
+
+    use serde::{
+        Deserialize, Serialize,
+        de::{DeserializeOwned, value::F64Deserializer},
+    };
+
+    use super::{Brightness, Capabilities, Color, DeviceTarget, Kelvin, KelvinRange, LightTarget};
+
+    fn assert_json_round_trip<T>(value: T)
+    where
+        T: Serialize + DeserializeOwned + Debug + PartialEq,
+    {
+        let encoded = serde_json::to_string(&value).unwrap();
+        assert_eq!(serde_json::from_str::<T>(&encoded).unwrap(), value);
+    }
 
     #[test]
     fn brightness_rejects_non_finite_and_out_of_range_values() {
@@ -308,22 +351,35 @@ mod tests {
     }
 
     #[test]
-    fn brightness_clamped_bounds_finite_and_non_finite_values() {
-        assert_eq!(Brightness::clamped(-0.5).get(), 0.0);
-        assert_eq!(Brightness::clamped(1.5).get(), 1.0);
-        assert_eq!(Brightness::clamped(f64::NAN).get(), 0.0);
-        assert_eq!(Brightness::clamped(f64::NEG_INFINITY).get(), 0.0);
-        assert_eq!(Brightness::clamped(f64::INFINITY).get(), 1.0);
+    fn brightness_clamped_bounds_finite_values() {
+        assert_eq!(Brightness::clamped(-0.5).unwrap().get(), 0.0);
+        assert_eq!(Brightness::clamped(1.5).unwrap().get(), 1.0);
+    }
+
+    #[test]
+    fn brightness_clamped_rejects_non_finite_values() {
+        for value in [f64::NAN, f64::NEG_INFINITY, f64::INFINITY] {
+            assert!(Brightness::clamped(value).is_err(), "accepted {value}");
+        }
     }
 
     #[test]
     fn brightness_offset_is_clamped_to_normalized_bounds() {
         let brightness = Brightness::new(0.4).unwrap();
 
-        assert!((brightness.with_offset(0.2).get() - 0.6).abs() < f64::EPSILON);
-        assert_eq!(brightness.with_offset(-0.8).get(), 0.0);
-        assert_eq!(brightness.with_offset(0.8).get(), 1.0);
-        assert_eq!(brightness.with_offset(f64::NAN), brightness);
+        assert!((brightness.with_offset(0.2).unwrap().get() - 0.6).abs() < f64::EPSILON);
+        assert_eq!(brightness.with_offset(-0.8).unwrap().get(), 0.0);
+        assert_eq!(brightness.with_offset(0.8).unwrap().get(), 1.0);
+        assert_eq!(brightness.with_offset(f64::MAX).unwrap().get(), 1.0);
+    }
+
+    #[test]
+    fn brightness_offset_rejects_non_finite_values() {
+        let brightness = Brightness::new(0.4).unwrap();
+
+        for offset in [f64::NAN, f64::NEG_INFINITY, f64::INFINITY] {
+            assert!(brightness.with_offset(offset).is_err(), "accepted {offset}");
+        }
     }
 
     #[test]
@@ -348,20 +404,36 @@ mod tests {
         assert_eq!(
             range
                 .with_offset(Kelvin::new(3000.0).unwrap(), -1000.0)
+                .unwrap()
                 .get(),
             2200.0
         );
         assert_eq!(
             range
                 .with_offset(Kelvin::new(6000.0).unwrap(), 1000.0)
+                .unwrap()
                 .get(),
             6500.0
         );
-        assert_eq!(
-            range
-                .with_offset(Kelvin::new(3000.0).unwrap(), f64::NAN)
-                .get(),
-            3000.0
+    }
+
+    #[test]
+    fn kelvin_offset_rejects_non_finite_inputs_and_results() {
+        let range = KelvinRange::new(2200.0, 6500.0).unwrap();
+        let kelvin = Kelvin::new(3000.0).unwrap();
+
+        for offset in [f64::NAN, f64::NEG_INFINITY, f64::INFINITY] {
+            assert!(
+                range.with_offset(kelvin, offset).is_err(),
+                "accepted {offset}"
+            );
+        }
+
+        let huge_range = KelvinRange::new(1.0, f64::MAX).unwrap();
+        assert!(
+            huge_range
+                .with_offset(Kelvin::new(f64::MAX).unwrap(), f64::MAX)
+                .is_err()
         );
     }
 
@@ -388,7 +460,30 @@ mod tests {
     }
 
     #[test]
-    fn degradation_removes_unsupported_optional_fields_and_preserves_common_fields() {
+    fn serde_round_trips_validated_values_ranges_and_colors() {
+        assert_json_round_trip(Brightness::new(0.4).unwrap());
+        assert_json_round_trip(Kelvin::new(3200.0).unwrap());
+        assert_json_round_trip(KelvinRange::new(2200.0, 6500.0).unwrap());
+        assert_json_round_trip(Color::xy(0.25, 0.75).unwrap());
+        assert_json_round_trip(Color::hs(240.0, 0.8).unwrap());
+    }
+
+    #[test]
+    fn serde_rejects_values_that_violate_domain_invariants() {
+        assert!(serde_json::from_str::<Brightness>("1.1").is_err());
+        assert!(serde_json::from_str::<Kelvin>("0.0").is_err());
+        assert!(serde_json::from_str::<KelvinRange>(r#"{"min":6500.0,"max":2200.0}"#).is_err());
+        assert!(serde_json::from_str::<Color>(r#"{"xy":{"x":1.1,"y":0.5}}"#).is_err());
+        assert!(serde_json::from_str::<Color>(r#"{"hs":{"hue":361.0,"saturation":0.5}}"#).is_err());
+
+        let non_finite = F64Deserializer::<serde::de::value::Error>::new(f64::NAN);
+        assert!(Brightness::deserialize(non_finite).is_err());
+        let non_finite = F64Deserializer::<serde::de::value::Error>::new(f64::INFINITY);
+        assert!(Kelvin::deserialize(non_finite).is_err());
+    }
+
+    #[test]
+    fn degradation_omits_unsupported_fields_and_unused_transition() {
         let target = LightTarget {
             on: true,
             brightness: Some(Brightness::new(0.6).unwrap()),
@@ -410,18 +505,51 @@ mod tests {
 
         assert_eq!(
             capabilities.degrade(&target),
-            LightTarget {
-                on: true,
+            DeviceTarget {
+                on: None,
                 brightness: None,
                 color_temperature: None,
                 color: None,
+                transition_ms: None,
+            }
+        );
+    }
+
+    #[test]
+    fn degradation_keeps_transition_when_a_transitionable_field_survives() {
+        let target = LightTarget {
+            on: true,
+            brightness: None,
+            color_temperature: None,
+            color: Some(Color::xy(0.25, 0.5).unwrap()),
+            transition_ms: Some(750),
+        };
+        let capabilities = Capabilities {
+            on_off: true,
+            dimming: false,
+            color_temperature: None,
+            color_xy: true,
+            color_hs: false,
+            input: false,
+            occupancy: false,
+            temperature: false,
+            power_metering: false,
+        };
+
+        assert_eq!(
+            capabilities.degrade(&target),
+            DeviceTarget {
+                on: Some(true),
+                brightness: None,
+                color_temperature: None,
+                color: target.color,
                 transition_ms: Some(750),
             }
         );
     }
 
     #[test]
-    fn degradation_clamps_kelvin_and_keeps_only_the_supported_color_model() {
+    fn degradation_prefers_supported_explicit_color_over_color_temperature() {
         let capabilities = Capabilities {
             on_off: true,
             dimming: true,
@@ -433,7 +561,7 @@ mod tests {
             temperature: false,
             power_metering: false,
         };
-        let mut target = LightTarget {
+        let target = LightTarget {
             on: false,
             brightness: Some(Brightness::new(0.3).unwrap()),
             color_temperature: Some(Kelvin::new(6500.0).unwrap()),
@@ -442,12 +570,36 @@ mod tests {
         };
 
         let degraded = capabilities.degrade(&target);
-        assert!(!degraded.on);
+        assert_eq!(degraded.on, Some(false));
         assert_eq!(degraded.brightness.unwrap().get(), 0.3);
-        assert_eq!(degraded.color_temperature.unwrap().get(), 5000.0);
+        assert_eq!(degraded.color_temperature, None);
         assert_eq!(degraded.color.unwrap().hs_components(), Some((30.0, 0.7)));
+    }
 
-        target.color = Some(Color::xy(0.2, 0.3).unwrap());
-        assert_eq!(capabilities.degrade(&target).color, None);
+    #[test]
+    fn degradation_falls_back_to_clamped_cct_when_explicit_color_is_unsupported() {
+        let capabilities = Capabilities {
+            on_off: true,
+            dimming: false,
+            color_temperature: Some(KelvinRange::new(2700.0, 5000.0).unwrap()),
+            color_xy: false,
+            color_hs: true,
+            input: false,
+            occupancy: false,
+            temperature: false,
+            power_metering: false,
+        };
+        let target = LightTarget {
+            on: true,
+            brightness: None,
+            color_temperature: Some(Kelvin::new(6500.0).unwrap()),
+            color: Some(Color::xy(0.2, 0.3).unwrap()),
+            transition_ms: Some(500),
+        };
+
+        let degraded = capabilities.degrade(&target);
+        assert_eq!(degraded.color, None);
+        assert_eq!(degraded.color_temperature.unwrap().get(), 5000.0);
+        assert_eq!(degraded.transition_ms, Some(500));
     }
 }
