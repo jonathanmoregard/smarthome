@@ -106,6 +106,7 @@ name = "house-automationd"
 version = "0.1.0"
 dependencies = [
  "house-automation-core",
+ "libc",
  "rusqlite",
  "serde",
  "serde_json",

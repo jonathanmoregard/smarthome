@@ -12,6 +12,11 @@ use house_automationd::persistence::{CURRENT_SCHEMA_VERSION, SqliteStateStore};
 use rusqlite::Connection;
 use tempfile::TempDir;
 
+#[cfg(unix)]
+use std::os::unix::fs::{PermissionsExt, symlink};
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
+
 fn room(id: &str) -> Scope {
     Scope::Room(ScopeId::new(id).unwrap())
 }
@@ -192,6 +197,33 @@ fn second_save_removes_stale_scope_and_control_rows_atomically() {
 }
 
 #[test]
+fn failed_aggregate_save_rolls_back_deletes_and_partial_inserts() {
+    let directory = TempDir::new().unwrap();
+    let path = database_path(&directory);
+    let store = SqliteStateStore::open(&path).unwrap();
+    let original = populated_state();
+    store.save(&original).unwrap();
+    let connection = Connection::open(&path).unwrap();
+    connection
+        .execute_batch(
+            "CREATE TRIGGER reject_metadata BEFORE INSERT ON metadata \
+             BEGIN SELECT RAISE(ABORT, 'injected metadata failure'); END;",
+        )
+        .unwrap();
+    let mut replacement = AutomationState::default();
+    replacement
+        .insert_scope(Scope::House, ScopeState::new(true))
+        .unwrap();
+
+    assert!(store.save(&replacement).is_err());
+    connection
+        .execute_batch("DROP TRIGGER reject_metadata")
+        .unwrap();
+
+    assert_eq!(store.load().unwrap().snapshot(), original.snapshot());
+}
+
+#[test]
 fn load_rejects_invalid_restored_references() {
     let directory = TempDir::new().unwrap();
     let path = database_path(&directory);
@@ -280,6 +312,30 @@ fn open_rejects_unversioned_nonempty_database() {
 }
 
 #[test]
+fn open_rejects_physical_schema_drift_despite_valid_history() {
+    for corruption in [
+        "DROP TABLE control_state",
+        "ALTER TABLE scope_state ADD COLUMN unexpected TEXT",
+        "DROP TABLE metadata; CREATE TABLE metadata(key TEXT, payload_json TEXT NOT NULL)",
+    ] {
+        let directory = TempDir::new().unwrap();
+        let path = database_path(&directory);
+        drop(SqliteStateStore::open(&path).unwrap());
+        Connection::open(&path)
+            .unwrap()
+            .execute_batch(corruption)
+            .unwrap();
+
+        let error = SqliteStateStore::open(&path).unwrap_err().to_string();
+
+        assert!(
+            error.contains("physical schema drift"),
+            "{corruption}: {error}"
+        );
+    }
+}
+
+#[test]
 fn convergence_and_transient_runtime_data_are_not_persisted() {
     let directory = TempDir::new().unwrap();
     let path = database_path(&directory);
@@ -340,6 +396,34 @@ fn online_backup_restores_same_snapshot_and_refuses_overwrite() {
     assert!(store.backup_to(&backup_path).is_err());
     assert!(store.backup_to(&source_path).is_err());
     assert!(fs::metadata(&source_path).unwrap().len() > 0);
+}
+
+#[test]
+fn failed_backup_publish_preserves_destination_and_cleans_temporary_file() {
+    let directory = TempDir::new().unwrap();
+    let source_path = database_path(&directory);
+    let backup_path = directory.path().join("backup.sqlite3");
+    let store = SqliteStateStore::open(&source_path).unwrap();
+    store.save(&populated_state()).unwrap();
+    fs::write(&backup_path, b"existing backup").unwrap();
+    let entries_before = fs::read_dir(directory.path()).unwrap().count();
+
+    assert!(store.backup_to(&backup_path).is_err());
+
+    assert_eq!(fs::read(&backup_path).unwrap(), b"existing backup");
+    assert_eq!(
+        fs::read_dir(directory.path()).unwrap().count(),
+        entries_before
+    );
+    assert!(
+        store
+            .backup_to(directory.path().join("missing/backup.sqlite3"))
+            .is_err()
+    );
+    assert_eq!(
+        fs::read_dir(directory.path()).unwrap().count(),
+        entries_before
+    );
 }
 
 #[test]
@@ -412,4 +496,126 @@ fn backup_subcommand_refuses_to_create_a_missing_source_database() {
     assert!(!output.status.success());
     assert!(!source_path.exists());
     assert!(!backup_path.exists());
+}
+
+#[test]
+fn backup_subcommand_rejects_sqlite_uri_destination_without_literal_or_hidden_output() {
+    let directory = TempDir::new().unwrap();
+    let source_path = database_path(&directory);
+    SqliteStateStore::open(&source_path)
+        .unwrap()
+        .save(&populated_state())
+        .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_house-automationd"))
+        .current_dir(directory.path())
+        .args([
+            "backup",
+            "--database",
+            source_path.to_str().unwrap(),
+            "--destination",
+            "file:backup.sqlite3?mode=memory&cache=shared",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(!directory.path().join("backup.sqlite3").exists());
+    assert!(
+        !directory
+            .path()
+            .join("file:backup.sqlite3?mode=memory&cache=shared")
+            .exists()
+    );
+}
+
+#[test]
+fn backup_subcommand_rejects_memory_and_uri_sources() {
+    let directory = TempDir::new().unwrap();
+    for source in [":memory:", "file:state.sqlite3?mode=memory&cache=shared"] {
+        let backup = directory
+            .path()
+            .join(format!("backup-{}.sqlite3", source.len()));
+        let output = Command::new(env!("CARGO_BIN_EXE_house-automationd"))
+            .current_dir(directory.path())
+            .args([
+                "backup",
+                "--database",
+                source,
+                "--destination",
+                backup.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
+
+        assert!(!output.status.success(), "accepted {source}");
+        assert!(!backup.exists());
+    }
+    assert!(!directory.path().join("state.sqlite3").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn new_state_and_backup_files_are_owner_only() {
+    const CHILD_MARKER: &str = "HOUSE_AUTOMATION_PERMISSION_TEST_CHILD";
+    const DIRECTORY_ENV: &str = "HOUSE_AUTOMATION_PERMISSION_TEST_DIRECTORY";
+    if std::env::var_os(CHILD_MARKER).is_none() {
+        let directory = TempDir::new().unwrap();
+        let mut child = Command::new(std::env::current_exe().unwrap());
+        child
+            .args(["--exact", "new_state_and_backup_files_are_owner_only"])
+            .env(CHILD_MARKER, "1")
+            .env(DIRECTORY_ENV, directory.path());
+        // SAFETY: this closure runs after fork and before exec, calls only async-signal-safe umask,
+        // and mutates no parent-process state.
+        unsafe {
+            child.pre_exec(|| {
+                libc::umask(0);
+                Ok(())
+            });
+        }
+        let output = child.output().unwrap();
+        assert!(
+            output.status.success(),
+            "stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+
+    let directory_path = std::env::var_os(DIRECTORY_ENV).unwrap();
+    let directory_path = Path::new(&directory_path);
+    let source_path = directory_path.join("state.sqlite3");
+    let backup_path = directory_path.join("backup.sqlite3");
+    let store = SqliteStateStore::open(&source_path).unwrap();
+    store.save(&populated_state()).unwrap();
+
+    store.backup_to(&backup_path).unwrap();
+
+    assert_eq!(
+        fs::metadata(source_path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert_eq!(
+        fs::metadata(backup_path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn backup_rejects_symlink_alias_of_source_without_changing_source() {
+    let directory = TempDir::new().unwrap();
+    let source_path = database_path(&directory);
+    let alias_path = directory.path().join("source-alias.sqlite3");
+    let store = SqliteStateStore::open(&source_path).unwrap();
+    let expected = populated_state();
+    store.save(&expected).unwrap();
+    symlink(&source_path, &alias_path).unwrap();
+
+    assert!(store.backup_to(&alias_path).is_err());
+
+    assert_eq!(store.load().unwrap().snapshot(), expected.snapshot());
+    assert_eq!(fs::read_link(alias_path).unwrap(), source_path);
 }
