@@ -13,9 +13,9 @@
 ## File map
 
 - `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`: workspace/toolchain lock.
-- `crates/house-automation-core/src/{value,curve,state,overlay,input,reconcile}.rs`: pure domain behavior.
-- `crates/house-automationd/src/{config,persistence,zigbee2mqtt,mqtt,scheduler,health}.rs`: runtime adapters.
-- `crates/house-automationd/src/main.rs`: startup and task orchestration only.
+- `house-automation-core/src/{value,curve,state,overlay,input,reconcile}.rs`: pure domain behavior.
+- `house-automationd/src/{config,persistence,zigbee2mqtt,mqtt,scheduler,health}.rs`: runtime adapters.
+- `house-automationd/src/main.rs`: startup and task orchestration only.
 - `nix/module.nix`: `services.houseAutomation` options and hardened unit.
 - `nix/package.nix`, `flake.nix`: reproducible package, dev shell, checks, module export.
 - `examples/house.toml`: anonymous example topology.
