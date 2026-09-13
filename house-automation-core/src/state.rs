@@ -784,12 +784,51 @@ pub struct AutomationSnapshot {
     last_reset_date: Option<LocalDate>,
 }
 
+impl AutomationSnapshot {
+    pub fn into_parts(self) -> AutomationSnapshotParts {
+        AutomationSnapshotParts {
+            scopes: self.scopes,
+            controls: self.controls,
+            last_reset_date: self.last_reset_date,
+        }
+    }
+
+    pub fn from_parts(parts: AutomationSnapshotParts) -> Self {
+        Self {
+            scopes: parts.scopes,
+            controls: parts.controls,
+            last_reset_date: parts.last_reset_date,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AutomationSnapshotParts {
+    pub scopes: Vec<ScopeSnapshot>,
+    pub controls: Vec<ControlSnapshot>,
+    pub last_reset_date: Option<LocalDate>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-struct ScopeSnapshot {
+pub struct ScopeSnapshot {
     scope: Scope,
     on: bool,
     offsets: UserOffsets,
     curve_mode: PersistedCurveMode,
+}
+
+impl ScopeSnapshot {
+    pub fn scope(&self) -> &Scope {
+        &self.scope
+    }
+
+    pub fn is_on(&self) -> bool {
+        self.on
+    }
+
+    pub fn offsets(&self) -> UserOffsets {
+        self.offsets
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -800,9 +839,19 @@ enum PersistedCurveMode {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct ControlSnapshot {
+pub struct ControlSnapshot {
     id: ControlId,
     selected_scope: Scope,
+}
+
+impl ControlSnapshot {
+    pub fn id(&self) -> &ControlId {
+        &self.id
+    }
+
+    pub fn selected_scope(&self) -> &Scope {
+        &self.selected_scope
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1594,6 +1643,28 @@ mod tests {
             CurveMode::Frozen { .. }
         ));
         assert_eq!(restored.control_states().count(), 2);
+    }
+
+    #[test]
+    fn durable_snapshot_has_typed_parts_for_storage_adapters() {
+        let state = configured_state();
+        let expected = state.snapshot();
+
+        let parts = expected.clone().into_parts();
+
+        assert_eq!(parts.scopes.len(), 1);
+        assert_eq!(parts.controls.len(), 2);
+        assert_eq!(parts.last_reset_date, None);
+        assert!(parts.scopes.iter().any(|record| {
+            record.scope() == &room("kitchen")
+                && record.is_on()
+                && record.offsets() == UserOffsets::default()
+        }));
+        assert!(parts.controls.iter().any(|record| {
+            record.id() == &ControlId::new("remote_a").unwrap()
+                && record.selected_scope() == &room("kitchen")
+        }));
+        assert_eq!(AutomationSnapshot::from_parts(parts), expected);
     }
 
     #[test]
