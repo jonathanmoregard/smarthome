@@ -32,7 +32,7 @@ Unknown physical values stay outside this repository. The NixOS module generates
 
 ## Circadian composition
 
-Each controllable scope has persisted logical state. Target composition runs in this order:
+Each controllable scope has one shared logical state, independent of how many remotes select it. Per-control state contains only runtime-selected scope. Target composition runs in this order:
 
 1. Resolve FOLLOW baseline at current wall time, or use FROZEN baseline captured at freeze time.
 2. During unfreeze convergence, interpolate from frozen baseline to the live curve's moving value.
@@ -45,7 +45,7 @@ Fixed-time anchors use monotone cubic interpolation so smooth curves do not over
 
 Freeze captures current baseline, not output after offsets or overlays. Offsets remain editable while frozen. Unfreeze creates a configurable convergence interval rather than an instantaneous jump.
 
-At configured local time, default `04:00`, one atomic persistence transaction returns every scope/control to FOLLOW, clears frozen baselines and convergence, and records reset date. Startup compares reset date with local calendar state so downtime across 04:00 cannot preserve stale freezes.
+At configured local time, default `04:00`, one atomic state transition unfreezes every frozen scope through normal smooth convergence and records reset date. Already-following scopes stay FOLLOW; scopes already converging are already unfrozen and continue uninterrupted. Startup compares reset date with latest scheduled reset so downtime across 04:00 cannot preserve stale freezes.
 
 ## Input classification and scopes
 
@@ -65,7 +65,7 @@ Per device, the engine stores desired target, last observed state, availability,
 
 ## Persistence
 
-SQLite lives in systemd-managed `/var/lib/house-automation/state.sqlite3`. Embedded numbered migrations run transactionally before MQTT starts. Persisted data includes scope offsets, follow/frozen mode, frozen baseline, convergence state, runtime-selected scope, power intent, and last completed daily reset. Ephemeral overlays, connection state, and partial animations are excluded.
+SQLite lives in systemd-managed `/var/lib/house-automation/state.sqlite3`. Embedded numbered migrations run transactionally before MQTT starts. Persisted data includes shared scope offsets, durable follow/frozen mode, frozen baseline, per-control runtime-selected scope, power intent, and last completed daily reset. Runtime convergence restores as FOLLOW because it contains boot-relative monotonic time. Ephemeral overlays, connection state, convergence progress, and partial animations are excluded.
 
 ## Protocol boundaries
 
