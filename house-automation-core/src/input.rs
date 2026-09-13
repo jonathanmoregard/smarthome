@@ -366,7 +366,7 @@ impl ClickClassifier {
         }
     }
 
-    pub fn classify(
+    pub fn ingest(
         &mut self,
         control_id: ControlId,
         raw: RawInputEvent,
@@ -535,7 +535,7 @@ mod tests {
 
         assert!(
             classifier
-                .classify(remote.clone(), RawInputEvent::CenterShort, now(10.0))
+                .ingest(remote.clone(), RawInputEvent::CenterShort, now(10.0))
                 .unwrap()
                 .is_empty()
         );
@@ -552,12 +552,12 @@ mod tests {
             let remote = control("remote-a");
             let mut classifier = classifier();
             classifier
-                .classify(remote.clone(), RawInputEvent::CenterShort, now(10.0))
+                .ingest(remote.clone(), RawInputEvent::CenterShort, now(10.0))
                 .unwrap();
 
             assert_eq!(
                 classifier
-                    .classify(remote.clone(), RawInputEvent::CenterShort, now(second_at))
+                    .ingest(remote.clone(), RawInputEvent::CenterShort, now(second_at))
                     .unwrap(),
                 vec![(remote, Gesture::CenterDouble)]
             );
@@ -570,12 +570,12 @@ mod tests {
         let remote = control("remote-a");
         let mut classifier = classifier();
         classifier
-            .classify(remote.clone(), RawInputEvent::CenterShort, now(1.0))
+            .ingest(remote.clone(), RawInputEvent::CenterShort, now(1.0))
             .unwrap();
 
         assert_eq!(
             classifier
-                .classify(remote.clone(), RawInputEvent::CenterShort, now(1.5))
+                .ingest(remote.clone(), RawInputEvent::CenterShort, now(1.5))
                 .unwrap(),
             vec![(remote.clone(), Gesture::CenterSingle)]
         );
@@ -590,15 +590,15 @@ mod tests {
         let remote = control("remote-a");
         let mut classifier = classifier();
         classifier
-            .classify(remote.clone(), RawInputEvent::CenterShort, now(1.0))
+            .ingest(remote.clone(), RawInputEvent::CenterShort, now(1.0))
             .unwrap();
         classifier
-            .classify(remote.clone(), RawInputEvent::CenterShort, now(1.1))
+            .ingest(remote.clone(), RawInputEvent::CenterShort, now(1.1))
             .unwrap();
 
         assert!(
             classifier
-                .classify(remote.clone(), RawInputEvent::CenterShort, now(1.2))
+                .ingest(remote.clone(), RawInputEvent::CenterShort, now(1.2))
                 .unwrap()
                 .is_empty()
         );
@@ -617,11 +617,11 @@ mod tests {
             let remote = control("remote-a");
             let mut classifier = classifier();
             classifier
-                .classify(remote.clone(), RawInputEvent::CenterShort, now(1.0))
+                .ingest(remote.clone(), RawInputEvent::CenterShort, now(1.0))
                 .unwrap();
 
             assert_eq!(
-                gestures(&classifier.classify(remote, raw, now(1.1)).unwrap()),
+                gestures(&classifier.ingest(remote, raw, now(1.1)).unwrap()),
                 vec![Gesture::CenterSingle, expected]
             );
             assert!(classifier.flush_due(now(2.0)).unwrap().is_empty());
@@ -634,15 +634,15 @@ mod tests {
         let remote_b = control("remote-b");
         let mut classifier = classifier();
         classifier
-            .classify(remote_a.clone(), RawInputEvent::CenterShort, now(1.0))
+            .ingest(remote_a.clone(), RawInputEvent::CenterShort, now(1.0))
             .unwrap();
         classifier
-            .classify(remote_b.clone(), RawInputEvent::CenterShort, now(1.1))
+            .ingest(remote_b.clone(), RawInputEvent::CenterShort, now(1.1))
             .unwrap();
 
         assert_eq!(
             classifier
-                .classify(remote_a.clone(), RawInputEvent::CenterShort, now(1.2))
+                .ingest(remote_a.clone(), RawInputEvent::CenterShort, now(1.2))
                 .unwrap(),
             vec![(remote_a, Gesture::CenterDouble)]
         );
@@ -657,7 +657,7 @@ mod tests {
         let remote = control("remote-a");
         let mut classifier = classifier();
         classifier
-            .classify(remote.clone(), RawInputEvent::CenterShort, now(1.0))
+            .ingest(remote.clone(), RawInputEvent::CenterShort, now(1.0))
             .unwrap();
 
         for (raw, expected) in [
@@ -667,7 +667,7 @@ mod tests {
             (RawInputEvent::Right, Gesture::Right),
         ] {
             assert_eq!(
-                classifier.classify(remote.clone(), raw, now(1.1)).unwrap(),
+                classifier.ingest(remote.clone(), raw, now(1.1)).unwrap(),
                 vec![(remote.clone(), expected)]
             );
         }
@@ -682,7 +682,7 @@ mod tests {
         let remote = control("remote-a");
         let mut classifier = classifier();
         classifier
-            .classify(remote.clone(), RawInputEvent::CenterShort, now(10.0))
+            .ingest(remote.clone(), RawInputEvent::CenterShort, now(10.0))
             .unwrap();
 
         assert!(classifier.flush_due(now(9.0)).is_err());
@@ -697,12 +697,12 @@ mod tests {
         let remote_a = control("remote-a");
         let mut classifier = classifier();
         classifier
-            .classify(remote_a.clone(), RawInputEvent::CenterShort, now(1.0))
+            .ingest(remote_a.clone(), RawInputEvent::CenterShort, now(1.0))
             .unwrap();
         let before = classifier.clone();
 
         assert_eq!(
-            classifier.classify(
+            classifier.ingest(
                 control("remote-b"),
                 RawInputEvent::CenterShort,
                 now(f64::MAX),
@@ -1041,7 +1041,40 @@ mod action_tests {
         };
         assert_eq!(scope, room);
         assert_eq!(outcome, CurveToggleOutcome::Frozen);
-        assert_eq!(acknowledgement.unwrap().kind(), AcknowledgementKind::Frozen);
+        let frozen_acknowledgement = acknowledgement.unwrap();
+        assert_eq!(frozen_acknowledgement.kind(), AcknowledgementKind::Frozen);
+
+        let layers = state
+            .compose_scope_layers(&room, live_curve(), now(11.0))
+            .unwrap();
+        let unfreeze_context =
+            ActionContext::new(live_curve(), now(11.0), duration()).with_acknowledgement(
+                AcknowledgementContext::new(&settings, layers, capabilities()),
+            );
+        let unfreeze = mapping
+            .execute(&remote, Gesture::CenterDouble, &mut state, unfreeze_context)
+            .unwrap()
+            .unwrap();
+        let ActionOutcome::CircadianToggled {
+            scope,
+            outcome,
+            acknowledgement,
+        } = unfreeze
+        else {
+            panic!("wrong action outcome");
+        };
+        let unfrozen_acknowledgement = acknowledgement.unwrap();
+        assert_eq!(scope, room);
+        assert_eq!(outcome, CurveToggleOutcome::Unfrozen);
+        assert_eq!(
+            unfrozen_acknowledgement.kind(),
+            AcknowledgementKind::Unfrozen
+        );
+        assert_ne!(frozen_acknowledgement, unfrozen_acknowledgement);
+        assert!(matches!(
+            state.scope_state(&room).unwrap().mode(),
+            CurveMode::Converging { .. }
+        ));
     }
 
     #[test]
