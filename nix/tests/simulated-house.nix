@@ -428,6 +428,7 @@ pkgs.testers.runNixOSTest {
     wait_for(fake_ready, "GET", "zigbee2mqtt/sim/living/lamp/get")
 
     mqtt_publish("zigbee2mqtt/bridge/state", "offline", retain=True, qos=1)
+    startup_mark = checkpoint()
     server.succeed("systemctl start house-automationd.service")
     server.wait_for_unit("house-automationd.service")
     server.wait_until_succeeds(
@@ -435,6 +436,8 @@ pkgs.testers.runNixOSTest {
         "http://127.0.0.1:9877/healthz)\" = 503"
     )
     server.succeed("jq -e '.database_migrated and .mqtt_connected and (.zigbee2mqtt_bridge_online | not)' /tmp/health.json")
+    assert_absent(startup_mark, "SET", LAMP_SET, duration=0.5)
+    assert_absent(startup_mark, "SET", HALL_SET, duration=0.5)
 
     mqtt_publish("zigbee2mqtt/bridge/state", "online", retain=True, qos=1)
     server.wait_until_succeeds(
@@ -447,6 +450,22 @@ pkgs.testers.runNixOSTest {
     server.succeed(
         "test \"$(timeout 2 mosquitto_sub -h 127.0.0.1 -p 1883 -C 1 "
         "-t house/v1/status)\" = online"
+    )
+
+    # Sub-threshold curve movement must not emit one INFO record per scheduler
+    # tick. That would fill a small always-on server's journal over time.
+    idle_logs_before = int(server.succeed(
+        "journalctl -u house-automationd.service --no-pager -o cat "
+        "--grep='computed device target' | wc -l"
+    ))
+    time.sleep(1.0)
+    idle_logs_after = int(server.succeed(
+        "journalctl -u house-automationd.service --no-pager -o cat "
+        "--grep='computed device target' | wc -l"
+    ))
+    assert idle_logs_after - idle_logs_before <= 1, (
+        idle_logs_before,
+        idle_logs_after,
     )
 
     # A single ambiguous center event must wait for its hold window, then turn on.

@@ -1,6 +1,6 @@
 use house_automation_core::{
     input::{Action, Gesture},
-    reconcile::{DeviceId, DispatchClaim, ReconcileAction, Reconciler},
+    reconcile::{Availability, DeviceId, DispatchClaim, ReconcileAction, Reconciler},
     state::{MonotonicTime, Scope},
     value::{Brightness, Kelvin, LightTarget},
 };
@@ -207,6 +207,43 @@ fn e1810_mapping_is_declarative_and_acknowledges_circadian_toggle() {
 }
 
 #[test]
+fn controls_reject_actions_unsupported_by_every_device_in_the_target_scope() {
+    let source = replace(
+        EXAMPLE,
+        "selected_scope = \"living-room-lights\"",
+        "selected_scope = \"relay-room-lights\"",
+    ) + "\n[[rooms]]\nid = \"relay-room\"\nfloor = \"ground-floor\"\n\n[[scopes]]\nid = \"relay-room-lights\"\nkind = \"room\"\nroom = \"relay-room\"\ncurve = \"default-day\"\n\n[[devices]]\nid = \"relay\"\nfriendly_name = \"demo/relay-room/relay\"\nroom = \"relay-room\"\ncapabilities = { on_off = true }\n";
+
+    let error = reject(&source);
+
+    assert!(error.contains("controls.mappings.action"));
+    assert!(!error.contains("relay-room"));
+}
+
+#[test]
+fn circadian_mode_remains_valid_for_a_scope_that_degrades_to_on_off_only() {
+    let source = replace(
+        EXAMPLE,
+        "selected_scope = \"living-room-lights\"",
+        "selected_scope = \"relay-room-lights\"",
+    );
+    let source = replace(
+        &source,
+        "  { gesture = \"up\", target = \"selected\", action = { kind = \"adjust_brightness_offset\", delta = 0.05 } },\n  { gesture = \"down\", target = \"selected\", action = { kind = \"adjust_brightness_offset\", delta = -0.05 } },\n  { gesture = \"left\", target = \"selected\", action = { kind = \"adjust_color_temperature_offset\", delta_kelvin = -150 } },\n  { gesture = \"right\", target = \"selected\", action = { kind = \"adjust_color_temperature_offset\", delta_kelvin = 150 } },\n  { gesture = \"center_single\", target = \"selected\", action = { kind = \"toggle_power\" } },\n  { gesture = \"center_double\", target = \"selected\", action = { kind = \"toggle_circadian_with_acknowledgement\" } },",
+        "  { gesture = \"center_single\", target = \"selected\", action = { kind = \"toggle_power\" } },\n  { gesture = \"center_double\", target = \"selected\", action = { kind = \"toggle_circadian_with_acknowledgement\" } },",
+    ) + "\n[[rooms]]\nid = \"relay-room\"\nfloor = \"ground-floor\"\n\n[[scopes]]\nid = \"relay-room-lights\"\nkind = \"room\"\nroom = \"relay-room\"\ncurve = \"default-day\"\n\n[[devices]]\nid = \"relay\"\nfriendly_name = \"demo/relay-room/relay\"\nroom = \"relay-room\"\ncapabilities = { on_off = true }\n";
+
+    let parts = ValidatedConfig::parse(&source)
+        .expect("circadian state must survive capability degradation")
+        .into_runtime_parts();
+
+    let mapping = &parts.controls[0].mapping;
+    assert!(mapping.entry(Gesture::CenterSingle).is_some());
+    assert!(mapping.entry(Gesture::CenterDouble).is_some());
+    assert!(mapping.entry(Gesture::Up).is_none());
+}
+
+#[test]
 fn typed_runtime_topology_preserves_primary_ids_group_ids_and_members() {
     let parts = ValidatedConfig::parse(EXAMPLE)
         .unwrap()
@@ -251,6 +288,9 @@ fn parsed_group_without_mired_uses_group_power_and_brightness_with_device_cct_fa
     let mut reconciler = Reconciler::new(definitions, groups, parts.retry_policy).unwrap();
     let at = |seconds| MonotonicTime::from_seconds(seconds).unwrap();
     reconciler.broker_connected(at(0.0)).unwrap();
+    reconciler
+        .set_bridge_availability(Availability::Online, at(0.0))
+        .unwrap();
     let actions = reconciler
         .set_group_desired(
             &group,
@@ -646,6 +686,9 @@ fn validated_device_cct_endpoints_round_trip_through_real_adapter_contract() {
         let mut reconciler = Reconciler::new(definitions, groups, parts.retry_policy).unwrap();
         let at = |seconds| MonotonicTime::from_seconds(seconds).unwrap();
         reconciler.broker_connected(at(0.0)).unwrap();
+        reconciler
+            .set_bridge_availability(Availability::Online, at(0.0))
+            .unwrap();
         let actions = reconciler
             .set_device_desired(
                 &DeviceId::new("reading-light").unwrap(),

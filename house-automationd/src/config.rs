@@ -641,7 +641,8 @@ impl RawConfig {
             validate_devices(self.devices, &rooms)?;
         let (groups, group_bindings) = validate_groups(self.groups, &device_caps, &device_ids)?;
         let scopes = validate_scopes(self.scopes, &floors, &rooms, &curves, &devices)?;
-        let (controls, control_bindings) = validate_controls(self.controls, &scopes, aliases)?;
+        let (controls, control_bindings) =
+            validate_controls(self.controls, &scopes, &devices, aliases)?;
 
         let zigbee2mqtt = Zigbee2MqttAdapter::new(
             mqtt.zigbee2mqtt_base_topic.clone(),
@@ -1310,6 +1311,7 @@ fn validate_scopes(
 fn validate_controls(
     raw: Vec<RawControl>,
     scopes: &[ScopeConfiguration],
+    devices: &[DeviceConfiguration],
     mut all_names: BTreeSet<String>,
 ) -> Result<(Vec<ControlConfiguration>, Vec<ControlBinding>), ConfigError> {
     if raw.is_empty() {
@@ -1376,6 +1378,34 @@ fn validate_controls(
                 )
             })?);
         }
+        let selectable_scopes: BTreeSet<_> = std::iter::once(selected_scope.clone())
+            .chain(entries.iter().filter_map(|entry| {
+                if matches!(entry.action(), Action::SelectScope) {
+                    match entry.target() {
+                        ScopeTarget::Explicit(scope) => Some(scope.clone()),
+                        ScopeTarget::SelectedScope => None,
+                    }
+                } else {
+                    None
+                }
+            }))
+            .collect();
+        for entry in &entries {
+            let supported = match entry.target() {
+                ScopeTarget::SelectedScope => selectable_scopes
+                    .iter()
+                    .all(|scope| scope_supports_action(scope, entry.action(), devices)),
+                ScopeTarget::Explicit(scope) => {
+                    scope_supports_action(scope, entry.action(), devices)
+                }
+            };
+            if !supported {
+                return Err(ConfigError::validation(
+                    "controls.mappings.action",
+                    "requires a matching device capability in every possible target scope",
+                ));
+            }
+        }
         let mapping = Mapping::new(entries).map_err(|_| {
             ConfigError::validation(
                 "controls.mappings",
@@ -1399,6 +1429,25 @@ fn validate_controls(
         });
     }
     Ok((controls, bindings))
+}
+
+fn scope_supports_action(scope: &Scope, action: Action, devices: &[DeviceConfiguration]) -> bool {
+    if matches!(action, Action::SelectScope) {
+        return true;
+    }
+    devices
+        .iter()
+        .filter(|device| device.membership.is_in(scope))
+        .any(|device| {
+            let capabilities = device.definition.capabilities();
+            match action {
+                Action::AdjustBrightnessOffset(_) => capabilities.dimming,
+                Action::AdjustColorTemperatureOffset(_) => capabilities.color_temperature.is_some(),
+                Action::TogglePower => capabilities.on_off,
+                Action::ToggleCircadian => true,
+                Action::SelectScope => true,
+            }
+        })
 }
 
 impl RawCapabilities {

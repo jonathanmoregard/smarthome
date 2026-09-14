@@ -2,7 +2,7 @@ use std::{fs, sync::Arc};
 
 use house_automation_core::{
     input::Gesture,
-    reconcile::DeviceId,
+    reconcile::{Availability, CommandEntity, DeviceId, ReconcileAction},
     state::{
         AutomationState, ControlId, ControlState, CurveMode, LocalDate, MonotonicTime, Scope,
         ScopeId, ScopeState,
@@ -45,6 +45,18 @@ fn instant_with_second(hour: u8, minute: u8, second: u8, monotonic: f64) -> Runt
         MonotonicTime::from_seconds(monotonic).unwrap(),
     )
     .unwrap()
+}
+
+fn connect_online(engine: &mut HouseEngine, monotonic: f64) -> Vec<ReconcileAction> {
+    let now = MonotonicTime::from_seconds(monotonic).unwrap();
+    let mut actions = engine.reconciler_mut().broker_connected(now).unwrap();
+    actions.extend(
+        engine
+            .reconciler_mut()
+            .set_bridge_availability(Availability::Online, now)
+            .unwrap(),
+    );
+    actions
 }
 
 #[test]
@@ -153,10 +165,7 @@ fn optional_group_cct_keeps_group_power_brightness_and_member_cct_fallbacks() {
     )
     .unwrap();
     engine.recompute_desired(instant(4, 0, 0.0)).unwrap();
-    let actions = engine
-        .reconciler_mut()
-        .broker_connected(MonotonicTime::from_seconds(0.1).unwrap())
-        .unwrap();
+    let actions = connect_online(&mut engine, 0.1);
     let grouped = engine
         .adapter()
         .apply_actions(
@@ -178,10 +187,7 @@ fn optional_group_cct_keeps_group_power_brightness_and_member_cct_fallbacks() {
         .reconciler_mut()
         .broker_disconnected(MonotonicTime::from_seconds(1.1).unwrap())
         .unwrap();
-    let reconnect = engine
-        .reconciler_mut()
-        .broker_connected(MonotonicTime::from_seconds(1.2).unwrap())
-        .unwrap();
+    let reconnect = connect_online(&mut engine, 1.2);
     let noon = engine
         .adapter()
         .apply_actions(
@@ -223,10 +229,7 @@ fn optional_group_cct_degrades_the_unclamped_owner_target_per_member() {
     )
     .unwrap();
     engine.recompute_desired(instant(4, 0, 0.0)).unwrap();
-    let actions = engine
-        .reconciler_mut()
-        .broker_connected(MonotonicTime::from_seconds(0.1).unwrap())
-        .unwrap();
+    let actions = connect_online(&mut engine, 0.1);
     let plan = engine
         .adapter()
         .apply_actions(
@@ -270,10 +273,7 @@ fn cross_owner_native_group_is_never_used_and_stays_cleared_after_reconnect() {
     )
     .unwrap();
     engine.recompute_desired(instant(4, 0, 0.0)).unwrap();
-    let actions = engine
-        .reconciler_mut()
-        .broker_connected(MonotonicTime::from_seconds(0.1).unwrap())
-        .unwrap();
+    let actions = connect_online(&mut engine, 0.1);
     let plan = engine
         .adapter()
         .apply_actions(
@@ -296,10 +296,7 @@ fn cross_owner_native_group_is_never_used_and_stays_cleared_after_reconnect() {
         .reconciler_mut()
         .broker_disconnected(MonotonicTime::from_seconds(0.2).unwrap())
         .unwrap();
-    let reconnect = engine
-        .reconciler_mut()
-        .broker_connected(MonotonicTime::from_seconds(0.3).unwrap())
-        .unwrap();
+    let reconnect = connect_online(&mut engine, 0.3);
     let plan = engine
         .adapter()
         .apply_actions(
@@ -449,6 +446,41 @@ fn sparse_curve_tick_suppresses_subthreshold_updates() {
         .recompute_sparse(instant_with_second(12, 0, 1, 1.0))
         .unwrap();
     assert!(actions.is_empty());
+}
+
+#[test]
+fn material_change_in_one_owner_does_not_starve_another_owners_due_refresh() {
+    let input = include_str!("../../examples/house.toml")
+        .replace(
+            "friendly_name = \"demo/living-room/color-light\"\nroom = \"living-room\"",
+            "friendly_name = \"demo/living-room/color-light\"\nroom = \"second-room\"",
+        )
+        .replace(
+            "brightness_change_threshold = 0.01",
+            "brightness_change_threshold = 0.001",
+        )
+        + "\n[[rooms]]\nid = \"second-room\"\nfloor = \"ground-floor\"\n\n[[curves]]\nid = \"constant-day\"\nanchors = [\n  { time = \"04:00\", brightness = 0.50, color_temperature_kelvin = 3000 },\n  { time = \"16:00\", brightness = 0.50, color_temperature_kelvin = 3000 },\n]\n\n[[scopes]]\nid = \"second-room-lights\"\nkind = \"room\"\nroom = \"second-room\"\ncurve = \"constant-day\"\n";
+    let mut engine = HouseEngine::initialize(
+        ValidatedConfig::parse(&input).unwrap().into_runtime_parts(),
+        Default::default(),
+        instant(12, 0, 0.0),
+    )
+    .unwrap();
+    engine.recompute_desired(instant(12, 0, 0.0)).unwrap();
+    connect_online(&mut engine, 0.1);
+
+    let (actions, _) = engine.recompute_sparse(instant(12, 10, 600.0)).unwrap();
+
+    let refresh_due = DeviceId::new("color-light").unwrap();
+    assert!(actions.iter().any(|action| {
+        matches!(
+            action,
+            ReconcileAction::Command {
+                entity: CommandEntity::Device(device),
+                ..
+            } if device == &refresh_due
+        )
+    }));
 }
 
 #[test]

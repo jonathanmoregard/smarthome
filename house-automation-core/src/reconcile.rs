@@ -728,6 +728,7 @@ impl Reconciler {
     pub fn broker_disconnected(&mut self, now: MonotonicTime) -> Result<(), ReconcileError> {
         self.transact(now, |next, _| {
             next.transport = TransportStatus::Disconnected;
+            next.bridge = Availability::Unknown;
             next.staged_dispatches.clear();
             next.deferred_dispatches.clear();
             Ok(Vec::new())
@@ -782,7 +783,7 @@ impl Reconciler {
                 next.staged_dispatches.clear();
                 next.deferred_dispatches.clear();
             }
-            if previous == Availability::Offline && availability != Availability::Offline {
+            if previous != Availability::Online && availability == Availability::Online {
                 next.reconcile_all(now)
             } else {
                 Ok(Vec::new())
@@ -1250,7 +1251,7 @@ impl Reconciler {
     }
 
     fn can_publish(&self) -> bool {
-        self.transport == TransportStatus::Connected && self.bridge != Availability::Offline
+        self.transport == TransportStatus::Connected && self.bridge == Availability::Online
     }
 
     fn validate_claimed_operation(
@@ -1914,8 +1915,21 @@ mod tests {
 
     fn connected_reconciler(devices: Vec<DeviceDefinition>) -> Reconciler {
         let mut reconciler = Reconciler::new(devices, Vec::new(), retry_policy()).unwrap();
-        let _ = reconciler.broker_connected(at(0.0)).unwrap();
+        let _ = connect_with_online_bridge(&mut reconciler, 0.0);
         reconciler
+    }
+
+    fn connect_with_online_bridge(
+        reconciler: &mut Reconciler,
+        seconds: f64,
+    ) -> Vec<ReconcileAction> {
+        let mut actions = reconciler.broker_connected(at(seconds)).unwrap();
+        actions.extend(
+            reconciler
+                .set_bridge_availability(Availability::Online, at(seconds))
+                .unwrap(),
+        );
+        actions
     }
 
     fn at(seconds: f64) -> MonotonicTime {
@@ -2186,7 +2200,7 @@ mod tests {
             retry_policy(),
         )
         .unwrap();
-        let _ = reconciler.broker_connected(at(0.0)).unwrap();
+        let _ = connect_with_online_bridge(&mut reconciler, 0.0);
 
         assert_eq!(
             reconciler
@@ -2225,7 +2239,7 @@ mod tests {
             retry_policy(),
         )
         .unwrap();
-        let _ = reconciler.broker_connected(at(0.0)).unwrap();
+        let _ = connect_with_online_bridge(&mut reconciler, 0.0);
         reconciler
             .set_device_availability(&left, Availability::Offline, at(1.0))
             .unwrap();
@@ -2272,6 +2286,13 @@ mod tests {
                 ReconcileAction::Resubscribe,
                 ReconcileAction::RequestState(lamp_a.clone()),
                 ReconcileAction::RequestState(lamp_b.clone()),
+            ]
+        );
+        assert_eq!(
+            reconciler
+                .set_bridge_availability(Availability::Online, at(3.1))
+                .unwrap(),
+            vec![
                 ReconcileAction::Command {
                     token: DispatchToken(3),
                     entity: CommandEntity::Device(lamp_a),
@@ -2300,7 +2321,7 @@ mod tests {
             retry_policy(),
         )
         .unwrap();
-        let _ = reconciler.broker_connected(at(0.0)).unwrap();
+        let _ = connect_with_online_bridge(&mut reconciler, 0.0);
         let _ = reconciler
             .set_group_desired(&group, target(0.7), at(1.0))
             .unwrap();
@@ -2339,6 +2360,47 @@ mod tests {
                     target: device_target(0.4),
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn broker_connect_waits_for_bridge_online_before_sending_desired_state() {
+        let lamp = id("lamp");
+        let mut reconciler = Reconciler::new(
+            vec![DeviceDefinition::new(lamp.clone(), capabilities())],
+            Vec::new(),
+            retry_policy(),
+        )
+        .unwrap();
+
+        let connected = reconciler.broker_connected(at(0.0)).unwrap();
+        assert!(connected.contains(&ReconcileAction::Resubscribe));
+        assert!(
+            connected
+                .iter()
+                .any(|action| matches!(action, ReconcileAction::RequestState(id) if id == &lamp))
+        );
+        assert!(
+            !connected
+                .iter()
+                .any(|action| matches!(action, ReconcileAction::Command { .. }))
+        );
+        assert!(
+            reconciler
+                .set_device_desired(&lamp, target(0.5), at(0.1))
+                .unwrap()
+                .is_empty()
+        );
+
+        assert_eq!(
+            reconciler
+                .set_bridge_availability(Availability::Online, at(0.2))
+                .unwrap(),
+            vec![ReconcileAction::Command {
+                token: DispatchToken(1),
+                entity: CommandEntity::Device(lamp),
+                target: device_target(0.5),
+            }]
         );
     }
 
@@ -2545,7 +2607,7 @@ mod tests {
             RetryPolicy::new(1.0, 2).unwrap(),
         )
         .unwrap();
-        reconciler.broker_connected(at(0.0)).unwrap();
+        connect_with_online_bridge(&mut reconciler, 0.0);
         let initial = reconciler
             .set_device_desired(&lamp, target(0.5), at(1.0))
             .unwrap();
@@ -2563,11 +2625,19 @@ mod tests {
         reconciler.broker_disconnected(at(4.0)).unwrap();
         let reconnect = reconciler.broker_connected(at(5.0)).unwrap();
         assert!(
-            reconnect
+            !reconnect
                 .iter()
                 .any(|action| matches!(action, ReconcileAction::Command { .. }))
         );
-        let token = reconnect
+        let recovered_bridge = reconciler
+            .set_bridge_availability(Availability::Online, at(5.0))
+            .unwrap();
+        assert!(
+            recovered_bridge
+                .iter()
+                .any(|action| matches!(action, ReconcileAction::Command { .. }))
+        );
+        let token = recovered_bridge
             .iter()
             .find_map(|action| match action {
                 ReconcileAction::Command { token, .. } => Some(*token),
@@ -2617,6 +2687,9 @@ mod tests {
         .unwrap();
         let initial = reconciler.broker_connected(at(0.0)).unwrap();
         assert!(initial.contains(&ReconcileAction::Resubscribe));
+        reconciler
+            .set_bridge_availability(Availability::Online, at(0.1))
+            .unwrap();
         let staged = reconciler
             .set_device_desired(&lamp, target(0.5), at(1.0))
             .unwrap();
@@ -2636,7 +2709,14 @@ mod tests {
                 .any(|action| matches!(action, ReconcileAction::RequestState(id) if id == &lamp))
         );
         assert!(
-            reconnect
+            !reconnect
+                .iter()
+                .any(|action| matches!(action, ReconcileAction::Command { .. }))
+        );
+        assert!(
+            reconciler
+                .set_bridge_availability(Availability::Online, at(1.4))
+                .unwrap()
                 .iter()
                 .any(|action| matches!(action, ReconcileAction::Command { .. }))
         );
@@ -2763,7 +2843,7 @@ mod tests {
             retry_policy(),
         )
         .unwrap();
-        reconciler.broker_connected(at(0.0)).unwrap();
+        connect_with_online_bridge(&mut reconciler, 0.0);
         let logical = LightTarget {
             on: true,
             brightness: Some(Brightness::new(0.6).unwrap()),
@@ -2856,7 +2936,7 @@ mod tests {
             retry_policy(),
         )
         .unwrap();
-        reconciler.broker_connected(at(0.0)).unwrap();
+        connect_with_online_bridge(&mut reconciler, 0.0);
 
         assert_eq!(
             reconciler
@@ -3057,7 +3137,7 @@ mod tests {
             retry_policy(),
         )
         .unwrap();
-        reconciler.broker_connected(at(0.0)).unwrap();
+        connect_with_online_bridge(&mut reconciler, 0.0);
 
         let actions = reconciler
             .set_group_desired(&group, target(0.5), at(1.0))
@@ -3101,8 +3181,15 @@ mod tests {
             DispatchClaim::Stale
         ));
         assert!(
-            reconciler
+            !reconciler
                 .broker_connected(at(1.3))
+                .unwrap()
+                .iter()
+                .any(|action| matches!(action, ReconcileAction::Command { .. }))
+        );
+        assert!(
+            reconciler
+                .set_bridge_availability(Availability::Online, at(1.4))
                 .unwrap()
                 .iter()
                 .any(|action| matches!(action, ReconcileAction::Command { .. }))
@@ -3148,7 +3235,7 @@ mod tests {
             policy,
         )
         .unwrap();
-        reconciler.broker_connected(at(0.0)).unwrap();
+        connect_with_online_bridge(&mut reconciler, 0.0);
         let first = reconciler
             .set_device_desired(&lamp, target(0.5), at(1.0))
             .unwrap();
@@ -3185,7 +3272,7 @@ mod tests {
             policy,
         )
         .unwrap();
-        reconciler.broker_connected(at(0.0)).unwrap();
+        connect_with_online_bridge(&mut reconciler, 0.0);
         let first = reconciler
             .set_device_desired(&lamp, target(0.5), at(1.0))
             .unwrap();
@@ -3309,7 +3396,7 @@ mod tests {
             policy,
         )
         .unwrap();
-        reconciler.broker_connected(at(0.0)).unwrap();
+        connect_with_online_bridge(&mut reconciler, 0.0);
         let actions = reconciler
             .set_device_desired(&lamp, target(0.5), at(1.0))
             .unwrap();
@@ -3342,7 +3429,7 @@ mod tests {
             policy,
         )
         .unwrap();
-        reconciler.broker_connected(at(0.0)).unwrap();
+        connect_with_online_bridge(&mut reconciler, 0.0);
         let actions = reconciler
             .set_device_desired(&lamp, target(0.5), at(1.0))
             .unwrap();
@@ -3468,7 +3555,7 @@ mod tests {
             retry_policy(),
         )
         .unwrap();
-        reconciler.broker_connected(at(0.0)).unwrap();
+        connect_with_online_bridge(&mut reconciler, 0.0);
         let actions = reconciler
             .set_group_desired(&group, target(0.5), at(1.0))
             .unwrap();
@@ -3542,7 +3629,7 @@ mod tests {
             policy,
         )
         .unwrap();
-        reconciler.broker_connected(at(0.0)).unwrap();
+        connect_with_online_bridge(&mut reconciler, 0.0);
         let actions = reconciler
             .set_device_desired(&lamp, target(0.5), at(1.0))
             .unwrap();
@@ -3613,7 +3700,7 @@ mod tests {
             policy,
         )
         .unwrap();
-        reconciler.broker_connected(at(0.0)).unwrap();
+        connect_with_online_bridge(&mut reconciler, 0.0);
         let first = reconciler
             .set_device_desired(&lamp, target(0.5), at(1.0))
             .unwrap();
@@ -3657,7 +3744,7 @@ mod tests {
             retry_policy(),
         )
         .unwrap();
-        reconciler.broker_connected(at(0.0)).unwrap();
+        connect_with_online_bridge(&mut reconciler, 0.0);
         let group_batch = reconciler
             .set_group_desired(&group, target(0.5), at(1.0))
             .unwrap();

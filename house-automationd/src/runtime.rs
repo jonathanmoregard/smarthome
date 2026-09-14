@@ -566,16 +566,6 @@ impl HouseEngine {
                     now.monotonic,
                     range,
                 )?;
-            if self.last_targets.get(id) != Some(&target) {
-                tracing::info!(
-                    device = id.as_str(),
-                    room = ?device.owner,
-                    source = "composition",
-                    old_target = ?self.last_targets.get(id),
-                    new_target = ?target,
-                    "computed device target"
-                );
-            }
             targets.insert(id.clone(), target);
         }
 
@@ -612,15 +602,24 @@ impl HouseEngine {
             .cloned()
             .collect();
 
-        if materially_changed.is_empty() && !refresh_due.is_empty() {
-            let actions = self.reconciler.force_reconcile(now.monotonic)?;
-            for id in refresh_due {
-                self.last_reconciled_at.insert(id, now.monotonic);
-            }
-            return Ok((actions, self.devices.len()));
+        for id in &materially_changed {
+            let device = self.devices.get(id).expect("target device exists");
+            let target = targets.get(id).expect("material target exists");
+            tracing::info!(
+                device = id.as_str(),
+                room = ?device.owner,
+                source = "composition",
+                old_target = ?self.last_targets.get(id),
+                new_target = ?target,
+                "computed device target"
+            );
         }
 
-        let mut actions = Vec::new();
+        let mut actions = if refresh_due.is_empty() {
+            Vec::new()
+        } else {
+            self.reconciler.force_reconcile(now.monotonic)?
+        };
         let mut grouped_members = BTreeSet::new();
         for group in &self.groups {
             let Some(shared_owner) = &group.shared_owner else {
@@ -1828,7 +1827,7 @@ mod tests {
     use chrono::TimeZone;
     use chrono_tz::Europe::Stockholm;
     use house_automation_core::{
-        reconcile::{CommandEntity, DeviceId, ReconcileAction},
+        reconcile::{Availability, CommandEntity, DeviceId, ReconcileAction},
         state::{AutomationState, LocalDate, MonotonicTime},
     };
 
@@ -2010,11 +2009,18 @@ mod tests {
             Arc::new(HealthState::new()),
         )
         .unwrap();
-        let actions = actor
+        let mut actions = actor
             .engine
             .reconciler
             .broker_connected(sample(0.1).runtime.monotonic)
             .unwrap();
+        actions.extend(
+            actor
+                .engine
+                .reconciler
+                .set_bridge_availability(Availability::Online, sample(0.1).runtime.monotonic)
+                .unwrap(),
+        );
         let mut token = None;
         let malformed: Vec<_> = actions
             .into_iter()

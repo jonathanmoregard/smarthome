@@ -1145,6 +1145,12 @@ mod tests {
         reconciler
             .broker_connected(MonotonicTime::from_seconds(0.0).unwrap())
             .unwrap();
+        reconciler
+            .set_bridge_availability(
+                Availability::Online,
+                MonotonicTime::from_seconds(0.0).unwrap(),
+            )
+            .unwrap();
         let actions = reconciler
             .set_device_desired(
                 &lamp,
@@ -1178,6 +1184,12 @@ mod tests {
         .unwrap();
         reconciler
             .broker_connected(MonotonicTime::from_seconds(0.0).unwrap())
+            .unwrap();
+        reconciler
+            .set_bridge_availability(
+                Availability::Online,
+                MonotonicTime::from_seconds(0.0).unwrap(),
+            )
             .unwrap();
         let first_actions = reconciler
             .set_device_desired(
@@ -2011,6 +2023,12 @@ mod tests {
         reconciler
             .broker_connected(MonotonicTime::from_seconds(0.0).unwrap())
             .unwrap();
+        reconciler
+            .set_bridge_availability(
+                Availability::Online,
+                MonotonicTime::from_seconds(0.0).unwrap(),
+            )
+            .unwrap();
         let adapter = Zigbee2MqttAdapter::new(
             "zigbee2mqtt",
             vec![
@@ -2149,6 +2167,12 @@ mod tests {
         .unwrap();
         reconciler
             .broker_connected(MonotonicTime::from_seconds(0.0).unwrap())
+            .unwrap();
+        reconciler
+            .set_bridge_availability(
+                Availability::Online,
+                MonotonicTime::from_seconds(0.0).unwrap(),
+            )
             .unwrap();
         let actions = reconciler
             .set_device_desired(

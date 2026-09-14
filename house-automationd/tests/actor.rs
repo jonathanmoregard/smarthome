@@ -271,8 +271,10 @@ fn sample_at(day: u8, hour: u8, minute: u8, second: u8, monotonic: f64) -> Clock
     }
 }
 
+type TestActor = RuntimeActor<FakeTransport, FakeClock, MemoryWriter>;
+
 type ActorHarness = (
-    RuntimeActor<FakeTransport, FakeClock, MemoryWriter>,
+    TestActor,
     Arc<Mutex<Vec<Call>>>,
     Arc<Mutex<ClockSample>>,
     Arc<HealthState>,
@@ -365,8 +367,21 @@ fn retained_response(topic: &str) -> OwnedInboundMessage {
     }
 }
 
+async fn connect_online(actor: &mut TestActor) {
+    actor
+        .handle_transport_event(TransportEvent::Connected)
+        .await
+        .unwrap();
+    actor
+        .handle_transport_event(TransportEvent::Publish(retained_response(
+            "zigbee2mqtt/bridge/state",
+        )))
+        .await
+        .unwrap();
+}
+
 #[tokio::test]
-async fn connack_enqueues_subscriptions_reads_commands_then_retained_online_status() {
+async fn connack_enqueues_subscriptions_and_reads_but_no_commands_before_bridge_online() {
     let (mut actor, calls, _, health, _, _) = actor();
     actor
         .handle_transport_event(TransportEvent::Connected)
@@ -388,6 +403,7 @@ async fn connack_enqueues_subscriptions_reads_commands_then_retained_online_stat
             })
             .all(|retain| !retain)
     );
+    assert!(!calls.iter().any(is_set));
     assert_eq!(health.snapshot().status_code(), 503);
 }
 
@@ -517,10 +533,7 @@ async fn health_does_not_report_a_batch_whose_only_publication_failed() {
     let controls = input.find("[[controls]]").expect("example has controls");
     let one_device = format!("{}{}", &input[..second_device], &input[controls..]);
     let (mut actor, _, clock, health, _, publish_control) = actor_from_config(&one_device);
-    actor
-        .handle_transport_event(TransportEvent::Connected)
-        .await
-        .unwrap();
+    connect_online(&mut actor).await;
     let before = serde_json::to_value(health.snapshot()).unwrap()
         ["last_successful_reconciliation_unix_seconds"]
         .clone();
@@ -550,10 +563,7 @@ async fn health_records_a_split_transition_only_after_its_delayed_operation_is_a
     let controls = input.find("[[controls]]").expect("example has controls");
     let one_device = format!("{}{}", &input[..second_device], &input[controls..]);
     let (mut actor, _, clock, health, _, _) = actor_from_config(&one_device);
-    actor
-        .handle_transport_event(TransportEvent::Connected)
-        .await
-        .unwrap();
+    connect_online(&mut actor).await;
     *clock.lock().unwrap() = sample_at(13, 12, 0, 1, 0.5);
     actor.tick().await.unwrap();
 
@@ -679,10 +689,7 @@ async fn retained_malformed_bridge_state_is_dropped_and_marks_bridge_unready() {
 #[tokio::test]
 async fn double_click_is_one_atomic_durable_action_and_ack_commands_are_not_retained() {
     let (mut actor, calls, clock, _, saves, _) = actor();
-    actor
-        .handle_transport_event(TransportEvent::Connected)
-        .await
-        .unwrap();
+    connect_online(&mut actor).await;
     calls.lock().unwrap().clear();
     for seconds in [1.0, 1.2] {
         *clock.lock().unwrap() = sample(seconds);
@@ -710,10 +717,7 @@ async fn double_click_is_one_atomic_durable_action_and_ack_commands_are_not_reta
 #[tokio::test]
 async fn center_single_waits_for_the_real_deadline_before_acting() {
     let (mut actor, calls, clock, _, saves, _) = actor();
-    actor
-        .handle_transport_event(TransportEvent::Connected)
-        .await
-        .unwrap();
+    connect_online(&mut actor).await;
     calls.lock().unwrap().clear();
     saves.lock().unwrap().clear();
 
@@ -736,10 +740,7 @@ async fn center_single_waits_for_the_real_deadline_before_acting() {
 #[tokio::test]
 async fn center_hold_cancels_its_ambiguous_click_without_later_single_or_double() {
     let (mut actor, calls, clock, _, saves, _) = actor();
-    actor
-        .handle_transport_event(TransportEvent::Connected)
-        .await
-        .unwrap();
+    connect_online(&mut actor).await;
     calls.lock().unwrap().clear();
     saves.lock().unwrap().clear();
 
@@ -856,10 +857,7 @@ async fn whole_hour_overlay_expires_to_recomputed_state_after_an_underlying_offs
 #[tokio::test]
 async fn actor_curve_tick_suppresses_subthreshold_sparse_publications() {
     let (mut actor, calls, clock, _, _, _) = actor();
-    actor
-        .handle_transport_event(TransportEvent::Connected)
-        .await
-        .unwrap();
+    connect_online(&mut actor).await;
     calls.lock().unwrap().clear();
 
     *clock.lock().unwrap() = sample(1.0);
@@ -892,10 +890,7 @@ async fn shutdown_emits_offline_terminal_operation() {
 #[tokio::test]
 async fn transient_enqueue_waits_for_backoff_before_one_retry() {
     let (mut actor, calls, clock, _, _, fail_next) = actor();
-    actor
-        .handle_transport_event(TransportEvent::Connected)
-        .await
-        .unwrap();
+    connect_online(&mut actor).await;
     calls.lock().unwrap().clear();
     *clock.lock().unwrap() = sample(1.0);
     actor
@@ -930,10 +925,7 @@ async fn transient_enqueue_waits_for_backoff_before_one_retry() {
 #[tokio::test]
 async fn transient_backoff_starts_when_the_publish_attempt_actually_finishes() {
     let (mut actor, calls, clock, _, _, publish_control) = actor();
-    actor
-        .handle_transport_event(TransportEvent::Connected)
-        .await
-        .unwrap();
+    connect_online(&mut actor).await;
     calls.lock().unwrap().clear();
     *clock.lock().unwrap() = sample(1.0);
     actor
@@ -959,10 +951,7 @@ async fn transient_backoff_starts_when_the_publish_attempt_actually_finishes() {
 #[tokio::test]
 async fn availability_recovery_reconciles_current_desired_target() {
     let (mut actor, calls, clock, _, _, _) = actor();
-    actor
-        .handle_transport_event(TransportEvent::Connected)
-        .await
-        .unwrap();
+    connect_online(&mut actor).await;
     calls.lock().unwrap().clear();
     actor
         .handle_transport_event(TransportEvent::Publish(OwnedInboundMessage {
@@ -1001,10 +990,7 @@ async fn availability_recovery_reconciles_current_desired_target() {
 async fn reconnect_publishes_only_current_desired_state_after_an_enqueued_command_was_invalidated()
 {
     let (mut actor, calls, clock, _, _, _) = actor();
-    actor
-        .handle_transport_event(TransportEvent::Connected)
-        .await
-        .unwrap();
+    connect_online(&mut actor).await;
     calls.lock().unwrap().clear();
 
     *clock.lock().unwrap() = sample(1.0);
@@ -1036,6 +1022,13 @@ async fn reconnect_publishes_only_current_desired_state_after_an_enqueued_comman
     *clock.lock().unwrap() = sample(4.3);
     actor
         .handle_transport_event(TransportEvent::Connected)
+        .await
+        .unwrap();
+    assert!(!calls.lock().unwrap().iter().any(is_set));
+    actor
+        .handle_transport_event(TransportEvent::Publish(retained_response(
+            "zigbee2mqtt/bridge/state",
+        )))
         .await
         .unwrap();
 

@@ -192,10 +192,12 @@ recomputes the then-current target; it never saves a value, sleeps, and restores
 stale state. Overlays have deterministic IDs/priorities, may replace or cancel
 one another, and are intentionally not persisted.
 
-The engine separately tracks desired and observed device state. On MQTT or
-Zigbee2MQTT reconnect it resubscribes, requests current state, and reconciles
-only when the device is available. Retries are bounded and stale acknowledgements
-cannot override a newer plan, preventing command oscillation.
+The engine separately tracks desired and observed device state. On MQTT
+reconnect it first resubscribes and requests current state, then waits for the
+retained Zigbee2MQTT bridge-online report before sending desired commands. It
+reconciles devices when available, including bounded maximum refreshes that
+cannot be starved by changes elsewhere. Retries are bounded and stale
+acknowledgements cannot override a newer plan, preventing command oscillation.
 
 ## State, secrets, and backups
 
