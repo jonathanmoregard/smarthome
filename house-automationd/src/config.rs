@@ -46,6 +46,7 @@ pub const MAX_WHOLE_HOUR_DURATION_MS: u64 = 60_000;
 pub const MAX_RECONCILE_RETRY_INTERVAL_SECONDS: f64 = 3_600.0;
 pub const MAX_DISPATCH_ACCEPTANCE_MARGIN_SECONDS: f64 = 300.0;
 pub const MAX_DISPATCH_FAILURE_BACKOFF_SECONDS: f64 = 300.0;
+pub const MIN_OPERATIONAL_DURATION_SECONDS: f64 = 0.001;
 
 /// Fully validated runtime configuration.
 pub struct ValidatedConfig {
@@ -799,10 +800,12 @@ impl RawCircadian {
         let daily_reset_time = parse_time_of_day(&self.daily_reset_time).map_err(|_| {
             ConfigError::validation("circadian.daily_reset_time", "must be HH:MM or HH:MM:SS")
         })?;
-        if self.unfreeze_convergence_seconds > MAX_UNFREEZE_CONVERGENCE_SECONDS {
+        if self.unfreeze_convergence_seconds < MIN_OPERATIONAL_DURATION_SECONDS
+            || self.unfreeze_convergence_seconds > MAX_UNFREEZE_CONVERGENCE_SECONDS
+        {
             return Err(ConfigError::validation(
                 "circadian.unfreeze_convergence_seconds",
-                "exceeds the one-hour ceiling",
+                "must be between one millisecond and the one-hour ceiling",
             ));
         }
         let convergence_duration =
@@ -813,11 +816,13 @@ impl RawCircadian {
                 )
             })?;
         if !positive_finite(self.tick_seconds)
+            || self.tick_seconds < MIN_OPERATIONAL_DURATION_SECONDS
             || self.tick_seconds > MAX_SPARSE_TICK_SECONDS
             || !positive_finite(self.brightness_change_threshold)
             || self.brightness_change_threshold > 1.0
             || !positive_finite(self.color_temperature_change_threshold_kelvin)
             || !positive_finite(self.maximum_refresh_seconds)
+            || self.maximum_refresh_seconds < MIN_OPERATIONAL_DURATION_SECONDS
             || self.maximum_refresh_seconds > MAX_SPARSE_REFRESH_SECONDS
             || self.maximum_refresh_seconds < self.tick_seconds
         {
@@ -901,13 +906,16 @@ impl RawReconciliation {
     }
 
     fn validate(self) -> Result<RetryPolicy, ConfigError> {
-        if self.retry_interval_seconds > MAX_RECONCILE_RETRY_INTERVAL_SECONDS
+        if self.retry_interval_seconds < MIN_OPERATIONAL_DURATION_SECONDS
+            || self.retry_interval_seconds > MAX_RECONCILE_RETRY_INTERVAL_SECONDS
+            || self.dispatch_acceptance_margin_seconds < MIN_OPERATIONAL_DURATION_SECONDS
             || self.dispatch_acceptance_margin_seconds > MAX_DISPATCH_ACCEPTANCE_MARGIN_SECONDS
+            || self.dispatch_failure_backoff_seconds < MIN_OPERATIONAL_DURATION_SECONDS
             || self.dispatch_failure_backoff_seconds > MAX_DISPATCH_FAILURE_BACKOFF_SECONDS
         {
             return Err(ConfigError::validation(
                 "reconciliation",
-                "timing exceeds a documented one-house service ceiling",
+                "timing must be between one millisecond and its documented one-house service ceiling",
             ));
         }
         RetryPolicy::new(self.retry_interval_seconds, self.maximum_attempts)
@@ -1190,10 +1198,17 @@ fn validate_groups(
             }
             members.push(member);
         }
-        let definition =
-            GroupDefinition::new(id.clone(), members.clone(), capabilities).map_err(|_| {
-                ConfigError::validation("groups", "invalid group membership or capabilities")
-            })?;
+        let definition = GroupDefinition::new(
+            id.clone(),
+            members.clone(),
+            Capabilities {
+                color_temperature: mired_range.and(capabilities.color_temperature),
+                ..capabilities
+            },
+        )
+        .map_err(|_| {
+            ConfigError::validation("groups", "invalid group membership or capabilities")
+        })?;
         let binding = GroupBinding::new(
             id.clone(),
             group.friendly_name,
@@ -1472,6 +1487,15 @@ fn validate_cct_round_trip(kelvin: KelvinRange, mired: MiredRange) -> Result<(),
             .clamp(f64::from(mired.min()), f64::from(mired.max()));
         let observed_kelvin = 1_000_000.0 / command_mired;
         if (endpoint - observed_kelvin).abs() > endpoint * 0.01 {
+            return Err(());
+        }
+    }
+    for (mired_endpoint, kelvin_endpoint) in [
+        (mired.min(), kelvin.max().get()),
+        (mired.max(), kelvin.min().get()),
+    ] {
+        let observed_kelvin = 1_000_000.0 / f64::from(mired_endpoint);
+        if (kelvin_endpoint - observed_kelvin).abs() > kelvin_endpoint * 0.01 {
             return Err(());
         }
     }

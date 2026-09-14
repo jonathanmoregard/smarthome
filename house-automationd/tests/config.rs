@@ -1,8 +1,8 @@
 use house_automation_core::{
     input::{Action, Gesture},
-    reconcile::{DeviceId, ReconcileAction, Reconciler},
+    reconcile::{DeviceId, DispatchClaim, ReconcileAction, Reconciler},
     state::{MonotonicTime, Scope},
-    value::{Kelvin, LightTarget},
+    value::{Brightness, Kelvin, LightTarget},
 };
 use house_automationd::config::{
     GroupId, MAX_ACKNOWLEDGEMENT_DURATION_MS, MAX_AMBIGUOUS_HOLD_WINDOW_MS,
@@ -230,6 +230,92 @@ fn typed_runtime_topology_preserves_primary_ids_group_ids_and_members() {
         ]
     );
     assert_eq!(parts.groups[0].mired_range, None);
+}
+
+#[test]
+fn parsed_group_without_mired_uses_group_power_and_brightness_with_device_cct_fallbacks() {
+    let parts = ValidatedConfig::parse(EXAMPLE)
+        .unwrap()
+        .into_runtime_parts();
+    let group = parts.groups[0].id.clone();
+    let definitions = parts
+        .devices
+        .iter()
+        .map(|device| device.definition.clone())
+        .collect();
+    let groups = parts
+        .groups
+        .iter()
+        .map(|group| group.definition.clone())
+        .collect();
+    let mut reconciler = Reconciler::new(definitions, groups, parts.retry_policy).unwrap();
+    let at = |seconds| MonotonicTime::from_seconds(seconds).unwrap();
+    reconciler.broker_connected(at(0.0)).unwrap();
+    let actions = reconciler
+        .set_group_desired(
+            &group,
+            LightTarget {
+                on: true,
+                brightness: Some(Brightness::new(0.6).unwrap()),
+                color_temperature: Some(Kelvin::new(3000.0).unwrap()),
+                color: None,
+                transition_ms: None,
+            },
+            at(1.0),
+        )
+        .unwrap();
+    let plan = parts
+        .zigbee2mqtt
+        .apply_actions(PlanEpoch::new(at(1.0)), &actions)
+        .expect("validated optional group mired must remain command-encodable");
+    let publications: Vec<_> = plan
+        .operations()
+        .iter()
+        .filter_map(|operation| operation.publication())
+        .collect();
+
+    assert_eq!(publications.len(), 3);
+    let group_publication = publications
+        .iter()
+        .find(|publication| publication.topic().contains("demo/living-room/lights/set"))
+        .unwrap();
+    let group_payload: serde_json::Value =
+        serde_json::from_slice(group_publication.payload()).unwrap();
+    assert_eq!(group_payload["state"], "ON");
+    assert!(group_payload["brightness"].is_number());
+    assert!(group_payload.get("color_temp").is_none());
+    for device in ["reading-light", "color-light"] {
+        let publication = publications
+            .iter()
+            .find(|publication| publication.topic().contains(device))
+            .unwrap();
+        let payload: serde_json::Value = serde_json::from_slice(publication.payload()).unwrap();
+        assert!(payload["color_temp"].is_number());
+        assert!(payload.get("state").is_none());
+        assert!(payload.get("brightness").is_none());
+    }
+
+    assert_eq!(plan.dispatch_plans().len(), 1);
+    let metadata = plan.dispatch_plans()[0];
+    assert_eq!(metadata.operation_count(), publications.len());
+    reconciler
+        .register_dispatch_plan(
+            metadata.token(),
+            plan.epoch().monotonic_time(),
+            metadata.operation_count(),
+            metadata.max_offset_ms(),
+        )
+        .unwrap();
+    for publication in publications {
+        let token = publication.dispatch_token().unwrap();
+        let index = publication.dispatch_operation_index().unwrap();
+        let DispatchClaim::Ready(permit) = reconciler.claim_next_operation(token, index).unwrap()
+        else {
+            panic!("every translated fallback command must remain claimable")
+        };
+        permit.accepted(at(1.1)).unwrap();
+    }
+    assert!(!reconciler.is_dispatch_token_valid(metadata.token()));
 }
 
 #[test]
@@ -487,10 +573,15 @@ fn group_capabilities_cannot_exceed_members_and_optional_mired_is_all_or_nothing
         "group command range must fit every member"
     );
 
-    let wider_mired_than_member = replace(
+    let narrower_member_mired = replace(
         EXAMPLE,
+        "minimum_kelvin = 2200, maximum_kelvin = 4000, minimum_mired = 250, maximum_mired = 454",
+        "minimum_kelvin = 2200, maximum_kelvin = 4000, minimum_mired = 252, maximum_mired = 452",
+    );
+    let wider_mired_than_member = replace(
+        &narrower_member_mired,
         "minimum_kelvin = 2200, maximum_kelvin = 4000 } }\n\n[[controls]]",
-        "minimum_kelvin = 2200, maximum_kelvin = 4000, minimum_mired = 200, maximum_mired = 454 } }\n\n[[controls]]",
+        "minimum_kelvin = 2200, maximum_kelvin = 4000, minimum_mired = 250, maximum_mired = 454 } }\n\n[[controls]]",
     );
     assert!(reject(&wider_mired_than_member).contains("every member"));
 
@@ -524,6 +615,13 @@ fn cct_kelvin_and_mired_endpoints_must_round_trip_within_reconcile_tolerance() {
         "minimum_kelvin = 2200, maximum_kelvin = 4000, minimum_mired = 300, maximum_mired = 454 } }\n\n[[controls]]",
     );
     assert!(reject(&contradictory_group).contains("round-trip"));
+
+    let implausibly_broad_mired = replace(
+        EXAMPLE,
+        "minimum_kelvin = 2200, maximum_kelvin = 4000, minimum_mired = 250, maximum_mired = 454",
+        "minimum_kelvin = 2200, maximum_kelvin = 4000, minimum_mired = 1, maximum_mired = 65535",
+    );
+    assert!(reject(&implausibly_broad_mired).contains("round-trip"));
 
     ValidatedConfig::parse(EXAMPLE)
         .expect("2200 K and 454 mired realistic endpoint quantization stays within 1%");
@@ -840,6 +938,83 @@ fn huge_finite_float_durations_are_rejected() {
         let name = field.split(" = ").next().unwrap();
         let source = replace(EXAMPLE, field, &format!("{name} = 1e308"));
         assert!(ValidatedConfig::parse(&source).is_err());
+    }
+}
+
+#[test]
+fn every_f64_operational_duration_accepts_one_millisecond_minimum() {
+    let mut source = EXAMPLE.to_owned();
+    for (field, value) in [
+        ("unfreeze_convergence_seconds", "30"),
+        ("tick_seconds", "30"),
+        ("maximum_refresh_seconds", "300"),
+        ("retry_interval_seconds", "5"),
+        ("dispatch_acceptance_margin_seconds", "5"),
+        ("dispatch_failure_backoff_seconds", "0.5"),
+    ] {
+        source = replace(
+            &source,
+            &format!("{field} = {value}"),
+            &format!("{field} = 0.001"),
+        );
+    }
+    let parts = ValidatedConfig::parse(&source)
+        .expect("one millisecond is the inclusive operational minimum")
+        .into_runtime_parts();
+
+    for seconds in [
+        parts.circadian.convergence_duration_seconds,
+        parts.circadian.tick_seconds,
+        parts.circadian.maximum_refresh_seconds,
+        parts.reconciliation_timing.retry_interval_seconds,
+        parts
+            .reconciliation_timing
+            .dispatch_acceptance_margin_seconds,
+        parts.reconciliation_timing.dispatch_failure_backoff_seconds,
+    ] {
+        let duration = std::time::Duration::try_from_secs_f64(seconds)
+            .expect("validated duration must convert without panic");
+        assert!(!duration.is_zero());
+    }
+}
+
+#[test]
+fn every_f64_operational_duration_rejects_sub_millisecond_values() {
+    for field in [
+        "unfreeze_convergence_seconds = 30",
+        "tick_seconds = 30",
+        "maximum_refresh_seconds = 300",
+        "retry_interval_seconds = 5",
+        "dispatch_acceptance_margin_seconds = 5",
+        "dispatch_failure_backoff_seconds = 0.5",
+    ] {
+        let name = field.split(" = ").next().unwrap();
+        for too_small in ["0.000999", "5e-324"] {
+            let source = replace(EXAMPLE, field, &format!("{name} = {too_small}"));
+            assert!(
+                ValidatedConfig::parse(&source).is_err(),
+                "accepted sub-millisecond {name} = {too_small}"
+            );
+        }
+    }
+}
+
+#[test]
+fn every_f64_operational_duration_rejects_nan() {
+    for field in [
+        "unfreeze_convergence_seconds = 30",
+        "tick_seconds = 30",
+        "maximum_refresh_seconds = 300",
+        "retry_interval_seconds = 5",
+        "dispatch_acceptance_margin_seconds = 5",
+        "dispatch_failure_backoff_seconds = 0.5",
+    ] {
+        let name = field.split(" = ").next().unwrap();
+        let source = replace(EXAMPLE, field, &format!("{name} = nan"));
+        assert!(
+            ValidatedConfig::parse(&source).is_err(),
+            "accepted non-finite {name}"
+        );
     }
 }
 
