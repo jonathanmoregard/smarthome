@@ -204,8 +204,12 @@ impl MonotonicTime {
         Ok(Self(seconds))
     }
 
-    pub(crate) fn seconds(self) -> f64 {
+    pub fn as_seconds(self) -> f64 {
         self.0
+    }
+
+    pub(crate) fn seconds(self) -> f64 {
+        self.as_seconds()
     }
 }
 
@@ -384,6 +388,10 @@ impl ScopeState {
         &self.mode
     }
 
+    pub fn is_frozen(&self) -> bool {
+        matches!(self.mode, CurveMode::Frozen { .. })
+    }
+
     fn current_baseline(
         &self,
         live_curve: CurvePoint,
@@ -457,6 +465,32 @@ impl ScopeState {
                 self.mode = CurveMode::Frozen { baseline };
                 Ok(CurveToggleOutcome::Frozen)
             }
+        }
+    }
+
+    fn freeze_curve(
+        &mut self,
+        live_curve: CurvePoint,
+        now: MonotonicTime,
+    ) -> Result<bool, StateError> {
+        if matches!(self.mode, CurveMode::Frozen { .. }) {
+            return Ok(false);
+        }
+        let (baseline, _) = self.current_baseline(live_curve, now)?;
+        self.mode = CurveMode::Frozen { baseline };
+        Ok(true)
+    }
+
+    fn unfreeze_curve(&mut self, now: MonotonicTime, duration: ConvergenceDuration) -> bool {
+        if let CurveMode::Frozen { baseline } = self.mode {
+            self.mode = CurveMode::Converging {
+                from: baseline,
+                started_at: now,
+                duration,
+            };
+            true
+        } else {
+            false
         }
     }
 
@@ -666,6 +700,26 @@ impl AutomationState {
     ) -> Result<CurveToggleOutcome, StateError> {
         self.scope_state_mut(scope)?
             .toggle_curve(live_curve, now, convergence_duration)
+    }
+
+    pub fn freeze_scope_curve(
+        &mut self,
+        scope: &Scope,
+        live_curve: CurvePoint,
+        now: MonotonicTime,
+    ) -> Result<bool, StateError> {
+        self.scope_state_mut(scope)?.freeze_curve(live_curve, now)
+    }
+
+    pub fn unfreeze_scope_curve(
+        &mut self,
+        scope: &Scope,
+        now: MonotonicTime,
+        convergence_duration: ConvergenceDuration,
+    ) -> Result<bool, StateError> {
+        Ok(self
+            .scope_state_mut(scope)?
+            .unfreeze_curve(now, convergence_duration))
     }
 
     pub fn toggle_control_curve(

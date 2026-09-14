@@ -189,6 +189,17 @@ impl OverlaySet {
         self.overlays.len()
     }
 
+    pub fn next_expiry(&self) -> Option<MonotonicTime> {
+        self.overlays
+            .values()
+            .map(|overlay| overlay.expires_at)
+            .min_by(f64::total_cmp)
+            .map(|seconds| {
+                MonotonicTime::from_seconds(seconds)
+                    .expect("validated overlay expiry is finite and nonnegative")
+            })
+    }
+
     pub fn insert(
         &mut self,
         id: OverlayId,

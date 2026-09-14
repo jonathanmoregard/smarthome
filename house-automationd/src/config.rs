@@ -143,6 +143,7 @@ pub struct RuntimeConfigParts {
     pub zigbee2mqtt: Zigbee2MqttAdapter,
 }
 
+#[derive(Clone)]
 pub struct MqttSettings {
     pub host: String,
     pub port: u16,
@@ -169,6 +170,7 @@ impl fmt::Debug for MqttSettings {
     }
 }
 
+#[derive(Clone)]
 pub struct MqttCredentialSource {
     pub environment_file: PathBuf,
     pub username_variable: String,

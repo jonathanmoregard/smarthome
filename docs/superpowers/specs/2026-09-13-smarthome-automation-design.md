@@ -55,6 +55,8 @@ Center short-click classification holds first click until the configurable doubl
 
 Actions target configured room, floor, or house scopes. Runtime-selected scope is persisted only when selection is enabled. Normal configurations can map each remote directly to one scope.
 
+Each controllable device has exactly one effective physical owner: its most-specific configured scope (`room`, then `floor`, then `house`). Only owner scopes are composed into device targets. A broader floor/house action resolves all contained owners, clones and mutates them as one aggregate, persists once, then publishes; it never creates a competing broader scheduler output. Aggregate power uses `any on => all off`, otherwise all on. Aggregate circadian toggle smoothly unfreezes only when every affected owner is frozen; otherwise it freezes every owner at that owner's current live baseline. Native Zigbee groups are used only when every member has the same effective owner and equal group-addressable target fields. A group without a CCT range synchronizes power/brightness while member CCT commands remain per-device fallbacks. Once ownership or group-addressable fields diverge, group desired state is cleared and members remain on per-device reconciliation, including after reconnect.
+
 ## Overlays and reconciliation
 
 Overlays are in-memory layers with key, priority, start, expiry, and replacement policy. Same-key overlays replace deterministically; different keys compose by priority then insertion sequence. Expiry always recomputes from current baseline, offsets, and remaining overlays. Transient overlays never persist.

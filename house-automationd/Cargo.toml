@@ -11,12 +11,21 @@ name = "house-automationd"
 path = "src/main.rs"
 
 [dependencies]
+async-trait = "0.1"
+axum = "0.8"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+chrono-tz = "0.10"
 house-automation-core = { path = "../house-automation-core" }
+rumqttc = "0.25"
 rusqlite = { version = "0.37", features = ["backup", "bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tempfile = "3"
+tokio = { version = "1", features = ["fs", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
 
 [dev-dependencies]
 libc = "0.2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "test-util", "time"] }

@@ -432,6 +432,18 @@ impl ClickClassifier {
         self.ambiguous_hold_window
     }
 
+    /// Earliest exclusive deadline at which a pending single click may emit.
+    pub fn next_deadline(&self) -> Option<MonotonicTime> {
+        self.pending
+            .values()
+            .map(|pending| pending.emit_deadline)
+            .min_by(f64::total_cmp)
+            .map(|seconds| {
+                MonotonicTime::from_seconds(seconds)
+                    .expect("validated click deadline is finite and nonnegative")
+            })
+    }
+
     pub fn ingest(
         &mut self,
         control_id: ControlId,

@@ -272,6 +272,14 @@ impl DeviceDefinition {
             color_policy,
         }
     }
+
+    pub fn id(&self) -> &DeviceId {
+        &self.id
+    }
+
+    pub fn capabilities(&self) -> Capabilities {
+        self.capabilities
+    }
 }
 
 /// A native Zigbee synchronization group.
@@ -603,6 +611,23 @@ impl Reconciler {
             .ok_or_else(|| ReconcileError::UnknownDevice(id.clone()))
     }
 
+    pub fn next_deadline(&self) -> Option<MonotonicTime> {
+        self.staged_dispatches
+            .values()
+            .map(|dispatch| dispatch.acceptance_deadline)
+            .chain(
+                self.deferred_dispatches
+                    .values()
+                    .map(|dispatch| dispatch.retry_deadline),
+            )
+            .chain(
+                self.devices
+                    .values()
+                    .filter_map(|device| device.pending.map(|pending| pending.deadline)),
+            )
+            .min_by(|left, right| left.as_seconds().total_cmp(&right.as_seconds()))
+    }
+
     /// Returns whether a staged batch still exists for diagnostics/tests.
     ///
     /// This observation does not authorize an enqueue: executors must use
@@ -731,6 +756,20 @@ impl Reconciler {
         })
     }
 
+    /// Reissues current desired state without changing transport lifecycle.
+    /// Used by the daemon's bounded maximum-refresh schedule.
+    pub fn force_reconcile(
+        &mut self,
+        now: MonotonicTime,
+    ) -> Result<Vec<ReconcileAction>, ReconcileError> {
+        self.transact(now, |next, now| {
+            if !next.can_publish() {
+                return Ok(Vec::new());
+            }
+            next.reconcile_all(now)
+        })
+    }
+
     pub fn set_bridge_availability(
         &mut self,
         availability: Availability,
@@ -824,6 +863,37 @@ impl Reconciler {
     ) -> Result<Vec<ReconcileAction>, ReconcileError> {
         self.transact(now, |next, now| {
             next.set_group_desired_inner(id, target, now)
+        })
+    }
+
+    /// Stops native-group ownership without erasing member desired state.
+    ///
+    /// Runtime uses this before per-device fallback whenever group members do
+    /// not share one physical owner or their effective targets diverge.
+    pub fn clear_group_desired(
+        &mut self,
+        id: &EntityId,
+        now: MonotonicTime,
+    ) -> Result<Vec<ReconcileAction>, ReconcileError> {
+        self.transact(now, |next, now| {
+            let members = {
+                let group = next
+                    .groups
+                    .get_mut(id)
+                    .ok_or_else(|| ReconcileError::UnknownGroup(id.clone()))?;
+                if group.logical_desired.is_none() && group.command_target.is_none() {
+                    return Ok(Vec::new());
+                }
+                group.logical_desired = None;
+                group.command_target = None;
+                group.definition.members.clone()
+            };
+            let mut canceled = BTreeSet::new();
+            for member in members {
+                canceled.extend(next.cancel_work_for_device(&member));
+                canceled.insert(member);
+            }
+            next.stage_current_devices(canceled.into_iter().map(|id| (id, 1)).collect(), now)
         })
     }
 
