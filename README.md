@@ -194,9 +194,13 @@ one another, and are intentionally not persisted.
 
 The engine separately tracks desired and observed device state. On MQTT
 reconnect it first resubscribes and requests current state, then waits for the
-retained Zigbee2MQTT bridge-online report before sending desired commands. It
-reconciles devices when available, including bounded maximum refreshes that
-cannot be starved by changes elsewhere. Retries are bounded and stale
+retained Zigbee2MQTT bridge-online report and each device's retained online
+availability before sending that device a desired command. This avoids a
+bridge-online/device-offline ordering race. Bounded maximum refreshes target
+only devices whose deadlines are due, use independent dispatch tokens, and
+cannot be canceled or starved by changes elsewhere. MQTT disconnects and
+Zigbee bridge restarts both require fresh device availability. Retries are
+bounded and stale
 acknowledgements cannot override a newer plan, preventing command oscillation.
 
 ## State, secrets, and backups

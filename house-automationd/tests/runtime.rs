@@ -7,6 +7,7 @@ use house_automation_core::{
         AutomationState, ControlId, ControlState, CurveMode, LocalDate, MonotonicTime, Scope,
         ScopeId, ScopeState,
     },
+    value::DeviceTarget,
 };
 use house_automationd::{
     config::ValidatedConfig,
@@ -50,6 +51,14 @@ fn instant_with_second(hour: u8, minute: u8, second: u8, monotonic: f64) -> Runt
 fn connect_online(engine: &mut HouseEngine, monotonic: f64) -> Vec<ReconcileAction> {
     let now = MonotonicTime::from_seconds(monotonic).unwrap();
     let mut actions = engine.reconciler_mut().broker_connected(now).unwrap();
+    for device in ["reading-light", "color-light"] {
+        actions.extend(
+            engine
+                .reconciler_mut()
+                .set_device_availability(&DeviceId::new(device).unwrap(), Availability::Online, now)
+                .unwrap(),
+        );
+    }
     actions.extend(
         engine
             .reconciler_mut()
@@ -481,6 +490,101 @@ fn material_change_in_one_owner_does_not_starve_another_owners_due_refresh() {
             } if device == &refresh_due
         )
     }));
+}
+
+#[test]
+fn staggered_refresh_deadlines_only_command_devices_that_are_due() {
+    let input = include_str!("../../examples/house.toml")
+        .replace(
+            "friendly_name = \"demo/living-room/color-light\"\nroom = \"living-room\"",
+            "friendly_name = \"demo/living-room/color-light\"\nroom = \"second-room\"",
+        )
+        .replace(
+            "brightness_change_threshold = 0.01",
+            "brightness_change_threshold = 0.001",
+        )
+        + "\n[[rooms]]\nid = \"second-room\"\nfloor = \"ground-floor\"\n\n[[curves]]\nid = \"constant-day\"\nanchors = [\n  { time = \"04:00\", brightness = 0.50, color_temperature_kelvin = 3000 },\n  { time = \"16:00\", brightness = 0.50, color_temperature_kelvin = 3000 },\n]\n\n[[scopes]]\nid = \"second-room-lights\"\nkind = \"room\"\nroom = \"second-room\"\ncurve = \"constant-day\"\n";
+    let mut engine = HouseEngine::initialize(
+        ValidatedConfig::parse(&input).unwrap().into_runtime_parts(),
+        Default::default(),
+        instant(12, 0, 0.0),
+    )
+    .unwrap();
+    engine.recompute_desired(instant(12, 0, 0.0)).unwrap();
+    connect_online(&mut engine, 0.1);
+
+    // Advance only wall time enough to move the live curve. This staggers the
+    // reading light's refresh deadline one second behind the constant light.
+    engine.recompute_sparse(instant(12, 30, 1.0)).unwrap();
+
+    let first = engine.recompute_sparse(instant(12, 30, 300.0)).unwrap().0;
+    let second = engine.recompute_sparse(instant(12, 30, 301.0)).unwrap().0;
+    let commanded_devices = |actions: &[ReconcileAction]| {
+        actions
+            .iter()
+            .filter_map(|action| match action {
+                ReconcileAction::Command {
+                    entity: CommandEntity::Device(device),
+                    ..
+                } => Some(device.as_str().to_owned()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+
+    assert_eq!(commanded_devices(&first), vec!["color-light"]);
+    assert_eq!(commanded_devices(&second), vec!["reading-light"]);
+}
+
+#[test]
+fn material_change_cannot_cancel_an_aligned_in_sync_device_refresh() {
+    let input = include_str!("../../examples/house.toml").replace(
+        "friendly_name = \"demo/living-room/color-light\"\nroom = \"living-room\"",
+        "friendly_name = \"demo/living-room/color-light\"\nroom = \"second-room\"",
+    ) + "\n[[rooms]]\nid = \"second-room\"\nfloor = \"ground-floor\"\n\n[[curves]]\nid = \"constant-day\"\nanchors = [\n  { time = \"04:00\", brightness = 0.50, color_temperature_kelvin = 3000 },\n  { time = \"16:00\", brightness = 0.50, color_temperature_kelvin = 3000 },\n]\n\n[[scopes]]\nid = \"second-room-lights\"\nkind = \"room\"\nroom = \"second-room\"\ncurve = \"constant-day\"\n";
+    let mut engine = HouseEngine::initialize(
+        ValidatedConfig::parse(&input).unwrap().into_runtime_parts(),
+        Default::default(),
+        instant(12, 0, 0.0),
+    )
+    .unwrap();
+    engine.recompute_desired(instant(12, 0, 0.0)).unwrap();
+    connect_online(&mut engine, 0.1);
+    let constant = DeviceId::new("color-light").unwrap();
+    let target = engine.target(&constant).unwrap();
+    engine
+        .reconciler_mut()
+        .observe(
+            &constant,
+            DeviceTarget {
+                on: Some(target.on),
+                brightness: target.brightness,
+                color_temperature: target.color_temperature,
+                color: target.color,
+                transition_ms: None,
+            },
+            MonotonicTime::from_seconds(0.2).unwrap(),
+        )
+        .unwrap();
+
+    let actions = engine.recompute_sparse(instant(12, 30, 300.0)).unwrap().0;
+    let constant_token = actions
+        .iter()
+        .find_map(|action| match action {
+            ReconcileAction::Command {
+                token,
+                entity: CommandEntity::Device(device),
+                ..
+            } if device == &constant => Some(*token),
+            _ => None,
+        })
+        .expect("aligned refresh commands the constant device");
+
+    assert!(
+        engine
+            .reconciler_mut()
+            .is_dispatch_token_valid(constant_token)
+    );
 }
 
 #[test]

@@ -618,7 +618,8 @@ impl HouseEngine {
         let mut actions = if refresh_due.is_empty() {
             Vec::new()
         } else {
-            self.reconciler.force_reconcile(now.monotonic)?
+            self.reconciler
+                .force_reconcile_devices(&refresh_due, now.monotonic)?
         };
         let mut grouped_members = BTreeSet::new();
         for group in &self.groups {
@@ -2014,6 +2015,19 @@ mod tests {
             .reconciler
             .broker_connected(sample(0.1).runtime.monotonic)
             .unwrap();
+        for device in ["reading-light", "color-light"] {
+            actions.extend(
+                actor
+                    .engine
+                    .reconciler
+                    .set_device_availability(
+                        &DeviceId::new(device).unwrap(),
+                        Availability::Online,
+                        sample(0.1).runtime.monotonic,
+                    )
+                    .unwrap(),
+            );
+        }
         actions.extend(
             actor
                 .engine

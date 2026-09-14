@@ -288,6 +288,11 @@ fn parsed_group_without_mired_uses_group_power_and_brightness_with_device_cct_fa
     let mut reconciler = Reconciler::new(definitions, groups, parts.retry_policy).unwrap();
     let at = |seconds| MonotonicTime::from_seconds(seconds).unwrap();
     reconciler.broker_connected(at(0.0)).unwrap();
+    for device in &parts.devices {
+        reconciler
+            .set_device_availability(&device.id, Availability::Online, at(0.0))
+            .unwrap();
+    }
     reconciler
         .set_bridge_availability(Availability::Online, at(0.0))
         .unwrap();
@@ -686,6 +691,13 @@ fn validated_device_cct_endpoints_round_trip_through_real_adapter_contract() {
         let mut reconciler = Reconciler::new(definitions, groups, parts.retry_policy).unwrap();
         let at = |seconds| MonotonicTime::from_seconds(seconds).unwrap();
         reconciler.broker_connected(at(0.0)).unwrap();
+        reconciler
+            .set_device_availability(
+                &DeviceId::new("reading-light").unwrap(),
+                Availability::Online,
+                at(0.0),
+            )
+            .unwrap();
         reconciler
             .set_bridge_availability(Availability::Online, at(0.0))
             .unwrap();

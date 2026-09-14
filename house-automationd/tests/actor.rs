@@ -368,10 +368,22 @@ fn retained_response(topic: &str) -> OwnedInboundMessage {
 }
 
 async fn connect_online(actor: &mut TestActor) {
+    connect_online_with_devices(actor, &["reading-light", "color-light"]).await;
+}
+
+async fn connect_online_with_devices(actor: &mut TestActor, devices: &[&str]) {
     actor
         .handle_transport_event(TransportEvent::Connected)
         .await
         .unwrap();
+    for device in devices {
+        actor
+            .handle_transport_event(TransportEvent::Publish(retained_response(&format!(
+                "zigbee2mqtt/demo/living-room/{device}/availability"
+            ))))
+            .await
+            .unwrap();
+    }
     actor
         .handle_transport_event(TransportEvent::Publish(retained_response(
             "zigbee2mqtt/bridge/state",
@@ -533,7 +545,7 @@ async fn health_does_not_report_a_batch_whose_only_publication_failed() {
     let controls = input.find("[[controls]]").expect("example has controls");
     let one_device = format!("{}{}", &input[..second_device], &input[controls..]);
     let (mut actor, _, clock, health, _, publish_control) = actor_from_config(&one_device);
-    connect_online(&mut actor).await;
+    connect_online_with_devices(&mut actor, &["reading-light"]).await;
     let before = serde_json::to_value(health.snapshot()).unwrap()
         ["last_successful_reconciliation_unix_seconds"]
         .clone();
@@ -563,7 +575,7 @@ async fn health_records_a_split_transition_only_after_its_delayed_operation_is_a
     let controls = input.find("[[controls]]").expect("example has controls");
     let one_device = format!("{}{}", &input[..second_device], &input[controls..]);
     let (mut actor, _, clock, health, _, _) = actor_from_config(&one_device);
-    connect_online(&mut actor).await;
+    connect_online_with_devices(&mut actor, &["reading-light"]).await;
     *clock.lock().unwrap() = sample_at(13, 12, 0, 1, 0.5);
     actor.tick().await.unwrap();
 
@@ -1025,6 +1037,14 @@ async fn reconnect_publishes_only_current_desired_state_after_an_enqueued_comman
         .await
         .unwrap();
     assert!(!calls.lock().unwrap().iter().any(is_set));
+    for device in ["reading-light", "color-light"] {
+        actor
+            .handle_transport_event(TransportEvent::Publish(retained_response(&format!(
+                "zigbee2mqtt/demo/living-room/{device}/availability"
+            ))))
+            .await
+            .unwrap();
+    }
     actor
         .handle_transport_event(TransportEvent::Publish(retained_response(
             "zigbee2mqtt/bridge/state",

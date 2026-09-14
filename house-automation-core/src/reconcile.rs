@@ -729,6 +729,10 @@ impl Reconciler {
         self.transact(now, |next, _| {
             next.transport = TransportStatus::Disconnected;
             next.bridge = Availability::Unknown;
+            for state in next.devices.values_mut() {
+                state.availability = Availability::Unknown;
+                state.pending = None;
+            }
             next.staged_dispatches.clear();
             next.deferred_dispatches.clear();
             Ok(Vec::new())
@@ -757,17 +761,21 @@ impl Reconciler {
         })
     }
 
-    /// Reissues current desired state without changing transport lifecycle.
-    /// Used by the daemon's bounded maximum-refresh schedule.
-    pub fn force_reconcile(
+    /// Reissues desired state only for devices whose bounded refresh is due.
+    pub fn force_reconcile_devices(
         &mut self,
+        devices: &BTreeSet<DeviceId>,
         now: MonotonicTime,
     ) -> Result<Vec<ReconcileAction>, ReconcileError> {
         self.transact(now, |next, now| {
             if !next.can_publish() {
                 return Ok(Vec::new());
             }
-            next.reconcile_all(now)
+            let mut actions = Vec::new();
+            for id in devices {
+                actions.extend(next.command_device(id, 1, now)?);
+            }
+            Ok(actions)
         })
     }
 
@@ -779,7 +787,11 @@ impl Reconciler {
         self.transact(now, |next, now| {
             let previous = next.bridge;
             next.bridge = availability;
-            if availability == Availability::Offline {
+            if availability != Availability::Online {
+                for state in next.devices.values_mut() {
+                    state.availability = Availability::Unknown;
+                    state.pending = None;
+                }
                 next.staged_dispatches.clear();
                 next.deferred_dispatches.clear();
             }
@@ -805,19 +817,19 @@ impl Reconciler {
                     .ok_or_else(|| ReconcileError::UnknownDevice(id.clone()))?;
                 let previous = state.availability;
                 state.availability = availability;
-                if availability == Availability::Offline {
+                if availability != Availability::Online {
                     state.pending = None;
                 }
                 previous
             };
-            let canceled = if availability == Availability::Offline {
+            let canceled = if availability != Availability::Online {
                 next.cancel_work_for_device(id)
             } else {
                 BTreeSet::new()
             };
             let mut actions =
                 next.stage_current_devices(canceled.into_iter().map(|id| (id, 1)).collect(), now)?;
-            if previous == Availability::Offline && availability != Availability::Offline {
+            if previous != Availability::Online && availability == Availability::Online {
                 actions.extend(next.command_device(id, 1, now)?);
             }
             Ok(actions)
@@ -1199,7 +1211,7 @@ impl Reconciler {
                 .devices
                 .get(&id)
                 .expect("due command came from configured device");
-            if state.availability == Availability::Offline
+            if state.availability != Availability::Online
                 || pending.attempts >= self.retry_policy.max_attempts
                 || scheduled_devices.contains(&id)
             {
@@ -1289,7 +1301,7 @@ impl Reconciler {
             .devices
             .get(id)
             .ok_or_else(|| ReconcileError::UnknownDevice(id.clone()))?;
-        if state.availability == Availability::Offline {
+        if state.availability != Availability::Online {
             return Ok(Vec::new());
         }
         let Some(desired) = state.desired else {
@@ -1329,7 +1341,7 @@ impl Reconciler {
             let Some(desired) = state.desired else {
                 continue;
             };
-            if state.availability == Availability::Offline
+            if state.availability != Availability::Online
                 || targets_in_sync(state.desired, state.observed, state.color_policy)
                 || target_is_empty(desired)
             {
@@ -1447,7 +1459,7 @@ impl Reconciler {
             .filter(|member| {
                 self.devices
                     .get(*member)
-                    .is_some_and(|state| state.availability != Availability::Offline)
+                    .is_some_and(|state| state.availability == Availability::Online)
             })
             .cloned()
             .collect();
@@ -1456,7 +1468,7 @@ impl Reconciler {
         }
 
         let group_has_fields = !target_is_empty(group_target);
-        let group_sent = send_group && group_has_fields;
+        let group_sent = send_group && group_has_fields && active.len() == members.len();
         let mut commands = Vec::new();
         let mut affected = BTreeMap::new();
         if group_sent {
@@ -1469,7 +1481,7 @@ impl Reconciler {
                 .get(&member)
                 .and_then(|state| state.desired)
                 .expect("group desired state records every member target");
-            let fallback = if group_has_fields {
+            let fallback = if group_sent {
                 target_difference(desired, group_target)
             } else {
                 desired
@@ -1924,6 +1936,14 @@ mod tests {
         seconds: f64,
     ) -> Vec<ReconcileAction> {
         let mut actions = reconciler.broker_connected(at(seconds)).unwrap();
+        let devices: Vec<_> = reconciler.devices.keys().cloned().collect();
+        for device in devices {
+            actions.extend(
+                reconciler
+                    .set_device_availability(&device, Availability::Online, at(seconds))
+                    .unwrap(),
+            );
+        }
         actions.extend(
             reconciler
                 .set_bridge_availability(Availability::Online, at(seconds))
@@ -2095,7 +2115,7 @@ mod tests {
     }
 
     #[test]
-    fn disabling_availability_after_offline_reconciles_as_unknown() {
+    fn unknown_availability_remains_suppressed_until_online_is_confirmed() {
         let lamp = id("lamp");
         let mut reconciler =
             connected_reconciler(vec![DeviceDefinition::new(lamp.clone(), capabilities())]);
@@ -2106,9 +2126,15 @@ mod tests {
             .set_device_desired(&lamp, target(0.3), at(1.1))
             .unwrap();
 
-        assert_eq!(
+        assert!(
             reconciler
                 .set_device_availability(&lamp, Availability::Unknown, at(1.2))
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            reconciler
+                .set_device_availability(&lamp, Availability::Online, at(1.3))
                 .unwrap(),
             vec![ReconcileAction::Command {
                 token: DispatchToken(1),
@@ -2119,21 +2145,50 @@ mod tests {
     }
 
     #[test]
-    fn unknown_availability_does_not_block_commands() {
+    fn unknown_availability_blocks_commands() {
         let lamp = id("lamp");
-        let mut reconciler =
-            connected_reconciler(vec![DeviceDefinition::new(lamp.clone(), capabilities())]);
+        let mut reconciler = Reconciler::new(
+            vec![DeviceDefinition::new(lamp.clone(), capabilities())],
+            Vec::new(),
+            retry_policy(),
+        )
+        .unwrap();
+        reconciler.broker_connected(at(0.0)).unwrap();
+        reconciler
+            .set_bridge_availability(Availability::Online, at(0.1))
+            .unwrap();
         assert_eq!(
             reconciler.device_state(&lamp).unwrap().availability(),
             Availability::Unknown
         );
-        assert_eq!(
+        assert!(
             reconciler
                 .set_device_desired(&lamp, target(0.4), at(1.0))
                 .unwrap()
-                .len(),
-            1
+                .is_empty()
         );
+    }
+
+    #[test]
+    fn unknown_availability_invalidates_already_staged_commands() {
+        let lamp = id("lamp");
+        let mut reconciler =
+            connected_reconciler(vec![DeviceDefinition::new(lamp.clone(), capabilities())]);
+        let actions = reconciler
+            .set_device_desired(&lamp, target(0.4), at(1.0))
+            .unwrap();
+        let ReconcileAction::Command { token, .. } = actions[0] else {
+            unreachable!()
+        };
+
+        reconciler
+            .set_device_availability(&lamp, Availability::Unknown, at(1.1))
+            .unwrap();
+
+        assert!(matches!(
+            reconciler.claim_next_operation(token, 0).unwrap(),
+            DispatchClaim::Stale
+        ));
     }
 
     #[test]
@@ -2264,6 +2319,43 @@ mod tests {
     }
 
     #[test]
+    fn group_command_waits_until_every_member_is_confirmed_online() {
+        let left = id("left");
+        let right = id("right");
+        let group = entity("group");
+        let mut reconciler = Reconciler::new(
+            vec![
+                DeviceDefinition::new(left.clone(), capabilities()),
+                DeviceDefinition::new(right, capabilities()),
+            ],
+            vec![
+                GroupDefinition::new(group, vec![left.clone(), id("right")], capabilities())
+                    .unwrap(),
+            ],
+            retry_policy(),
+        )
+        .unwrap();
+        reconciler.broker_connected(at(0.0)).unwrap();
+        reconciler
+            .set_device_availability(&left, Availability::Online, at(0.1))
+            .unwrap();
+        reconciler
+            .set_bridge_availability(Availability::Online, at(0.2))
+            .unwrap();
+
+        assert_eq!(
+            reconciler
+                .set_group_desired(&entity("group"), target(0.7), at(0.3))
+                .unwrap(),
+            vec![ReconcileAction::Command {
+                token: DispatchToken(1),
+                entity: CommandEntity::Device(left),
+                target: device_target(0.7),
+            }]
+        );
+    }
+
+    #[test]
     fn broker_reconnect_resubscribes_requests_state_and_forces_deterministic_reconcile() {
         let lamp_b = id("lamp_b");
         let lamp_a = id("lamp_a");
@@ -2288,6 +2380,12 @@ mod tests {
                 ReconcileAction::RequestState(lamp_b.clone()),
             ]
         );
+        reconciler
+            .set_device_availability(&lamp_b, Availability::Online, at(3.1))
+            .unwrap();
+        reconciler
+            .set_device_availability(&lamp_a, Availability::Online, at(3.1))
+            .unwrap();
         assert_eq!(
             reconciler
                 .set_bridge_availability(Availability::Online, at(3.1))
@@ -2317,7 +2415,9 @@ mod tests {
                 DeviceDefinition::new(grouped.clone(), capabilities()),
                 DeviceDefinition::new(ungrouped.clone(), capabilities()),
             ],
-            vec![GroupDefinition::new(group.clone(), vec![grouped], capabilities()).unwrap()],
+            vec![
+                GroupDefinition::new(group.clone(), vec![grouped.clone()], capabilities()).unwrap(),
+            ],
             retry_policy(),
         )
         .unwrap();
@@ -2343,6 +2443,12 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+        reconciler
+            .set_device_availability(&grouped, Availability::Online, at(1.5))
+            .unwrap();
+        reconciler
+            .set_device_availability(&ungrouped, Availability::Online, at(1.5))
+            .unwrap();
 
         assert_eq!(
             reconciler
@@ -2392,9 +2498,15 @@ mod tests {
                 .is_empty()
         );
 
-        assert_eq!(
+        assert!(
             reconciler
                 .set_bridge_availability(Availability::Online, at(0.2))
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            reconciler
+                .set_device_availability(&lamp, Availability::Online, at(0.3))
                 .unwrap(),
             vec![ReconcileAction::Command {
                 token: DispatchToken(1),
@@ -2405,7 +2517,66 @@ mod tests {
     }
 
     #[test]
-    fn initial_bridge_online_report_does_not_duplicate_unknown_allowed_command() {
+    fn retained_bridge_online_cannot_race_a_retained_device_offline_report() {
+        let lamp = id("lamp");
+        let mut reconciler = Reconciler::new(
+            vec![DeviceDefinition::new(lamp.clone(), capabilities())],
+            Vec::new(),
+            retry_policy(),
+        )
+        .unwrap();
+        reconciler
+            .set_device_desired(&lamp, target(0.5), at(0.0))
+            .unwrap();
+        reconciler.broker_connected(at(0.1)).unwrap();
+
+        assert!(
+            reconciler
+                .set_bridge_availability(Availability::Online, at(0.2))
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            reconciler
+                .set_device_availability(&lamp, Availability::Offline, at(0.3))
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn bridge_restart_requires_fresh_device_availability_before_reconcile() {
+        let lamp = id("lamp");
+        let mut reconciler =
+            connected_reconciler(vec![DeviceDefinition::new(lamp.clone(), capabilities())]);
+        reconciler
+            .set_device_desired(&lamp, target(0.5), at(1.0))
+            .unwrap();
+
+        reconciler
+            .set_bridge_availability(Availability::Offline, at(1.1))
+            .unwrap();
+        assert_eq!(
+            reconciler.device_state(&lamp).unwrap().availability(),
+            Availability::Unknown
+        );
+        assert!(
+            reconciler
+                .set_bridge_availability(Availability::Online, at(1.2))
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            reconciler
+                .set_device_availability(&lamp, Availability::Online, at(1.3))
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn repeated_bridge_online_report_does_not_duplicate_command() {
         let lamp = id("lamp");
         let mut reconciler =
             connected_reconciler(vec![DeviceDefinition::new(lamp.clone(), capabilities())]);
@@ -2422,6 +2593,33 @@ mod tests {
                 .set_bridge_availability(Availability::Online, at(1.1))
                 .unwrap()
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn bounded_refresh_only_reissues_requested_devices() {
+        let left = id("left");
+        let right = id("right");
+        let mut reconciler = connected_reconciler(vec![
+            DeviceDefinition::new(left.clone(), capabilities()),
+            DeviceDefinition::new(right.clone(), capabilities()),
+        ]);
+        reconciler
+            .set_device_desired(&left, target(0.4), at(1.0))
+            .unwrap();
+        reconciler
+            .set_device_desired(&right, target(0.6), at(1.1))
+            .unwrap();
+
+        assert_eq!(
+            reconciler
+                .force_reconcile_devices(&BTreeSet::from([right.clone()]), at(2.0))
+                .unwrap(),
+            vec![ReconcileAction::Command {
+                token: DispatchToken(3),
+                entity: CommandEntity::Device(right),
+                target: device_target(0.6),
+            }]
         );
     }
 
@@ -2630,7 +2828,8 @@ mod tests {
                 .any(|action| matches!(action, ReconcileAction::Command { .. }))
         );
         let recovered_bridge = reconciler
-            .set_bridge_availability(Availability::Online, at(5.0))
+            .set_device_availability(&lamp, Availability::Online, at(5.0))
+            .and_then(|_| reconciler.set_bridge_availability(Availability::Online, at(5.0)))
             .unwrap();
         assert!(
             recovered_bridge
@@ -2688,6 +2887,9 @@ mod tests {
         let initial = reconciler.broker_connected(at(0.0)).unwrap();
         assert!(initial.contains(&ReconcileAction::Resubscribe));
         reconciler
+            .set_device_availability(&lamp, Availability::Online, at(0.1))
+            .unwrap();
+        reconciler
             .set_bridge_availability(Availability::Online, at(0.1))
             .unwrap();
         let staged = reconciler
@@ -2716,6 +2918,12 @@ mod tests {
         assert!(
             reconciler
                 .set_bridge_availability(Availability::Online, at(1.4))
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            reconciler
+                .set_device_availability(&lamp, Availability::Online, at(1.5))
                 .unwrap()
                 .iter()
                 .any(|action| matches!(action, ReconcileAction::Command { .. }))
@@ -3190,6 +3398,12 @@ mod tests {
         assert!(
             reconciler
                 .set_bridge_availability(Availability::Online, at(1.4))
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            reconciler
+                .set_device_availability(&lamp, Availability::Online, at(1.5))
                 .unwrap()
                 .iter()
                 .any(|action| matches!(action, ReconcileAction::Command { .. }))

@@ -1146,6 +1146,13 @@ mod tests {
             .broker_connected(MonotonicTime::from_seconds(0.0).unwrap())
             .unwrap();
         reconciler
+            .set_device_availability(
+                &lamp,
+                Availability::Online,
+                MonotonicTime::from_seconds(0.0).unwrap(),
+            )
+            .unwrap();
+        reconciler
             .set_bridge_availability(
                 Availability::Online,
                 MonotonicTime::from_seconds(0.0).unwrap(),
@@ -1185,6 +1192,15 @@ mod tests {
         reconciler
             .broker_connected(MonotonicTime::from_seconds(0.0).unwrap())
             .unwrap();
+        for device in [&first, &second] {
+            reconciler
+                .set_device_availability(
+                    device,
+                    Availability::Online,
+                    MonotonicTime::from_seconds(0.0).unwrap(),
+                )
+                .unwrap();
+        }
         reconciler
             .set_bridge_availability(
                 Availability::Online,
@@ -2024,6 +2040,13 @@ mod tests {
             .broker_connected(MonotonicTime::from_seconds(0.0).unwrap())
             .unwrap();
         reconciler
+            .set_device_availability(
+                &lamp,
+                Availability::Online,
+                MonotonicTime::from_seconds(0.0).unwrap(),
+            )
+            .unwrap();
+        reconciler
             .set_bridge_availability(
                 Availability::Online,
                 MonotonicTime::from_seconds(0.0).unwrap(),
@@ -2167,6 +2190,13 @@ mod tests {
         .unwrap();
         reconciler
             .broker_connected(MonotonicTime::from_seconds(0.0).unwrap())
+            .unwrap();
+        reconciler
+            .set_device_availability(
+                &lamp,
+                Availability::Online,
+                MonotonicTime::from_seconds(0.0).unwrap(),
+            )
             .unwrap();
         reconciler
             .set_bridge_availability(

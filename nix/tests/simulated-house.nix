@@ -439,12 +439,28 @@ pkgs.testers.runNixOSTest {
     assert_absent(startup_mark, "SET", LAMP_SET, duration=0.5)
     assert_absent(startup_mark, "SET", HALL_SET, duration=0.5)
 
+    # Bridge readiness alone must not race past unknown retained per-device
+    # availability. Confirmed devices may reconcile independently.
+    mqtt_publish(
+        "zigbee2mqtt/sim/living/lamp/availability",
+        "unknown",
+        retain=True,
+        qos=1,
+    )
     mqtt_publish("zigbee2mqtt/bridge/state", "online", retain=True, qos=1)
     server.wait_until_succeeds(
         "curl -fsS http://127.0.0.1:9877/healthz | "
         "jq -e '.ready and .database_migrated and .mqtt_connected and "
         ".zigbee2mqtt_bridge_online and .adapter_available'"
     )
+    assert_absent(startup_mark, "SET", LAMP_SET, duration=0.5)
+    mqtt_publish(
+        "zigbee2mqtt/sim/living/lamp/availability",
+        "online",
+        retain=True,
+        qos=1,
+    )
+    wait_for(startup_mark, "SET", LAMP_SET)
     wait_for(0, "GET", "zigbee2mqtt/sim/living/lamp/get")
     wait_for(0, "GET", "zigbee2mqtt/sim/hall/switch/get")
     server.succeed(
