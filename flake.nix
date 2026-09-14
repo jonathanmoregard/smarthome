@@ -76,6 +76,10 @@
           inherit pkgs package;
           module = self.nixosModules.default;
         };
+        simulated-house = import ./nix/tests/simulated-house.nix {
+          inherit pkgs package;
+          module = self.nixosModules.default;
+        };
       };
     };
 }
