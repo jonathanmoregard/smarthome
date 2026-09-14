@@ -1,0 +1,41 @@
+[
+  {
+    "name": "color-temperature active",
+    "payload": {
+      "color_mode": "color_temp",
+      "color_temp": 370,
+      "color": { "x": 0.31, "y": 0.33 }
+    }
+  },
+  {
+    "name": "xy active",
+    "payload": {
+      "color_mode": "xy",
+      "color_temp": 370,
+      "color": { "x": 0.31, "y": 0.33 }
+    }
+  },
+  {
+    "name": "hs active",
+    "payload": {
+      "color_mode": "hs",
+      "color_temp": 370,
+      "color": { "hue": 210.0, "saturation": 65.0 }
+    }
+  },
+  {
+    "name": "unknown mode",
+    "payload": {
+      "color_mode": "future_mode",
+      "color_temp": 370,
+      "color": { "x": 0.31, "y": 0.33 }
+    }
+  },
+  {
+    "name": "missing mode",
+    "payload": {
+      "color_temp": 370,
+      "color": { "x": 0.31, "y": 0.33 }
+    }
+  }
+]

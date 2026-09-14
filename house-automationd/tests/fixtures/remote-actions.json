@@ -1,0 +1,16 @@
+[
+  {"action":"toggle"},
+  {"action":"toggle_hold"},
+  {"action":"brightness_up_click"},
+  {"action":"brightness_up_hold"},
+  {"action":"brightness_up_release"},
+  {"action":"brightness_down_click"},
+  {"action":"brightness_down_hold"},
+  {"action":"brightness_down_release"},
+  {"action":"arrow_left_click"},
+  {"action":"arrow_left_hold"},
+  {"action":"arrow_left_release"},
+  {"action":"arrow_right_click"},
+  {"action":"arrow_right_hold"},
+  {"action":"arrow_right_release"}
+]
