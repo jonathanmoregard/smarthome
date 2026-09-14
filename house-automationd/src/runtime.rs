@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     error::Error,
     fmt,
     path::{Path, PathBuf},
@@ -846,6 +846,19 @@ struct DelayedOperation {
     operation: AdapterOperation,
 }
 
+#[derive(Debug, Clone)]
+enum PendingTransportOperation {
+    Adapter(AdapterOperation),
+    Publish {
+        topic: String,
+        payload: Vec<u8>,
+        qos: crate::zigbee2mqtt::Qos,
+        retain: bool,
+    },
+}
+
+const TRANSPORT_RETRY_INTERVAL: Duration = Duration::from_millis(50);
+
 pub struct RuntimeActor<T, C, W> {
     engine: HouseEngine,
     transport: T,
@@ -854,6 +867,7 @@ pub struct RuntimeActor<T, C, W> {
     health: Arc<HealthState>,
     scheduler: Scheduler,
     delayed: Vec<DelayedOperation>,
+    pending_transport: VecDeque<PendingTransportOperation>,
     next_sequence: u64,
     stopping: bool,
 }
@@ -887,6 +901,7 @@ where
             health,
             scheduler,
             delayed: Vec::new(),
+            pending_transport: VecDeque::new(),
             next_sequence: 0,
             stopping: false,
         })
@@ -906,23 +921,26 @@ where
         self.ensure_writer_healthy()?;
         let sample = self.clock.sample();
         self.persist_reset_if_due(sample.runtime).await?;
+        if matches!(&event, TransportEvent::Publish(_)) {
+            self.drain_pending_transport().await?;
+        }
         match event {
             TransportEvent::Connected => {
                 tracing::info!(source = "mqtt", mqtt_reconnect = true, "broker connected");
                 self.health.set_mqtt_connected(false);
+                self.pending_transport.clear();
                 let actions = self
                     .engine
                     .reconciler
                     .broker_connected(sample.runtime.monotonic)?;
                 self.enqueue_actions(actions, sample.runtime).await?;
-                self.transport
-                    .publish(
-                        &status_topic(&self.engine.mqtt.application_namespace),
-                        b"online",
-                        crate::zigbee2mqtt::Qos::AtLeastOnce,
-                        true,
-                    )
-                    .await?;
+                self.enqueue_transport_operation(PendingTransportOperation::Publish {
+                    topic: status_topic(&self.engine.mqtt.application_namespace),
+                    payload: b"online".to_vec(),
+                    qos: crate::zigbee2mqtt::Qos::AtLeastOnce,
+                    retain: true,
+                })
+                .await?;
                 self.health.set_mqtt_connected(true);
             }
             TransportEvent::Disconnected => {
@@ -934,6 +952,7 @@ where
                 self.health.set_mqtt_connected(false);
                 self.health.set_bridge_online(false);
                 self.delayed.clear();
+                self.pending_transport.clear();
                 self.engine
                     .reconciler
                     .broker_disconnected(sample.runtime.monotonic)?;
@@ -1040,6 +1059,7 @@ where
             return Ok(());
         }
         self.ensure_writer_healthy()?;
+        self.drain_pending_transport().await?;
         let mut sample = self.clock.sample();
         let due = self.scheduler.observe(&sample);
 
@@ -1077,7 +1097,8 @@ where
         sample = self.clock.sample();
         let retry = self.engine.reconciler.retry_due(sample.runtime.monotonic)?;
         self.enqueue_actions(retry, sample.runtime).await?;
-        self.execute_due(self.clock.sample().runtime).await
+        self.execute_due(self.clock.sample().runtime).await?;
+        self.drain_pending_transport().await
     }
 
     async fn drain_engine_actions(&mut self, now: RuntimeInstant) -> Result<(), RuntimeError> {
@@ -1130,7 +1151,8 @@ where
                 .map(|publication| publication.not_before_ms())
                 .unwrap_or_default();
             if delay_ms == 0 {
-                self.execute_operation(operation).await?;
+                self.enqueue_transport_operation(PendingTransportOperation::Adapter(operation))
+                    .await?;
             } else {
                 let due_seconds = now.monotonic.as_seconds() + delay_ms as f64 / 1000.0;
                 if !due_seconds.is_finite() {
@@ -1165,21 +1187,57 @@ where
             .partition_point(|operation| operation.due_seconds <= now.monotonic.as_seconds());
         let due: Vec<_> = self.delayed.drain(..due_count).collect();
         for operation in due {
-            self.execute_operation(operation.operation).await?;
+            self.enqueue_transport_operation(PendingTransportOperation::Adapter(
+                operation.operation,
+            ))
+            .await?;
         }
         Ok(())
     }
 
-    async fn execute_operation(&mut self, operation: AdapterOperation) -> Result<(), RuntimeError> {
-        match operation {
-            AdapterOperation::Subscribe(subscription) => self
-                .transport
-                .subscribe(subscription.topic(), subscription.qos())
-                .await
-                .map_err(RuntimeError::from),
-            AdapterOperation::Publish(publication) => {
+    async fn enqueue_transport_operation(
+        &mut self,
+        operation: PendingTransportOperation,
+    ) -> Result<(), RuntimeError> {
+        if !self.pending_transport.is_empty() {
+            self.pending_transport.push_back(operation);
+            return Ok(());
+        }
+        if let Some(retry) = self.attempt_transport_operation(operation).await? {
+            self.pending_transport.push_back(retry);
+        }
+        Ok(())
+    }
+
+    async fn drain_pending_transport(&mut self) -> Result<(), RuntimeError> {
+        while let Some(operation) = self.pending_transport.pop_front() {
+            if let Some(retry) = self.attempt_transport_operation(operation).await? {
+                self.pending_transport.push_front(retry);
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    async fn attempt_transport_operation(
+        &mut self,
+        operation: PendingTransportOperation,
+    ) -> Result<Option<PendingTransportOperation>, RuntimeError> {
+        match &operation {
+            PendingTransportOperation::Adapter(AdapterOperation::Subscribe(subscription)) => {
+                match self
+                    .transport
+                    .subscribe(subscription.topic(), subscription.qos())
+                    .await
+                {
+                    Ok(()) => Ok(None),
+                    Err(error) if error.is_transient() => Ok(Some(operation)),
+                    Err(error) => Err(error.into()),
+                }
+            }
+            PendingTransportOperation::Adapter(AdapterOperation::Publish(publication)) => {
                 let Some(token) = publication.dispatch_token() else {
-                    return self
+                    return match self
                         .transport
                         .publish(
                             publication.topic(),
@@ -1188,7 +1246,11 @@ where
                             publication.retain(),
                         )
                         .await
-                        .map_err(RuntimeError::from);
+                    {
+                        Ok(()) => Ok(None),
+                        Err(error) if error.is_transient() => Ok(Some(operation)),
+                        Err(error) => Err(error.into()),
+                    };
                 };
                 let index =
                     publication
@@ -1198,7 +1260,7 @@ where
                         ))?;
                 let claim = self.engine.reconciler.claim_next_operation(token, index)?;
                 let DispatchClaim::Ready(permit) = claim else {
-                    return Ok(());
+                    return Ok(None);
                 };
                 let enqueue = tokio::time::timeout(
                     Duration::from_secs_f64(
@@ -1222,14 +1284,24 @@ where
                             self.health
                                 .record_reconciliation(outcome_sample.unix_seconds);
                         }
-                        Ok(())
+                        Ok(None)
                     }
                     Ok(Err(_)) | Err(_) => {
                         permit.transient_failure(outcome_sample.runtime.monotonic)?;
-                        Ok(())
+                        Ok(None)
                     }
                 }
             }
+            PendingTransportOperation::Publish {
+                topic,
+                payload,
+                qos,
+                retain,
+            } => match self.transport.publish(topic, payload, *qos, *retain).await {
+                Ok(()) => Ok(None),
+                Err(error) if error.is_transient() => Ok(Some(operation)),
+                Err(error) => Err(error.into()),
+            },
         }
     }
 
@@ -1254,10 +1326,13 @@ where
             .scheduler
             .next_wall_event_delay(&sample, self.engine.circadian.daily_reset_time)
             .as_secs_f64();
+        let transport_retry =
+            (!self.pending_transport.is_empty()).then_some(TRANSPORT_RETRY_INTERVAL.as_secs_f64());
         Duration::from_secs_f64(
             transient
                 .into_iter()
                 .chain(delayed)
+                .chain(transport_retry)
                 .chain([scheduler, wall])
                 .min_by(f64::total_cmp)
                 .unwrap_or(1.0),

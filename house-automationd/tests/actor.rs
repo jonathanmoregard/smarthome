@@ -1,6 +1,10 @@
-use std::sync::{
-    Arc, Mutex,
-    atomic::{AtomicUsize, Ordering},
+use std::{
+    collections::BTreeSet,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::Duration,
 };
 
 use async_trait::async_trait;
@@ -41,6 +45,21 @@ struct PublishControl {
 
 struct FailingTransport;
 
+struct PressureTransport {
+    requests: tokio::sync::mpsc::Sender<Call>,
+    events: tokio::sync::mpsc::Receiver<TransportEvent>,
+    event_gate: tokio::sync::watch::Receiver<bool>,
+    connected_received: bool,
+    retained_received: Arc<AtomicUsize>,
+}
+
+#[derive(Default)]
+struct PressureProgress {
+    accepted: Mutex<Vec<Call>>,
+    retained_sent: AtomicUsize,
+    maximum_inbound_buffered: AtomicUsize,
+}
+
 #[async_trait]
 impl MqttTransport for FailingTransport {
     async fn next_event(&mut self) -> Result<TransportEvent, MqttError> {
@@ -59,6 +78,57 @@ impl MqttTransport for FailingTransport {
         _retain: bool,
     ) -> Result<(), MqttError> {
         Ok(())
+    }
+
+    async fn shutdown(&mut self, _status_topic: &str) -> Result<(), MqttError> {
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl MqttTransport for PressureTransport {
+    async fn next_event(&mut self) -> Result<TransportEvent, MqttError> {
+        if self.connected_received {
+            while !*self.event_gate.borrow() {
+                self.event_gate
+                    .changed()
+                    .await
+                    .map_err(|_| MqttError::fatal("simulated event gate stopped"))?;
+            }
+        }
+        let event = self
+            .events
+            .recv()
+            .await
+            .ok_or_else(|| MqttError::fatal("simulated event driver stopped"))?;
+        self.connected_received = true;
+        if matches!(event, TransportEvent::Publish(_)) {
+            self.retained_received.fetch_add(1, Ordering::SeqCst);
+        }
+        Ok(event)
+    }
+
+    async fn subscribe(&mut self, topic: &str, qos: Qos) -> Result<(), MqttError> {
+        self.requests
+            .try_send(Call::Subscribe(topic.to_owned(), qos))
+            .map_err(|_| MqttError::transport("simulated outbound queue is full"))
+    }
+
+    async fn publish(
+        &mut self,
+        topic: &str,
+        payload: &[u8],
+        qos: Qos,
+        retain: bool,
+    ) -> Result<(), MqttError> {
+        self.requests
+            .try_send(Call::Publish(
+                topic.to_owned(),
+                payload.to_vec(),
+                qos,
+                retain,
+            ))
+            .map_err(|_| MqttError::transport("simulated outbound queue is full"))
     }
 
     async fn shutdown(&mut self, _status_topic: &str) -> Result<(), MqttError> {
@@ -247,6 +317,54 @@ fn actor_from_config(input: &str) -> ActorHarness {
     (actor, calls, clock_value, health, saves, publish_control)
 }
 
+fn pressure_config(device_count: usize) -> (String, BTreeSet<String>, BTreeSet<String>) {
+    let input = include_str!("../../examples/house.toml");
+    let insertion = input.find("[[groups]]").expect("example has groups");
+    let mut devices = String::new();
+    let mut subscriptions = BTreeSet::from([
+        "zigbee2mqtt/bridge/state".to_owned(),
+        "zigbee2mqtt/demo/living-room/reading-light".to_owned(),
+        "zigbee2mqtt/demo/living-room/reading-light/availability".to_owned(),
+        "zigbee2mqtt/demo/living-room/color-light".to_owned(),
+        "zigbee2mqtt/demo/living-room/color-light/availability".to_owned(),
+        "zigbee2mqtt/demo/living-room/remote".to_owned(),
+    ]);
+    let mut reads = BTreeSet::from([
+        "zigbee2mqtt/demo/living-room/reading-light/get".to_owned(),
+        "zigbee2mqtt/demo/living-room/color-light/get".to_owned(),
+    ]);
+    for index in 0..device_count {
+        let id = format!("pressure-{index:03}");
+        let friendly_name = format!("pressure/device-{index:03}");
+        devices.push_str(&format!(
+            "[[devices]]\nid = \"{id}\"\nfriendly_name = \"{friendly_name}\"\nroom = \"living-room\"\ncapabilities = {{ on_off = true }}\n\n"
+        ));
+        subscriptions.insert(format!("zigbee2mqtt/{friendly_name}"));
+        subscriptions.insert(format!("zigbee2mqtt/{friendly_name}/availability"));
+        reads.insert(format!("zigbee2mqtt/{friendly_name}/get"));
+    }
+    (
+        format!("{}{}{}", &input[..insertion], devices, &input[insertion..]),
+        subscriptions,
+        reads,
+    )
+}
+
+fn retained_response(topic: &str) -> OwnedInboundMessage {
+    let payload = if topic.ends_with("bridge/state") || topic.ends_with("/availability") {
+        b"online".to_vec()
+    } else {
+        br#"{"state":"OFF"}"#.to_vec()
+    };
+    OwnedInboundMessage {
+        topic: topic.to_owned(),
+        payload,
+        retain: true,
+        duplicate: false,
+        qos: Qos::AtLeastOnce,
+    }
+}
+
 #[tokio::test]
 async fn connack_enqueues_subscriptions_reads_commands_then_retained_online_status() {
     let (mut actor, calls, _, health, _, _) = actor();
@@ -271,6 +389,123 @@ async fn connack_enqueues_subscriptions_reads_commands_then_retained_online_stat
             .all(|retain| !retain)
     );
     assert_eq!(health.snapshot().status_code(), 503);
+}
+
+#[tokio::test(start_paused = true)]
+async fn mixed_reconnect_plan_drains_retained_pressure_and_eventually_enqueues_every_operation() {
+    const EXTRA_DEVICES: usize = 140;
+    const OUTBOUND_CAPACITY: usize = 32;
+    const INBOUND_CAPACITY: usize = 128;
+
+    let (config, expected_subscriptions, expected_reads) = pressure_config(EXTRA_DEVICES);
+    assert!(expected_subscriptions.len() > INBOUND_CAPACITY);
+    assert!(expected_reads.len() > OUTBOUND_CAPACITY);
+    let parts = ValidatedConfig::parse(&config)
+        .unwrap()
+        .into_runtime_parts();
+    let clock_value = Arc::new(Mutex::new(sample(0.0)));
+    let clock = FakeClock(clock_value.clone());
+    let engine = HouseEngine::initialize(parts, Default::default(), sample(0.0).runtime).unwrap();
+    let health = Arc::new(HealthState::new());
+    health.set_database_migrated(true);
+
+    let (request_sender, mut request_receiver) =
+        tokio::sync::mpsc::channel::<Call>(OUTBOUND_CAPACITY);
+    let (event_sender, event_receiver) = tokio::sync::mpsc::channel(INBOUND_CAPACITY);
+    event_sender.send(TransportEvent::Connected).await.unwrap();
+    let (event_gate_sender, event_gate) = tokio::sync::watch::channel(false);
+    let retained_received = Arc::new(AtomicUsize::new(0));
+    let progress = Arc::new(PressureProgress::default());
+    let driver_progress = progress.clone();
+    let driver = tokio::spawn(async move {
+        while let Some(call) = request_receiver.recv().await {
+            driver_progress.accepted.lock().unwrap().push(call.clone());
+            if let Call::Subscribe(topic, _) = call {
+                event_sender
+                    .send(TransportEvent::Publish(retained_response(&topic)))
+                    .await
+                    .unwrap();
+                driver_progress.retained_sent.fetch_add(1, Ordering::SeqCst);
+                let buffered = INBOUND_CAPACITY - event_sender.capacity();
+                driver_progress
+                    .maximum_inbound_buffered
+                    .fetch_max(buffered, Ordering::SeqCst);
+                if buffered == INBOUND_CAPACITY {
+                    let _ = event_gate_sender.send(true);
+                }
+            }
+        }
+    });
+    let transport = PressureTransport {
+        requests: request_sender,
+        events: event_receiver,
+        event_gate,
+        connected_received: false,
+        retained_received: retained_received.clone(),
+    };
+    let mut actor = RuntimeActor::new(
+        engine,
+        transport,
+        clock,
+        MemoryWriter::default(),
+        health.clone(),
+    )
+    .unwrap();
+    let completion_progress = progress.clone();
+    let completion_received = retained_received.clone();
+    let completion = async move {
+        loop {
+            let (subscriptions, reads, online) = {
+                let accepted = completion_progress.accepted.lock().unwrap();
+                let subscriptions = accepted
+                    .iter()
+                    .filter_map(|call| match call {
+                        Call::Subscribe(topic, _) => Some(topic.clone()),
+                        _ => None,
+                    })
+                    .collect::<BTreeSet<_>>();
+                let reads = accepted
+                    .iter()
+                    .filter_map(|call| match call {
+                        Call::Publish(topic, _, _, _) if topic.ends_with("/get") => {
+                            Some(topic.clone())
+                        }
+                        _ => None,
+                    })
+                    .collect::<BTreeSet<_>>();
+                let online = accepted.iter().any(|call| {
+                    matches!(call, Call::Publish(topic, payload, _, true) if topic == "house/v1/status" && payload == b"online")
+                });
+                (subscriptions, reads, online)
+            };
+            let sent = completion_progress.retained_sent.load(Ordering::SeqCst);
+            if subscriptions == expected_subscriptions
+                && reads == expected_reads
+                && online
+                && completion_received.load(Ordering::SeqCst) == sent
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    };
+
+    tokio::time::timeout(Duration::from_secs(10), actor.run_until(completion))
+        .await
+        .expect("mixed reconnect plan should make progress")
+        .unwrap();
+
+    assert_eq!(
+        progress.maximum_inbound_buffered.load(Ordering::SeqCst),
+        INBOUND_CAPACITY
+    );
+    assert!(progress.retained_sent.load(Ordering::SeqCst) > INBOUND_CAPACITY);
+    assert_eq!(
+        retained_received.load(Ordering::SeqCst),
+        progress.retained_sent.load(Ordering::SeqCst)
+    );
+    driver.abort();
+    let _ = driver.await;
 }
 
 #[tokio::test]

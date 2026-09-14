@@ -331,8 +331,7 @@ impl MqttTransport for RumqttTransport {
 
     async fn subscribe(&mut self, topic: &str, qos: Qos) -> Result<(), MqttError> {
         self.client
-            .subscribe(topic, to_rumqtt_qos(qos))
-            .await
+            .try_subscribe(topic, to_rumqtt_qos(qos))
             .map_err(|_| MqttError::transport("MQTT subscription enqueue failed"))
     }
 
@@ -791,6 +790,41 @@ mod tests {
                 crate::zigbee2mqtt::Qos::AtLeastOnce,
                 false,
                 false,
+            ),
+        )
+        .await
+        .expect("a full outbound queue must fail without waiting");
+
+        assert!(result.unwrap_err().is_transient());
+    }
+
+    #[tokio::test]
+    async fn subscription_enqueue_never_waits_on_a_driver_blocked_by_inbound_backpressure() {
+        let options = rumqttc::MqttOptions::new("bounded-subscribe-test", "127.0.0.1", 1883);
+        let (client, _event_loop) = rumqttc::AsyncClient::new(options, 1);
+        let (_event_sender, events) = tokio::sync::mpsc::channel(1);
+        let (_failure_sender, failure) = tokio::sync::watch::channel(None);
+        let mut transport = super::RumqttTransport {
+            client,
+            events,
+            failure,
+            delivery: super::DeliveryTracker::default(),
+            driver: None,
+        };
+        super::MqttTransport::subscribe(
+            &mut transport,
+            "zigbee2mqtt/first",
+            crate::zigbee2mqtt::Qos::AtLeastOnce,
+        )
+        .await
+        .unwrap();
+
+        let result = tokio::time::timeout(
+            Duration::from_millis(10),
+            super::MqttTransport::subscribe(
+                &mut transport,
+                "zigbee2mqtt/second",
+                crate::zigbee2mqtt::Qos::AtLeastOnce,
             ),
         )
         .await
