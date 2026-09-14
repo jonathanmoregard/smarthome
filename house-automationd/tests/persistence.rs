@@ -314,9 +314,9 @@ fn open_rejects_unversioned_nonempty_database() {
 #[test]
 fn open_rejects_physical_schema_drift_despite_valid_history() {
     for corruption in [
-        "DROP TABLE control_state",
+        "ALTER TABLE control_state RENAME TO control_state_removed",
         "ALTER TABLE scope_state ADD COLUMN unexpected TEXT",
-        "DROP TABLE metadata; CREATE TABLE metadata(key TEXT, payload_json TEXT NOT NULL)",
+        "ALTER TABLE metadata RENAME COLUMN payload_json TO payload_text",
     ] {
         let directory = TempDir::new().unwrap();
         let path = database_path(&directory);
