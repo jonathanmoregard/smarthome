@@ -846,7 +846,7 @@ struct DelayedOperation {
     operation: AdapterOperation,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum PendingTransportOperation {
     Adapter(AdapterOperation),
     Publish {
@@ -857,7 +857,48 @@ enum PendingTransportOperation {
     },
 }
 
+impl PendingTransportOperation {
+    fn is_same_idempotent_operation(&self, other: &Self) -> bool {
+        match (self, other) {
+            (
+                Self::Adapter(AdapterOperation::Subscribe(left)),
+                Self::Adapter(AdapterOperation::Subscribe(right)),
+            ) => left == right,
+            (
+                Self::Adapter(AdapterOperation::Publish(left)),
+                Self::Adapter(AdapterOperation::Publish(right)),
+            ) => {
+                left.dispatch_token().is_none() && right.dispatch_token().is_none() && left == right
+            }
+            (
+                Self::Publish {
+                    topic: left_topic,
+                    payload: left_payload,
+                    qos: left_qos,
+                    retain: left_retain,
+                },
+                Self::Publish {
+                    topic: right_topic,
+                    payload: right_payload,
+                    qos: right_qos,
+                    retain: right_retain,
+                },
+            ) => {
+                left_topic == right_topic
+                    && left_payload == right_payload
+                    && left_qos == right_qos
+                    && left_retain == right_retain
+            }
+            _ => false,
+        }
+    }
+}
+
 const TRANSPORT_RETRY_INTERVAL: Duration = Duration::from_millis(50);
+// One topology unit can produce a subscription, a state read, and two phased
+// command publications. The second set allows a fresh plan to replace stale
+// work without turning normal reconnect pressure into an allocation failure.
+const TRANSPORT_BACKLOG_OPERATIONS_PER_TOPOLOGY_UNIT: usize = 8;
 
 pub struct RuntimeActor<T, C, W> {
     engine: HouseEngine,
@@ -868,6 +909,7 @@ pub struct RuntimeActor<T, C, W> {
     scheduler: Scheduler,
     delayed: Vec<DelayedOperation>,
     pending_transport: VecDeque<PendingTransportOperation>,
+    transport_backlog_limit: usize,
     next_sequence: u64,
     stopping: bool,
 }
@@ -893,6 +935,21 @@ where
         engine.take_reconcile_actions();
         let scheduler = Scheduler::new(engine.circadian.tick_seconds)
             .map_err(|_| RuntimeError::InvalidTopology("invalid scheduler interval"))?;
+        let topology_units = engine
+            .adapter
+            .subscriptions()
+            .len()
+            .checked_add(engine.devices.len())
+            .and_then(|count| count.checked_add(engine.groups.len()))
+            .and_then(|count| count.checked_add(1))
+            .ok_or(RuntimeError::InvalidTopology(
+                "transport backlog topology overflow",
+            ))?;
+        let transport_backlog_limit = topology_units
+            .checked_mul(TRANSPORT_BACKLOG_OPERATIONS_PER_TOPOLOGY_UNIT)
+            .ok_or(RuntimeError::InvalidTopology(
+                "transport backlog capacity overflow",
+            ))?;
         Ok(Self {
             engine,
             transport,
@@ -902,6 +959,7 @@ where
             scheduler,
             delayed: Vec::new(),
             pending_transport: VecDeque::new(),
+            transport_backlog_limit,
             next_sequence: 0,
             stopping: false,
         })
@@ -926,6 +984,9 @@ where
         }
         match event {
             TransportEvent::Connected => {
+                if !self.transport.activate_connection()? {
+                    return Ok(());
+                }
                 tracing::info!(source = "mqtt", mqtt_reconnect = true, "broker connected");
                 self.health.set_mqtt_connected(false);
                 self.pending_transport.clear();
@@ -1145,6 +1206,7 @@ where
                 metadata.max_offset_ms(),
             )?;
         }
+        self.prune_stale_transport_operations();
         for operation in plan.operations().iter().cloned() {
             let delay_ms = operation
                 .publication()
@@ -1160,6 +1222,7 @@ where
                         "adapter operation deadline overflow",
                     ));
                 }
+                self.ensure_transport_backlog_capacity()?;
                 self.delayed.push(DelayedOperation {
                     due_seconds,
                     sequence: self.next_sequence,
@@ -1174,6 +1237,26 @@ where
             }
         }
         Ok(())
+    }
+
+    fn prune_stale_transport_operations(&mut self) {
+        let reconciler = &self.engine.reconciler;
+        self.pending_transport.retain(|operation| {
+            let PendingTransportOperation::Adapter(operation) = operation else {
+                return true;
+            };
+            operation
+                .publication()
+                .and_then(|publication| publication.dispatch_token())
+                .is_none_or(|token| reconciler.is_dispatch_token_valid(token))
+        });
+        self.delayed.retain(|operation| {
+            operation
+                .operation
+                .publication()
+                .and_then(|publication| publication.dispatch_token())
+                .is_none_or(|token| reconciler.is_dispatch_token_valid(token))
+        });
     }
 
     async fn execute_due(&mut self, now: RuntimeInstant) -> Result<(), RuntimeError> {
@@ -1199,12 +1282,36 @@ where
         &mut self,
         operation: PendingTransportOperation,
     ) -> Result<(), RuntimeError> {
+        self.prune_stale_transport_operations();
+        if self
+            .pending_transport
+            .iter()
+            .any(|pending| pending.is_same_idempotent_operation(&operation))
+        {
+            return Ok(());
+        }
         if !self.pending_transport.is_empty() {
+            self.ensure_transport_backlog_capacity()?;
             self.pending_transport.push_back(operation);
             return Ok(());
         }
         if let Some(retry) = self.attempt_transport_operation(operation).await? {
+            self.ensure_transport_backlog_capacity()?;
             self.pending_transport.push_back(retry);
+        }
+        Ok(())
+    }
+
+    fn ensure_transport_backlog_capacity(&self) -> Result<(), RuntimeError> {
+        if self
+            .pending_transport
+            .len()
+            .saturating_add(self.delayed.len())
+            >= self.transport_backlog_limit
+        {
+            return Err(RuntimeError::InvalidTopology(
+                "MQTT transport backlog capacity exceeded",
+            ));
         }
         Ok(())
     }
@@ -1715,7 +1822,7 @@ impl From<crate::config::ConfigError> for RuntimeError {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
 
     use async_trait::async_trait;
     use chrono::TimeZone;
@@ -1728,7 +1835,7 @@ mod tests {
     use crate::{
         config::ValidatedConfig,
         health::HealthState,
-        mqtt::{MqttError, MqttTransport, TransportEvent},
+        mqtt::{MqttError, MqttTransport, OwnedInboundMessage, TransportEvent},
         scheduler::{Clock, ClockSample},
         zigbee2mqtt::Qos,
     };
@@ -1736,6 +1843,18 @@ mod tests {
     use super::{DurableStateWriter, HouseEngine, RuntimeActor, RuntimeError, RuntimeInstant};
 
     struct NoopTransport;
+
+    struct BlockedTransport;
+
+    #[derive(Default)]
+    struct EpochTransportState {
+        broker_generation: u64,
+        actor_generation: u64,
+        staged_generation: Option<u64>,
+        accepted_generations: Vec<u64>,
+    }
+
+    struct EpochTransport(Arc<Mutex<EpochTransportState>>);
 
     #[async_trait]
     impl MqttTransport for NoopTransport {
@@ -1758,6 +1877,83 @@ mod tests {
         }
 
         async fn shutdown(&mut self, _status_topic: &str) -> Result<(), MqttError> {
+            Ok(())
+        }
+    }
+
+    #[async_trait]
+    impl MqttTransport for BlockedTransport {
+        async fn next_event(&mut self) -> Result<TransportEvent, MqttError> {
+            std::future::pending().await
+        }
+
+        async fn subscribe(&mut self, _topic: &str, _qos: Qos) -> Result<(), MqttError> {
+            Err(MqttError::transport("simulated saturated transport"))
+        }
+
+        async fn publish(
+            &mut self,
+            _topic: &str,
+            _payload: &[u8],
+            _qos: Qos,
+            _retain: bool,
+        ) -> Result<(), MqttError> {
+            Err(MqttError::transport("simulated saturated transport"))
+        }
+
+        async fn shutdown(&mut self, _status_topic: &str) -> Result<(), MqttError> {
+            Ok(())
+        }
+    }
+
+    #[async_trait]
+    impl MqttTransport for EpochTransport {
+        async fn next_event(&mut self) -> Result<TransportEvent, MqttError> {
+            std::future::pending().await
+        }
+
+        fn activate_connection(&mut self) -> Result<bool, MqttError> {
+            let mut state = self.0.lock().expect("epoch transport lock poisoned");
+            let generation = state
+                .staged_generation
+                .take()
+                .expect("connection marker must stage its generation");
+            if state.broker_generation != generation {
+                return Ok(false);
+            }
+            state.actor_generation = generation;
+            Ok(true)
+        }
+
+        async fn subscribe(&mut self, _topic: &str, _qos: Qos) -> Result<(), MqttError> {
+            self.accept_current_generation()
+        }
+
+        async fn publish(
+            &mut self,
+            _topic: &str,
+            _payload: &[u8],
+            _qos: Qos,
+            _retain: bool,
+        ) -> Result<(), MqttError> {
+            self.accept_current_generation()
+        }
+
+        async fn shutdown(&mut self, _status_topic: &str) -> Result<(), MqttError> {
+            Ok(())
+        }
+    }
+
+    impl EpochTransport {
+        fn accept_current_generation(&self) -> Result<(), MqttError> {
+            let mut state = self.0.lock().expect("epoch transport lock poisoned");
+            if state.broker_generation == 0 || state.broker_generation != state.actor_generation {
+                return Err(MqttError::transport(
+                    "connection epoch is not actor-visible",
+                ));
+            }
+            let generation = state.broker_generation;
+            state.accepted_generations.push(generation);
             Ok(())
         }
     }
@@ -1847,6 +2043,211 @@ mod tests {
 
         assert!(matches!(error, RuntimeError::Adapter(ref error) if error.is_permanent()));
         assert!(!actor.engine.reconciler.is_dispatch_token_valid(token));
+    }
+
+    #[tokio::test]
+    async fn saturated_transport_coalesces_superseded_commands_within_its_topology_bound() {
+        let engine = HouseEngine::initialize(
+            ValidatedConfig::parse(include_str!("../../examples/house.toml"))
+                .unwrap()
+                .into_runtime_parts(),
+            Default::default(),
+            sample(0.0).runtime,
+        )
+        .unwrap();
+        let mut actor = RuntimeActor::new(
+            engine,
+            BlockedTransport,
+            FixedClock(sample(0.1)),
+            NoopWriter,
+            Arc::new(HealthState::new()),
+        )
+        .unwrap();
+        actor
+            .handle_transport_event(TransportEvent::Connected)
+            .await
+            .unwrap();
+        let reconnect_bound = actor.pending_transport.len();
+
+        for sequence in 1..=64 {
+            let now = sample(sequence as f64).runtime;
+            actor
+                .engine
+                .apply_gesture_for_scope(
+                    house_automation_core::input::Gesture::CenterSingle,
+                    &house_automation_core::state::Scope::House,
+                    now,
+                )
+                .unwrap();
+            actor.drain_engine_actions(now).await.unwrap();
+        }
+
+        assert!(
+            actor.pending_transport.len() <= reconnect_bound,
+            "superseded commands grew the application backlog from {reconnect_bound} to {}",
+            actor.pending_transport.len()
+        );
+    }
+
+    #[tokio::test]
+    async fn saturated_transport_coalesces_repeated_idempotent_operations() {
+        let engine = HouseEngine::initialize(
+            ValidatedConfig::parse(include_str!("../../examples/house.toml"))
+                .unwrap()
+                .into_runtime_parts(),
+            Default::default(),
+            sample(0.0).runtime,
+        )
+        .unwrap();
+        let mut actor = RuntimeActor::new(
+            engine,
+            BlockedTransport,
+            FixedClock(sample(0.1)),
+            NoopWriter,
+            Arc::new(HealthState::new()),
+        )
+        .unwrap();
+
+        for _ in 0..64 {
+            actor
+                .enqueue_transport_operation(super::PendingTransportOperation::Publish {
+                    topic: "house/v1/status".to_owned(),
+                    payload: b"online".to_vec(),
+                    qos: Qos::AtLeastOnce,
+                    retain: true,
+                })
+                .await
+                .unwrap();
+        }
+
+        assert_eq!(actor.pending_transport.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn saturated_transport_backlog_has_a_topology_derived_hard_limit() {
+        let engine = HouseEngine::initialize(
+            ValidatedConfig::parse(include_str!("../../examples/house.toml"))
+                .unwrap()
+                .into_runtime_parts(),
+            Default::default(),
+            sample(0.0).runtime,
+        )
+        .unwrap();
+        let mut actor = RuntimeActor::new(
+            engine,
+            BlockedTransport,
+            FixedClock(sample(0.1)),
+            NoopWriter,
+            Arc::new(HealthState::new()),
+        )
+        .unwrap();
+        let limit = actor.transport_backlog_limit;
+        for index in 0..limit {
+            actor
+                .enqueue_transport_operation(super::PendingTransportOperation::Publish {
+                    topic: format!("house/v1/state-request/{index}"),
+                    payload: b"{}".to_vec(),
+                    qos: Qos::AtLeastOnce,
+                    retain: false,
+                })
+                .await
+                .unwrap();
+        }
+
+        let overflow = actor
+            .enqueue_transport_operation(super::PendingTransportOperation::Publish {
+                topic: "house/v1/state-request/overflow".to_owned(),
+                payload: b"{}".to_vec(),
+                qos: Qos::AtLeastOnce,
+                retain: false,
+            })
+            .await;
+
+        assert!(matches!(overflow, Err(RuntimeError::InvalidTopology(_))));
+        assert_eq!(actor.pending_transport.len(), limit);
+    }
+
+    #[tokio::test]
+    async fn reconnect_stays_fenced_while_actor_processes_pre_disconnect_backlog() {
+        let engine = HouseEngine::initialize(
+            ValidatedConfig::parse(include_str!("../../examples/house.toml"))
+                .unwrap()
+                .into_runtime_parts(),
+            Default::default(),
+            sample(0.0).runtime,
+        )
+        .unwrap();
+        let transport_state = Arc::new(Mutex::new(EpochTransportState {
+            broker_generation: 1,
+            staged_generation: Some(1),
+            ..EpochTransportState::default()
+        }));
+        let mut actor = RuntimeActor::new(
+            engine,
+            EpochTransport(transport_state.clone()),
+            FixedClock(sample(0.1)),
+            NoopWriter,
+            Arc::new(HealthState::new()),
+        )
+        .unwrap();
+        actor
+            .handle_transport_event(TransportEvent::Connected)
+            .await
+            .unwrap();
+        actor
+            .pending_transport
+            .push_back(super::PendingTransportOperation::Publish {
+                topic: "house/v1/stale-command".to_owned(),
+                payload: b"stale".to_vec(),
+                qos: Qos::AtLeastOnce,
+                retain: false,
+            });
+        {
+            let mut state = transport_state
+                .lock()
+                .expect("epoch transport lock poisoned");
+            state.accepted_generations.clear();
+            state.broker_generation = 0;
+            state.actor_generation = 0;
+            state.broker_generation = 2;
+            state.staged_generation = Some(2);
+        }
+
+        actor
+            .handle_transport_event(TransportEvent::Publish(OwnedInboundMessage {
+                topic: "unrelated/backlogged-message".to_owned(),
+                payload: b"{}".to_vec(),
+                retain: false,
+                duplicate: false,
+                qos: Qos::AtLeastOnce,
+            }))
+            .await
+            .unwrap();
+
+        assert!(
+            transport_state
+                .lock()
+                .expect("epoch transport lock poisoned")
+                .accepted_generations
+                .is_empty(),
+            "pre-disconnect actor work crossed into the unacknowledged reconnect epoch"
+        );
+
+        actor
+            .handle_transport_event(TransportEvent::Disconnected)
+            .await
+            .unwrap();
+        actor
+            .handle_transport_event(TransportEvent::Connected)
+            .await
+            .unwrap();
+        let accepted = transport_state
+            .lock()
+            .expect("epoch transport lock poisoned")
+            .accepted_generations
+            .clone();
+        assert!(!accepted.is_empty());
+        assert!(accepted.iter().all(|generation| *generation == 2));
     }
 
     #[tokio::test]
