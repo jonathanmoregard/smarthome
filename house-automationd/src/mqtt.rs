@@ -1,9 +1,17 @@
-use std::{collections::BTreeMap, error::Error, fmt, fs, path::Path, time::Duration};
+use std::{
+    collections::{BTreeMap, VecDeque},
+    error::Error,
+    fmt, fs,
+    io::Read,
+    path::Path,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use async_trait::async_trait;
 use rumqttc::{AsyncClient, Event, EventLoop, LastWill, MqttOptions, Packet, Publish, QoS};
 use tokio::{
-    sync::{mpsc, watch},
+    sync::{Notify, mpsc, watch},
     task::JoinHandle,
 };
 
@@ -38,6 +46,14 @@ impl fmt::Debug for MqttCredentials {
 }
 
 pub fn load_credentials(source: &MqttCredentialSource) -> Result<MqttCredentials, MqttError> {
+    let path_metadata = fs::symlink_metadata(&source.environment_file)
+        .map_err(|_| MqttError::credential("cannot inspect credential file"))?;
+    if path_metadata.file_type().is_symlink() || !path_metadata.is_file() {
+        return Err(MqttError::credential(
+            "credential file must be a regular non-symlink file",
+        ));
+    }
+    validate_credential_permissions(&path_metadata)?;
     let canonical = fs::canonicalize(&source.environment_file)
         .map_err(|_| MqttError::credential("cannot resolve credential file"))?;
     if !canonical.is_absolute() || canonical.starts_with("/nix/store") {
@@ -45,21 +61,80 @@ pub fn load_credentials(source: &MqttCredentialSource) -> Result<MqttCredentials
             "credential file must resolve outside the Nix store",
         ));
     }
-    let metadata = fs::metadata(&canonical)
-        .map_err(|_| MqttError::credential("cannot inspect credential file"))?;
-    if !metadata.is_file() || metadata.len() > MAX_CREDENTIAL_FILE_BYTES {
+    let file = open_credential_file(&source.environment_file)?;
+    let opened_metadata = file
+        .metadata()
+        .map_err(|_| MqttError::credential("cannot inspect opened credential file"))?;
+    if !same_file(&path_metadata, &opened_metadata)
+        || !opened_metadata.is_file()
+        || opened_metadata.len() > MAX_CREDENTIAL_FILE_BYTES
+    {
         return Err(MqttError::credential(
             "credential file must be a bounded regular file",
         ));
     }
-    let bytes =
-        fs::read(&canonical).map_err(|_| MqttError::credential("cannot read credential file"))?;
+    validate_credential_permissions(&opened_metadata)?;
+    let mut bytes = Vec::with_capacity(opened_metadata.len() as usize);
+    file.take(MAX_CREDENTIAL_FILE_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| MqttError::credential("cannot read credential file"))?;
+    if bytes.len() as u64 > MAX_CREDENTIAL_FILE_BYTES {
+        return Err(MqttError::credential("credential file is too large"));
+    }
     let text = std::str::from_utf8(&bytes)
         .map_err(|_| MqttError::credential("credential file must be UTF-8"))?;
     let values = parse_environment_file(text)?;
     let username = required_credential(&values, &source.username_variable)?;
     let password = required_credential(&values, &source.password_variable)?;
     Ok(MqttCredentials { username, password })
+}
+
+#[cfg(target_os = "linux")]
+fn open_credential_file(path: &Path) -> Result<fs::File, MqttError> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    // Linux O_NOFOLLOW: reject a final-component symlink in the same open
+    // operation that acquires the descriptor, closing the metadata/open race.
+    const O_NOFOLLOW: i32 = 0o400_000;
+    fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(O_NOFOLLOW)
+        .open(path)
+        .map_err(|_| MqttError::credential("cannot safely open credential file"))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn open_credential_file(path: &Path) -> Result<fs::File, MqttError> {
+    fs::File::open(path).map_err(|_| MqttError::credential("cannot open credential file"))
+}
+
+#[cfg(unix)]
+fn validate_credential_permissions(metadata: &fs::Metadata) -> Result<(), MqttError> {
+    use std::os::unix::fs::MetadataExt;
+
+    if metadata.mode() & 0o077 != 0 {
+        return Err(MqttError::credential(
+            "credential file permissions must deny group and other access",
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn validate_credential_permissions(_metadata: &fs::Metadata) -> Result<(), MqttError> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn same_file(left: &fs::Metadata, right: &fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+
+    left.dev() == right.dev() && left.ino() == right.ino()
+}
+
+#[cfg(not(unix))]
+fn same_file(left: &fs::Metadata, right: &fs::Metadata) -> bool {
+    left.len() == right.len() && left.modified().ok() == right.modified().ok()
 }
 
 fn parse_environment_file(input: &str) -> Result<BTreeMap<String, String>, MqttError> {
@@ -111,13 +186,26 @@ pub enum TransportEvent {
     Publish(OwnedInboundMessage),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct OwnedInboundMessage {
     pub topic: String,
     pub payload: Vec<u8>,
     pub retain: bool,
     pub duplicate: bool,
     pub qos: Qos,
+}
+
+impl fmt::Debug for OwnedInboundMessage {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OwnedInboundMessage")
+            .field("topic", &self.topic)
+            .field("payload", &"<redacted>")
+            .field("retain", &self.retain)
+            .field("duplicate", &self.duplicate)
+            .field("qos", &self.qos)
+            .finish()
+    }
 }
 
 impl OwnedInboundMessage {
@@ -150,7 +238,7 @@ pub struct RumqttTransport {
     client: AsyncClient,
     events: mpsc::Receiver<TransportEvent>,
     failure: watch::Receiver<Option<MqttError>>,
-    delivery: watch::Receiver<DeliveryProgress>,
+    delivery: DeliveryTracker,
     driver: Option<JoinHandle<()>>,
 }
 
@@ -159,28 +247,16 @@ impl RumqttTransport {
         settings: &MqttSettings,
         credentials: Option<&MqttCredentials>,
     ) -> Result<Self, MqttError> {
-        let status_topic = status_topic(&settings.application_namespace);
-        let mut options = MqttOptions::new(&settings.client_id, &settings.host, settings.port);
-        options.set_keep_alive(Duration::from_secs(30));
-        options.set_clean_session(false);
-        options.set_last_will(LastWill::new(
-            status_topic,
-            b"offline".to_vec(),
-            QoS::AtLeastOnce,
-            true,
-        ));
-        if let Some(credentials) = credentials {
-            options.set_credentials(credentials.username(), credentials.password());
-        }
+        let options = build_mqtt_options(settings, credentials);
         let (client, event_loop) = AsyncClient::new(options, 32);
         let (event_sender, events) = mpsc::channel(128);
         let (failure_sender, failure) = watch::channel(None);
-        let (delivery_sender, delivery) = watch::channel(DeliveryProgress::default());
+        let delivery = DeliveryTracker::default();
         let driver = tokio::spawn(run_event_loop(
             event_loop,
             event_sender,
             failure_sender,
-            delivery_sender,
+            delivery.clone(),
         ));
         Ok(Self {
             client,
@@ -190,6 +266,49 @@ impl RumqttTransport {
             driver: Some(driver),
         })
     }
+
+    async fn enqueue_publish(
+        &self,
+        topic: &str,
+        payload: &[u8],
+        qos: Qos,
+        retain: bool,
+        observe_delivery: bool,
+    ) -> Result<Option<DeliveryTicket>, MqttError> {
+        let ticket = self.delivery.reserve(observe_delivery)?;
+        if self
+            .client
+            .try_publish(topic, to_rumqtt_qos(qos), retain, payload.to_vec())
+            .is_err()
+        {
+            self.delivery.cancel(ticket);
+            return Err(MqttError::transport("MQTT publication enqueue failed"));
+        }
+        Ok(observe_delivery.then_some(ticket))
+    }
+}
+
+fn build_mqtt_options(
+    settings: &MqttSettings,
+    credentials: Option<&MqttCredentials>,
+) -> MqttOptions {
+    let status_topic = status_topic(&settings.application_namespace);
+    let mut options = MqttOptions::new(&settings.client_id, &settings.host, settings.port);
+    options.set_keep_alive(Duration::from_secs(30));
+    // Commands are recomputed from current desired state after every ConnAck.
+    // A clean broker and local session prevents invalidated QoS1 commands from
+    // the previous connection from being replayed ahead of that reconciliation.
+    options.set_clean_session(true);
+    options.set_last_will(LastWill::new(
+        status_topic,
+        b"offline".to_vec(),
+        QoS::AtLeastOnce,
+        true,
+    ));
+    if let Some(credentials) = credentials {
+        options.set_credentials(credentials.username(), credentials.password());
+    }
+    options
 }
 
 #[async_trait]
@@ -224,24 +343,19 @@ impl MqttTransport for RumqttTransport {
         qos: Qos,
         retain: bool,
     ) -> Result<(), MqttError> {
-        self.client
-            .publish(topic, to_rumqtt_qos(qos), retain, payload)
+        self.enqueue_publish(topic, payload, qos, retain, false)
             .await
-            .map_err(|_| MqttError::transport("MQTT publication enqueue failed"))
+            .map(|_| ())
     }
 
     async fn shutdown(&mut self, status_topic: &str) -> Result<(), MqttError> {
-        wait_for_delivery(&mut self.delivery, |progress| {
-            progress.acknowledged >= progress.published
-        })
-        .await?;
-        let published_before = self.delivery.borrow().published;
-        self.publish(status_topic, b"offline", Qos::AtLeastOnce, true)
+        self.delivery.wait_until_idle().await?;
+        let offline = self
+            .enqueue_publish(status_topic, b"offline", Qos::AtLeastOnce, true, true)
             .await?;
-        wait_for_delivery(&mut self.delivery, |progress| {
-            progress.published > published_before && progress.acknowledged >= progress.published
-        })
-        .await?;
+        self.delivery
+            .wait_until_delivered(offline.expect("observed publication returns ticket"))
+            .await?;
         self.client
             .disconnect()
             .await
@@ -260,63 +374,227 @@ async fn run_event_loop(
     mut event_loop: EventLoop,
     events: mpsc::Sender<TransportEvent>,
     failure: watch::Sender<Option<MqttError>>,
-    delivery: watch::Sender<DeliveryProgress>,
+    delivery: DeliveryTracker,
 ) {
-    let mut progress = DeliveryProgress::default();
+    let mut reconnect = ReconnectState::default();
     loop {
         let event = match event_loop.poll().await {
-            Ok(Event::Incoming(Packet::ConnAck(_))) => Some(TransportEvent::Connected),
+            Ok(Event::Incoming(Packet::ConnAck(_))) => {
+                reconnect.connected();
+                Some(TransportEvent::Connected)
+            }
             Ok(Event::Incoming(Packet::Publish(publish))) => {
                 Some(TransportEvent::Publish(owned_publish(publish)))
             }
-            Ok(Event::Incoming(Packet::PubAck(_))) => {
-                progress.acknowledged = progress.acknowledged.saturating_add(1);
-                delivery.send_replace(progress);
+            Ok(Event::Incoming(Packet::PubAck(acknowledgement))) => {
+                delivery.puback(acknowledgement.pkid);
                 None
             }
-            Ok(Event::Outgoing(rumqttc::Outgoing::Publish(_))) => {
-                progress.published = progress.published.saturating_add(1);
-                delivery.send_replace(progress);
+            Ok(Event::Outgoing(rumqttc::Outgoing::Publish(packet_id))) => {
+                delivery.outgoing_publish(packet_id);
                 None
             }
             Ok(Event::Outgoing(rumqttc::Outgoing::Disconnect)) => break,
             Ok(_) => None,
-            Err(_) => Some(TransportEvent::Disconnected),
+            Err(_) => {
+                delivery.connection_lost();
+                if let Err(error) = reconnect.after_poll_error(&events).await {
+                    let _ = failure.send(Some(error));
+                    break;
+                }
+                continue;
+            }
         };
         if let Some(event) = event
-            && events.try_send(event).is_err()
+            && let Err(error) = forward_event(&events, event).await
         {
-            let _ = failure.send(Some(MqttError::fatal(
-                "MQTT inbound event queue is unavailable or full",
-            )));
+            let _ = failure.send(Some(error));
             break;
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-struct DeliveryProgress {
-    published: u64,
-    acknowledged: u64,
+const INITIAL_RECONNECT_BACKOFF: Duration = Duration::from_millis(250);
+const MAX_RECONNECT_BACKOFF: Duration = Duration::from_secs(30);
+
+#[derive(Default)]
+struct ReconnectState {
+    connected: bool,
+    failures: u32,
 }
 
-async fn wait_for_delivery(
-    delivery: &mut watch::Receiver<DeliveryProgress>,
-    ready: impl Fn(DeliveryProgress) -> bool,
-) -> Result<(), MqttError> {
-    tokio::time::timeout(Duration::from_secs(5), async {
-        loop {
-            if ready(*delivery.borrow()) {
-                return Ok(());
-            }
-            delivery
-                .changed()
-                .await
-                .map_err(|_| MqttError::fatal("MQTT delivery tracker stopped"))?;
+impl ReconnectState {
+    fn connected(&mut self) {
+        self.connected = true;
+        self.failures = 0;
+    }
+
+    async fn after_poll_error(
+        &mut self,
+        events: &mpsc::Sender<TransportEvent>,
+    ) -> Result<(), MqttError> {
+        if self.connected {
+            forward_event(events, TransportEvent::Disconnected).await?;
+            self.connected = false;
         }
-    })
-    .await
-    .map_err(|_| MqttError::transport("MQTT delivery acknowledgement timed out"))?
+        let exponent = self.failures.min(7);
+        let multiplier = 1_u32 << exponent;
+        let delay = INITIAL_RECONNECT_BACKOFF
+            .checked_mul(multiplier)
+            .unwrap_or(MAX_RECONNECT_BACKOFF)
+            .min(MAX_RECONNECT_BACKOFF);
+        self.failures = self.failures.saturating_add(1);
+        tokio::time::sleep(delay).await;
+        Ok(())
+    }
+}
+
+async fn forward_event(
+    events: &mpsc::Sender<TransportEvent>,
+    event: TransportEvent,
+) -> Result<(), MqttError> {
+    events
+        .send(event)
+        .await
+        .map_err(|_| MqttError::fatal("MQTT actor event receiver stopped"))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct DeliveryTicket(u64);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DeliveryOutcome {
+    Delivered,
+    Lost,
+}
+
+#[derive(Default)]
+struct DeliveryState {
+    next_ticket: u64,
+    queued: VecDeque<DeliveryTicket>,
+    pending: BTreeMap<DeliveryTicket, bool>,
+    packets: BTreeMap<u16, DeliveryTicket>,
+    outcomes: BTreeMap<DeliveryTicket, DeliveryOutcome>,
+}
+
+#[derive(Clone, Default)]
+struct DeliveryTracker {
+    state: Arc<Mutex<DeliveryState>>,
+    changed: Arc<Notify>,
+}
+
+impl DeliveryTracker {
+    fn reserve(&self, observe_outcome: bool) -> Result<DeliveryTicket, MqttError> {
+        let mut state = self.state.lock().expect("delivery tracker lock poisoned");
+        state.next_ticket = state
+            .next_ticket
+            .checked_add(1)
+            .ok_or_else(|| MqttError::fatal("MQTT delivery ticket space exhausted"))?;
+        let ticket = DeliveryTicket(state.next_ticket);
+        state.queued.push_back(ticket);
+        state.pending.insert(ticket, observe_outcome);
+        Ok(ticket)
+    }
+
+    fn cancel(&self, ticket: DeliveryTicket) {
+        let mut state = self.state.lock().expect("delivery tracker lock poisoned");
+        state.queued.retain(|queued| *queued != ticket);
+        if state.pending.remove(&ticket).unwrap_or(false) {
+            state.outcomes.insert(ticket, DeliveryOutcome::Lost);
+        }
+        drop(state);
+        self.changed.notify_waiters();
+    }
+
+    fn outgoing_publish(&self, packet_id: u16) {
+        let mut state = self.state.lock().expect("delivery tracker lock poisoned");
+        if state.packets.contains_key(&packet_id) {
+            return;
+        }
+        let Some(ticket) = state.queued.pop_front() else {
+            return;
+        };
+        if packet_id == 0 {
+            settle_delivery(&mut state, ticket, DeliveryOutcome::Delivered);
+        } else {
+            state.packets.insert(packet_id, ticket);
+        }
+        drop(state);
+        self.changed.notify_waiters();
+    }
+
+    fn puback(&self, packet_id: u16) {
+        let mut state = self.state.lock().expect("delivery tracker lock poisoned");
+        if let Some(ticket) = state.packets.remove(&packet_id) {
+            settle_delivery(&mut state, ticket, DeliveryOutcome::Delivered);
+        }
+        drop(state);
+        self.changed.notify_waiters();
+    }
+
+    fn connection_lost(&self) {
+        let mut state = self.state.lock().expect("delivery tracker lock poisoned");
+        let pending: Vec<_> = state.pending.keys().copied().collect();
+        for ticket in pending {
+            settle_delivery(&mut state, ticket, DeliveryOutcome::Lost);
+        }
+        state.queued.clear();
+        state.packets.clear();
+        drop(state);
+        self.changed.notify_waiters();
+    }
+
+    fn outcome(&self, ticket: DeliveryTicket) -> Option<DeliveryOutcome> {
+        self.state
+            .lock()
+            .expect("delivery tracker lock poisoned")
+            .outcomes
+            .get(&ticket)
+            .copied()
+    }
+
+    async fn wait_until_idle(&self) -> Result<(), MqttError> {
+        self.wait_for(|state| state.pending.is_empty()).await
+    }
+
+    async fn wait_until_delivered(&self, ticket: DeliveryTicket) -> Result<(), MqttError> {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let changed = self.changed.notified();
+                match self.outcome(ticket) {
+                    Some(DeliveryOutcome::Delivered) => return Ok(()),
+                    Some(DeliveryOutcome::Lost) => {
+                        return Err(MqttError::transport(
+                            "MQTT offline status was not acknowledged",
+                        ));
+                    }
+                    None => changed.await,
+                }
+            }
+        })
+        .await
+        .map_err(|_| MqttError::transport("MQTT delivery acknowledgement timed out"))?
+    }
+
+    async fn wait_for(&self, ready: impl Fn(&DeliveryState) -> bool) -> Result<(), MqttError> {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let changed = self.changed.notified();
+                if ready(&self.state.lock().expect("delivery tracker lock poisoned")) {
+                    return;
+                }
+                changed.await;
+            }
+        })
+        .await
+        .map_err(|_| MqttError::transport("MQTT delivery acknowledgement timed out"))
+    }
+}
+
+fn settle_delivery(state: &mut DeliveryState, ticket: DeliveryTicket, outcome: DeliveryOutcome) {
+    if state.pending.remove(&ticket).unwrap_or(false) {
+        state.outcomes.insert(ticket, outcome);
+    }
 }
 
 fn owned_publish(publish: Publish) -> OwnedInboundMessage {
@@ -403,7 +681,7 @@ pub fn path_is_outside_nix_store(path: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, path::Path};
+    use std::{fs, path::Path, time::Duration};
 
     use tempfile::tempdir;
 
@@ -413,6 +691,170 @@ mod tests {
         MAX_CREDENTIAL_FILE_BYTES, load_credentials, parse_environment_file,
         path_is_outside_nix_store,
     };
+
+    #[test]
+    fn transport_uses_a_clean_session_so_invalidated_commands_cannot_replay() {
+        let settings =
+            crate::config::ValidatedConfig::parse(include_str!("../../examples/house.toml"))
+                .unwrap()
+                .into_runtime_parts()
+                .mqtt;
+
+        let options = super::build_mqtt_options(&settings, None);
+
+        assert!(options.clean_session());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn poll_errors_back_off_and_emit_one_disconnect_per_connection_edge() {
+        let (events, mut received) = tokio::sync::mpsc::channel(4);
+        let mut reconnect = super::ReconnectState::default();
+        reconnect.connected();
+        let started = tokio::time::Instant::now();
+
+        reconnect.after_poll_error(&events).await.unwrap();
+        reconnect.after_poll_error(&events).await.unwrap();
+
+        assert_eq!(
+            tokio::time::Instant::now() - started,
+            Duration::from_millis(750)
+        );
+        assert_eq!(
+            received.try_recv().unwrap(),
+            super::TransportEvent::Disconnected
+        );
+        assert!(received.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn bounded_event_forwarding_applies_backpressure_without_losing_a_retained_burst() {
+        const COUNT: usize = 200;
+        let (events, mut received) = tokio::sync::mpsc::channel(2);
+        let sender = tokio::spawn(async move {
+            for index in 0..COUNT {
+                super::forward_event(
+                    &events,
+                    super::TransportEvent::Publish(super::OwnedInboundMessage {
+                        topic: "zigbee2mqtt/device".to_owned(),
+                        payload: index.to_string().into_bytes(),
+                        retain: true,
+                        duplicate: false,
+                        qos: crate::zigbee2mqtt::Qos::AtLeastOnce,
+                    }),
+                )
+                .await
+                .unwrap();
+            }
+        });
+
+        let mut count = 0;
+        while count < COUNT {
+            assert!(matches!(
+                received.recv().await,
+                Some(super::TransportEvent::Publish(message)) if message.retain
+            ));
+            count += 1;
+        }
+        sender.await.unwrap();
+        assert_eq!(count, COUNT);
+    }
+
+    #[tokio::test]
+    async fn publication_enqueue_never_waits_on_a_driver_blocked_by_inbound_backpressure() {
+        let options = rumqttc::MqttOptions::new("bounded-test", "127.0.0.1", 1883);
+        let (client, _event_loop) = rumqttc::AsyncClient::new(options, 1);
+        let (_event_sender, events) = tokio::sync::mpsc::channel(1);
+        let (_failure_sender, failure) = tokio::sync::watch::channel(None);
+        let transport = super::RumqttTransport {
+            client,
+            events,
+            failure,
+            delivery: super::DeliveryTracker::default(),
+            driver: None,
+        };
+        transport
+            .enqueue_publish(
+                "house/v1/test",
+                b"first",
+                crate::zigbee2mqtt::Qos::AtLeastOnce,
+                false,
+                false,
+            )
+            .await
+            .unwrap();
+
+        let result = tokio::time::timeout(
+            Duration::from_millis(10),
+            transport.enqueue_publish(
+                "house/v1/test",
+                b"second",
+                crate::zigbee2mqtt::Qos::AtLeastOnce,
+                false,
+                false,
+            ),
+        )
+        .await
+        .expect("a full outbound queue must fail without waiting");
+
+        assert!(result.unwrap_err().is_transient());
+    }
+
+    #[test]
+    fn disconnect_resets_inflight_packet_ids_before_offline_delivery_tracking() {
+        let tracker = super::DeliveryTracker::default();
+        let stale = tracker.reserve(true).unwrap();
+        tracker.outgoing_publish(7);
+
+        tracker.connection_lost();
+        let offline = tracker.reserve(true).unwrap();
+        tracker.outgoing_publish(7);
+        assert_eq!(tracker.outcome(stale), Some(super::DeliveryOutcome::Lost));
+        assert_eq!(tracker.outcome(offline), None);
+
+        tracker.puback(7);
+        assert_eq!(
+            tracker.outcome(offline),
+            Some(super::DeliveryOutcome::Delivered)
+        );
+    }
+
+    #[test]
+    fn retransmitted_packet_id_does_not_consume_the_next_queued_ticket() {
+        let tracker = super::DeliveryTracker::default();
+        let first = tracker.reserve(true).unwrap();
+        let second = tracker.reserve(true).unwrap();
+
+        tracker.outgoing_publish(9);
+        tracker.outgoing_publish(9);
+        tracker.puback(9);
+        assert_eq!(
+            tracker.outcome(first),
+            Some(super::DeliveryOutcome::Delivered)
+        );
+        assert_eq!(tracker.outcome(second), None);
+
+        tracker.outgoing_publish(10);
+        tracker.puback(10);
+        assert_eq!(
+            tracker.outcome(second),
+            Some(super::DeliveryOutcome::Delivered)
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn lost_offline_ticket_fails_without_waiting_for_delivery_timeout() {
+        let tracker = super::DeliveryTracker::default();
+        let offline = tracker.reserve(true).unwrap();
+        tracker.outgoing_publish(11);
+        tracker.connection_lost();
+
+        let error = tracker.wait_until_delivered(offline).await.unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "MQTT offline status was not acknowledged"
+        );
+    }
 
     #[test]
     fn parser_rejects_missing_duplicate_and_empty_values_without_echoing_values() {
@@ -440,6 +882,24 @@ mod tests {
     }
 
     #[test]
+    fn inbound_debug_never_renders_raw_mqtt_payload() {
+        let message = super::OwnedInboundMessage {
+            topic: "zigbee2mqtt/device".to_owned(),
+            payload: b"raw-payload-sentinel".to_vec(),
+            retain: true,
+            duplicate: false,
+            qos: crate::zigbee2mqtt::Qos::AtLeastOnce,
+        };
+
+        let message_debug = format!("{message:?}");
+        let event_debug = format!("{:?}", super::TransportEvent::Publish(message));
+        assert!(message_debug.contains("<redacted>"));
+        assert!(event_debug.contains("<redacted>"));
+        assert!(!message_debug.contains("114, 97, 119"));
+        assert!(!event_debug.contains("114, 97, 119"));
+    }
+
+    #[test]
     fn loader_rejects_oversize_regular_file() {
         let directory = tempdir().unwrap();
         let path = directory.path().join("mqtt.env");
@@ -449,6 +909,29 @@ mod tests {
             username_variable: "MQTT_USERNAME".to_owned(),
             password_variable: "MQTT_PASSWORD".to_owned(),
         };
+        assert!(load_credentials(&source).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn loader_rejects_symlink_and_group_or_world_readable_credential_files() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+
+        let directory = tempdir().unwrap();
+        let actual = directory.path().join("actual.env");
+        let linked = directory.path().join("linked.env");
+        fs::write(&actual, "MQTT_USERNAME=alice\nMQTT_PASSWORD=secret\n").unwrap();
+        fs::set_permissions(&actual, fs::Permissions::from_mode(0o600)).unwrap();
+        symlink(&actual, &linked).unwrap();
+        let mut source = MqttCredentialSource {
+            environment_file: linked,
+            username_variable: "MQTT_USERNAME".to_owned(),
+            password_variable: "MQTT_PASSWORD".to_owned(),
+        };
+        assert!(load_credentials(&source).is_err());
+
+        fs::set_permissions(&actual, fs::Permissions::from_mode(0o644)).unwrap();
+        source.environment_file = actual;
         assert!(load_credentials(&source).is_err());
     }
 

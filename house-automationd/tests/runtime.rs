@@ -202,6 +202,62 @@ fn optional_group_cct_keeps_group_power_brightness_and_member_cct_fallbacks() {
 }
 
 #[test]
+fn optional_group_cct_degrades_the_unclamped_owner_target_per_member() {
+    let input = include_str!("../../examples/house.toml")
+        .replace(
+            "color_temperature_kelvin = 2200",
+            "color_temperature_kelvin = 1800",
+        )
+        .replace(
+            "color_temperature = { minimum_kelvin = 2200, maximum_kelvin = 6500, minimum_mired = 153, maximum_mired = 454 }",
+            "color_temperature = { minimum_kelvin = 2700, maximum_kelvin = 6500, minimum_mired = 153, maximum_mired = 370 }",
+        )
+        .replace(
+            "capabilities = { on_off = true, dimming = true, color_temperature = { minimum_kelvin = 2200, maximum_kelvin = 4000 } }",
+            "capabilities = { on_off = true, dimming = true, color_temperature = { minimum_kelvin = 2700, maximum_kelvin = 4000 } }",
+        );
+    let mut engine = HouseEngine::initialize(
+        ValidatedConfig::parse(&input).unwrap().into_runtime_parts(),
+        Default::default(),
+        instant(4, 0, 0.0),
+    )
+    .unwrap();
+    engine.recompute_desired(instant(4, 0, 0.0)).unwrap();
+    let actions = engine
+        .reconciler_mut()
+        .broker_connected(MonotonicTime::from_seconds(0.1).unwrap())
+        .unwrap();
+    let plan = engine
+        .adapter()
+        .apply_actions(
+            PlanEpoch::new(MonotonicTime::from_seconds(0.1).unwrap()),
+            &actions,
+        )
+        .unwrap();
+    let color_temperatures: std::collections::BTreeMap<_, _> = plan
+        .operations()
+        .iter()
+        .filter_map(|operation| operation.publication())
+        .filter_map(|publication| {
+            let payload: serde_json::Value = serde_json::from_slice(publication.payload()).unwrap();
+            payload
+                .get("color_temp")
+                .and_then(serde_json::Value::as_u64)
+                .map(|value| (publication.topic(), value))
+        })
+        .collect();
+
+    assert_eq!(
+        color_temperatures["zigbee2mqtt/demo/living-room/reading-light/set"],
+        454
+    );
+    assert_eq!(
+        color_temperatures["zigbee2mqtt/demo/living-room/color-light/set"],
+        370
+    );
+}
+
+#[test]
 fn cross_owner_native_group_is_never_used_and_stays_cleared_after_reconnect() {
     let input = include_str!("../../examples/house.toml").replace(
         "friendly_name = \"demo/living-room/color-light\"\nroom = \"living-room\"",
@@ -298,6 +354,84 @@ fn configuration_authoritatively_drops_stale_state_and_resets_invalid_control_se
             .selected_scope(),
         &living
     );
+}
+
+#[test]
+fn configuration_resets_a_persisted_scope_after_control_permission_is_removed() {
+    let control = ControlId::new("living-room-remote").unwrap();
+    let mut persisted = AutomationState::default();
+    persisted
+        .insert_scope(Scope::House, ScopeState::new(false))
+        .unwrap();
+    persisted
+        .insert_control(control.clone(), ControlState::new(Scope::House))
+        .unwrap();
+
+    let engine =
+        HouseEngine::initialize(config().into_runtime_parts(), persisted, instant(3, 0, 0.0))
+            .unwrap();
+
+    assert!(matches!(
+        engine
+            .state()
+            .control_state(&control)
+            .unwrap()
+            .selected_scope(),
+        Scope::Room(_)
+    ));
+}
+
+#[test]
+fn control_alias_migrates_an_authorized_runtime_selected_scope() {
+    let input = include_str!("../../examples/house.toml").replace(
+        "{ gesture = \"right\", target = \"selected\", action = { kind = \"adjust_color_temperature_offset\", delta_kelvin = 150 } },",
+        "{ gesture = \"right\", target = \"whole-house\", action = { kind = \"select_scope\" } },",
+    );
+    let old_id = ControlId::new("ikea-e1810-example").unwrap();
+    let current_id = ControlId::new("living-room-remote").unwrap();
+    let mut persisted = AutomationState::default();
+    persisted
+        .insert_scope(Scope::House, ScopeState::new(false))
+        .unwrap();
+    persisted
+        .insert_control(old_id.clone(), ControlState::new(Scope::House))
+        .unwrap();
+
+    let engine = HouseEngine::initialize(
+        ValidatedConfig::parse(&input).unwrap().into_runtime_parts(),
+        persisted,
+        instant(3, 0, 0.0),
+    )
+    .unwrap();
+
+    assert_eq!(
+        engine
+            .state()
+            .control_state(&current_id)
+            .unwrap()
+            .selected_scope(),
+        &Scope::House
+    );
+    assert!(engine.state().control_state(&old_id).is_err());
+}
+
+#[test]
+fn device_alias_resolves_to_the_current_runtime_identity() {
+    let mut engine = HouseEngine::initialize(
+        config().into_runtime_parts(),
+        Default::default(),
+        instant(12, 0, 0.0),
+    )
+    .unwrap();
+    engine.recompute_desired(instant(12, 0, 0.0)).unwrap();
+    let current = DeviceId::new("reading-light").unwrap();
+    let alias = DeviceId::new("ikea-led2111g6-example").unwrap();
+
+    assert_eq!(
+        engine.owner_scope(&alias).unwrap(),
+        engine.owner_scope(&current).unwrap()
+    );
+    assert_eq!(engine.target(&alias), engine.target(&current));
 }
 
 #[test]
@@ -399,6 +533,11 @@ fn credential_file_is_parsed_without_shell_evaluation_and_debug_is_redacted() {
     let directory = tempdir().unwrap();
     let path = directory.path().join("mqtt.env");
     fs::write(&path, "MQTT_USERNAME=alice\nMQTT_PASSWORD=$(not-run)\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+    }
     let source = house_automationd::config::MqttCredentialSource {
         environment_file: path,
         username_variable: "MQTT_USERNAME".to_owned(),

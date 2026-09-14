@@ -10,9 +10,12 @@ use std::{
 use async_trait::async_trait;
 use house_automation_core::{
     curve::{CircadianCurve, TimeOfDay},
-    input::{Action, ClickClassifier, Gesture, Mapping, ScopeTarget},
+    input::{Action, ClickClassifier, Direction, Gesture, Mapping, ScopeTarget},
     overlay::{OverlayDuration, OverlayEffect, OverlayId, OverlaySet},
-    reconcile::{Availability, DeviceId, DispatchClaim, EntityId, ReconcileAction, Reconciler},
+    reconcile::{
+        Availability, DeviceId, DispatchAcceptance, DispatchClaim, EntityId, ReconcileAction,
+        Reconciler,
+    },
     state::{
         AutomationState, ControlId, ControlState, CurveToggleOutcome, LocalDate, MonotonicTime,
         Scope, ScopeMembership, ScopeState,
@@ -85,6 +88,7 @@ pub struct HouseEngine {
     startup_state_changed: bool,
     owners: BTreeSet<Scope>,
     devices: BTreeMap<DeviceId, DeviceRuntime>,
+    device_aliases: BTreeMap<DeviceId, DeviceId>,
     curves: BTreeMap<Scope, CircadianCurve>,
     controls: BTreeMap<ControlId, Mapping>,
     overlays: BTreeMap<Scope, OverlaySet>,
@@ -150,8 +154,12 @@ impl HouseEngine {
         }
 
         let mut devices = BTreeMap::new();
+        let mut device_aliases = BTreeMap::new();
         let mut definitions = Vec::new();
         for device in configured_devices {
+            for alias in &device.aliases {
+                device_aliases.insert(alias.clone(), device.id.clone());
+            }
             let capabilities = device.definition.capabilities();
             definitions.push(device.definition);
             if !capabilities.on_off {
@@ -216,6 +224,7 @@ impl HouseEngine {
             startup_state_changed,
             owners,
             devices,
+            device_aliases,
             curves,
             controls,
             overlays,
@@ -246,6 +255,7 @@ impl HouseEngine {
     }
 
     pub fn owner_scope(&self, device: &DeviceId) -> Result<&Scope, RuntimeError> {
+        let device = self.device_aliases.get(device).unwrap_or(device);
         self.devices
             .get(device)
             .map(|device| &device.owner)
@@ -253,6 +263,7 @@ impl HouseEngine {
     }
 
     pub fn target(&self, device: &DeviceId) -> Option<LightTarget> {
+        let device = self.device_aliases.get(device).unwrap_or(device);
         self.last_targets.get(device).copied()
     }
 
@@ -309,6 +320,13 @@ impl HouseEngine {
                     duration,
                 )?;
         }
+        tracing::info!(
+            source = "scheduler",
+            action = "start",
+            overlay = "whole-hour",
+            affected_owner_count = self.owners.len(),
+            "started temporary lighting overlay"
+        );
         let (actions, count) = self.recompute_desired(now)?;
         self.queue_reconcile_actions(actions, now)?;
         Ok(count)
@@ -517,6 +535,23 @@ impl HouseEngine {
             );
         }
 
+        let logical_color_temperature_range =
+            KelvinRange::new(1_000.0, 40_000.0).expect("canonical Kelvin range is valid");
+        let mut logical_targets = BTreeMap::new();
+        for owner in &self.owners {
+            logical_targets.insert(
+                owner.clone(),
+                self.overlays
+                    .get_mut(owner)
+                    .expect("owner overlay exists")
+                    .compose(
+                        *underlying.get(owner).expect("owner target exists"),
+                        now.monotonic,
+                        logical_color_temperature_range,
+                    )?,
+            );
+        }
+
         let mut targets = BTreeMap::new();
         for (id, device) in &self.devices {
             let range = device.capabilities.color_temperature.unwrap_or_else(|| {
@@ -618,28 +653,11 @@ impl HouseEngine {
                         .is_some_and(|device| &device.owner == shared_owner)
                 })
             {
-                // When group CCT is intentionally omitted, pass an unclipped
-                // representative CCT. Reconciler degrades it per member while
-                // adapter emits synchronized group power/brightness plus
-                // member CCT fallbacks.
-                let logical = if group.has_group_color_temperature {
-                    first
-                } else {
-                    member_targets
-                        .into_iter()
-                        .max_by(|left, right| {
-                            left.color_temperature
-                                .map(|value| value.get())
-                                .unwrap_or_default()
-                                .total_cmp(
-                                    &right
-                                        .color_temperature
-                                        .map(|value| value.get())
-                                        .unwrap_or_default(),
-                                )
-                        })
-                        .expect("nonempty member targets")
-                };
+                // Preserve the owner-level target until Reconciler degrades it
+                // independently for the group and each heterogeneous member.
+                let logical = *logical_targets
+                    .get(shared_owner)
+                    .expect("shared owner has a logical target");
                 if group
                     .members
                     .iter()
@@ -722,6 +740,10 @@ impl HouseEngine {
 #[async_trait]
 pub trait DurableStateWriter: Send {
     async fn save(&mut self, state: AutomationState) -> Result<(), RuntimeError>;
+
+    fn is_healthy(&self) -> bool {
+        true
+    }
 }
 
 enum PersistenceRequest {
@@ -732,7 +754,8 @@ enum PersistenceRequest {
 }
 
 pub struct SqliteWriter {
-    sender: std::sync::mpsc::SyncSender<PersistenceRequest>,
+    sender: Option<std::sync::mpsc::SyncSender<PersistenceRequest>>,
+    worker: Option<std::thread::JoinHandle<()>>,
 }
 
 impl SqliteWriter {
@@ -742,14 +765,29 @@ impl SqliteWriter {
             let store = SqliteStateStore::open(path)?;
             let state = store.load()?;
             let (sender, receiver) = std::sync::mpsc::sync_channel(16);
-            std::thread::Builder::new()
+            let worker = std::thread::Builder::new()
                 .name("house-automation-sqlite".to_owned())
                 .spawn(move || persistence_loop(store, receiver))
                 .map_err(|_| RuntimeError::PersistenceWorkerStopped)?;
-            Ok::<_, RuntimeError>((Self { sender }, state))
+            Ok::<_, RuntimeError>((
+                Self {
+                    sender: Some(sender),
+                    worker: Some(worker),
+                },
+                state,
+            ))
         })
         .await
         .map_err(|_| RuntimeError::PersistenceWorkerStopped)?
+    }
+}
+
+impl Drop for SqliteWriter {
+    fn drop(&mut self) {
+        self.sender.take();
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
     }
 }
 
@@ -769,8 +807,19 @@ fn persistence_loop(
 #[async_trait]
 impl DurableStateWriter for SqliteWriter {
     async fn save(&mut self, state: AutomationState) -> Result<(), RuntimeError> {
+        if self
+            .worker
+            .as_ref()
+            .is_none_or(std::thread::JoinHandle::is_finished)
+        {
+            return Err(RuntimeError::PersistenceWorkerStopped);
+        }
         let (completion, result) = tokio::sync::oneshot::channel();
-        let sender = self.sender.clone();
+        let sender = self
+            .sender
+            .as_ref()
+            .ok_or(RuntimeError::PersistenceWorkerStopped)?
+            .clone();
         tokio::task::spawn_blocking(move || {
             sender.send(PersistenceRequest::Save(state, completion))
         })
@@ -781,6 +830,12 @@ impl DurableStateWriter for SqliteWriter {
             .await
             .map_err(|_| RuntimeError::PersistenceWorkerStopped)??;
         Ok(())
+    }
+
+    fn is_healthy(&self) -> bool {
+        self.worker
+            .as_ref()
+            .is_some_and(|worker| !worker.is_finished())
     }
 }
 
@@ -848,7 +903,9 @@ where
         if self.stopping {
             return Ok(());
         }
+        self.ensure_writer_healthy()?;
         let sample = self.clock.sample();
+        self.persist_reset_if_due(sample.runtime).await?;
         match event {
             TransportEvent::Connected => {
                 tracing::info!(source = "mqtt", mqtt_reconnect = true, "broker connected");
@@ -882,13 +939,54 @@ where
                     .broker_disconnected(sample.runtime.monotonic)?;
             }
             TransportEvent::Publish(message) => {
-                let Some(inbound) = self.engine.adapter.parse(&message.as_inbound())? else {
+                let bridge_state_topic =
+                    format!("{}/bridge/state", self.engine.mqtt.zigbee2mqtt_base_topic);
+                let is_bridge_state = message.topic == bridge_state_topic;
+                let parsed = match self.engine.adapter.parse(&message.as_inbound()) {
+                    Ok(parsed) => parsed,
+                    Err(error) if !error.is_permanent() => {
+                        if is_bridge_state {
+                            self.health.set_bridge_online(false);
+                        }
+                        tracing::warn!(
+                            source = "zigbee2mqtt",
+                            message_kind = if is_bridge_state {
+                                "bridge_state"
+                            } else {
+                                "adapter_event"
+                            },
+                            retained = message.retain,
+                            "discarded malformed external MQTT message"
+                        );
+                        return Ok(());
+                    }
+                    Err(error) => return Err(error.into()),
+                };
+                let Some(inbound) = parsed else {
                     return Ok(());
                 };
                 self.handle_inbound(inbound, sample).await?;
             }
         }
         Ok(())
+    }
+
+    async fn persist_reset_if_due(&mut self, now: RuntimeInstant) -> Result<(), RuntimeError> {
+        let mut next = self.engine.clone();
+        if !next.reset_if_due(now)? {
+            return Ok(());
+        }
+        self.writer.save(next.state.clone()).await?;
+        self.engine = next;
+        self.drain_engine_actions(now).await
+    }
+
+    fn ensure_writer_healthy(&self) -> Result<(), RuntimeError> {
+        if self.writer.is_healthy() {
+            return Ok(());
+        }
+        self.health.set_database_migrated(false);
+        Err(RuntimeError::PersistenceWorkerStopped)
     }
 
     async fn handle_inbound(
@@ -941,7 +1039,8 @@ where
         if self.stopping {
             return Ok(());
         }
-        let sample = self.clock.sample();
+        self.ensure_writer_healthy()?;
+        let mut sample = self.clock.sample();
         let due = self.scheduler.observe(&sample);
 
         let mut next = self.engine.clone();
@@ -958,6 +1057,7 @@ where
             self.engine = next;
         }
         self.drain_engine_actions(sample.runtime).await?;
+        sample = self.clock.sample();
 
         if due.whole_hour {
             self.engine.start_whole_hour_overlay(sample.runtime)?;
@@ -974,9 +1074,10 @@ where
             self.enqueue_actions(actions, sample.runtime).await?;
         }
 
+        sample = self.clock.sample();
         let retry = self.engine.reconciler.retry_due(sample.runtime.monotonic)?;
         self.enqueue_actions(retry, sample.runtime).await?;
-        self.execute_due(sample.runtime).await
+        self.execute_due(self.clock.sample().runtime).await
     }
 
     async fn drain_engine_actions(&mut self, now: RuntimeInstant) -> Result<(), RuntimeError> {
@@ -992,10 +1093,29 @@ where
         if actions.is_empty() {
             return Ok(());
         }
-        let plan = self
+        let dispatch_tokens: BTreeSet<_> = actions
+            .iter()
+            .filter_map(|action| match action {
+                ReconcileAction::Command { token, .. } => Some(*token),
+                ReconcileAction::Resubscribe | ReconcileAction::RequestState(_) => None,
+            })
+            .collect();
+        let plan = match self
             .engine
             .adapter
-            .apply_actions(PlanEpoch::new(now.monotonic), &actions)?;
+            .apply_actions(PlanEpoch::new(now.monotonic), &actions)
+        {
+            Ok(plan) => plan,
+            Err(error) => {
+                if error.is_permanent() {
+                    let failed_at = self.clock.sample().runtime.monotonic;
+                    for token in dispatch_tokens {
+                        self.engine.reconciler.cancel_dispatch(token, failed_at)?;
+                    }
+                }
+                return Err(error.into());
+            }
+        };
         for metadata in plan.dispatch_plans() {
             self.engine.reconciler.register_dispatch_plan(
                 metadata.token(),
@@ -1010,7 +1130,7 @@ where
                 .map(|publication| publication.not_before_ms())
                 .unwrap_or_default();
             if delay_ms == 0 {
-                self.execute_operation(operation, now).await?;
+                self.execute_operation(operation).await?;
             } else {
                 let due_seconds = now.monotonic.as_seconds() + delay_ms as f64 / 1000.0;
                 if !due_seconds.is_finite() {
@@ -1031,8 +1151,6 @@ where
                         ))?;
             }
         }
-        self.health
-            .record_reconciliation(self.clock.sample().unix_seconds);
         Ok(())
     }
 
@@ -1047,16 +1165,12 @@ where
             .partition_point(|operation| operation.due_seconds <= now.monotonic.as_seconds());
         let due: Vec<_> = self.delayed.drain(..due_count).collect();
         for operation in due {
-            self.execute_operation(operation.operation, now).await?;
+            self.execute_operation(operation.operation).await?;
         }
         Ok(())
     }
 
-    async fn execute_operation(
-        &mut self,
-        operation: AdapterOperation,
-        now: RuntimeInstant,
-    ) -> Result<(), RuntimeError> {
+    async fn execute_operation(&mut self, operation: AdapterOperation) -> Result<(), RuntimeError> {
         match operation {
             AdapterOperation::Subscribe(subscription) => self
                 .transport
@@ -1100,13 +1214,18 @@ where
                     ),
                 )
                 .await;
+                let outcome_sample = self.clock.sample();
                 match enqueue {
                     Ok(Ok(())) => {
-                        permit.accepted(now.monotonic)?;
+                        let acceptance = permit.accepted(outcome_sample.runtime.monotonic)?;
+                        if acceptance == DispatchAcceptance::BatchAccepted {
+                            self.health
+                                .record_reconciliation(outcome_sample.unix_seconds);
+                        }
                         Ok(())
                     }
                     Ok(Err(_)) | Err(_) => {
-                        permit.transient_failure(now.monotonic)?;
+                        permit.transient_failure(outcome_sample.runtime.monotonic)?;
                         Ok(())
                     }
                 }
@@ -1226,7 +1345,7 @@ pub async fn run_service(config_path: &Path, state_path: &Path) -> Result<(), Ru
         .await
         .map_err(|_| RuntimeError::Io("cannot bind health listener"))?;
     let (health_shutdown, health_shutdown_rx) = tokio::sync::oneshot::channel();
-    let health_task = tokio::spawn(crate::health::serve(listener, health.clone(), async {
+    let mut health_task = tokio::spawn(crate::health::serve(listener, health.clone(), async {
         let _ = health_shutdown_rx.await;
     }));
     let mut actor = RuntimeActor::new(engine, transport, clock, writer, health)?;
@@ -1236,9 +1355,14 @@ pub async fn run_service(config_path: &Path, state_path: &Path) -> Result<(), Ru
             if result.is_err() {
                 let _ = actor.shutdown().await;
             }
-            result
+            let _ = health_shutdown.send(());
+            match health_task.await {
+                Ok(Ok(())) => result,
+                Ok(Err(_)) | Err(_) if result.is_ok() => Err(RuntimeError::HealthServerStopped),
+                Ok(Err(_)) | Err(_) => result,
+            }
         },
-        result = health_task => {
+        result = &mut health_task => {
             let _ = actor.shutdown().await;
             match result {
                 Ok(Ok(())) => Err(RuntimeError::HealthServerStopped),
@@ -1246,7 +1370,6 @@ pub async fn run_service(config_path: &Path, state_path: &Path) -> Result<(), Ru
             }
         }
     };
-    let _ = health_shutdown.send(());
     actor_result
 }
 
@@ -1282,7 +1405,25 @@ fn normalize_state(
         .collect();
     let configured_controls: BTreeMap<_, _> = controls
         .iter()
-        .map(|control| (control.id.clone(), control.selected_scope.clone()))
+        .map(|control| {
+            let mut allowed_scopes = BTreeSet::from([control.selected_scope.clone()]);
+            for gesture in all_gestures() {
+                if let Some(entry) = control.mapping.entry(gesture)
+                    && entry.action() == Action::SelectScope
+                    && let ScopeTarget::Explicit(scope) = entry.target()
+                {
+                    allowed_scopes.insert(scope.clone());
+                }
+            }
+            (
+                control.id.clone(),
+                (
+                    control.selected_scope.clone(),
+                    control.aliases.clone(),
+                    allowed_scopes,
+                ),
+            )
+        })
         .collect();
     let persisted_controls: BTreeMap<_, _> = snapshot
         .controls
@@ -1312,15 +1453,42 @@ fn normalize_state(
             .unwrap_or_else(|| ScopeState::new(false));
         normalized.insert_scope(scope.clone(), state)?;
     }
-    for (id, default_scope) in configured_controls {
+    for (id, (default_scope, aliases, allowed_scopes)) in configured_controls {
         let selected = persisted_controls
             .get(&id)
-            .filter(|scope| configured_scopes.contains(*scope))
+            .or_else(|| {
+                aliases
+                    .iter()
+                    .find_map(|alias| persisted_controls.get(alias))
+            })
+            .filter(|scope| allowed_scopes.contains(*scope))
             .cloned()
             .unwrap_or(default_scope);
         normalized.insert_control(id, ControlState::new(selected))?;
     }
     Ok(normalized)
+}
+
+fn all_gestures() -> impl Iterator<Item = Gesture> {
+    [
+        Gesture::Up,
+        Gesture::Down,
+        Gesture::Left,
+        Gesture::Right,
+        Gesture::CenterSingle,
+        Gesture::CenterDouble,
+        Gesture::CenterLong,
+        Gesture::CenterRelease,
+        Gesture::DirectionHold(Direction::Up),
+        Gesture::DirectionHold(Direction::Down),
+        Gesture::DirectionHold(Direction::Left),
+        Gesture::DirectionHold(Direction::Right),
+        Gesture::DirectionRelease(Direction::Up),
+        Gesture::DirectionRelease(Direction::Down),
+        Gesture::DirectionRelease(Direction::Left),
+        Gesture::DirectionRelease(Direction::Right),
+    ]
+    .into_iter()
 }
 
 fn resolve_owner(
@@ -1467,5 +1635,156 @@ impl From<PersistenceError> for RuntimeError {
 impl From<crate::config::ConfigError> for RuntimeError {
     fn from(value: crate::config::ConfigError) -> Self {
         Self::Config(value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use async_trait::async_trait;
+    use chrono::TimeZone;
+    use chrono_tz::Europe::Stockholm;
+    use house_automation_core::{
+        reconcile::{CommandEntity, DeviceId, ReconcileAction},
+        state::{AutomationState, LocalDate, MonotonicTime},
+    };
+
+    use crate::{
+        config::ValidatedConfig,
+        health::HealthState,
+        mqtt::{MqttError, MqttTransport, TransportEvent},
+        scheduler::{Clock, ClockSample},
+        zigbee2mqtt::Qos,
+    };
+
+    use super::{DurableStateWriter, HouseEngine, RuntimeActor, RuntimeError, RuntimeInstant};
+
+    struct NoopTransport;
+
+    #[async_trait]
+    impl MqttTransport for NoopTransport {
+        async fn next_event(&mut self) -> Result<TransportEvent, MqttError> {
+            std::future::pending().await
+        }
+
+        async fn subscribe(&mut self, _topic: &str, _qos: Qos) -> Result<(), MqttError> {
+            Ok(())
+        }
+
+        async fn publish(
+            &mut self,
+            _topic: &str,
+            _payload: &[u8],
+            _qos: Qos,
+            _retain: bool,
+        ) -> Result<(), MqttError> {
+            Ok(())
+        }
+
+        async fn shutdown(&mut self, _status_topic: &str) -> Result<(), MqttError> {
+            Ok(())
+        }
+    }
+
+    #[derive(Clone)]
+    struct FixedClock(ClockSample);
+
+    impl Clock for FixedClock {
+        fn sample(&self) -> ClockSample {
+            self.0.clone()
+        }
+    }
+
+    struct NoopWriter;
+
+    #[async_trait]
+    impl DurableStateWriter for NoopWriter {
+        async fn save(&mut self, _state: AutomationState) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+    }
+
+    fn sample(seconds: f64) -> ClockSample {
+        let wall = Stockholm.with_ymd_and_hms(2026, 9, 13, 12, 0, 0).unwrap();
+        ClockSample {
+            wall,
+            runtime: RuntimeInstant::new(
+                LocalDate::new(2026, 9, 13).unwrap(),
+                12,
+                0,
+                0,
+                MonotonicTime::from_seconds(seconds).unwrap(),
+            )
+            .unwrap(),
+            unix_seconds: wall.timestamp(),
+        }
+    }
+
+    #[tokio::test]
+    async fn permanent_adapter_plan_error_cancels_every_affected_dispatch_token() {
+        let engine = HouseEngine::initialize(
+            ValidatedConfig::parse(include_str!("../../examples/house.toml"))
+                .unwrap()
+                .into_runtime_parts(),
+            Default::default(),
+            sample(0.0).runtime,
+        )
+        .unwrap();
+        let mut actor = RuntimeActor::new(
+            engine,
+            NoopTransport,
+            FixedClock(sample(0.1)),
+            NoopWriter,
+            Arc::new(HealthState::new()),
+        )
+        .unwrap();
+        let actions = actor
+            .engine
+            .reconciler
+            .broker_connected(sample(0.1).runtime.monotonic)
+            .unwrap();
+        let mut token = None;
+        let malformed: Vec<_> = actions
+            .into_iter()
+            .map(|action| match action {
+                ReconcileAction::Command {
+                    token: command_token,
+                    target,
+                    ..
+                } => {
+                    token.get_or_insert(command_token);
+                    ReconcileAction::Command {
+                        token: command_token,
+                        entity: CommandEntity::Device(DeviceId::new("unbound-device").unwrap()),
+                        target,
+                    }
+                }
+                other => other,
+            })
+            .collect();
+        let token = token.expect("reconnect produces a command token");
+
+        let error = actor
+            .enqueue_actions(malformed, sample(0.1).runtime)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, RuntimeError::Adapter(ref error) if error.is_permanent()));
+        assert!(!actor.engine.reconciler.is_dispatch_token_valid(token));
+    }
+
+    #[tokio::test]
+    async fn sqlite_writer_detects_an_unexpectedly_stopped_worker() {
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        let worker = std::thread::spawn(move || drop(receiver));
+        let mut writer = super::SqliteWriter {
+            sender: Some(sender),
+            worker: Some(worker),
+        };
+
+        let error = writer.save(AutomationState::default()).await.unwrap_err();
+
+        assert!(matches!(error, RuntimeError::PersistenceWorkerStopped));
     }
 }
