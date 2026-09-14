@@ -620,11 +620,12 @@ impl Reconciler {
                     .values()
                     .map(|dispatch| dispatch.retry_deadline),
             )
-            .chain(
-                self.devices
-                    .values()
-                    .filter_map(|device| device.pending.map(|pending| pending.deadline)),
-            )
+            .chain(self.devices.values().filter_map(|device| {
+                device
+                    .pending
+                    .filter(|pending| pending.attempts < self.retry_policy.max_attempts)
+                    .map(|pending| pending.deadline)
+            }))
             .min_by(|left, right| left.as_seconds().total_cmp(&right.as_seconds()))
     }
 
@@ -2714,6 +2715,7 @@ mod tests {
             .pending_command()
             .unwrap();
         assert_eq!(pending.attempts(), 3);
+        assert_eq!(reconciler.next_deadline(), None);
         assert!(!reconciler.device_state(&lamp).unwrap().in_sync());
         assert!(
             reconciler
