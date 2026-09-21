@@ -68,23 +68,37 @@ pkgs.runCommand "smarthome-publish-workflow-contract"
     }
 
     validate_ci() {
-      yq -e '([.. | select(tag == "!!str") | select(test("\\$\\{\\{") and test("\\bsecrets\\b"))] | length == 0) and ([.. | select(tag == "!!map") | keys[] | select(. == "secrets")] | length == 0)' "$1" >/dev/null
+      yq -e '([.. | select(tag == "!!str") | select(test("\\$\\{\\{") and test("(?i)\\bsecrets\\b"))] | length == 0) and ([.. | select(tag == "!!map") | keys[] | select(. == "secrets")] | length == 0)' "$1" >/dev/null
     }
 
     validate_pr_workflows() {
       workflow_dir="$1"
-      found=0
+      pr_found=0
       while IFS= read -r -d $'\0' candidate; do
-        found=$((found + 1))
         if yq -e '(.on | tag) == "!!map" and (.on | (has("pull_request") or has("pull_request_target")))' "$candidate" >/dev/null; then
+          pr_found=$((pr_found + 1))
           validate_ci "$candidate" || return 1
         elif yq -e '(.on | tag) == "!!seq"' "$candidate" >/dev/null && yq -e '.on[] | select(. == "pull_request" or . == "pull_request_target")' "$candidate" >/dev/null; then
+          pr_found=$((pr_found + 1))
           validate_ci "$candidate" || return 1
         elif yq -e '(.on | tag) == "!!str" and (.on == "pull_request" or .on == "pull_request_target")' "$candidate" >/dev/null; then
+          pr_found=$((pr_found + 1))
           validate_ci "$candidate" || return 1
         fi
       done < <(find "$workflow_dir" -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) -print0)
-      test "$found" -gt 0
+      test "$pr_found" -gt 0
+    }
+
+    assert_no_pr_workflows_rejected() {
+      rm -rf workflow-mutants
+      mkdir workflow-mutants
+      cp "$workflow" workflow-mutants/publish.yml
+      cp "$ci" workflow-mutants/ci.yml
+      yq -i '.on = {"push": {"branches": ["main"]}}' workflow-mutants/ci.yml
+      if validate_pr_workflows workflow-mutants; then
+        echo "CI contract accepted workflow set without PR trigger" >&2
+        return 1
+      fi
     }
 
     assert_ci_rejected() {
@@ -138,10 +152,12 @@ pkgs.runCommand "smarthome-publish-workflow-contract"
     assert_rejected "unexpected extra action" '.jobs.verify.steps += [{"name": "Unexpected action", "uses": "example/action@0000000000000000000000000000000000000000"}]'
 
     validate_pr_workflows "$workflow_dir"
+    assert_no_pr_workflows_rejected
     assert_ci_rejected "dot-syntax secret reference" '.env.EXTRA = "''${{ secrets.OTHER_TOKEN }}"'
     assert_ci_rejected "bracket-syntax secret reference" '.env.EXTRA = "''${{ secrets[\"OTHER_TOKEN\"] }}"'
     assert_ci_rejected "composed secret reference" '.env.EXTRA = "''${{ github.event_name == \"pull_request\" && secrets.OTHER_TOKEN }}"'
     assert_ci_rejected "toJSON secret reference" '.env.EXTRA = "''${{ toJSON(secrets) }}"'
+    assert_ci_rejected "mixed-case secret reference" '.env.EXTRA = "''${{ Secrets.TOKEN }}"'
     assert_synthetic_pr_workflow_rejected "scalar pull_request trigger" '"pull_request"' '.env.EXTRA = "''${{ toJSON(secrets) }}"'
     assert_synthetic_pr_workflow_rejected "scalar pull_request_target trigger" '"pull_request_target"' '.env.EXTRA = "''${{ toJSON(secrets) }}"'
     assert_synthetic_pr_workflow_rejected "sequence pull_request trigger" '["push", "pull_request"]' '.env.EXTRA = "''${{ toJSON(secrets) }}"'
