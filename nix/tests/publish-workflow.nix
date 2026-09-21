@@ -76,7 +76,7 @@ pkgs.runCommand "smarthome-publish-workflow-contract"
       found=0
       while IFS= read -r -d $'\0' candidate; do
         found=$((found + 1))
-        if yq -e '(.on | tag) == "!!map" and (.on | has("pull_request") or has("pull_request_target"))' "$candidate" >/dev/null; then
+        if yq -e '(.on | tag) == "!!map" and (.on | (has("pull_request") or has("pull_request_target")))' "$candidate" >/dev/null; then
           validate_ci "$candidate" || return 1
         elif yq -e '(.on | tag) == "!!seq"' "$candidate" >/dev/null && yq -e '.on[] | select(. == "pull_request" or . == "pull_request_target")' "$candidate" >/dev/null; then
           validate_ci "$candidate" || return 1
@@ -145,5 +145,7 @@ pkgs.runCommand "smarthome-publish-workflow-contract"
     assert_synthetic_pr_workflow_rejected "scalar pull_request_target trigger" '"pull_request_target"'
     assert_synthetic_pr_workflow_rejected "sequence pull_request trigger" '["push", "pull_request"]'
     assert_synthetic_pr_workflow_rejected "sequence pull_request_target trigger" '["push", "pull_request_target"]'
+    assert_synthetic_pr_workflow_rejected "mapping pull_request trigger" '{"pull_request": {}}'
+    assert_synthetic_pr_workflow_rejected "mapping pull_request_target trigger" '{"pull_request_target": {}}'
     touch "$out"
   ''
