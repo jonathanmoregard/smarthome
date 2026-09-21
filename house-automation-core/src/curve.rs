@@ -122,7 +122,7 @@ impl CircadianCurve {
             .collect();
         let color_temperature_values: Vec<_> = anchors
             .iter()
-            .map(|anchor| anchor.color_temperature.get())
+            .map(|anchor| 1_000_000.0 / anchor.color_temperature.get())
             .collect();
 
         Ok(Self {
@@ -145,7 +145,7 @@ impl CircadianCurve {
         let color_temperature_values: Vec<_> = self
             .anchors
             .iter()
-            .map(|anchor| anchor.color_temperature.get())
+            .map(|anchor| 1_000_000.0 / anchor.color_temperature.get())
             .collect();
 
         let brightness = interpolate(
@@ -154,12 +154,13 @@ impl CircadianCurve {
             &self.brightness_slopes,
             time,
         );
-        let color_temperature = interpolate(
+        let color_temperature_mired = interpolate(
             &self.anchors,
             &color_temperature_values,
             &self.color_temperature_slopes,
             time,
         );
+        let color_temperature = 1_000_000.0 / color_temperature_mired;
 
         CurvePoint {
             brightness: Brightness::clamped(brightness)
@@ -370,10 +371,11 @@ mod tests {
 
         let noon = curve.sample(time(12, 0));
         let midnight = curve.sample(time(0, 0));
+        let expected_kelvin = 1_000_000.0 / ((1_000_000.0 / 2_700.0 + 1_000_000.0 / 5_100.0) / 2.0);
         assert!((noon.brightness().get() - 0.5).abs() < 1e-12);
-        assert!((noon.color_temperature().get() - 3_900.0).abs() < 1e-9);
+        assert!((noon.color_temperature().get() - expected_kelvin).abs() < 1e-9);
         assert!((midnight.brightness().get() - 0.5).abs() < 1e-12);
-        assert!((midnight.color_temperature().get() - 3_900.0).abs() < 1e-9);
+        assert!((midnight.color_temperature().get() - expected_kelvin).abs() < 1e-9);
     }
 
     #[test]
@@ -491,5 +493,6 @@ mod tests {
     fn anchor_rejects_invalid_kelvin() {
         assert!(CurveAnchor::new(time(6, 0), Brightness::new(0.5).unwrap(), f64::NAN).is_err());
         assert!(CurveAnchor::new(time(6, 0), Brightness::new(0.5).unwrap(), 0.0).is_err());
+        assert!(CurveAnchor::new(time(6, 0), Brightness::new(0.5).unwrap(), 1e-309).is_err());
     }
 }

@@ -131,6 +131,18 @@ impl LocalDate {
         Ok(Self { year, month, day })
     }
 
+    pub fn year(self) -> i32 {
+        self.year
+    }
+
+    pub fn month(self) -> u8 {
+        self.month
+    }
+
+    pub fn day(self) -> u8 {
+        self.day
+    }
+
     fn previous_day(self) -> Result<Self, StateError> {
         if self.day > 1 {
             return Self::new(self.year, self.month, self.day - 1);
@@ -1071,6 +1083,13 @@ mod tests {
         assert!(LocalDate::new(2026, 0, 1).is_err());
         assert!(LocalDate::new(2026, 13, 1).is_err());
         assert!(LocalDate::new(2026, 4, 31).is_err());
+    }
+
+    #[test]
+    fn local_dates_expose_validated_components() {
+        let date = LocalDate::new(2026, 11, 1).unwrap();
+
+        assert_eq!((date.year(), date.month(), date.day()), (2026, 11, 1));
     }
 
     #[test]

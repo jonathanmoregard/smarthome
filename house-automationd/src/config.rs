@@ -11,6 +11,7 @@ use std::{
     path::PathBuf,
 };
 
+use chrono_tz::{Europe::Stockholm, Tz};
 use house_automation_core::{
     curve::{CircadianCurve, CurveAnchor, TimeOfDay},
     input::{
@@ -23,10 +24,11 @@ use house_automation_core::{
         RetryPolicy,
     },
     state::{ControlId, ConvergenceDuration, Scope, ScopeId, ScopeMembership},
-    value::{Brightness, Capabilities, KelvinRange},
+    value::{Brightness, Capabilities, Kelvin, KelvinRange},
 };
 use serde::Deserialize;
 
+use crate::solar::{CircadianSchedule, Coordinates, MonthDay, SolarHybridCurve, WinterHold};
 use crate::zigbee2mqtt::{
     ControlBinding, DeviceBinding, GroupBinding, MiredRange, Zigbee2MqttAdapter,
 };
@@ -126,6 +128,7 @@ impl fmt::Debug for ValidatedConfig {
 
 /// Owned, typed values consumed by daemon runtime.
 pub struct RuntimeConfigParts {
+    pub time_zone: Tz,
     pub mqtt: MqttSettings,
     pub input: InputSettings,
     pub circadian: CircadianSettings,
@@ -135,7 +138,7 @@ pub struct RuntimeConfigParts {
     pub retry_policy: RetryPolicy,
     pub reconciliation_timing: ReconciliationTiming,
     pub health: HealthSettings,
-    pub curves: BTreeMap<ScopeId, CircadianCurve>,
+    pub curves: BTreeMap<ScopeId, CircadianSchedule>,
     pub scopes: Vec<ScopeConfiguration>,
     pub devices: Vec<DeviceConfiguration>,
     pub groups: Vec<GroupConfiguration>,
@@ -301,6 +304,7 @@ impl Error for ConfigError {}
 #[serde(deny_unknown_fields)]
 struct RawConfig {
     schema_version: u32,
+    location: Option<RawLocation>,
     mqtt: RawMqtt,
     #[serde(default)]
     input: RawInput,
@@ -322,6 +326,14 @@ struct RawConfig {
     #[serde(default)]
     groups: Vec<RawGroup>,
     controls: Vec<RawControl>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawLocation {
+    latitude: f64,
+    longitude: f64,
+    time_zone: String,
 }
 
 #[derive(Deserialize)]
@@ -476,7 +488,32 @@ struct RawRoom {
 #[serde(deny_unknown_fields)]
 struct RawCurve {
     id: String,
-    anchors: Vec<RawAnchor>,
+    #[serde(default)]
+    kind: RawCurveKind,
+    anchors: Option<Vec<RawAnchor>>,
+    wake_time: Option<String>,
+    bed_time: Option<String>,
+    night_brightness: Option<f64>,
+    day_brightness: Option<f64>,
+    night_color_temperature_kelvin: Option<f64>,
+    day_color_temperature_kelvin: Option<f64>,
+    winter_hold: Option<RawWinterHold>,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum RawCurveKind {
+    #[default]
+    Fixed,
+    SolarHybrid,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawWinterHold {
+    start: String,
+    end: String,
+    reference: String,
 }
 
 #[derive(Deserialize)]
@@ -625,6 +662,10 @@ impl RawConfig {
                 "only schema version 1 is supported",
             ));
         }
+        let location = self.location.map(RawLocation::validate).transpose()?;
+        let time_zone = location
+            .as_ref()
+            .map_or(Stockholm, |location| location.time_zone);
         let mqtt = self.mqtt.validate()?;
         let input = self.input.validate()?;
         let circadian = self.circadian.validate()?;
@@ -636,7 +677,7 @@ impl RawConfig {
         let health = self.health.validate()?;
         let floors = validate_floors(self.floors)?;
         let rooms = validate_rooms(self.rooms, &floors)?;
-        let curves = validate_curves(self.curves)?;
+        let curves = validate_curves(self.curves, location.as_ref())?;
         let (devices, device_caps, device_ids, aliases, device_bindings) =
             validate_devices(self.devices, &rooms)?;
         let (groups, group_bindings) = validate_groups(self.groups, &device_caps, &device_ids)?;
@@ -658,6 +699,7 @@ impl RawConfig {
         })?;
 
         Ok(RuntimeConfigParts {
+            time_zone,
             mqtt,
             input,
             circadian,
@@ -673,6 +715,39 @@ impl RawConfig {
             groups,
             controls,
             zigbee2mqtt,
+        })
+    }
+}
+
+#[derive(Clone, Copy)]
+struct ValidatedLocation {
+    coordinates: Coordinates,
+    time_zone: Tz,
+}
+
+impl RawLocation {
+    fn validate(self) -> Result<ValidatedLocation, ConfigError> {
+        if !self.latitude.is_finite() || !(-90.0..=90.0).contains(&self.latitude) {
+            return Err(ConfigError::validation(
+                "location.latitude",
+                "latitude must be finite and between -90 and 90",
+            ));
+        }
+        if !self.longitude.is_finite() || !(-180.0..=180.0).contains(&self.longitude) {
+            return Err(ConfigError::validation(
+                "location.longitude",
+                "longitude must be finite and between -180 and 180",
+            ));
+        }
+        let time_zone = self.time_zone.parse::<Tz>().map_err(|_| {
+            ConfigError::validation("location.time_zone", "must be a known IANA timezone")
+        })?;
+        let coordinates = Coordinates::new(self.latitude, self.longitude).map_err(|_| {
+            ConfigError::validation("location", "coordinates must be finite and in range")
+        })?;
+        Ok(ValidatedLocation {
+            coordinates,
+            time_zone,
         })
     }
 }
@@ -1002,43 +1077,175 @@ fn validate_rooms(
     Ok(rooms)
 }
 
-fn validate_curves(raw: Vec<RawCurve>) -> Result<BTreeMap<ScopeId, CircadianCurve>, ConfigError> {
+fn validate_curves(
+    raw: Vec<RawCurve>,
+    location: Option<&ValidatedLocation>,
+) -> Result<BTreeMap<ScopeId, CircadianSchedule>, ConfigError> {
     if raw.is_empty() {
         return Err(ConfigError::validation("curves", "must not be empty"));
     }
     let mut curves = BTreeMap::new();
     for curve in raw {
-        let id = scope_id(curve.id, "curves.id")?;
-        let mut anchors = Vec::with_capacity(curve.anchors.len());
-        for anchor in curve.anchors {
-            let time = parse_time_of_day(&anchor.time).map_err(|_| {
-                ConfigError::validation("curves.anchors.time", "must be HH:MM or HH:MM:SS")
-            })?;
-            let brightness = Brightness::new(anchor.brightness).map_err(|_| {
-                ConfigError::validation("curves.anchors.brightness", "must be between 0 and 1")
-            })?;
-            anchors.push(
-                CurveAnchor::new(time, brightness, anchor.color_temperature_kelvin).map_err(
-                    |_| {
+        let RawCurve {
+            id,
+            kind,
+            anchors,
+            wake_time,
+            bed_time,
+            night_brightness,
+            day_brightness,
+            night_color_temperature_kelvin,
+            day_color_temperature_kelvin,
+            winter_hold,
+        } = curve;
+        let id = scope_id(id, "curves.id")?;
+        let curve = match kind {
+            RawCurveKind::Fixed => {
+                if wake_time.is_some()
+                    || bed_time.is_some()
+                    || night_brightness.is_some()
+                    || day_brightness.is_some()
+                    || night_color_temperature_kelvin.is_some()
+                    || day_color_temperature_kelvin.is_some()
+                    || winter_hold.is_some()
+                {
+                    return Err(ConfigError::validation(
+                        "curves",
+                        "fixed curve accepts only anchors",
+                    ));
+                }
+                CircadianSchedule::Fixed(validate_fixed_curve(anchors.ok_or_else(|| {
+                    ConfigError::validation("curves.anchors", "fixed curve requires anchors")
+                })?)?)
+            }
+            RawCurveKind::SolarHybrid => {
+                if anchors.is_some() {
+                    return Err(ConfigError::validation(
+                        "curves",
+                        "solar_hybrid curve must not define anchors",
+                    ));
+                }
+                let location = location.ok_or_else(|| {
+                    ConfigError::validation(
+                        "location",
+                        "solar_hybrid curve requires coordinates and timezone",
+                    )
+                })?;
+                let wake_time = required_time(wake_time, "curves.wake_time")?;
+                let bed_time = required_time(bed_time, "curves.bed_time")?;
+                let night_brightness =
+                    required_brightness(night_brightness, "curves.night_brightness")?;
+                let day_brightness = required_brightness(day_brightness, "curves.day_brightness")?;
+                let night_kelvin = required_kelvin(
+                    night_color_temperature_kelvin,
+                    "curves.night_color_temperature_kelvin",
+                )?;
+                let day_kelvin = required_kelvin(
+                    day_color_temperature_kelvin,
+                    "curves.day_color_temperature_kelvin",
+                )?;
+                let winter_hold = winter_hold.map(validate_winter_hold).transpose()?;
+                CircadianSchedule::SolarHybrid(
+                    SolarHybridCurve::new(
+                        location.coordinates,
+                        location.time_zone,
+                        wake_time,
+                        bed_time,
+                        night_brightness,
+                        day_brightness,
+                        night_kelvin,
+                        day_kelvin,
+                        winter_hold,
+                    )
+                    .map_err(|_| {
                         ConfigError::validation(
-                            "curves.anchors.color_temperature_kelvin",
-                            "must be finite and positive",
+                            "curves",
+                            "solar curve needs an eight-hour wake/bed window and increasing day bounds",
                         )
-                    },
-                )?,
-            );
-        }
-        let curve = CircadianCurve::new(anchors).map_err(|_| {
-            ConfigError::validation(
-                "curves.anchors",
-                "curve needs at least two anchors with unique times and valid values",
-            )
-        })?;
+                    })?,
+                )
+            }
+        };
         if curves.insert(id, curve).is_some() {
             return Err(ConfigError::validation("curves", "duplicate identifier"));
         }
     }
     Ok(curves)
+}
+
+fn validate_fixed_curve(raw: Vec<RawAnchor>) -> Result<CircadianCurve, ConfigError> {
+    let mut anchors = Vec::with_capacity(raw.len());
+    for anchor in raw {
+        let time = parse_time_of_day(&anchor.time).map_err(|_| {
+            ConfigError::validation("curves.anchors.time", "must be HH:MM or HH:MM:SS")
+        })?;
+        let brightness = Brightness::new(anchor.brightness).map_err(|_| {
+            ConfigError::validation("curves.anchors.brightness", "must be between 0 and 1")
+        })?;
+        anchors.push(
+            CurveAnchor::new(time, brightness, anchor.color_temperature_kelvin).map_err(|_| {
+                ConfigError::validation(
+                    "curves.anchors.color_temperature_kelvin",
+                    "must be positive with a finite mired representation",
+                )
+            })?,
+        );
+    }
+    CircadianCurve::new(anchors).map_err(|_| {
+        ConfigError::validation(
+            "curves.anchors",
+            "curve needs at least two anchors with unique times and valid values",
+        )
+    })
+}
+
+fn required_time(value: Option<String>, field: &'static str) -> Result<TimeOfDay, ConfigError> {
+    parse_time_of_day(
+        value
+            .as_deref()
+            .ok_or_else(|| ConfigError::validation(field, "is required"))?,
+    )
+    .map_err(|_| ConfigError::validation(field, "must be HH:MM or HH:MM:SS"))
+}
+
+fn required_brightness(value: Option<f64>, field: &'static str) -> Result<Brightness, ConfigError> {
+    Brightness::new(value.ok_or_else(|| ConfigError::validation(field, "is required"))?)
+        .map_err(|_| ConfigError::validation(field, "must be between 0 and 1"))
+}
+
+fn required_kelvin(value: Option<f64>, field: &'static str) -> Result<Kelvin, ConfigError> {
+    Kelvin::new(value.ok_or_else(|| ConfigError::validation(field, "is required"))?).map_err(|_| {
+        ConfigError::validation(field, "must be positive with a finite mired representation")
+    })
+}
+
+fn validate_winter_hold(raw: RawWinterHold) -> Result<WinterHold, ConfigError> {
+    let start = parse_month_day(&raw.start)?;
+    let end = parse_month_day(&raw.end)?;
+    let reference = parse_month_day(&raw.reference)?;
+    WinterHold::new(start, end, reference).map_err(|_| {
+        ConfigError::validation(
+            "curves.winter_hold.reference",
+            "must fall inside hold interval",
+        )
+    })
+}
+
+fn parse_month_day(value: &str) -> Result<MonthDay, ConfigError> {
+    if value.len() != 5 || value.as_bytes().get(2) != Some(&b'-') {
+        return Err(ConfigError::validation(
+            "curves.winter_hold",
+            "must use valid MM-DD values",
+        ));
+    }
+    let month = value[..2].parse::<u8>().map_err(|_| {
+        ConfigError::validation("curves.winter_hold", "must use valid MM-DD values")
+    })?;
+    let day = value[3..].parse::<u8>().map_err(|_| {
+        ConfigError::validation("curves.winter_hold", "must use valid MM-DD values")
+    })?;
+    MonthDay::new(month, day)
+        .map_err(|_| ConfigError::validation("curves.winter_hold", "must use valid MM-DD values"))
 }
 
 type DeviceValidation = (
@@ -1240,7 +1447,7 @@ fn validate_scopes(
     raw: Vec<RawScope>,
     floors: &BTreeSet<ScopeId>,
     rooms: &BTreeMap<ScopeId, ScopeId>,
-    curves: &BTreeMap<ScopeId, CircadianCurve>,
+    curves: &BTreeMap<ScopeId, CircadianSchedule>,
     devices: &[DeviceConfiguration],
 ) -> Result<Vec<ScopeConfiguration>, ConfigError> {
     if raw.is_empty() {

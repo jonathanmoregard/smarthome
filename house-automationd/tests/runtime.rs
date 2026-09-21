@@ -37,6 +37,39 @@ fn dated_instant(day: u8, hour: u8, minute: u8, monotonic: f64) -> RuntimeInstan
     .unwrap()
 }
 
+fn calendar_instant(year: i32, month: u8, day: u8, hour: u8, minute: u8) -> RuntimeInstant {
+    RuntimeInstant::new(
+        LocalDate::new(year, month, day).unwrap(),
+        hour,
+        minute,
+        0,
+        MonotonicTime::from_seconds(0.0).unwrap(),
+    )
+    .unwrap()
+}
+
+fn solar_target(year: i32, month: u8, day: u8, hour: u8, minute: u8) -> (f64, f64) {
+    let source = include_str!("../../examples/house.toml")
+        .replace("curve = \"default-day\"", "curve = \"solar-day\"");
+    let now = calendar_instant(year, month, day, hour, minute);
+    let mut engine = HouseEngine::initialize(
+        ValidatedConfig::parse(&source)
+            .unwrap()
+            .into_runtime_parts(),
+        Default::default(),
+        now,
+    )
+    .unwrap();
+    engine.recompute_desired(now).unwrap();
+    let target = engine
+        .target(&DeviceId::new("reading-light").unwrap())
+        .unwrap();
+    (
+        target.brightness.unwrap().get(),
+        target.color_temperature.unwrap().get(),
+    )
+}
+
 fn instant_with_second(hour: u8, minute: u8, second: u8, monotonic: f64) -> RuntimeInstant {
     RuntimeInstant::new(
         LocalDate::new(2026, 9, 13).unwrap(),
@@ -66,6 +99,15 @@ fn connect_online(engine: &mut HouseEngine, monotonic: f64) -> Vec<ReconcileActi
             .unwrap(),
     );
     actions
+}
+
+#[test]
+fn runtime_holds_november_solar_target_through_january_then_resumes() {
+    let november = solar_target(2026, 11, 1, 17, 0);
+
+    assert_eq!(solar_target(2026, 12, 21, 17, 0), november);
+    assert_eq!(solar_target(2027, 1, 15, 17, 0), november);
+    assert_ne!(solar_target(2027, 2, 1, 17, 0), november);
 }
 
 #[test]

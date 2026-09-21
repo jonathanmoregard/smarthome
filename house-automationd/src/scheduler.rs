@@ -1,7 +1,7 @@
 use std::{error::Error, fmt, time::Duration};
 
 use chrono::{DateTime, Datelike, Timelike, Utc};
-use chrono_tz::{Europe::Stockholm, Tz};
+use chrono_tz::Tz;
 use house_automation_core::curve::TimeOfDay;
 use house_automation_core::state::{LocalDate, MonotonicTime};
 
@@ -27,7 +27,7 @@ pub struct TokioClock {
 #[derive(Debug, Clone)]
 enum WallSource {
     Derived(DateTime<Tz>),
-    SystemStockholm,
+    System(Tz),
 }
 
 impl TokioClock {
@@ -38,9 +38,9 @@ impl TokioClock {
         }
     }
 
-    pub fn stockholm_now() -> Self {
+    pub fn now(time_zone: Tz) -> Self {
         Self {
-            wall_source: WallSource::SystemStockholm,
+            wall_source: WallSource::System(time_zone),
             monotonic_origin: tokio::time::Instant::now(),
         }
     }
@@ -55,7 +55,7 @@ impl Clock for TokioClock {
                     + chrono::Duration::from_std(elapsed)
                         .expect("Tokio duration fits chrono duration")
             }
-            WallSource::SystemStockholm => Utc::now().with_timezone(&Stockholm),
+            WallSource::System(time_zone) => Utc::now().with_timezone(time_zone),
         };
         let runtime = RuntimeInstant::new(
             LocalDate::new(wall.year(), wall.month() as u8, wall.day() as u8)
