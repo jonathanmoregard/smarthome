@@ -84,7 +84,7 @@ age-decrypted credential file.
 
 ## Releases
 
-This app branch implements the GitHub publisher workflow. Pull requests run the
+This repository implements the GitHub publisher workflow. Pull requests run the
 complete flake check without credentials. Each push to protected `main` builds
 `packages.x86_64-linux.default` on GitHub, publishes its signed runtime closure
 to `jonathanmoregard.cachix.org`, and then uses a separate clean runner with

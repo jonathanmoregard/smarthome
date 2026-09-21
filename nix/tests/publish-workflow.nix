@@ -5,6 +5,7 @@ pkgs.runCommand "smarthome-publish-workflow-contract"
   ''
     workflow=${../../.github/workflows/publish.yml}
     ci=${../../.github/workflows/ci.yml}
+    workflow_dir=${../../.github/workflows}
     checkout_action='actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683'
     install_nix_action='cachix/install-nix-action@ba0dd844c9180cbf77aa72a116d6fbc515d0e87b'
     cachix_action='cachix/cachix-action@1eb2ef646ac0255473d23a5907ad7b04ce94065c'
@@ -67,7 +68,21 @@ pkgs.runCommand "smarthome-publish-workflow-contract"
     }
 
     validate_ci() {
-      yq -e '[.. | select(tag == "!!str") | select(test("\\$\\{\\{[[:space:]]*secrets[[:space:]]*(\\.|\\[)"))] | length == 0' "$1" >/dev/null
+      yq -e '[.. | select(tag == "!!str") | select(test("\\$\\{\\{") and test("\\bsecrets\\b"))] | length == 0' "$1" >/dev/null
+    }
+
+    validate_pr_workflows() {
+      workflow_dir="$1"
+      found=0
+      while IFS= read -r -d $'\0' candidate; do
+        found=$((found + 1))
+        if yq -e '(.on | tag) == "!!map" and (.on | has("pull_request") or has("pull_request_target"))' "$candidate" >/dev/null; then
+          validate_ci "$candidate" || return 1
+        elif yq -e '(.on | tag) == "!!seq"' "$candidate" >/dev/null && yq -e '.on[] | select(. == "pull_request" or . == "pull_request_target")' "$candidate" >/dev/null; then
+          validate_ci "$candidate" || return 1
+        fi
+      done < <(find "$workflow_dir" -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) -print0)
+      test "$found" -gt 0
     }
 
     assert_ci_rejected() {
@@ -78,6 +93,18 @@ pkgs.runCommand "smarthome-publish-workflow-contract"
       yq -i "$mutation" ci-mutant.yml
       if validate_ci ci-mutant.yml; then
         echo "CI contract accepted adversarial mutation: $description" >&2
+        return 1
+      fi
+    }
+
+    assert_synthetic_pr_workflow_rejected() {
+      rm -rf workflow-mutants
+      mkdir workflow-mutants
+      cp "$ci" workflow-mutants/ci.yml
+      cp "$ci" workflow-mutants/synthetic.yml
+      yq -i '.env.EXTRA = "''${{ toJSON(secrets) }}"' workflow-mutants/synthetic.yml
+      if validate_pr_workflows workflow-mutants; then
+        echo "CI contract accepted adversarial mutation: synthetic PR workflow" >&2
         return 1
       fi
     }
@@ -104,8 +131,11 @@ pkgs.runCommand "smarthome-publish-workflow-contract"
     assert_rejected "unexpected extra job with action" '.jobs.audit = {"runs-on": "ubuntu-latest", "steps": [{"uses": "example/action@0000000000000000000000000000000000000000"}]}'
     assert_rejected "unexpected extra action" '.jobs.verify.steps += [{"name": "Unexpected action", "uses": "example/action@0000000000000000000000000000000000000000"}]'
 
-    validate_ci "$ci"
+    validate_pr_workflows "$workflow_dir"
     assert_ci_rejected "dot-syntax secret reference" '.env.EXTRA = "''${{ secrets.OTHER_TOKEN }}"'
     assert_ci_rejected "bracket-syntax secret reference" '.env.EXTRA = "''${{ secrets[\"OTHER_TOKEN\"] }}"'
+    assert_ci_rejected "composed secret reference" '.env.EXTRA = "''${{ github.event_name == \"pull_request\" && secrets.OTHER_TOKEN }}"'
+    assert_ci_rejected "toJSON secret reference" '.env.EXTRA = "''${{ toJSON(secrets) }}"'
+    assert_synthetic_pr_workflow_rejected
     touch "$out"
   ''

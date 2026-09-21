@@ -102,10 +102,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: publish-package-main
-  cancel-in-progress: false
-
 jobs:
   publish:
     name: build and publish package
@@ -149,7 +145,7 @@ jobs:
         with:
           extra_nix_config: |
             substituters = https://cache.nixos.org/ https://jonathanmoregard.cachix.org
-            trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbqbrmckqfmq0nFpwH9x8gs6Ro= jonathanmoregard.cachix.org-1:Qzksr/c2ciAaV4j/U2mGFd1HTgOAicks8gJNs1Ztxo8=
+            trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= jonathanmoregard.cachix.org-1:Qzksr/c2ciAaV4j/U2mGFd1HTgOAicks8gJNs1Ztxo8=
       - name: Substitute without builders
         run: >-
           nix build --no-link
