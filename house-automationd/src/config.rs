@@ -1186,7 +1186,7 @@ fn validate_fixed_curve(raw: Vec<RawAnchor>) -> Result<CircadianCurve, ConfigErr
             CurveAnchor::new(time, brightness, anchor.color_temperature_kelvin).map_err(|_| {
                 ConfigError::validation(
                     "curves.anchors.color_temperature_kelvin",
-                    "must be finite and positive",
+                    "must be positive with a finite mired representation",
                 )
             })?,
         );
@@ -1214,8 +1214,9 @@ fn required_brightness(value: Option<f64>, field: &'static str) -> Result<Bright
 }
 
 fn required_kelvin(value: Option<f64>, field: &'static str) -> Result<Kelvin, ConfigError> {
-    Kelvin::new(value.ok_or_else(|| ConfigError::validation(field, "is required"))?)
-        .map_err(|_| ConfigError::validation(field, "must be finite and positive"))
+    Kelvin::new(value.ok_or_else(|| ConfigError::validation(field, "is required"))?).map_err(|_| {
+        ConfigError::validation(field, "must be positive with a finite mired representation")
+    })
 }
 
 fn validate_winter_hold(raw: RawWinterHold) -> Result<WinterHold, ConfigError> {

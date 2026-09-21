@@ -289,7 +289,8 @@ fn solar_events(date: LocalDate, coordinates: Coordinates, time_zone: Tz) -> Sol
     let latitude = coordinates.latitude.to_radians();
     let hour_angle_cosine = 90.833_f64.to_radians().cos() / (latitude.cos() * declination.cos())
         - latitude.tan() * declination.tan();
-    let noon_minutes = normalize_minutes(noon);
+    let normalized_noon = noon.rem_euclid(f64::from(24 * 60));
+    let noon_minutes = normalize_minutes(normalized_noon);
     if !(-1.0..=1.0).contains(&hour_angle_cosine) {
         return SolarEvents {
             sunrise_minutes: None,
@@ -300,14 +301,18 @@ fn solar_events(date: LocalDate, coordinates: Coordinates, time_zone: Tz) -> Sol
 
     let hour_angle_minutes = hour_angle_cosine.acos().to_degrees() * 4.0;
     SolarEvents {
-        sunrise_minutes: Some(normalize_minutes(noon - hour_angle_minutes)),
+        sunrise_minutes: Some(round_minutes(normalized_noon - hour_angle_minutes)),
         noon_minutes,
-        sunset_minutes: Some(normalize_minutes(noon + hour_angle_minutes)),
+        sunset_minutes: Some(round_minutes(normalized_noon + hour_angle_minutes)),
     }
 }
 
 fn normalize_minutes(minutes: f64) -> i32 {
-    (minutes.round() as i32).rem_euclid(24 * 60)
+    round_minutes(minutes).rem_euclid(24 * 60)
+}
+
+fn round_minutes(minutes: f64) -> i32 {
+    minutes.round() as i32
 }
 
 fn minutes(time: TimeOfDay) -> i32 {
@@ -430,6 +435,27 @@ mod tests {
         assert_eq!(events.sunrise_minutes, None);
         assert_eq!(events.sunset_minutes, None);
         assert!((0..24 * 60).contains(&events.noon_minutes));
+    }
+
+    #[test]
+    fn after_midnight_sunset_uses_late_evening_policy_bounds() {
+        let schedule = SolarHybridCurve::new(
+            Coordinates::new(65.0, 12.0).unwrap(),
+            chrono_tz::Europe::Oslo,
+            time(7, 0),
+            time(23, 0),
+            Brightness::new(0.1).unwrap(),
+            Brightness::new(1.0).unwrap(),
+            Kelvin::new(2_200.0).unwrap(),
+            Kelvin::new(5_000.0).unwrap(),
+            None,
+        )
+        .unwrap();
+
+        let curve = schedule.generated_curve(date(2026, 6, 24));
+
+        assert_eq!(curve.anchors()[3].time(), time(20, 30));
+        assert_eq!(curve.anchors()[4].time(), time(21, 30));
     }
 
     #[test]

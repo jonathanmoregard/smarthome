@@ -493,5 +493,6 @@ mod tests {
     fn anchor_rejects_invalid_kelvin() {
         assert!(CurveAnchor::new(time(6, 0), Brightness::new(0.5).unwrap(), f64::NAN).is_err());
         assert!(CurveAnchor::new(time(6, 0), Brightness::new(0.5).unwrap(), 0.0).is_err());
+        assert!(CurveAnchor::new(time(6, 0), Brightness::new(0.5).unwrap(), 1e-309).is_err());
     }
 }

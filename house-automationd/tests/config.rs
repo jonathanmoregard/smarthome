@@ -600,6 +600,13 @@ fn malformed_and_duplicate_curve_anchors_are_rejected() {
 
     let duplicate = replace(EXAMPLE, "time = \"08:00\"", "time = \"04:00\"");
     assert!(reject(&duplicate).contains("unique times"));
+
+    let unrepresentable_mired = replace(
+        EXAMPLE,
+        "color_temperature_kelvin = 2200",
+        "color_temperature_kelvin = 1e-309",
+    );
+    assert!(reject(&unrepresentable_mired).contains("finite mired"));
 }
 
 #[test]

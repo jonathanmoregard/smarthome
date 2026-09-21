@@ -6,12 +6,14 @@ const NORMALIZED_MIN: f64 = 0.0;
 const NORMALIZED_MAX: f64 = 1.0;
 const HUE_MIN: f64 = 0.0;
 const HUE_MAX: f64 = 360.0;
+const MIRED_SCALE: f64 = 1_000_000.0;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ValueError {
     NonFinite,
     OutOfRange { minimum: f64, maximum: f64 },
     NonPositiveKelvin,
+    UnrepresentableMired,
     InvalidKelvinRange,
 }
 
@@ -23,6 +25,9 @@ impl fmt::Display for ValueError {
                 write!(formatter, "value must be between {minimum} and {maximum}")
             }
             Self::NonPositiveKelvin => formatter.write_str("Kelvin value must be positive"),
+            Self::UnrepresentableMired => {
+                formatter.write_str("Kelvin value must have a finite mired representation")
+            }
             Self::InvalidKelvinRange => {
                 formatter.write_str("Kelvin range minimum must not exceed its maximum")
             }
@@ -87,6 +92,9 @@ impl Kelvin {
         }
         if value <= 0.0 {
             return Err(ValueError::NonPositiveKelvin);
+        }
+        if !(MIRED_SCALE / value).is_finite() {
+            return Err(ValueError::UnrepresentableMired);
         }
 
         Ok(Self(value))
@@ -453,7 +461,14 @@ mod tests {
 
     #[test]
     fn kelvin_and_kelvin_ranges_validate_their_bounds() {
-        for value in [f64::NAN, f64::NEG_INFINITY, f64::INFINITY, -1.0, 0.0] {
+        for value in [
+            f64::NAN,
+            f64::NEG_INFINITY,
+            f64::INFINITY,
+            -1.0,
+            0.0,
+            1e-309,
+        ] {
             assert!(Kelvin::new(value).is_err(), "accepted {value}");
         }
         assert!(KelvinRange::new(0.0, 4000.0).is_err());
