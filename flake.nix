@@ -49,6 +49,7 @@
       };
 
       checks.${system} = {
+        publish-workflow = import ./nix/tests/publish-workflow.nix { inherit pkgs; };
         package = package;
         fmt = pkgs.runCommand "house-automation-formatting" {
           inherit source;
