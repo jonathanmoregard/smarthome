@@ -87,6 +87,23 @@ home server's pull-deploy service activate the tested pin. This two-PR flow
 prevents an untested application commit from entering production merely because
 application `main` moved.
 
+## Releases
+
+Pull requests run the complete flake check without credentials. Each push to
+protected `main` builds `packages.x86_64-linux.default` on GitHub, publishes
+its signed runtime closure to `jonathanmoregard.cachix.org`, and then uses a
+separate clean runner with builders disabled to prove the package substitutes
+from the cache. Publication runs intentionally have no shared concurrency
+group, so each protected-main revision is handled independently.
+
+`CACHIX_AUTH_TOKEN` is a cache-scoped GitHub Actions secret used only by the
+main publication workflow; the home server never receives a cache write token.
+It instead uses a separate, repository-specific read-only GitHub deploy key and
+the public Cachix signing key, pulls the exact `main` commit, and atomically
+switches a dedicated application profile. This keeps application rollout
+separate and supports the server's minimal-disk design. Application publication
+does not use dellan; dellan SSH access remains independent.
+
 ### Add a room, light, or control
 
 1. Add the floor and room to `[[floors]]` and `[[rooms]]`.
