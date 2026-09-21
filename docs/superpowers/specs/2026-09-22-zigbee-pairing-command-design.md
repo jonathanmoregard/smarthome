@@ -24,9 +24,10 @@ Claude session drive the same command for someone who does not know MQTT.
   `bridge/response/permit_join` must report `"status":"ok"`. Joins and
   interviews arrive on `bridge/event`. Windows are 1–254 seconds
   (zigbee-herdsman rejects longer); default 180.
-- **Always close.** Normal end, Ctrl-C, and termination publish
-  `{"time":0}`. If the tunnel is already gone, the command says pairing
-  closes by itself when the window expires.
+- **Always close.** Normal end, Ctrl-C, and SIGTERM to the command publish
+  `{"time":0}`. If the tunnel is already gone (closed terminal, SIGKILL,
+  network loss), pairing closes by itself when the window expires; the
+  bounded window is the safety net, which is why it is capped.
 - **Ctrl-C semantics.** The SSH tunnel is started as an asynchronous child of a
   non-interactive shell, so it inherits an ignored SIGINT and survives the
   terminal's Ctrl-C long enough for the close request.

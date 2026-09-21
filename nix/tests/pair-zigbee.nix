@@ -186,6 +186,27 @@ pkgs.testers.runNixOSTest {
         assert "Pairing closed." in out, out
         wait_for_request_times([200, 0])
 
+    with subtest("termination closes pairing and SMARTHOME_HOST picks the server"):
+        reset_requests()
+        client.succeed(
+            "systemd-run --unit=pair-terminated --setenv=SMARTHOME_HOST=server "
+            "--property=StandardOutput=append:/tmp/pair-terminated.out "
+            "--property=StandardError=append:/tmp/pair-terminated.out "
+            "pair-zigbee --time 200"
+        )
+        client.wait_until_succeeds(
+            "grep -q 'Pairing is open' /tmp/pair-terminated.out", timeout=60
+        )
+        # Like `kill <pid>`: only the command itself is signalled.
+        client.succeed(
+            "systemctl kill --kill-whom=main --signal=SIGTERM pair-terminated.service"
+        )
+        status, out = wait_for_failed_unit("pair-terminated")
+        assert status == "143", f"exit {status}\n{out}"
+        assert "Connecting to server..." in out, out
+        assert "Pairing closed." in out, out
+        wait_for_request_times([200, 0])
+
     with subtest("a refused request is reported and nothing is left open"):
         reset_requests()
         server.succeed("touch /run/fake-zigbee2mqtt/reject")
