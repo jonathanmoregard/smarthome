@@ -1508,11 +1508,12 @@ pub async fn run_service(config_path: &Path, state_path: &Path) -> Result<(), Ru
         .map_err(|_| RuntimeError::Io("runtime configuration must be UTF-8"))?;
     let parts = ValidatedConfig::parse(config_text)?.into_runtime_parts();
     let health_bind = parts.health.bind;
+    let time_zone = parts.time_zone;
 
     // Migration, load, config-authoritative normalization, missed daily reset,
     // and durable save all finish before any MQTT client is constructed.
     let (mut writer, persisted) = SqliteWriter::open(state_path).await?;
-    let clock = TokioClock::stockholm_now();
+    let clock = TokioClock::now(time_zone);
     let engine = HouseEngine::initialize(parts, persisted, clock.sample().runtime)?;
     writer.save(engine.state.clone()).await?;
 

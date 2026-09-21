@@ -1,5 +1,5 @@
 use chrono::{TimeZone, Utc};
-use chrono_tz::Europe::Stockholm;
+use chrono_tz::{Asia::Tokyo, Europe::Stockholm};
 use house_automationd::scheduler::{Clock, Scheduler, TokioClock};
 
 #[tokio::test(start_paused = true)]
@@ -14,6 +14,13 @@ async fn injected_clock_moves_wall_and_monotonic_together() {
         after.runtime.monotonic,
         house_automation_core::state::MonotonicTime::from_seconds(2.0).unwrap()
     );
+}
+
+#[test]
+fn system_clock_uses_configured_timezone() {
+    let clock = TokioClock::now(Tokyo);
+
+    assert_eq!(clock.sample().wall.timezone(), Tokyo);
 }
 
 #[test]
