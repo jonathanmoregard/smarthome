@@ -13,8 +13,11 @@ of this reusable repository. The [companion host runbook](https://github.com/jon
 owns the Dell Wyse assumptions, blank-disk bootstrap, Matrix setup, other
 mutable-service backups, rollback, and disaster recovery.
 
-Dependency direction is one-way: `nixos-config` consumes this repository as a
-pinned flake input. `smarthome` does not import or depend on `nixos-config`.
+The target companion NixOS change gives `nixos-config` ownership of the host,
+service, deployer, and runtime configuration while removing its `smarthome`
+flake input. Once enabled, the server deployer will resolve the exact
+`smarthome` `main` commit directly; `smarthome` never imports or depends on
+`nixos-config`.
 
 ## Architecture
 
@@ -79,13 +82,24 @@ unprivileged account, stores state below `/var/lib/house-automation`, and applie
 systemd hardening. The host configuration wires the module to its broker and
 age-decrypted credential file.
 
-The application pin is deliberate rather than automatic. After a `smarthome`
-change passes and merges, update the exact commit in the host repository's
-`smarthome.url`, run `nix flake update smarthome`, build its affected host/VM
-checks, and open a `nixos-config` PR. Human merge of that second PR lets the
-home server's pull-deploy service activate the tested pin. This two-PR flow
-prevents an untested application commit from entering production merely because
-application `main` moved.
+## Releases
+
+This repository implements the GitHub publisher workflow. Pull requests run the
+complete flake check without credentials. Each push to protected `main` builds
+`packages.x86_64-linux.default` on GitHub, publishes its signed runtime closure
+to `jonathanmoregard.cachix.org`, and then uses a separate clean runner with
+builders disabled to prove the package substitutes from the cache. Publication
+runs intentionally have no shared concurrency group, so each protected-main
+revision is handled independently.
+
+`CACHIX_AUTH_TOKEN` is a cache-scoped GitHub Actions secret used only by the
+main publication workflow. Publication stops at the cache and does not itself
+deploy a host. Once the companion deployer is enabled, the home server will use
+a separate, repository-specific read-only GitHub deploy key and the public
+Cachix signing key to pull the exact `main` commit, hydrate the signed closure,
+and atomically switch a dedicated application profile. That target server-side
+flow keeps application rollout separate and supports minimal-disk activation;
+it does not use dellan, whose SSH access remains independent.
 
 ### Add a room, light, or control
 
@@ -99,8 +113,9 @@ application `main` moved.
 5. Optionally declare a Zigbee group for synchronized room commands. Devices
    remain available as per-device fallbacks, including when a group cannot
    express color temperature safely.
-6. Map control gestures to a scope and run `nix flake check -L` before deploying
-   through the host repository's established path.
+6. Map control gestures to a scope and run `nix flake check -L`. Topology and
+   runtime-configuration changes then go through host-configuration CI/CD;
+   application-code releases use the direct flow in [Releases](#releases).
 
 Scopes compose as room, floor, and house ownership. The most specific physical
 owner holds durable offsets and curve state; broader actions fan out to those
@@ -298,9 +313,11 @@ availability and observed JSON state before forcing a command.
 
 ## Test boundaries
 
-`nix flake check -L` is the sole CI entry point and covers the Rust formatting,
+Pull requests run secret-free `nix flake check -L`, covering the Rust formatting,
 Clippy, unit/integration tests, package build, and Nix module checks exposed by
-the flake. No CI job deploys a host or requires plaintext secrets.
+the flake. On `main`, the signed Cachix publication and a clean cache-only
+substitution proof run in addition. Neither job deploys a host; only the
+publisher receives its scoped cache secret.
 
 The `simulated-house` flake check is a black-box NixOS VM test with a real
 Mosquitto broker, the real daemon, and a fake Zigbee2MQTT peer. Its controlled
