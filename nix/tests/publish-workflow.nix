@@ -80,6 +80,8 @@ pkgs.runCommand "smarthome-publish-workflow-contract"
           validate_ci "$candidate" || return 1
         elif yq -e '(.on | tag) == "!!seq"' "$candidate" >/dev/null && yq -e '.on[] | select(. == "pull_request" or . == "pull_request_target")' "$candidate" >/dev/null; then
           validate_ci "$candidate" || return 1
+        elif yq -e '(.on | tag) == "!!str" and (.on == "pull_request" or .on == "pull_request_target")' "$candidate" >/dev/null; then
+          validate_ci "$candidate" || return 1
         fi
       done < <(find "$workflow_dir" -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) -print0)
       test "$found" -gt 0
@@ -98,13 +100,16 @@ pkgs.runCommand "smarthome-publish-workflow-contract"
     }
 
     assert_synthetic_pr_workflow_rejected() {
+      description="$1"
+      trigger="$2"
       rm -rf workflow-mutants
       mkdir workflow-mutants
       cp "$ci" workflow-mutants/ci.yml
       cp "$ci" workflow-mutants/synthetic.yml
+      yq -i ".on = $trigger" workflow-mutants/synthetic.yml
       yq -i '.env.EXTRA = "''${{ toJSON(secrets) }}"' workflow-mutants/synthetic.yml
       if validate_pr_workflows workflow-mutants; then
-        echo "CI contract accepted adversarial mutation: synthetic PR workflow" >&2
+        echo "CI contract accepted adversarial mutation: $description" >&2
         return 1
       fi
     }
@@ -136,6 +141,9 @@ pkgs.runCommand "smarthome-publish-workflow-contract"
     assert_ci_rejected "bracket-syntax secret reference" '.env.EXTRA = "''${{ secrets[\"OTHER_TOKEN\"] }}"'
     assert_ci_rejected "composed secret reference" '.env.EXTRA = "''${{ github.event_name == \"pull_request\" && secrets.OTHER_TOKEN }}"'
     assert_ci_rejected "toJSON secret reference" '.env.EXTRA = "''${{ toJSON(secrets) }}"'
-    assert_synthetic_pr_workflow_rejected
+    assert_synthetic_pr_workflow_rejected "scalar pull_request trigger" '"pull_request"'
+    assert_synthetic_pr_workflow_rejected "scalar pull_request_target trigger" '"pull_request_target"'
+    assert_synthetic_pr_workflow_rejected "sequence pull_request trigger" '["push", "pull_request"]'
+    assert_synthetic_pr_workflow_rejected "sequence pull_request_target trigger" '["push", "pull_request_target"]'
     touch "$out"
   ''
