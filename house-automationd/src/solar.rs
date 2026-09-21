@@ -2,7 +2,13 @@ use std::{error::Error, f64::consts::PI, fmt};
 
 use chrono::{Datelike, NaiveDate, Offset, TimeZone};
 use chrono_tz::Tz;
-use house_automation_core::state::LocalDate;
+use house_automation_core::{
+    curve::{CircadianCurve, CurveAnchor, CurvePoint, TimeOfDay},
+    state::LocalDate,
+    value::{Brightness, Kelvin},
+};
+
+const MINIMUM_AWAKE_SECONDS: u32 = 8 * 60 * 60;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Coordinates {
@@ -59,6 +65,121 @@ pub struct WinterHold {
     reference: MonthDay,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum CircadianSchedule {
+    Fixed(CircadianCurve),
+    SolarHybrid(SolarHybridCurve),
+}
+
+impl CircadianSchedule {
+    pub fn sample(&self, date: LocalDate, time: TimeOfDay) -> CurvePoint {
+        match self {
+            Self::Fixed(curve) => curve.sample(time),
+            Self::SolarHybrid(curve) => curve.generated_curve(date).sample(time),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SolarHybridCurve {
+    coordinates: Coordinates,
+    time_zone: Tz,
+    wake_time: TimeOfDay,
+    bed_time: TimeOfDay,
+    night_brightness: Brightness,
+    day_brightness: Brightness,
+    night_kelvin: Kelvin,
+    day_kelvin: Kelvin,
+    winter_hold: Option<WinterHold>,
+}
+
+impl SolarHybridCurve {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        coordinates: Coordinates,
+        time_zone: Tz,
+        wake_time: TimeOfDay,
+        bed_time: TimeOfDay,
+        night_brightness: Brightness,
+        day_brightness: Brightness,
+        night_kelvin: Kelvin,
+        day_kelvin: Kelvin,
+        winter_hold: Option<WinterHold>,
+    ) -> Result<Self, SolarError> {
+        let awake_seconds = bed_time
+            .seconds()
+            .checked_sub(wake_time.seconds())
+            .filter(|seconds| *seconds >= MINIMUM_AWAKE_SECONDS)
+            .ok_or(SolarError::InvalidSchedule)?;
+        debug_assert!(awake_seconds < 24 * 60 * 60);
+        if night_brightness.get() >= day_brightness.get() || night_kelvin.get() >= day_kelvin.get()
+        {
+            return Err(SolarError::InvalidSchedule);
+        }
+        Ok(Self {
+            coordinates,
+            time_zone,
+            wake_time,
+            bed_time,
+            night_brightness,
+            day_brightness,
+            night_kelvin,
+            day_kelvin,
+            winter_hold,
+        })
+    }
+
+    fn generated_curve(&self, date: LocalDate) -> CircadianCurve {
+        let effective_date = self
+            .winter_hold
+            .map_or(date, |hold| hold.effective_date(date));
+        let events = solar_events(effective_date, self.coordinates, self.time_zone);
+        let wake = minutes(self.wake_time);
+        let bed = minutes(self.bed_time);
+        let noon = events.noon_minutes.clamp(wake + 180, bed - 240);
+        let morning_ready = events
+            .sunrise_minutes
+            .map_or(wake + 90, |sunrise| (sunrise + 45).max(wake + 90))
+            .clamp(wake + 60, noon - 60);
+        let color_evening = events
+            .sunset_minutes
+            .map_or(bed - 180, |sunset| sunset + 45)
+            .clamp(noon + 60, bed - 150);
+        let brightness_evening = events
+            .sunset_minutes
+            .map_or(bed - 90, |sunset| sunset + 120)
+            .clamp(color_evening + 60, bed - 90);
+
+        let anchors = [
+            self.anchor(wake, 0.0, 0.0),
+            self.anchor(morning_ready, 0.72, 0.65),
+            self.anchor(noon, 1.0, 1.0),
+            self.anchor(color_evening, 1.0, 0.55),
+            self.anchor(brightness_evening, 0.60, 0.25),
+            self.anchor(bed, 0.0, 0.0),
+        ];
+        CircadianCurve::new(anchors.into_iter().collect())
+            .expect("validated hybrid policy generates unique valid anchors")
+    }
+
+    fn anchor(&self, minutes: i32, brightness_factor: f64, color_factor: f64) -> CurveAnchor {
+        let brightness = blend(
+            self.night_brightness.get(),
+            self.day_brightness.get(),
+            brightness_factor,
+        );
+        CurveAnchor::new(
+            TimeOfDay::from_seconds(
+                u32::try_from(minutes).expect("generated minute is nonnegative") * 60,
+            )
+            .expect("generated minute falls inside local day"),
+            Brightness::new(brightness).expect("brightness endpoints and factor are valid"),
+            blend_kelvin(self.night_kelvin, self.day_kelvin, color_factor),
+        )
+        .expect("hybrid anchor values are valid")
+    }
+}
+
 impl WinterHold {
     pub fn new(start: MonthDay, end: MonthDay, reference: MonthDay) -> Result<Self, SolarError> {
         let hold = Self {
@@ -112,6 +233,7 @@ pub enum SolarError {
     InvalidCoordinates,
     InvalidMonthDay,
     ReferenceOutsideHold,
+    InvalidSchedule,
 }
 
 impl fmt::Display for SolarError {
@@ -120,6 +242,9 @@ impl fmt::Display for SolarError {
             Self::InvalidCoordinates => "coordinates must be finite latitude/longitude values",
             Self::InvalidMonthDay => "month-day must be a valid MM-DD value",
             Self::ReferenceOutsideHold => "winter reference must fall inside hold interval",
+            Self::InvalidSchedule => {
+                "solar curve needs an eight-hour wake/bed window and increasing day bounds"
+            }
         })
     }
 }
@@ -185,12 +310,32 @@ fn normalize_minutes(minutes: f64) -> i32 {
     (minutes.round() as i32).rem_euclid(24 * 60)
 }
 
+fn minutes(time: TimeOfDay) -> i32 {
+    i32::try_from(time.seconds() / 60).expect("time-of-day minutes fit i32")
+}
+
+fn blend(low: f64, high: f64, factor: f64) -> f64 {
+    low + (high - low) * factor
+}
+
+fn blend_kelvin(night: Kelvin, day: Kelvin, factor: f64) -> f64 {
+    let night_mired = 1_000_000.0 / night.get();
+    let day_mired = 1_000_000.0 / day.get();
+    1_000_000.0 / blend(night_mired, day_mired, factor)
+}
+
 #[cfg(test)]
 mod tests {
     use chrono_tz::Europe::Stockholm;
-    use house_automation_core::state::LocalDate;
+    use house_automation_core::{
+        curve::TimeOfDay,
+        state::LocalDate,
+        value::{Brightness, Kelvin},
+    };
 
-    use super::{Coordinates, MonthDay, WinterHold, solar_events};
+    use super::{
+        CircadianSchedule, Coordinates, MonthDay, SolarHybridCurve, WinterHold, solar_events,
+    };
 
     fn date(year: i32, month: u8, day: u8) -> LocalDate {
         LocalDate::new(year, month, day).unwrap()
@@ -202,6 +347,25 @@ mod tests {
 
     fn month_day(month: u8, day: u8) -> MonthDay {
         MonthDay::new(month, day).unwrap()
+    }
+
+    fn time(hour: u8, minute: u8) -> TimeOfDay {
+        TimeOfDay::from_hms(hour, minute, 0).unwrap()
+    }
+
+    fn hybrid_curve(winter_hold: Option<WinterHold>) -> SolarHybridCurve {
+        SolarHybridCurve::new(
+            stockholm(),
+            Stockholm,
+            time(7, 0),
+            time(23, 0),
+            Brightness::new(0.1).unwrap(),
+            Brightness::new(1.0).unwrap(),
+            Kelvin::new(2_200.0).unwrap(),
+            Kelvin::new(5_000.0).unwrap(),
+            winter_hold,
+        )
+        .unwrap()
     }
 
     #[test]
@@ -266,5 +430,98 @@ mod tests {
         assert_eq!(events.sunrise_minutes, None);
         assert_eq!(events.sunset_minutes, None);
         assert!((0..24 * 60).contains(&events.noon_minutes));
+    }
+
+    #[test]
+    fn winter_hold_keeps_november_curve_through_january() {
+        let hold = WinterHold::new(month_day(11, 1), month_day(1, 31), month_day(11, 1)).unwrap();
+        let schedule = hybrid_curve(Some(hold));
+
+        let november = schedule.generated_curve(date(2026, 11, 1));
+        let december = schedule.generated_curve(date(2026, 12, 21));
+        let january = schedule.generated_curve(date(2027, 1, 15));
+        let february = schedule.generated_curve(date(2027, 2, 1));
+
+        assert_eq!(november.anchors(), december.anchors());
+        assert_eq!(november.anchors(), january.anchors());
+        assert_ne!(november.anchors(), february.anchors());
+    }
+
+    #[test]
+    fn hybrid_curve_rises_and_falls_with_separate_color_transition() {
+        let schedule = hybrid_curve(None);
+        let curve = schedule.generated_curve(date(2026, 9, 21));
+        let anchors = curve.anchors();
+
+        assert_eq!(anchors.len(), 6);
+        assert!(anchors[2].brightness().get() > anchors[1].brightness().get());
+        assert!(anchors[2].brightness().get() > anchors[4].brightness().get());
+        assert_eq!(anchors[3].brightness(), anchors[2].brightness());
+        assert!(
+            anchors[3].color_temperature().get() < anchors[2].color_temperature().get(),
+            "color should begin warming before brightness falls"
+        );
+    }
+
+    #[test]
+    fn hybrid_samples_stay_inside_configured_output_bounds() {
+        let schedule = CircadianSchedule::SolarHybrid(hybrid_curve(None));
+
+        for minute in (0..24 * 60).step_by(5) {
+            let point = schedule.sample(
+                date(2026, 6, 21),
+                TimeOfDay::from_seconds(minute * 60).unwrap(),
+            );
+            assert!((0.1..=1.0).contains(&point.brightness().get()));
+            assert!((2_200.0..=5_000.0).contains(&point.color_temperature().get()));
+        }
+    }
+
+    #[test]
+    fn hybrid_curve_rejects_short_or_inverted_day_bounds() {
+        let valid = hybrid_curve(None);
+        assert!(
+            SolarHybridCurve::new(
+                stockholm(),
+                Stockholm,
+                time(7, 0),
+                time(12, 0),
+                Brightness::new(0.1).unwrap(),
+                Brightness::new(1.0).unwrap(),
+                Kelvin::new(2_200.0).unwrap(),
+                Kelvin::new(5_000.0).unwrap(),
+                None,
+            )
+            .is_err()
+        );
+        assert!(
+            SolarHybridCurve::new(
+                stockholm(),
+                Stockholm,
+                time(7, 0),
+                time(23, 0),
+                Brightness::new(1.0).unwrap(),
+                Brightness::new(0.1).unwrap(),
+                Kelvin::new(2_200.0).unwrap(),
+                Kelvin::new(5_000.0).unwrap(),
+                None,
+            )
+            .is_err()
+        );
+        assert!(
+            SolarHybridCurve::new(
+                stockholm(),
+                Stockholm,
+                time(7, 0),
+                time(23, 0),
+                Brightness::new(0.1).unwrap(),
+                Brightness::new(1.0).unwrap(),
+                Kelvin::new(5_000.0).unwrap(),
+                Kelvin::new(2_200.0).unwrap(),
+                None,
+            )
+            .is_err()
+        );
+        assert_eq!(valid.generated_curve(date(2026, 9, 21)).anchors().len(), 6);
     }
 }
