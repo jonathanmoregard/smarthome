@@ -1,0 +1,64 @@
+name: Publish package
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-package-main
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: build and publish package
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out exact release
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Install Nix
+        uses: cachix/install-nix-action@ba0dd844c9180cbf77aa72a116d6fbc515d0e87b # v27
+      - name: Configure authenticated Cachix publication
+        uses: cachix/cachix-action@1eb2ef646ac0255473d23a5907ad7b04ce94065c # v17
+        with:
+          name: jonathanmoregard
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          skipPush: true
+      - name: Build exact package
+        id: package
+        run: |
+          set -euo pipefail
+          package="$(nix build --no-link --print-out-paths .#packages.x86_64-linux.default)"
+          test "$(printf '%s\n' "$package" | wc -l)" -eq 1
+          printf 'path=%s\n' "$package" >> "$GITHUB_OUTPUT"
+      - name: Push signed runtime closure
+        run: cachix push jonathanmoregard "${{ steps.package.outputs.path }}"
+
+  verify:
+    name: verify cache-only substitution
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact release
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Install Nix with public cache
+        uses: cachix/install-nix-action@ba0dd844c9180cbf77aa72a116d6fbc515d0e87b # v27
+        with:
+          extra_nix_config: |
+            substituters = https://cache.nixos.org/ https://jonathanmoregard.cachix.org
+            trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbqbrmckqfmq0nFpwH9x8gs6Ro= jonathanmoregard.cachix.org-1:Qzksr/c2ciAaV4j/U2mGFd1HTgOAicks8gJNs1Ztxo8=
+      - name: Substitute without builders
+        run: >-
+          nix build --no-link
+          --option max-jobs 0
+          --option fallback false
+          --option builders ""
+          .#packages.x86_64-linux.default
