@@ -7,9 +7,10 @@ use std::{
     time::Duration,
 };
 
+use crate::solar::CircadianSchedule;
 use async_trait::async_trait;
 use house_automation_core::{
-    curve::{CircadianCurve, TimeOfDay},
+    curve::TimeOfDay,
     input::{Action, ClickClassifier, Direction, Gesture, Mapping, ScopeTarget},
     overlay::{OverlayDuration, OverlayEffect, OverlayId, OverlaySet},
     reconcile::{
@@ -89,7 +90,7 @@ pub struct HouseEngine {
     owners: BTreeSet<Scope>,
     devices: BTreeMap<DeviceId, DeviceRuntime>,
     device_aliases: BTreeMap<DeviceId, DeviceId>,
-    curves: BTreeMap<Scope, CircadianCurve>,
+    curves: BTreeMap<Scope, CircadianSchedule>,
     controls: BTreeMap<ControlId, Mapping>,
     overlays: BTreeMap<Scope, OverlaySet>,
     classifier: ClickClassifier,
@@ -113,6 +114,7 @@ impl HouseEngine {
         now: RuntimeInstant,
     ) -> Result<Self, RuntimeError> {
         let RuntimeConfigParts {
+            time_zone: _,
             mqtt,
             input,
             circadian,
@@ -426,7 +428,7 @@ impl HouseEngine {
                 });
                 for owner in &affected {
                     let curve = self.curves.get(owner).expect("owner curve exists");
-                    let live = curve.sample(now.local_time);
+                    let live = curve.sample(now.local_date, now.local_time);
                     let before = next_state.compose_scope_layers(owner, live, now.monotonic)?;
                     let outcome = if all_frozen {
                         next_state.unfreeze_scope_curve(
@@ -527,7 +529,7 @@ impl HouseEngine {
                 .curves
                 .get(owner)
                 .expect("owner has configured curve")
-                .sample(now.local_time);
+                .sample(now.local_date, now.local_time);
             underlying.insert(
                 owner.clone(),
                 self.state

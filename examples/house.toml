@@ -1,5 +1,10 @@
 schema_version = 1
 
+[location]
+latitude = 59.3
+longitude = 18.1
+time_zone = "Europe/Stockholm"
+
 [mqtt]
 host = "127.0.0.1"
 port = 1883
@@ -61,6 +66,17 @@ anchors = [
   { time = "19:00", brightness = 0.55, color_temperature_kelvin = 3000 },
   { time = "23:00", brightness = 0.20, color_temperature_kelvin = 2400 },
 ]
+
+[[curves]]
+id = "solar-day"
+kind = "solar_hybrid"
+wake_time = "07:00"
+bed_time = "23:00"
+night_brightness = 0.10
+day_brightness = 1.00
+night_color_temperature_kelvin = 2200
+day_color_temperature_kelvin = 5000
+winter_hold = { start = "11-01", end = "01-31", reference = "11-01" }
 
 [[scopes]]
 id = "living-room-lights"

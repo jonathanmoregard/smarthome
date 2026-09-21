@@ -84,6 +84,71 @@ fn omitted_operational_fields_use_documented_defaults() {
 }
 
 #[test]
+fn solar_curve_uses_validated_location_and_timezone() {
+    let parts = ValidatedConfig::parse(EXAMPLE)
+        .unwrap()
+        .into_runtime_parts();
+
+    assert_eq!(parts.time_zone.name(), "Europe/Stockholm");
+}
+
+#[test]
+fn solar_curve_requires_valid_location_and_iana_timezone() {
+    let missing_location = replace(
+        EXAMPLE,
+        "[location]\nlatitude = 59.3\nlongitude = 18.1\ntime_zone = \"Europe/Stockholm\"\n\n",
+        "",
+    );
+    assert!(reject(&missing_location).contains("location"));
+
+    for (old, new, expected) in [
+        ("latitude = 59.3", "latitude = 91.0", "latitude"),
+        ("longitude = 18.1", "longitude = 181.0", "longitude"),
+        (
+            "time_zone = \"Europe/Stockholm\"",
+            "time_zone = \"Mars/Olympus\"",
+            "IANA timezone",
+        ),
+    ] {
+        let source = replace(EXAMPLE, old, new);
+        assert!(reject(&source).contains(expected));
+    }
+}
+
+#[test]
+fn curve_kinds_reject_mixed_or_incomplete_fields() {
+    let fixed_with_solar_field = replace(
+        EXAMPLE,
+        "id = \"default-day\"\nanchors = [",
+        "id = \"default-day\"\nwake_time = \"07:00\"\nanchors = [",
+    );
+    assert!(reject(&fixed_with_solar_field).contains("fixed curve"));
+
+    let solar_with_anchors = replace(
+        EXAMPLE,
+        "wake_time = \"07:00\"",
+        "wake_time = \"07:00\"\nanchors = [\n  { time = \"04:00\", brightness = 0.1, color_temperature_kelvin = 2200 },\n  { time = \"12:00\", brightness = 1.0, color_temperature_kelvin = 5000 },\n]",
+    );
+    assert!(reject(&solar_with_anchors).contains("solar_hybrid curve"));
+}
+
+#[test]
+fn solar_curve_rejects_invalid_schedule_and_winter_hold() {
+    for (old, new, expected) in [
+        ("bed_time = \"23:00\"", "bed_time = \"12:00\"", "eight-hour"),
+        ("start = \"11-01\"", "start = \"13-01\"", "MM-DD"),
+        (
+            "reference = \"11-01\"",
+            "reference = \"02-01\"",
+            "inside hold interval",
+        ),
+    ] {
+        let source = replace(EXAMPLE, old, new);
+        assert!(reject(&source).contains(expected));
+    }
+}
+
+#[test]
 fn credential_source_accepts_only_safe_runtime_file_and_environment_names() {
     let cases = [
         replace(
