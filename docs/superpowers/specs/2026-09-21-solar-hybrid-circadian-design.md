@@ -72,8 +72,10 @@ The first implementation intentionally fixes the internal transition offsets:
 - morning-ready: later of `wake + 90 min` and `sunrise + 45 min`, clamped
   before solar noon;
 - daytime peak: local solar noon;
-- warm-evening: `sunset + 90 min`, clamped between solar noon and
-  `bed - 90 min`;
+- warm-evening: `sunset + 45 min`, clamped between `noon + 60 min` and
+  `bed - 150 min`;
+- dim-evening: `sunset + 120 min`, at least 60 minutes after warm-evening and
+  no later than `bed - 90 min`;
 - bedtime and overnight: configured night output.
 
 Derived intermediate values are deterministic fractions between configured
