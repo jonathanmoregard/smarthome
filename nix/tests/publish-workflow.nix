@@ -68,7 +68,7 @@ pkgs.runCommand "smarthome-publish-workflow-contract"
     }
 
     validate_ci() {
-      yq -e '[.. | select(tag == "!!str") | select(test("\\$\\{\\{") and test("\\bsecrets\\b"))] | length == 0' "$1" >/dev/null
+      yq -e '([.. | select(tag == "!!str") | select(test("\\$\\{\\{") and test("\\bsecrets\\b"))] | length == 0) and ([.. | select(tag == "!!map") | keys[] | select(. == "secrets")] | length == 0)' "$1" >/dev/null
     }
 
     validate_pr_workflows() {
@@ -102,12 +102,13 @@ pkgs.runCommand "smarthome-publish-workflow-contract"
     assert_synthetic_pr_workflow_rejected() {
       description="$1"
       trigger="$2"
+      mutation="$3"
       rm -rf workflow-mutants
       mkdir workflow-mutants
       cp "$ci" workflow-mutants/ci.yml
       cp "$ci" workflow-mutants/synthetic.yml
       yq -i ".on = $trigger" workflow-mutants/synthetic.yml
-      yq -i '.env.EXTRA = "''${{ toJSON(secrets) }}"' workflow-mutants/synthetic.yml
+      yq -i "$mutation" workflow-mutants/synthetic.yml
       if validate_pr_workflows workflow-mutants; then
         echo "CI contract accepted adversarial mutation: $description" >&2
         return 1
@@ -141,11 +142,12 @@ pkgs.runCommand "smarthome-publish-workflow-contract"
     assert_ci_rejected "bracket-syntax secret reference" '.env.EXTRA = "''${{ secrets[\"OTHER_TOKEN\"] }}"'
     assert_ci_rejected "composed secret reference" '.env.EXTRA = "''${{ github.event_name == \"pull_request\" && secrets.OTHER_TOKEN }}"'
     assert_ci_rejected "toJSON secret reference" '.env.EXTRA = "''${{ toJSON(secrets) }}"'
-    assert_synthetic_pr_workflow_rejected "scalar pull_request trigger" '"pull_request"'
-    assert_synthetic_pr_workflow_rejected "scalar pull_request_target trigger" '"pull_request_target"'
-    assert_synthetic_pr_workflow_rejected "sequence pull_request trigger" '["push", "pull_request"]'
-    assert_synthetic_pr_workflow_rejected "sequence pull_request_target trigger" '["push", "pull_request_target"]'
-    assert_synthetic_pr_workflow_rejected "mapping pull_request trigger" '{"pull_request": {}}'
-    assert_synthetic_pr_workflow_rejected "mapping pull_request_target trigger" '{"pull_request_target": {}}'
+    assert_synthetic_pr_workflow_rejected "scalar pull_request trigger" '"pull_request"' '.env.EXTRA = "''${{ toJSON(secrets) }}"'
+    assert_synthetic_pr_workflow_rejected "scalar pull_request_target trigger" '"pull_request_target"' '.env.EXTRA = "''${{ toJSON(secrets) }}"'
+    assert_synthetic_pr_workflow_rejected "sequence pull_request trigger" '["push", "pull_request"]' '.env.EXTRA = "''${{ toJSON(secrets) }}"'
+    assert_synthetic_pr_workflow_rejected "sequence pull_request_target trigger" '["push", "pull_request_target"]' '.env.EXTRA = "''${{ toJSON(secrets) }}"'
+    assert_synthetic_pr_workflow_rejected "mapping pull_request trigger" '{"pull_request": {}}' '.env.EXTRA = "''${{ toJSON(secrets) }}"'
+    assert_synthetic_pr_workflow_rejected "mapping pull_request_target trigger" '{"pull_request_target": {}}' '.env.EXTRA = "''${{ toJSON(secrets) }}"'
+    assert_synthetic_pr_workflow_rejected "mapping pull_request_target secrets inherit" '{"pull_request_target": {}}' '.jobs.audit.secrets = "inherit"'
     touch "$out"
   ''
