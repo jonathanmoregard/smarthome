@@ -13,8 +13,9 @@ of this reusable repository. The [companion host runbook](https://github.com/jon
 owns the Dell Wyse assumptions, blank-disk bootstrap, Matrix setup, other
 mutable-service backups, rollback, and disaster recovery.
 
-`nixos-config` owns the host, service, deployer, and runtime configuration, but
-has no `smarthome` flake input. The server deployer resolves the exact
+The target companion NixOS change gives `nixos-config` ownership of the host,
+service, deployer, and runtime configuration while removing its `smarthome`
+flake input. Once enabled, the server deployer will resolve the exact
 `smarthome` `main` commit directly; `smarthome` never imports or depends on
 `nixos-config`.
 
@@ -83,20 +84,22 @@ age-decrypted credential file.
 
 ## Releases
 
-Pull requests run the complete flake check without credentials. Each push to
-protected `main` builds `packages.x86_64-linux.default` on GitHub, publishes
-its signed runtime closure to `jonathanmoregard.cachix.org`, and then uses a
-separate clean runner with builders disabled to prove the package substitutes
-from the cache. Publication runs intentionally have no shared concurrency
-group, so each protected-main revision is handled independently.
+This app branch implements the GitHub publisher workflow. Pull requests run the
+complete flake check without credentials. Each push to protected `main` builds
+`packages.x86_64-linux.default` on GitHub, publishes its signed runtime closure
+to `jonathanmoregard.cachix.org`, and then uses a separate clean runner with
+builders disabled to prove the package substitutes from the cache. Publication
+runs intentionally have no shared concurrency group, so each protected-main
+revision is handled independently.
 
 `CACHIX_AUTH_TOKEN` is a cache-scoped GitHub Actions secret used only by the
-main publication workflow; the home server never receives a cache write token.
-It instead uses a separate, repository-specific read-only GitHub deploy key and
-the public Cachix signing key, pulls the exact `main` commit, and atomically
-switches a dedicated application profile. This keeps application rollout
-separate and supports the server's minimal-disk design. Application publication
-does not use dellan; dellan SSH access remains independent.
+main publication workflow. Publication stops at the cache and does not itself
+deploy a host. Once the companion deployer is enabled, the home server will use
+a separate, repository-specific read-only GitHub deploy key and the public
+Cachix signing key to pull the exact `main` commit, hydrate the signed closure,
+and atomically switch a dedicated application profile. That target server-side
+flow keeps application rollout separate and supports minimal-disk activation;
+it does not use dellan, whose SSH access remains independent.
 
 ### Add a room, light, or control
 
