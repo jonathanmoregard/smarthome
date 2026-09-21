@@ -57,6 +57,7 @@ pkgs.runCommand "smarthome-publish-workflow-contract"
     assert_rejected() {
       description="$1"
       mutation="$2"
+      rm -f mutant.yml
       cp "$workflow" mutant.yml
       yq -i "$mutation" mutant.yml
       if validate_workflow mutant.yml; then
