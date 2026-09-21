@@ -107,10 +107,11 @@ Validated runtime curves become schedules with a date-aware sample operation:
   timezone offset, wake/bed policy, and winter mapping, then sample the same
   curve implementation.
 
-`RuntimeInstant` carries local date, local time, monotonic time, and UTC offset.
-Production clock uses the configured timezone. Tests inject all four values;
-no network, geocoding, system timezone lookup, or wall-clock sleep enters curve
-tests.
+Solar schedules retain the validated `chrono-tz` timezone and obtain the UTC
+offset for the effective solar date at local noon. `RuntimeInstant` continues
+to carry local date, local time, and monotonic time. Production clock uses the
+same configured timezone. Tests inject deterministic dates/times; no network,
+geocoding, system timezone lookup, or wall-clock sleep enters curve tests.
 
 ## Validation and tests
 

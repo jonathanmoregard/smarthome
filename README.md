@@ -13,6 +13,9 @@ of this reusable repository. The [companion host runbook](https://github.com/jon
 owns the Dell Wyse assumptions, blank-disk bootstrap, Matrix setup, other
 mutable-service backups, rollback, and disaster recovery.
 
+Dependency direction is one-way: `nixos-config` consumes this repository as a
+pinned flake input. `smarthome` does not import or depend on `nixos-config`.
+
 ## Architecture
 
 ```text
@@ -75,6 +78,14 @@ The module generates the non-secret TOML, runs the service as its own
 unprivileged account, stores state below `/var/lib/house-automation`, and applies
 systemd hardening. The host configuration wires the module to its broker and
 age-decrypted credential file.
+
+The application pin is deliberate rather than automatic. After a `smarthome`
+change passes and merges, update the exact commit in the host repository's
+`smarthome.url`, run `nix flake update smarthome`, build its affected host/VM
+checks, and open a `nixos-config` PR. Human merge of that second PR lets the
+home server's pull-deploy service activate the tested pin. This two-PR flow
+prevents an untested application commit from entering production merely because
+application `main` moved.
 
 ### Add a room, light, or control
 
@@ -170,9 +181,27 @@ circadian baseline + durable user offsets + contextual modifiers + overlays
 ```
 
 Brightness uses normalized `0.0..1.0`; color temperature is canonical Kelvin
-and is translated/clamped for each device. Monotone interpolation avoids curve
-overshoot. Thresholds and maximum refresh intervals keep hours-long changes
+and is translated/clamped for each device. Color temperature interpolates in
+mired, matching lamp control and perceptual behavior. Shape-preserving cubic
+interpolation prevents overshoot within each adjacent anchor pair; complete
+daily curves are intentionally non-monotone, rising toward daytime and falling
+toward night. Thresholds and maximum refresh intervals keep hours-long changes
 sparse enough not to flood the Zigbee mesh.
+
+Curves support two modes. Existing fixed curves omit `kind` and define explicit
+`anchors`. `kind = "solar_hybrid"` derives daily anchors from configured local
+sunrise, solar noon, sunset, wake time, and bed time. Brightness and color
+temperature use separate evening transition points, so lights can warm before
+they become dim. Solar calculation is local and deterministic; it performs no
+network lookup or geocoding.
+
+`[location]` holds approximate committed coordinates plus an IANA timezone.
+The example uses coarse Stockholm coordinates rather than a precise household
+position. Its winter policy maps every date from November 1 through January 31
+to a November 1 reference profile. December and January therefore keep the
+longer November cycle instead of contracting toward solstice daylight; normal
+seasonal movement resumes February 1. The hold dates and reference remain
+explicit TOML values.
 
 Offsets survive restart and continue to apply while a curve is frozen. Freezing
 captures the baseline at that instant. Unfreezing resumes the live curve through
