@@ -66,6 +66,22 @@ pkgs.runCommand "smarthome-publish-workflow-contract"
       fi
     }
 
+    validate_ci() {
+      yq -e '[.. | select(tag == "!!str") | select(test("\\$\\{\\{[[:space:]]*secrets[[:space:]]*(\\.|\\[)"))] | length == 0' "$1" >/dev/null
+    }
+
+    assert_ci_rejected() {
+      description="$1"
+      mutation="$2"
+      rm -f ci-mutant.yml
+      cp "$ci" ci-mutant.yml
+      yq -i "$mutation" ci-mutant.yml
+      if validate_ci ci-mutant.yml; then
+        echo "CI contract accepted adversarial mutation: $description" >&2
+        return 1
+      fi
+    }
+
     validate_workflow "$workflow"
 
     assert_rejected "extra permission" '.permissions.actions = "read"'
@@ -88,6 +104,8 @@ pkgs.runCommand "smarthome-publish-workflow-contract"
     assert_rejected "unexpected extra job with action" '.jobs.audit = {"runs-on": "ubuntu-latest", "steps": [{"uses": "example/action@0000000000000000000000000000000000000000"}]}'
     assert_rejected "unexpected extra action" '.jobs.verify.steps += [{"name": "Unexpected action", "uses": "example/action@0000000000000000000000000000000000000000"}]'
 
-    ! grep -q 'CACHIX_AUTH_TOKEN' "$ci"
+    validate_ci "$ci"
+    assert_ci_rejected "dot-syntax secret reference" '.env.EXTRA = "''${{ secrets.OTHER_TOKEN }}"'
+    assert_ci_rejected "bracket-syntax secret reference" '.env.EXTRA = "''${{ secrets[\"OTHER_TOKEN\"] }}"'
     touch "$out"
   ''
