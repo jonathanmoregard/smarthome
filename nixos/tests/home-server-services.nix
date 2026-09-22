@@ -244,7 +244,6 @@ pkgsSystem.testers.runNixOSTest {
     home_server.fail("grep -F GENERATE /var/lib/zigbee2mqtt/configuration.yaml")
     home_server.succeed("systemctl stop zigbee2mqtt.service")
     home_server.succeed("systemctl show zigbee2mqtt.service -P ActiveState | grep -Fx inactive")
-    home_server.succeed("systemctl reset-failed zigbee2mqtt.service")
 
     home_server.fail("systemctl list-unit-files --no-legend | grep -E 'build-coordination|nixos-auto-deploy|smarthome-auto-deploy'")
     home_server.fail("find /etc/ssh -maxdepth 1 -type f -name '*deploy*' -print -quit | grep -q .")
