@@ -144,17 +144,14 @@ if [ -e "$profile" ] || [ -L "$profile" ]; then
     die 'active profile does not match running system'
 fi
 
-# Remove interrupted non-current allocations before creating another one.
-stale_generations=()
+# A pending journal is the only proof that a newer non-current generation was
+# allocated by an interrupted auto-deploy. Without one, Nix's topology means an
+# operator selected an older generation and that rollback must be preserved.
 for generation in "${original_generations[@]}"; do
-  if [ -z "$old_generation" ] || [ "$generation" -gt "$old_generation" ]; then
-    stale_generations+=("$generation")
+  if [ -n "$old_generation" ] && [ "$generation" -gt "$old_generation" ]; then
+    die 'active generation is older than newest generation; refusing manual rollback'
   fi
 done
-[ "${#stale_generations[@]}" -eq 0 ] || \
-  nix-env --profile "$profile" --delete-generations "${stale_generations[@]}" >/dev/null || \
-  die 'could not remove incomplete candidate generations'
-capture_generations || die 'could not list profile generations after incomplete cleanup'
 
 remove_new_generations() {
   local generations_output line generation original known

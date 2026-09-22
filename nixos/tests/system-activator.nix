@@ -20,6 +20,7 @@ EOF
   v2 = system "system-v2";
   unhealthy = system "system-unhealthy";
   v3 = system "system-v3";
+  v4 = system "system-v4";
 in
 pkgs.runCommand "system-activator-contract" {
   nativeBuildInputs = with pkgs; [ bash coreutils gnugrep gnused ];
@@ -176,6 +177,17 @@ previous_path=none
 previous_generation=none
 EOF
   }
+  seed_v2_with_history() {
+    reset_fixture
+    seed_generation 1 ${v1} stale
+    seed_generation 2 ${v2} current
+    cat > "$state/last-success" <<EOF
+rev=2222222222222222222222222222222222222222
+path=${v2}
+previous_path=${v1}
+previous_generation=1
+EOF
+  }
   run() { bash ${script} "$1" "$2" "$state" "$profile" "$CURRENT_SYSTEM" "''${health_units[@]}"; }
   links() { find "$PWD" -maxdepth 1 -name 'system-*-link' | wc -l; }
 
@@ -270,18 +282,22 @@ EOF
   [ "$(readlink -f "$profile")" = ${v2} ]
   grep -qxF 'rev=2222222222222222222222222222222222222222' "$state/last-success"
 
-  seed_v1
+  seed_v2_with_history
   success_before=$(cat "$state/last-success")
   export FAIL_SUCCESS_MARKER_MOVE=1
-  if run ${v2} 2222222222222222222222222222222222222222; then exit 1; fi
+  if run ${v3} 4444444444444444444444444444444444444444; then exit 1; fi
   [ -e "$SUCCESS_MOVE_FAILURE_TRIGGERED" ]
-  [ "$(readlink -f "$profile")" = ${v1} ]
+  [ "$(readlink -f "$profile")" = ${v2} ]
+  [ "$(readlink -f "$CURRENT_SYSTEM")" = ${v2} ]
   [ "$(cat "$state/last-success")" = "$success_before" ]
   grep -qxF 'reason=success-marker-failed' "$state/last-failure"
   grep -qxF 'rollback=complete' "$state/last-failure"
+  [ ! -e "$profile-1-link" ]
+  [ -e "$profile-2-link" ]
+  [ ! -e "$profile-3-link" ]
+  [ "$(links)" -eq 1 ]
 
-  # Generation enumeration is fail-closed before profile mutation, and stale
-  # newer candidates must be removed before a replacement is allocated.
+  # Generation enumeration is fail-closed before any profile mutation.
   reset_fixture
   export FAIL_LIST_GENERATIONS=1
   if run ${v1} 1111111111111111111111111111111111111111 2> "$PWD/list.err"; then exit 1; fi
@@ -302,27 +318,34 @@ EOF
     reset_observations
   done
 
-  # Stale-candidate cleanup is fail-closed: inability to remove a newer
-  # non-current generation must preserve both roots and allocate no candidate.
-  seed_v1
-  seed_generation 2 ${v2} stale
+  # Journal recovery remains fail-closed when its orphan cannot be removed.
   export FAIL_DELETE_GENERATIONS=1
-  if run ${v3} 4444444444444444444444444444444444444444 2> "$PWD/delete.err"; then exit 1; fi
-  grep -qxF 'activate-system: could not remove incomplete candidate generations' "$PWD/delete.err" || {
-    cat "$PWD/delete.err" >&2
-    cat "$EVENTS" >&2
-    exit 1
-  }
-  [ "$(readlink -f "$profile")" = ${v1} ]
-  [ "$(links)" -eq 2 ]
+  if run ${unhealthy} 3333333333333333333333333333333333333333 2> "$PWD/delete.err"; then exit 1; fi
+  grep -qxF 'activate-system: interrupted activation recovery failed' "$PWD/delete.err"
+  [ ! -e "$profile" ]
+  [ -s "$state/pending-activation" ]
+  [ -e "$profile-1-link" ]
+  [ "$(links)" -eq 1 ]
   ! grep -q '^nix-env --set ' "$EVENTS"
 
-  seed_v1
-  seed_generation 2 ${v2} stale
-  run ${v3} 4444444444444444444444444444444444444444
-  first_delete=$(grep -n '^nix-env --delete-generations 2$' "$EVENTS" | head -1 | cut -d: -f1)
-  set_line=$(grep -n '^nix-env --set ' "$EVENTS" | head -1 | cut -d: -f1)
-  [ "$first_delete" -lt "$set_line" ]
+  # Without an auto-deploy journal, a newer non-current generation is a manual
+  # rollback topology. Refuse it before deletion or candidate allocation.
+  seed_v2_with_history
+  seed_generation 3 ${v3} stale
+  if run ${v4} 5555555555555555555555555555555555555555 2> "$PWD/manual-rollback.err"; then
+    echo 'manual rollback topology was overwritten' >&2
+    exit 1
+  fi
+  grep -qxF 'activate-system: active generation is older than newest generation; refusing manual rollback' "$PWD/manual-rollback.err"
+  [ "$(readlink -f "$profile")" = ${v2} ]
+  [ "$(readlink -f "$CURRENT_SYSTEM")" = ${v2} ]
+  [ -e "$profile-1-link" ]
+  [ -e "$profile-2-link" ]
+  [ -e "$profile-3-link" ]
+  [ "$(links)" -eq 3 ]
+  [ ! -e "$state/pending-activation" ]
+  ! grep -q '^nix-env --delete-generations' "$EVENTS"
+  ! grep -q '^nix-env --set ' "$EVENTS"
 
   touch "$out"
 ''
