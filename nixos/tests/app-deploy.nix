@@ -56,36 +56,13 @@ assert !(service.environment ? DEPLOY_KEY);
 pkgs.runCommand "app-deploy-contract" { nativeBuildInputs = with pkgs; [ bash coreutils git gnugrep ]; } ''
   set -euo pipefail
   deploy=${service.serviceConfig.ExecStart}
-  grep -qF 'refs/heads/release/app' "$deploy"
-  grep -qF 'git merge-base --is-ancestor' "$deploy"
-  grep -qF 'origin/main' "$deploy"
-  grep -qF '/run/smarthome-deploy/deploy.lock' "$deploy"
-  grep -qF 'candidate is poisoned after deterministic unhealthy activation' "$deploy"
-  grep -qF -- '--option max-jobs 0' "$deploy"
-  grep -qF -- '--option fallback false' "$deploy"
-  grep -qF -- '--option builders ""' "$deploy"
-  grep -qF '${projectCache}' "$deploy"
-  grep -qF '${projectKey}' "$deploy"
-  grep -qF '${nixosCache}' "$deploy"
-  grep -qF '${nixosKey}' "$deploy"
-  ! grep -Eq 'IdentitiesOnly|deploy[Kk]ey|GIT_SSH_COMMAND|ssh -i' "$deploy"
-
   export DEPLOY_LOG="$PWD/deploy.log" HYDRATE_PATH=${app}
   export DEPLOY_LOCK="$PWD/run/deploy.lock"
-  mkdir work run state
-  git init -q work
-  git -C work config user.email test@example.invalid
-  git -C work config user.name test
-  printf '%s\n' ${app} > work/release-path
-  git -C work add release-path && git -C work commit -qm main
-  main=$(git -C work rev-parse HEAD)
-  git init -q --bare origin.git
-  git -C work remote add origin file:///build/origin.git
-  git -C work push -q origin main
-  git -C work push -q origin "$main":refs/heads/release/app
   deploy_failure_diagnostics() {
     status=$?
-    [ "$status" -eq 0 ] && return
+    if [ "$status" -eq 0 ]; then
+      return
+    fi
     for log in missing-ref.log non-ancestor.log rollback.log; do
       [ -f "$log" ] || continue
       printf '\n--- %s ---\n' "$log" >&2
@@ -104,7 +81,31 @@ pkgs.runCommand "app-deploy-contract" { nativeBuildInputs = with pkgs; [ bash co
     return "$status"
   }
   trap deploy_failure_diagnostics EXIT
+  grep -qF 'refs/heads/release/app' "$deploy"
+  grep -qF 'merge-base --is-ancestor' "$deploy"
+  grep -qF 'origin/main' "$deploy"
+  grep -qF '/run/smarthome-deploy/deploy.lock' "$deploy"
+  grep -qF 'candidate is poisoned after deterministic unhealthy activation' "$deploy"
+  grep -qF -- '--option max-jobs 0' "$deploy"
+  grep -qF -- '--option fallback false' "$deploy"
+  grep -qF -- '--option builders ""' "$deploy"
+  grep -qF '${projectCache}' "$deploy"
+  grep -qF '${projectKey}' "$deploy"
+  grep -qF '${nixosCache}' "$deploy"
+  grep -qF '${nixosKey}' "$deploy"
+  ! grep -Eq 'IdentitiesOnly|deploy[Kk]ey|GIT_SSH_COMMAND|ssh -i' "$deploy"
 
+  mkdir work run state
+  git init -q work
+  git -C work config user.email test@example.invalid
+  git -C work config user.name test
+  printf '%s\n' ${app} > work/release-path
+  git -C work add release-path && git -C work commit -qm main
+  main=$(git -C work rev-parse HEAD)
+  git init -q --bare origin.git
+  git -C work remote add origin file:///build/origin.git
+  git -C work push -q origin main
+  git -C work push -q origin "$main":refs/heads/release/app
   # The program must reject a missing promotion and a promoted commit outside
   # main before it can hydrate or switch the active profile.
   git -C work push -q origin :refs/heads/release/app
