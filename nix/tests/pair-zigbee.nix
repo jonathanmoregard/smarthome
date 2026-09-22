@@ -207,6 +207,22 @@ pkgs.testers.runNixOSTest {
         assert "Pairing closed." in out, out
         wait_for_request_times([200, 0])
 
+    with subtest("a hangup of the command still closes pairing and cleans up"):
+        reset_requests()
+        run_unit("pair-hangup", "--host server --time 200")
+        client.wait_until_succeeds(
+            "grep -q 'Pairing is open' /tmp/pair-hangup.out", timeout=60
+        )
+        client.succeed(
+            "systemctl kill --kill-whom=main --signal=SIGHUP pair-hangup.service"
+        )
+        # systemd counts death by SIGHUP as a clean stop and collects the
+        # unit, so observe the effects rather than the exit status.
+        client.wait_until_fails("systemctl is-active --quiet pair-hangup.service")
+        client.succeed("grep -q 'Pairing closed.' /tmp/pair-hangup.out")
+        wait_for_request_times([200, 0])
+        client.fail("ls -d /tmp/tmp.*")
+
     with subtest("a refused request is reported and nothing is left open"):
         reset_requests()
         server.succeed("touch /run/fake-zigbee2mqtt/reject")
@@ -251,6 +267,14 @@ pkgs.testers.runNixOSTest {
 
         server.succeed("systemctl stop request-watch.service")
         assert server.succeed("cat /tmp/requests-seen") == "", "a request was published"
+        assert_no_leftovers()
+
+    with subtest("a stopped MQTT broker is refused as a server problem"):
+        server.succeed("systemctl stop mosquitto.service")
+        status, out = run("--host server --time 30")
+        assert status == 69, f"exit {status}\n{out}"
+        assert "Zigbee2MQTT is not running on server" in out, out
+        assert "lost the connection" not in out, out
         assert_no_leftovers()
   '';
 }

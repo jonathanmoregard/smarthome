@@ -346,9 +346,9 @@ test-only production endpoints.
 The `pair-zigbee` check boots a client and a server with OpenSSH, the
 production-shaped loopback Mosquitto listener, and a fake Zigbee2MQTT bridge. It
 runs the packaged command through its SSH tunnel and checks the exact
-`permit_join` requests for a completed window, Ctrl-C, termination, a refused
-request, a dropped tunnel, a stopped or never-started bridge, an unreachable
-host, and argument validation.
+`permit_join` requests for a completed window, Ctrl-C, termination, hangup, a
+refused request, a dropped tunnel, a stopped or never-started bridge, a stopped
+broker, an unreachable host, and argument validation.
 
 A VM cannot validate Ember firmware, USB enumeration, RF quality, pairing, or
 mesh routing. Stable by-id resolution and static Zigbee2MQTT configuration can
