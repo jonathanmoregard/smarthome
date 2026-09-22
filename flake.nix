@@ -117,6 +117,14 @@
           inherit pkgs;
           script = ./nixos/modules/activate-app.sh;
         };
+        system-deploy = import ./nixos/tests/system-deploy.nix {
+          inherit pkgs;
+          nixosSystem = nixpkgs.lib.nixosSystem;
+        };
+        system-activator = import ./nixos/tests/system-activator.nix {
+          inherit pkgs;
+          script = ./nixos/modules/activate-system.sh;
+        };
         hydrator = import ./nixos/tests/hydrator.nix {
           inherit pkgs;
           script = ./nixos/modules/hydrate-release-paths.sh;
