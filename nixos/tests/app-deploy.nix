@@ -29,6 +29,10 @@ let
       printf 'rev=%s\nreason=service-restart-or-health-failed\nrollback=complete\n' "$2" > "$3/last-failure"
       exit 1
     fi
+    if [ "''${ACTIVATOR_INCOMPLETE_REV:-}" = "$2" ]; then
+      printf 'rev=%s\nreason=service-restart-or-health-failed\nrollback=incomplete\n' "$2" > "$3/last-failure"
+      exit 1
+    fi
     ln -sfn "$1" "$4"
     printf 'rev=%s\npath=%s\nprevious_path=none\n' "$2" "$1" > "$3/last-success"
   '';
@@ -166,6 +170,22 @@ pkgs.runCommand "app-deploy-contract" { nativeBuildInputs = with pkgs; [ bash co
   if "$deploy" > transient.log 2>&1; then exit 1; fi
   "$deploy"
   unset HYDRATOR_TRANSIENT_ONCE
+  # An unhealthy candidate with incomplete rollback must remain retryable;
+  # only a proven-complete recovery is a deterministic poison latch.
+  git -C work checkout -q "$main_after_transient"
+  printf incomplete > work/promotion-marker
+  git -C work add promotion-marker && git -C work commit -qm incomplete
+  incomplete=$(git -C work rev-parse HEAD)
+  printf main-after-incomplete > work/promotion-marker
+  git -C work commit -am main-after-incomplete -q
+  main_after_incomplete=$(git -C work rev-parse HEAD)
+  git -C work push -q --force origin "$main_after_incomplete":refs/heads/main
+  git -C work push -q --force origin "$incomplete":refs/heads/release/app
+  export ACTIVATOR_INCOMPLETE_REV="$incomplete"
+  if "$deploy" > incomplete.log 2>&1; then exit 1; fi
+  if "$deploy" > incomplete-replay.log 2>&1; then exit 1; fi
+  ! grep -qF 'poisoned' incomplete-replay.log
+  unset ACTIVATOR_INCOMPLETE_REV
   ln -sfn /manual-rollback /build/profile
   if "$deploy" > rollback.log 2>&1; then exit 1; fi
   grep -qF 'rollback' rollback.log

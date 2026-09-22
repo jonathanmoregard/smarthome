@@ -70,13 +70,17 @@ prune_generations() {
 }
 
 rollback() {
-  if [ "$old_path" = none ]; then rm -f "$profile"; else nix-env --profile "$profile" --switch-generation "$old_generation" >/dev/null; fi
-  if [ "$service" != - ]; then
-    systemctl reset-failed "$service"
-    systemctl restart "$service"
-    health_check
+  if [ "$old_path" = none ]; then
+    rm -f "$profile" || return 1
+  else
+    nix-env --profile "$profile" --switch-generation "$old_generation" >/dev/null || return 1
   fi
-  remove_new_generations
+  if [ "$service" != - ]; then
+    systemctl reset-failed "$service" || return 1
+    systemctl restart "$service" || return 1
+    health_check || return 1
+  fi
+  remove_new_generations || return 1
 }
 
 fail() {

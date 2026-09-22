@@ -19,6 +19,7 @@ pkgs.runCommand "app-activator-contract" { nativeBuildInputs = with pkgs; [ bash
 printf 'systemctl %s\n' "$*" >> "$ACTIVATOR_LOG"
 if [ "$1" = reset-failed ]; then rm -f "$START_LIMIT"; exit 0; fi
 if [ "$1" = restart ] && [ "$(readlink -f "$PROFILE")" = "$CRASHING" ]; then touch "$START_LIMIT"; exit 1; fi
+if [ "$1" = restart ] && [ "''${RECOVERY_FAILURE:-0}" = 1 ] && [ "$(readlink -f "$PROFILE")" = "$RECOVERY_PATH" ]; then exit 1; fi
 exit 0
 EOF
   cat > "$PWD/bin/curl" <<'EOF'
@@ -66,7 +67,7 @@ case "$operation" in
 esac
 EOF
   chmod +x "$PWD/bin/systemctl" "$PWD/bin/curl" "$PWD/bin/sleep" "$PWD/bin/nix-env"
-  export PATH="$PWD/bin:$PATH" ACTIVATOR_LOG="$log" PROFILE="$profile" START_LIMIT="$PWD/start-limit" GENERATIONS="$PWD/generations" PRUNE_FAILURE_STATE="$PWD/prune-failed-once" CRASHING=${v2} UNHEALTHY=${v3}
+  export PATH="$PWD/bin:$PATH" ACTIVATOR_LOG="$log" PROFILE="$profile" START_LIMIT="$PWD/start-limit" GENERATIONS="$PWD/generations" PRUNE_FAILURE_STATE="$PWD/prune-failed-once" RECOVERY_PATH=${v1} CRASHING=${v2} UNHEALTHY=${v3}
   : > "$GENERATIONS"
   run() { bash ${script} "$@" "$state" "$profile" house-automationd.service http://127.0.0.1:9876/healthz; }
   run ${v1} 1111111111111111111111111111111111111111
@@ -83,6 +84,16 @@ EOF
   if run ${v3} 3333333333333333333333333333333333333333; then exit 1; fi
   [ "$(readlink "$profile")" = "$before" ]
   grep -qF 'previous_generation=1' "$state/last-failure"
+  # A failed candidate whose old service cannot be restarted is not a clean
+  # rollback: the candidate generation stays available for manual recovery.
+  export RECOVERY_FAILURE=1
+  if run ${v2} 2222222222222222222222222222222222222222; then exit 1; fi
+  unset RECOVERY_FAILURE
+  [ "$(readlink -f "$profile")" = "${v1}" ]
+  grep -qF 'rollback=incomplete' "$state/last-failure"
+  ! grep -qF 'rollback=complete' "$state/last-failure"
+  [ -e "$(dirname "$profile")/profile-2-link" ]
+  [ "$(find "$(dirname "$profile")" -name 'profile-*-link' | wc -l)" -eq 2 ]
   # Three actual healthy candidates retain exactly current and previous.
   run ${v4} 4444444444444444444444444444444444444444
   success_before=$(cat "$state/last-success")
@@ -90,7 +101,7 @@ EOF
   if run ${v5} 5555555555555555555555555555555555555555; then exit 1; fi
   unset FAIL_PRUNE
   [ "$(readlink -f "$profile")" = "${v4}" ]
-  [ ! -e "$(dirname "$profile")/profile-3-link" ]
+  [ ! -e "$(dirname "$profile")/profile-4-link" ]
   [ "$(cat "$state/last-success")" = "$success_before" ]
   grep -qF 'reason=generation-pruning-failed' "$state/last-failure"
   grep -qF 'rollback=complete' "$state/last-failure"
