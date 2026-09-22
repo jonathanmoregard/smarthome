@@ -12,8 +12,8 @@ let
 in
 pkgs.runCommand "app-activator-contract" { nativeBuildInputs = with pkgs; [ bash coreutils gnugrep ]; } ''
   set -euo pipefail
-  state="$PWD/state" profile="$PWD/profile" log="$PWD/log"
-  mkdir -p "$state" "$PWD/bin"
+  state="$PWD/state" profile="$PWD/profile" log="$PWD/systemctl.log"
+  mkdir -p "$PWD/bin"
   cat > "$PWD/bin/systemctl" <<'EOF'
 #!${pkgs.runtimeShell}
 printf 'systemctl %s\n' "$*" >> "$ACTIVATOR_LOG"
@@ -40,31 +40,45 @@ set -euo pipefail
 [ "$1" = --profile ]
 profile=$2 operation=$3
 shift 3
+{
+  printf '%s' "$operation"
+  [ "$#" -eq 0 ] || printf ' %s' "$@"
+  printf '\n'
+} >> "$NIX_ENV_LOG"
 case "$operation" in
   --set)
     generation=1
-    [ -s "$GENERATIONS" ] && generation=$(( $(tail -n1 "$GENERATIONS") + 1 ))
+    [ ! -s "$GENERATIONS" ] || generation=$(( $(sort -n "$GENERATIONS" | tail -n1) + 1 ))
     ln -sfn "$1" "$profile-$generation-link"
     ln -sfn "$profile-$generation-link" "$profile"
     printf '%s\n' "$generation" >> "$GENERATIONS"
     ;;
   --list-generations)
-    [ "''${LIST_FAILURE:-0}" != 1 ] || exit 75
+    list_calls=0
+    [ ! -s "$LIST_CALLS" ] || list_calls=$(cat "$LIST_CALLS")
+    list_calls=$((list_calls + 1))
+    printf '%s\n' "$list_calls" > "$LIST_CALLS"
+    if [ -n "''${LIST_FAIL_AT:-}" ] && [ "$list_calls" -eq "$LIST_FAIL_AT" ]; then exit 75; fi
     while read -r generation; do
       suffix=
-      [ "$(readlink "$profile")" = "$profile-$generation-link" ] && suffix=' (current)'
+      [ "$(readlink "$profile" 2>/dev/null || true)" = "$profile-$generation-link" ] && suffix=' (current)'
       printf '%s 2026-09-22%s\n' "$generation" "$suffix"
     done < "$GENERATIONS"
-    exit 0
     ;;
   --switch-generation)
     ln -sfn "$profile-$1-link" "$profile"
     ;;
   --delete-generations)
-    if [ "''${FAIL_PRUNE:-0}" = 1 ] && [ ! -e "$PRUNE_FAILURE_STATE" ]; then
-      touch "$PRUNE_FAILURE_STATE"
-      exit 75
-    fi
+    current_link=$(readlink "$profile" 2>/dev/null || true)
+    current_generation=$(printf '%s\n' "$current_link" | sed -n "s|^$profile-\([0-9][0-9]*\)-link$|\1|p")
+    only_newer=1
+    any_older=0
+    for generation in "$@"; do
+      [ -n "$current_generation" ] && [ "$generation" -gt "$current_generation" ] || only_newer=0
+      if [ -n "$current_generation" ] && [ "$generation" -lt "$current_generation" ]; then any_older=1; fi
+    done
+    if [ "''${FAIL_STARTUP_DELETE:-0}" = 1 ] && [ "$only_newer" = 1 ]; then exit 75; fi
+    if [ "''${FAIL_PRUNE_DELETE:-0}" = 1 ] && [ "$any_older" = 1 ]; then exit 75; fi
     for generation in "$@"; do rm -f "$profile-$generation-link"; done
     grep -vxF -f <(printf '%s\n' "$@") "$GENERATIONS" > "$GENERATIONS.tmp" || true
     mv "$GENERATIONS.tmp" "$GENERATIONS"
@@ -73,73 +87,222 @@ case "$operation" in
 esac
 EOF
   chmod +x "$PWD/bin/systemctl" "$PWD/bin/curl" "$PWD/bin/sleep" "$PWD/bin/nix-env"
-  export PATH="$PWD/bin:$PATH" ACTIVATOR_LOG="$log" CURL_LOG="$PWD/curl.log" PROFILE="$profile" START_LIMIT="$PWD/start-limit" GENERATIONS="$PWD/generations" PRUNE_FAILURE_STATE="$PWD/prune-failed-once" CANDIDATE_RESET_MARKER="$PWD/candidate-reset-once" RESET_CANDIDATE=${v4} RECOVERY_PATH=${v1} CRASHING=${v2} UNHEALTHY=${v3}
-  : > "$GENERATIONS"
+  export PATH="$PWD/bin:$PATH"
+  export ACTIVATOR_LOG="$log" CURL_LOG="$PWD/curl.log" NIX_ENV_LOG="$PWD/nix-env.log"
+  export PROFILE="$profile" START_LIMIT="$PWD/start-limit" GENERATIONS="$PWD/generations"
+  export LIST_CALLS="$PWD/list-calls" CANDIDATE_RESET_MARKER="$PWD/candidate-reset-once"
+  export RESET_CANDIDATE=${v4} RECOVERY_PATH=${v1} CRASHING=${v2} UNHEALTHY=${v3}
+
+  reset_observations() {
+    : > "$ACTIVATOR_LOG"
+    : > "$CURL_LOG"
+    : > "$NIX_ENV_LOG"
+    : > "$LIST_CALLS"
+    rm -f "$START_LIMIT" "$CANDIDATE_RESET_MARKER"
+    export CANDIDATE_RESET_FAILURE=0 RECOVERY_FAILURE=0 FAIL_STARTUP_DELETE=0 FAIL_PRUNE_DELETE=0
+    unset LIST_FAIL_AT
+  }
+  reset_fixture() {
+    rm -rf "$state"
+    rm -f "$profile" "$profile"-*-link "$GENERATIONS"
+    mkdir -p "$state"
+    : > "$GENERATIONS"
+    reset_observations
+  }
+  seed_generation() {
+    generation=$1 package_path=$2 current=$3
+    ln -sfn "$package_path" "$profile-$generation-link"
+    printf '%s\n' "$generation" >> "$GENERATIONS"
+    [ "$current" != current ] || ln -sfn "$profile-$generation-link" "$profile"
+  }
+  seed_old_success() {
+    reset_fixture
+    seed_generation 1 ${v1} current
+    cat > "$state/last-success" <<EOF
+rev=1111111111111111111111111111111111111111
+path=${v1}
+previous_path=none
+previous_generation=none
+EOF
+  }
+  generation_links() {
+    find "$PWD" -maxdepth 1 -name 'profile-*-link' | wc -l
+  }
+  count_operation() {
+    grep -c "^$1" "$NIX_ENV_LOG" || true
+  }
+  assert_operations() {
+    expected=$1
+    [ "$(cat "$NIX_ENV_LOG")" = "$expected" ]
+  }
   run() { bash ${script} "$@" "$state" "$profile" house-automationd.service http://127.0.0.1:9876/healthz; }
-  export LIST_FAILURE=1
-  if run ${v1} 1111111111111111111111111111111111111111; then exit 1; fi
-  unset LIST_FAILURE
+
+  # An unreadable initial generation snapshot fails before profile mutation.
+  reset_fixture
+  export LIST_FAIL_AT=1
+  if run ${v1} 1111111111111111111111111111111111111111 2> "$PWD/initial-list.err"; then exit 1; fi
+  grep -qxF 'activate-app: could not list profile generations' "$PWD/initial-list.err"
+  assert_operations '--list-generations'
+  [ "$(count_operation --set)" -eq 0 ]
   [ ! -e "$profile" ]
+  [ ! -s "$GENERATIONS" ]
+
+  # A healthy first activation records success and allocates one generation.
+  reset_fixture
   run ${v1} 1111111111111111111111111111111111111111
-  before=$(readlink "$profile")
+  [ "$(readlink -f "$profile")" = "${v1}" ]
+  [ "$(generation_links)" -eq 1 ]
+  grep -qxF 'rev=1111111111111111111111111111111111111111' "$state/last-success"
+
+  # Candidate restart failure clears a start limit and rolls back exactly.
+  seed_old_success
   touch "$START_LIMIT"
   if run ${v2} 2222222222222222222222222222222222222222; then exit 1; fi
-  [ "$(readlink "$profile")" = "$before" ]
-  grep -qxF 'rollback=complete' "$state/last-failure"
+  [ "$(readlink -f "$profile")" = "${v1}" ]
   grep -qxF 'reason=candidate-restart-failed' "$state/last-failure"
-  grep -qF 'systemctl reset-failed house-automationd.service' "$log"
+  grep -qxF 'previous_generation=1' "$state/last-failure"
+  grep -qxF 'rollback=complete' "$state/last-failure"
   [ ! -e "$START_LIMIT" ]
-  rollback_sequence=$(tail -n 3 "$log")
-  [ "$(printf '%s\n' "$rollback_sequence" | sed -n '1p')" = 'systemctl restart house-automationd.service' ]
-  [ "$(printf '%s\n' "$rollback_sequence" | sed -n '2p')" = 'systemctl reset-failed house-automationd.service' ]
-  [ "$(printf '%s\n' "$rollback_sequence" | sed -n '3p')" = 'systemctl restart house-automationd.service' ]
-  curl_before=$(wc -l < "$CURL_LOG" 2>/dev/null || true)
-  systemctl_before=$(wc -l < "$log")
+  [ "$(cat "$ACTIVATOR_LOG")" = "systemctl reset-failed house-automationd.service
+systemctl restart house-automationd.service
+systemctl reset-failed house-automationd.service
+systemctl restart house-automationd.service" ]
+  [ "$(generation_links)" -eq 1 ]
+
+  # A failed health check performs all retries, then verifies the restored app.
+  seed_old_success
   if run ${v3} 3333333333333333333333333333333333333333; then exit 1; fi
-  [ "$(readlink "$profile")" = "$before" ]
+  [ "$(readlink -f "$profile")" = "${v1}" ]
   grep -qxF 'reason=candidate-health-failed' "$state/last-failure"
   grep -qxF 'rollback=complete' "$state/last-failure"
-  [ $(( $(wc -l < "$CURL_LOG") - curl_before )) -eq 31 ]
-  health_sequence=$(tail -n +$((systemctl_before + 1)) "$log")
-  [ "$(printf '%s\n' "$health_sequence" | sed -n '1p')" = 'systemctl reset-failed house-automationd.service' ]
-  [ "$(printf '%s\n' "$health_sequence" | sed -n '2p')" = 'systemctl restart house-automationd.service' ]
-  grep -qF 'previous_generation=1' "$state/last-failure"
+  [ "$(wc -l < "$CURL_LOG")" -eq 31 ]
+
+  # Reset failure is classified separately and never reaches candidate health.
+  seed_old_success
   export CANDIDATE_RESET_FAILURE=1
   if run ${v4} 4444444444444444444444444444444444444444; then exit 1; fi
-  unset CANDIDATE_RESET_FAILURE
   [ "$(readlink -f "$profile")" = "${v1}" ]
   grep -qxF 'reason=candidate-reset-failed' "$state/last-failure"
   ! grep -qF 'reason=candidate-health-failed' "$state/last-failure"
   grep -qxF 'rollback=complete' "$state/last-failure"
-  # A failed candidate whose old service cannot be restarted is not a clean
-  # rollback: the candidate generation stays available for manual recovery.
+
+  # Failure to restart the restored service retains the candidate as a root.
+  seed_old_success
   export RECOVERY_FAILURE=1
   if run ${v2} 2222222222222222222222222222222222222222; then exit 1; fi
-  unset RECOVERY_FAILURE
   [ "$(readlink -f "$profile")" = "${v1}" ]
-  grep -qF 'rollback=incomplete' "$state/last-failure"
-  ! grep -qF 'rollback=complete' "$state/last-failure"
-  [ -e "$(dirname "$profile")/profile-2-link" ]
-  [ "$(find "$(dirname "$profile")" -name 'profile-*-link' | wc -l)" -eq 2 ]
-  # Three actual healthy candidates retain exactly current and previous.
+  grep -qxF 'rollback=incomplete' "$state/last-failure"
+  [ -e "$profile-2-link" ]
+  [ "$(generation_links)" -eq 2 ]
+
+  # Three healthy releases retain exactly the current and previous generation.
+  reset_fixture
+  run ${v1} 1111111111111111111111111111111111111111
+  run ${v4} 4444444444444444444444444444444444444444
+  run ${v5} 5555555555555555555555555555555555555555
+  [ "$(readlink -f "$profile")" = "${v5}" ]
+  [ "$(generation_links)" -eq 2 ]
+  [ ! -e "$profile-1-link" ]
+
+  # The third snapshot is post-health pruning. If it cannot be read, the
+  # healthy candidate is rolled back and last-success remains unchanged.
+  seed_old_success
+  success_before=$(cat "$state/last-success")
+  export LIST_FAIL_AT=3
+  if run ${v4} 4444444444444444444444444444444444444444; then exit 1; fi
+  [ "$(cat "$LIST_CALLS")" -eq 4 ]
+  assert_operations "--list-generations
+--list-generations
+--set ${v4}
+--list-generations
+--switch-generation 1
+--list-generations
+--delete-generations 2"
+  [ "$(cat "$ACTIVATOR_LOG")" = "systemctl reset-failed house-automationd.service
+systemctl restart house-automationd.service
+systemctl reset-failed house-automationd.service
+systemctl restart house-automationd.service" ]
+  [ "$(wc -l < "$CURL_LOG")" -eq 2 ]
+  [ "$(readlink -f "$profile")" = "${v1}" ]
+  [ "$(cat "$state/last-success")" = "$success_before" ]
+  grep -qxF 'reason=generation-pruning-failed' "$state/last-failure"
+  grep -qxF 'rollback=complete' "$state/last-failure"
+  [ "$(generation_links)" -eq 1 ]
+
+  # If rollback cannot list generations after restoring the old link, it is
+  # incomplete and deliberately keeps the failed candidate as a recovery root.
+  seed_old_success
+  export LIST_FAIL_AT=3
+  if run ${v2} 2222222222222222222222222222222222222222; then exit 1; fi
+  [ "$(cat "$LIST_CALLS")" -eq 3 ]
+  assert_operations "--list-generations
+--list-generations
+--set ${v2}
+--switch-generation 1
+--list-generations"
+  [ "$(readlink -f "$profile")" = "${v1}" ]
+  [ -e "$profile-2-link" ]
+  [ "$(generation_links)" -eq 2 ]
+  grep -qxF 'reason=candidate-restart-failed' "$state/last-failure"
+  grep -qxF 'rollback=incomplete' "$state/last-failure"
+
+  # Repeated incomplete rollbacks first delete the previous non-current
+  # candidate. Each attempt therefore retains only old current + one candidate.
+  for retry in 1 2; do
+    reset_observations
+    export LIST_FAIL_AT=3
+    if run ${v2} 2222222222222222222222222222222222222222; then exit 1; fi
+    assert_operations "--list-generations
+--delete-generations 2
+--list-generations
+--set ${v2}
+--switch-generation 1
+--list-generations"
+    [ "$(cat "$LIST_CALLS")" -eq 3 ]
+    [ "$(readlink -f "$profile")" = "${v1}" ]
+    [ -e "$profile-2-link" ]
+    [ "$(generation_links)" -eq 2 ]
+    [ "$(tail -n1 "$GENERATIONS")" -eq 2 ]
+    grep -qxF 'rollback=incomplete' "$state/last-failure"
+  done
+
+  # Failure deleting that stale candidate is fail-closed before --set. The
+  # old current link, recovery root, generation file, and markers are retained.
+  generations_before=$(cat "$GENERATIONS")
+  failure_before=$(cat "$state/last-failure")
+  success_before=$(cat "$state/last-success")
+  reset_observations
+  export FAIL_STARTUP_DELETE=1
+  if run ${v4} 4444444444444444444444444444444444444444 2> "$PWD/stale-cleanup.err"; then exit 1; fi
+  grep -qxF 'activate-app: could not remove incomplete candidate generations' "$PWD/stale-cleanup.err"
+  assert_operations "--list-generations
+--delete-generations 2"
+  [ "$(count_operation --set)" -eq 0 ]
+  [ "$(cat "$LIST_CALLS")" -eq 1 ]
+  [ "$(readlink -f "$profile")" = "${v1}" ]
+  [ -e "$profile-2-link" ]
+  [ "$(generation_links)" -eq 2 ]
+  [ "$(cat "$GENERATIONS")" = "$generations_before" ]
+  [ "$(cat "$state/last-failure")" = "$failure_before" ]
+  [ "$(cat "$state/last-success")" = "$success_before" ]
+
+  # A delete failure while pruning is distinct from startup cleanup: rollback
+  # can delete the new generation and leaves the two pre-existing roots intact.
+  reset_fixture
+  run ${v1} 1111111111111111111111111111111111111111
   run ${v4} 4444444444444444444444444444444444444444
   success_before=$(cat "$state/last-success")
-  export FAIL_PRUNE=1
+  reset_observations
+  export FAIL_PRUNE_DELETE=1
   if run ${v5} 5555555555555555555555555555555555555555; then exit 1; fi
-  unset FAIL_PRUNE
   [ "$(readlink -f "$profile")" = "${v4}" ]
-  [ ! -e "$(dirname "$profile")/profile-3-link" ]
   [ "$(cat "$state/last-success")" = "$success_before" ]
-  grep -qF 'reason=generation-pruning-failed' "$state/last-failure"
-  grep -qF 'rollback=complete' "$state/last-failure"
-  [ "$(find "$(dirname "$profile")" -name 'profile-*-link' | wc -l)" -eq 2 ]
-  prune_rollback=$(tail -n 3 "$log")
-  [ "$(printf '%s\n' "$prune_rollback" | sed -n '1p')" = 'systemctl restart house-automationd.service' ]
-  [ "$(printf '%s\n' "$prune_rollback" | sed -n '2p')" = 'systemctl reset-failed house-automationd.service' ]
-  [ "$(printf '%s\n' "$prune_rollback" | sed -n '3p')" = 'systemctl restart house-automationd.service' ]
-  run ${v5} 5555555555555555555555555555555555555555
-  generations=$(find "$(dirname "$profile")" -name 'profile-*-link' | wc -l)
-  [ "$generations" -eq 2 ]
-  [ "$(readlink -f "$profile")" = "${v5}" ]
+  grep -qxF 'reason=generation-pruning-failed' "$state/last-failure"
+  grep -qxF 'rollback=complete' "$state/last-failure"
+  [ -e "$profile-1-link" ]
+  [ -e "$profile-2-link" ]
+  [ ! -e "$profile-3-link" ]
+  [ "$(generation_links)" -eq 2 ]
+
   touch "$out"
 ''
