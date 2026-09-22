@@ -105,7 +105,7 @@
           host = self.nixosConfigurations.home-server;
         };
         home-server-services = import ./nixos/tests/home-server-services.nix {
-          inherit pkgsSystem;
+          inherit agenix pkgsSystem;
           host = self.nixosConfigurations.home-server;
         };
       };

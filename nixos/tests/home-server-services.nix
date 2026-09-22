@@ -1,4 +1,5 @@
 {
+  agenix,
   pkgsSystem,
   host,
 }:
@@ -13,6 +14,21 @@ let
       exec sleep infinity
     '';
   };
+  zigbeeTestAgenix = pkgsSystem.runCommand "home-server-zigbee-test-agenix"
+    {
+      nativeBuildInputs = [
+        pkgsSystem.age
+        pkgsSystem.openssh
+      ];
+    }
+    ''
+      mkdir -p "$out"
+      ssh-keygen -q -t ed25519 -N "" -C "home-server Zigbee test identity" \
+        -f "$out/id_ed25519"
+      recipient="$(cat "$out/id_ed25519.pub")"
+      printf '%s' '[7,1,255,0,42,9,100,3,200,17,66,5,250,13,77,1]' \
+        | age -r "$recipient" -o "$out/zigbee2mqtt-network-key.age"
+    '';
 in
 assert host.config.homeServer.houseSettings == null;
 assert host.config.homeServer.zigbeeSerialPort == physicalCoordinator;
@@ -45,13 +61,11 @@ pkgsSystem.testers.runNixOSTest {
       # The standalone host is the production base; the VM overrides only
       # physical-hardware and production-secret edges below.
       imports = [
+        agenix.nixosModules.default
         ../hosts/home-server
       ];
 
-      disabledModules = [
-        ../hosts/home-server/hardware-configuration.nix
-        ../hosts/home-server/zigbee-coordinator.nix
-      ];
+      disabledModules = [ ../hosts/home-server/hardware-configuration.nix ];
       fileSystems."/" = {
         device = "none";
         fsType = "tmpfs";
@@ -74,12 +88,6 @@ pkgsSystem.testers.runNixOSTest {
       '';
 
       homeServer = {
-        zigbeeSerialPort = physicalCoordinator;
-        zigbeeChannel = 25;
-        zigbeePanId = 50324;
-        zigbeeExtendedPanId = [ 52 207 50 36 195 122 154 61 ];
-        zigbeeNetworkKeyFile = lib.mkForce "/run/home-server-test/zigbee2mqtt-network-key";
-
         # These defaults are intentional boundaries for this task.
         houseSettings = {
           schema_version = 1;
@@ -103,25 +111,12 @@ pkgsSystem.testers.runNixOSTest {
         tellstickTokenFile = null;
         tellstickAdapterPackage = null;
       };
+      age.identityPaths = lib.mkForce [ "${zigbeeTestAgenix}/id_ed25519" ];
+      age.secrets.zigbee2mqtt-network-key.file =
+        lib.mkForce "${zigbeeTestAgenix}/zigbee2mqtt-network-key.age";
       services.houseAutomation.executable = "${fakeAutomation}/bin/house-automationd";
 
-      systemd.services.home-server-test-network-key = {
-        description = "Install a runtime-only Zigbee network key fixture";
-        before = [ "zigbee2mqtt.service" ];
-        serviceConfig = {
-          Type = "oneshot";
-          RemainAfterExit = true;
-        };
-        script = ''
-          install -d -m 0700 /run/home-server-test
-          printf '%s\n' '[7,1,255,0,42,9,100,3,200,17,66,5,250,13,77,1]' \
-            > /run/home-server-test/zigbee2mqtt-network-key
-          chmod 0400 /run/home-server-test/zigbee2mqtt-network-key
-        '';
-      };
       systemd.services.zigbee2mqtt = {
-        requires = [ "home-server-test-network-key.service" ];
-        after = [ "home-server-test-network-key.service" ];
         wantedBy = lib.mkForce [ ];
       };
 
@@ -176,6 +171,7 @@ pkgsSystem.testers.runNixOSTest {
     home_server.wait_for_unit("mosquitto.service")
     home_server.wait_for_unit("postgresql.service")
     home_server.wait_for_unit("house-automationd.service")
+    home_server.wait_for_unit("agenix.service")
     home_server.succeed("test -L '${physicalCoordinator}'")
     home_server.succeed("test -c '${physicalCoordinator}'")
     home_server.succeed("test -d /var/lib/house-automation")
@@ -183,7 +179,7 @@ pkgsSystem.testers.runNixOSTest {
     home_server.succeed("systemctl show zigbee2mqtt.service -P LoadState | grep -Fx loaded")
     home_server.succeed(
         "systemctl cat zigbee2mqtt.service | "
-        "grep -F 'LoadCredential=network-key:/run/home-server-test/zigbee2mqtt-network-key'"
+        "grep -F 'LoadCredential=network-key:/run/agenix/zigbee2mqtt-network-key'"
     )
     home_server.succeed(
         "systemctl cat zigbee2mqtt.service | grep '^Requires=' | "
@@ -207,10 +203,18 @@ pkgsSystem.testers.runNixOSTest {
 
     home_server.succeed("systemctl start zigbee2mqtt.service")
     home_server.wait_until_succeeds(
-        "sed -n '/network_key:/,$p' /var/lib/zigbee2mqtt/configuration.yaml | "
-        "tr -s -c '0-9' ' ' | "
-        "grep -F ' 7 1 255 0 42 9 100 3 200 17 66 5 250 13 77 1 '"
+        "grep -F network_key /var/lib/zigbee2mqtt/configuration.yaml"
     )
+    import re
+    configuration = home_server.succeed("cat /var/lib/zigbee2mqtt/configuration.yaml")
+    network_key = re.search(
+        r"(?m)^\s*network_key:\s*(\[[^]]*\]|(?:\n(?:\s*-\s*\d+\s*)+))",
+        configuration,
+    )
+    assert network_key is not None, configuration
+    assert [int(value) for value in re.findall(r"\d+", network_key.group(1))] == [
+        7, 1, 255, 0, 42, 9, 100, 3, 200, 17, 66, 5, 250, 13, 77, 1,
+    ], network_key.group(0)
     home_server.succeed("grep -F 'pan_id: 50324' /var/lib/zigbee2mqtt/configuration.yaml")
     home_server.fail("grep -F GENERATE /var/lib/zigbee2mqtt/configuration.yaml")
     home_server.succeed("systemctl stop zigbee2mqtt.service || true")
@@ -219,7 +223,7 @@ pkgsSystem.testers.runNixOSTest {
     # Zigbee2MQTT can manufacture a replacement network identity.
     home_server.succeed(
         "rm -f /var/lib/zigbee2mqtt/configuration.yaml; "
-        "printf '%s\\n' '[1,2,3]' > /run/home-server-test/zigbee2mqtt-network-key; "
+        "printf '%s\\n' '[1,2,3]' > /run/agenix/zigbee2mqtt-network-key; "
         "systemctl reset-failed zigbee2mqtt.service; "
         "systemctl start zigbee2mqtt.service || true"
     )
