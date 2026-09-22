@@ -2,12 +2,22 @@
   description = "Reproducible house automation service";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+  inputs.nixpkgs-system.url =
+    "github:NixOS/nixpkgs/b7c2ada94fe99c15b0dbcf4d11fd7850b957a436";
+  inputs.agenix.url = "github:ryantm/agenix";
+  inputs.agenix.inputs.nixpkgs.follows = "nixpkgs-system";
 
   outputs =
-    { self, nixpkgs }:
+    {
+      self,
+      nixpkgs,
+      nixpkgs-system,
+      agenix,
+    }:
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
+      pkgsSystem = import nixpkgs-system { inherit system; };
       package = pkgs.callPackage ./nix/package.nix { };
       source = pkgs.lib.cleanSource ./.;
       mkCargoCheck =
@@ -37,6 +47,15 @@
       packages.${system}.default = package;
 
       nixosModules.default = import ./nix/module.nix;
+
+      nixosConfigurations.home-server = nixpkgs-system.lib.nixosSystem {
+        system = "x86_64-linux";
+        specialArgs = { inherit self; };
+        modules = [
+          agenix.nixosModules.default
+          ./nixos/hosts/home-server
+        ];
+      };
 
       devShells.${system}.default = pkgs.mkShell {
         inputsFrom = [ package ];
@@ -80,6 +99,10 @@
         simulated-house = import ./nix/tests/simulated-house.nix {
           inherit pkgs package;
           module = self.nixosModules.default;
+        };
+        standalone-host = import ./nixos/tests/standalone-host.nix {
+          inherit pkgsSystem;
+          host = self.nixosConfigurations.home-server;
         };
       };
     };
