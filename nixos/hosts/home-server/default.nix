@@ -10,4 +10,6 @@
   ];
 
   system.configurationRevision = if self ? rev then self.rev else "standalone-home-server";
+
+  services.app-auto-deploy.enable = true;
 }

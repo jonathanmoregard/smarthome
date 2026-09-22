@@ -16,23 +16,23 @@ pkgs.runCommand "hydrator-contract" { nativeBuildInputs = with pkgs; [ bash core
 set -euo pipefail
 printf '%s\n' "$*" >> "$HYDRATOR_LOG"
 case "$*" in
-  *empty*) exit 0 ;;
   *unsigned*) echo 'signature verification failed' >&2; exit 1 ;;
   *hanging*) sleep 30 ;;
   *missing*) echo 'not available' >&2; exit 1 ;;
+  *path-info*) printf '{"%s": {}}\n' "''${*: -1}"; exit 0 ;;
 esac
 exit 0
 EOF
   chmod +x bin/nix
   export PATH="$PWD/bin:$PATH" HYDRATOR_LOG="$PWD/log"
-  invoke() { timeout 2 bash ${script} --from '${projectCache}' --trusted-key '${projectKey}' --from '${nixosCache}' --trusted-key '${nixosKey}' "$@"; }
+  invoke() { timeout 2 bash ${script} --timeout-seconds 1 --from '${projectCache}' --trusted-key '${projectKey}' --from '${nixosCache}' --trusted-key '${nixosKey}' "$@"; }
   if invoke > empty.log 2>&1; then exit 1; fi
   grep -qF 'at least one store path' empty.log
-  if invoke /nix/store/unsigned > unsigned.log 2>&1; then exit 1; fi
+  if invoke /nix/store/00000000000000000000000000000000-unsigned > unsigned.log 2>&1; then exit 1; fi
   grep -qF 'signature verification failed' unsigned.log
-  if invoke /nix/store/missing > missing.log 2>&1; then exit 1; fi
+  if invoke /nix/store/00000000000000000000000000000000-missing > missing.log 2>&1; then exit 1; fi
   grep -qF 'not available' missing.log
-  if invoke /nix/store/hanging > hanging.log 2>&1; then exit 1; fi
+  if invoke /nix/store/00000000000000000000000000000000-hanging > hanging.log 2>&1; then exit 1; fi
   grep -qF -- '--option max-jobs 0' "$HYDRATOR_LOG"
   grep -qF -- '--option fallback false' "$HYDRATOR_LOG"
   grep -qF -- '--option builders ' "$HYDRATOR_LOG"

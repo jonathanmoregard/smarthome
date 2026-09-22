@@ -42,7 +42,10 @@ let
   };
 in
 {
-  imports = [ ./house-automation-service.nix ];
+  imports = [
+    ./app-auto-deploy.nix
+    ./house-automation-service.nix
+  ];
 
   options.homeServer = {
     zigbeeSerialPort = mkOption {

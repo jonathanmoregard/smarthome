@@ -3,7 +3,7 @@
 { pkgs, script }:
 
 let
-  package = name: pkgs.runCommand name { } ''mkdir -p "$out/bin"; touch "$out/bin/house-automationd"'';
+  package = name: pkgs.runCommand name { } ''mkdir -p "$out/bin"; touch "$out/bin/house-automationd"; chmod +x "$out/bin/house-automationd"'';
   v1 = package "app-v1";
   v2 = package "app-v2";
   v3 = package "app-v3";
@@ -22,6 +22,10 @@ EOF
   cat > "$PWD/bin/curl" <<'EOF'
 #!/usr/bin/env bash
 [ "$(readlink -f "$PROFILE")" != "$UNHEALTHY" ]
+EOF
+  cat > "$PWD/bin/sleep" <<'EOF'
+#!/usr/bin/env bash
+exit 0
 EOF
   cat > "$PWD/bin/nix-env" <<'EOF'
 #!/usr/bin/env bash
@@ -55,7 +59,7 @@ case "$operation" in
   *) exit 64 ;;
 esac
 EOF
-  chmod +x "$PWD/bin/systemctl" "$PWD/bin/curl" "$PWD/bin/nix-env"
+  chmod +x "$PWD/bin/systemctl" "$PWD/bin/curl" "$PWD/bin/sleep" "$PWD/bin/nix-env"
   export PATH="$PWD/bin:$PATH" ACTIVATOR_LOG="$log" PROFILE="$profile" START_LIMIT="$PWD/start-limit" GENERATIONS="$PWD/generations" CRASHING=${v2} UNHEALTHY=${v3}
   : > "$GENERATIONS"
   run() { bash ${script} "$@" "$state" "$profile" house-automationd.service http://127.0.0.1:9876/healthz; }
