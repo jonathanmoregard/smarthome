@@ -144,15 +144,23 @@ pkgs.runCommand "app-deploy-contract" { nativeBuildInputs = with pkgs; [ bash co
   git -C work add promotion-marker && git -C work commit -qm bad
   bad_commit=$(git -C work rev-parse HEAD)
   export ACTIVATOR_FAIL_REV="$bad_commit"
+  printf main-after-bad > work/promotion-marker
+  git -C work commit -am main-after-bad -q
+  main_after_bad=$(git -C work rev-parse HEAD)
+  git -C work push -q --force origin "$main_after_bad":refs/heads/main
   git -C work push -q --force origin "$bad_commit":refs/heads/release/app
   if "$deploy" > poison.log 2>&1; then exit 1; fi
   if "$deploy" > poison-replay.log 2>&1; then exit 1; fi
   grep -qF 'poisoned' poison-replay.log
   unset ACTIVATOR_FAIL_REV
-  git -C work checkout -q "$main"
+  git -C work checkout -q "$main_after_bad"
   printf transient > work/promotion-marker
   git -C work add promotion-marker && git -C work commit -qm transient
   transient=$(git -C work rev-parse HEAD)
+  printf main-after-transient > work/promotion-marker
+  git -C work commit -am main-after-transient -q
+  main_after_transient=$(git -C work rev-parse HEAD)
+  git -C work push -q --force origin "$main_after_transient":refs/heads/main
   git -C work push -q --force origin "$transient":refs/heads/release/app
   export HYDRATOR_TRANSIENT_ONCE=${app}
   if "$deploy" > transient.log 2>&1; then exit 1; fi
