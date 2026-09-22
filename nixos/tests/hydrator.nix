@@ -8,7 +8,7 @@ let
   nixosCache = "https://cache.nixos.org";
   nixosKey = "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=";
 in
-pkgs.runCommand "hydrator-contract" { nativeBuildInputs = with pkgs; [ bash coreutils gnugrep ]; } ''
+pkgs.runCommand "hydrator-contract" { nativeBuildInputs = with pkgs; [ bash coreutils gnugrep jq ]; } ''
   set -euo pipefail
   mkdir bin
   cat > bin/nix <<'EOF'
