@@ -10,7 +10,14 @@ let
   app = pkgs.writeShellScriptBin "house-automationd" "exit 0";
   fakeNix = pkgs.writeShellScriptBin "nix" ''
     [ "$1" = eval ] && [ "$2" = --raw ] || exit 64
-    case " $* " in *' --no-update-lock-file '*' --no-write-lock-file '*) ;; *) exit 64 ;; esac
+    require_once() {
+      local wanted=$1 argument count=0
+      shift
+      for argument in "$@"; do [ "$argument" = "$wanted" ] && count=$((count + 1)); done
+      [ "$count" -eq 1 ]
+    }
+    require_once --no-update-lock-file "$@" || exit 64
+    require_once --no-write-lock-file "$@" || exit 64
     printf '%s\n' "$*" >> "$DEPLOY_LOG"
     reference="''${*: -1}"
     cat "''${reference%%#*}"/release-path
@@ -32,6 +39,11 @@ let
     fi
     if [ "''${ACTIVATOR_INCOMPLETE_REV:-}" = "$2" ]; then
       printf 'rev=%s\nreason=candidate-health-failed\nrollback=incomplete\n' "$2" > "$3/last-failure"
+      exit 1
+    fi
+    if [ "''${ACTIVATOR_TRANSIENT_REV:-}" = "$2" ] && [ ! -e "$ACTIVATOR_TRANSIENT_MARKER" ]; then
+      touch "$ACTIVATOR_TRANSIENT_MARKER"
+      printf 'rev=%s\nreason=candidate-restart-failed\nrollback=complete\n' "$2" > "$3/last-failure"
       exit 1
     fi
     ln -sfn "$1" "$4"
@@ -57,8 +69,18 @@ let
       }
     ];
   };
+  forbiddenRepository = builtins.tryEval (nixosSystem {
+    system = "x86_64-linux";
+    modules = [ ../modules/app-auto-deploy.nix {
+      documentation.enable = false;
+      fileSystems."/" = { device = "none"; fsType = "tmpfs"; };
+      system.stateVersion = "26.05";
+      services.app-auto-deploy.repository = "file:///forbidden";
+    } ];
+  }).config.services.app-auto-deploy.repository;
   service = evaluated.config.systemd.services.app-deploy;
 in
+assert !forbiddenRepository.success;
 assert service.serviceConfig.RuntimeDirectory == "smarthome-deploy";
 assert service.serviceConfig.TimeoutStartSec == "10min";
 assert service.serviceConfig.RuntimeDirectoryPreserve == "yes";
@@ -105,7 +127,6 @@ pkgs.runCommand "app-deploy-contract" { nativeBuildInputs = with pkgs; [ bash co
   grep -qF -- '--option max-jobs 0' "$deploy"
   grep -qF -- '--option fallback false' "$deploy"
   grep -qF -- '--option builders ""' "$deploy"
-  grep -qF -- '--no-update-lock-file' "$deploy"
   grep -qF -- '--no-write-lock-file' "$deploy"
   grep -qF '${projectCache}' "$deploy"
   grep -qF '${projectKey}' "$deploy"
@@ -137,6 +158,20 @@ pkgs.runCommand "app-deploy-contract" { nativeBuildInputs = with pkgs; [ bash co
   if "$deploy" > non-ancestor.log 2>&1; then exit 1; fi
   grep -qF 'not an ancestor' non-ancestor.log
 
+  # Lockless promoted content is refused before the evaluator can run.
+  git -C work checkout -q "$main"
+  rm work/flake.lock
+  git -C work add -u && git -C work commit -qm lockless
+  lockless=$(git -C work rev-parse HEAD)
+  printf '{"version":7,"root":"root","nodes":{"root":{"inputs":{}}}}\n' > work/flake.lock
+  git -C work add flake.lock && git -C work commit -qm locked-descendant
+  main=$(git -C work rev-parse HEAD)
+  git -C work push -q --force origin "$main":refs/heads/main
+  git -C work push -q --force origin "$lockless":refs/heads/release/app
+  if "$deploy" > missing-lock.log 2>&1; then exit 1; fi
+  grep -qF 'promoted revision has no flake.lock' missing-lock.log
+  [ ! -e "$DEPLOY_LOG" ]
+
   # A valid promoted revision is activated once. Replaying it is inert, while
   # a manual rollback remains a latch and must never be clobbered.
   git -C work push -q --force origin "$main":refs/heads/release/app
@@ -146,8 +181,7 @@ pkgs.runCommand "app-deploy-contract" { nativeBuildInputs = with pkgs; [ bash co
   [ "$activations" -eq 1 ]
   "$deploy"
   [ "$(grep -c '^${app} ' "$DEPLOY_LOG")" -eq 1 ]
-  # A deterministic unhealthy activation is latched; a transient hydration
-  # failure is not and succeeds on the next timer replay.
+  # A deterministic unhealthy activation is latched.
   git -C work checkout -q "$main"
   printf bad > work/promotion-marker
   git -C work add promotion-marker && git -C work commit -qm bad
@@ -171,10 +205,13 @@ pkgs.runCommand "app-deploy-contract" { nativeBuildInputs = with pkgs; [ bash co
   main_after_transient=$(git -C work rev-parse HEAD)
   git -C work push -q --force origin "$main_after_transient":refs/heads/main
   git -C work push -q --force origin "$transient":refs/heads/release/app
-  export HYDRATOR_TRANSIENT_ONCE=${app}
+  export ACTIVATOR_TRANSIENT_REV="$transient" ACTIVATOR_TRANSIENT_MARKER="$PWD/transient-once"
+  before_transient=$(grep -c '^${app} ' "$DEPLOY_LOG")
   if "$deploy" > transient.log 2>&1; then exit 1; fi
   "$deploy"
-  unset HYDRATOR_TRANSIENT_ONCE
+  [ "$(grep -c '^${app} ' "$DEPLOY_LOG")" -eq $((before_transient + 2)) ]
+  ! grep -qF 'poisoned' transient.log
+  unset ACTIVATOR_TRANSIENT_REV ACTIVATOR_TRANSIENT_MARKER
   # An unhealthy candidate with incomplete rollback must remain retryable;
   # only a proven-complete recovery is a deterministic poison latch.
   git -C work checkout -q "$main_after_transient"
