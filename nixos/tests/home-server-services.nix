@@ -23,6 +23,11 @@ assert host.config.age.secrets.zigbee2mqtt-network-key.file == ../secrets/zigbee
 assert host.config.age.secrets.zigbee2mqtt-network-key.owner == "root";
 assert host.config.age.secrets.zigbee2mqtt-network-key.group == "root";
 assert host.config.age.secrets.zigbee2mqtt-network-key.mode == "0400";
+assert !(builtins.hasAttr "deployKeyFile" host.options.homeServer);
+assert !(builtins.hasAttr "smarthomeDeployKeyFile" host.options.homeServer);
+assert !(builtins.hasAttr "rekey" host.options.age);
+assert !(builtins.hasAttr "deploy-ssh-key" host.config.age.secrets);
+assert !(builtins.hasAttr "smarthome-deploy-ssh-key" host.config.age.secrets);
 pkgsSystem.testers.runNixOSTest {
   name = "home-server-services";
   skipTypeCheck = true;
@@ -200,9 +205,11 @@ pkgsSystem.testers.runNixOSTest {
     assert "permit_join: false" in rendered, rendered
     assert "network_key" not in rendered, rendered
 
-    home_server.succeed("systemctl start zigbee2mqtt.service || true")
+    home_server.succeed("systemctl start zigbee2mqtt.service")
     home_server.wait_until_succeeds(
-        "grep -F 'channel: 25' /var/lib/zigbee2mqtt/configuration.yaml"
+        "sed -n '/network_key:/,$p' /var/lib/zigbee2mqtt/configuration.yaml | "
+        "tr -s -c '0-9' ' ' | "
+        "grep -F ' 7 1 255 0 42 9 100 3 200 17 66 5 250 13 77 1 '"
     )
     home_server.succeed("grep -F 'pan_id: 50324' /var/lib/zigbee2mqtt/configuration.yaml")
     home_server.fail("grep -F GENERATE /var/lib/zigbee2mqtt/configuration.yaml")
@@ -231,6 +238,9 @@ pkgsSystem.testers.runNixOSTest {
 
     home_server.fail("systemctl list-unit-files --no-legend | grep -E 'build-coordination|nixos-auto-deploy|smarthome-auto-deploy'")
     home_server.fail("find /etc/ssh -maxdepth 1 -type f -name '*deploy*' -print -quit | grep -q .")
+    home_server.succeed("test ! -e /run/agenix/deploy-ssh-key")
+    home_server.succeed("test ! -e /run/agenix/smarthome-deploy-ssh-key")
+    home_server.fail("find /run/agenix -maxdepth 1 -type f -name '*deploy*' -print -quit | grep -q .")
     home_server.succeed("test -z \"$(systemctl --failed --no-legend)\"")
   '';
 }
