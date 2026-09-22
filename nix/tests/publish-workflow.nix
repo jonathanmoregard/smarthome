@@ -11,6 +11,13 @@ pkgs.runCommand "smarthome-publish-workflow-contract"
     cachix_action='cachix/cachix-action@1eb2ef646ac0255473d23a5907ad7b04ce94065c'
     expected_verify='nix build --no-link --option max-jobs 0 --option fallback false --option builders "" .#packages.x86_64-linux.default'
 
+    IFS= read -r -d $'\0' expected_root_check <<'EOF' || true
+    set -euo pipefail
+    package="$(nix eval --raw .#packages.x86_64-linux.default.outPath)"
+    test -n "$package"
+    test "$(nix path-info --store https://jonathanmoregard.cachix.org "$package")" = "$package"
+    EOF
+
     IFS= read -r -d $'\0' expected_push <<'EOF' || true
     set -euo pipefail
     closure="$(nix path-info --recursive "''${{ steps.package.outputs.path }}" | sort -u)"
@@ -27,12 +34,12 @@ pkgs.runCommand "smarthome-publish-workflow-contract"
     EOF
 
     IFS= read -r -d $'\0' expected_extra_nix_config <<'EOF' || true
-    substituters = https://jonathanmoregard.cachix.org
-    trusted-public-keys = jonathanmoregard.cachix.org-1:Qzksr/c2ciAaV4j/U2mGFd1HTgOAicks8gJNs1Ztxo8=
+    substituters = https://jonathanmoregard.cachix.org https://cache.nixos.org
+    trusted-public-keys = jonathanmoregard.cachix.org-1:Qzksr/c2ciAaV4j/U2mGFd1HTgOAicks8gJNs1Ztxo8= cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=
     EOF
 
     export checkout_action install_nix_action cachix_action
-    export expected_build expected_push expected_verify expected_extra_nix_config
+    export expected_build expected_push expected_root_check expected_verify expected_extra_nix_config
 
     validate_workflow() {
       candidate="$1"
@@ -54,10 +61,11 @@ pkgs.runCommand "smarthome-publish-workflow-contract"
       yq -e '((.jobs.publish.steps[3] | keys | length) == 3) and (.jobs.publish.steps[3] | has("name")) and (.jobs.publish.steps[3] | has("id")) and (.jobs.publish.steps[3] | has("run")) and (.jobs.publish.steps[3].name == "Build exact package") and (.jobs.publish.steps[3].id == "package") and (.jobs.publish.steps[3].run == strenv(expected_build))' "$candidate" >/dev/null || return 1
       yq -e '((.jobs.publish.steps[4] | keys | length) == 2) and (.jobs.publish.steps[4] | has("name")) and (.jobs.publish.steps[4] | has("run")) and (.jobs.publish.steps[4].name == "Push signed runtime closure") and (.jobs.publish.steps[4].run == strenv(expected_push))' "$candidate" >/dev/null || return 1
 
-      yq -e '(.jobs.verify.steps | length) == 3' "$candidate" >/dev/null || return 1
+      yq -e '(.jobs.verify.steps | length) == 4' "$candidate" >/dev/null || return 1
       yq -e '((.jobs.verify.steps[0] | keys | length) == 3) and (.jobs.verify.steps[0] | has("name")) and (.jobs.verify.steps[0] | has("uses")) and (.jobs.verify.steps[0] | has("with")) and (.jobs.verify.steps[0].name == "Check out exact release") and (.jobs.verify.steps[0].uses == strenv(checkout_action)) and ((.jobs.verify.steps[0].with | keys | length) == 1) and (.jobs.verify.steps[0].with | has("persist-credentials")) and (.jobs.verify.steps[0].with."persist-credentials" == false)' "$candidate" >/dev/null || return 1
       yq -e '((.jobs.verify.steps[1] | keys | length) == 3) and (.jobs.verify.steps[1] | has("name")) and (.jobs.verify.steps[1] | has("uses")) and (.jobs.verify.steps[1] | has("with")) and (.jobs.verify.steps[1].name == "Install Nix with release cache") and (.jobs.verify.steps[1].uses == strenv(install_nix_action)) and ((.jobs.verify.steps[1].with | keys | length) == 1) and (.jobs.verify.steps[1].with | has("extra_nix_config")) and (.jobs.verify.steps[1].with.extra_nix_config == strenv(expected_extra_nix_config))' "$candidate" >/dev/null || return 1
-      yq -e '((.jobs.verify.steps[2] | keys | length) == 2) and (.jobs.verify.steps[2] | has("name")) and (.jobs.verify.steps[2] | has("run")) and (.jobs.verify.steps[2].name == "Substitute without builders") and (.jobs.verify.steps[2].run == strenv(expected_verify))' "$candidate" >/dev/null || return 1
+      yq -e '((.jobs.verify.steps[2] | keys | length) == 2) and (.jobs.verify.steps[2] | has("name")) and (.jobs.verify.steps[2] | has("run")) and (.jobs.verify.steps[2].name == "Confirm app root is in release cache") and (.jobs.verify.steps[2].run == strenv(expected_root_check))' "$candidate" >/dev/null || return 1
+      yq -e '((.jobs.verify.steps[3] | keys | length) == 2) and (.jobs.verify.steps[3] | has("name")) and (.jobs.verify.steps[3] | has("run")) and (.jobs.verify.steps[3].name == "Substitute without builders") and (.jobs.verify.steps[3].run == strenv(expected_verify))' "$candidate" >/dev/null || return 1
 
       yq -e '[.. | select(tag == "!!str") | select(test("\\$\\{\\{[[:space:]]*secrets[[:space:]]*(\\.|\\[)"))] | length == 1' "$candidate" >/dev/null || return 1
     }
@@ -147,9 +155,14 @@ pkgs.runCommand "smarthome-publish-workflow-contract"
     assert_rejected "altered build script" '(.jobs.publish.steps[] | select(.id == "package").run) += "echo altered\\n"'
     assert_rejected "missing verify dependency" 'del(.jobs.verify.needs)'
     assert_rejected "wrong Cachix URL" '(.jobs.verify.steps[] | select(.uses == strenv(install_nix_action)).with.extra_nix_config) |= sub("https://jonathanmoregard.cachix.org"; "https://wrong.example")'
-    assert_rejected "public cache masks incomplete Cachix closure" '(.jobs.verify.steps[] | select(.uses == strenv(install_nix_action)).with.extra_nix_config) |= sub("https://jonathanmoregard.cachix.org"; "https://cache.nixos.org/ https://jonathanmoregard.cachix.org")'
+    assert_rejected "missing NixOS cache" '(.jobs.verify.steps[] | select(.uses == strenv(install_nix_action)).with.extra_nix_config) |= sub(" https://cache.nixos.org"; "")'
+    assert_rejected "NixOS cache before release cache" '(.jobs.verify.steps[] | select(.uses == strenv(install_nix_action)).with.extra_nix_config) |= sub("https://jonathanmoregard.cachix.org https://cache.nixos.org"; "https://cache.nixos.org https://jonathanmoregard.cachix.org")'
+    assert_rejected "wrong release-cache signing key" '(.jobs.verify.steps[] | select(.uses == strenv(install_nix_action)).with.extra_nix_config) |= sub("Qzksr/c2ciAaV4j/U2mGFd1HTgOAicks8gJNs1Ztxo8="; "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")'
+    assert_rejected "wrong NixOS-cache signing key" '(.jobs.verify.steps[] | select(.uses == strenv(install_nix_action)).with.extra_nix_config) |= sub("6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="; "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")'
+    assert_rejected "root check queries fallback cache" '(.jobs.verify.steps[] | select(.name == "Confirm app root is in release cache").run) |= sub("https://jonathanmoregard.cachix.org"; "https://cache.nixos.org")'
+    assert_rejected "root check removed" 'del(.jobs.verify.steps[] | select(.name == "Confirm app root is in release cache"))'
     assert_rejected "conditional required step" '.jobs.publish.steps[0].if = "always()"'
-    assert_rejected "verify continue-on-error" '.jobs.verify.steps[2].continue-on-error = true'
+    assert_rejected "verify continue-on-error" '.jobs.verify.steps[3].continue-on-error = true'
     assert_rejected "extra run step" '.jobs.verify.steps += [{"name": "Unexpected run", "run": "true"}]'
     assert_rejected "job permissions write" '.jobs.publish.permissions = {"contents": "write"}'
     assert_rejected "job NIX_CONFIG environment" '.jobs.verify.env.NIX_CONFIG = "sandbox = false"'

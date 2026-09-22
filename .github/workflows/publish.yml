@@ -54,8 +54,14 @@ jobs:
         uses: cachix/install-nix-action@ba0dd844c9180cbf77aa72a116d6fbc515d0e87b # v27
         with:
           extra_nix_config: |
-            substituters = https://jonathanmoregard.cachix.org
-            trusted-public-keys = jonathanmoregard.cachix.org-1:Qzksr/c2ciAaV4j/U2mGFd1HTgOAicks8gJNs1Ztxo8=
+            substituters = https://jonathanmoregard.cachix.org https://cache.nixos.org
+            trusted-public-keys = jonathanmoregard.cachix.org-1:Qzksr/c2ciAaV4j/U2mGFd1HTgOAicks8gJNs1Ztxo8= cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=
+      - name: Confirm app root is in release cache
+        run: |
+          set -euo pipefail
+          package="$(nix eval --raw .#packages.x86_64-linux.default.outPath)"
+          test -n "$package"
+          test "$(nix path-info --store https://jonathanmoregard.cachix.org "$package")" = "$package"
       - name: Substitute without builders
         run: >-
           nix build --no-link
