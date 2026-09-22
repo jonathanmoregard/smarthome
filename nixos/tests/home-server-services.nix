@@ -46,12 +46,13 @@ let
           }
         ];
       };
-    in
-    builtins.any (
-      assertion:
-      assertion.message == "homeServer.mqttNetworkUsername must be non-empty and contain neither ':' nor newlines"
-      && assertion.assertion
-    ) evaluated.config.assertions;
+      assertion = pkgsSystem.lib.findFirst
+        (assertion:
+          assertion.message == "homeServer.mqttNetworkUsername must be non-empty and contain neither ':' nor newlines"
+        )
+        (throw "homeServer.mqttNetworkUsername assertion is missing")
+        evaluated.config.assertions;
+    in assertion.assertion;
 in
 assert host.config.homeServer.houseSettings == null;
 assert host.config.homeServer.zigbeeSerialPort == physicalCoordinator;
