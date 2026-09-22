@@ -46,11 +46,13 @@ case "$operation" in
     printf '%s\n' "$generation" >> "$GENERATIONS"
     ;;
   --list-generations)
+    [ "''${LIST_FAILURE:-0}" != 1 ] || exit 75
     while read -r generation; do
       suffix=
       [ "$(readlink "$profile")" = "$profile-$generation-link" ] && suffix=' (current)'
       printf '%s 2026-09-22%s\n' "$generation" "$suffix"
     done < "$GENERATIONS"
+    exit 0
     ;;
   --switch-generation)
     ln -sfn "$profile-$1-link" "$profile"
@@ -71,11 +73,17 @@ EOF
   export PATH="$PWD/bin:$PATH" ACTIVATOR_LOG="$log" PROFILE="$profile" START_LIMIT="$PWD/start-limit" GENERATIONS="$PWD/generations" PRUNE_FAILURE_STATE="$PWD/prune-failed-once" RECOVERY_PATH=${v1} CRASHING=${v2} UNHEALTHY=${v3}
   : > "$GENERATIONS"
   run() { bash ${script} "$@" "$state" "$profile" house-automationd.service http://127.0.0.1:9876/healthz; }
+  export LIST_FAILURE=1
+  if run ${v1} 1111111111111111111111111111111111111111; then exit 1; fi
+  unset LIST_FAILURE
+  [ ! -e "$profile" ]
   run ${v1} 1111111111111111111111111111111111111111
   before=$(readlink "$profile")
+  touch "$START_LIMIT"
   if run ${v2} 2222222222222222222222222222222222222222; then exit 1; fi
   [ "$(readlink "$profile")" = "$before" ]
   grep -qxF 'rollback=complete' "$state/last-failure"
+  grep -qxF 'reason=candidate-restart-failed' "$state/last-failure"
   grep -qF 'systemctl reset-failed house-automationd.service' "$log"
   [ ! -e "$START_LIMIT" ]
   rollback_sequence=$(tail -n 3 "$log")

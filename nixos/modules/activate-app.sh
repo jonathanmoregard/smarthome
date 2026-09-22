@@ -27,6 +27,7 @@ capture_generations() {
     original_generations+=("$generation")
     [[ "$line" == *'(current)'* ]] && old_generation=$generation
   done <<< "$generations_output"
+  return 0
 }
 capture_generations || die 'could not list profile generations'
 if [ -e "$profile" ] || [ -L "$profile" ]; then
