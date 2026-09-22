@@ -35,16 +35,17 @@ if [ -e "$profile" ] || [ -L "$profile" ]; then
   [ -n "$old_generation" ] || die 'profile has no active generation'
 fi
 
-# Incomplete transactions can leave a non-current candidate. Remove it before
-# allocating another generation; otherwise retries leak profiles indefinitely.
-if [ -n "$old_generation" ]; then
-  stale_generations=()
-  for generation in "${original_generations[@]}"; do
-    [ "$generation" -gt "$old_generation" ] && stale_generations+=("$generation")
-  done
-  [ "${#stale_generations[@]}" -eq 0 ] || nix-env --profile "$profile" --delete-generations "${stale_generations[@]}" >/dev/null || die 'could not remove incomplete candidate generations'
-  capture_generations || die 'could not list profile generations after incomplete cleanup'
-fi
+# Incomplete transactions can leave non-current candidates. With no active
+# profile every listed generation is incomplete; otherwise only generations
+# newer than the active one belong to an interrupted activation.
+stale_generations=()
+for generation in "${original_generations[@]}"; do
+  if [ -z "$old_generation" ] || [ "$generation" -gt "$old_generation" ]; then
+    stale_generations+=("$generation")
+  fi
+done
+[ "${#stale_generations[@]}" -eq 0 ] || nix-env --profile "$profile" --delete-generations "${stale_generations[@]}" >/dev/null || die 'could not remove incomplete candidate generations'
+capture_generations || die 'could not list profile generations after incomplete cleanup'
 
 write_marker() {
   local name=$1 contents=$2 tmp

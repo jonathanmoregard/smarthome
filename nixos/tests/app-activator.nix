@@ -19,6 +19,7 @@ pkgs.runCommand "app-activator-contract" { nativeBuildInputs = with pkgs; [ bash
 printf 'systemctl %s\n' "$*" >> "$ACTIVATOR_LOG"
 if [ "$1" = reset-failed ] && [ "''${CANDIDATE_RESET_FAILURE:-0}" = 1 ] && [ ! -e "$CANDIDATE_RESET_MARKER" ] && [ "$(readlink -f "$PROFILE")" = "$RESET_CANDIDATE" ]; then touch "$CANDIDATE_RESET_MARKER"; exit 1; fi
 if [ "$1" = reset-failed ]; then rm -f "$START_LIMIT"; exit 0; fi
+if [ "$1" = restart ] && [ "''${MISSING_PROFILE_RECOVERY_FAILURE:-0}" = 1 ] && [ ! -e "$PROFILE" ] && [ ! -L "$PROFILE" ]; then touch "$MISSING_PROFILE_RECOVERY_MARKER"; exit 1; fi
 if [ "$1" = restart ] && [ "$(readlink -f "$PROFILE")" = "$CRASHING" ]; then touch "$START_LIMIT"; exit 1; fi
 if [ "$1" = restart ] && [ "''${RECOVERY_FAILURE:-0}" = 1 ] && [ "$(readlink -f "$PROFILE")" = "$RECOVERY_PATH" ]; then exit 1; fi
 exit 0
@@ -109,6 +110,7 @@ EOF
   export ACTIVATOR_LOG="$log" CURL_LOG="$PWD/curl.log" NIX_ENV_LOG="$PWD/nix-env.log"
   export PROFILE="$profile" START_LIMIT="$PWD/start-limit" GENERATIONS="$PWD/generations"
   export LIST_CALLS="$PWD/list-calls" CANDIDATE_RESET_MARKER="$PWD/candidate-reset-once"
+  export MISSING_PROFILE_RECOVERY_MARKER="$PWD/missing-profile-recovery-failed"
   export SUCCESS_MARKER="$state/last-success"
   export SUCCESS_MOVE_SIGNAL_SENT="$PWD/success-move-signal-sent"
   export SUCCESS_MOVE_FAILURE_TRIGGERED="$PWD/success-move-failure-triggered"
@@ -119,8 +121,9 @@ EOF
     : > "$CURL_LOG"
     : > "$NIX_ENV_LOG"
     : > "$LIST_CALLS"
-    rm -f "$START_LIMIT" "$CANDIDATE_RESET_MARKER" "$SUCCESS_MOVE_SIGNAL_SENT" "$SUCCESS_MOVE_FAILURE_TRIGGERED"
+    rm -f "$START_LIMIT" "$CANDIDATE_RESET_MARKER" "$MISSING_PROFILE_RECOVERY_MARKER" "$SUCCESS_MOVE_SIGNAL_SENT" "$SUCCESS_MOVE_FAILURE_TRIGGERED"
     export CANDIDATE_RESET_FAILURE=0 RECOVERY_FAILURE=0 FAIL_STARTUP_DELETE=0 FAIL_PRUNE_DELETE=0
+    export MISSING_PROFILE_RECOVERY_FAILURE=0
     export SIGNAL_AFTER_SUCCESS_MOVE=0 FAIL_SUCCESS_MARKER_MOVE=0
     unset LIST_FAIL_AT
   }
@@ -154,8 +157,11 @@ EOF
     grep -c "^$1" "$NIX_ENV_LOG" || true
   }
   assert_operations() {
-    expected=$1
-    [ "$(cat "$NIX_ENV_LOG")" = "$expected" ]
+    expected=$1 actual=$(cat "$NIX_ENV_LOG")
+    if [ "$actual" != "$expected" ]; then
+      printf 'unexpected nix-env operations\nexpected:\n%s\nactual:\n%s\n' "$expected" "$actual" >&2
+      return 1
+    fi
   }
   run() { bash ${script} "$@" "$state" "$profile" house-automationd.service http://127.0.0.1:9876/healthz; }
 
@@ -307,6 +313,33 @@ systemctl restart house-automationd.service" ]
   [ "$(cat "$GENERATIONS")" = "$generations_before" ]
   [ "$(cat "$state/last-failure")" = "$failure_before" ]
   [ "$(cat "$state/last-success")" = "$success_before" ]
+
+  # An incomplete first activation has no old profile to restart. Its orphaned
+  # candidate is the entire generation snapshot, so retries must delete it
+  # before allocating a replacement instead of leaking another root each time.
+  reset_fixture
+  export MISSING_PROFILE_RECOVERY_FAILURE=1
+  if run ${v3} 3333333333333333333333333333333333333333; then exit 1; fi
+  [ -e "$MISSING_PROFILE_RECOVERY_MARKER" ]
+  [ ! -e "$profile" ]
+  [ -e "$profile-1-link" ]
+  [ "$(generation_links)" -eq 1 ]
+  grep -qxF 'rollback=incomplete' "$state/last-failure"
+  for retry in 1 2; do
+    reset_observations
+    export MISSING_PROFILE_RECOVERY_FAILURE=1
+    if run ${v3} 3333333333333333333333333333333333333333; then exit 1; fi
+    [ -e "$MISSING_PROFILE_RECOVERY_MARKER" ]
+    assert_operations "--list-generations
+--delete-generations 1
+--list-generations
+--set ${v3}"
+    [ ! -e "$profile" ]
+    [ -e "$profile-1-link" ]
+    [ "$(generation_links)" -eq 1 ]
+    [ "$(cat "$GENERATIONS")" = 1 ]
+    grep -qxF 'rollback=incomplete' "$state/last-failure"
+  done
 
   # A delete failure while pruning is distinct from startup cleanup: rollback
   # can delete the new generation and leaves the two pre-existing roots intact.
