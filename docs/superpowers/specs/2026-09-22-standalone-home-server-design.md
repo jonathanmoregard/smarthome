@@ -103,6 +103,12 @@ Application packaging keeps the existing NixOS 26.05 `nixpkgs` input. A new
 downgrade during ownership migration. Pin unification is a later reviewed
 change, not part of cutover.
 
+The application derivation uses an explicit fileset containing only Cargo
+metadata, the two Rust crates, and their `examples/house.toml` compile-time
+fixture. It does not capture `nixos/`, documentation, workflows, or Nix tests.
+A host-only or documentation-only commit therefore cannot change the package
+derivation or create a new application closure.
+
 ## Secrets
 
 Only the Zigbee network key is still required by the standalone system. The

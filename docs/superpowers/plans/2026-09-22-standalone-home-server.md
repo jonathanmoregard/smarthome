@@ -25,6 +25,7 @@
 - `nixos/secrets/zigbee2mqtt-network-key.age`: host-decryptable runtime ciphertext only.
 - `nixos/tests/*`: focused contracts plus full-host and CD NixOS VM lanes.
 - `nix/ci/classify-paths.sh`: fail-closed app/system change classifier.
+- `nix/source.nix`: app-only fileset, excluding host config, docs, workflows, and tests.
 - `nix/ci/push-closure.sh`: bounded explicit-path Cachix publication.
 - `nix/ci/promote-release-ref.sh`: monotonic release-ref promotion.
 - `.github/workflows/ci.yml`: selective PR gates with one stable summary.
@@ -449,10 +450,13 @@ git commit -m "test(nixos): prove standalone host deployment"
 ### Task 8: Add classifier and two-track publisher
 
 **Files:**
+- Create: `nix/source.nix`
 - Create: `nix/ci/classify-paths.sh`
 - Create: `nix/ci/push-closure.sh`
 - Create: `nix/ci/promote-release-ref.sh`
 - Create: `nix/tests/release-scripts.nix`
+- Create: `nix/tests/app-source.nix`
+- Modify: `nix/package.nix`, `flake.nix`
 - Replace: `.github/workflows/ci.yml`, `.github/workflows/publish.yml`
 - Modify: `nix/tests/publish-workflow.nix`
 
@@ -472,11 +476,17 @@ With 300 fake paths, publisher passes every path as explicit argv batches of at
 most 128. Promotion tests create ref, fast-forward, treat late ancestor as
 no-op, and reject divergence/rewind.
 
+Add a red app-source contract requiring Cargo metadata, both Rust crates, and
+`examples/house.toml` to exist in package source while `nixos/`, `docs/`,
+`.github/`, and `nix/tests/` do not. The contract fails against current
+`lib.cleanSource ../.`.
+
 - [ ] **Step 2: Verify red**
 
 ```bash
-git add flake.nix nix/tests/release-scripts.nix
+git add flake.nix nix/tests/release-scripts.nix nix/tests/app-source.nix
 nix build --no-link .#checks.x86_64-linux.release-scripts -L
+nix build --no-link .#checks.x86_64-linux.app-source -L
 ```
 
 - [ ] **Step 3: Implement scripts minimally**
@@ -485,6 +495,12 @@ Classifier accepts NUL-delimited paths and maps unknown to both. Publisher uses
 `mapfile` plus 128-element array slices. Promoter requires candidate equal
 `GITHUB_SHA`, uses GitHub ref API with `force=false`, and makes an older
 already-ancestor candidate a successful no-op.
+
+Implement `nix/source.nix` with `lib.fileset.toSource`, including only
+`Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `examples/`,
+`house-automation-core/`, and `house-automationd/`. Pass this `appSource`
+explicitly into `nix/package.nix` and the format/test derivations. Do not let
+`nix/package.nix` recapture `../.`.
 
 - [ ] **Step 4: Define selective PR and publication workflows**
 
@@ -508,6 +524,7 @@ verification, raw-main deployment, extra writes, and PR secret use.
 
 ```bash
 nix build --no-link .#checks.x86_64-linux.release-scripts -L
+nix build --no-link .#checks.x86_64-linux.app-source -L
 nix build --no-link .#checks.x86_64-linux.publish-workflow -L
 nix-instantiate --parse flake.nix >/dev/null
 yq -e '.' .github/workflows/ci.yml >/dev/null
