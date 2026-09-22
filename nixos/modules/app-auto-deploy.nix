@@ -39,12 +39,16 @@ let
       candidate=$(git -C "$source" rev-parse refs/remotes/origin/release/app) || die 'release/app is missing'
       git -C "$source" merge-base --is-ancestor "$candidate" origin/main || die 'release/app is not an ancestor of origin/main'
       revision=$candidate
-      active=$(readlink -f "$profile" 2>/dev/null || true); last_revision= last_path=
+      active=$(readlink -f "$profile" 2>/dev/null || true)
+      last_revision=
+      last_path=
       if [ -s "$state/last-success" ]; then while IFS='=' read -r key value; do case "$key" in rev) last_revision=$value ;; path) last_path=$value ;; esac; done < "$state/last-success"; fi
       if [ -n "$last_path" ] && [ "$active" != "$last_path" ]; then die 'rollback in effect; refusing to clobber'; fi
       if [ "$revision" = "$last_revision" ]; then printf 'app-deploy: already deployed %s\n' "$revision"; exit 0; fi
       if [ -s "$state/last-failure" ]; then
-        failed_revision= failed_reason= failed_rollback=
+        failed_revision=
+        failed_reason=
+        failed_rollback=
         while IFS='=' read -r key value; do case "$key" in rev) failed_revision=$value ;; reason) failed_reason=$value ;; rollback) failed_rollback=$value ;; esac; done < "$state/last-failure"
         if [ "$failed_revision" = "$revision" ] && [ "$failed_reason" = service-restart-or-health-failed ] && [ "$failed_rollback" = complete ]; then
           die 'candidate is poisoned after deterministic unhealthy activation'

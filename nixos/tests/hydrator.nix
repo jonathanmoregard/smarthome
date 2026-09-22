@@ -15,19 +15,53 @@ pkgs.runCommand "hydrator-contract" { nativeBuildInputs = with pkgs; [ bash core
 #!${pkgs.runtimeShell}
 set -euo pipefail
 printf '%s\n' "$*" >> "$HYDRATOR_LOG"
+has() { case " $* " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+require() { has "$1" || { echo "missing argument: $1" >&2; exit 64; }; }
 case "$*" in
   *unsigned*) echo 'signature verification failed' >&2; exit 1 ;;
   *hanging*) sleep 30 ;;
   *missing*) echo 'not available' >&2; exit 1 ;;
-  *path-info*) printf '{"%s": {}}\n' "''${*: -1}"; exit 0 ;;
 esac
-exit 0
+case "''${1:-}:''${2:-}" in
+  store:verify)
+    require --sigs-needed
+    require 1
+    require --option
+    require trusted-public-keys
+    exit 0
+    ;;
+  path-info:--refresh)
+    require --store
+    require https://jonathanmoregard.cachix.org
+    require --json
+    require --recursive
+    printf '%s\n' '{"/nix/store/00000000000000000000000000000000-healthy": {}, "/nix/store/11111111111111111111111111111111-nixos-dependency": {}}'
+    ;;
+  copy:--refresh)
+    require --from
+    require --option
+    require max-jobs
+    require 0
+    require fallback
+    require false
+    require builders
+    if has 11111111111111111111111111111111-nixos-dependency && has https://jonathanmoregard.cachix.org; then
+      echo 'not available from project cache' >&2
+      exit 1
+    fi
+    if has 00000000000000000000000000000000-healthy; then require https://jonathanmoregard.cachix.org; fi
+    if has 11111111111111111111111111111111-nixos-dependency; then require https://cache.nixos.org; fi
+    exit 0
+    ;;
+  *) echo "unexpected nix invocation: $*" >&2; exit 64 ;;
+esac
 EOF
   chmod +x bin/nix
   export PATH="$PWD/bin:$PATH" HYDRATOR_LOG="$PWD/log"
   invoke() { timeout 2 bash ${script} --timeout-seconds 1 --from '${projectCache}' --trusted-key '${projectKey}' --from '${nixosCache}' --trusted-key '${nixosKey}' "$@"; }
   if invoke > empty.log 2>&1; then exit 1; fi
   grep -qF 'at least one store path' empty.log
+  invoke /nix/store/00000000000000000000000000000000-healthy > healthy.log 2>&1
   if invoke /nix/store/00000000000000000000000000000000-unsigned > unsigned.log 2>&1; then exit 1; fi
   grep -qF 'signature verification failed' unsigned.log
   if invoke /nix/store/00000000000000000000000000000000-missing > missing.log 2>&1; then exit 1; fi
