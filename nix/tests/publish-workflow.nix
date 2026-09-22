@@ -16,6 +16,13 @@ pkgs.runCommand "smarthome-publish-workflow-contract"
     package="$(nix eval --raw .#packages.x86_64-linux.default.outPath)"
     test -n "$package"
     test "$(nix path-info --store https://jonathanmoregard.cachix.org "$package")" = "$package"
+    nix store verify \
+      --store https://jonathanmoregard.cachix.org \
+      --no-contents \
+      --sigs-needed 1 \
+      --option trusted-public-keys \
+      'jonathanmoregard.cachix.org-1:Qzksr/c2ciAaV4j/U2mGFd1HTgOAicks8gJNs1Ztxo8=' \
+      "$package"
     EOF
 
     IFS= read -r -d $'\0' expected_push <<'EOF' || true
@@ -160,6 +167,8 @@ pkgs.runCommand "smarthome-publish-workflow-contract"
     assert_rejected "wrong release-cache signing key" '(.jobs.verify.steps[] | select(.uses == strenv(install_nix_action)).with.extra_nix_config) |= sub("Qzksr/c2ciAaV4j/U2mGFd1HTgOAicks8gJNs1Ztxo8="; "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")'
     assert_rejected "wrong NixOS-cache signing key" '(.jobs.verify.steps[] | select(.uses == strenv(install_nix_action)).with.extra_nix_config) |= sub("6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="; "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")'
     assert_rejected "root check queries fallback cache" '(.jobs.verify.steps[] | select(.name == "Confirm app root is in release cache").run) |= sub("https://jonathanmoregard.cachix.org"; "https://cache.nixos.org")'
+    assert_rejected "root check trusts wrong signer" '(.jobs.verify.steps[] | select(.name == "Confirm app root is in release cache").run) |= sub("Qzksr/c2ciAaV4j/U2mGFd1HTgOAicks8gJNs1Ztxo8="; "6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=")'
+    assert_rejected "root signature check removed" '(.jobs.verify.steps[] | select(.name == "Confirm app root is in release cache").run) |= sub("nix store verify"; "true")'
     assert_rejected "root check removed" 'del(.jobs.verify.steps[] | select(.name == "Confirm app root is in release cache"))'
     assert_rejected "conditional required step" '.jobs.publish.steps[0].if = "always()"'
     assert_rejected "verify continue-on-error" '.jobs.verify.steps[3].continue-on-error = true'

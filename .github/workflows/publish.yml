@@ -62,6 +62,13 @@ jobs:
           package="$(nix eval --raw .#packages.x86_64-linux.default.outPath)"
           test -n "$package"
           test "$(nix path-info --store https://jonathanmoregard.cachix.org "$package")" = "$package"
+          nix store verify \
+            --store https://jonathanmoregard.cachix.org \
+            --no-contents \
+            --sigs-needed 1 \
+            --option trusted-public-keys \
+            'jonathanmoregard.cachix.org-1:Qzksr/c2ciAaV4j/U2mGFd1HTgOAicks8gJNs1Ztxo8=' \
+            "$package"
       - name: Substitute without builders
         run: >-
           nix build --no-link
