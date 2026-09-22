@@ -69,13 +69,17 @@ in {
     sourceDir = lib.mkOption { type = lib.types.str; default = "${stateDir}/source"; };
     profile = lib.mkOption { type = lib.types.str; default = "/nix/var/nix/profiles/smarthome"; };
     packageAttr = lib.mkOption { type = lib.types.str; default = "packages.x86_64-linux.default"; };
-    serviceName = lib.mkOption { type = lib.types.str; default = "house-automationd.service"; };
-    healthUrl = lib.mkOption { type = lib.types.str; default = "http://127.0.0.1:9876/healthz"; };
+    serviceName = lib.mkOption { type = lib.types.str; default = "-"; description = "Unit to restart, or '-' for service-free profile activation."; };
+    healthUrl = lib.mkOption { type = lib.types.str; default = "-"; description = "Health URL, paired with serviceName; '-' is service-free."; };
     nixPackage = lib.mkOption { type = lib.types.package; default = config.nix.package; internal = true; };
     hydratorPackage = lib.mkOption { type = lib.types.package; default = hydrator; internal = true; };
     activatorPackage = lib.mkOption { type = lib.types.package; default = activator; internal = true; };
   };
   config = lib.mkIf cfg.enable {
+    assertions = [ {
+      assertion = (cfg.serviceName == "-") == (cfg.healthUrl == "-");
+      message = "services.app-auto-deploy.serviceName and healthUrl must both be '-' or both be configured";
+    } ];
     systemd.timers.app-deploy = { wantedBy = [ "timers.target" ]; timerConfig = { OnBootSec = "2min"; OnUnitActiveSec = "15min"; Persistent = true; Unit = "app-deploy.service"; }; };
     systemd.services.app-deploy = {
       after = [ "network-online.target" ]; wants = [ "network-online.target" ];

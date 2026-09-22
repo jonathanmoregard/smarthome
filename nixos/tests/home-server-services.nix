@@ -53,8 +53,25 @@ let
         (throw "homeServer.mqttNetworkUsername assertion is missing")
         evaluated.config.assertions;
     in assertion.assertion;
+  appDeployFor = settings:
+    (nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        ../modules/home-server-services.nix
+        {
+          boot.isContainer = true;
+          services.app-auto-deploy.enable = true;
+          homeServer.houseSettings = settings;
+          system.stateVersion = "26.05";
+        }
+      ];
+    }).config.services.app-auto-deploy;
 in
 assert host.config.homeServer.houseSettings == null;
+assert host.config.services.app-auto-deploy.serviceName == "-";
+assert host.config.services.app-auto-deploy.healthUrl == "-";
+assert (appDeployFor { schema_version = 1; }).serviceName == "house-automationd.service";
+assert (appDeployFor { schema_version = 1; }).healthUrl == "http://127.0.0.1:9876/healthz";
 assert host.config.homeServer.zigbeeSerialPort == physicalCoordinator;
 assert host.config.homeServer.zigbeeChannel == 25;
 assert host.config.homeServer.zigbeePanId == 50324;

@@ -16,11 +16,19 @@ let
   '';
   hydrator = pkgs.writeShellScriptBin "smarthome-hydrate-release-paths" ''
     printf '%s\n' "$*" >> "$DEPLOY_LOG"
+    if [ "''${HYDRATOR_TRANSIENT_ONCE:-}" = "$HYDRATE_PATH" ] && [ ! -e "$HYDRATOR_RETRY_STATE" ]; then
+      touch "$HYDRATOR_RETRY_STATE"
+      exit 75
+    fi
     case "$*" in *"$HYDRATE_PATH"*) exit 0 ;; *) exit 75 ;; esac
   '';
   activator = pkgs.writeShellScriptBin "activate-app" ''
     printf '%s\n' "$*" >> "$DEPLOY_LOG"
     mkdir -p "$3"
+    if [ "''${ACTIVATOR_FAIL_REV:-}" = "$2" ]; then
+      printf 'rev=%s\nreason=service-restart-or-health-failed\nrollback=complete\n' "$2" > "$3/last-failure"
+      exit 1
+    fi
     ln -sfn "$1" "$4"
     printf 'rev=%s\npath=%s\nprevious_path=none\n' "$2" "$1" > "$3/last-success"
   '';
@@ -49,6 +57,8 @@ in
 assert service.serviceConfig.RuntimeDirectory == "smarthome-deploy";
 assert service.serviceConfig.TimeoutStartSec == "10min";
 assert service.serviceConfig.ExecStart != "";
+assert evaluated.config.services.app-auto-deploy.serviceName == "-";
+assert evaluated.config.services.app-auto-deploy.healthUrl == "-";
 assert evaluated.options.services.app-auto-deploy.repository.default == "https://github.com/jonathanmoregard/smarthome.git";
 assert !(service.environment ? GIT_SSH_COMMAND);
 assert !(service.environment ? SSH_AUTH_SOCK);
@@ -56,7 +66,7 @@ assert !(service.environment ? DEPLOY_KEY);
 pkgs.runCommand "app-deploy-contract" { nativeBuildInputs = with pkgs; [ bash coreutils git gnugrep ]; } ''
   set -euo pipefail
   deploy=${service.serviceConfig.ExecStart}
-  export DEPLOY_LOG="$PWD/deploy.log" HYDRATE_PATH=${app}
+  export DEPLOY_LOG="$PWD/deploy.log" HYDRATE_PATH=${app} HYDRATOR_RETRY_STATE="$PWD/hydrator-retry"
   export DEPLOY_LOCK="$PWD/run/deploy.lock"
   deploy_failure_diagnostics() {
     status=$?
@@ -127,6 +137,27 @@ pkgs.runCommand "app-deploy-contract" { nativeBuildInputs = with pkgs; [ bash co
   [ "$activations" -eq 1 ]
   "$deploy"
   [ "$(grep -c '^${app} ' "$DEPLOY_LOG")" -eq 1 ]
+  # A deterministic unhealthy activation is latched; a transient hydration
+  # failure is not and succeeds on the next timer replay.
+  git -C work checkout -q "$main"
+  printf bad > work/promotion-marker
+  git -C work add promotion-marker && git -C work commit -qm bad
+  bad_commit=$(git -C work rev-parse HEAD)
+  export ACTIVATOR_FAIL_REV="$bad_commit"
+  git -C work push -q --force origin "$bad_commit":refs/heads/release/app
+  if "$deploy" > poison.log 2>&1; then exit 1; fi
+  if "$deploy" > poison-replay.log 2>&1; then exit 1; fi
+  grep -qF 'poisoned' poison-replay.log
+  unset ACTIVATOR_FAIL_REV
+  git -C work checkout -q "$main"
+  printf transient > work/promotion-marker
+  git -C work add promotion-marker && git -C work commit -qm transient
+  transient=$(git -C work rev-parse HEAD)
+  git -C work push -q --force origin "$transient":refs/heads/release/app
+  export HYDRATOR_TRANSIENT_ONCE=${app}
+  if "$deploy" > transient.log 2>&1; then exit 1; fi
+  "$deploy"
+  unset HYDRATOR_TRANSIENT_ONCE
   ln -sfn /manual-rollback /build/profile
   if "$deploy" > rollback.log 2>&1; then exit 1; fi
   grep -qF 'rollback' rollback.log

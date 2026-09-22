@@ -95,10 +95,10 @@ rollback=$rollback_state
 trap 'fail received-signal' HUP INT TERM
 nix-env --profile "$profile" --set "$package_path" >/dev/null || fail profile-switch-failed
 if [ "$service" != - ]; then systemctl restart "$service" && health_check || fail service-restart-or-health-failed; fi
+prune_generations || fail generation-pruning-failed
 write_marker last-success "rev=$revision
 path=$package_path
 previous_path=$old_path
 previous_generation=${old_generation:-none}
 " || fail success-marker-failed
 trap - HUP INT TERM
-prune_generations || die 'successful release pruning failed'

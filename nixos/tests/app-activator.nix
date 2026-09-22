@@ -7,6 +7,8 @@ let
   v1 = package "app-v1";
   v2 = package "app-v2";
   v3 = package "app-v3";
+  v4 = package "app-v4";
+  v5 = package "app-v5";
 in
 pkgs.runCommand "app-activator-contract" { nativeBuildInputs = with pkgs; [ bash coreutils gnugrep ]; } ''
   set -euo pipefail
@@ -52,6 +54,7 @@ case "$operation" in
     ln -sfn "$profile-$1-link" "$profile"
     ;;
   --delete-generations)
+    [ "''${FAIL_PRUNE:-0}" != 1 ] || exit 75
     for generation in "$@"; do rm -f "$profile-$generation-link"; done
     grep -vxF -f <(printf '%s\n' "$@") "$GENERATIONS" > "$GENERATIONS.tmp" || true
     mv "$GENERATIONS.tmp" "$GENERATIONS"
@@ -69,13 +72,24 @@ EOF
   [ "$(readlink "$profile")" = "$before" ]
   grep -qxF 'rollback=complete' "$state/last-failure"
   grep -qF 'systemctl reset-failed house-automationd.service' "$log"
+  [ ! -e "$START_LIMIT" ]
+  rollback_sequence=$(tail -n 3 "$log")
+  [ "$(printf '%s\n' "$rollback_sequence" | sed -n '1p')" = 'systemctl restart house-automationd.service' ]
+  [ "$(printf '%s\n' "$rollback_sequence" | sed -n '2p')" = 'systemctl reset-failed house-automationd.service' ]
+  [ "$(printf '%s\n' "$rollback_sequence" | sed -n '3p')" = 'systemctl restart house-automationd.service' ]
   if run ${v3} 3333333333333333333333333333333333333333; then exit 1; fi
   [ "$(readlink "$profile")" = "$before" ]
   grep -qF 'previous_generation=1' "$state/last-failure"
-  # A healthy replacement can retain only current and immediately previous
-  # stable generations; repeated activation must not create a third stable one.
-  run ${v1} 1111111111111111111111111111111111111111
+  # Three actual healthy candidates retain exactly current and previous.
+  run ${v4} 4444444444444444444444444444444444444444
+  export FAIL_PRUNE=1
+  if run ${v5} 5555555555555555555555555555555555555555; then exit 1; fi
+  unset FAIL_PRUNE
+  ! grep -qF 'rev=5555555555555555555555555555555555555555' "$state/last-success"
+  grep -qF 'reason=generation-pruning-failed' "$state/last-failure"
+  run ${v5} 5555555555555555555555555555555555555555
   generations=$(find "$(dirname "$profile")" -name 'profile-*-link' | wc -l)
-  [ "$generations" -le 2 ]
+  [ "$generations" -eq 2 ]
+  [ "$(readlink -f "$profile")" = "${v5}" ]
   touch "$out"
 ''

@@ -246,6 +246,14 @@ in
         };
       };
 
+      # The base host deliberately has no house topology.  Promoted profiles
+      # remain deployable there, while a configured daemon gets the restart
+      # and health gate.
+      services.app-auto-deploy = {
+        serviceName = if houseAutomationEnabled then "house-automationd.service" else "-";
+        healthUrl = if houseAutomationEnabled then "http://127.0.0.1:9876/healthz" else "-";
+      };
+
       networking.firewall.interfaces.tailscale0.allowedTCPPorts =
         optional mqttNetworkEnabled cfg.mqttNetworkPort
         ++ optional (zigbeeEnabled && cfg.zigbeeFrontendTailnet) 8080

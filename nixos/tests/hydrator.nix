@@ -44,13 +44,27 @@ case "''${1:-}:''${2:-}" in
     ;;
   path-info:--refresh)
     require --store
-    require https://jonathanmoregard.cachix.org
     require --json
-    require --recursive
-    printf '%s\n' '{"/nix/store/00000000000000000000000000000000-healthy": {}, "/nix/store/11111111111111111111111111111111-nixos-dependency": {}}'
+    root=/nix/store/00000000000000000000000000000000-healthy
+    dependency=/nix/store/11111111111111111111111111111111-nixos-dependency
+    if has_token "$root" && has_token https://jonathanmoregard.cachix.org; then
+      printf '%s\n' '{"/nix/store/00000000000000000000000000000000-healthy":{"references":["/nix/store/11111111111111111111111111111111-nixos-dependency"]}}'
+    elif has_token "$dependency" && has_token https://jonathanmoregard.cachix.org; then
+      # This is deliberately valid empty metadata: project publication has no
+      # dependency, so traversal must continue at the official cache.
+      printf '%s\n' '{}'
+    elif has_token "$dependency" && has_token https://cache.nixos.org; then
+      printf '%s\n' '{"/nix/store/11111111111111111111111111111111-nixos-dependency":{"references":[]}}'
+    else
+      echo "unexpected path-info routing: $*" >&2; exit 64
+    fi
+    ;;
+  store:copy-sigs)
+    require --substituter
     ;;
   copy:--refresh)
     require --from
+    require --no-recursive
     require --option
     require max-jobs
     require 0
@@ -95,6 +109,8 @@ EOF
   if invoke > empty.log 2>&1; then exit 1; fi
   grep -qF 'at least one store path' empty.log
   invoke /nix/store/00000000000000000000000000000000-healthy > healthy.log 2>&1
+  grep -qF '/nix/store/11111111111111111111111111111111-nixos-dependency' "$HYDRATOR_LOG"
+  grep -qF 'copy --refresh --no-recursive' "$HYDRATOR_LOG"
   if invoke /nix/store/00000000000000000000000000000000-unsigned > unsigned.log 2>&1; then exit 1; fi
   grep -qF 'signature verification failed' unsigned.log
   if invoke /nix/store/00000000000000000000000000000000-missing > missing.log 2>&1; then exit 1; fi
