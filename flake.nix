@@ -109,6 +109,18 @@
           nixosSystem = nixpkgs-system.lib.nixosSystem;
           host = self.nixosConfigurations.home-server;
         };
+        app-deploy = import ./nixos/tests/app-deploy.nix {
+          inherit pkgs;
+          nixosSystem = nixpkgs.lib.nixosSystem;
+        };
+        app-activator = import ./nixos/tests/app-activator.nix {
+          inherit pkgs;
+          script = ./nixos/modules/activate-app.sh;
+        };
+        hydrator = import ./nixos/tests/hydrator.nix {
+          inherit pkgs;
+          script = ./nixos/modules/hydrate-release-paths.sh;
+        };
       };
     };
 }
