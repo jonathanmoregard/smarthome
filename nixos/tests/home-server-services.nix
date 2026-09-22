@@ -235,6 +235,10 @@ pkgsSystem.testers.runNixOSTest {
         7, 1, 255, 0, 42, 9, 100, 3, 200, 17, 66, 5, 250, 13, 77, 1,
     ], network_key.group(0)
     home_server.succeed("systemctl stop zigbee2mqtt.service")
+    # The null QEMU radio can make Zigbee2MQTT's SIGTERM path throw "write
+    # after end".  This is an expected fixture-only teardown failure, not a
+    # production boot failure; clear it before the next independent case.
+    home_server.succeed("systemctl reset-failed zigbee2mqtt.service")
     home_server.succeed("systemctl show zigbee2mqtt.service -P ActiveState | grep -Fx inactive")
 
     home_server.wait_for_unit("postgresql.service")
