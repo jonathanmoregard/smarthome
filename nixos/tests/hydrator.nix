@@ -24,12 +24,17 @@ has_token() {
   return 1
 }
 require() { has_token "$1" || { echo "missing argument: $1" >&2; exit 64; }; }
+if has_token --add-root; then echo 'nix build roots are forbidden' >&2; exit 64; fi
 case "$*" in
   *unsigned*) echo 'signature verification failed' >&2; exit 1 ;;
   *hanging*) sleep 30 ;;
   *missing*) echo 'not available' >&2; exit 1 ;;
 esac
 case "''${1:-}:''${2:-}" in
+  build:*|realise:*|store:realise)
+    echo "build/realise command is forbidden: $*" >&2
+    exit 64
+    ;;
   store:verify)
     require --sigs-needed
     require 1
@@ -52,12 +57,21 @@ case "''${1:-}:''${2:-}" in
     require fallback
     require false
     require builders
-    if has_token 11111111111111111111111111111111-nixos-dependency && has_token https://jonathanmoregard.cachix.org; then
-      echo 'not available from project cache' >&2
-      exit 1
+    root=/nix/store/00000000000000000000000000000000-healthy
+    dependency=/nix/store/11111111111111111111111111111111-nixos-dependency
+    if has_token "$root"; then
+      require https://jonathanmoregard.cachix.org
+      has_token https://cache.nixos.org && { echo 'root must not copy from official cache' >&2; exit 64; }
+    elif has_token "$dependency"; then
+      if has_token https://jonathanmoregard.cachix.org; then
+        echo 'not available from project cache' >&2
+        exit 1
+      fi
+      require https://cache.nixos.org
+    else
+      echo "unexpected copy path: $*" >&2
+      exit 64
     fi
-    if has_token 00000000000000000000000000000000-healthy; then require https://jonathanmoregard.cachix.org; fi
-    if has_token 11111111111111111111111111111111-nixos-dependency; then require https://cache.nixos.org; fi
     exit 0
     ;;
   *) echo "unexpected nix invocation: $*" >&2; exit 64 ;;
@@ -65,6 +79,18 @@ esac
 EOF
   chmod +x bin/nix
   export PATH="$PWD/bin:$PATH" HYDRATOR_LOG="$PWD/log"
+  on_failure() {
+    status=$?
+    [ "$status" -eq 0 ] && return
+    for log in *.log; do
+      [ -f "$log" ] || continue
+      printf '\n--- %s ---\n' "$log" >&2
+      cat "$log" >&2
+    done
+    printf '\n--- fake nix argv log ---\n' >&2
+    cat "$HYDRATOR_LOG" >&2
+  }
+  trap on_failure EXIT
   invoke() { timeout 2 bash ${script} --timeout-seconds 1 --from '${projectCache}' --trusted-key '${projectKey}' --from '${nixosCache}' --trusted-key '${nixosKey}' "$@"; }
   if invoke > empty.log 2>&1; then exit 1; fi
   grep -qF 'at least one store path' empty.log
@@ -81,6 +107,6 @@ EOF
   grep -qF '${projectKey}' "$HYDRATOR_LOG"
   grep -qF '${nixosCache}' "$HYDRATOR_LOG"
   grep -qF '${nixosKey}' "$HYDRATOR_LOG"
-  ! grep -Eq 'build|realise|--add-root' "$HYDRATOR_LOG"
+  ! grep -Eq '(^| )(build|realise|--add-root)( |$)' "$HYDRATOR_LOG"
   touch "$out"
 ''
