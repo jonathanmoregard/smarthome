@@ -37,10 +37,7 @@ let
         modules = [
           ../modules/home-server-services.nix
           {
-            fileSystems."/" = {
-              device = "none";
-              fsType = "tmpfs";
-            };
+            boot.isContainer = true;
             homeServer = {
               mqttNetworkPasswordFile = "/run/home-server-services-test-mqtt-password";
               mqttNetworkUsername = username;
