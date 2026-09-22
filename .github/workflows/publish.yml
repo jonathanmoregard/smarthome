@@ -35,9 +35,10 @@ jobs:
       - name: Push signed runtime closure
         run: |
           set -euo pipefail
-          nix path-info --recursive "${{ steps.package.outputs.path }}" |
-            sort -u |
-            cachix push jonathanmoregard
+          closure="$(nix path-info --recursive "${{ steps.package.outputs.path }}" | sort -u)"
+          test -n "$closure"
+          mapfile -t closure_paths <<< "$closure"
+          cachix push jonathanmoregard "${closure_paths[@]}"
 
   verify:
     name: verify cache-only substitution

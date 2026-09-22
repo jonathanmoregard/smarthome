@@ -13,9 +13,10 @@ pkgs.runCommand "smarthome-publish-workflow-contract"
 
     IFS= read -r -d $'\0' expected_push <<'EOF' || true
     set -euo pipefail
-    nix path-info --recursive "''${{ steps.package.outputs.path }}" |
-      sort -u |
-      cachix push jonathanmoregard
+    closure="$(nix path-info --recursive "''${{ steps.package.outputs.path }}" | sort -u)"
+    test -n "$closure"
+    mapfile -t closure_paths <<< "$closure"
+    cachix push jonathanmoregard "''${closure_paths[@]}"
     EOF
 
     IFS= read -r -d $'\0' expected_build <<'EOF' || true
