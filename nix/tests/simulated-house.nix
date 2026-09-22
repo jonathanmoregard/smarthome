@@ -432,10 +432,19 @@ pkgs.testers.runNixOSTest {
     server.succeed("systemctl start house-automationd.service")
     server.wait_for_unit("house-automationd.service")
     server.wait_until_succeeds(
-        "test \"$(curl -sS -o /tmp/health.json -w '%{http_code}' "
-        "http://127.0.0.1:9877/healthz)\" = 503"
+        "status=$(curl -sS -o /tmp/health.json -w '%{http_code}' "
+        "http://127.0.0.1:9877/healthz); rc=$?; "
+        "if test $rc -ne 0; then "
+        "echo health endpoint did not answer: rc=$rc >&2; exit 1; fi; "
+        "if test \"$status\" != 503; then "
+        "echo unexpected startup health status: $status >&2; "
+        "cat /tmp/health.json >&2; exit 1; fi; "
+        "jq -e '.database_migrated and .mqtt_connected and "
+        "(.zigbee2mqtt_bridge_online | not)' /tmp/health.json >/dev/null || "
+        "{ echo startup health state not ready >&2; "
+        "cat /tmp/health.json >&2; exit 1; }"
     )
-    server.succeed("jq -e '.database_migrated and .mqtt_connected and (.zigbee2mqtt_bridge_online | not)' /tmp/health.json")
+    print("[startup-health] " + server.succeed("cat /tmp/health.json"))
     assert_absent(startup_mark, "SET", LAMP_SET, duration=0.5)
     assert_absent(startup_mark, "SET", HALL_SET, duration=0.5)
 
