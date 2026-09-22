@@ -1,0 +1,21 @@
+{
+  coreutils,
+  jq,
+  mosquitto,
+  openssh,
+  writeShellApplication,
+}:
+
+writeShellApplication {
+  name = "pair-zigbee";
+  runtimeInputs = [
+    coreutils
+    jq
+    mosquitto
+    openssh
+  ];
+  text = builtins.readFile ./pair-zigbee.sh;
+  # Single-quoted jq programs use jq's own $variables, not the shell's.
+  excludeShellChecks = [ "SC2016" ];
+  meta.description = "Open Zigbee pairing on the home server for a bounded window";
+}

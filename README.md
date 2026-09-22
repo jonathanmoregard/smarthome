@@ -159,12 +159,29 @@ multiprotocol. Mains-powered Zigbee devices can build the router backbone;
 battery remotes and sensors should not be assumed to route. The server itself
 does not need Wi-Fi.
 
+To open pairing from any tailnet machine whose SSH key the server accepts:
+
+```console
+nix run .#pair-zigbee -- --time 180
+```
+
+The command forwards a private Unix socket to the server's loopback-only
+Mosquitto over ordinary SSH (`home-server` by default; `--host` or
+`SMARTHOME_HOST` override it), refuses to continue unless Zigbee2MQTT reports
+online, permits joining for the given 1–254 seconds, prints joins and
+identification results, and closes pairing again at the end or on Ctrl-C. If the
+connection drops, pairing still closes when the window expires. The
+`pair-zigbee-device` skill in `.claude/skills/` lets a Claude session run it and
+walk someone through resetting a bulb that has no button.
+
 To pair an IKEA LED2111G6 or Philips Hue bulb directly (no Hue Bridge):
 
-1. Enable pairing briefly through the private/localhost Zigbee2MQTT frontend.
+1. Run `pair-zigbee` (or enable pairing briefly through the private/localhost
+   Zigbee2MQTT frontend).
 2. Factory-reset the bulb and wait for its interview to complete.
 3. Assign a unique stable `friendly_name`, add the device and its observed
-   capabilities to the declarative configuration, and disable pairing.
+   capabilities to the declarative configuration, and make sure pairing is
+   closed.
 4. Confirm its state and availability topics, then exercise on/off, brightness,
    color temperature, and optional color. IKEA bulbs that cannot smoothly
    transition brightness and CCT together receive sparse incremental updates.
@@ -325,6 +342,13 @@ clock and MQTT observations exercise delayed single/double clicks,
 acknowledgement overlays, the nightly 04:00 all-owner reset, whole-hour
 expiration, persistence, reconnect, reconciliation, readiness, and logs without
 test-only production endpoints.
+
+The `pair-zigbee` check boots a client and a server with OpenSSH, the
+production-shaped loopback Mosquitto listener, and a fake Zigbee2MQTT bridge. It
+runs the packaged command through its SSH tunnel and checks the exact
+`permit_join` requests for a completed window, Ctrl-C, termination, hangup, a
+refused request, a dropped tunnel, a stopped or never-started bridge, a stopped
+broker, an unreachable host, and argument validation.
 
 A VM cannot validate Ember firmware, USB enumeration, RF quality, pairing, or
 mesh routing. Stable by-id resolution and static Zigbee2MQTT configuration can

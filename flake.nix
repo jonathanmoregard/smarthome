@@ -9,6 +9,7 @@
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
       package = pkgs.callPackage ./nix/package.nix { };
+      pairZigbee = pkgs.callPackage ./nix/pair-zigbee.nix { };
       source = pkgs.lib.cleanSource ./.;
       mkCargoCheck =
         {
@@ -34,7 +35,16 @@
         });
     in
     {
-      packages.${system}.default = package;
+      packages.${system} = {
+        default = package;
+        pair-zigbee = pairZigbee;
+      };
+
+      apps.${system}.pair-zigbee = {
+        type = "app";
+        program = pkgs.lib.getExe pairZigbee;
+        meta.description = pairZigbee.meta.description;
+      };
 
       nixosModules.default = import ./nix/module.nix;
 
@@ -81,6 +91,7 @@
           inherit pkgs package;
           module = self.nixosModules.default;
         };
+        pair-zigbee = import ./nix/tests/pair-zigbee.nix { inherit pkgs pairZigbee; };
       };
     };
 }
