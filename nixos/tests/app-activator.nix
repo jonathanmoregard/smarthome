@@ -13,22 +13,22 @@ pkgs.runCommand "app-activator-contract" { nativeBuildInputs = with pkgs; [ bash
   state="$PWD/state" profile="$PWD/profile" log="$PWD/log"
   mkdir -p "$state" "$PWD/bin"
   cat > "$PWD/bin/systemctl" <<'EOF'
-#!/usr/bin/env bash
+#!${pkgs.runtimeShell}
 printf 'systemctl %s\n' "$*" >> "$ACTIVATOR_LOG"
 if [ "$1" = reset-failed ]; then rm -f "$START_LIMIT"; exit 0; fi
 if [ "$1" = restart ] && [ "$(readlink -f "$PROFILE")" = "$CRASHING" ]; then touch "$START_LIMIT"; exit 1; fi
 exit 0
 EOF
   cat > "$PWD/bin/curl" <<'EOF'
-#!/usr/bin/env bash
+#!${pkgs.runtimeShell}
 [ "$(readlink -f "$PROFILE")" != "$UNHEALTHY" ]
 EOF
   cat > "$PWD/bin/sleep" <<'EOF'
-#!/usr/bin/env bash
+#!${pkgs.runtimeShell}
 exit 0
 EOF
   cat > "$PWD/bin/nix-env" <<'EOF'
-#!/usr/bin/env bash
+#!${pkgs.runtimeShell}
 set -euo pipefail
 [ "$1" = --profile ]
 profile=$2 operation=$3

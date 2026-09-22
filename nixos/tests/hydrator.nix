@@ -12,7 +12,7 @@ pkgs.runCommand "hydrator-contract" { nativeBuildInputs = with pkgs; [ bash core
   set -euo pipefail
   mkdir bin
   cat > bin/nix <<'EOF'
-#!/usr/bin/env bash
+#!${pkgs.runtimeShell}
 set -euo pipefail
 printf '%s\n' "$*" >> "$HYDRATOR_LOG"
 case "$*" in
