@@ -69,7 +69,7 @@ switch_system() {
 }
 
 reset_health_units() {
-  local contract=$1 unit group group_member load_state
+  local contract=$1 unit group group_member load_state failed_status
   local -a health_units health_unit_groups group_members
   case "$contract" in
     candidate)
@@ -89,7 +89,15 @@ reset_health_units() {
   for unit in "${health_units[@]}"; do
     load_state=$(timeout --signal=KILL 1s systemctl show --property=LoadState --value -- "$unit") || return 1
     case "$load_state" in
-      loaded) timeout --signal=KILL 1s systemctl reset-failed -- "$unit" || return 1 ;;
+      loaded)
+        failed_status=0
+        timeout --signal=KILL 1s systemctl is-failed --quiet -- "$unit" || failed_status=$?
+        case "$failed_status" in
+          0) timeout --signal=KILL 1s systemctl reset-failed -- "$unit" || return 1 ;;
+          1) ;;
+          *) return 1 ;;
+        esac
+        ;;
       not-found) ;;
       *) return 1 ;;
     esac

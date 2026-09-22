@@ -32,7 +32,7 @@
 - `.github/workflows/publish.yml`: independent app/system build, publish, verify, promote DAGs.
 - `README.md`, `docs/home-server/*`: bootstrap, deploy, rollback, recovery, access, secrets, pairing, and disk operations.
 
-## Phase A: repair current production path
+## Phase A: retire current production repair path
 
 ### Task 1: Land and prove complete application publication
 
@@ -55,7 +55,7 @@ Expected: every check passes; PR head is exact
 
 Expected: user merges PR #7. Do not advance until `gh pr view 7 --json state,mergeCommit` reports `MERGED`.
 
-- [ ] **Step 3: Prove main publication**
+- [x] **Step 3: Prove main publication contract**
 
 ```bash
 gh run list --workflow publish.yml --branch main --limit 3
@@ -66,23 +66,26 @@ gh run watch "$run_id"
 Observed after merge: publication passed, but verification proved GCC/glibc are
 served only by `cache.nixos.org`; Cachix intentionally did not duplicate them.
 
-- [ ] **Step 3a: Land two-cache CI and hydrator corrections**
+- [x] **Step 3a: Land two-cache CI correction; retire NixOS-side repair**
 
 Require project release root in `jonathanmoregard.cachix.org`, then realize the
 complete closure from it plus `cache.nixos.org` using only both exact pinned
-keys and builders disabled. Apply the same contract to the current server
-hydrator through a focused NixOS PR.
+keys and builders disabled. PR #8 merged as `9a8f31b`; obsolete NixOS PR #247
+was closed. Hydration and deployment move directly into this repository in
+Task 5 instead of extending the transitional `nixos-config` implementation.
 
 Expected: app CI verify passes; hydrator tests reject missing/wrong-key roots
 and dependencies while accepting the split signed closure.
 
-- [ ] **Step 4: Retry current server app deployment**
+- [ ] **Step 4: Prove app deployment after standalone cutover**
 
 ```bash
 /home/jonathan/.local/state/claude-tasks/smarthome/direct-deploy-smoke
 ```
 
-Expected: deploy success, healthy `/healthz`, builders disabled, at most two app generations, zero failed units.
+Expected after Tasks 2–13: deploy success, healthy `/healthz`, builders
+disabled, at most two app generations, zero failed units. This is no longer a
+prerequisite for standalone implementation.
 
 ## Phase B: standalone repository implementation
 
@@ -174,6 +177,9 @@ homeServer = {
 };
 ```
 
+Define the two base `homeServer` options in `deployment-identity.nix` so this
+host boundary evaluates independently before service modules extend it.
+
 - [ ] **Step 2: Narrow base profile to appliance needs**
 
 Keep systemd-boot limit 8, wired networkd DHCP, resolved, timezone/locale,
@@ -212,7 +218,6 @@ Home Manager, overlays, build coordination, or workstation packages.
     ./hardware-configuration.nix
     ./deployment-identity.nix
     ../../profiles/home-server-base.nix
-    ../../modules/home-server-services.nix
   ];
 
   system.configurationRevision = "standalone-home-server";
@@ -220,7 +225,8 @@ Home Manager, overlays, build coordination, or workstation packages.
 ```
 
 Use `lib.mkIf (self ? rev)` to assign `self.rev` when available; keep literal
-fallback for dirty local evaluation.
+fallback for dirty local evaluation. Task 4 adds the service-module import only
+after its red contract exists.
 
 - [ ] **Step 4: Verify green evaluation and toplevel**
 
@@ -248,7 +254,7 @@ git commit -m "feat(nixos): own minimal home-server host"
 - Create: `nixos/secrets/zigbee2mqtt-network-key.age`
 - Create: `nixos/tests/home-server-services.nix`
 
-- [ ] **Step 1: Add failing service VM contract**
+- [x] **Step 1: Add failing service VM contract**
 
 Import the standalone host with disk/SMART/Tailscale hardware edges disabled.
 Use PR #245's QEMU USB serial and age identity fixtures. Assert:
@@ -264,7 +270,7 @@ server.succeed("test -d /var/lib/house-automation")
 server.succeed("test -z \"$(systemctl --failed --no-legend)\"")
 ```
 
-- [ ] **Step 2: Verify red**
+- [x] **Step 2: Verify red**
 
 ```bash
 git add flake.nix nixos/tests/home-server-services.nix
@@ -273,7 +279,7 @@ nix build --no-link .#checks.x86_64-linux.home-server-services -L
 
 Expected: fail because service/coordinator modules are absent.
 
-- [ ] **Step 3: Import reviewed production modules and ciphertext**
+- [x] **Step 3: Import reviewed production modules and ciphertext**
 
 ```bash
 git -C /home/jonathan/Repos/nixos-config-worktrees/main show 2f18ebc:hosts/home-server/zigbee-coordinator.nix
@@ -296,7 +302,7 @@ age.secrets.zigbee2mqtt-network-key = {
 Keep channel 25, PAN ID 50324, extended PAN ID `[ 52 207 50 36 195 122 154
 61 ]`, Ember adapter, and stable USB path exact. Never print plaintext key.
 
-- [ ] **Step 4: Verify service VM and host build**
+- [x] **Step 4: Verify service VM and host build**
 
 ```bash
 git add nixos
@@ -305,7 +311,7 @@ nix build --no-link .#nixosConfigurations.home-server.config.system.build.toplev
 git diff --check
 ```
 
-- [ ] **Step 5: Commit service ownership**
+- [x] **Step 5: Commit service ownership**
 
 ```bash
 git commit -m "feat(nixos): move home services and Zigbee identity"
@@ -321,7 +327,7 @@ git commit -m "feat(nixos): move home services and Zigbee identity"
 - Create: `nixos/tests/app-activator.nix`
 - Create: `nixos/tests/hydrator.nix`
 
-- [ ] **Step 1: Port focused tests before production scripts**
+- [x] **Step 1: Port focused tests before production scripts**
 
 Read exact current tests:
 
@@ -337,7 +343,7 @@ disabled; exact project and official cache keys with project-root provenance;
 start-limit reset; exact rollback generation; at
 most two stable generations.
 
-- [ ] **Step 2: Verify red focused checks**
+- [x] **Step 2: Verify red focused checks**
 
 ```bash
 git add flake.nix nixos/tests
@@ -348,7 +354,7 @@ nix build --no-link .#checks.x86_64-linux.hydrator -L
 
 Expected: fail because deploy module/scripts are absent.
 
-- [ ] **Step 3: Port minimal production code**
+- [x] **Step 3: Port minimal production code**
 
 ```bash
 git -C /home/jonathan/Repos/nixos-config-worktrees/main show origin/main:modules/nixos/smarthome-auto-deploy.nix
@@ -360,7 +366,7 @@ Apply under new names, then make only tested HTTPS/ref/lock changes. Keep
 unit-wide 10-minute timeout, sandboxing, poison handling, health rollback, and
 two-generation cap.
 
-- [ ] **Step 4: Verify adversarial paths**
+- [x] **Step 4: Verify adversarial paths**
 
 Focused checks must cover missing/non-ancestor ref, empty/unsigned path, failed
 or hanging copy, crashing candidate, rollback restart, and replay.
@@ -371,7 +377,7 @@ nix build --no-link .#checks.x86_64-linux.app-activator -L
 nix build --no-link .#checks.x86_64-linux.hydrator -L
 ```
 
-- [ ] **Step 5: Commit app deployment**
+- [x] **Step 5: Commit app deployment**
 
 ```bash
 git commit -m "feat(deploy): own promoted app deployment"
@@ -385,7 +391,7 @@ git commit -m "feat(deploy): own promoted app deployment"
 - Create: `nixos/tests/system-deploy.nix`
 - Create: `nixos/tests/system-activator.nix`
 
-- [ ] **Step 1: Write failing activator contract**
+- [x] **Step 1: Write failing activator contract**
 
 Build fake v1, v2, and unhealthy NixOS-style system paths with executable
 `bin/switch-to-configuration` fixtures. Exercise healthy switch/replay;
@@ -393,12 +399,12 @@ unhealthy rollback; manual profile drift refusal; switch timeout and recovery;
 rollback after start-limit exhaustion; prune only after health; atomic markers;
 poison only deterministic unhealthy candidate, never transient Git/cache miss.
 
-- [ ] **Step 2: Write failing module contract**
+- [x] **Step 2: Write failing module contract**
 
 Assert `release/home-server`, HTTPS, shared lock, finite deadline, root user,
 `restartIfChanged = false`, and builders-disabled evaluation/hydration.
 
-- [ ] **Step 3: Verify red**
+- [x] **Step 3: Verify red**
 
 ```bash
 git add flake.nix nixos/tests
@@ -406,18 +412,18 @@ nix build --no-link .#checks.x86_64-linux.system-activator -L
 nix build --no-link .#checks.x86_64-linux.system-deploy -L
 ```
 
-- [ ] **Step 4: Implement exact transaction**
+- [x] **Step 4: Implement exact transaction**
 
 ```text
 lock -> fetch main/release ref -> verify ancestry/drift/poison -> evaluate exact
 toplevel with builders disabled -> hydrate signed closure -> record old profile
--> set system profile -> candidate switch -> health -> atomic last-good -> prune
+-> set system profile -> candidate switch -> health -> prune -> atomic last-good
 ```
 
 On post-switch failure: reset affected start limits, restore old profile, run
-old activation, prove recovery, retain recovery roots, and do not prune.
+old activation, prove recovery, and retain the exact previous recovery root.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 ```bash
 nix build --no-link .#checks.x86_64-linux.system-activator -L
@@ -435,7 +441,7 @@ git commit -m "feat(deploy): add signed system release deployment"
 - Create: `nixos/tests/fixtures/home-server-cd-release/*`
 - Modify: `flake.nix`
 
-- [ ] **Step 1: Port full host VM test and verify red**
+- [x] **Step 1: Port full host VM test and verify red**
 
 Start from PR #245 `tests/home-server.nix`. Point it to standalone host, plain
 agenix fixture, and local modules. Add behavior checks for global no-build,
@@ -449,13 +455,16 @@ nix build --no-link .#checks.x86_64-linux.vm-home-server -L
 
 Expected: first integration assertion fails; record it before changing code.
 
-- [ ] **Step 2: Port and extend CD fixture**
+- [x] **Step 2: Port and extend CD fixture**
 
 Preserve real Git checkout, app profile switch, health, replay, rollback, and
 rollback guard. Add disposable promoted system ref, signed-cache seam, real
 system generation switch, units/markers/replay, bad generation rollback.
 
-- [ ] **Step 3: Make integration green and commit**
+- [x] **Step 3: Make integration green and commit**
+
+Export `nixosModules.system-deploy` for the minimal `nixos-config` bootstrap;
+the full `home-server` configuration continues importing the same local module.
 
 ```bash
 nix build --no-link .#checks.x86_64-linux.vm-home-server -L

@@ -45,6 +45,10 @@ case "$1" in
     }
     rm -f "$START_LIMIT"
     ;;
+  is-failed)
+    [ "$#" -eq 4 ] && [ "$2" = --quiet ] && [ "$3" = -- ] && [ -n "$4" ] || exit 64
+    [ "''${NEVER_LOADED_UNIT:-}" != "$4" ]
+    ;;
   is-system-running)
     [ ! -e "$UNRELATED_FAILED" ] || exit 1
     ;;
@@ -213,7 +217,7 @@ EOF
   reset_observations() {
     : > "$EVENTS"
     rm -f "$TIMEOUT_MARKER" "$START_LIMIT" "$UNRELATED_FAILED" "$SUCCESS_MOVE_SIGNAL_SENT" "$SUCCESS_MOVE_FAILURE_TRIGGERED" "$RECOVERY_SIGNAL_SENT"
-    unset FAIL_SWITCH_PATH TIMEOUT_PATH SIGNAL_DURING_SWITCH_PATH
+    unset FAIL_SWITCH_PATH TIMEOUT_PATH SIGNAL_DURING_SWITCH_PATH NEVER_LOADED_UNIT
     export FAIL_LIST_GENERATIONS=0 FAIL_DELETE_GENERATIONS=0
     export SIGNAL_AFTER_SUCCESS_MOVE=0 FAIL_SUCCESS_MARKER_MOVE=0
   }
@@ -270,6 +274,7 @@ EOF
   # A healthy candidate is switched, observed healthy for the sustained
   # window, committed atomically, and only then may old generations be pruned.
   reset_fixture
+  export NEVER_LOADED_UNIT=app-deploy.timer
   run ${v1} 1111111111111111111111111111111111111111 || {
     echo 'structured all-of/any-of unit health contract is absent' >&2
     exit 1
@@ -283,6 +288,8 @@ EOF
   for unit in smarthome-deploy.timer nixos-deploy.timer; do
     ! grep -q "^systemctl is-active --quiet -- $unit$" "$EVENTS"
   done
+  grep -qxF 'systemctl is-failed --quiet -- app-deploy.timer' "$EVENTS"
+  ! grep -qxF 'systemctl reset-failed -- app-deploy.timer' "$EVENTS"
   if grep -qxF 'systemctl reset-failed' "$EVENTS"; then
     echo 'activation used bare reset-failed and masked unrelated failures' >&2
     exit 1

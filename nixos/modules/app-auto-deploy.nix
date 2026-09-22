@@ -11,12 +11,12 @@ let
   hydrator = pkgs.writeShellApplication {
     name = "smarthome-hydrate-release-paths";
     runtimeInputs = with pkgs; [ bash coreutils jq cfg.nixPackage ];
-    text = ''exec ${./hydrate-release-paths.sh} "$@"'';
+    text = ''exec ${pkgs.bash}/bin/bash ${./hydrate-release-paths.sh} "$@"'';
   };
   activator = pkgs.writeShellApplication {
     name = "activate-app";
     runtimeInputs = with pkgs; [ bash coreutils curl systemd config.nix.package ];
-    text = ''exec ${./activate-app.sh} "$@"'';
+    text = ''exec ${pkgs.bash}/bin/bash ${./activate-app.sh} "$@"'';
   };
   deploy = pkgs.writeShellApplication {
     name = "app-deploy";

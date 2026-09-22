@@ -79,6 +79,10 @@
   };
 
   nix.settings = {
+    experimental-features = [
+      "nix-command"
+      "flakes"
+    ];
     max-jobs = lib.mkForce 0;
     builders = lib.mkForce "";
     fallback = lib.mkForce false;

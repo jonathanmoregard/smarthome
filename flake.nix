@@ -8,7 +8,7 @@
   inputs.agenix.inputs.nixpkgs.follows = "nixpkgs-system";
 
   outputs =
-    {
+    flakeInputs@{
       self,
       nixpkgs,
       nixpkgs-system,
@@ -20,6 +20,21 @@
       pkgsSystem = import nixpkgs-system { inherit system; };
       package = pkgs.callPackage ./nix/package.nix { };
       source = pkgs.lib.cleanSource ./.;
+      collectInputSources = input:
+        let
+          inputSource = if builtins.isAttrs input && input ? outPath then input.outPath else input;
+          children =
+            if builtins.isAttrs input && input ? inputs then
+              builtins.attrValues input.inputs
+            else
+              [ ];
+        in
+        [ inputSource ] ++ pkgsSystem.lib.concatMap collectInputSources children;
+      homeServerCdInputSources = pkgsSystem.lib.unique (
+        pkgsSystem.lib.concatMap collectInputSources (
+          builtins.attrValues (builtins.removeAttrs flakeInputs [ "self" ])
+        )
+      );
       mkCargoCheck =
         {
           name,
@@ -47,6 +62,7 @@
       packages.${system}.default = package;
 
       nixosModules.default = import ./nix/module.nix;
+      nixosModules.system-deploy = import ./nixos/modules/system-auto-deploy.nix;
 
       nixosConfigurations.home-server = nixpkgs-system.lib.nixosSystem {
         system = "x86_64-linux";
@@ -56,6 +72,28 @@
           ./nixos/hosts/home-server
         ];
       };
+
+      nixosConfigurations.home-server-cd =
+        self.nixosConfigurations.home-server.extendModules {
+          modules = [
+            ./nixos/tests/fixtures/home-server-cd-module.nix
+            { system.extraDependencies = homeServerCdInputSources; }
+          ];
+        };
+
+      nixosConfigurations.home-server-cd-bad =
+        self.nixosConfigurations.home-server-cd.extendModules {
+          modules = [
+            { homeServerCd.releaseState = pkgsSystem.lib.mkForce "bad"; }
+          ];
+        };
+
+      nixosConfigurations.home-server-cd-v2 =
+        self.nixosConfigurations.home-server-cd.extendModules {
+          modules = [
+            { homeServerCd.releaseState = pkgsSystem.lib.mkForce "v2"; }
+          ];
+        };
 
       devShells.${system}.default = pkgs.mkShell {
         inputsFrom = [ package ];
@@ -108,6 +146,18 @@
           inherit agenix pkgsSystem;
           nixosSystem = nixpkgs-system.lib.nixosSystem;
           host = self.nixosConfigurations.home-server;
+        };
+        vm-home-server = import ./nixos/tests/home-server.nix {
+          inherit agenix pkgsSystem;
+        };
+        vm-home-server-cd = import ./nixos/tests/home-server-cd.nix {
+          inherit agenix pkgsSystem;
+          inputSources = homeServerCdInputSources;
+          homeServerCdSystem = self.nixosConfigurations.home-server-cd.config.system.build.toplevel;
+          homeServerCdBadSystem =
+            self.nixosConfigurations.home-server-cd-bad.config.system.build.toplevel;
+          homeServerCdV2System =
+            self.nixosConfigurations.home-server-cd-v2.config.system.build.toplevel;
         };
         app-deploy = import ./nixos/tests/app-deploy.nix {
           inherit pkgs;

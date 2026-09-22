@@ -96,6 +96,7 @@ pkgs.runCommand "app-deploy-contract" { nativeBuildInputs = with pkgs; [ bash co
   deploy=${service.serviceConfig.ExecStart}
   export DEPLOY_LOG="$PWD/deploy.log" HYDRATE_PATH=${app} HYDRATOR_RETRY_STATE="$PWD/hydrator-retry"
   export DEPLOY_LOCK="$PWD/run/deploy.lock"
+  export STATE_DIRECTORY="$PWD/state" RUNTIME_DIRECTORY="$PWD/run"
   deploy_failure_diagnostics() {
     status=$?
     if [ "$status" -eq 0 ]; then
