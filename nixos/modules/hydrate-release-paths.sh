@@ -65,11 +65,12 @@ while [ "${#queue[@]}" -gt 0 ]; do
     done
     [ -n "$selected_cache" ] || die "release path is not available from pinned caches: $path"
   fi
-  # A pre-existing local path is not provenance: import a pinned signature.
-  within_deadline nix store copy-sigs --refresh --substituter "$selected_cache" "$path" || die "could not import pinned cache signature: $path"
   within_deadline nix copy --refresh --no-recursive --from "$selected_cache" \
     --option max-jobs 0 --option fallback false --option builders "" \
     --option trusted-public-keys "$all_keys" "$path" || die "could not copy release path: $path"
+  # Import the selected cache's pinned signature after copy.  Nix can skip a
+  # pre-existing local path, so its local provenance is never trusted alone.
+  within_deadline nix store copy-sigs --refresh --substituter "$selected_cache" "$path" || die "could not import pinned cache signature: $path"
   closure+=("$path")
   while IFS= read -r reference; do queue+=("$reference"); done < <(
     printf '%s' "$metadata" | jq -er --arg path "$path" '.[$path].references[]?' 2>/dev/null || true

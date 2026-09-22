@@ -47,7 +47,9 @@ case "''${1:-}:''${2:-}" in
     require --json
     root=/nix/store/00000000000000000000000000000000-healthy
     dependency=/nix/store/11111111111111111111111111111111-nixos-dependency
-    if has_token "$root" && has_token https://jonathanmoregard.cachix.org; then
+    if has_token "$root" && has_token https://jonathanmoregard.cachix.org && [ "''${EMPTY_ROOT_METADATA:-0}" = 1 ]; then
+      printf '%s\n' '{}'
+    elif has_token "$root" && has_token https://jonathanmoregard.cachix.org; then
       printf '%s\n' '{"/nix/store/00000000000000000000000000000000-healthy":{"references":["/nix/store/11111111111111111111111111111111-nixos-dependency"]}}'
     elif has_token "$dependency" && has_token https://jonathanmoregard.cachix.org; then
       # This is deliberately valid empty metadata: project publication has no
@@ -61,6 +63,11 @@ case "''${1:-}:''${2:-}" in
     ;;
   store:copy-sigs)
     require --substituter
+    path="''${argv[-1]}"
+    [ -e "$HYDRATOR_STATE/$(basename "$path").copied" ] || {
+      echo "signature import preceded successful copy: $path" >&2
+      exit 64
+    }
     ;;
   copy:--refresh)
     require --from
@@ -76,12 +83,14 @@ case "''${1:-}:''${2:-}" in
     if has_token "$root"; then
       require https://jonathanmoregard.cachix.org
       has_token https://cache.nixos.org && { echo 'root must not copy from official cache' >&2; exit 64; }
+      touch "$HYDRATOR_STATE/$(basename "$root").copied"
     elif has_token "$dependency"; then
       if has_token https://jonathanmoregard.cachix.org; then
         echo 'not available from project cache' >&2
         exit 1
       fi
       require https://cache.nixos.org
+      touch "$HYDRATOR_STATE/$(basename "$dependency").copied"
     else
       echo "unexpected copy path: $*" >&2
       exit 64
@@ -92,7 +101,8 @@ case "''${1:-}:''${2:-}" in
 esac
 EOF
   chmod +x bin/nix
-  export PATH="$PWD/bin:$PATH" HYDRATOR_LOG="$PWD/log"
+  export PATH="$PWD/bin:$PATH" HYDRATOR_LOG="$PWD/log" HYDRATOR_STATE="$PWD/nix-state"
+  mkdir "$HYDRATOR_STATE"
   on_failure() {
     status=$?
     [ "$status" -eq 0 ] && return
@@ -108,6 +118,8 @@ EOF
   invoke() { timeout 2 bash ${script} --timeout-seconds 1 --from '${projectCache}' --trusted-key '${projectKey}' --from '${nixosCache}' --trusted-key '${nixosKey}' "$@"; }
   if invoke > empty.log 2>&1; then exit 1; fi
   grep -qF 'at least one store path' empty.log
+  if EMPTY_ROOT_METADATA=1 invoke /nix/store/00000000000000000000000000000000-healthy > root-empty-metadata.log 2>&1; then exit 1; fi
+  grep -qF 'could not read signed project release root metadata' root-empty-metadata.log
   invoke /nix/store/00000000000000000000000000000000-healthy > healthy.log 2>&1
   grep -qF '/nix/store/11111111111111111111111111111111-nixos-dependency' "$HYDRATOR_LOG"
   grep -qF 'copy --refresh --no-recursive' "$HYDRATOR_LOG"

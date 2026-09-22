@@ -54,7 +54,10 @@ case "$operation" in
     ln -sfn "$profile-$1-link" "$profile"
     ;;
   --delete-generations)
-    [ "''${FAIL_PRUNE:-0}" != 1 ] || exit 75
+    if [ "''${FAIL_PRUNE:-0}" = 1 ] && [ ! -e "$PRUNE_FAILURE_STATE" ]; then
+      touch "$PRUNE_FAILURE_STATE"
+      exit 75
+    fi
     for generation in "$@"; do rm -f "$profile-$generation-link"; done
     grep -vxF -f <(printf '%s\n' "$@") "$GENERATIONS" > "$GENERATIONS.tmp" || true
     mv "$GENERATIONS.tmp" "$GENERATIONS"
@@ -63,7 +66,7 @@ case "$operation" in
 esac
 EOF
   chmod +x "$PWD/bin/systemctl" "$PWD/bin/curl" "$PWD/bin/sleep" "$PWD/bin/nix-env"
-  export PATH="$PWD/bin:$PATH" ACTIVATOR_LOG="$log" PROFILE="$profile" START_LIMIT="$PWD/start-limit" GENERATIONS="$PWD/generations" CRASHING=${v2} UNHEALTHY=${v3}
+  export PATH="$PWD/bin:$PATH" ACTIVATOR_LOG="$log" PROFILE="$profile" START_LIMIT="$PWD/start-limit" GENERATIONS="$PWD/generations" PRUNE_FAILURE_STATE="$PWD/prune-failed-once" CRASHING=${v2} UNHEALTHY=${v3}
   : > "$GENERATIONS"
   run() { bash ${script} "$@" "$state" "$profile" house-automationd.service http://127.0.0.1:9876/healthz; }
   run ${v1} 1111111111111111111111111111111111111111
@@ -82,11 +85,20 @@ EOF
   grep -qF 'previous_generation=1' "$state/last-failure"
   # Three actual healthy candidates retain exactly current and previous.
   run ${v4} 4444444444444444444444444444444444444444
+  success_before=$(cat "$state/last-success")
   export FAIL_PRUNE=1
   if run ${v5} 5555555555555555555555555555555555555555; then exit 1; fi
   unset FAIL_PRUNE
-  ! grep -qF 'rev=5555555555555555555555555555555555555555' "$state/last-success"
+  [ "$(readlink -f "$profile")" = "${v4}" ]
+  [ ! -e "$(dirname "$profile")/profile-3-link" ]
+  [ "$(cat "$state/last-success")" = "$success_before" ]
   grep -qF 'reason=generation-pruning-failed' "$state/last-failure"
+  grep -qF 'rollback=complete' "$state/last-failure"
+  [ "$(find "$(dirname "$profile")" -name 'profile-*-link' | wc -l)" -eq 2 ]
+  prune_rollback=$(tail -n 3 "$log")
+  [ "$(printf '%s\n' "$prune_rollback" | sed -n '1p')" = 'systemctl restart house-automationd.service' ]
+  [ "$(printf '%s\n' "$prune_rollback" | sed -n '2p')" = 'systemctl reset-failed house-automationd.service' ]
+  [ "$(printf '%s\n' "$prune_rollback" | sed -n '3p')" = 'systemctl restart house-automationd.service' ]
   run ${v5} 5555555555555555555555555555555555555555
   generations=$(find "$(dirname "$profile")" -name 'profile-*-link' | wc -l)
   [ "$generations" -eq 2 ]
