@@ -17,6 +17,7 @@ pkgs.runCommand "app-activator-contract" { nativeBuildInputs = with pkgs; [ bash
   cat > "$PWD/bin/systemctl" <<'EOF'
 #!${pkgs.runtimeShell}
 printf 'systemctl %s\n' "$*" >> "$ACTIVATOR_LOG"
+if [ "$1" = reset-failed ] && [ "''${CANDIDATE_RESET_FAILURE:-0}" = 1 ] && [ ! -e "$CANDIDATE_RESET_MARKER" ] && [ "$(readlink -f "$PROFILE")" = "$RESET_CANDIDATE" ]; then touch "$CANDIDATE_RESET_MARKER"; exit 1; fi
 if [ "$1" = reset-failed ]; then rm -f "$START_LIMIT"; exit 0; fi
 if [ "$1" = restart ] && [ "$(readlink -f "$PROFILE")" = "$CRASHING" ]; then touch "$START_LIMIT"; exit 1; fi
 if [ "$1" = restart ] && [ "''${RECOVERY_FAILURE:-0}" = 1 ] && [ "$(readlink -f "$PROFILE")" = "$RECOVERY_PATH" ]; then exit 1; fi
@@ -24,7 +25,9 @@ exit 0
 EOF
   cat > "$PWD/bin/curl" <<'EOF'
 #!${pkgs.runtimeShell}
-[ "$1" = --connect-timeout ] && [ "$2" = 2 ] && [ "$3" = --max-time ] && [ "$4" = 2 ] || exit 64
+[ "$#" -eq 8 ] || exit 64
+[ "$1" = --connect-timeout ] && [ "$2" = 2 ] && [ "$3" = --max-time ] && [ "$4" = 2 ] && [ "$5" = --fail ] && [ "$6" = --silent ] && [ "$7" = --show-error ] && [ "$8" = http://127.0.0.1:9876/healthz ] || exit 64
+printf '%s\n' "$*" >> "$CURL_LOG"
 [ "$(readlink -f "$PROFILE")" != "$UNHEALTHY" ]
 EOF
   cat > "$PWD/bin/sleep" <<'EOF'
@@ -70,7 +73,7 @@ case "$operation" in
 esac
 EOF
   chmod +x "$PWD/bin/systemctl" "$PWD/bin/curl" "$PWD/bin/sleep" "$PWD/bin/nix-env"
-  export PATH="$PWD/bin:$PATH" ACTIVATOR_LOG="$log" PROFILE="$profile" START_LIMIT="$PWD/start-limit" GENERATIONS="$PWD/generations" PRUNE_FAILURE_STATE="$PWD/prune-failed-once" RECOVERY_PATH=${v1} CRASHING=${v2} UNHEALTHY=${v3}
+  export PATH="$PWD/bin:$PATH" ACTIVATOR_LOG="$log" CURL_LOG="$PWD/curl.log" PROFILE="$profile" START_LIMIT="$PWD/start-limit" GENERATIONS="$PWD/generations" PRUNE_FAILURE_STATE="$PWD/prune-failed-once" CANDIDATE_RESET_MARKER="$PWD/candidate-reset-once" RESET_CANDIDATE=${v4} RECOVERY_PATH=${v1} CRASHING=${v2} UNHEALTHY=${v3}
   : > "$GENERATIONS"
   run() { bash ${script} "$@" "$state" "$profile" house-automationd.service http://127.0.0.1:9876/healthz; }
   export LIST_FAILURE=1
@@ -90,9 +93,24 @@ EOF
   [ "$(printf '%s\n' "$rollback_sequence" | sed -n '1p')" = 'systemctl restart house-automationd.service' ]
   [ "$(printf '%s\n' "$rollback_sequence" | sed -n '2p')" = 'systemctl reset-failed house-automationd.service' ]
   [ "$(printf '%s\n' "$rollback_sequence" | sed -n '3p')" = 'systemctl restart house-automationd.service' ]
+  curl_before=$(wc -l < "$CURL_LOG" 2>/dev/null || true)
+  systemctl_before=$(wc -l < "$log")
   if run ${v3} 3333333333333333333333333333333333333333; then exit 1; fi
   [ "$(readlink "$profile")" = "$before" ]
+  grep -qxF 'reason=candidate-health-failed' "$state/last-failure"
+  grep -qxF 'rollback=complete' "$state/last-failure"
+  [ $(( $(wc -l < "$CURL_LOG") - curl_before )) -eq 31 ]
+  health_sequence=$(tail -n +$((systemctl_before + 1)) "$log")
+  [ "$(printf '%s\n' "$health_sequence" | sed -n '1p')" = 'systemctl reset-failed house-automationd.service' ]
+  [ "$(printf '%s\n' "$health_sequence" | sed -n '2p')" = 'systemctl restart house-automationd.service' ]
   grep -qF 'previous_generation=1' "$state/last-failure"
+  export CANDIDATE_RESET_FAILURE=1
+  if run ${v4} 4444444444444444444444444444444444444444; then exit 1; fi
+  unset CANDIDATE_RESET_FAILURE
+  [ "$(readlink -f "$profile")" = "${v1}" ]
+  grep -qxF 'reason=candidate-reset-failed' "$state/last-failure"
+  ! grep -qF 'reason=candidate-health-failed' "$state/last-failure"
+  grep -qxF 'rollback=complete' "$state/last-failure"
   # A failed candidate whose old service cannot be restarted is not a clean
   # rollback: the candidate generation stays available for manual recovery.
   export RECOVERY_FAILURE=1
