@@ -1,5 +1,6 @@
 {
   agenix,
+  nixosSystem,
   pkgsSystem,
   host,
 }:
@@ -31,7 +32,7 @@ let
     '';
   mqttUsernameAssertion = username:
     let
-      evaluated = pkgsSystem.lib.nixosSystem {
+      evaluated = nixosSystem {
         system = "x86_64-linux";
         modules = [
           ../modules/home-server-services.nix
