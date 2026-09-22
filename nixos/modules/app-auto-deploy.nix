@@ -26,7 +26,7 @@ let
       set -f
       umask 077
       state="''${STATE_DIRECTORY:-${stateDir}}"; runtime="''${RUNTIME_DIRECTORY:-${runtimeDir}}"
-      source=${lib.escapeShellArg cfg.sourceDir}; repo=${lib.escapeShellArg cfg.repository}
+      source=${lib.escapeShellArg cfg.sourceDir}; repo=${lib.escapeShellArg (if cfg.testRepository == null then cfg.repository else cfg.testRepository)}
       profile=${lib.escapeShellArg cfg.profile}; attr=${lib.escapeShellArg cfg.packageAttr}
       lock="''${DEPLOY_LOCK:-/run/smarthome-deploy/deploy.lock}"
       die() { printf 'app-deploy: %s\n' "$*" >&2; exit 1; }
@@ -41,6 +41,7 @@ let
       revision=$candidate
       git -C "$source" reset --hard "$revision" > /dev/null
       git -C "$source" clean -ffdqx
+      [ -f "$source/flake.lock" ] || die 'promoted revision has no flake.lock'
       active=$(readlink -f "$profile" 2>/dev/null || true)
       last_revision=
       last_path=
@@ -52,20 +53,21 @@ let
         failed_reason=
         failed_rollback=
         while IFS='=' read -r key value; do case "$key" in rev) failed_revision=$value ;; reason) failed_reason=$value ;; rollback) failed_rollback=$value ;; esac; done < "$state/last-failure"
-        if [ "$failed_revision" = "$revision" ] && [ "$failed_reason" = service-restart-or-health-failed ] && [ "$failed_rollback" = complete ]; then
+        if [ "$failed_revision" = "$revision" ] && [ "$failed_reason" = candidate-health-failed ] && [ "$failed_rollback" = complete ]; then
           die 'candidate is poisoned after deterministic unhealthy activation'
         fi
       fi
-      package_path=$(nix eval --raw --option max-jobs 0 --option fallback false --option builders "" "$source#$attr.outPath") || die 'package path evaluation failed'
+      package_path=$(nix eval --raw --no-update-lock-file --no-write-lock-file --option max-jobs 0 --option fallback false --option builders "" "$source#$attr.outPath") || die 'package path evaluation failed'
       [[ "$package_path" =~ ^/nix/store/[0123456789abcdfghijklmnpqrsvwxyz]{32}-[A-Za-z0-9+._?=-]{1,211}$ ]] || die 'invalid evaluated package path'
-      ${lib.getExe cfg.hydratorPackage} --from ${lib.escapeShellArg projectCache} --trusted-key ${lib.escapeShellArg projectKey} --from ${lib.escapeShellArg nixosCache} --trusted-key ${lib.escapeShellArg nixosKey} --timeout-seconds 300 --interval 5 "$package_path" || die 'release hydration failed'
+      ${lib.getExe cfg.hydratorPackage} --from ${lib.escapeShellArg projectCache} --trusted-key ${lib.escapeShellArg projectKey} --from ${lib.escapeShellArg nixosCache} --trusted-key ${lib.escapeShellArg nixosKey} --timeout-seconds 300 --interval 5 --attempts 3 "$package_path" || die 'release hydration failed'
       ${lib.getExe cfg.activatorPackage} "$package_path" "$revision" "$state" "$profile" ${lib.escapeShellArg cfg.serviceName} ${lib.escapeShellArg cfg.healthUrl}
     '';
   };
 in {
   options.services.app-auto-deploy = {
     enable = lib.mkEnableOption "promoted public application deployment";
-    repository = lib.mkOption { type = lib.types.str; default = "https://github.com/jonathanmoregard/smarthome.git"; };
+    repository = lib.mkOption { type = lib.types.strMatching "https://[^[:space:]]+"; default = "https://github.com/jonathanmoregard/smarthome.git"; };
+    testRepository = lib.mkOption { type = lib.types.nullOr lib.types.str; default = null; internal = true; };
     sourceDir = lib.mkOption { type = lib.types.str; default = "${stateDir}/source"; };
     profile = lib.mkOption { type = lib.types.str; default = "/nix/var/nix/profiles/smarthome"; };
     packageAttr = lib.mkOption { type = lib.types.str; default = "packages.x86_64-linux.default"; };
@@ -83,7 +85,7 @@ in {
     systemd.timers.app-deploy = { wantedBy = [ "timers.target" ]; timerConfig = { OnBootSec = "2min"; OnUnitActiveSec = "15min"; Persistent = true; Unit = "app-deploy.service"; }; };
     systemd.services.app-deploy = {
       after = [ "network-online.target" ]; wants = [ "network-online.target" ];
-      serviceConfig = { Type = "oneshot"; ExecStart = lib.getExe deploy; User = "root"; Group = "root"; StateDirectory = "smarthome-deploy"; StateDirectoryMode = "0700"; RuntimeDirectory = "smarthome-deploy"; RuntimeDirectoryMode = "0700"; TimeoutStartSec = "10min"; UMask = "0077"; NoNewPrivileges = true; PrivateTmp = true; ProtectHome = true; ProtectSystem = "strict"; ReadWritePaths = [ stateDir runtimeDir (builtins.dirOf cfg.profile) ]; };
+      serviceConfig = { Type = "oneshot"; ExecStart = lib.getExe deploy; User = "root"; Group = "root"; StateDirectory = "smarthome-deploy"; StateDirectoryMode = "0700"; RuntimeDirectory = "smarthome-deploy"; RuntimeDirectoryMode = "0700"; RuntimeDirectoryPreserve = "yes"; TimeoutStartSec = "10min"; UMask = "0077"; NoNewPrivileges = true; PrivateTmp = true; ProtectHome = true; ProtectSystem = "strict"; ReadWritePaths = [ stateDir runtimeDir (builtins.dirOf cfg.profile) ]; };
     };
   };
 }

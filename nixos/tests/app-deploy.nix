@@ -10,6 +10,7 @@ let
   app = pkgs.writeShellScriptBin "house-automationd" "exit 0";
   fakeNix = pkgs.writeShellScriptBin "nix" ''
     [ "$1" = eval ] && [ "$2" = --raw ] || exit 64
+    case " $* " in *' --no-update-lock-file '*' --no-write-lock-file '*) ;; *) exit 64 ;; esac
     printf '%s\n' "$*" >> "$DEPLOY_LOG"
     reference="''${*: -1}"
     cat "''${reference%%#*}"/release-path
@@ -26,11 +27,11 @@ let
     printf '%s\n' "$*" >> "$DEPLOY_LOG"
     mkdir -p "$3"
     if [ "''${ACTIVATOR_FAIL_REV:-}" = "$2" ]; then
-      printf 'rev=%s\nreason=service-restart-or-health-failed\nrollback=complete\n' "$2" > "$3/last-failure"
+      printf 'rev=%s\nreason=candidate-health-failed\nrollback=complete\n' "$2" > "$3/last-failure"
       exit 1
     fi
     if [ "''${ACTIVATOR_INCOMPLETE_REV:-}" = "$2" ]; then
-      printf 'rev=%s\nreason=service-restart-or-health-failed\nrollback=incomplete\n' "$2" > "$3/last-failure"
+      printf 'rev=%s\nreason=candidate-health-failed\nrollback=incomplete\n' "$2" > "$3/last-failure"
       exit 1
     fi
     ln -sfn "$1" "$4"
@@ -46,7 +47,7 @@ let
         system.stateVersion = "26.05";
         services.app-auto-deploy = {
           enable = true;
-          repository = "file:///build/origin.git";
+          testRepository = "file:///build/origin.git";
           sourceDir = "/build/source";
           profile = "/build/profile";
           nixPackage = fakeNix;
@@ -60,6 +61,7 @@ let
 in
 assert service.serviceConfig.RuntimeDirectory == "smarthome-deploy";
 assert service.serviceConfig.TimeoutStartSec == "10min";
+assert service.serviceConfig.RuntimeDirectoryPreserve == "yes";
 assert service.serviceConfig.ExecStart != "";
 assert evaluated.config.services.app-auto-deploy.serviceName == "-";
 assert evaluated.config.services.app-auto-deploy.healthUrl == "-";
@@ -103,6 +105,8 @@ pkgs.runCommand "app-deploy-contract" { nativeBuildInputs = with pkgs; [ bash co
   grep -qF -- '--option max-jobs 0' "$deploy"
   grep -qF -- '--option fallback false' "$deploy"
   grep -qF -- '--option builders ""' "$deploy"
+  grep -qF -- '--no-update-lock-file' "$deploy"
+  grep -qF -- '--no-write-lock-file' "$deploy"
   grep -qF '${projectCache}' "$deploy"
   grep -qF '${projectKey}' "$deploy"
   grep -qF '${nixosCache}' "$deploy"
@@ -114,7 +118,8 @@ pkgs.runCommand "app-deploy-contract" { nativeBuildInputs = with pkgs; [ bash co
   git -C work config user.email test@example.invalid
   git -C work config user.name test
   printf '%s\n' ${app} > work/release-path
-  git -C work add release-path && git -C work commit -qm main
+  printf '{"version":7,"root":"root","nodes":{"root":{"inputs":{}}}}\n' > work/flake.lock
+  git -C work add release-path flake.lock && git -C work commit -qm main
   main=$(git -C work rev-parse HEAD)
   git init -q --bare origin.git
   git -C work remote add origin file:///build/origin.git

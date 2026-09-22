@@ -24,6 +24,7 @@ exit 0
 EOF
   cat > "$PWD/bin/curl" <<'EOF'
 #!${pkgs.runtimeShell}
+[ "$1" = --connect-timeout ] && [ "$2" = 2 ] && [ "$3" = --max-time ] && [ "$4" = 2 ] || exit 64
 [ "$(readlink -f "$PROFILE")" != "$UNHEALTHY" ]
 EOF
   cat > "$PWD/bin/sleep" <<'EOF'
@@ -101,7 +102,7 @@ EOF
   if run ${v5} 5555555555555555555555555555555555555555; then exit 1; fi
   unset FAIL_PRUNE
   [ "$(readlink -f "$profile")" = "${v4}" ]
-  [ ! -e "$(dirname "$profile")/profile-4-link" ]
+  [ ! -e "$(dirname "$profile")/profile-3-link" ]
   [ "$(cat "$state/last-success")" = "$success_before" ]
   grep -qF 'reason=generation-pruning-failed' "$state/last-failure"
   grep -qF 'rollback=complete' "$state/last-failure"
