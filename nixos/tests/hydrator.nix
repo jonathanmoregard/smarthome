@@ -15,8 +15,15 @@ pkgs.runCommand "hydrator-contract" { nativeBuildInputs = with pkgs; [ bash core
 #!${pkgs.runtimeShell}
 set -euo pipefail
 printf '%s\n' "$*" >> "$HYDRATOR_LOG"
-has() { case " $* " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
-require() { has "$1" || { echo "missing argument: $1" >&2; exit 64; }; }
+argv=("$@")
+has_token() {
+  local wanted=$1 argument
+  for argument in "''${argv[@]}"; do
+    [ "$argument" = "$wanted" ] && return 0
+  done
+  return 1
+}
+require() { has_token "$1" || { echo "missing argument: $1" >&2; exit 64; }; }
 case "$*" in
   *unsigned*) echo 'signature verification failed' >&2; exit 1 ;;
   *hanging*) sleep 30 ;;
@@ -45,12 +52,12 @@ case "''${1:-}:''${2:-}" in
     require fallback
     require false
     require builders
-    if has 11111111111111111111111111111111-nixos-dependency && has https://jonathanmoregard.cachix.org; then
+    if has_token 11111111111111111111111111111111-nixos-dependency && has_token https://jonathanmoregard.cachix.org; then
       echo 'not available from project cache' >&2
       exit 1
     fi
-    if has 00000000000000000000000000000000-healthy; then require https://jonathanmoregard.cachix.org; fi
-    if has 11111111111111111111111111111111-nixos-dependency; then require https://cache.nixos.org; fi
+    if has_token 00000000000000000000000000000000-healthy; then require https://jonathanmoregard.cachix.org; fi
+    if has_token 11111111111111111111111111111111-nixos-dependency; then require https://cache.nixos.org; fi
     exit 0
     ;;
   *) echo "unexpected nix invocation: $*" >&2; exit 64 ;;
