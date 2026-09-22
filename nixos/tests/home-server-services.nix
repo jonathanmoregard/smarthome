@@ -171,7 +171,7 @@ pkgsSystem.testers.runNixOSTest {
     home_server.wait_for_unit("mosquitto.service")
     home_server.wait_for_unit("postgresql.service")
     home_server.wait_for_unit("house-automationd.service")
-    home_server.succeed("systemctl show agenix.service -P Result | grep -Fx Result=success")
+    home_server.succeed("systemctl show agenix.service -P Result | grep -Fx success")
     home_server.succeed("test -f /run/agenix/zigbee2mqtt-network-key")
     home_server.succeed("test \"$(stat -c '%U:%G %a' /run/agenix/zigbee2mqtt-network-key)\" = 'root:root 400'")
     home_server.succeed(
