@@ -5,8 +5,9 @@ umask 077
 
 die() { printf 'activate-system:' >&2; printf ' %s' "$@" >&2; printf '\n' >&2; exit 1; }
 mode=activate
-health_units=()
-health_unit_groups=()
+candidate_health_units=()
+recovery_health_units=()
+recovery_health_unit_groups=()
 if [ "$#" -ge 4 ] && [ "$1" = --recover ]; then
   mode=recover
   state_dir=$2 profile=$3 current_system=$4
@@ -22,10 +23,15 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --unit)
       [ "$#" -ge 2 ] && valid_unit "$2" || die 'invalid required health unit'
-      health_units+=("$2")
+      candidate_health_units+=("$2")
       shift 2
       ;;
-    --any-unit-group)
+    --recovery-unit)
+      [ "$#" -ge 2 ] && valid_unit "$2" || die 'invalid required recovery health unit'
+      recovery_health_units+=("$2")
+      shift 2
+      ;;
+    --recovery-any-unit-group)
       [ "$#" -ge 2 ] || die 'missing required health unit group'
       case "$2" in ,*|*,|*,,*) die 'invalid required health unit group' ;; esac
       IFS=',' read -r -a group_members <<< "$2"
@@ -33,7 +39,7 @@ while [ "$#" -gt 0 ]; do
       for group_member in "${group_members[@]}"; do
         valid_unit "$group_member" || die 'invalid required health unit group'
       done
-      health_unit_groups+=("$2")
+      recovery_health_unit_groups+=("$2")
       shift 2
       ;;
     *) die 'invalid health argument' ;;
@@ -62,11 +68,50 @@ switch_system() {
   return "$status"
 }
 
+reset_health_units() {
+  local contract=$1 unit group group_member load_state
+  local -a health_units health_unit_groups group_members
+  case "$contract" in
+    candidate)
+      health_units=("${candidate_health_units[@]}")
+      health_unit_groups=()
+      ;;
+    recovery)
+      health_units=("${recovery_health_units[@]}")
+      health_unit_groups=("${recovery_health_unit_groups[@]}")
+      ;;
+    *) return 1 ;;
+  esac
+  for group in "${health_unit_groups[@]}"; do
+    IFS=',' read -r -a group_members <<< "$group"
+    health_units+=("${group_members[@]}")
+  done
+  for unit in "${health_units[@]}"; do
+    load_state=$(timeout --signal=KILL 1s systemctl show --property=LoadState --value -- "$unit") || return 1
+    case "$load_state" in
+      loaded) timeout --signal=KILL 1s systemctl reset-failed -- "$unit" || return 1 ;;
+      not-found) ;;
+      *) return 1 ;;
+    esac
+  done
+}
+
 # Short probes bound both candidate validation and TERM-triggered recovery.
 health_check() {
-  local expected=$1 attempt consecutive=0 status running unit unit_status units_healthy
+  local expected=$1 contract=$2 attempt consecutive=0 status running unit unit_status units_healthy
   local group group_member group_healthy
-  local -a group_members
+  local -a health_units health_unit_groups group_members
+  case "$contract" in
+    candidate)
+      health_units=("${candidate_health_units[@]}")
+      health_unit_groups=()
+      ;;
+    recovery)
+      health_units=("${recovery_health_units[@]}")
+      health_unit_groups=("${recovery_health_unit_groups[@]}")
+      ;;
+    *) return 1 ;;
+  esac
   for attempt in $(seq 1 6); do
     status=0
     timeout --signal=KILL 1s systemctl is-system-running || status=$?
@@ -136,9 +181,9 @@ recover_pending() {
   is_system_path "$pending_old_path" || return 1
   [[ "$pending_old_generation" =~ ^[0-9]+$ ]] || return 1
   nix-env --profile "$profile" --switch-generation "$pending_old_generation" >/dev/null || return 1
-  systemctl reset-failed || return 1
+  reset_health_units recovery || return 1
   switch_system "$pending_old_path" || return 1
-  health_check "$pending_old_path" || return 1
+  health_check "$pending_old_path" recovery || return 1
   delete_generations_newer_than "$pending_old_generation" || return 1
   rm -f "$pending"
 }
@@ -226,9 +271,9 @@ rollback() {
     return 1
   fi
   nix-env --profile "$profile" --switch-generation "$old_generation" >/dev/null || return 1
-  systemctl reset-failed || return 1
+  reset_health_units recovery || return 1
   switch_system "$old_path" || return 1
-  health_check "$old_path" || return 1
+  health_check "$old_path" recovery || return 1
   remove_new_generations || return 1
 }
 
@@ -258,7 +303,7 @@ previous_generation=${old_generation:-none}
 " || die 'could not record pending activation'
 trap 'fail received-signal' HUP INT TERM
 nix-env --profile "$profile" --set "$system_path" >/dev/null || fail profile-switch-failed
-systemctl reset-failed || fail candidate-reset-failed
+reset_health_units candidate || fail candidate-reset-failed
 switch_status=0
 switch_system "$system_path" || switch_status=$?
 case "$switch_status" in
@@ -266,7 +311,7 @@ case "$switch_status" in
   124|137) fail candidate-switch-timeout ;;
   *) fail candidate-switch-failed ;;
 esac
-health_check "$system_path" || fail candidate-health-failed
+health_check "$system_path" candidate || fail candidate-health-failed
 prune_generations || fail generation-pruning-failed
 trap '' HUP INT TERM
 mv -f "$state_dir/pending-activation" "$state_dir/last-success" || {

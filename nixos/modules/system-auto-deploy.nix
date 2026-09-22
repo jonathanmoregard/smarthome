@@ -14,14 +14,21 @@ let
     "tailscaled.service"
     "mosquitto.service"
   ];
+  candidateHealthUnits = [
+    "app-deploy.timer"
+    "system-deploy.timer"
+  ];
   baseHealthUnitGroups = [
     [ "app-deploy.timer" "smarthome-deploy.timer" ]
     [ "system-deploy.timer" "nixos-deploy.timer" ]
   ];
-  healthArguments =
-    lib.concatMap (unit: [ "--unit" unit ]) cfg.healthUnits
-    ++ lib.concatMap (group: [ "--any-unit-group" (builtins.concatStringsSep "," group) ]) cfg.healthUnitGroups;
-  escapedHealthArguments = lib.escapeShellArgs healthArguments;
+  candidateHealthArguments =
+    lib.concatMap (unit: [ "--unit" unit ]) (cfg.healthUnits ++ candidateHealthUnits);
+  recoveryHealthArguments =
+    lib.concatMap (unit: [ "--recovery-unit" unit ]) cfg.healthUnits
+    ++ lib.concatMap (group: [ "--recovery-any-unit-group" (builtins.concatStringsSep "," group) ]) cfg.healthUnitGroups;
+  escapedCandidateHealthArguments = lib.escapeShellArgs candidateHealthArguments;
+  escapedRecoveryHealthArguments = lib.escapeShellArgs recoveryHealthArguments;
   hydrator = pkgs.writeShellApplication {
     name = "smarthome-hydrate-release-paths";
     runtimeInputs = with pkgs; [ bash coreutils jq cfg.nixPackage ];
@@ -51,7 +58,7 @@ let
       exec {lock_fd}>"$lock"
       flock --exclusive "$lock_fd"
       if [ -s "$state/pending-activation" ]; then
-        ${lib.getExe cfg.activatorPackage} --recover "$state" "$profile" ${lib.escapeShellArg cfg.runningSystemPath} ${escapedHealthArguments} || \
+        ${lib.getExe cfg.activatorPackage} --recover "$state" "$profile" ${lib.escapeShellArg cfg.runningSystemPath} ${escapedRecoveryHealthArguments} || \
           die 'interrupted activation recovery failed'
         die 'recovered interrupted activation; retrying on the next run'
       fi
@@ -138,7 +145,7 @@ let
         --from ${lib.escapeShellArg nixosCache} --trusted-key ${lib.escapeShellArg nixosKey} \
         --timeout-seconds 300 --interval 5 --attempts 3 "$system_path" || \
         die 'release hydration failed'
-      ${lib.getExe cfg.activatorPackage} "$system_path" "$revision" "$state" "$profile" ${lib.escapeShellArg cfg.runningSystemPath} ${escapedHealthArguments}
+      ${lib.getExe cfg.activatorPackage} "$system_path" "$revision" "$state" "$profile" ${lib.escapeShellArg cfg.runningSystemPath} ${escapedCandidateHealthArguments} ${escapedRecoveryHealthArguments}
     '';
   };
 in
@@ -180,7 +187,7 @@ in
     healthUnitGroups = lib.mkOption {
       type = lib.types.listOf (lib.types.listOf healthUnitType);
       default = [ ];
-      description = "Compatibility groups from which at least one unit must be active throughout sustained health checks.";
+      description = "Compatibility groups from which at least one unit must be active throughout sustained recovery health checks.";
     };
     hostAttr = lib.mkOption {
       type = lib.types.strMatching "[A-Za-z0-9._-]+";
@@ -223,6 +230,7 @@ in
       after = [ "network-online.target" ];
       wants = [ "network-online.target" ];
       restartIfChanged = false;
+      stopIfChanged = false;
       serviceConfig = {
         Type = "oneshot";
         ExecStart = lib.getExe deploy;
@@ -236,9 +244,6 @@ in
         TimeoutStartSec = "10min";
         TimeoutStopSec = "5min";
         UMask = "0077";
-        PrivateTmp = true;
-        ProtectSystem = "full";
-        ReadWritePaths = [ stateDir runtimeDir cfg.sourceDir (builtins.dirOf cfg.profile) "/etc" "/run" "/usr" "/var" "/boot" "-/efi" ];
       };
     };
   };

@@ -116,8 +116,6 @@ let
     } ];
   }).config.services.system-auto-deploy.repository;
   service = evaluated.config.systemd.services.system-deploy;
-  protectHome = if (service.serviceConfig.ProtectHome or false) then "true" else "false";
-  writablePaths = builtins.concatStringsSep " " service.serviceConfig.ReadWritePaths;
 in
 assert !forbiddenRepository.success;
 assert evaluated.options.services.system-auto-deploy.repository.default == "https://github.com/jonathanmoregard/smarthome.git";
@@ -138,6 +136,10 @@ assert service.serviceConfig.TimeoutStopSec == "5min";
 assert service.serviceConfig.RuntimeDirectory == "smarthome-deploy";
 assert service.serviceConfig.RuntimeDirectoryPreserve == "yes";
 assert service.restartIfChanged == false;
+assert service.stopIfChanged == false;
+assert ! (service.serviceConfig ? PrivateTmp);
+assert ! (service.serviceConfig ? ProtectSystem);
+assert ! (service.serviceConfig ? ReadWritePaths);
 pkgs.runCommand "system-deploy-contract" {
   nativeBuildInputs = with pkgs; [ bash coreutils git gnugrep ];
 } ''
@@ -160,20 +162,6 @@ pkgs.runCommand "system-deploy-contract" {
   }
   trap diagnose EXIT
 
-  sandbox_status=0
-  if [ '${protectHome}' != false ]; then
-    echo 'ProtectHome blocks NixOS activation writes to /root and /home' >&2
-    sandbox_status=1
-  fi
-  case ' ${writablePaths} ' in
-    *' /usr '*) ;;
-    *)
-      echo 'ProtectSystem blocks NixOS activation writes to /usr' >&2
-      sandbox_status=1
-      ;;
-  esac
-  [ "$sandbox_status" -eq 0 ] || exit 1
-
   grep -qF 'refs/heads/release/home-server' "$deploy"
   grep -qF 'refs/heads/main:refs/remotes/origin/main' "$deploy"
   grep -qF 'merge-base --is-ancestor' "$deploy"
@@ -189,9 +177,16 @@ pkgs.runCommand "system-deploy-contract" {
   grep -qF '${projectKey}' "$deploy"
   grep -qF '${nixosCache}' "$deploy"
   grep -qF '${nixosKey}' "$deploy"
-  for unit in sshd.service tailscaled.service mosquitto.service app-deploy.timer smarthome-deploy.timer system-deploy.timer nixos-deploy.timer; do
-    grep -qF "$unit" "$deploy"
+  for unit in sshd.service tailscaled.service mosquitto.service app-deploy.timer system-deploy.timer; do
+    grep -qF -- "--unit $unit" "$deploy"
   done
+  for unit in sshd.service tailscaled.service mosquitto.service; do
+    grep -qF -- "--recovery-unit $unit" "$deploy"
+  done
+  grep -qF -- '--recovery-any-unit-group app-deploy.timer,smarthome-deploy.timer' "$deploy"
+  grep -qF -- '--recovery-any-unit-group system-deploy.timer,nixos-deploy.timer' "$deploy"
+  ! grep -qF -- '--unit smarthome-deploy.timer' "$deploy"
+  ! grep -qF -- '--unit nixos-deploy.timer' "$deploy"
   ! grep -Eq 'IdentitiesOnly|deploy[Kk]ey|GIT_SSH_COMMAND|ssh -i' "$deploy"
 
   mkdir work run state
