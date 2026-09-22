@@ -4,7 +4,7 @@
 
 **Goal:** Make `smarthome` own, publish, deploy, and test the complete physical `home-server` NixOS system with no post-cutover dependency on `nixos-config` or Dellan.
 
-**Architecture:** Keep application and system releases as separate Nix profiles promoted through `release/app` and `release/home-server`. GitHub builds and verifies both closures; server fetches public Git refs, accepts only signed Cachix paths, and has all builders disabled. Bootstrap once from `nixos-config`, prove live reboot and rollback, then remove old ownership in a separate cleanup PR.
+**Architecture:** Keep application and system releases as separate Nix profiles promoted through `release/app` and `release/home-server`. GitHub builds project roots into Cachix and verifies full closures across the pinned project and official NixOS caches; server fetches public Git refs, accepts only paths signed by those exact keys, and has all builders disabled. Bootstrap once from `nixos-config`, prove live reboot and rollback, then remove old ownership in a separate cleanup PR.
 
 **Tech Stack:** Nix flakes, NixOS modules/tests, systemd, Bash, GitHub Actions, Cachix, agenix, OpenSSH, Tailscale, Mosquitto, Zigbee2MQTT
 
@@ -40,7 +40,7 @@
 - Existing PR: `smarthome#7`
 - Existing probe: `/home/jonathan/.local/state/claude-tasks/smarthome/direct-deploy-smoke`
 
-- [ ] **Step 1: Require hosted PR checks to pass**
+- [x] **Step 1: Require hosted PR checks to pass**
 
 Run:
 
@@ -48,9 +48,10 @@ Run:
 gh pr checks 7 --watch
 ```
 
-Expected: every check passes; PR head is exact `804fb15bf0deefdb90b9e24f10878eb54778be47`.
+Expected: every check passes; PR head is exact
+`ca238e810ce040cd6839d7225e0530c54e40e98c`.
 
-- [ ] **Step 2: Hand off human merge**
+- [x] **Step 2: Hand off human merge**
 
 Expected: user merges PR #7. Do not advance until `gh pr view 7 --json state,mergeCommit` reports `MERGED`.
 
@@ -62,7 +63,18 @@ run_id="$(gh run list --workflow publish.yml --branch main --limit 1 --json data
 gh run watch "$run_id"
 ```
 
-Expected: `build and publish package` and `verify cache-only substitution` pass.
+Observed after merge: publication passed, but verification proved GCC/glibc are
+served only by `cache.nixos.org`; Cachix intentionally did not duplicate them.
+
+- [ ] **Step 3a: Land two-cache CI and hydrator corrections**
+
+Require project release root in `jonathanmoregard.cachix.org`, then realize the
+complete closure from it plus `cache.nixos.org` using only both exact pinned
+keys and builders disabled. Apply the same contract to the current server
+hydrator through a focused NixOS PR.
+
+Expected: app CI verify passes; hydrator tests reject missing/wrong-key roots
+and dependencies while accepting the split signed closure.
 
 - [ ] **Step 4: Retry current server app deployment**
 
@@ -178,9 +190,13 @@ nix.settings = {
   max-free = lib.mkForce (5 * 1024 * 1024 * 1024);
   keep-derivations = false;
   keep-outputs = false;
-  substituters = lib.mkForce [ "https://jonathanmoregard.cachix.org" ];
+  substituters = lib.mkForce [
+    "https://jonathanmoregard.cachix.org"
+    "https://cache.nixos.org"
+  ];
   trusted-public-keys = lib.mkForce [
     "jonathanmoregard.cachix.org-1:Qzksr/c2ciAaV4j/U2mGFd1HTgOAicks8gJNs1Ztxo8="
+    "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
   ];
 };
 ```
@@ -317,7 +333,8 @@ git -C /home/jonathan/Repos/nixos-config-worktrees/main show origin/main:tests/s
 
 Adapt contract to HTTPS with no identity file; `release/app`; candidate ancestor
 of `origin/main`; shared lock `/run/smarthome-deploy/deploy.lock`; builders
-disabled; exact Cachix key; start-limit reset; exact rollback generation; at
+disabled; exact project and official cache keys with project-root provenance;
+start-limit reset; exact rollback generation; at
 most two stable generations.
 
 - [ ] **Step 2: Verify red focused checks**
@@ -509,16 +526,18 @@ Always classify/evaluate. Select app checks or system toplevel/VM checks. Add
 stable `ci` summary using `always()` and fail on selected failure/cancellation.
 
 Publication runs independent app and system DAGs. Each builds exact output,
-publishes bounded explicit closure batches, verifies every Cachix narinfo and
-cache-only substitution with builders disabled, then promotes. Only promotion
-jobs receive `contents: write`.
+publishes bounded explicit closure batches, verifies the exact project root in
+Cachix, then realizes the full closure from the pinned project plus official
+cache with builders disabled before promotion. Only promotion jobs receive
+`contents: write`.
 
 - [ ] **Step 5: Harden workflow contract**
 
 Require pins, triggers, permissions, outputs, bounded publisher, no PR secrets,
-isolated Cachix, builders disabled, verify-before-promote, stable summary.
-Adversarial mutations cover public-cache masking, `continue-on-error`, skipped
-verification, raw-main deployment, extra writes, and PR secret use.
+both exact cache URLs/keys, project-root provenance, builders disabled,
+verify-before-promote, and stable summary. Adversarial mutations cover a
+missing cache/key or root check, `continue-on-error`, skipped verification,
+raw-main deployment, extra writes, and PR secret use.
 
 - [ ] **Step 6: Verify and commit**
 
@@ -650,7 +669,8 @@ enabling system deployment.
 - [ ] **Step 2: Observe exact main publication**
 
 Expected: selected build/publish/verify lanes pass; release refs point at merged
-standalone commit; every recursive system path has valid Cachix narinfo.
+standalone commit; project roots have Cachix narinfo and every recursive system
+path has valid narinfo in one pinned cache.
 
 ### Task 12: Bootstrap through minimal nixos-config PR
 

@@ -14,8 +14,11 @@ bootstrap source and loses all home-server ownership after live cutover proof.
   application changes.
 - A second, independent system-profile deployment path handles NixOS, service,
   secret-ciphertext, and hardware changes.
-- PR #7's complete Cachix publication fix lands and passes its main-branch
-  publication before migration deployment begins.
+- PR #7's explicit-argv publication fix is merged. Its main run proved the
+  actual cache boundary: project-built roots live in
+  `jonathanmoregard.cachix.org`, while upstream GCC/glibc paths remain in
+  `cache.nixos.org`. A two-signed-cache verifier and hydrator must land and
+  pass before migration deployment begins.
 - The exact Zigbee coordinator configuration and stable network identity from
   `nixos-config` PR #245 are included before the first standalone switch.
 - Existing mutable service data and the dedicated application profile remain in
@@ -118,7 +121,8 @@ deploy-key ciphertexts and the Cachix write token do not enter this tree:
 
 - public HTTPS replaces both GitHub deploy keys on the server;
 - `CACHIX_AUTH_TOKEN` remains only in GitHub Actions;
-- the server trusts only the public Cachix signing key.
+- the server trusts only the pinned project Cachix and official NixOS cache
+  signing keys.
 
 Before `nixos-config` cleanup removes the canonical Zigbee source ciphertext,
 the secret is re-encrypted to both the physical host recipient and a portable
@@ -148,11 +152,14 @@ classify
 └── build system ── publish system closure ── verify Cachix paths ── promote release/home-server
 ```
 
-Promotion happens only after every recursive store path is present in
-`jonathanmoregard.cachix.org` and cache-only substitution succeeds with
-`max-jobs=0`, `fallback=false`, and `builders=""`. System closures are pushed in
-bounded explicit-argument batches to avoid both Cachix's no-stdin behavior and
-`ARG_MAX`.
+Promotion happens only after each project-built release root is present in
+`jonathanmoregard.cachix.org` and the full closure realizes from the union of
+that cache and `cache.nixos.org`, using only their exact pinned signing keys,
+with `max-jobs=0`, `fallback=false`, and `builders=""`. This matches Cachix's
+intentional deduplication of paths already published by the official cache
+without weakening the no-build contract. Project closures are still passed to
+Cachix in bounded explicit-argument batches to avoid both Cachix's no-stdin
+behavior and `ARG_MAX`.
 
 Release refs only fast-forward. A late older workflow run exits without
 rewinding a newer promotion. The promoted commit must be the workflow's exact
@@ -175,13 +182,23 @@ nix.settings = {
   fallback = false;
   keep-derivations = false;
   keep-outputs = false;
+  substituters = [
+    "https://jonathanmoregard.cachix.org"
+    "https://cache.nixos.org"
+  ];
+  trusted-public-keys = [
+    "jonathanmoregard.cachix.org-1:Qzksr/c2ciAaV4j/U2mGFd1HTgOAicks8gJNs1Ztxo8="
+    "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
+  ];
 };
 ```
 
 The deployers repeat those no-build flags on every evaluation, realization,
-copy, and activation command. They hydrate only signed closures. No application
-package is embedded in the system closure; the automation service executes the
-stable application profile.
+copy, and activation command. They require each promoted root to be signed by
+the project key and allow recursive dependencies only when signed by either
+exact pinned project or official key. No application package is embedded in
+the system closure; the automation service executes the stable application
+profile.
 
 Both application and system profiles retain the active and immediately prior
 healthy generation. Only after health succeeds are older generations pruned
@@ -215,7 +232,7 @@ The system deployer:
 2. evaluates the exact
    `nixosConfigurations.home-server.config.system.build.toplevel.outPath` with
    builders disabled;
-3. hydrates the complete signed closure from Cachix;
+3. hydrates the complete signed closure from the two pinned caches;
 4. records current system profile and release state;
 5. atomically installs the candidate system profile;
 6. runs the candidate `switch-to-configuration switch` while preventing the
@@ -234,13 +251,15 @@ races remain retryable.
 
 ## Cutover
 
-1. Merge PR #7; require its main publication and cache-only verification to
-   pass; retry current app deploy and prove live health.
+1. Merge PR #7, then land the two-cache verifier/hydrator correction exposed by
+   its main run; require main publication to pass and prove current live app
+   health.
 2. Merge or reproduce exact PR #245 Zigbee configuration and ciphertext.
 3. Merge the standalone smarthome PR after local VM, interactive smoke, review,
    and hosted CI pass.
-4. Let GitHub publish and promote both release refs; verify every system path is
-   available from Cachix.
+4. Let GitHub publish and promote both release refs; verify every project root
+   is available from Cachix and every recursive system path is available from
+   one of the two pinned signed caches.
 5. Enable branch protection on smarthome `main`.
 6. Through one minimal `nixos-config` PR, pin the standalone smarthome commit,
    install its system deploy client, and disable the legacy NixOS deploy timer.
@@ -262,8 +281,9 @@ flake dependency on `nixos-config` or Dellan.
 
 TDD adds focused contracts before each implementation slice. Automated checks
 cover classification, workflow permissions and promotion monotonicity,
-cache-only completeness, exact release ancestry, signature validation,
-no-builder settings, both activators, rollback, start-limit recovery,
+two-cache completeness, project-root provenance, exact release ancestry,
+signature validation, no-builder settings, both activators, rollback,
+start-limit recovery,
 generation pruning, shared locking, mutable state preservation, and retained
 administrator access.
 
