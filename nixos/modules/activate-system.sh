@@ -6,16 +6,39 @@ umask 077
 die() { printf 'activate-system:' >&2; printf ' %s' "$@" >&2; printf '\n' >&2; exit 1; }
 mode=activate
 health_units=()
+health_unit_groups=()
 if [ "$#" -ge 4 ] && [ "$1" = --recover ]; then
   mode=recover
   state_dir=$2 profile=$3 current_system=$4
-  health_units=("${@:5}")
+  shift 4
 elif [ "$#" -ge 5 ]; then
   system_path=$1 revision=$2 state_dir=$3 profile=$4 current_system=$5
-  health_units=("${@:6}")
+  shift 5
 else
-  die 'usage: SYSTEM REVISION STATE PROFILE CURRENT_SYSTEM [UNIT...] | --recover STATE PROFILE CURRENT_SYSTEM [UNIT...]'
+  die 'usage: SYSTEM REVISION STATE PROFILE CURRENT_SYSTEM [HEALTH_ARG...] | --recover STATE PROFILE CURRENT_SYSTEM [HEALTH_ARG...]'
 fi
+valid_unit() { [[ "$1" =~ ^[A-Za-z0-9@_.:-]+[.](service|timer)$ ]]; }
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --unit)
+      [ "$#" -ge 2 ] && valid_unit "$2" || die 'invalid required health unit'
+      health_units+=("$2")
+      shift 2
+      ;;
+    --any-unit-group)
+      [ "$#" -ge 2 ] || die 'missing required health unit group'
+      case "$2" in ,*|*,|*,,*) die 'invalid required health unit group' ;; esac
+      IFS=',' read -r -a group_members <<< "$2"
+      [ "${#group_members[@]}" -gt 0 ] || die 'empty required health unit group'
+      for group_member in "${group_members[@]}"; do
+        valid_unit "$group_member" || die 'invalid required health unit group'
+      done
+      health_unit_groups+=("$2")
+      shift 2
+      ;;
+    *) die 'invalid health argument' ;;
+  esac
+done
 store_dir=${NIX_STORE_DIR:-/nix/store}
 store_dir=${store_dir%/}
 mkdir -p "$state_dir" "$(dirname "$profile")"
@@ -42,6 +65,8 @@ switch_system() {
 # Short probes bound both candidate validation and TERM-triggered recovery.
 health_check() {
   local expected=$1 attempt consecutive=0 status running unit unit_status units_healthy
+  local group group_member group_healthy
+  local -a group_members
   for attempt in $(seq 1 6); do
     status=0
     timeout --signal=KILL 1s systemctl is-system-running || status=$?
@@ -49,8 +74,18 @@ health_check() {
     units_healthy=1
     for unit in "${health_units[@]}"; do
       unit_status=0
-      timeout --signal=KILL 1s systemctl is-active --quiet "$unit" || unit_status=$?
+      timeout --signal=KILL 1s systemctl is-active --quiet -- "$unit" || unit_status=$?
       [ "$unit_status" -eq 0 ] || units_healthy=0
+    done
+    for group in "${health_unit_groups[@]}"; do
+      group_healthy=0
+      IFS=',' read -r -a group_members <<< "$group"
+      for group_member in "${group_members[@]}"; do
+        unit_status=0
+        timeout --signal=KILL 1s systemctl is-active --quiet -- "$group_member" || unit_status=$?
+        [ "$unit_status" -ne 0 ] || group_healthy=1
+      done
+      [ "$group_healthy" -eq 1 ] || units_healthy=0
     done
     if [ "$status" -eq 0 ] && [ "$running" = "$expected" ] && [ "$units_healthy" -eq 1 ]; then
       consecutive=$((consecutive + 1))

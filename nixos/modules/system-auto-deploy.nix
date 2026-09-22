@@ -8,13 +8,20 @@ let
   projectKey = "jonathanmoregard.cachix.org-1:Qzksr/c2ciAaV4j/U2mGFd1HTgOAicks8gJNs1Ztxo8=";
   nixosCache = "https://cache.nixos.org";
   nixosKey = "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=";
+  healthUnitType = lib.types.strMatching "[A-Za-z0-9@_.:-]+[.](service|timer)";
   baseHealthUnits = [
     "sshd.service"
     "tailscaled.service"
     "mosquitto.service"
-    "app-deploy.timer"
-    "system-deploy.timer"
   ];
+  baseHealthUnitGroups = [
+    [ "app-deploy.timer" "smarthome-deploy.timer" ]
+    [ "system-deploy.timer" "nixos-deploy.timer" ]
+  ];
+  healthArguments =
+    lib.concatMap (unit: [ "--unit" unit ]) cfg.healthUnits
+    ++ lib.concatMap (group: [ "--any-unit-group" (builtins.concatStringsSep "," group) ]) cfg.healthUnitGroups;
+  escapedHealthArguments = lib.escapeShellArgs healthArguments;
   hydrator = pkgs.writeShellApplication {
     name = "smarthome-hydrate-release-paths";
     runtimeInputs = with pkgs; [ bash coreutils jq cfg.nixPackage ];
@@ -44,7 +51,7 @@ let
       exec {lock_fd}>"$lock"
       flock --exclusive "$lock_fd"
       if [ -s "$state/pending-activation" ]; then
-        ${lib.getExe cfg.activatorPackage} --recover "$state" "$profile" ${lib.escapeShellArg cfg.runningSystemPath} ${lib.escapeShellArgs cfg.healthUnits} || \
+        ${lib.getExe cfg.activatorPackage} --recover "$state" "$profile" ${lib.escapeShellArg cfg.runningSystemPath} ${escapedHealthArguments} || \
           die 'interrupted activation recovery failed'
         die 'recovered interrupted activation; retrying on the next run'
       fi
@@ -131,7 +138,7 @@ let
         --from ${lib.escapeShellArg nixosCache} --trusted-key ${lib.escapeShellArg nixosKey} \
         --timeout-seconds 300 --interval 5 --attempts 3 "$system_path" || \
         die 'release hydration failed'
-      ${lib.getExe cfg.activatorPackage} "$system_path" "$revision" "$state" "$profile" ${lib.escapeShellArg cfg.runningSystemPath} ${lib.escapeShellArgs cfg.healthUnits}
+      ${lib.getExe cfg.activatorPackage} "$system_path" "$revision" "$state" "$profile" ${lib.escapeShellArg cfg.runningSystemPath} ${escapedHealthArguments}
     '';
   };
 in
@@ -166,9 +173,14 @@ in
       internal = true;
     };
     healthUnits = lib.mkOption {
-      type = lib.types.listOf (lib.types.strMatching "[A-Za-z0-9@_.:-]+[.]service|[A-Za-z0-9@_.:-]+[.]timer");
+      type = lib.types.listOf healthUnitType;
       default = [ ];
       description = "Units that must remain active throughout sustained candidate and recovery health checks.";
+    };
+    healthUnitGroups = lib.mkOption {
+      type = lib.types.listOf (lib.types.listOf healthUnitType);
+      default = [ ];
+      description = "Compatibility groups from which at least one unit must be active throughout sustained health checks.";
     };
     hostAttr = lib.mkOption {
       type = lib.types.strMatching "[A-Za-z0-9._-]+";
@@ -193,6 +205,11 @@ in
 
   config = lib.mkIf cfg.enable {
     services.system-auto-deploy.healthUnits = lib.mkBefore baseHealthUnits;
+    services.system-auto-deploy.healthUnitGroups = lib.mkBefore baseHealthUnitGroups;
+    assertions = [ {
+      assertion = builtins.all (group: group != [ ]) cfg.healthUnitGroups;
+      message = "services.system-auto-deploy.healthUnitGroups cannot contain an empty group";
+    } ];
     systemd.timers.system-deploy = {
       wantedBy = [ "timers.target" ];
       timerConfig = {
@@ -220,9 +237,8 @@ in
         TimeoutStopSec = "5min";
         UMask = "0077";
         PrivateTmp = true;
-        ProtectHome = true;
         ProtectSystem = "full";
-        ReadWritePaths = [ stateDir runtimeDir cfg.sourceDir (builtins.dirOf cfg.profile) "/etc" "/run" "/var" "/boot" "-/efi" ];
+        ReadWritePaths = [ stateDir runtimeDir cfg.sourceDir (builtins.dirOf cfg.profile) "/etc" "/run" "/usr" "/var" "/boot" "-/efi" ];
       };
     };
   };

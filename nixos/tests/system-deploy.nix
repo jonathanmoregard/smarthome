@@ -116,6 +116,8 @@ let
     } ];
   }).config.services.system-auto-deploy.repository;
   service = evaluated.config.systemd.services.system-deploy;
+  protectHome = if (service.serviceConfig.ProtectHome or false) then "true" else "false";
+  writablePaths = builtins.concatStringsSep " " service.serviceConfig.ReadWritePaths;
 in
 assert !forbiddenRepository.success;
 assert evaluated.options.services.system-auto-deploy.repository.default == "https://github.com/jonathanmoregard/smarthome.git";
@@ -124,8 +126,10 @@ assert evaluated.config.services.system-auto-deploy.healthUnits == [
   "sshd.service"
   "tailscaled.service"
   "mosquitto.service"
-  "app-deploy.timer"
-  "system-deploy.timer"
+];
+assert evaluated.config.services.system-auto-deploy.healthUnitGroups == [
+  [ "app-deploy.timer" "smarthome-deploy.timer" ]
+  [ "system-deploy.timer" "nixos-deploy.timer" ]
 ];
 assert service.serviceConfig.User == "root";
 assert service.serviceConfig.Group == "root";
@@ -156,6 +160,20 @@ pkgs.runCommand "system-deploy-contract" {
   }
   trap diagnose EXIT
 
+  sandbox_status=0
+  if [ '${protectHome}' != false ]; then
+    echo 'ProtectHome blocks NixOS activation writes to /root and /home' >&2
+    sandbox_status=1
+  fi
+  case ' ${writablePaths} ' in
+    *' /usr '*) ;;
+    *)
+      echo 'ProtectSystem blocks NixOS activation writes to /usr' >&2
+      sandbox_status=1
+      ;;
+  esac
+  [ "$sandbox_status" -eq 0 ] || exit 1
+
   grep -qF 'refs/heads/release/home-server' "$deploy"
   grep -qF 'refs/heads/main:refs/remotes/origin/main' "$deploy"
   grep -qF 'merge-base --is-ancestor' "$deploy"
@@ -171,7 +189,7 @@ pkgs.runCommand "system-deploy-contract" {
   grep -qF '${projectKey}' "$deploy"
   grep -qF '${nixosCache}' "$deploy"
   grep -qF '${nixosKey}' "$deploy"
-  for unit in sshd.service tailscaled.service mosquitto.service app-deploy.timer system-deploy.timer; do
+  for unit in sshd.service tailscaled.service mosquitto.service app-deploy.timer smarthome-deploy.timer system-deploy.timer nixos-deploy.timer; do
     grep -qF "$unit" "$deploy"
   done
   ! grep -Eq 'IdentitiesOnly|deploy[Kk]ey|GIT_SSH_COMMAND|ssh -i' "$deploy"
