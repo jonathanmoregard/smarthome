@@ -34,6 +34,24 @@ EOF
 #!${pkgs.runtimeShell}
 exit 0
 EOF
+  cat > "$PWD/bin/mv" <<'EOF'
+#!${pkgs.runtimeShell}
+set -euo pipefail
+destination=''${!#}
+if [ "$destination" = "$SUCCESS_MARKER" ]; then
+  if [ "''${FAIL_SUCCESS_MARKER_MOVE:-0}" = 1 ]; then
+    touch "$SUCCESS_MOVE_FAILURE_TRIGGERED"
+    exit 75
+  fi
+  ${pkgs.coreutils}/bin/mv "$@"
+  if [ "''${SIGNAL_AFTER_SUCCESS_MOVE:-0}" = 1 ]; then
+    kill -TERM "$PPID"
+    touch "$SUCCESS_MOVE_SIGNAL_SENT"
+  fi
+  exit 0
+fi
+exec ${pkgs.coreutils}/bin/mv "$@"
+EOF
   cat > "$PWD/bin/nix-env" <<'EOF'
 #!${pkgs.runtimeShell}
 set -euo pipefail
@@ -86,11 +104,14 @@ case "$operation" in
   *) exit 64 ;;
 esac
 EOF
-  chmod +x "$PWD/bin/systemctl" "$PWD/bin/curl" "$PWD/bin/sleep" "$PWD/bin/nix-env"
+  chmod +x "$PWD/bin/systemctl" "$PWD/bin/curl" "$PWD/bin/sleep" "$PWD/bin/mv" "$PWD/bin/nix-env"
   export PATH="$PWD/bin:$PATH"
   export ACTIVATOR_LOG="$log" CURL_LOG="$PWD/curl.log" NIX_ENV_LOG="$PWD/nix-env.log"
   export PROFILE="$profile" START_LIMIT="$PWD/start-limit" GENERATIONS="$PWD/generations"
   export LIST_CALLS="$PWD/list-calls" CANDIDATE_RESET_MARKER="$PWD/candidate-reset-once"
+  export SUCCESS_MARKER="$state/last-success"
+  export SUCCESS_MOVE_SIGNAL_SENT="$PWD/success-move-signal-sent"
+  export SUCCESS_MOVE_FAILURE_TRIGGERED="$PWD/success-move-failure-triggered"
   export RESET_CANDIDATE=${v4} RECOVERY_PATH=${v1} CRASHING=${v2} UNHEALTHY=${v3}
 
   reset_observations() {
@@ -98,8 +119,9 @@ EOF
     : > "$CURL_LOG"
     : > "$NIX_ENV_LOG"
     : > "$LIST_CALLS"
-    rm -f "$START_LIMIT" "$CANDIDATE_RESET_MARKER"
+    rm -f "$START_LIMIT" "$CANDIDATE_RESET_MARKER" "$SUCCESS_MOVE_SIGNAL_SENT" "$SUCCESS_MOVE_FAILURE_TRIGGERED"
     export CANDIDATE_RESET_FAILURE=0 RECOVERY_FAILURE=0 FAIL_STARTUP_DELETE=0 FAIL_PRUNE_DELETE=0
+    export SIGNAL_AFTER_SUCCESS_MOVE=0 FAIL_SUCCESS_MARKER_MOVE=0
     unset LIST_FAIL_AT
   }
   reset_fixture() {
@@ -303,6 +325,34 @@ systemctl restart house-automationd.service" ]
   [ -e "$profile-2-link" ]
   [ ! -e "$profile-3-link" ]
   [ "$(generation_links)" -eq 2 ]
+
+  # A signal delivered immediately after the atomic success-marker rename is
+  # ignored inside the commit window. Both durable state and profile stay on
+  # the candidate, and the activation itself reports success.
+  seed_old_success
+  export SIGNAL_AFTER_SUCCESS_MOVE=1
+  run ${v4} 4444444444444444444444444444444444444444
+  [ -e "$SUCCESS_MOVE_SIGNAL_SENT" ]
+  success_revision=$(sed -n 's/^rev=//p' "$state/last-success")
+  success_path=$(sed -n 's/^path=//p' "$state/last-success")
+  [ "$success_revision" = 4444444444444444444444444444444444444444 ]
+  [ "$success_path" = "${v4}" ]
+  [ "$(readlink -f "$profile")" = "${v4}" ]
+  [ "$(generation_links)" -eq 2 ]
+  [ ! -e "$state/last-failure" ]
+
+  # A failed final success-marker move restores the failure trap. The normal
+  # rollback path returns to the old generation without changing last-success.
+  seed_old_success
+  success_before=$(cat "$state/last-success")
+  export FAIL_SUCCESS_MARKER_MOVE=1
+  if run ${v4} 4444444444444444444444444444444444444444; then exit 1; fi
+  [ -e "$SUCCESS_MOVE_FAILURE_TRIGGERED" ]
+  [ "$(readlink -f "$profile")" = "${v1}" ]
+  [ "$(cat "$state/last-success")" = "$success_before" ]
+  grep -qxF 'reason=success-marker-failed' "$state/last-failure"
+  grep -qxF 'rollback=complete' "$state/last-failure"
+  [ "$(generation_links)" -eq 1 ]
 
   touch "$out"
 ''
