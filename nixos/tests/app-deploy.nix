@@ -104,7 +104,7 @@ pkgs.runCommand "app-deploy-contract" { nativeBuildInputs = with pkgs; [ bash co
   main=$(git -C work rev-parse HEAD)
   git init -q --bare origin.git
   git -C work remote add origin file:///build/origin.git
-  git -C work push -q origin main
+  git -C work push -q origin "$main":refs/heads/main
   git -C work push -q origin "$main":refs/heads/release/app
   # The program must reject a missing promotion and a promoted commit outside
   # main before it can hydrate or switch the active profile.
