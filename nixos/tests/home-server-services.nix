@@ -29,6 +29,31 @@ let
       printf '%s' '[7,1,255,0,42,9,100,3,200,17,66,5,250,13,77,1]' \
         | age -r "$recipient" -o "$out/zigbee2mqtt-network-key.age"
     '';
+  mqttUsernameAssertion = username:
+    let
+      evaluated = pkgsSystem.lib.nixosSystem {
+        system = "x86_64-linux";
+        modules = [
+          ../modules/home-server-services.nix
+          {
+            fileSystems."/" = {
+              device = "none";
+              fsType = "tmpfs";
+            };
+            homeServer = {
+              mqttNetworkPasswordFile = "/run/home-server-services-test-mqtt-password";
+              mqttNetworkUsername = username;
+            };
+            system.stateVersion = "26.05";
+          }
+        ];
+      };
+    in
+    builtins.any (
+      assertion:
+      assertion.message == "homeServer.mqttNetworkUsername must be non-empty and contain neither ':' nor newlines"
+      && assertion.assertion
+    ) evaluated.config.assertions;
 in
 assert host.config.homeServer.houseSettings == null;
 assert host.config.homeServer.zigbeeSerialPort == physicalCoordinator;
@@ -44,6 +69,10 @@ assert !(builtins.hasAttr "smarthomeDeployKeyFile" host.options.homeServer);
 assert !(builtins.hasAttr "rekey" host.options.age);
 assert !(builtins.hasAttr "deploy-ssh-key" host.config.age.secrets);
 assert !(builtins.hasAttr "smarthome-deploy-ssh-key" host.config.age.secrets);
+assert mqttUsernameAssertion "home-server-tailnet";
+assert !(mqttUsernameAssertion "bad:username");
+assert !(mqttUsernameAssertion "bad\rusername");
+assert !(mqttUsernameAssertion "bad\nusername");
 pkgsSystem.testers.runNixOSTest {
   name = "home-server-services";
   skipTypeCheck = true;
@@ -116,10 +145,6 @@ pkgsSystem.testers.runNixOSTest {
         lib.mkForce "${zigbeeTestAgenix}/zigbee2mqtt-network-key.age";
       services.houseAutomation.executable = "${fakeAutomation}/bin/house-automationd";
 
-      systemd.services.zigbee2mqtt = {
-        wantedBy = lib.mkForce [ ];
-      };
-
       assertions = [
         {
           assertion = !(builtins.hasAttr "buildCoordination" options.services);
@@ -169,8 +194,6 @@ pkgsSystem.testers.runNixOSTest {
   testScript = ''
     start_all()
     home_server.wait_for_unit("mosquitto.service")
-    home_server.wait_for_unit("postgresql.service")
-    home_server.wait_for_unit("house-automationd.service")
     home_server.succeed("systemctl show agenix.service -P Result | grep -Fx success")
     home_server.succeed("test -f /run/agenix/zigbee2mqtt-network-key")
     home_server.succeed("test \"$(stat -c '%U:%G %a' /run/agenix/zigbee2mqtt-network-key)\" = 'root:root 400'")
@@ -180,8 +203,8 @@ pkgsSystem.testers.runNixOSTest {
     )
     home_server.succeed("test -L '${physicalCoordinator}'")
     home_server.succeed("test -c '${physicalCoordinator}'")
-    home_server.succeed("test -d /var/lib/house-automation")
 
+    home_server.succeed("systemctl is-enabled zigbee2mqtt.service | grep -Fx enabled")
     home_server.succeed("systemctl show zigbee2mqtt.service -P LoadState | grep -Fx loaded")
     home_server.succeed(
         "systemctl cat zigbee2mqtt.service | "
@@ -191,6 +214,33 @@ pkgsSystem.testers.runNixOSTest {
         "systemctl cat zigbee2mqtt.service | grep '^Requires=' | "
         "grep -F mosquitto.service | grep -F dev-serial-by | grep -F Itead"
     )
+    home_server.succeed(
+        "systemctl cat zigbee2mqtt.service | grep '^After=' | "
+        "grep -F mosquitto.service | grep -F dev-serial-by | grep -F Itead"
+    )
+    home_server.wait_until_succeeds(
+        "journalctl -u zigbee2mqtt.service --no-pager -o cat | grep -E 'Starting|Started'"
+    )
+    home_server.wait_until_succeeds(
+        "grep -F network_key /var/lib/zigbee2mqtt/configuration.yaml && "
+        "grep -F 'channel: 25' /var/lib/zigbee2mqtt/configuration.yaml"
+    )
+    import re
+    configuration = home_server.succeed("cat /var/lib/zigbee2mqtt/configuration.yaml")
+    network_key = re.search(
+        r"(?m)^\s*network_key:\s*(\[[^]]*\]|(?:\n(?:\s*-\s*\d+\s*)+))",
+        configuration,
+    )
+    assert network_key is not None, configuration
+    assert [int(value) for value in re.findall(r"\d+", network_key.group(1))] == [
+        7, 1, 255, 0, 42, 9, 100, 3, 200, 17, 66, 5, 250, 13, 77, 1,
+    ], network_key.group(0)
+    home_server.succeed("systemctl stop zigbee2mqtt.service")
+    home_server.succeed("systemctl show zigbee2mqtt.service -P ActiveState | grep -Fx inactive")
+
+    home_server.wait_for_unit("postgresql.service")
+    home_server.wait_for_unit("house-automationd.service")
+    home_server.succeed("test -d /var/lib/house-automation")
 
     store_config = home_server.succeed(
         "systemctl show zigbee2mqtt.service -P ExecStartPre | "
@@ -206,24 +256,6 @@ pkgsSystem.testers.runNixOSTest {
     assert "enabled: false" in rendered, rendered
     assert "permit_join: false" in rendered, rendered
     assert "network_key" not in rendered, rendered
-
-    home_server.succeed("systemctl start zigbee2mqtt.service")
-    home_server.wait_until_succeeds(
-        "grep -F network_key /var/lib/zigbee2mqtt/configuration.yaml"
-    )
-    import re
-    configuration = home_server.succeed("cat /var/lib/zigbee2mqtt/configuration.yaml")
-    network_key = re.search(
-        r"(?m)^\s*network_key:\s*(\[[^]]*\]|(?:\n(?:\s*-\s*\d+\s*)+))",
-        configuration,
-    )
-    assert network_key is not None, configuration
-    assert [int(value) for value in re.findall(r"\d+", network_key.group(1))] == [
-        7, 1, 255, 0, 42, 9, 100, 3, 200, 17, 66, 5, 250, 13, 77, 1,
-    ], network_key.group(0)
-    home_server.succeed("grep -F 'pan_id: 50324' /var/lib/zigbee2mqtt/configuration.yaml")
-    home_server.fail("grep -F GENERATE /var/lib/zigbee2mqtt/configuration.yaml")
-    home_server.succeed("systemctl stop zigbee2mqtt.service || true")
 
     # The wrapper must reject a malformed runtime credential before
     # Zigbee2MQTT can manufacture a replacement network identity.
@@ -245,11 +277,28 @@ pkgsSystem.testers.runNixOSTest {
     home_server.succeed("systemctl stop zigbee2mqtt.service")
     home_server.succeed("systemctl show zigbee2mqtt.service -P ActiveState | grep -Fx inactive")
 
+    # With onboarding disabled, invalid persisted configuration must exit and
+    # retry instead of parking an interactive recovery page on port 8080.
+    home_server.succeed(
+        "printf '%s\\n' '[7,1,255,0,42,9,100,3,200,17,66,5,250,13,77,1]' "
+        "> /run/agenix/zigbee2mqtt-network-key && "
+        "printf '{:' > /var/lib/zigbee2mqtt/devices.yaml && "
+        "systemctl reset-failed zigbee2mqtt.service; "
+        "systemctl start zigbee2mqtt.service"
+    )
+    home_server.wait_until_succeeds(
+        "test \"$(journalctl -u zigbee2mqtt.service --no-pager -o cat | "
+        "grep -c 'Refusing to start because configuration is not valid')\" -ge 2"
+    )
+    home_server.fail("ss -lnt | grep -F ':8080'")
+    home_server.succeed("systemctl stop zigbee2mqtt.service; rm /var/lib/zigbee2mqtt/devices.yaml")
+
     home_server.fail("systemctl list-unit-files --no-legend | grep -E 'build-coordination|nixos-auto-deploy|smarthome-auto-deploy'")
     home_server.fail("find /etc/ssh -maxdepth 1 -type f -name '*deploy*' -print -quit | grep -q .")
     home_server.succeed("test ! -e /run/agenix/deploy-ssh-key")
     home_server.succeed("test ! -e /run/agenix/smarthome-deploy-ssh-key")
-    home_server.fail("find /run/agenix -maxdepth 1 -type f -name '*deploy*' -print -quit | grep -q .")
-    home_server.succeed("test -z \"$(systemctl --failed --no-legend)\"")
+    home_server.fail("find -L /run/agenix -maxdepth 1 -type f -name '*deploy*' -print -quit | grep -q .")
+    failed_units = home_server.succeed("systemctl --failed --no-legend")
+    assert failed_units.strip() == "", failed_units
   '';
 }

@@ -175,7 +175,7 @@ in
           message = "homeServer.mqttNetworkPasswordFile must be an absolute runtime path outside the Nix store";
         }
         {
-          assertion = !mqttNetworkEnabled || builtins.match "[^:\\r\\n]+" cfg.mqttNetworkUsername != null;
+          assertion = !mqttNetworkEnabled || builtins.match "[^:\r\n]+" cfg.mqttNetworkUsername != null;
           message = "homeServer.mqttNetworkUsername must be non-empty and contain neither ':' nor newlines";
         }
         {
