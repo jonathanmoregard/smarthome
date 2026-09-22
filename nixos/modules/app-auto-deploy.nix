@@ -39,6 +39,8 @@ let
       candidate=$(git -C "$source" rev-parse refs/remotes/origin/release/app) || die 'release/app is missing'
       git -C "$source" merge-base --is-ancestor "$candidate" origin/main || die 'release/app is not an ancestor of origin/main'
       revision=$candidate
+      git -C "$source" reset --hard "$revision" > /dev/null
+      git -C "$source" clean -ffdqx
       active=$(readlink -f "$profile" 2>/dev/null || true)
       last_revision=
       last_path=

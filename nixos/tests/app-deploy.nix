@@ -83,6 +83,27 @@ pkgs.runCommand "app-deploy-contract" { nativeBuildInputs = with pkgs; [ bash co
   git -C work remote add origin file:///build/origin.git
   git -C work push -q origin main
   git -C work push -q origin "$main":refs/heads/release/app
+  deploy_failure_diagnostics() {
+    status=$?
+    [ "$status" -eq 0 ] && return
+    for log in missing-ref.log non-ancestor.log rollback.log; do
+      [ -f "$log" ] || continue
+      printf '\n--- %s ---\n' "$log" >&2
+      cat "$log" >&2
+    done
+    if [ -f "$DEPLOY_LOG" ]; then
+      printf '\n--- deploy log ---\n' >&2
+      cat "$DEPLOY_LOG" >&2
+    fi
+    if [ -d source/.git ]; then
+      printf '\n--- deploy source status ---\n' >&2
+      git -C source status --short >&2 || true
+      printf '\n--- deploy source refs ---\n' >&2
+      git -C source show-ref >&2 || true
+    fi
+    return "$status"
+  }
+  trap deploy_failure_diagnostics EXIT
 
   # The program must reject a missing promotion and a promoted commit outside
   # main before it can hydrate or switch the active profile.
@@ -100,6 +121,7 @@ pkgs.runCommand "app-deploy-contract" { nativeBuildInputs = with pkgs; [ bash co
   # a manual rollback remains a latch and must never be clobbered.
   git -C work push -q --force origin "$main":refs/heads/release/app
   "$deploy"
+  [ "$(git -C source rev-parse HEAD)" = "$main" ]
   activations=$(grep -c '^${app} ' "$DEPLOY_LOG")
   [ "$activations" -eq 1 ]
   "$deploy"
