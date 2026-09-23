@@ -458,6 +458,12 @@ pkgsSystem.testers.runNixOSTest {
     assert values["appDeploySecretDeclared"] is False, values
 
     home_server.wait_for_unit("sshd.service")
+    # switch-to-configuration activates every logind user and exits 4 if a
+    # user manager is mid-teardown (operator logging out during a deploy).
+    # Lingering keeps the operator's manager up so logouts cannot race it.
+    home_server.succeed("loginctl show-user jonathan -P Linger | grep -Fx yes")
+    operator_uid = home_server.succeed("id -u jonathan").strip()
+    home_server.wait_for_unit(f"user@{operator_uid}.service")
     home_server.wait_for_unit("tailscaled.service")
     home_server.wait_for_unit("mosquitto.service")
     home_server.wait_for_unit("postgresql.service")
