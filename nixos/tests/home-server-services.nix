@@ -217,7 +217,7 @@ pkgsSystem.testers.runNixOSTest {
         "test \"$(cat /run/agenix/zigbee2mqtt-network-key)\" "
         "= '[7,1,255,0,42,9,100,3,200,17,66,5,250,13,77,1]'"
     )
-    home_server.succeed("test -L '${physicalCoordinator}'")
+    home_server.wait_until_succeeds("test -L '${physicalCoordinator}'", timeout=30)
     home_server.succeed("test -c '${physicalCoordinator}'")
 
     home_server.succeed("systemctl is-enabled zigbee2mqtt.service | grep -Fx enabled")

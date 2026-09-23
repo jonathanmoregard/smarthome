@@ -493,7 +493,7 @@ pkgsSystem.testers.runNixOSTest {
     )
 
     home_server.succeed("systemctl show agenix.service -P Result | grep -Fx success")
-    home_server.succeed("test -L '${physicalCoordinator}'")
+    home_server.wait_until_succeeds("test -L '${physicalCoordinator}'", timeout=30)
     home_server.succeed("test -c '${physicalCoordinator}'")
     home_server.succeed(
         "test \"$(stat -c '%U:%G %a' /run/agenix/zigbee2mqtt-network-key)\" "
