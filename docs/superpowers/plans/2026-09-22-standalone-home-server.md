@@ -640,7 +640,7 @@ Expected: old app/system restored after bad candidates, exactly two stable
 generations per profile, builders disabled, exact release markers, zero failed
 units.
 
-- [ ] **Step 4: Run final deterministic and independent review gates**
+- [x] **Step 4: Run final deterministic and independent review gates**
 
 ```bash
 ~/.claude/skills/advice-refine-test-loop/scripts/deterministic-gate.sh --json
