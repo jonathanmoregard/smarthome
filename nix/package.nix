@@ -1,5 +1,6 @@
 {
   appSource,
+  cargoLockFile ? ../Cargo.lock,
   lib,
   rustPlatform,
 }:
@@ -10,7 +11,7 @@ rustPlatform.buildRustPackage {
 
   src = appSource;
 
-  cargoLock.lockFile = appSource + "/Cargo.lock";
+  cargoLock.lockFile = cargoLockFile;
 
   cargoBuildFlags = [ "--workspace" ];
   cargoTestFlags = [ "--workspace" ];
@@ -20,6 +21,10 @@ rustPlatform.buildRustPackage {
   ];
 
   strictDeps = true;
+
+  passthru = {
+    inherit cargoLockFile;
+  };
 
   meta = {
     description = "House automation daemon";

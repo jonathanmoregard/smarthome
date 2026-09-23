@@ -5,6 +5,7 @@
 {
   pkgsSystem,
   agenix,
+  productionHost,
 }:
 
 let
@@ -66,20 +67,7 @@ let
       printf '%s' '[7,1,255,0,42,9,100,3,200,17,66,5,250,13,77,1]' \
         | age -r "$recipient" -o "$out/zigbee2mqtt-network-key.age"
     '';
-  productionHardware = import ../hosts/home-server/hardware-configuration.nix {
-    config = { };
-    lib = pkgsSystem.lib;
-    modulesPath = "${pkgsSystem.path}/nixos/modules";
-  };
-  productionRoot = productionHardware.fileSystems."/";
-  productionHost = import "${pkgsSystem.path}/nixos/lib/eval-config.nix" {
-    system = "x86_64-linux";
-    specialArgs.self = { rev = "home-server-vm-production-contract"; };
-    modules = [
-      agenix.nixosModules.default
-      ../hosts/home-server
-    ];
-  };
+  productionRoot = productionHost.config.fileSystems."/";
 in
 pkgsSystem.testers.runNixOSTest {
   name = "vm-home-server";

@@ -19,7 +19,8 @@
       pkgs = import nixpkgs { inherit system; };
       pkgsSystem = import nixpkgs-system { inherit system; };
       appSource = import ./nix/source.nix { inherit (pkgs) lib; };
-      package = pkgs.callPackage ./nix/package.nix { inherit appSource; };
+      cargoLockFile = ./Cargo.lock;
+      package = pkgs.callPackage ./nix/package.nix { inherit appSource cargoLockFile; };
       collectInputSources = input:
         let
           inputSource = if builtins.isAttrs input && input ? outPath then input.outPath else input;
@@ -108,7 +109,7 @@
 
       checks.${system} = {
         app-source = import ./nix/tests/app-source.nix {
-          inherit appSource package pkgs;
+          inherit appSource cargoLockFile package pkgs;
         };
         release-scripts = import ./nix/tests/release-scripts.nix { inherit pkgs; };
         publish-workflow = import ./nix/tests/publish-workflow.nix { inherit pkgs; };
@@ -159,6 +160,7 @@
         };
         vm-home-server = import ./nixos/tests/home-server.nix {
           inherit agenix pkgsSystem;
+          productionHost = self.nixosConfigurations.home-server;
         };
         vm-home-server-cd = import ./nixos/tests/home-server-cd.nix {
           inherit agenix pkgsSystem;

@@ -1,6 +1,9 @@
-{ pkgs, appSource, package }:
+{ pkgs, appSource, cargoLockFile, package }:
 
 assert package.src == appSource;
+assert package.cargoLockFile == cargoLockFile;
+assert builtins.pathExists cargoLockFile;
+assert toString cargoLockFile != "${appSource}/Cargo.lock";
 pkgs.runCommand "smarthome-app-source-contract" { } ''
   require_file() {
     test -f "${appSource}/$1" || {
