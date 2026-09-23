@@ -69,6 +69,26 @@
     ];
   };
   security.sudo.wheelNeedsPassword = true;
+  # Let the operator login trigger the signed deployers and reboot without a
+  # password, so remote CD verification needs no interactive sudo. Exact
+  # argument lists only: these start units that deploy verified releases.
+  security.sudo.extraRules = [
+    {
+      users = [ "jonathan" ];
+      runAs = "root";
+      commands =
+        map
+          (command: {
+            inherit command;
+            options = [ "NOPASSWD" ];
+          })
+          [
+            "/run/current-system/sw/bin/systemctl start app-deploy.service"
+            "/run/current-system/sw/bin/systemctl start system-deploy.service"
+            "/run/current-system/sw/bin/systemctl reboot"
+          ];
+    }
+  ];
   programs.zsh.enable = true;
 
   services.journald.extraConfig = ''
