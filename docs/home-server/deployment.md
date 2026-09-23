@@ -18,8 +18,17 @@ leaves the old release ref unchanged.
 
 On the server, both deployers fetch the public repository over HTTPS and share
 `/run/smarthome-deploy/deploy.lock`. They reject a release ref outside `main`,
-hydrate only closures signed by the pinned cache keys, and retain at most two
-profile generations.
+reject release revisions that rewind the last successful revision, hydrate only
+closures signed by the pinned cache keys, and retain at most two profile
+generations.
+
+Before an application candidate can open SQLite, the old application creates a
+consistent backup in `/var/lib/smarthome-deploy/rollback-database.sqlite3` and
+the activator records `/var/lib/smarthome-deploy/pending-activation`. Failed or
+interrupted candidates restore that snapshot atomically before restarting the
+old binary. Successful activation commits the journal to `last-success` and
+removes the temporary backup. A later poll performs recovery before fetching or
+evaluating another revision.
 
 ## Status and manual trigger
 

@@ -12,5 +12,6 @@ assert host.config.nix.settings.keep-derivations == false;
 assert host.config.nix.settings.keep-outputs == false;
 assert host.config.services.openssh.enable;
 assert host.config.services.tailscale.enable;
+assert host.config.services.tailscale.extraSetFlags == [ "--ssh=false" ];
 assert host.config.system.stateVersion == "26.05";
 pkgsSystem.runCommand "standalone-host-contract" { } "touch $out"

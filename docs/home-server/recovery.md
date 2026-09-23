@@ -1,10 +1,11 @@
 # Recovery and rollback
 
-Automatic activation is transactional. Both tracks record the old generation,
-switch the profile, run health checks, and return to the exact old generation
-on failure. System activation additionally keeps
-`/var/lib/smarthome-system-deploy/pending-activation`; the next run completes
-recovery after interruption before considering a new release.
+Automatic activation is transactional. Both tracks record the old generation
+in a `pending-activation` journal, switch the profile, run health checks, and
+return to the exact old generation on failure. Application activation also
+backs up SQLite before the candidate starts and restores it before restarting
+the old binary. The next poll completes interrupted recovery before considering
+a new release.
 
 ## Diagnose first
 
@@ -44,7 +45,9 @@ Keep both timers stopped until the cause is known.
 
 SQLite migrations are forward-only. Before starting an older binary, determine
 whether the rollback crosses a migration. If it does, or if uncertain, restore
-a tested database backup created by that older release. With the daemon stopped,
+a tested database backup created by that older release. Automatic candidate
+rollback already uses its pre-switch snapshot; this manual procedure remains
+required for operator-selected older generations. With the daemon stopped,
 preserve the newer database and publish the compatible backup atomically:
 
 ```console

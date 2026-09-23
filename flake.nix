@@ -147,6 +147,11 @@
           inherit pkgsSystem;
           host = self.nixosConfigurations.home-server;
         };
+        home-server-ssh = import ./nix/tests/home-server-ssh.nix {
+          inherit pkgs;
+          knownHosts = ./nixos/hosts/home-server/known_hosts;
+          script = ./scripts/home-server-ssh;
+        };
         home-server-services = import ./nixos/tests/home-server-services.nix {
           inherit agenix pkgsSystem;
           nixosSystem = nixpkgs-system.lib.nixosSystem;

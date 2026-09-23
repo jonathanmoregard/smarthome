@@ -602,7 +602,7 @@ git commit -m "docs: operate standalone home server"
 **Files:**
 - No planned source changes; each discovered defect starts a new red-green cycle.
 
-- [ ] **Step 1: Run cheap checks**
+- [x] **Step 1: Run cheap checks**
 
 ```bash
 nix eval .#checks.x86_64-linux --apply builtins.attrNames
@@ -610,7 +610,7 @@ nix eval .#nixosConfigurations.home-server.config.system.build.toplevel.drvPath
 git diff --check
 ```
 
-- [ ] **Step 2: Run focused and integrated automated gates**
+- [x] **Step 2: Run focused and integrated automated gates**
 
 ```bash
 nix build --no-link .#checks.x86_64-linux.standalone-host -L
@@ -629,7 +629,7 @@ nix build --no-link .#nixosConfigurations.home-server.config.system.build.toplev
 
 Expected: all pass at one exact commit.
 
-- [ ] **Step 3: Run mandatory interactive smoke**
+- [x] **Step 3: Run mandatory interactive smoke**
 
 Launch standalone feature VM. Through SSH, trigger real app/system deploy jobs,
 healthy activation, broken-candidate rollback, start-limit recovery, replay,

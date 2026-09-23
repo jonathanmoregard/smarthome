@@ -6,9 +6,11 @@ Only ciphertext belongs in Git. The current production secret is
 
 The physical host age recipient is committed in
 [`deployment-identity.nix`](../../nixos/hosts/home-server/deployment-identity.nix).
-Before depending on the server as the only decryptor, create a separate portable
-age recovery identity, store its private half in KeePass, and commit only its
-public recipient. Never share a private identity between housemates.
+Current ciphertext has only that physical-host recipient. Standalone cutover is
+therefore blocked on creating a separate portable age recovery identity,
+storing its private half in KeePass, re-encrypting to both recipients, and
+committing only its public recipient. Never share a private identity between
+housemates.
 
 ## Encrypt or rekey
 

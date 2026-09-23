@@ -101,6 +101,7 @@ jobs:
         run: |
           nix build --no-link -L \
             .#checks.x86_64-linux.standalone-host \
+            .#checks.x86_64-linux.home-server-ssh \
             .#checks.x86_64-linux.home-server-services \
             .#checks.x86_64-linux.app-deploy \
             .#checks.x86_64-linux.app-activator \

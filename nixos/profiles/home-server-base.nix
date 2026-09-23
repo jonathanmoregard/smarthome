@@ -52,7 +52,12 @@
       PermitRootLogin = "no";
     };
   };
-  services.tailscale.enable = true;
+  services.tailscale = {
+    enable = true;
+    # Keep authentication repo-owned by OpenSSH; do not let tailscaled
+    # intercept port 22 and shift access policy into external SSH ACL state.
+    extraSetFlags = [ "--ssh=false" ];
+  };
 
   users.users.jonathan = {
     isNormalUser = true;
