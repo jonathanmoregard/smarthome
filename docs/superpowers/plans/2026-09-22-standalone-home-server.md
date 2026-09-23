@@ -650,7 +650,7 @@ Dispatch one fresh read-only reviewer with goal, diff, and evidence. Reproduce
 every finding before edits. Re-run affected checks and integration gates after
 each fix.
 
-- [ ] **Step 5: Push and open standalone PR**
+- [x] **Step 5: Push and open standalone PR**
 
 ```bash
 git push -u origin feat/standalone-home-server
