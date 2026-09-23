@@ -3,196 +3,172 @@
 pkgs.runCommand "smarthome-publish-workflow-contract"
   { nativeBuildInputs = [ pkgs.yq-go ]; }
   ''
-    workflow=${../../.github/workflows/publish.yml}
     ci=${../../.github/workflows/ci.yml}
-    workflow_dir=${../../.github/workflows}
-    checkout_action='actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683'
-    install_nix_action='cachix/install-nix-action@ba0dd844c9180cbf77aa72a116d6fbc515d0e87b'
-    cachix_action='cachix/cachix-action@1eb2ef646ac0255473d23a5907ad7b04ce94065c'
-    expected_verify='nix build --no-link --option max-jobs 0 --option fallback false --option builders "" .#packages.x86_64-linux.default'
+    publish=${../../.github/workflows/publish.yml}
 
-    IFS= read -r -d $'\0' expected_root_check <<'EOF' || true
-    set -euo pipefail
-    package="$(nix eval --raw .#packages.x86_64-linux.default.outPath)"
-    test -n "$package"
-    test "$(nix path-info --store https://jonathanmoregard.cachix.org "$package")" = "$package"
-    nix store verify \
-      --store https://jonathanmoregard.cachix.org \
-      --no-contents \
-      --sigs-needed 1 \
-      --option trusted-public-keys \
-      'jonathanmoregard.cachix.org-1:Qzksr/c2ciAaV4j/U2mGFd1HTgOAicks8gJNs1Ztxo8=' \
-      "$package"
-    EOF
+    assert_pinned_actions() {
+      candidate="$1"
+      while IFS= read -r action; do
+        [[ "$action" =~ ^[^@]+@[0-9a-f]{40}$ ]] || {
+          echo "action is not pinned by full commit: $action" >&2
+          return 1
+        }
+      done < <(yq -r '.. | select(tag == "!!map" and has("uses")) | .uses' "$candidate")
+    }
 
-    IFS= read -r -d $'\0' expected_push <<'EOF' || true
-    set -euo pipefail
-    closure="$(nix path-info --recursive "''${{ steps.package.outputs.path }}" | sort -u)"
-    test -n "$closure"
-    mapfile -t closure_paths <<< "$closure"
-    cachix push jonathanmoregard "''${closure_paths[@]}"
-    EOF
+    assert_no_secrets() {
+      candidate="$1"
+      if yq -r '.. | select(tag == "!!str")' "$candidate" \
+        | grep -Ei '\$\{\{[^}]*[Ss][Ee][Cc][Rr][Ee][Tt][Ss]([^[:alnum:]_]|$)' \
+          >/dev/null; then
+        return 1
+      fi
+      test "$(yq -r '[.. | select(tag == "!!map") | keys[] | select(. == "secrets")] | length' "$candidate")" -eq 0 \
+        || return 1
+    }
 
-    IFS= read -r -d $'\0' expected_build <<'EOF' || true
-    set -euo pipefail
-    package="$(nix build --no-link --print-out-paths .#packages.x86_64-linux.default)"
-    test "$(printf '%s\n' "$package" | wc -l)" -eq 1
-    printf 'path=%s\n' "$package" >> "$GITHUB_OUTPUT"
-    EOF
+    assert_no_continue_on_error() {
+      candidate="$1"
+      test "$(yq -r '[.. | select(tag == "!!map" and has("continue-on-error"))] | length' "$candidate")" -eq 0 \
+        || return 1
+    }
 
-    IFS= read -r -d $'\0' expected_extra_nix_config <<'EOF' || true
-    substituters = https://jonathanmoregard.cachix.org https://cache.nixos.org
-    trusted-public-keys = jonathanmoregard.cachix.org-1:Qzksr/c2ciAaV4j/U2mGFd1HTgOAicks8gJNs1Ztxo8= cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=
-    EOF
-
-    export checkout_action install_nix_action cachix_action
-    export expected_build expected_push expected_root_check expected_verify expected_extra_nix_config
-
-    validate_workflow() {
+    validate_ci() {
       candidate="$1"
 
-      yq -e '((keys | length) == 4) and has("name") and has("on") and has("permissions") and has("jobs") and (.name == "Publish package")' "$candidate" >/dev/null || return 1
-      yq -e '((.on | keys | length) == 1) and (.on | has("push"))' "$candidate" >/dev/null || return 1
-      yq -e '((.on.push | keys | length) == 1) and (.on.push | has("branches"))' "$candidate" >/dev/null || return 1
-      yq -e '((.on.push.branches | length) == 1) and (.on.push.branches[0] == "main")' "$candidate" >/dev/null || return 1
-      yq -e '((.permissions | keys | length) == 1) and (.permissions | has("contents")) and (.permissions.contents == "read")' "$candidate" >/dev/null || return 1
+      yq -e '
+        .name == "CI" and
+        ((.permissions | keys | join(",")) == "contents") and
+        (.permissions.contents == "read") and
+        (.on | has("push")) and
+        (.on | has("pull_request")) and
+        ((.jobs | keys | sort | join(",")) == "app,ci,classify,evaluate,system")
+      ' "$candidate" >/dev/null || return 1
+      yq -e '
+        (.jobs.classify.outputs.app == "''${{ steps.changes.outputs.app }}") and
+        (.jobs.classify.outputs.system == "''${{ steps.changes.outputs.system }}") and
+        (.jobs.classify.steps[] | select(.id == "changes") | .run | contains("classify-paths.sh")) and
+        (.jobs.evaluate.steps[] | select(has("run")) | .run | contains("nix flake check --no-build"))
+      ' "$candidate" >/dev/null || return 1
+      yq -e '
+        (.jobs.app.needs == "classify") and
+        (.jobs.app.if | (contains("needs.classify.outputs.app") and contains("true"))) and
+        (.jobs.app.steps[] | select(has("run")) | .run | contains("checks.x86_64-linux.app-source")) and
+        (.jobs.app.steps[] | select(has("run")) | .run | contains("checks.x86_64-linux.simulated-house")) and
+        (.jobs.system.needs == "classify") and
+        (.jobs.system.if | (contains("needs.classify.outputs.system") and contains("true"))) and
+        (.jobs.system.steps[] | select(has("run")) | .run | contains("nixosConfigurations.home-server.config.system.build.toplevel")) and
+        (.jobs.system.steps[] | select(has("run")) | .run | contains("checks.x86_64-linux.vm-home-server")) and
+        (.jobs.system.steps[] | select(has("run")) | .run | contains("checks.x86_64-linux.vm-home-server-cd"))
+      ' "$candidate" >/dev/null || return 1
+      yq -e '
+        (.jobs.ci.if == "always()") and
+        ((.jobs.ci.needs | sort | join(",")) == "app,classify,evaluate,system") and
+        (.jobs.ci.steps | length == 1) and
+        (.jobs.ci.steps[0].env.EVALUATE_RESULT == "''${{ needs.evaluate.result }}") and
+        (.jobs.ci.steps[0].env.APP_RESULT == "''${{ needs.app.result }}") and
+        (.jobs.ci.steps[0].env.SYSTEM_RESULT == "''${{ needs.system.result }}") and
+        (.jobs.ci.steps[0].run | contains("cancelled")) and
+        (.jobs.ci.steps[0].run | contains("failure"))
+      ' "$candidate" >/dev/null || return 1
+      assert_pinned_actions "$candidate" || return 1
+      assert_no_secrets "$candidate" || return 1
+      assert_no_continue_on_error "$candidate" || return 1
+    }
 
-      yq -e '((.jobs | keys | length) == 2) and (.jobs | has("publish")) and (.jobs | has("verify"))' "$candidate" >/dev/null || return 1
-      yq -e '((.jobs.publish | keys | length) == 4) and (.jobs.publish | has("name")) and (.jobs.publish | has("runs-on")) and (.jobs.publish | has("timeout-minutes")) and (.jobs.publish | has("steps")) and (.jobs.publish.name == "build and publish package") and (.jobs.publish."runs-on" == "ubuntu-latest") and (.jobs.publish."timeout-minutes" == 45)' "$candidate" >/dev/null || return 1
-      yq -e '((.jobs.verify | keys | length) == 5) and (.jobs.verify | has("name")) and (.jobs.verify | has("needs")) and (.jobs.verify | has("runs-on")) and (.jobs.verify | has("timeout-minutes")) and (.jobs.verify | has("steps")) and (.jobs.verify.name == "verify cache-only substitution") and (.jobs.verify.needs == "publish") and (.jobs.verify."runs-on" == "ubuntu-latest") and (.jobs.verify."timeout-minutes" == 20)' "$candidate" >/dev/null || return 1
+    validate_publish() {
+      candidate="$1"
 
-      yq -e '(.jobs.publish.steps | length) == 5' "$candidate" >/dev/null || return 1
-      yq -e '((.jobs.publish.steps[0] | keys | length) == 3) and (.jobs.publish.steps[0] | has("name")) and (.jobs.publish.steps[0] | has("uses")) and (.jobs.publish.steps[0] | has("with")) and (.jobs.publish.steps[0].name == "Check out exact release") and (.jobs.publish.steps[0].uses == strenv(checkout_action)) and ((.jobs.publish.steps[0].with | keys | length) == 1) and (.jobs.publish.steps[0].with | has("persist-credentials")) and (.jobs.publish.steps[0].with."persist-credentials" == false)' "$candidate" >/dev/null || return 1
-      yq -e '((.jobs.publish.steps[1] | keys | length) == 2) and (.jobs.publish.steps[1] | has("name")) and (.jobs.publish.steps[1] | has("uses")) and (.jobs.publish.steps[1].name == "Install Nix") and (.jobs.publish.steps[1].uses == strenv(install_nix_action))' "$candidate" >/dev/null || return 1
-      yq -e '((.jobs.publish.steps[2] | keys | length) == 3) and (.jobs.publish.steps[2] | has("name")) and (.jobs.publish.steps[2] | has("uses")) and (.jobs.publish.steps[2] | has("with")) and (.jobs.publish.steps[2].name == "Configure authenticated Cachix publication") and (.jobs.publish.steps[2].uses == strenv(cachix_action)) and ((.jobs.publish.steps[2].with | keys | length) == 3) and (.jobs.publish.steps[2].with | has("name")) and (.jobs.publish.steps[2].with | has("authToken")) and (.jobs.publish.steps[2].with | has("skipPush")) and (.jobs.publish.steps[2].with.name == "jonathanmoregard") and (.jobs.publish.steps[2].with.authToken == "''${{ secrets.CACHIX_AUTH_TOKEN }}") and (.jobs.publish.steps[2].with.skipPush == true)' "$candidate" >/dev/null || return 1
-      yq -e '((.jobs.publish.steps[3] | keys | length) == 3) and (.jobs.publish.steps[3] | has("name")) and (.jobs.publish.steps[3] | has("id")) and (.jobs.publish.steps[3] | has("run")) and (.jobs.publish.steps[3].name == "Build exact package") and (.jobs.publish.steps[3].id == "package") and (.jobs.publish.steps[3].run == strenv(expected_build))' "$candidate" >/dev/null || return 1
-      yq -e '((.jobs.publish.steps[4] | keys | length) == 2) and (.jobs.publish.steps[4] | has("name")) and (.jobs.publish.steps[4] | has("run")) and (.jobs.publish.steps[4].name == "Push signed runtime closure") and (.jobs.publish.steps[4].run == strenv(expected_push))' "$candidate" >/dev/null || return 1
+      yq -e '
+        .name == "Publish releases" and
+        ((.permissions | keys | join(",")) == "contents") and
+        (.permissions.contents == "read") and
+        ((.on | keys | join(",")) == "push") and
+        ((.on.push.branches | join(",")) == "main") and
+        ((.jobs | keys | sort | join(",")) == "classify,promote-app,promote-system,publish-app,publish-system,verify-app,verify-system")
+      ' "$candidate" >/dev/null || return 1
+      yq -e '
+        (.jobs.classify.outputs.app == "''${{ steps.changes.outputs.app }}") and
+        (.jobs.classify.outputs.system == "''${{ steps.changes.outputs.system }}") and
+        (.jobs.classify.steps[] | select(.id == "changes") | .run | contains("classify-paths.sh"))
+      ' "$candidate" >/dev/null || return 1
 
-      yq -e '(.jobs.verify.steps | length) == 4' "$candidate" >/dev/null || return 1
-      yq -e '((.jobs.verify.steps[0] | keys | length) == 3) and (.jobs.verify.steps[0] | has("name")) and (.jobs.verify.steps[0] | has("uses")) and (.jobs.verify.steps[0] | has("with")) and (.jobs.verify.steps[0].name == "Check out exact release") and (.jobs.verify.steps[0].uses == strenv(checkout_action)) and ((.jobs.verify.steps[0].with | keys | length) == 1) and (.jobs.verify.steps[0].with | has("persist-credentials")) and (.jobs.verify.steps[0].with."persist-credentials" == false)' "$candidate" >/dev/null || return 1
-      yq -e '((.jobs.verify.steps[1] | keys | length) == 3) and (.jobs.verify.steps[1] | has("name")) and (.jobs.verify.steps[1] | has("uses")) and (.jobs.verify.steps[1] | has("with")) and (.jobs.verify.steps[1].name == "Install Nix with release cache") and (.jobs.verify.steps[1].uses == strenv(install_nix_action)) and ((.jobs.verify.steps[1].with | keys | length) == 1) and (.jobs.verify.steps[1].with | has("extra_nix_config")) and (.jobs.verify.steps[1].with.extra_nix_config == strenv(expected_extra_nix_config))' "$candidate" >/dev/null || return 1
-      yq -e '((.jobs.verify.steps[2] | keys | length) == 2) and (.jobs.verify.steps[2] | has("name")) and (.jobs.verify.steps[2] | has("run")) and (.jobs.verify.steps[2].name == "Confirm app root is in release cache") and (.jobs.verify.steps[2].run == strenv(expected_root_check))' "$candidate" >/dev/null || return 1
-      yq -e '((.jobs.verify.steps[3] | keys | length) == 2) and (.jobs.verify.steps[3] | has("name")) and (.jobs.verify.steps[3] | has("run")) and (.jobs.verify.steps[3].name == "Substitute without builders") and (.jobs.verify.steps[3].run == strenv(expected_verify))' "$candidate" >/dev/null || return 1
+      for track in app system; do
+        if [[ "$track" == app ]]; then
+          release_ref=app
+        else
+          release_ref=home-server
+        fi
+        yq -e ".jobs.\"publish-$track\".needs == \"classify\"" "$candidate" >/dev/null || return 1
+        yq -e ".jobs.\"publish-$track\".if | contains(\"needs.classify.outputs.$track == 'true'\")" "$candidate" >/dev/null || return 1
+        yq -e ".jobs.\"publish-$track\".steps[] | select(has(\"run\")) | .run | contains(\"push-closure.sh\")" "$candidate" >/dev/null || return 1
+        yq -e ".jobs.\"verify-$track\".needs == \"publish-$track\"" "$candidate" >/dev/null || return 1
+        yq -e ".jobs.\"verify-$track\" | (has(\"if\") | not)" "$candidate" >/dev/null || return 1
+        yq -e ".jobs.\"promote-$track\".needs == \"verify-$track\"" "$candidate" >/dev/null || return 1
+        yq -e ".jobs.\"promote-$track\" | (has(\"if\") | not)" "$candidate" >/dev/null || return 1
+        yq -e ".jobs.\"promote-$track\".permissions | (((keys | join(\",\")) == \"contents\") and (.contents == \"write\"))" "$candidate" >/dev/null || return 1
+        yq -e ".jobs.\"promote-$track\".steps[] | select(has(\"run\")) | .run | contains(\"promote-release-ref.sh release/$release_ref\")" "$candidate" >/dev/null || return 1
+      done
 
-      yq -e '[.. | select(tag == "!!str") | select(test("\\$\\{\\{[[:space:]]*secrets[[:space:]]*(\\.|\\[)"))] | length == 1' "$candidate" >/dev/null || return 1
+      yq -e '
+        (.jobs."publish-app".steps[] | select(has("run")) | .run | contains("packages.x86_64-linux.default")) and
+        (.jobs."publish-system".steps[] | select(has("run")) | .run | contains("nixosConfigurations.home-server.config.system.build.toplevel"))
+      ' "$candidate" >/dev/null || return 1
+
+      for track in app system; do
+        verify_script="$(yq -r ".jobs.\"verify-$track\".steps[] | select(has(\"run\")) | .run" "$candidate")"
+        grep -Fq 'https://jonathanmoregard.cachix.org' <<<"$verify_script" || return 1
+        grep -Fq 'https://cache.nixos.org' <<<"$verify_script" || return 1
+        grep -Fq 'jonathanmoregard.cachix.org-1:Qzksr/c2ciAaV4j/U2mGFd1HTgOAicks8gJNs1Ztxo8=' <<<"$verify_script" || return 1
+        grep -Fq 'cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=' <<<"$verify_script" || return 1
+        grep -Fq 'nix path-info --store https://jonathanmoregard.cachix.org' <<<"$verify_script" || return 1
+        grep -Fq 'nix store verify' <<<"$verify_script" || return 1
+        grep -Fq -- '--no-contents --sigs-needed 1' <<<"$verify_script" || return 1
+        grep -Fq -- '--option trusted-public-keys "$project_key" "$root"' <<<"$verify_script" || return 1
+        grep -Fq -- '--option max-jobs 0' <<<"$verify_script" || return 1
+        grep -Fq -- '--option fallback false' <<<"$verify_script" || return 1
+        grep -Fq -- '--option builders ""' <<<"$verify_script" || return 1
+      done
+
+      test "$(yq -r '[.jobs[] | select(.permissions.contents == "write")] | length' "$candidate")" -eq 2 || return 1
+      assert_pinned_actions "$candidate" || return 1
+      assert_no_continue_on_error "$candidate" || return 1
     }
 
     assert_rejected() {
-      description="$1"
-      mutation="$2"
+      validator="$1"
+      source="$2"
+      description="$3"
+      mutation="$4"
       rm -f mutant.yml
-      cp "$workflow" mutant.yml
+      cp "$source" mutant.yml
+      chmod u+w mutant.yml
       yq -i "$mutation" mutant.yml
-      if validate_workflow mutant.yml; then
+      if "$validator" mutant.yml; then
         echo "contract accepted adversarial mutation: $description" >&2
         return 1
       fi
     }
 
-    validate_ci() {
-      yq -e '([.. | select(tag == "!!str") | select(test("\\$\\{\\{") and test("(?i)\\bsecrets\\b"))] | length == 0) and ([.. | select(tag == "!!map") | keys[] | select(. == "secrets")] | length == 0)' "$1" >/dev/null
-    }
+    validate_ci "$ci"
+    validate_publish "$publish"
 
-    validate_pr_workflows() {
-      workflow_dir="$1"
-      pr_found=0
-      while IFS= read -r -d $'\0' candidate; do
-        if yq -e '(.on | tag) == "!!map" and (.on | (has("pull_request") or has("pull_request_target")))' "$candidate" >/dev/null; then
-          pr_found=$((pr_found + 1))
-          validate_ci "$candidate" || return 1
-        elif yq -e '(.on | tag) == "!!seq"' "$candidate" >/dev/null && yq -e '.on[] | select(. == "pull_request" or . == "pull_request_target")' "$candidate" >/dev/null; then
-          pr_found=$((pr_found + 1))
-          validate_ci "$candidate" || return 1
-        elif yq -e '(.on | tag) == "!!str" and (.on == "pull_request" or .on == "pull_request_target")' "$candidate" >/dev/null; then
-          pr_found=$((pr_found + 1))
-          validate_ci "$candidate" || return 1
-        fi
-      done < <(find "$workflow_dir" -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) -print0)
-      test "$pr_found" -gt 0
-    }
+    assert_rejected validate_ci "$ci" "PR secret use" '.jobs.app.env.TOKEN = "''${{ secrets.CACHIX_AUTH_TOKEN }}"'
+    assert_rejected validate_ci "$ci" "PR secret object use" '.jobs.app.env.TOKEN = "''${{ toJSON(secrets) }}"'
+    assert_rejected validate_ci "$ci" "unstable summary" '.jobs.ci.if = "success()"'
+    assert_rejected validate_ci "$ci" "app check silently tolerated" '.jobs.app."continue-on-error" = true'
+    assert_rejected validate_ci "$ci" "expression-controlled app failure" '.jobs.app."continue-on-error" = "''${{ true }}"'
+    assert_rejected validate_ci "$ci" "system VM omitted" '(.jobs.system.steps[] | select(has("run")) | .run) |= sub("checks.x86_64-linux.vm-home-server-cd"; "checks.x86_64-linux.standalone-host")'
 
-    assert_no_pr_workflows_rejected() {
-      rm -rf workflow-mutants
-      mkdir workflow-mutants
-      cp "$workflow" workflow-mutants/publish.yml
-      cp "$ci" workflow-mutants/ci.yml
-      yq -i '.on = {"push": {"branches": ["main"]}}' workflow-mutants/ci.yml
-      if validate_pr_workflows workflow-mutants; then
-        echo "CI contract accepted workflow set without PR trigger" >&2
-        return 1
-      fi
-    }
+    assert_rejected validate_publish "$publish" "missing official cache" '(.jobs."verify-app".steps[] | select(has("run")) | .run) |= sub("https://cache.nixos.org"; "")'
+    assert_rejected validate_publish "$publish" "wrong official key" '(.jobs."verify-system".steps[] | select(has("run")) | .run) |= sub("6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="; "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")'
+    assert_rejected validate_publish "$publish" "missing project root proof" '(.jobs."verify-app".steps[] | select(has("run")) | .run) |= sub("nix path-info --store https://jonathanmoregard.cachix.org"; "nix path-info")'
+    assert_rejected validate_publish "$publish" "vacuous signature threshold" '(.jobs."verify-app".steps[] | select(has("run")) | .run) |= sub("--sigs-needed 1"; "--sigs-needed 0")'
+    assert_rejected validate_publish "$publish" "builders enabled" '(.jobs."verify-system".steps[] | select(has("run")) | .run) |= sub("--option max-jobs 0"; "")'
+    assert_rejected validate_publish "$publish" "verification skipped" '.jobs."verify-app".if = "false"'
+    assert_rejected validate_publish "$publish" "promotion before verification" '.jobs."promote-system".needs = "publish-system"'
+    assert_rejected validate_publish "$publish" "raw main deployment" '(.jobs."promote-app".steps[] | select(has("run")) | .run) = "gh api repos/$GITHUB_REPOSITORY/git/refs/heads/main"'
+    assert_rejected validate_publish "$publish" "extra write permission" '.jobs."publish-app".permissions = {"contents": "write"}'
 
-    assert_ci_rejected() {
-      description="$1"
-      mutation="$2"
-      rm -f ci-mutant.yml
-      cp "$ci" ci-mutant.yml
-      yq -i "$mutation" ci-mutant.yml
-      if validate_ci ci-mutant.yml; then
-        echo "CI contract accepted adversarial mutation: $description" >&2
-        return 1
-      fi
-    }
-
-    assert_synthetic_pr_workflow_rejected() {
-      description="$1"
-      trigger="$2"
-      mutation="$3"
-      rm -rf workflow-mutants
-      mkdir workflow-mutants
-      cp "$ci" workflow-mutants/ci.yml
-      cp "$ci" workflow-mutants/synthetic.yml
-      yq -i ".on = $trigger" workflow-mutants/synthetic.yml
-      yq -i "$mutation" workflow-mutants/synthetic.yml
-      if validate_pr_workflows workflow-mutants; then
-        echo "CI contract accepted adversarial mutation: $description" >&2
-        return 1
-      fi
-    }
-
-    validate_workflow "$workflow"
-
-    assert_rejected "extra permission" '.permissions.actions = "read"'
-    assert_rejected "top-level concurrency" '.concurrency = {"group": "publish-package-main", "cancel-in-progress": false}'
-    assert_rejected "wrong checkout action pin" '.jobs.publish.steps[0].uses = "actions/checkout@0000000000000000000000000000000000000000"'
-    assert_rejected "persisted credentials enabled" '.jobs.publish.steps[0].with."persist-credentials" = true'
-    assert_rejected "persist-credentials missing" 'del(.jobs.verify.steps[0].with."persist-credentials")'
-    assert_rejected "wrong build package attribute" '(.jobs.publish.steps[] | select(.id == "package").run) |= sub("x86_64-linux.default"; "x86_64-linux.wrong")'
-    assert_rejected "altered build script" '(.jobs.publish.steps[] | select(.id == "package").run) += "echo altered\\n"'
-    assert_rejected "missing verify dependency" 'del(.jobs.verify.needs)'
-    assert_rejected "wrong Cachix URL" '(.jobs.verify.steps[] | select(.uses == strenv(install_nix_action)).with.extra_nix_config) |= sub("https://jonathanmoregard.cachix.org"; "https://wrong.example")'
-    assert_rejected "missing NixOS cache" '(.jobs.verify.steps[] | select(.uses == strenv(install_nix_action)).with.extra_nix_config) |= sub(" https://cache.nixos.org"; "")'
-    assert_rejected "NixOS cache before release cache" '(.jobs.verify.steps[] | select(.uses == strenv(install_nix_action)).with.extra_nix_config) |= sub("https://jonathanmoregard.cachix.org https://cache.nixos.org"; "https://cache.nixos.org https://jonathanmoregard.cachix.org")'
-    assert_rejected "wrong release-cache signing key" '(.jobs.verify.steps[] | select(.uses == strenv(install_nix_action)).with.extra_nix_config) |= sub("Qzksr/c2ciAaV4j/U2mGFd1HTgOAicks8gJNs1Ztxo8="; "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")'
-    assert_rejected "wrong NixOS-cache signing key" '(.jobs.verify.steps[] | select(.uses == strenv(install_nix_action)).with.extra_nix_config) |= sub("6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="; "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")'
-    assert_rejected "root check queries fallback cache" '(.jobs.verify.steps[] | select(.name == "Confirm app root is in release cache").run) |= sub("https://jonathanmoregard.cachix.org"; "https://cache.nixos.org")'
-    assert_rejected "root check trusts wrong signer" '(.jobs.verify.steps[] | select(.name == "Confirm app root is in release cache").run) |= sub("Qzksr/c2ciAaV4j/U2mGFd1HTgOAicks8gJNs1Ztxo8="; "6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=")'
-    assert_rejected "root signature check removed" '(.jobs.verify.steps[] | select(.name == "Confirm app root is in release cache").run) |= sub("nix store verify"; "true")'
-    assert_rejected "root check removed" 'del(.jobs.verify.steps[] | select(.name == "Confirm app root is in release cache"))'
-    assert_rejected "conditional required step" '.jobs.publish.steps[0].if = "always()"'
-    assert_rejected "verify continue-on-error" '.jobs.verify.steps[3].continue-on-error = true'
-    assert_rejected "extra run step" '.jobs.verify.steps += [{"name": "Unexpected run", "run": "true"}]'
-    assert_rejected "job permissions write" '.jobs.publish.permissions = {"contents": "write"}'
-    assert_rejected "job NIX_CONFIG environment" '.jobs.verify.env.NIX_CONFIG = "sandbox = false"'
-    assert_rejected "top-level NIX_CONFIG environment" '.env.NIX_CONFIG = "sandbox = false"'
-    assert_rejected "bracket-syntax extra secret" '.jobs.verify.steps[2].name = "''${{ secrets[\"EXTRA\"] }}"'
-    assert_rejected "unexpected extra job with action" '.jobs.audit = {"runs-on": "ubuntu-latest", "steps": [{"uses": "example/action@0000000000000000000000000000000000000000"}]}'
-    assert_rejected "unexpected extra action" '.jobs.verify.steps += [{"name": "Unexpected action", "uses": "example/action@0000000000000000000000000000000000000000"}]'
-
-    validate_pr_workflows "$workflow_dir"
-    assert_no_pr_workflows_rejected
-    assert_ci_rejected "dot-syntax secret reference" '.env.EXTRA = "''${{ secrets.OTHER_TOKEN }}"'
-    assert_ci_rejected "bracket-syntax secret reference" '.env.EXTRA = "''${{ secrets[\"OTHER_TOKEN\"] }}"'
-    assert_ci_rejected "composed secret reference" '.env.EXTRA = "''${{ github.event_name == \"pull_request\" && secrets.OTHER_TOKEN }}"'
-    assert_ci_rejected "toJSON secret reference" '.env.EXTRA = "''${{ toJSON(secrets) }}"'
-    assert_ci_rejected "mixed-case secret reference" '.env.EXTRA = "''${{ Secrets.TOKEN }}"'
-    assert_synthetic_pr_workflow_rejected "scalar pull_request trigger" '"pull_request"' '.env.EXTRA = "''${{ toJSON(secrets) }}"'
-    assert_synthetic_pr_workflow_rejected "scalar pull_request_target trigger" '"pull_request_target"' '.env.EXTRA = "''${{ toJSON(secrets) }}"'
-    assert_synthetic_pr_workflow_rejected "sequence pull_request trigger" '["push", "pull_request"]' '.env.EXTRA = "''${{ toJSON(secrets) }}"'
-    assert_synthetic_pr_workflow_rejected "sequence pull_request_target trigger" '["push", "pull_request_target"]' '.env.EXTRA = "''${{ toJSON(secrets) }}"'
-    assert_synthetic_pr_workflow_rejected "mapping pull_request trigger" '{"pull_request": {}}' '.env.EXTRA = "''${{ toJSON(secrets) }}"'
-    assert_synthetic_pr_workflow_rejected "mapping pull_request_target trigger" '{"pull_request_target": {}}' '.env.EXTRA = "''${{ toJSON(secrets) }}"'
-    assert_synthetic_pr_workflow_rejected "mapping pull_request_target secrets inherit" '{"pull_request_target": {}}' '.jobs.audit.secrets = "inherit"'
     touch "$out"
   ''

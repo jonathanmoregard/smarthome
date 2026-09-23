@@ -1,23 +1,19 @@
 # Smarthome automation
 
-This repository contains the reusable, host-neutral lighting application: a Rust
-daemon, its strict declarative configuration, MQTT/Zigbee2MQTT adapter, Nix
-package, and NixOS service module. Rust owns automation semantics; protocol
-services translate device events and commands. Home Assistant is deliberately
-not part of the architecture.
+This repository owns the complete home-automation appliance: Rust lighting
+daemon, physical `home-server` NixOS configuration, MQTT and Zigbee2MQTT,
+encrypted runtime secrets, tests, release publication, deployment, rollback,
+and recovery documentation. Rust owns automation semantics; protocol services
+translate device events and commands. Home Assistant is deliberately absent.
 
-The private NixOS configuration remains responsible for the physical host:
-networking, Tailscale and SSH, agenix, Mosquitto, Zigbee2MQTT, Matrix, storage,
-backup destinations, and deployment. That keeps host identities and secrets out
-of this reusable repository. The [companion host runbook](https://github.com/jonathanmoregard/nixos-config/blob/main/docs/home-server/README.md)
-owns the Dell Wyse assumptions, blank-disk bootstrap, Matrix setup, other
-mutable-service backups, rollback, and disaster recovery.
-
-The target companion NixOS change gives `nixos-config` ownership of the host,
-service, deployer, and runtime configuration while removing its `smarthome`
-flake input. Once enabled, the server deployer will resolve the exact
-`smarthome` `main` commit directly; `smarthome` never imports or depends on
-`nixos-config`.
+`smarthome` has no import or runtime dependency on another configuration
+repository. GitHub builds both release closures, Cachix distributes them, and
+the server only evaluates and substitutes promoted revisions with builders
+disabled. Start with the runbooks for [bootstrap](docs/home-server/bootstrap.md),
+[deployment](docs/home-server/deployment.md),
+[recovery](docs/home-server/recovery.md),
+[secrets](docs/home-server/secrets.md), and
+[access](docs/home-server/access.md).
 
 ## Architecture
 
@@ -46,11 +42,15 @@ Zigbee2MQTT, the TellStick adapter, Matrix, or shell scripts.
 
 ## Build and configure
 
-Run the same complete gate used by CI:
+Run the comprehensive local gate:
 
 ```console
 nix flake check -L
 ```
+
+CI first evaluates the whole flake, then builds path-selected app or system
+lanes. The local command above builds every check, so it is intentionally
+broader than either selected CI lane.
 
 For focused Rust work:
 
@@ -79,43 +79,57 @@ services.houseAutomation = {
 
 The module generates the non-secret TOML, runs the service as its own
 unprivileged account, stores state below `/var/lib/house-automation`, and applies
-systemd hardening. The host configuration wires the module to its broker and
-age-decrypted credential file.
+systemd hardening. The production host currently leaves
+`homeServer.houseSettings = null`, so it deploys the app profile but does not
+start the daemon until real paired device IDs replace the example topology.
 
 ## Releases
 
-This repository implements the GitHub publisher workflow. Pull requests run the
-complete flake check without credentials. Each push to protected `main` builds
-`packages.x86_64-linux.default` on GitHub, publishes its signed runtime closure
-to `jonathanmoregard.cachix.org`, and then uses a separate clean runner with
-builders disabled to prove the package substitutes from the cache. Publication
-runs intentionally have no shared concurrency group, so each protected-main
-revision is handled independently.
+Pull requests classify changed paths and run only affected application or
+home-server lanes, plus unconditional flake evaluation and a stable required
+`ci` summary. No pull-request job can access repository secrets.
 
-`CACHIX_AUTH_TOKEN` is a cache-scoped GitHub Actions secret used only by the
-main publication workflow. Publication stops at the cache and does not itself
-deploy a host. Once the companion deployer is enabled, the home server will use
-a separate, repository-specific read-only GitHub deploy key and the public
-Cachix signing key to pull the exact `main` commit, hydrate the signed closure,
-and atomically switch a dedicated application profile. That target server-side
-flow keeps application rollout separate and supports minimal-disk activation;
-it does not use dellan, whose SSH access remains independent.
+Every push to protected `main` independently publishes affected tracks:
+
+- application changes build `packages.x86_64-linux.default`, verify signed
+  builderless substitution, then fast-forward `release/app`;
+- host changes build
+  `nixosConfigurations.home-server.config.system.build.toplevel`, perform the
+  same verification, then fast-forward `release/home-server`.
+
+Both exact roots must exist in `jonathanmoregard.cachix.org`; dependencies may
+come only from that signed cache or `cache.nixos.org`. `CACHIX_AUTH_TOKEN` is a
+cache-scoped GitHub Actions secret used only by main publication jobs. Only
+post-verification promotion jobs receive `contents: write`. The server fetches
+the public repository over HTTPS, serializes both deployers on one lock, and
+keeps at most two application and two system profile generations. Dellan is not
+part of either release path; its SSH key remains ordinary operator access.
 
 ### Add a room, light, or control
 
-1. Add the floor and room to `[[floors]]` and `[[rooms]]`.
-2. Add room, floor, or house `[[scopes]]` and select a circadian curve.
-3. Pair the device, give it a stable Zigbee2MQTT `friendly_name`, and use that
+1. Copy `examples/house.toml` to
+   `nixos/hosts/home-server/house.toml`; the example alone never configures the
+   physical server.
+2. Add the floor and room to `[[floors]]` and `[[rooms]]`.
+3. Add room, floor, or house `[[scopes]]` and select a circadian curve.
+4. Pair the device, give it a stable Zigbee2MQTT `friendly_name`, and use that
    exact name in `[[devices]]` or `[[controls]]`.
-4. Declare only capabilities the device actually exposes: on/off, dimming,
+5. Declare only capabilities the device actually exposes: on/off, dimming,
    color temperature with safe Kelvin/mired limits, XY/HS color, input, or
    sensor capabilities. Vendor-specific extensions stay optional.
-5. Optionally declare a Zigbee group for synchronized room commands. Devices
+6. Optionally declare a Zigbee group for synchronized room commands. Devices
    remain available as per-device fallbacks, including when a group cannot
    express color temperature safely.
-6. Map control gestures to a scope and run `nix flake check -L`. Topology and
-   runtime-configuration changes then go through host-configuration CI/CD;
-   application-code releases use the direct flow in [Releases](#releases).
+7. Import the production topology in `nixos/hosts/home-server/default.nix`:
+
+   ```nix
+   homeServer.houseSettings =
+     builtins.fromTOML (builtins.readFile ./house.toml);
+   ```
+
+8. Map control gestures to a scope and run `nix flake check -L`. The host
+   change enables `house-automationd`; app and host changes then use the
+   independent tracks in [Releases](#releases).
 
 Scopes compose as room, floor, and house ownership. The most specific physical
 owner holds durable offsets and curve state; broader actions fan out to those
@@ -258,7 +272,9 @@ convergence, and MQTT connection state are not restored.
 Create a transactionally consistent SQLite export while the daemon runs:
 
 ```console
-sudo house-automationd backup \
+sudo install -d -o house-automation -g house-automation -m 0700 /srv/backup
+sudo -u house-automation \
+  /nix/var/nix/profiles/smarthome/bin/house-automationd backup \
   --database /var/lib/house-automation/state.sqlite3 \
   --destination /srv/backup/house-automation-state.sqlite3
 ```
@@ -302,8 +318,10 @@ systemctl status house-automationd mosquitto zigbee2mqtt
 journalctl -u house-automationd -f
 journalctl -u zigbee2mqtt -f
 curl --fail-with-body http://127.0.0.1:9876/healthz
-mosquitto_sub -h 127.0.0.1 -t 'zigbee2mqtt/bridge/state' -v
-mosquitto_sub -h 127.0.0.1 -t 'zigbee2mqtt/+/availability' -v
+mqtt_pkg="$(sudo nix eval --raw \
+  /var/lib/smarthome-system-deploy/source#nixosConfigurations.home-server.config.services.mosquitto.package.outPath)"
+"$mqtt_pkg/bin/mosquitto_sub" -h 127.0.0.1 -t 'zigbee2mqtt/bridge/state' -v
+"$mqtt_pkg/bin/mosquitto_sub" -h 127.0.0.1 -t 'zigbee2mqtt/+/availability' -v
 df -h /var/lib/house-automation /var/lib/zigbee2mqtt
 ```
 
@@ -313,11 +331,13 @@ availability and observed JSON state before forcing a command.
 
 ## Test boundaries
 
-Pull requests run secret-free `nix flake check -L`, covering the Rust formatting,
-Clippy, unit/integration tests, package build, and Nix module checks exposed by
-the flake. On `main`, the signed Cachix publication and a clean cache-only
-substitution proof run in addition. Neither job deploys a host; only the
-publisher receives its scoped cache secret.
+Pull requests always evaluate the complete flake, then build selected app or
+system checks. App checks cover Rust formatting, Clippy, unit/integration tests,
+package source boundaries, package build, module integration, and simulated
+house behavior. System checks cover focused deployer contracts, complete host
+services, full standalone boot, and real app/system deployment and rollback in
+the CD VM. Main publication adds signed-cache provenance and builderless
+substitution proofs before moving either release ref.
 
 The `simulated-house` flake check is a black-box NixOS VM test with a real
 Mosquitto broker, the real daemon, and a fake Zigbee2MQTT peer. Its controlled
