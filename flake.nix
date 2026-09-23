@@ -160,7 +160,6 @@
         };
         vm-home-server = import ./nixos/tests/home-server.nix {
           inherit agenix pkgsSystem;
-          productionHost = self.nixosConfigurations.home-server;
         };
         vm-home-server-cd = import ./nixos/tests/home-server-cd.nix {
           inherit agenix pkgsSystem;
