@@ -3,7 +3,13 @@
 { pkgs, script }:
 
 let
-  package = name: pkgs.runCommand name { } ''mkdir -p "$out/bin"; touch "$out/bin/house-automationd"; chmod +x "$out/bin/house-automationd"'';
+  package = name: pkgs.writeShellScriptBin "house-automationd" ''
+    # ${name}
+    if [ "''${1:-}" = backup ] && [ "$2" = --database ] && [ "$4" = --destination ]; then
+      [ "''${FAIL_DATABASE_BACKUP:-0}" != 1 ] || exit 75
+      ${pkgs.coreutils}/bin/cp -- "$3" "$5"
+    fi
+  '';
   v1 = package "app-v1";
   v2 = package "app-v2";
   v3 = package "app-v3";
@@ -13,6 +19,17 @@ in
 pkgs.runCommand "app-activator-contract" { nativeBuildInputs = with pkgs; [ bash coreutils gnugrep ]; } ''
   set -euo pipefail
   state="$PWD/state" profile="$PWD/profile" log="$PWD/systemctl.log"
+  activator_failure_diagnostics() {
+    status=$?
+    [ "$status" -ne 0 ] || return 0
+    for diagnostic in "$ACTIVATOR_LOG" "$NIX_ENV_LOG" "$CURL_LOG" "$state/pending-activation" "$state/last-failure"; do
+      [ -f "$diagnostic" ] || continue
+      printf '\n--- %s ---\n' "$diagnostic" >&2
+      cat "$diagnostic" >&2
+    done
+    return "$status"
+  }
+  trap activator_failure_diagnostics EXIT
   mkdir -p "$PWD/bin"
   cat > "$PWD/bin/systemctl" <<'EOF'
 #!${pkgs.runtimeShell}
@@ -21,6 +38,9 @@ if [ "$1" = reset-failed ] && [ "''${CANDIDATE_RESET_FAILURE:-0}" = 1 ] && [ ! -
 if [ "$1" = reset-failed ]; then rm -f "$START_LIMIT"; exit 0; fi
 if [ "$1" = restart ] && [ "''${MISSING_PROFILE_RECOVERY_FAILURE:-0}" = 1 ] && [ ! -e "$PROFILE" ] && [ ! -L "$PROFILE" ]; then touch "$MISSING_PROFILE_RECOVERY_MARKER"; exit 1; fi
 if [ "$1" = restart ] && [ "$(readlink -f "$PROFILE")" = "$CRASHING" ]; then touch "$START_LIMIT"; exit 1; fi
+if [ "$1" = restart ] && [ "$(readlink -f "$PROFILE")" = "''${CRASH_AFTER_MIGRATION_PATH:-}" ]; then printf 'candidate-schema\n' > "$DATABASE"; kill -KILL "$PPID"; exit 0; fi
+if [ "$1" = restart ] && [ "$(readlink -f "$PROFILE")" = "''${MIGRATING_CANDIDATE:-}" ]; then printf 'candidate-schema\n' > "$DATABASE"; exit 1; fi
+if [ "$1" = restart ] && [ "$(readlink -f "$PROFILE")" = "$RECOVERY_PATH" ] && grep -qxF candidate-schema "$DATABASE" 2>/dev/null; then touch "$OLD_STARTED_ON_NEW_DATABASE"; fi
 if [ "$1" = restart ] && [ "''${RECOVERY_FAILURE:-0}" = 1 ] && [ "$(readlink -f "$PROFILE")" = "$RECOVERY_PATH" ]; then exit 1; fi
 exit 0
 EOF
@@ -53,6 +73,16 @@ if [ "$destination" = "$SUCCESS_MARKER" ]; then
 fi
 exec ${pkgs.coreutils}/bin/mv "$@"
 EOF
+  cat > "$PWD/bin/install" <<'EOF'
+#!${pkgs.runtimeShell}
+set -euo pipefail
+destination=''${!#}
+if [ "''${FAIL_DATABASE_RESTORE_INSTALL:-0}" = 1 ] && [[ "$destination" == */.state.sqlite3.restore.* ]]; then
+  touch "$RESTORE_INSTALL_FAILURE_TRIGGERED"
+  exit 75
+fi
+exec ${pkgs.coreutils}/bin/install "$@"
+EOF
   cat > "$PWD/bin/nix-env" <<'EOF'
 #!${pkgs.runtimeShell}
 set -euo pipefail
@@ -71,6 +101,7 @@ case "$operation" in
     ln -sfn "$1" "$profile-$generation-link"
     ln -sfn "$profile-$generation-link" "$profile"
     printf '%s\n' "$generation" >> "$GENERATIONS"
+    if [ "''${CRASH_AFTER_SET:-0}" = 1 ]; then kill -KILL "$PPID"; fi
     ;;
   --list-generations)
     list_calls=0
@@ -105,12 +136,14 @@ case "$operation" in
   *) exit 64 ;;
 esac
 EOF
-  chmod +x "$PWD/bin/systemctl" "$PWD/bin/curl" "$PWD/bin/sleep" "$PWD/bin/mv" "$PWD/bin/nix-env"
+  chmod +x "$PWD/bin/systemctl" "$PWD/bin/curl" "$PWD/bin/sleep" "$PWD/bin/mv" "$PWD/bin/install" "$PWD/bin/nix-env"
   export PATH="$PWD/bin:$PATH"
   export ACTIVATOR_LOG="$log" CURL_LOG="$PWD/curl.log" NIX_ENV_LOG="$PWD/nix-env.log"
   export PROFILE="$profile" START_LIMIT="$PWD/start-limit" GENERATIONS="$PWD/generations"
   export LIST_CALLS="$PWD/list-calls" CANDIDATE_RESET_MARKER="$PWD/candidate-reset-once"
   export MISSING_PROFILE_RECOVERY_MARKER="$PWD/missing-profile-recovery-failed"
+  export DATABASE="$PWD/state.sqlite3" OLD_STARTED_ON_NEW_DATABASE="$PWD/old-started-on-new-database"
+  export RESTORE_INSTALL_FAILURE_TRIGGERED="$PWD/restore-install-failure-triggered"
   export SUCCESS_MARKER="$state/last-success"
   export SUCCESS_MOVE_SIGNAL_SENT="$PWD/success-move-signal-sent"
   export SUCCESS_MOVE_FAILURE_TRIGGERED="$PWD/success-move-failure-triggered"
@@ -121,15 +154,17 @@ EOF
     : > "$CURL_LOG"
     : > "$NIX_ENV_LOG"
     : > "$LIST_CALLS"
-    rm -f "$START_LIMIT" "$CANDIDATE_RESET_MARKER" "$MISSING_PROFILE_RECOVERY_MARKER" "$SUCCESS_MOVE_SIGNAL_SENT" "$SUCCESS_MOVE_FAILURE_TRIGGERED"
+    rm -f "$START_LIMIT" "$CANDIDATE_RESET_MARKER" "$MISSING_PROFILE_RECOVERY_MARKER" "$SUCCESS_MOVE_SIGNAL_SENT" "$SUCCESS_MOVE_FAILURE_TRIGGERED" "$OLD_STARTED_ON_NEW_DATABASE" "$RESTORE_INSTALL_FAILURE_TRIGGERED"
     export CANDIDATE_RESET_FAILURE=0 RECOVERY_FAILURE=0 FAIL_STARTUP_DELETE=0 FAIL_PRUNE_DELETE=0
     export MISSING_PROFILE_RECOVERY_FAILURE=0
     export SIGNAL_AFTER_SUCCESS_MOVE=0 FAIL_SUCCESS_MARKER_MOVE=0
+    export CRASH_AFTER_SET=0 FAIL_DATABASE_BACKUP=0 FAIL_DATABASE_RESTORE_INSTALL=0
     unset LIST_FAIL_AT
+    unset MIGRATING_CANDIDATE CRASH_AFTER_MIGRATION_PATH
   }
   reset_fixture() {
     rm -rf "$state"
-    rm -f "$profile" "$profile"-*-link "$GENERATIONS"
+    rm -f "$profile" "$profile"-*-link "$GENERATIONS" "$DATABASE" "$DATABASE-wal" "$DATABASE-shm"
     mkdir -p "$state"
     : > "$GENERATIONS"
     reset_observations
@@ -163,7 +198,7 @@ EOF
       return 1
     fi
   }
-  run() { bash ${script} "$@" "$state" "$profile" house-automationd.service http://127.0.0.1:9876/healthz; }
+  run() { bash ${script} "$@" "$state" "$profile" house-automationd.service http://127.0.0.1:9876/healthz "$DATABASE"; }
 
   # An unreadable initial generation snapshot fails before profile mutation.
   reset_fixture
@@ -191,11 +226,50 @@ EOF
   grep -qxF 'previous_generation=1' "$state/last-failure"
   grep -qxF 'rollback=complete' "$state/last-failure"
   [ ! -e "$START_LIMIT" ]
-  [ "$(cat "$ACTIVATOR_LOG")" = "systemctl reset-failed house-automationd.service
+  [ "$(cat "$ACTIVATOR_LOG")" = "systemctl stop house-automationd.service
+systemctl reset-failed house-automationd.service
 systemctl restart house-automationd.service
+systemctl stop house-automationd.service
 systemctl reset-failed house-automationd.service
 systemctl restart house-automationd.service" ]
   [ "$(generation_links)" -eq 1 ]
+
+  # A candidate can apply a forward-only migration before its restart reports
+  # failure. The old binary must receive the pre-switch SQLite snapshot, never
+  # the candidate's newer schema.
+  seed_old_success
+  printf 'old-schema\n' > "$DATABASE"
+  export MIGRATING_CANDIDATE=${v4}
+  if run ${v4} 4444444444444444444444444444444444444444; then exit 1; fi
+  [ "$(readlink -f "$profile")" = "${v1}" ]
+  if ! grep -qxF old-schema "$DATABASE" || [ -e "$OLD_STARTED_ON_NEW_DATABASE" ]; then
+    printf 'unsafe rollback database=%s old_started=%s\n' "$(cat "$DATABASE")" "$([ -e "$OLD_STARTED_ON_NEW_DATABASE" ] && printf yes || printf no)" >&2
+    exit 1
+  fi
+
+  # Preparing a restore can fail before the atomic replacement. The migrated
+  # database remains intact for forward repair and the old binary stays down.
+  seed_old_success
+  printf 'old-schema\n' > "$DATABASE"
+  export MIGRATING_CANDIDATE=${v4} FAIL_DATABASE_RESTORE_INSTALL=1
+  if run ${v4} 4444444444444444444444444444444444444444; then exit 1; fi
+  [ -e "$RESTORE_INSTALL_FAILURE_TRIGGERED" ]
+  grep -qxF candidate-schema "$DATABASE"
+  [ ! -e "$OLD_STARTED_ON_NEW_DATABASE" ]
+  grep -qxF 'rollback=incomplete' "$state/last-failure"
+  [ -s "$state/pending-activation" ]
+
+  # A snapshot failure happens while the old database is unchanged. Rollback
+  # restarts the old service without switching the profile or losing state.
+  seed_old_success
+  printf 'old-schema\n' > "$DATABASE"
+  export FAIL_DATABASE_BACKUP=1
+  if run ${v4} 4444444444444444444444444444444444444444; then exit 1; fi
+  [ "$(readlink -f "$profile")" = "${v1}" ]
+  grep -qxF old-schema "$DATABASE"
+  grep -qxF 'reason=database-backup-failed' "$state/last-failure"
+  grep -qxF 'rollback=complete' "$state/last-failure"
+  [ ! -e "$state/pending-activation" ]
 
   # A failed health check performs all retries, then verifies the restored app.
   seed_old_success
@@ -232,6 +306,36 @@ systemctl restart house-automationd.service" ]
   [ "$(generation_links)" -eq 2 ]
   [ ! -e "$profile-1-link" ]
 
+  # A hard crash after the profile switch leaves a durable journal. Recovery
+  # restores the exact old generation and removes only the interrupted one.
+  seed_old_success
+  export CRASH_AFTER_SET=1
+  if run ${v4} 4444444444444444444444444444444444444444; then exit 1; fi
+  export CRASH_AFTER_SET=0
+  [ -s "$state/pending-activation" ]
+  [ "$(readlink -f "$profile")" = "${v4}" ]
+  bash ${script} --recover "$state" "$profile" house-automationd.service http://127.0.0.1:9876/healthz "$DATABASE"
+  [ "$(readlink -f "$profile")" = "${v1}" ]
+  [ ! -e "$state/pending-activation" ]
+  [ "$(generation_links)" -eq 1 ]
+
+  # A hard crash after the candidate mutates SQLite leaves phase=candidate.
+  # Recovery restores the snapshot before the old binary is restarted.
+  seed_old_success
+  printf 'old-schema\n' > "$DATABASE"
+  export CRASH_AFTER_MIGRATION_PATH=${v4}
+  if run ${v4} 4444444444444444444444444444444444444444; then exit 1; fi
+  unset CRASH_AFTER_MIGRATION_PATH
+  [ -s "$state/pending-activation" ]
+  grep -qxF candidate-schema "$DATABASE"
+  [ "$(readlink -f "$profile")" = "${v4}" ]
+  bash ${script} --recover "$state" "$profile" house-automationd.service http://127.0.0.1:9876/healthz "$DATABASE"
+  [ "$(readlink -f "$profile")" = "${v1}" ]
+  grep -qxF old-schema "$DATABASE"
+  [ ! -e "$OLD_STARTED_ON_NEW_DATABASE" ]
+  [ ! -e "$state/pending-activation" ]
+  [ "$(generation_links)" -eq 1 ]
+
   # The third snapshot is post-health pruning. If it cannot be read, the
   # healthy candidate is rolled back and last-success remains unchanged.
   seed_old_success
@@ -246,8 +350,10 @@ systemctl restart house-automationd.service" ]
 --switch-generation 1
 --list-generations
 --delete-generations 2"
-  [ "$(cat "$ACTIVATOR_LOG")" = "systemctl reset-failed house-automationd.service
+  [ "$(cat "$ACTIVATOR_LOG")" = "systemctl stop house-automationd.service
+systemctl reset-failed house-automationd.service
 systemctl restart house-automationd.service
+systemctl stop house-automationd.service
 systemctl reset-failed house-automationd.service
 systemctl restart house-automationd.service" ]
   [ "$(wc -l < "$CURL_LOG")" -eq 2 ]
@@ -257,54 +363,28 @@ systemctl restart house-automationd.service" ]
   grep -qxF 'rollback=complete' "$state/last-failure"
   [ "$(generation_links)" -eq 1 ]
 
-  # If rollback cannot list generations after restoring the old link, it is
-  # incomplete and deliberately keeps the failed candidate as a recovery root.
+  # If rollback cannot enumerate generations after restoring the old link, it
+  # retains the journal and candidate root for a later recovery-only run.
   seed_old_success
   export LIST_FAIL_AT=3
   if run ${v2} 2222222222222222222222222222222222222222; then exit 1; fi
   [ "$(cat "$LIST_CALLS")" -eq 3 ]
-  assert_operations "--list-generations
---list-generations
---set ${v2}
---switch-generation 1
---list-generations"
   [ "$(readlink -f "$profile")" = "${v1}" ]
   [ -e "$profile-2-link" ]
   [ "$(generation_links)" -eq 2 ]
+  [ -s "$state/pending-activation" ]
   grep -qxF 'reason=candidate-restart-failed' "$state/last-failure"
   grep -qxF 'rollback=incomplete' "$state/last-failure"
 
-  # Repeated incomplete rollbacks first delete the previous non-current
-  # candidate. Each attempt therefore retains only old current + one candidate.
-  for retry in 1 2; do
-    reset_observations
-    export LIST_FAIL_AT=3
-    if run ${v2} 2222222222222222222222222222222222222222; then exit 1; fi
-    assert_operations "--list-generations
---delete-generations 2
---list-generations
---set ${v2}
---switch-generation 1
---list-generations"
-    [ "$(cat "$LIST_CALLS")" -eq 3 ]
-    [ "$(readlink -f "$profile")" = "${v1}" ]
-    [ -e "$profile-2-link" ]
-    [ "$(generation_links)" -eq 2 ]
-    [ "$(tail -n1 "$GENERATIONS")" -eq 2 ]
-    grep -qxF 'rollback=incomplete' "$state/last-failure"
-  done
-
-  # Failure deleting that stale candidate is fail-closed before --set. The
-  # old current link, recovery root, generation file, and markers are retained.
+  # Recovery is fail-closed if the interrupted candidate root cannot be
+  # removed. No new candidate is allocated and the journal remains durable.
   generations_before=$(cat "$GENERATIONS")
   failure_before=$(cat "$state/last-failure")
   success_before=$(cat "$state/last-success")
   reset_observations
   export FAIL_STARTUP_DELETE=1
-  if run ${v4} 4444444444444444444444444444444444444444 2> "$PWD/stale-cleanup.err"; then exit 1; fi
-  grep -qxF 'activate-app: could not remove incomplete candidate generations' "$PWD/stale-cleanup.err"
-  assert_operations "--list-generations
---delete-generations 2"
+  if bash ${script} --recover "$state" "$profile" house-automationd.service http://127.0.0.1:9876/healthz "$DATABASE" 2> "$PWD/recovery-delete.err"; then exit 1; fi
+  grep -qxF 'activate-app: interrupted activation recovery failed' "$PWD/recovery-delete.err"
   [ "$(count_operation --set)" -eq 0 ]
   [ "$(cat "$LIST_CALLS")" -eq 1 ]
   [ "$(readlink -f "$profile")" = "${v1}" ]
@@ -313,33 +393,28 @@ systemctl restart house-automationd.service" ]
   [ "$(cat "$GENERATIONS")" = "$generations_before" ]
   [ "$(cat "$state/last-failure")" = "$failure_before" ]
   [ "$(cat "$state/last-success")" = "$success_before" ]
+  [ -s "$state/pending-activation" ]
 
-  # An incomplete first activation has no old profile to restart. Its orphaned
-  # candidate is the entire generation snapshot, so retries must delete it
-  # before allocating a replacement instead of leaking another root each time.
-  reset_fixture
-  export MISSING_PROFILE_RECOVERY_FAILURE=1
-  if run ${v3} 3333333333333333333333333333333333333333; then exit 1; fi
-  [ -e "$MISSING_PROFILE_RECOVERY_MARKER" ]
-  [ ! -e "$profile" ]
-  [ -e "$profile-1-link" ]
+  # Once deletion works, recovery removes the interrupted root and journal.
+  reset_observations
+  bash ${script} --recover "$state" "$profile" house-automationd.service http://127.0.0.1:9876/healthz "$DATABASE"
+  [ "$(readlink -f "$profile")" = "${v1}" ]
+  [ ! -e "$profile-2-link" ]
   [ "$(generation_links)" -eq 1 ]
+  [ ! -e "$state/pending-activation" ]
+
+  # A failed first activation has no old binary to restart. It stays
+  # incomplete until recovery removes the candidate and any new database.
+  reset_fixture
+  if run ${v3} 3333333333333333333333333333333333333333; then exit 1; fi
+  [ ! -e "$profile" ]
+  [ "$(generation_links)" -eq 0 ]
+  [ -s "$state/pending-activation" ]
   grep -qxF 'rollback=incomplete' "$state/last-failure"
-  for retry in 1 2; do
-    reset_observations
-    export MISSING_PROFILE_RECOVERY_FAILURE=1
-    if run ${v3} 3333333333333333333333333333333333333333; then exit 1; fi
-    [ -e "$MISSING_PROFILE_RECOVERY_MARKER" ]
-    assert_operations "--list-generations
---delete-generations 1
---list-generations
---set ${v3}"
-    [ ! -e "$profile" ]
-    [ -e "$profile-1-link" ]
-    [ "$(generation_links)" -eq 1 ]
-    [ "$(cat "$GENERATIONS")" = 1 ]
-    grep -qxF 'rollback=incomplete' "$state/last-failure"
-  done
+  bash ${script} --recover "$state" "$profile" house-automationd.service http://127.0.0.1:9876/healthz "$DATABASE"
+  [ ! -e "$profile" ]
+  [ "$(generation_links)" -eq 0 ]
+  [ ! -e "$state/pending-activation" ]
 
   # A delete failure while pruning is distinct from startup cleanup: rollback
   # can delete the new generation and leaves the two pre-existing roots intact.

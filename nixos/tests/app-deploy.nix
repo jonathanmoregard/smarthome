@@ -32,6 +32,13 @@ let
   '';
   activator = pkgs.writeShellScriptBin "activate-app" ''
     printf '%s\n' "$*" >> "$DEPLOY_LOG"
+    if [ "$1" = --recover ]; then
+      previous=$(sed -n 's/^previous_path=//p' "$2/pending-activation")
+      [ -n "$previous" ] && [ "$previous" != none ] || exit 75
+      ln -sfn "$previous" "$3"
+      rm -f "$2/pending-activation"
+      exit 0
+    fi
     mkdir -p "$3"
     if [ "''${ACTIVATOR_FAIL_REV:-}" = "$2" ]; then
       printf 'rev=%s\nreason=candidate-health-failed\nrollback=complete\n' "$2" > "$3/last-failure"
@@ -87,6 +94,7 @@ assert service.serviceConfig.RuntimeDirectoryPreserve == "yes";
 assert service.serviceConfig.ExecStart != "";
 assert evaluated.config.services.app-auto-deploy.serviceName == "-";
 assert evaluated.config.services.app-auto-deploy.healthUrl == "-";
+assert evaluated.config.services.app-auto-deploy.rollbackDatabase == "/var/lib/house-automation/state.sqlite3";
 assert evaluated.options.services.app-auto-deploy.repository.default == "https://github.com/jonathanmoregard/smarthome.git";
 assert !(service.environment ? GIT_SSH_COMMAND);
 assert !(service.environment ? SSH_AUTH_SOCK);
@@ -102,7 +110,7 @@ pkgs.runCommand "app-deploy-contract" { nativeBuildInputs = with pkgs; [ bash co
     if [ "$status" -eq 0 ]; then
       return
     fi
-    for log in missing-ref.log non-ancestor.log rollback.log; do
+    for log in missing-ref.log non-ancestor.log recovered-crash.log ref-rollback.log rollback.log; do
       [ -f "$log" ] || continue
       printf '\n--- %s ---\n' "$log" >&2
       cat "$log" >&2
@@ -143,6 +151,7 @@ pkgs.runCommand "app-deploy-contract" { nativeBuildInputs = with pkgs; [ bash co
   printf '{"version":7,"root":"root","nodes":{"root":{"inputs":{}}}}\n' > work/flake.lock
   git -C work add release-path flake.lock && git -C work commit -qm main
   main=$(git -C work rev-parse HEAD)
+  initial_main=$main
   git init -q --bare origin.git
   git -C work remote add origin file:///build/origin.git
   git -C work push -q origin "$main":refs/heads/main
@@ -180,8 +189,28 @@ pkgs.runCommand "app-deploy-contract" { nativeBuildInputs = with pkgs; [ bash co
   [ "$(git -C source rev-parse HEAD)" = "$main" ]
   activations=$(grep -c '^${app} ' "$DEPLOY_LOG")
   [ "$activations" -eq 1 ]
+  touch "$STATE_DIRECTORY/rollback-database.sqlite3"
   "$deploy"
   [ "$(grep -c '^${app} ' "$DEPLOY_LOG")" -eq 1 ]
+  [ ! -e "$STATE_DIRECTORY/rollback-database.sqlite3" ]
+
+  # A pending journal is recovered under the shared lock before profile drift
+  # is classified. The interrupted candidate is retried only by a later poll.
+  printf 'rev=ffffffffffffffffffffffffffffffffffffffff\npath=/crashed\nprevious_path=%s\nprevious_generation=1\n' ${app} > "$STATE_DIRECTORY/pending-activation"
+  ln -sfn /crashed /build/profile
+  if "$deploy" > recovered-crash.log 2>&1; then exit 1; fi
+  grep -qF 'recovered interrupted activation; retrying on the next run' recovered-crash.log
+  [ "$(readlink -f /build/profile)" = ${app} ]
+  [ ! -e "$STATE_DIRECTORY/pending-activation" ]
+
+  # Promotion may advance only: an older reviewed ancestor cannot roll the app
+  # behind the last successful revision.
+  git -C work push -q --force origin "$initial_main":refs/heads/release/app
+  if "$deploy" > ref-rollback.log 2>&1; then exit 1; fi
+  grep -qF 'promoted revision rolls back last successful revision' ref-rollback.log
+  [ "$(grep -c '^${app} ' "$DEPLOY_LOG")" -eq 1 ]
+  git -C work push -q --force origin "$main":refs/heads/release/app
+
   # A deterministic unhealthy activation is latched.
   git -C work checkout -q "$main"
   printf bad > work/promotion-marker
