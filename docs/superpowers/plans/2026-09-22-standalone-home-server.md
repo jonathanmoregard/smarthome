@@ -486,7 +486,7 @@ git commit -m "test(nixos): prove standalone host deployment"
 - Replace: `.github/workflows/ci.yml`, `.github/workflows/publish.yml`
 - Modify: `nix/tests/publish-workflow.nix`
 
-- [ ] **Step 1: Write red script contracts**
+- [x] **Step 1: Write red script contracts**
 
 Expected classifications:
 
@@ -507,7 +507,7 @@ Add a red app-source contract requiring Cargo metadata, both Rust crates, and
 `.github/`, and `nix/tests/` do not. The contract fails against current
 `lib.cleanSource ../.`.
 
-- [ ] **Step 2: Verify red**
+- [x] **Step 2: Verify red**
 
 ```bash
 git add flake.nix nix/tests/release-scripts.nix nix/tests/app-source.nix
@@ -515,7 +515,7 @@ nix build --no-link .#checks.x86_64-linux.release-scripts -L
 nix build --no-link .#checks.x86_64-linux.app-source -L
 ```
 
-- [ ] **Step 3: Implement scripts minimally**
+- [x] **Step 3: Implement scripts minimally**
 
 Classifier accepts NUL-delimited paths and maps unknown to both. Publisher uses
 `mapfile` plus 128-element array slices. Promoter requires candidate equal
@@ -528,7 +528,7 @@ Implement `nix/source.nix` with `lib.fileset.toSource`, including only
 explicitly into `nix/package.nix` and the format/test derivations. Do not let
 `nix/package.nix` recapture `../.`.
 
-- [ ] **Step 4: Define selective PR and publication workflows**
+- [x] **Step 4: Define selective PR and publication workflows**
 
 Pin third-party actions by full SHA. Default permissions `contents: read`.
 Always classify/evaluate. Select app checks or system toplevel/VM checks. Add
@@ -540,7 +540,7 @@ Cachix, then realizes the full closure from the pinned project plus official
 cache with builders disabled before promotion. Only promotion jobs receive
 `contents: write`.
 
-- [ ] **Step 5: Harden workflow contract**
+- [x] **Step 5: Harden workflow contract**
 
 Require pins, triggers, permissions, outputs, bounded publisher, no PR secrets,
 both exact cache URLs/keys, project-root provenance, builders disabled,
@@ -548,7 +548,7 @@ verify-before-promote, and stable summary. Adversarial mutations cover a
 missing cache/key or root check, `continue-on-error`, skipped verification,
 raw-main deployment, extra writes, and PR secret use.
 
-- [ ] **Step 6: Verify and commit**
+- [x] **Step 6: Verify and commit**
 
 ```bash
 nix build --no-link .#checks.x86_64-linux.release-scripts -L
@@ -571,7 +571,7 @@ git commit -m "ci: publish promoted app and system releases"
 - Create: `docs/home-server/secrets.md`
 - Create: `docs/home-server/access.md`
 
-- [ ] **Step 1: Document exact operator flows**
+- [x] **Step 1: Document exact operator flows**
 
 Cover public HTTPS fetch, release refs, GitHub/Cachix trust, status and trigger
 commands, profiles, failed publication, poison clearing, app/system rollback,
@@ -582,7 +582,7 @@ Access documentation states: Dellan remains through cutover; add Tuxedo or a
 portable operator key before Dellan retirement; friend gets a separate
 key/account and least-privilege commands; never share private keys.
 
-- [ ] **Step 2: Validate docs and dependency absence**
+- [x] **Step 2: Validate docs and dependency absence**
 
 ```bash
 git diff --check
@@ -591,7 +591,7 @@ git diff --check
 
 Expected: no runtime or docs path points at old checkout or SSH Git.
 
-- [ ] **Step 3: Commit docs**
+- [x] **Step 3: Commit docs**
 
 ```bash
 git commit -m "docs: operate standalone home server"
