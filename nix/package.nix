@@ -1,4 +1,5 @@
 {
+  appSource,
   lib,
   rustPlatform,
 }:
@@ -7,9 +8,9 @@ rustPlatform.buildRustPackage {
   pname = "house-automationd";
   version = "0.1.0";
 
-  src = lib.cleanSource ../.;
+  src = appSource;
 
-  cargoLock.lockFile = ../Cargo.lock;
+  cargoLock.lockFile = appSource + "/Cargo.lock";
 
   cargoBuildFlags = [ "--workspace" ];
   cargoTestFlags = [ "--workspace" ];

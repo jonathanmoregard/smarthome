@@ -1,6 +1,8 @@
 name: CI
 
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
 
 permissions:
   contents: read
@@ -10,16 +12,137 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  flake-check:
-    name: nix flake check
+  classify:
+    name: classify changes
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 10
+    outputs:
+      app: ${{ steps.changes.outputs.app }}
+      system: ${{ steps.changes.outputs.system }}
     steps:
-      - name: Check out repository
+      - name: Check out exact revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Classify changed paths
+        id: changes
+        env:
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          base="$EVENT_BASE_SHA"
+          if [[ -z "$base" || "$base" =~ ^0+$ ]]; then
+            base="$EVENT_BEFORE_SHA"
+          fi
+          if [[ -n "$base" && ! "$base" =~ ^0+$ ]] && git cat-file -e "$base^{commit}"; then
+            git diff --name-only -z "$base" "$GITHUB_SHA" \
+              | bash nix/ci/classify-paths.sh >> "$GITHUB_OUTPUT"
+          else
+            git ls-tree -r --name-only -z "$GITHUB_SHA" \
+              | bash nix/ci/classify-paths.sh >> "$GITHUB_OUTPUT"
+          fi
+
+  evaluate:
+    name: evaluate flake
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact revision
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
       - name: Install Nix
         uses: cachix/install-nix-action@ba0dd844c9180cbf77aa72a116d6fbc515d0e87b # v27
-      - name: Check flake
-        run: nix flake check -L
+      - name: Evaluate all outputs
+        run: nix flake check --no-build -L
+
+  app:
+    name: application checks
+    needs: classify
+    if: needs.classify.outputs.app == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out exact revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Install Nix
+        uses: cachix/install-nix-action@ba0dd844c9180cbf77aa72a116d6fbc515d0e87b # v27
+      - name: Build application checks
+        run: |
+          nix build --no-link -L \
+            .#checks.x86_64-linux.app-source \
+            .#checks.x86_64-linux.release-scripts \
+            .#checks.x86_64-linux.publish-workflow \
+            .#checks.x86_64-linux.package \
+            .#checks.x86_64-linux.fmt \
+            .#checks.x86_64-linux.clippy \
+            .#checks.x86_64-linux.tests \
+            .#checks.x86_64-linux.module-vm \
+            .#checks.x86_64-linux.simulated-house
+
+  system:
+    name: home-server checks
+    needs: classify
+    if: needs.classify.outputs.system == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out exact revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Install Nix
+        uses: cachix/install-nix-action@ba0dd844c9180cbf77aa72a116d6fbc515d0e87b # v27
+      - name: Build home-server checks
+        run: |
+          nix build --no-link -L \
+            .#checks.x86_64-linux.standalone-host \
+            .#checks.x86_64-linux.home-server-services \
+            .#checks.x86_64-linux.app-deploy \
+            .#checks.x86_64-linux.app-activator \
+            .#checks.x86_64-linux.system-deploy \
+            .#checks.x86_64-linux.system-activator \
+            .#checks.x86_64-linux.hydrator \
+            .#checks.x86_64-linux.vm-home-server \
+            .#checks.x86_64-linux.vm-home-server-cd \
+            .#nixosConfigurations.home-server.config.system.build.toplevel
+
+  ci:
+    name: CI
+    if: always()
+    needs:
+      - classify
+      - evaluate
+      - app
+      - system
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every selected lane
+        env:
+          APP_RESULT: ${{ needs.app.result }}
+          APP_SELECTED: ${{ needs.classify.outputs.app }}
+          CLASSIFY_RESULT: ${{ needs.classify.result }}
+          EVALUATE_RESULT: ${{ needs.evaluate.result }}
+          SYSTEM_RESULT: ${{ needs.system.result }}
+          SYSTEM_SELECTED: ${{ needs.classify.outputs.system }}
+        run: |
+          set -euo pipefail
+          if [[ "$CLASSIFY_RESULT" != success || "$EVALUATE_RESULT" != success ]]; then
+            exit 1
+          fi
+          if [[ "$APP_SELECTED" == true && "$APP_RESULT" != success ]]; then
+            exit 1
+          fi
+          if [[ "$SYSTEM_SELECTED" == true && "$SYSTEM_RESULT" != success ]]; then
+            exit 1
+          fi
+          for result in "$CLASSIFY_RESULT" "$EVALUATE_RESULT" "$APP_RESULT" "$SYSTEM_RESULT"; do
+            if [[ "$result" == failure || "$result" == cancelled ]]; then
+              exit 1
+            fi
+          done

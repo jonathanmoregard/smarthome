@@ -18,8 +18,8 @@
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
       pkgsSystem = import nixpkgs-system { inherit system; };
-      package = pkgs.callPackage ./nix/package.nix { };
-      source = pkgs.lib.cleanSource ./.;
+      appSource = import ./nix/source.nix { inherit (pkgs) lib; };
+      package = pkgs.callPackage ./nix/package.nix { inherit appSource; };
       collectInputSources = input:
         let
           inputSource = if builtins.isAttrs input && input ? outPath then input.outPath else input;
@@ -100,22 +100,27 @@
         packages = with pkgs; [
           cargo
           clippy
+          age
           rustc
           rustfmt
         ];
       };
 
       checks.${system} = {
+        app-source = import ./nix/tests/app-source.nix {
+          inherit appSource package pkgs;
+        };
+        release-scripts = import ./nix/tests/release-scripts.nix { inherit pkgs; };
         publish-workflow = import ./nix/tests/publish-workflow.nix { inherit pkgs; };
         package = package;
         fmt = pkgs.runCommand "house-automation-formatting" {
-          inherit source;
+          inherit appSource;
           nativeBuildInputs = [
             pkgs.cargo
             pkgs.rustfmt
           ];
         } ''
-          cp -R "$source" source
+          cp -R "$appSource" source
           chmod -R u+w source
           cd source
           cargo fmt --all -- --check
