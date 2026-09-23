@@ -285,7 +285,36 @@ pkgsSystem.testers.runNixOSTest {
     # and retain exactly the old and new generations.
     app_v2_revision = git_commit("app-v2", app_path=app_v2)
     promote("main", "release/app")
+
+    # Production shape: the retired depth-1 deployer left a shallow checkout
+    # in the shared source dir, cut at a main commit newer than release/app.
+    # Ancestry of release/app must still be provable once main moves on.
+    home_server.succeed(
+        f"git -C {quote(WORK)} commit -q --allow-empty -m shallow-cut"
+    )
+    promote("main")
+    source_dir = APP_STATE + "/source"
+    home_server.succeed(
+        f"rm -rf {quote(source_dir)} "
+        f"&& install -d -m 0700 {quote(APP_STATE)} "
+        f"&& git init -q {quote(source_dir)} "
+        f"&& git -C {quote(source_dir)} remote add origin file://{ORIGIN} "
+        f"&& git -C {quote(source_dir)} fetch -q --depth=1 origin "
+        "+refs/heads/main:refs/remotes/origin/main "
+        f"&& git -C {quote(source_dir)} reset -q --hard refs/remotes/origin/main"
+    )
+    assert home_server.succeed(
+        f"git -C {quote(source_dir)} rev-parse --is-shallow-repository"
+    ).strip() == "true"
+    home_server.succeed(
+        f"git -C {quote(WORK)} commit -q --allow-empty -m main-ahead"
+    )
+    promote("main")
+
     home_server.succeed("systemctl start app-deploy.service", timeout=600)
+    assert home_server.succeed(
+        f"git -C {quote(source_dir)} rev-parse --is-shallow-repository"
+    ).strip() == "false"
     app_v2_generation = current_generation(APP_PROFILE)
     app_v2_active = profile_path(APP_PROFILE)
     app_last_success = APP_STATE + "/last-success"
