@@ -530,6 +530,27 @@ pkgsSystem.testers.runNixOSTest {
         "find -L /run/agenix -maxdepth 1 -type f -name '*deploy*' -print -quit | grep -q ."
     )
 
+    # Operators (and agents using their SSH login) may trigger the signed
+    # deployers and reboot without a password; nothing else is widened.
+    # Wheel membership still permits everything *with* a password, so the
+    # contract is the exact passwordless set, not `sudo -l CMD`.
+    listing = home_server.succeed("runuser -u jonathan -- sudo -n -l")
+    print("[diag] operator sudo listing:\n" + listing)
+    nopasswd_lines = [line.strip() for line in listing.splitlines() if "NOPASSWD:" in line]
+    assert len(nopasswd_lines) == 1 and nopasswd_lines[0].startswith("(root) NOPASSWD:"), (
+        nopasswd_lines
+    )
+    passwordless = sorted(
+        command.strip() for command in nopasswd_lines[0].split("NOPASSWD:", 1)[1].split(",")
+    )
+    assert passwordless == [
+        "/run/current-system/sw/bin/systemctl reboot",
+        "/run/current-system/sw/bin/systemctl start app-deploy.service",
+        "/run/current-system/sw/bin/systemctl start system-deploy.service",
+    ], passwordless
+    denied = home_server.fail("runuser -u jonathan -- sudo -n /run/current-system/sw/bin/true 2>&1")
+    assert "a password is required" in denied, denied
+
     failed_units = home_server.succeed("systemctl --failed --no-legend")
     print("[diag] failed units:\n" + failed_units)
     assert failed_units.strip() == "", failed_units
