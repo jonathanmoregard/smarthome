@@ -117,6 +117,7 @@ case "$operation" in
     ;;
   --switch-generation)
     ln -sfn "$profile-$1-link" "$profile"
+    if [ "''${CRASH_AFTER_ROLLBACK_SWITCH:-0}" = 1 ]; then kill -KILL "$PPID"; fi
     ;;
   --delete-generations)
     current_link=$(readlink "$profile" 2>/dev/null || true)
@@ -158,7 +159,7 @@ EOF
     export CANDIDATE_RESET_FAILURE=0 RECOVERY_FAILURE=0 FAIL_STARTUP_DELETE=0 FAIL_PRUNE_DELETE=0
     export MISSING_PROFILE_RECOVERY_FAILURE=0
     export SIGNAL_AFTER_SUCCESS_MOVE=0 FAIL_SUCCESS_MARKER_MOVE=0
-    export CRASH_AFTER_SET=0 FAIL_DATABASE_BACKUP=0 FAIL_DATABASE_RESTORE_INSTALL=0
+    export CRASH_AFTER_SET=0 CRASH_AFTER_ROLLBACK_SWITCH=0 FAIL_DATABASE_BACKUP=0 FAIL_DATABASE_RESTORE_INSTALL=0
     unset LIST_FAIL_AT
     unset MIGRATING_CANDIDATE CRASH_AFTER_MIGRATION_PATH
   }
@@ -244,6 +245,20 @@ systemctl restart house-automationd.service" ]
   [ "$(readlink -f "$profile")" = "${v1}" ]
   if ! grep -qxF old-schema "$DATABASE" || [ -e "$OLD_STARTED_ON_NEW_DATABASE" ]; then
     printf 'unsafe rollback database=%s old_started=%s\n' "$(cat "$DATABASE")" "$([ -e "$OLD_STARTED_ON_NEW_DATABASE" ] && printf yes || printf no)" >&2
+    exit 1
+  fi
+
+  # Power loss after selecting the old generation must never leave the old
+  # binary bootable against the candidate's forward-migrated SQLite schema.
+  seed_old_success
+  printf 'old-schema\n' > "$DATABASE"
+  export MIGRATING_CANDIDATE=${v4} CRASH_AFTER_ROLLBACK_SWITCH=1
+  if run ${v4} 4444444444444444444444444444444444444444; then exit 1; fi
+  export CRASH_AFTER_ROLLBACK_SWITCH=0
+  [ -s "$state/pending-activation" ]
+  systemctl restart house-automationd.service
+  if [ -e "$OLD_STARTED_ON_NEW_DATABASE" ]; then
+    printf 'power-loss window exposed old binary to candidate schema\n' >&2
     exit 1
   fi
 

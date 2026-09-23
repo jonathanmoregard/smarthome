@@ -121,8 +121,8 @@ recover_pending() {
   [[ "$pending_old_path" =~ ^$store_dir/[0123456789abcdfghijklmnpqrsvwxyz]{32}-[A-Za-z0-9+._?=-]{1,211}$ ]] || return 1
   [ -x "$pending_old_path/bin/house-automationd" ] || return 1
   [[ "$pending_old_generation" =~ ^[0-9]+$ ]] || return 1
-  nix-env --profile "$profile" --switch-generation "$pending_old_generation" >/dev/null || return 1
   restore_database "$pending_phase" "$pending_database_existed" "$pending_backup" "$pending_owner" "$pending_group" "$pending_mode" || return 1
+  nix-env --profile "$profile" --switch-generation "$pending_old_generation" >/dev/null || return 1
   if [ "$service" != - ]; then
     systemctl reset-failed "$service" || return 1
     systemctl restart "$service" || return 1
@@ -229,10 +229,11 @@ rollback() {
   if [ "$service" != - ]; then systemctl stop "$service" || return 1; fi
   if [ "$old_path" = none ]; then
     rm -f "$profile" || return 1
+    restore_database "$phase" "$database_existed" "$([ "$database_existed" = yes ] && printf '%s' "$database_backup" || printf none)" "$database_owner" "$database_group" "$database_mode" || return 1
   else
+    restore_database "$phase" "$database_existed" "$([ "$database_existed" = yes ] && printf '%s' "$database_backup" || printf none)" "$database_owner" "$database_group" "$database_mode" || return 1
     nix-env --profile "$profile" --switch-generation "$old_generation" >/dev/null || return 1
   fi
-  restore_database "$phase" "$database_existed" "$([ "$database_existed" = yes ] && printf '%s' "$database_backup" || printf none)" "$database_owner" "$database_group" "$database_mode" || return 1
   if [ "$old_path" = none ]; then
     remove_new_generations || return 1
     return 1
