@@ -41,7 +41,11 @@ let
       export HOME="$state" XDG_CACHE_HOME="$state/cache" GIT_TERMINAL_PROMPT=0
       mkdir -p "$XDG_CACHE_HOME"
       if [ ! -d "$source/.git" ]; then git -C "$source" init -q; git -C "$source" remote add origin "$repo"; else git -C "$source" remote set-url origin "$repo"; fi
-      git -C "$source" fetch --prune origin +refs/heads/main:refs/remotes/origin/main +refs/heads/release/app:refs/remotes/origin/release/app
+      # The retired depth-1 deployer shared this checkout; its shallow boundary
+      # hides release/app's ancestry, so restore full history once.
+      unshallow=()
+      if [ "$(git -C "$source" rev-parse --is-shallow-repository)" = true ]; then unshallow=(--unshallow); fi
+      git -C "$source" fetch --prune "''${unshallow[@]}" origin +refs/heads/main:refs/remotes/origin/main +refs/heads/release/app:refs/remotes/origin/release/app
       candidate=$(git -C "$source" rev-parse refs/remotes/origin/release/app) || die 'release/app is missing'
       git -C "$source" merge-base --is-ancestor "$candidate" origin/main || die 'release/app is not an ancestor of origin/main'
       revision=$candidate
