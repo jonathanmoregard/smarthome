@@ -1,7 +1,10 @@
 name: CI
 
+# Feature branches are covered by their pull_request run; push is only for
+# main, so a PR commit is not tested twice.
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:

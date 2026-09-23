@@ -40,7 +40,7 @@ pkgs.runCommand "smarthome-publish-workflow-contract"
         .name == "CI" and
         ((.permissions | keys | join(",")) == "contents") and
         (.permissions.contents == "read") and
-        (.on | has("push")) and
+        ((.on.push.branches | join(",")) == "main") and
         (.on | has("pull_request")) and
         ((.jobs | keys | sort | join(",")) == "app,ci,classify,evaluate,system")
       ' "$candidate" >/dev/null || return 1
@@ -155,6 +155,7 @@ pkgs.runCommand "smarthome-publish-workflow-contract"
 
     assert_rejected validate_ci "$ci" "PR secret use" '.jobs.app.env.TOKEN = "''${{ secrets.CACHIX_AUTH_TOKEN }}"'
     assert_rejected validate_ci "$ci" "PR secret object use" '.jobs.app.env.TOKEN = "''${{ toJSON(secrets) }}"'
+    assert_rejected validate_ci "$ci" "duplicate branch push runs" '.on.push = null'
     assert_rejected validate_ci "$ci" "unstable summary" '.jobs.ci.if = "success()"'
     assert_rejected validate_ci "$ci" "app check silently tolerated" '.jobs.app."continue-on-error" = true'
     assert_rejected validate_ci "$ci" "expression-controlled app failure" '.jobs.app."continue-on-error" = "''${{ true }}"'
