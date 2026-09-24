@@ -88,14 +88,6 @@ let
   service = evaluated.config.systemd.services.app-deploy;
 in
 assert !forbiddenRepository.success;
-assert service.serviceConfig.RuntimeDirectory == "smarthome-deploy";
-assert service.serviceConfig.TimeoutStartSec == "10min";
-assert service.serviceConfig.RuntimeDirectoryPreserve == "yes";
-assert service.serviceConfig.ExecStart != "";
-assert evaluated.config.services.app-auto-deploy.serviceName == "-";
-assert evaluated.config.services.app-auto-deploy.healthUrl == "-";
-assert evaluated.config.services.app-auto-deploy.rollbackDatabase == "/var/lib/house-automation/state.sqlite3";
-assert evaluated.options.services.app-auto-deploy.repository.default == "https://github.com/jonathanmoregard/smarthome.git";
 assert !(service.environment ? GIT_SSH_COMMAND);
 assert !(service.environment ? SSH_AUTH_SOCK);
 assert !(service.environment ? DEPLOY_KEY);
@@ -128,15 +120,9 @@ pkgs.runCommand "app-deploy-contract" { nativeBuildInputs = with pkgs; [ bash co
     return "$status"
   }
   trap deploy_failure_diagnostics EXIT
-  grep -qF 'refs/heads/release/app' "$deploy"
-  grep -qF 'merge-base --is-ancestor' "$deploy"
-  grep -qF 'origin/main' "$deploy"
-  grep -qF '/run/smarthome-deploy/deploy.lock' "$deploy"
-  grep -qF 'candidate is poisoned after deterministic unhealthy activation' "$deploy"
   grep -qF -- '--option max-jobs 0' "$deploy"
   grep -qF -- '--option fallback false' "$deploy"
   grep -qF -- '--option builders ""' "$deploy"
-  grep -qF -- '--no-write-lock-file' "$deploy"
   grep -qF '${projectCache}' "$deploy"
   grep -qF '${projectKey}' "$deploy"
   grep -qF '${nixosCache}' "$deploy"

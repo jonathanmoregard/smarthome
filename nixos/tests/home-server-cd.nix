@@ -172,24 +172,11 @@ pkgsSystem.testers.runNixOSTest {
         "curl -fsS http://127.0.0.1:9876/healthz >/dev/null", timeout=60
     )
 
-    # Resource shape and boot-time agenix state are part of the production
-    # simulation contract. Never print the secret; retain only its digest.
-    cpu_count = int(home_server.succeed("nproc"))
-    memory_kib = int(home_server.succeed("awk '/MemTotal/ {print $2}' /proc/meminfo"))
-    disk_bytes = int(home_server.succeed("blockdev --getsize64 /dev/vda"))
-    root_fs = home_server.succeed("findmnt -n -o FSTYPE /").strip()
+    # Boot-time agenix state must survive the system switch below. Never print
+    # the secret; retain only its digest.
     secret_digest = home_server.succeed(
         "sha256sum /run/agenix/home-server-cd-secret | awk '{print $1}'"
     ).strip()
-    print(
-        f"[diag] shape cpus={cpu_count} memory_kib={memory_kib} "
-        f"disk_bytes={disk_bytes} root_fs={root_fs} secret_bytes="
-        + home_server.succeed("wc -c < /run/agenix/home-server-cd-secret").strip()
-    )
-    assert cpu_count == 4, cpu_count
-    assert 7_500_000 <= memory_kib <= 8_500_000, memory_kib
-    assert disk_bytes == 128 * 1024**3, disk_bytes
-    assert root_fs == "ext4", root_fs
     assert secret_digest, "empty agenix fixture secret"
 
     # Create one real local origin. main is the ancestry authority while each

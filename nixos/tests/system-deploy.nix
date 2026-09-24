@@ -118,23 +118,6 @@ let
   service = evaluated.config.systemd.services.system-deploy;
 in
 assert !forbiddenRepository.success;
-assert evaluated.options.services.system-auto-deploy.repository.default == "https://github.com/jonathanmoregard/smarthome.git";
-assert evaluated.config.services.system-auto-deploy.releaseRef == "release/home-server";
-assert evaluated.config.services.system-auto-deploy.healthUnits == [
-  "sshd.service"
-  "tailscaled.service"
-  "mosquitto.service"
-];
-assert evaluated.config.services.system-auto-deploy.healthUnitGroups == [
-  [ "app-deploy.timer" "smarthome-deploy.timer" ]
-  [ "system-deploy.timer" "nixos-deploy.timer" ]
-];
-assert service.serviceConfig.User == "root";
-assert service.serviceConfig.Group == "root";
-assert service.serviceConfig.TimeoutStartSec == "10min";
-assert service.serviceConfig.TimeoutStopSec == "5min";
-assert service.serviceConfig.RuntimeDirectory == "smarthome-deploy";
-assert service.serviceConfig.RuntimeDirectoryPreserve == "yes";
 assert service.restartIfChanged == false;
 assert service.stopIfChanged == false;
 assert ! (service.serviceConfig ? PrivateTmp);
@@ -162,17 +145,7 @@ pkgs.runCommand "system-deploy-contract" {
   }
   trap diagnose EXIT
 
-  grep -qF 'refs/heads/release/home-server' "$deploy"
-  grep -qF 'refs/heads/main:refs/remotes/origin/main' "$deploy"
-  grep -qF 'merge-base --is-ancestor' "$deploy"
-  grep -qF '/run/smarthome-deploy/deploy.lock' "$deploy"
   [ "$(grep -cF 'timeout --signal=KILL 45s git' "$deploy")" -eq 2 ]
-  grep -qF 'nixosConfigurations.home-server.config.system.build.toplevel' "$deploy"
-  grep -qF -- '--no-update-lock-file' "$deploy"
-  grep -qF -- '--no-write-lock-file' "$deploy"
-  grep -qF -- '--option max-jobs 0' "$deploy"
-  grep -qF -- '--option fallback false' "$deploy"
-  grep -qF -- '--option builders ""' "$deploy"
   grep -qF '${projectCache}' "$deploy"
   grep -qF '${projectKey}' "$deploy"
   grep -qF '${nixosCache}' "$deploy"

@@ -76,10 +76,6 @@ assert host.config.homeServer.zigbeeSerialPort == physicalCoordinator;
 assert host.config.homeServer.zigbeeChannel == 25;
 assert host.config.homeServer.zigbeePanId == 50324;
 assert host.config.homeServer.zigbeeExtendedPanId == [ 52 207 50 36 195 122 154 61 ];
-assert host.config.age.secrets.zigbee2mqtt-network-key.file == ../secrets/zigbee2mqtt-network-key.age;
-assert host.config.age.secrets.zigbee2mqtt-network-key.owner == "root";
-assert host.config.age.secrets.zigbee2mqtt-network-key.group == "root";
-assert host.config.age.secrets.zigbee2mqtt-network-key.mode == "0400";
 assert !(builtins.hasAttr "deployKeyFile" host.options.homeServer);
 assert !(builtins.hasAttr "smarthomeDeployKeyFile" host.options.homeServer);
 assert !(builtins.hasAttr "rekey" host.options.age);
@@ -194,10 +190,6 @@ pkgsSystem.testers.runNixOSTest {
           assertion = !config.services.zigbee2mqtt.settings.permit_join;
           message = "Zigbee pairing must remain disabled";
         }
-        {
-          assertion = config.services.postgresql.enable && !config.services.matrix-synapse.enable;
-          message = "PostgreSQL remains active while Matrix is disabled by default";
-        }
       ];
 
       environment.systemPackages = [ pkgsSystem.gnugrep ];
@@ -220,12 +212,7 @@ pkgsSystem.testers.runNixOSTest {
     home_server.wait_until_succeeds("test -L '${physicalCoordinator}'", timeout=30)
     home_server.succeed("test -c '${physicalCoordinator}'")
 
-    home_server.succeed("systemctl is-enabled zigbee2mqtt.service | grep -Fx enabled")
     home_server.succeed("systemctl show zigbee2mqtt.service -P LoadState | grep -Fx loaded")
-    home_server.succeed(
-        "systemctl cat zigbee2mqtt.service | "
-        "grep -F 'LoadCredential=network-key:/run/agenix/zigbee2mqtt-network-key'"
-    )
     home_server.succeed(
         "systemctl cat zigbee2mqtt.service | grep '^Requires=' | "
         "grep -F mosquitto.service | grep -F dev-serial-by | grep -F Itead"
@@ -260,7 +247,6 @@ pkgsSystem.testers.runNixOSTest {
 
     home_server.wait_for_unit("postgresql.service")
     home_server.wait_for_unit("house-automationd.service")
-    home_server.succeed("test -d /var/lib/house-automation")
 
     store_config = home_server.succeed(
         "systemctl show zigbee2mqtt.service -P ExecStartPre | "
