@@ -14,8 +14,8 @@ use house_automation_core::{
     input::{Action, ClickClassifier, Direction, Gesture, Mapping, ScopeTarget},
     overlay::{OverlayDuration, OverlayEffect, OverlayId, OverlaySet},
     reconcile::{
-        Availability, DeviceDefinition, DeviceId, DispatchAcceptance, DispatchClaim, EntityId,
-        ReconcileAction, Reconciler,
+        Availability, CommandEntity, DeviceDefinition, DeviceId, DispatchAcceptance, DispatchClaim,
+        EntityId, ReconcileAction, Reconciler,
     },
     state::{
         AutomationState, ControlId, ControlState, CurveToggleOutcome, LocalDate, MonotonicTime,
@@ -679,12 +679,7 @@ impl HouseEngine {
             );
         }
 
-        let mut actions = if refresh_due.is_empty() {
-            Vec::new()
-        } else {
-            self.reconciler
-                .force_reconcile_devices(&refresh_due, now.monotonic)?
-        };
+        let mut actions = Vec::new();
         let mut grouped_members = BTreeSet::new();
         for group in &self.groups {
             let Some(shared_owner) = &group.shared_owner else {
@@ -748,6 +743,35 @@ impl HouseEngine {
                         .set_device_desired(id, *target, now.monotonic)?,
                 );
             }
+        }
+        // Refresh after desired state is updated: a sub-threshold curve drift
+        // replaces the desired target and cancels any dispatch staged before
+        // it, so a refresh staged first would never be published.
+        let commanded: BTreeSet<DeviceId> = actions
+            .iter()
+            .flat_map(|action| match action {
+                ReconcileAction::Command {
+                    entity: CommandEntity::Device(id),
+                    ..
+                } => vec![id.clone()],
+                ReconcileAction::Command {
+                    entity: CommandEntity::Group(group),
+                    ..
+                } => self
+                    .groups
+                    .iter()
+                    .filter(|runtime| &runtime.id == group)
+                    .flat_map(|runtime| runtime.members.iter().cloned())
+                    .collect(),
+                _ => Vec::new(),
+            })
+            .collect();
+        let refresh: BTreeSet<_> = refresh_due.difference(&commanded).cloned().collect();
+        if !refresh.is_empty() {
+            actions.extend(
+                self.reconciler
+                    .force_reconcile_devices(&refresh, now.monotonic)?,
+            );
         }
         for id in update_devices {
             if let Some(target) = targets.get(&id) {

@@ -76,6 +76,7 @@ const LAMP: &str = "upper-floor/upper-hallway/lamp";
 #[derive(Clone, Default)]
 struct Wire {
     delivered: Arc<Mutex<Vec<String>>>,
+    payloads: Arc<Mutex<Vec<Vec<u8>>>>,
     refused: Arc<Mutex<Vec<String>>>,
     blocked: Arc<AtomicBool>,
 }
@@ -108,7 +109,7 @@ impl MqttTransport for WireTransport {
     async fn publish(
         &mut self,
         topic: &str,
-        _payload: &[u8],
+        payload: &[u8],
         _qos: Qos,
         _retain: bool,
     ) -> Result<(), MqttError> {
@@ -117,6 +118,7 @@ impl MqttTransport for WireTransport {
             return Err(MqttError::transport("simulated broker backpressure"));
         }
         self.0.delivered.lock().unwrap().push(topic.to_owned());
+        self.0.payloads.lock().unwrap().push(payload.to_vec());
         Ok(())
     }
 
@@ -196,9 +198,11 @@ struct House {
 
 impl House {
     fn production() -> Self {
-        let parts = ValidatedConfig::parse(PRODUCTION)
-            .unwrap()
-            .into_runtime_parts();
+        Self::from_source(PRODUCTION)
+    }
+
+    fn from_source(source: &str) -> Self {
+        let parts = ValidatedConfig::parse(source).unwrap().into_runtime_parts();
         let engine =
             HouseEngine::initialize(parts, AutomationState::default(), sample(0.0).runtime)
                 .unwrap();
@@ -226,6 +230,33 @@ impl House {
             .handle_transport_event(message(topic, payload))
             .await
             .unwrap();
+    }
+
+    /// Echoes every command as Zigbee2MQTT does, so the light converges.
+    async fn run_echoing_until(&mut self, seconds: f64) {
+        let mut now = self.clock.lock().unwrap().runtime.monotonic.as_seconds();
+        while now < seconds {
+            let seen = self.wire.delivered().len();
+            now = (now + 0.5).min(seconds);
+            self.run_until(now).await;
+            let topics = self.wire.delivered()[seen..].to_vec();
+            let payloads = self.wire.payloads.lock().unwrap()[seen..].to_vec();
+            for (topic, payload) in topics.iter().zip(payloads) {
+                let Some(name) = topic.strip_suffix("/set") else {
+                    continue;
+                };
+                let sent: serde_json::Value = serde_json::from_slice(&payload).unwrap();
+                let mut state =
+                    serde_json::json!({"state": "OFF", "brightness": 127, "color_temp": 333});
+                for key in ["state", "brightness", "color_temp"] {
+                    if let Some(value) = sent.get(key) {
+                        state[key] = value.clone();
+                    }
+                }
+                self.receive(name, &serde_json::to_vec(&state).unwrap())
+                    .await;
+            }
+        }
     }
 
     async fn run_until(&mut self, seconds: f64) {
@@ -312,6 +343,72 @@ async fn a_light_follows_the_curve_on_join_and_is_never_commanded_under_an_old_n
         "{after_removal:?}"
     );
     assert!(house.actor.engine().owner_scope(&bulb()).is_err());
+}
+
+#[tokio::test]
+async fn a_converged_light_is_refreshed_every_maximum_refresh_interval_across_a_rename() {
+    let mut house = House::from_source(&PRODUCTION.replace(
+        "[mqtt]",
+        "[circadian]\ntick_seconds = 0.5\nmaximum_refresh_seconds = 2.0\n\n[mqtt]",
+    ));
+    house
+        .actor
+        .handle_transport_event(TransportEvent::Connected)
+        .await
+        .unwrap();
+    house
+        .receive("zigbee2mqtt/bridge/state", br#"{"state":"online"}"#)
+        .await;
+    house
+        .receive("zigbee2mqtt/bridge/devices", &bridge_devices(BULB))
+        .await;
+    house
+        .receive(
+            &format!("zigbee2mqtt/{BULB}/availability"),
+            br#"{"state":"online"}"#,
+        )
+        .await;
+    house.run_echoing_until(4.0).await;
+
+    let old_set = format!("zigbee2mqtt/{BULB}/set");
+    let new_set = format!("zigbee2mqtt/{LAMP}/set");
+    let sets_between = |house: &House, from: usize, topic: &str| {
+        house.wire.delivered()[from..]
+            .iter()
+            .filter(|sent| *sent == topic)
+            .count()
+    };
+    let converged_at = house.wire.delivered().len();
+    house.run_echoing_until(12.0).await;
+    assert!(
+        sets_between(&house, converged_at, &old_set) >= 3,
+        "a converged light must still be refreshed: {:?}",
+        &house.wire.delivered()[converged_at..]
+    );
+
+    // Zigbee2MQTT clears the old availability and announces the new one
+    // before it republishes the device list.
+    house
+        .receive(&format!("zigbee2mqtt/{BULB}/availability"), b"")
+        .await;
+    house
+        .receive(
+            &format!("zigbee2mqtt/{LAMP}/availability"),
+            br#"{"state":"online"}"#,
+        )
+        .await;
+    house
+        .receive("zigbee2mqtt/bridge/devices", &bridge_devices(LAMP))
+        .await;
+    house.run_echoing_until(16.0).await;
+    let renamed_at = house.wire.delivered().len();
+    house.run_echoing_until(26.0).await;
+    assert_eq!(sets_between(&house, renamed_at, &old_set), 0);
+    assert!(
+        sets_between(&house, renamed_at, &new_set) >= 4,
+        "the renamed light stopped following: {:?}",
+        &house.wire.delivered()[renamed_at..]
+    );
 }
 
 #[test]
