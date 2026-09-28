@@ -247,7 +247,9 @@ fn a_generic_light_is_controlled_but_an_undefined_disabled_or_half_interviewed_o
             .unwrap();
         change(bulb);
         let devices = parse_bridge_devices(&serde_json::to_vec(&entries).unwrap()).unwrap();
-        classify(&devices, &topology)[&bulb_id()].disposition.clone()
+        classify(&devices, &topology)[&bulb_id()]
+            .disposition
+            .clone()
     };
 
     // Zigbee2MQTT reports `supported: false` for definitions it generated
