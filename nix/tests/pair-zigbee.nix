@@ -142,6 +142,7 @@ pkgs.testers.runNixOSTest {
             "--time",
             "--host -oProxyCommand=touch",
             "--bogus",
+            "--paired-file",
         ]:
             status, out = run(args)
             assert status == 64, f"{args!r}: exit {status}\n{out}"
@@ -171,6 +172,19 @@ pkgs.testers.runNixOSTest {
         wait_for_request_times([5, 0])
         transaction = json.loads(server.succeed(f"head -n1 {REQUESTS}"))["transaction"]
         assert transaction.startswith("pair-zigbee-"), transaction
+        assert_no_leftovers()
+
+    with subtest("--stop-after-first closes pairing once a device paired"):
+        reset_requests()
+        status, out = run(
+            "--host server --time 200 --stop-after-first "
+            "--paired-file /tmp/paired"
+        )
+        assert status == 0, f"exit {status}\n{out}"
+        assert "Pairing closed." in out and "1 device paired:" in out, out
+        paired = client.succeed("cat /tmp/paired").strip()
+        assert paired == "0x000b57fffe123456", paired
+        wait_for_request_times([200, 0])
         assert_no_leftovers()
 
     with subtest("Ctrl-C closes pairing before the tunnel goes away"):
