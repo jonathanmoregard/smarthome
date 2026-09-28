@@ -107,29 +107,42 @@ part of either release path; its SSH key remains ordinary operator access.
 
 ### Add a room, light, or control
 
-1. Copy `examples/house.toml` to
-   `nixos/hosts/home-server/house.toml`; the example alone never configures the
-   physical server.
-2. Add the floor and room to `[[floors]]` and `[[rooms]]`.
-3. Add room, floor, or house `[[scopes]]` and select a circadian curve.
-4. Pair the device, give it a stable Zigbee2MQTT `friendly_name`, and use that
-   exact name in `[[devices]]` or `[[controls]]`.
-5. Declare only capabilities the device actually exposes: on/off, dimming,
-   color temperature with safe Kelvin/mired limits, XY/HS color, input, or
-   sensor capabilities. Vendor-specific extensions stay optional.
-6. Optionally declare a Zigbee group for synchronized room commands. Devices
-   remain available as per-device fallbacks, including when a group cannot
-   express color temperature safely.
-7. Import the production topology in `nixos/hosts/home-server/default.nix`:
+Adding, naming, moving or removing a light needs no repository change and no
+pull request. Zigbee2MQTT is the device registry (`devices.yaml` in
+`/var/lib/zigbee2mqtt`, kept across restarts), and `house-automationd`
+follows its retained `zigbee2mqtt/bridge/devices` list at runtime.
 
-   ```nix
-   homeServer.houseSettings =
-     builtins.fromTOML (builtins.readFile ./house.toml);
-   ```
+```console
+nix run .#house -- add upper-floor/upper-hallway/lamp   # pair and name
+nix run .#house -- list                                 # name, room, model, availability
+nix run .#house -- show upper-floor/upper-hallway/lamp  # owner, live state, circadian target
+nix run .#house -- identify 0x7cc6b6fffe3cef1c          # make it flash
+nix run .#house -- rename 0x7cc6b6fffe3cef1c upper-floor/upper-hallway/lamp
+nix run .#house -- remove upper-floor/upper-hallway/lamp
+```
 
-8. Map control gestures to a scope and run `nix flake check -L`. The host
-   change enables `house-automationd`; app and host changes then use the
-   independent tracks in [Releases](#releases).
+- A light follows the curve as soon as Zigbee2MQTT finishes its interview,
+  even under its `0x…` name. A light whose exposes cannot be mapped is not
+  controlled, and `house show` says why. Remotes and sensors are listed but
+  not discovered as controls.
+- A `<floor>/<room>/<device>` name only adds room membership. It lets remotes
+  target the room and allows later per-room adjustments. Ownership is the
+  most specific declared scope: room, then floor, then house. The house scope
+  uses `default_curve` and is created automatically when `house.toml`
+  declares none.
+- A `[[devices]]` entry still works. When it shares a `friendly_name` with a
+  discovered device, the static entry wins.
+
+Policy still lives in `nixos/hosts/home-server/house.toml` and goes through
+the [Releases](#releases) tracks: `default_curve`, curves, a declared
+`[[rooms]]` + `[[scopes]]` pair to give a room its own curve or make it a
+remote target, and `[[controls]]` for remotes. Run `nix flake check -L`
+after such changes.
+
+`/healthz` on the daemon's loopback listener reports
+`discovery: disabled | pending | synced` without naming devices. `/devices`
+lists every device with its room, owner, target and any not-controlled
+reason; `house` reads it through the same SSH connection.
 
 Scopes compose as room, floor, and house ownership. The most specific physical
 owner holds durable offsets and curve state; broader actions fan out to those
