@@ -104,6 +104,14 @@ impl ScopeMembership {
         Self { room, floor }
     }
 
+    pub fn room(&self) -> &ScopeId {
+        &self.room
+    }
+
+    pub fn floor(&self) -> &ScopeId {
+        &self.floor
+    }
+
     pub fn is_in(&self, scope: &Scope) -> bool {
         match scope {
             Scope::Room(room) => room == &self.room,
