@@ -23,7 +23,51 @@ use house_automationd::{
     zigbee2mqtt::Qos,
 };
 
-const PRODUCTION: &str = include_str!("../../nixos/hosts/home-server/house.toml");
+// Same shape as the home-server topology (validated by the `house-config`
+// flake check); host config is not part of the app source.
+const PRODUCTION: &str = r#"schema_version = 1
+default_curve = "home-day"
+# Devices are discovered at runtime from Zigbee2MQTT (spec rollout step 2).
+devices = []
+controls = []
+
+# Approximate coordinates are enough for solar timing.
+[location]
+latitude = 59.3
+longitude = 18.1
+time_zone = "Europe/Stockholm"
+
+# Loopback listener is anonymous and ACL-limited; no credentials needed.
+[mqtt]
+host = "127.0.0.1"
+port = 1883
+client_id = "house-automationd"
+
+[[floors]]
+id = "upper-floor"
+
+[[rooms]]
+id = "upper-hallway"
+floor = "upper-floor"
+
+# Yellower light by preference: daytime tops out at 3500 K.
+[[curves]]
+id = "home-day"
+kind = "solar_hybrid"
+wake_time = "07:00"
+bed_time = "23:00"
+night_brightness = 0.10
+day_brightness = 1.00
+night_color_temperature_kelvin = 2200
+day_color_temperature_kelvin = 3500
+winter_hold = { start = "11-01", end = "01-31", reference = "11-01" }
+
+[[scopes]]
+id = "upper-hallway-lights"
+kind = "room"
+room = "upper-hallway"
+curve = "home-day"
+"#;
 const EXAMPLE: &str = include_str!("../../examples/house.toml");
 const BRIDGE_DEVICES: &str = include_str!("fixtures/bridge-devices.json");
 const BULB: &str = "0x7cc6b6fffe3cef1c";

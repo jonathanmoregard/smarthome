@@ -14,12 +14,51 @@ use house_automationd::config::{
 use house_automationd::zigbee2mqtt::{InboundEvent, InboundMessage, PlanEpoch, Qos};
 
 const EXAMPLE: &str = include_str!("../../examples/house.toml");
-const PRODUCTION: &str = include_str!("../../nixos/hosts/home-server/house.toml");
+// Mirrors the shape of the home-server topology; that file itself is validated
+// by the `house-config` flake check, since host config is not app source.
+const DISCOVERY: &str = r#"schema_version = 1
+default_curve = "home-day"
+# Devices are discovered at runtime from Zigbee2MQTT (spec rollout step 2).
+devices = []
+controls = []
 
-#[test]
-fn production_topology_validates() {
-    ValidatedConfig::parse(PRODUCTION).expect("home-server house.toml must validate");
-}
+# Approximate coordinates are enough for solar timing.
+[location]
+latitude = 59.3
+longitude = 18.1
+time_zone = "Europe/Stockholm"
+
+# Loopback listener is anonymous and ACL-limited; no credentials needed.
+[mqtt]
+host = "127.0.0.1"
+port = 1883
+client_id = "house-automationd"
+
+[[floors]]
+id = "upper-floor"
+
+[[rooms]]
+id = "upper-hallway"
+floor = "upper-floor"
+
+# Yellower light by preference: daytime tops out at 3500 K.
+[[curves]]
+id = "home-day"
+kind = "solar_hybrid"
+wake_time = "07:00"
+bed_time = "23:00"
+night_brightness = 0.10
+day_brightness = 1.00
+night_color_temperature_kelvin = 2200
+day_color_temperature_kelvin = 3500
+winter_hold = { start = "11-01", end = "01-31", reference = "11-01" }
+
+[[scopes]]
+id = "upper-hallway-lights"
+kind = "room"
+room = "upper-hallway"
+curve = "home-day"
+"#;
 
 #[test]
 fn anonymous_example_loads_and_uses_safe_defaults() {
@@ -1223,16 +1262,16 @@ fn oversized_input_is_rejected_before_toml_parsing() {
 
 #[test]
 fn an_empty_static_topology_is_valid_only_with_discovery() {
-    let production = ValidatedConfig::parse(PRODUCTION).unwrap();
+    let production = ValidatedConfig::parse(DISCOVERY).unwrap();
     assert!(production.device_discovery());
     assert_eq!(production.device_count(), 0);
     assert_eq!(production.control_count(), 0);
 
-    let without_discovery = replace(PRODUCTION, "default_curve = \"home-day\"\n", "");
+    let without_discovery = replace(DISCOVERY, "default_curve = \"home-day\"\n", "");
     assert!(reject(&without_discovery).contains("must not be empty"));
 
     let unknown_curve = replace(
-        PRODUCTION,
+        DISCOVERY,
         "default_curve = \"home-day\"",
         "default_curve = \"missing-curve\"",
     );

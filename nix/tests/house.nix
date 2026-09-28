@@ -125,7 +125,7 @@ pkgs.testers.runNixOSTest {
     server.succeed(
         "systemd-run --unit=mqtt-recorder "
         "--property=StandardOutput=append:/tmp/mqtt.log "
-        "stdbuf -oL mosquitto_sub -h 127.0.0.1 -v -t 'zigbee2mqtt/#'"
+        "${pkgs.coreutils}/bin/stdbuf -oL ${pkgs.mosquitto}/bin/mosquitto_sub -h 127.0.0.1 -v -t 'zigbee2mqtt/#'"
     )
     client.wait_for_unit("multi-user.target")
     client.succeed(

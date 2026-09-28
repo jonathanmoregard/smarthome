@@ -167,6 +167,11 @@
           inherit pkgs package house;
           module = self.nixosModules.default;
         };
+        # The shipped daemon must accept the shipped home-server topology.
+        house-config = pkgs.runCommand "house-config" { } ''
+          ${package}/bin/house-automationd check-config ${./nixos/hosts/home-server/house.toml}
+          touch $out
+        '';
         standalone-host = import ./nixos/tests/standalone-host.nix {
           inherit pkgsSystem;
           host = self.nixosConfigurations.home-server;
