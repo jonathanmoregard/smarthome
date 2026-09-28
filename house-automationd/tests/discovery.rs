@@ -232,6 +232,51 @@ fn a_static_declaration_wins_and_a_declared_room_keeps_its_floor() {
 }
 
 #[test]
+fn a_generic_light_is_controlled_but_an_undefined_disabled_or_half_interviewed_one_is_not() {
+    let (names, ids, rooms) = (BTreeSet::new(), BTreeSet::new(), BTreeMap::new());
+    let topology = StaticTopology {
+        friendly_names: &names,
+        device_ids: &ids,
+        declared_rooms: &rooms,
+    };
+    let bulb_with = |change: &dyn Fn(&mut Value)| {
+        let mut entries: Vec<Value> = serde_json::from_str(FIXTURE).unwrap();
+        let bulb = entries
+            .iter_mut()
+            .find(|entry| entry["ieee_address"] == BULB)
+            .unwrap();
+        change(bulb);
+        let devices = parse_bridge_devices(&serde_json::to_vec(&entries).unwrap()).unwrap();
+        classify(&devices, &topology)[&bulb_id()].disposition.clone()
+    };
+
+    // Zigbee2MQTT reports `supported: false` for definitions it generated
+    // from standard clusters; the exposes are still usable.
+    assert!(matches!(
+        bulb_with(&|bulb| {
+            bulb["supported"] = json!(false);
+            bulb["definition"]["source"] = json!("generated");
+        }),
+        Disposition::Controlled(_)
+    ));
+    assert_eq!(
+        bulb_with(&|bulb| {
+            bulb["supported"] = json!(false);
+            bulb["definition"] = Value::Null;
+        }),
+        Disposition::NotControlled(UncontrolledReason::Unsupported)
+    );
+    assert_eq!(
+        bulb_with(&|bulb| bulb["disabled"] = json!(true)),
+        Disposition::NotControlled(UncontrolledReason::Disabled)
+    );
+    assert_eq!(
+        bulb_with(&|bulb| bulb["interview_completed"] = json!(false)),
+        Disposition::NotControlled(UncontrolledReason::InterviewIncomplete)
+    );
+}
+
+#[test]
 fn a_light_without_writable_state_is_not_controlled_and_says_why() {
     let mut devices = devices_named(BULB);
     let bulb = devices
