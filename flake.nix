@@ -36,6 +36,7 @@
           builtins.attrValues (builtins.removeAttrs flakeInputs [ "self" ])
         )
       );
+      pairZigbee = pkgs.callPackage ./nix/pair-zigbee.nix { };
       mkCargoCheck =
         {
           name,
@@ -60,7 +61,16 @@
         });
     in
     {
-      packages.${system}.default = package;
+      packages.${system} = {
+        default = package;
+        pair-zigbee = pairZigbee;
+      };
+
+      apps.${system}.pair-zigbee = {
+        type = "app";
+        program = pkgs.lib.getExe pairZigbee;
+        meta.description = pairZigbee.meta.description;
+      };
 
       nixosModules.default = import ./nix/module.nix;
       nixosModules.system-deploy = import ./nixos/modules/system-auto-deploy.nix;
@@ -144,6 +154,7 @@
           inherit pkgs package;
           module = self.nixosModules.default;
         };
+        pair-zigbee = import ./nix/tests/pair-zigbee.nix { inherit pkgs pairZigbee; };
         standalone-host = import ./nixos/tests/standalone-host.nix {
           inherit pkgsSystem;
           host = self.nixosConfigurations.home-server;
