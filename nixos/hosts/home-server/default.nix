@@ -12,6 +12,9 @@
 
   system.configurationRevision = if self ? rev then self.rev else "standalone-home-server";
 
+  # Policy only: devices are discovered at runtime from Zigbee2MQTT.
+  homeServer.houseSettings = builtins.fromTOML (builtins.readFile ./house.toml);
+
   services.app-auto-deploy.enable = true;
   services.system-auto-deploy = {
     enable = true;

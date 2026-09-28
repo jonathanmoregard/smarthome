@@ -66,10 +66,26 @@ let
         }
       ];
     }).config.services.app-auto-deploy;
+  registryFilesGuard = devicesFile:
+    let
+      evaluated = host.extendModules {
+        modules = [
+          { services.zigbee2mqtt.settings.devices = pkgsSystem.lib.mkForce devicesFile; }
+        ];
+      };
+      assertion = pkgsSystem.lib.findFirst
+        (assertion:
+          assertion.message == "zigbee2mqtt must keep devices.yaml and groups.yaml as its device and group files so runtime renames survive restarts"
+        )
+        (throw "zigbee2mqtt registry file assertion is missing")
+        evaluated.config.assertions;
+    in assertion.assertion;
 in
-assert host.config.homeServer.houseSettings == null;
-assert host.config.services.app-auto-deploy.serviceName == "-";
-assert host.config.services.app-auto-deploy.healthUrl == "-";
+assert host.config.homeServer.houseSettings.default_curve == "home-day";
+assert host.config.services.app-auto-deploy.serviceName == "house-automationd.service";
+assert host.config.services.app-auto-deploy.healthUrl == "http://127.0.0.1:9876/healthz";
+assert registryFilesGuard "devices.yaml";
+assert !(registryFilesGuard "configuration.yaml");
 assert (appDeployFor { schema_version = 1; }).serviceName == "house-automationd.service";
 assert (appDeployFor { schema_version = 1; }).healthUrl == "http://127.0.0.1:9876/healthz";
 assert host.config.homeServer.zigbeeSerialPort == physicalCoordinator;
@@ -130,7 +146,7 @@ pkgsSystem.testers.runNixOSTest {
 
       homeServer = {
         # These defaults are intentional boundaries for this task.
-        houseSettings = {
+        houseSettings = lib.mkForce {
           schema_version = 1;
           mqtt = {
             host = "127.0.0.1";

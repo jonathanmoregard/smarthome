@@ -115,7 +115,7 @@ pkgsSystem.testers.runNixOSTest {
       age.secrets.zigbee2mqtt-network-key.file =
         lib.mkForce "${zigbeeTestAgenix}/zigbee2mqtt-network-key.age";
 
-      homeServer.houseSettings = {
+      homeServer.houseSettings = lib.mkForce {
         schema_version = 1;
         mqtt = {
           host = "127.0.0.1";

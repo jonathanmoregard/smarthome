@@ -178,7 +178,7 @@ in
       # real activation must preserve its ramfs mount in the host namespace.
       homeServer = {
         zigbeeSerialPort = mkForce null;
-        houseSettings = {
+        houseSettings = mkForce {
           schema_version = 1;
           mqtt = {
             host = "127.0.0.1";
