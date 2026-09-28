@@ -24,14 +24,14 @@ Rejected:
 ## Persistence
 
 The NixOS zigbee2mqtt module copies the generated `configuration.yaml` over the
-live file on every start (`ExecStartPre`), which discards renames that
-Zigbee2MQTT writes there. Zigbee2MQTT 2.13 reads and writes devices and groups
-in separate files when `devices` / `groups` are filename strings
-(`util/settings.js`, `readDevicesOrGroups` / `writeDevicesOrGroups`).
-
-The host sets `services.zigbee2mqtt.settings.devices = "devices.yaml"` and
-`groups = "groups.yaml"`. Those files live in `/var/lib/zigbee2mqtt` and are
-never rewritten by Nix. Pairing data stays in `database.db` as today.
+live file on every start (`ExecStartPre`), so anything Zigbee2MQTT wrote there
+would be lost. Renames are not written there: the module already defaults
+`settings.devices = "devices.yaml"` and `settings.groups = "groups.yaml"`
+(`lib.mkDefault`), and Zigbee2MQTT 2.13 reads and writes devices and groups in
+those separate files (`util/settings.js`, `readDevicesOrGroups` /
+`writeDevicesOrGroups`). They live in `/var/lib/zigbee2mqtt` and Nix never
+rewrites them. Pairing data stays in `database.db`. No host change is needed;
+the host must simply not override those two settings.
 
 Invariant: a device renamed at runtime keeps its name after
 `systemctl restart zigbee2mqtt` and after reboot.
@@ -107,12 +107,16 @@ Invariants, not mirrors of the implementation:
 - A device renamed out of a room is never commanded under its old room.
 - VM test: a fake Zigbee2MQTT publishes a device list; the daemon commands the
   device; a rename moves it; removal stops commands.
-- VM test: rename through Zigbee2MQTT, restart zigbee2mqtt, name survives.
+- The shipped production `house.toml` validates.
+- Host evaluation fails if `devices.yaml` / `groups.yaml` stop being the
+  Zigbee2MQTT device and group files.
 
 ## Rollout
 
-1. PR: enable house-automationd on home-server with the base `house.toml` and
-   split `devices.yaml` / `groups.yaml`.
+1. PR: enable house-automationd on home-server with the base `house.toml`, and
+   a module assertion that `devices.yaml` / `groups.yaml` stay the Zigbee2MQTT
+   device and group files (the test VM has no working radio, so a live rename
+   test is not possible there).
 2. PR: discovery in the daemon and the `house` command.
 3. Operator: `house rename 0x7cc6b6fffe3cef1c upper-floor/upper-hallway/lamp`.
 
