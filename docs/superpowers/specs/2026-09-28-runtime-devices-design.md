@@ -103,6 +103,7 @@ Runs from any machine with Tailscale and an accepted SSH key, like
 | Create | `house add <floor/room/name> [--time S]` | Opens pairing; renames the first joined device to the name |
 | Read | `house list` | Name, placement, model, availability |
 | Inspect | `house show <name>` | Above plus owner scope, live state, circadian target, not-controlled reason |
+| Identify | `house identify <name> [--seconds 1-30]` | Z2M `identify` (default 10 s) so the physical lamp flashes; falls back to `effect: breathe` when the device exposes no `identify` |
 | Update | `house rename <old> <new>` | Zigbee2MQTT rename; moves rooms when the path changes |
 | Delete | `house remove <name> [--force]` | Zigbee2MQTT remove; device leaves the network |
 
