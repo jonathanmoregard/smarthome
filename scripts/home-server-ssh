@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+die() {
+  printf 'home-server-ssh: %s\n' "$*" >&2
+  exit 64
+}
+
+usage='usage: home-server-ssh ACCOUNT [-- COMMAND...]
+       home-server-ssh ACCOUNT --pairing-ui'
+
+[ "$#" -ge 1 ] || die "$usage"
+account=$1
+shift
+[[ "$account" =~ ^[a-z_][a-z0-9_-]*$ ]] || die 'invalid account name'
+
+script_dir=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+known_hosts=${HOME_SERVER_KNOWN_HOSTS:-$script_dir/../nixos/hosts/home-server/known_hosts}
+[ -f "$known_hosts" ] || die 'pinned known_hosts file is missing'
+
+ssh_arguments=(
+  -F /dev/null
+  -o "UserKnownHostsFile=$known_hosts"
+  -o GlobalKnownHostsFile=/dev/null
+  -o StrictHostKeyChecking=yes
+  -o CheckHostIP=yes
+  -o HostKeyAlias=home-server
+)
+
+if [ "${1:-}" = --pairing-ui ]; then
+  [ "$#" -eq 1 ] || die "$usage"
+  ssh_arguments+=(
+    -N
+    -L 8080:127.0.0.1:8080
+  )
+  shift
+elif [ "${1:-}" = -- ]; then
+  shift
+elif [[ "${1:-}" == -* ]]; then
+  die "$usage"
+fi
+
+exec ssh "${ssh_arguments[@]}" "$account@100.87.199.107" "$@"
