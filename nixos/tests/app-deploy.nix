@@ -88,6 +88,8 @@ let
   service = evaluated.config.systemd.services.app-deploy;
 in
 assert !forbiddenRepository.success;
+assert service.restartIfChanged == false;
+assert service.stopIfChanged == false;
 assert !(service.environment ? GIT_SSH_COMMAND);
 assert !(service.environment ? SSH_AUTH_SOCK);
 assert !(service.environment ? DEPLOY_KEY);

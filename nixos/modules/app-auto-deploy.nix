@@ -98,6 +98,10 @@ in {
     } ];
     systemd.timers.app-deploy = { wantedBy = [ "timers.target" ]; timerConfig = { OnBootSec = "2min"; OnUnitActiveSec = "15min"; Persistent = true; Unit = "app-deploy.service"; }; };
     systemd.services.app-deploy = {
+      # system-deploy runs switch-to-configuration while holding the deploy
+      # lock; restarting this oneshot there would wait on that same lock.
+      restartIfChanged = false;
+      stopIfChanged = false;
       after = [ "network-online.target" ]; wants = [ "network-online.target" ];
       serviceConfig = { Type = "oneshot"; ExecStart = lib.getExe deploy; User = "root"; Group = "root"; StateDirectory = "smarthome-deploy"; StateDirectoryMode = "0700"; RuntimeDirectory = "smarthome-deploy"; RuntimeDirectoryMode = "0700"; RuntimeDirectoryPreserve = "yes"; TimeoutStartSec = "10min"; UMask = "0077"; NoNewPrivileges = true; PrivateTmp = true; ProtectHome = true; ProtectSystem = "strict"; ReadWritePaths = [ stateDir runtimeDir (builtins.dirOf cfg.profile) ] ++ lib.optional (cfg.serviceName != "-") "-${builtins.dirOf cfg.rollbackDatabase}"; };
     };
