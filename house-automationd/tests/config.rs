@@ -1220,3 +1220,24 @@ fn oversized_input_is_rejected_before_toml_parsing() {
 
     assert!(error.contains("byte limit"));
 }
+
+#[test]
+fn an_empty_static_topology_is_valid_only_with_discovery() {
+    let production = ValidatedConfig::parse(PRODUCTION).unwrap();
+    assert!(production.device_discovery());
+    assert_eq!(production.device_count(), 0);
+    assert_eq!(production.control_count(), 0);
+
+    let without_discovery = replace(PRODUCTION, "default_curve = \"home-day\"\n", "");
+    assert!(reject(&without_discovery).contains("must not be empty"));
+
+    let unknown_curve = replace(
+        PRODUCTION,
+        "default_curve = \"home-day\"",
+        "default_curve = \"missing-curve\"",
+    );
+    assert_eq!(
+        reject(&unknown_curve),
+        "invalid default_curve: references unknown curve"
+    );
+}

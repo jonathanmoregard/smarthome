@@ -125,6 +125,8 @@ impl HouseEngine {
             reconciliation_timing,
             health: _,
             curves: configured_curves,
+            default_curve: _,
+            rooms: _,
             scopes,
             devices: configured_devices,
             groups: configured_groups,

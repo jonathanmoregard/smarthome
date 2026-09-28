@@ -1,4 +1,5 @@
 schema_version = 1
+default_curve = "home-day"
 # Devices are discovered at runtime from Zigbee2MQTT (spec rollout step 2).
 devices = []
 controls = []

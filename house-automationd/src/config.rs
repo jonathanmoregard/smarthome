@@ -105,6 +105,10 @@ impl ValidatedConfig {
         self.parts.controls.len()
     }
 
+    pub fn device_discovery(&self) -> bool {
+        self.parts.default_curve.is_some()
+    }
+
     pub fn into_runtime_parts(self) -> RuntimeConfigParts {
         self.parts
     }
@@ -139,6 +143,10 @@ pub struct RuntimeConfigParts {
     pub reconciliation_timing: ReconciliationTiming,
     pub health: HealthSettings,
     pub curves: BTreeMap<ScopeId, CircadianSchedule>,
+    /// Curve for the house scope discovery synthesizes; `Some` enables discovery.
+    pub default_curve: Option<ScopeId>,
+    /// Declared room -> its floor.
+    pub rooms: BTreeMap<ScopeId, ScopeId>,
     pub scopes: Vec<ScopeConfiguration>,
     pub devices: Vec<DeviceConfiguration>,
     pub groups: Vec<GroupConfiguration>,
@@ -304,6 +312,7 @@ impl Error for ConfigError {}
 #[serde(deny_unknown_fields)]
 struct RawConfig {
     schema_version: u32,
+    default_curve: Option<String>,
     location: Option<RawLocation>,
     mqtt: RawMqtt,
     #[serde(default)]
@@ -318,13 +327,18 @@ struct RawConfig {
     reconciliation: RawReconciliation,
     #[serde(default)]
     health: RawHealth,
+    #[serde(default)]
     floors: Vec<RawFloor>,
+    #[serde(default)]
     rooms: Vec<RawRoom>,
     curves: Vec<RawCurve>,
+    #[serde(default)]
     scopes: Vec<RawScope>,
+    #[serde(default)]
     devices: Vec<RawDevice>,
     #[serde(default)]
     groups: Vec<RawGroup>,
+    #[serde(default)]
     controls: Vec<RawControl>,
 }
 
@@ -675,15 +689,32 @@ impl RawConfig {
         let reconciliation_timing = self.reconciliation.timing();
         let retry_policy = self.reconciliation.validate()?;
         let health = self.health.validate()?;
-        let floors = validate_floors(self.floors)?;
-        let rooms = validate_rooms(self.rooms, &floors)?;
         let curves = validate_curves(self.curves, location.as_ref())?;
+        let default_curve = self
+            .default_curve
+            .map(|raw| {
+                let id = scope_id(raw, "default_curve")?;
+                if curves.contains_key(&id) {
+                    Ok(id)
+                } else {
+                    Err(ConfigError::validation(
+                        "default_curve",
+                        "references unknown curve",
+                    ))
+                }
+            })
+            .transpose()?;
+        // Discovery fills the topology at runtime, so an empty static topology
+        // is valid only when it is enabled.
+        let discovery = default_curve.is_some();
+        let floors = validate_floors(self.floors, discovery)?;
+        let rooms = validate_rooms(self.rooms, &floors, discovery)?;
         let (devices, device_caps, device_ids, aliases, device_bindings) =
-            validate_devices(self.devices, &rooms)?;
+            validate_devices(self.devices, &rooms, discovery)?;
         let (groups, group_bindings) = validate_groups(self.groups, &device_caps, &device_ids)?;
-        let scopes = validate_scopes(self.scopes, &floors, &rooms, &curves, &devices)?;
+        let scopes = validate_scopes(self.scopes, &floors, &rooms, &curves, &devices, discovery)?;
         let (controls, control_bindings) =
-            validate_controls(self.controls, &scopes, &devices, aliases)?;
+            validate_controls(self.controls, &scopes, &devices, aliases, discovery)?;
 
         let zigbee2mqtt = Zigbee2MqttAdapter::new(
             mqtt.zigbee2mqtt_base_topic.clone(),
@@ -710,6 +741,8 @@ impl RawConfig {
             reconciliation_timing,
             health,
             curves,
+            default_curve,
+            rooms,
             scopes,
             devices,
             groups,
@@ -1039,8 +1072,8 @@ impl RawHealth {
     }
 }
 
-fn validate_floors(raw: Vec<RawFloor>) -> Result<BTreeSet<ScopeId>, ConfigError> {
-    if raw.is_empty() {
+fn validate_floors(raw: Vec<RawFloor>, discovery: bool) -> Result<BTreeSet<ScopeId>, ConfigError> {
+    if raw.is_empty() && !discovery {
         return Err(ConfigError::validation("floors", "must not be empty"));
     }
     let mut floors = BTreeSet::new();
@@ -1056,8 +1089,9 @@ fn validate_floors(raw: Vec<RawFloor>) -> Result<BTreeSet<ScopeId>, ConfigError>
 fn validate_rooms(
     raw: Vec<RawRoom>,
     floors: &BTreeSet<ScopeId>,
+    discovery: bool,
 ) -> Result<BTreeMap<ScopeId, ScopeId>, ConfigError> {
-    if raw.is_empty() {
+    if raw.is_empty() && !discovery {
         return Err(ConfigError::validation("rooms", "must not be empty"));
     }
     let mut rooms = BTreeMap::new();
@@ -1265,8 +1299,9 @@ struct ValidatedCapabilities {
 fn validate_devices(
     raw: Vec<RawDevice>,
     rooms: &BTreeMap<ScopeId, ScopeId>,
+    discovery: bool,
 ) -> Result<DeviceValidation, ConfigError> {
-    if raw.is_empty() {
+    if raw.is_empty() && !discovery {
         return Err(ConfigError::validation("devices", "must not be empty"));
     }
     let mut configurations = Vec::with_capacity(raw.len());
@@ -1449,8 +1484,9 @@ fn validate_scopes(
     rooms: &BTreeMap<ScopeId, ScopeId>,
     curves: &BTreeMap<ScopeId, CircadianSchedule>,
     devices: &[DeviceConfiguration],
+    discovery: bool,
 ) -> Result<Vec<ScopeConfiguration>, ConfigError> {
-    if raw.is_empty() {
+    if raw.is_empty() && !discovery {
         return Err(ConfigError::validation("scopes", "must not be empty"));
     }
     let mut ids = BTreeSet::new();
@@ -1504,7 +1540,7 @@ fn validate_scopes(
             .iter()
             .filter(|device| device.is_controllable_light && device.membership.is_in(&scope))
             .count();
-        if member_count == 0 {
+        if member_count == 0 && !discovery {
             return Err(ConfigError::validation(
                 "scopes",
                 "resolved scope must contain at least one device that is a controllable light",
@@ -1520,8 +1556,9 @@ fn validate_controls(
     scopes: &[ScopeConfiguration],
     devices: &[DeviceConfiguration],
     mut all_names: BTreeSet<String>,
+    discovery: bool,
 ) -> Result<(Vec<ControlConfiguration>, Vec<ControlBinding>), ConfigError> {
-    if raw.is_empty() {
+    if raw.is_empty() && !discovery {
         return Err(ConfigError::validation("controls", "must not be empty"));
     }
     let scope_by_id: BTreeMap<_, _> = scopes
@@ -1606,7 +1643,7 @@ fn validate_controls(
                     scope_supports_action(scope, entry.action(), devices)
                 }
             };
-            if !supported {
+            if !supported && !discovery {
                 return Err(ConfigError::validation(
                     "controls.mappings.action",
                     "requires a matching device capability in every possible target scope",
