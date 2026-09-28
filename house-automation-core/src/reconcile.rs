@@ -780,6 +780,62 @@ impl Reconciler {
         })
     }
 
+    /// Starts tracking a device discovered at runtime.
+    ///
+    /// Availability starts unknown, so nothing is commanded until
+    /// Zigbee2MQTT reports the device online. A connected reconciler asks for
+    /// its current state immediately.
+    pub fn add_device(
+        &mut self,
+        definition: DeviceDefinition,
+        now: MonotonicTime,
+    ) -> Result<Vec<ReconcileAction>, ReconcileError> {
+        self.transact(now, |next, _| {
+            let id = definition.id.clone();
+            match next.devices.entry(id.clone()) {
+                btree_map::Entry::Occupied(_) => return Err(ReconcileError::DuplicateDevice(id)),
+                btree_map::Entry::Vacant(slot) => {
+                    slot.insert(DeviceState::new(
+                        definition.capabilities,
+                        definition.color_policy,
+                    ));
+                }
+            }
+            if next.transport == TransportStatus::Connected {
+                Ok(vec![ReconcileAction::RequestState(id)])
+            } else {
+                Ok(Vec::new())
+            }
+        })
+    }
+
+    /// Stops tracking a device and drops all of its reconciliation state.
+    ///
+    /// Work staged together with other devices is restaged for them alone, so
+    /// no publication for the removed device can still be claimed.
+    pub fn remove_device(
+        &mut self,
+        id: &DeviceId,
+        now: MonotonicTime,
+    ) -> Result<Vec<ReconcileAction>, ReconcileError> {
+        self.transact(now, |next, now| {
+            if !next.devices.contains_key(id) {
+                return Err(ReconcileError::UnknownDevice(id.clone()));
+            }
+            if next
+                .groups
+                .values()
+                .any(|group| group.definition.members.contains(id))
+            {
+                return Err(ReconcileError::GroupMemberRemoval(id.clone()));
+            }
+            let mut canceled = next.cancel_work_for_device(id);
+            canceled.remove(id);
+            next.devices.remove(id);
+            next.stage_current_devices(canceled.into_iter().map(|id| (id, 1)).collect(), now)
+        })
+    }
+
     pub fn set_bridge_availability(
         &mut self,
         availability: Availability,
@@ -1795,6 +1851,7 @@ pub enum ReconcileError {
     EmptyGroup(EntityId),
     DuplicateGroupMember,
     DeviceInMultipleGroups(DeviceId),
+    GroupMemberRemoval(DeviceId),
 }
 
 impl Display for ReconcileError {
@@ -1868,6 +1925,11 @@ impl Display for ReconcileError {
                     id.as_str()
                 )
             }
+            Self::GroupMemberRemoval(id) => write!(
+                formatter,
+                "device {} belongs to a native group and cannot be removed at runtime",
+                id.as_str()
+            ),
         }
     }
 }
@@ -1886,8 +1948,8 @@ mod tests {
     use super::{
         Availability, ColorComparisonPolicy, ColorGamut, CommandEntity, DeviceDefinition, DeviceId,
         DispatchAcceptance, DispatchCancellation, DispatchClaim, DispatchRegistrationOutcome,
-        DispatchToken, EntityId, GroupDefinition, ReconcileAction, Reconciler, RetryPolicy,
-        TransportStatus,
+        DispatchToken, EntityId, GroupDefinition, ReconcileAction, ReconcileError, Reconciler,
+        RetryPolicy, TransportStatus,
     };
 
     fn id(value: &str) -> DeviceId {
@@ -4026,5 +4088,76 @@ mod tests {
         assert!(ColorGamut::new((f64::NAN, 0.1), (0.2, 0.3), (0.4, 0.5)).is_err());
         assert!(ColorComparisonPolicy::new(None, 0.0, 0.02).is_err());
         assert!(ColorComparisonPolicy::new(None, 0.03, 1.1).is_err());
+    }
+
+    #[test]
+    fn removed_device_is_never_commanded_again() {
+        let mut reconciler = connected_reconciler(vec![
+            DeviceDefinition::new(id("a"), capabilities()),
+            DeviceDefinition::new(id("b"), capabilities()),
+        ]);
+        let staged = reconciler
+            .set_device_desired(&id("a"), target(0.4), at(1.0))
+            .unwrap();
+        let token = staged
+            .iter()
+            .find_map(|action| match action {
+                ReconcileAction::Command { token, .. } => Some(*token),
+                _ => None,
+            })
+            .expect("an online device is commanded");
+        reconciler
+            .set_device_desired(&id("b"), target(0.6), at(1.0))
+            .unwrap();
+
+        reconciler.remove_device(&id("a"), at(2.0)).unwrap();
+
+        assert!(!reconciler.is_dispatch_token_valid(token));
+        assert!(reconciler.device_state(&id("a")).is_err());
+        let mut later = reconciler.retry_due(at(60.0)).unwrap();
+        reconciler.broker_disconnected(at(61.0)).unwrap();
+        later.extend(connect_with_online_bridge(&mut reconciler, 62.0));
+        assert!(later.iter().all(|action| match action {
+            ReconcileAction::RequestState(device) => device != &id("a"),
+            ReconcileAction::Command { entity, .. } => {
+                entity != &CommandEntity::Device(id("a"))
+            }
+            ReconcileAction::Resubscribe => true,
+        }));
+        assert!(later.iter().any(|action| matches!(
+            action,
+            ReconcileAction::Command { entity: CommandEntity::Device(device), .. }
+                if device == &id("b")
+        )));
+    }
+
+    #[test]
+    fn added_device_waits_for_availability_then_reconciles() {
+        let mut reconciler =
+            connected_reconciler(vec![DeviceDefinition::new(id("a"), capabilities())]);
+
+        let added = reconciler
+            .add_device(DeviceDefinition::new(id("new"), capabilities()), at(1.0))
+            .unwrap();
+
+        assert_eq!(added, vec![ReconcileAction::RequestState(id("new"))]);
+        assert!(
+            reconciler
+                .set_device_desired(&id("new"), target(0.5), at(2.0))
+                .unwrap()
+                .is_empty()
+        );
+        let online = reconciler
+            .set_device_availability(&id("new"), Availability::Online, at(3.0))
+            .unwrap();
+        assert!(matches!(
+            online.as_slice(),
+            [ReconcileAction::Command { entity: CommandEntity::Device(device), .. }]
+                if device == &id("new")
+        ));
+        assert!(matches!(
+            reconciler.add_device(DeviceDefinition::new(id("new"), capabilities()), at(4.0)),
+            Err(ReconcileError::DuplicateDevice(_))
+        ));
     }
 }

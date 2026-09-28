@@ -42,6 +42,8 @@ when you press Ctrl-C.
 Options:
   -H, --host HOST     SSH destination (default: $SMARTHOME_HOST, else home-server)
   -t, --time SECONDS  how long pairing stays open, 1-254 (default: 180)
+  --stop-after-first  close pairing as soon as one device has paired
+  --paired-file FILE  append the 0x address of each paired device to FILE
   -h, --help          show this help
 EOF
 }
@@ -59,6 +61,8 @@ fail() {
 
 host=${SMARTHOME_HOST:-home-server}
 seconds=180
+stop_after_first=0
+paired_file=
 while [ "$#" -gt 0 ]; do
   case $1 in
     -H | --host)
@@ -69,6 +73,15 @@ while [ "$#" -gt 0 ]; do
     -t | --time)
       [ "$#" -ge 2 ] || usage_error "$1 needs a value"
       seconds=$2
+      shift 2
+      ;;
+    --stop-after-first)
+      stop_after_first=1
+      shift
+      ;;
+    --paired-file)
+      [ "$#" -ge 2 ] || usage_error "$1 needs a value"
+      paired_file=$2
       shift 2
       ;;
     -h | --help)
@@ -185,6 +198,9 @@ handle_message() {
       if jq -e '.type == "device_interview" and .data.status == "successful"' \
         <<<"$payload" >/dev/null 2>&1; then
         paired+=("$(jq -r "$describe_paired" <<<"$payload")")
+        if [ -n "$paired_file" ]; then
+          jq -r '.data.ieee_address' <<<"$payload" >>"$paired_file"
+        fi
       fi
       ;;
   esac
@@ -243,6 +259,9 @@ echo "Power on the new device now, close to the server. A device that was paired
 echo "before must be reset first. Press Ctrl-C to stop early."
 end=$((SECONDS + seconds))
 while [ "$SECONDS" -lt "$end" ]; do
+  if [ "$stop_after_first" = 1 ] && [ "${#paired[@]}" -gt 0 ]; then
+    break
+  fi
   kill -0 "$ssh_pid" 2>/dev/null || fail "lost the connection to $host" 1
   status=0
   next_message 1 || status=$?

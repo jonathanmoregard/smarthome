@@ -1,10 +1,12 @@
 use std::{env, ffi::OsString, path::PathBuf, process::ExitCode};
 
-use house_automationd::{logging, persistence::SqliteStateStore, runtime::run_service};
+use house_automationd::{
+    config::ValidatedConfig, logging, persistence::SqliteStateStore, runtime::run_service,
+};
 
 const DEFAULT_CONFIG: &str = "/etc/house-automation/config.toml";
 const DEFAULT_STATE: &str = "/var/lib/house-automation/state.sqlite3";
-const USAGE: &str = "usage: house-automationd [--config <config.toml> --state <state.sqlite3>]\n       house-automationd backup --database <state.sqlite3> --destination <backup.sqlite3>";
+const USAGE: &str = "usage: house-automationd [--config <config.toml> --state <state.sqlite3>]\n       house-automationd backup --database <state.sqlite3> --destination <backup.sqlite3>\n       house-automationd check-config <config.toml>";
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -39,6 +41,13 @@ async fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
                 .backup_to(destination)
                 .map_err(|error| CliError::Operation(Box::new(error)))
         }
+        Command::CheckConfig { config } => {
+            let input = std::fs::read_to_string(&config)
+                .map_err(|error| CliError::Operation(Box::new(error)))?;
+            ValidatedConfig::parse(&input)
+                .map(|_| ())
+                .map_err(|error| CliError::Operation(Box::new(error)))
+        }
     }
 }
 
@@ -51,6 +60,9 @@ enum Command {
     Backup {
         database: PathBuf,
         destination: PathBuf,
+    },
+    CheckConfig {
+        config: PathBuf,
     },
 }
 
@@ -83,6 +95,9 @@ fn parse_arguments(arguments: Vec<OsString>) -> Result<Command, CliError> {
                 destination: PathBuf::from(destination),
             })
         }
+        [command, config] if command == "check-config" => Ok(Command::CheckConfig {
+            config: PathBuf::from(config),
+        }),
         _ => Err(CliError::Usage),
     }
 }

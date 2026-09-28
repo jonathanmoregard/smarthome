@@ -274,6 +274,15 @@ in
     }
 
     (mkIf zigbeeEnabled {
+      assertions = [
+        {
+          assertion =
+            (config.services.zigbee2mqtt.settings.devices or null) == "devices.yaml"
+            && (config.services.zigbee2mqtt.settings.groups or null) == "groups.yaml";
+          message = "zigbee2mqtt must keep devices.yaml and groups.yaml as its device and group files so runtime renames survive restarts";
+        }
+      ];
+
       services.zigbee2mqtt = {
         enable = true;
         dataDir = "/var/lib/zigbee2mqtt";

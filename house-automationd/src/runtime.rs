@@ -14,12 +14,12 @@ use house_automation_core::{
     input::{Action, ClickClassifier, Direction, Gesture, Mapping, ScopeTarget},
     overlay::{OverlayDuration, OverlayEffect, OverlayId, OverlaySet},
     reconcile::{
-        Availability, DeviceId, DispatchAcceptance, DispatchClaim, EntityId, ReconcileAction,
-        Reconciler,
+        Availability, CommandEntity, DeviceDefinition, DeviceId, DispatchAcceptance, DispatchClaim,
+        EntityId, ReconcileAction, Reconciler,
     },
     state::{
         AutomationState, ControlId, ControlState, CurveToggleOutcome, LocalDate, MonotonicTime,
-        Scope, ScopeMembership, ScopeState,
+        Scope, ScopeId, ScopeMembership, ScopeState,
     },
     value::{Capabilities, KelvinRange, LightTarget},
 };
@@ -29,11 +29,17 @@ use crate::{
         CircadianSettings, MqttSettings, ReconciliationTiming, RuntimeConfigParts, ValidatedConfig,
         WholeHourSettings,
     },
-    health::HealthState,
+    discovery::{
+        BridgeDevice, DerivedLight, DiscoveredDevice, Disposition, PlacementNote, StaticTopology,
+        UncontrolledReason, classify,
+    },
+    health::{DeviceReport, DeviceSource, DiscoveryStatus, HealthState, TargetReport},
     mqtt::{MqttTransport, RumqttTransport, TransportEvent, load_credentials, status_topic},
     persistence::{PersistenceError, SqliteStateStore},
     scheduler::{Clock, Scheduler, TokioClock},
-    zigbee2mqtt::{AdapterOperation, InboundEvent, PlanEpoch, Zigbee2MqttAdapter},
+    zigbee2mqtt::{
+        AdapterOperation, DeviceBinding, InboundEvent, PlanEpoch, Subscription, Zigbee2MqttAdapter,
+    },
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -70,7 +76,9 @@ pub struct ActionSummary {
 
 #[derive(Debug, Clone)]
 struct DeviceRuntime {
-    membership: ScopeMembership,
+    /// `None` for a discovered light without a `floor/room/device` name; it
+    /// is a member of the house scope only.
+    membership: Option<ScopeMembership>,
     capabilities: Capabilities,
     owner: Scope,
 }
@@ -81,6 +89,13 @@ struct GroupRuntime {
     members: Vec<DeviceId>,
     shared_owner: Option<Scope>,
     has_group_color_temperature: bool,
+}
+
+#[derive(Debug, Default)]
+pub struct DiscoveryOutcome {
+    pub subscriptions: Vec<Subscription>,
+    pub adopted: usize,
+    pub released: usize,
 }
 
 #[derive(Clone)]
@@ -105,6 +120,12 @@ pub struct HouseEngine {
     last_targets: BTreeMap<DeviceId, LightTarget>,
     last_reconciled_at: BTreeMap<DeviceId, MonotonicTime>,
     pending_actions: Vec<ReconcileAction>,
+    scopes: BTreeSet<Scope>,
+    discovery: DiscoveryStatus,
+    static_names: BTreeSet<String>,
+    static_device_ids: BTreeSet<DeviceId>,
+    declared_rooms: BTreeMap<ScopeId, ScopeId>,
+    discovered: BTreeMap<DeviceId, DiscoveredDevice>,
 }
 
 impl HouseEngine {
@@ -125,16 +146,40 @@ impl HouseEngine {
             reconciliation_timing,
             health: _,
             curves: configured_curves,
+            default_curve,
+            rooms: declared_rooms,
             scopes,
             devices: configured_devices,
             groups: configured_groups,
             controls: configured_controls,
             zigbee2mqtt,
         } = parts;
+        let discovery_enabled = default_curve.is_some();
 
-        let configured_scopes: BTreeSet<_> = scopes.iter().map(|item| item.scope.clone()).collect();
+        let mut curves = BTreeMap::new();
+        for configured_scope in &scopes {
+            let curve = configured_curves
+                .get(&configured_scope.curve)
+                .ok_or(RuntimeError::InvalidTopology("scope curve is missing"))?;
+            curves.insert(configured_scope.scope.clone(), curve.clone());
+        }
+        if let Some(default_curve) = &default_curve {
+            // Every discovered light needs an owner, so discovery always has a
+            // house scope; a declared one keeps its own curve.
+            let curve = configured_curves
+                .get(default_curve)
+                .ok_or(RuntimeError::InvalidTopology("default curve is missing"))?;
+            curves.entry(Scope::House).or_insert_with(|| curve.clone());
+        }
+        let configured_scopes: BTreeSet<_> = curves.keys().cloned().collect();
+
         let persisted_snapshot = persisted.snapshot();
-        let mut state = normalize_state(persisted, &configured_scopes, &configured_controls)?;
+        let mut state = normalize_state(
+            persisted,
+            &configured_scopes,
+            &configured_controls,
+            discovery_enabled,
+        )?;
         let normalized_changed = persisted_snapshot != state.snapshot();
         let before_reset = state.snapshot();
         let reset = state.reset_circadian_if_due(
@@ -147,19 +192,14 @@ impl HouseEngine {
         let startup_state_changed =
             normalized_changed || before_reset != state.snapshot() || reset.durable_state_changed();
 
-        let mut curves = BTreeMap::new();
-        for configured_scope in &scopes {
-            let curve = configured_curves
-                .get(&configured_scope.curve)
-                .ok_or(RuntimeError::InvalidTopology("scope curve is missing"))?;
-            curves.insert(configured_scope.scope.clone(), curve.clone());
-        }
-
         let mut devices = BTreeMap::new();
         let mut device_aliases = BTreeMap::new();
+        let mut static_device_ids = BTreeSet::new();
         let mut definitions = Vec::new();
         for device in configured_devices {
+            static_device_ids.insert(device.id.clone());
             for alias in &device.aliases {
+                static_device_ids.insert(alias.clone());
                 device_aliases.insert(alias.clone(), device.id.clone());
             }
             let capabilities = device.definition.capabilities();
@@ -167,17 +207,17 @@ impl HouseEngine {
             if !capabilities.on_off {
                 continue;
             }
-            let owner = resolve_owner(&configured_scopes, &device.membership)?;
+            let owner = resolve_owner(&configured_scopes, Some(&device.membership))?;
             devices.insert(
                 device.id,
                 DeviceRuntime {
-                    membership: device.membership,
+                    membership: Some(device.membership),
                     capabilities,
                     owner,
                 },
             );
         }
-        if devices.is_empty() {
+        if devices.is_empty() && !discovery_enabled {
             return Err(RuntimeError::InvalidTopology(
                 "at least one controllable device is required",
             ));
@@ -221,6 +261,7 @@ impl HouseEngine {
             .map(|control| (control.id, control.mapping))
             .collect();
 
+        let static_names = zigbee2mqtt.friendly_names();
         Ok(Self {
             state,
             startup_state_changed,
@@ -245,6 +286,16 @@ impl HouseEngine {
             last_targets: BTreeMap::new(),
             last_reconciled_at: BTreeMap::new(),
             pending_actions: Vec::new(),
+            scopes: configured_scopes,
+            discovery: if discovery_enabled {
+                DiscoveryStatus::Pending
+            } else {
+                DiscoveryStatus::Disabled
+            },
+            static_names,
+            static_device_ids,
+            declared_rooms,
+            discovered: BTreeMap::new(),
         })
     }
 
@@ -393,9 +444,20 @@ impl HouseEngine {
         }
         let affected = self.affected_owners(target);
         if affected.is_empty() {
-            return Err(RuntimeError::InvalidTopology(
-                "action target contains no physical owner",
-            ));
+            if self.discovery == DiscoveryStatus::Disabled {
+                return Err(RuntimeError::InvalidTopology(
+                    "action target contains no physical owner",
+                ));
+            }
+            // With discovery a declared scope may have no lights yet; a remote
+            // press there is a no-op, never a daemon failure.
+            tracing::warn!(source = "control", action = ?action, scope = ?target, "ignored control action for a scope without lights");
+            return Ok(ActionSummary {
+                affected_owner_count: 0,
+                acknowledged_owner_count: 0,
+                recomputed_devices: 0,
+                durable_state_changed: false,
+            });
         }
 
         let mut next_state = self.state.clone();
@@ -496,9 +558,9 @@ impl HouseEngine {
         self.owners
             .iter()
             .filter(|owner| {
-                self.devices
-                    .values()
-                    .any(|device| &device.owner == *owner && device.membership.is_in(target))
+                self.devices.values().any(|device| {
+                    &device.owner == *owner && is_member(device.membership.as_ref(), target)
+                })
             })
             .cloned()
             .collect()
@@ -617,12 +679,7 @@ impl HouseEngine {
             );
         }
 
-        let mut actions = if refresh_due.is_empty() {
-            Vec::new()
-        } else {
-            self.reconciler
-                .force_reconcile_devices(&refresh_due, now.monotonic)?
-        };
+        let mut actions = Vec::new();
         let mut grouped_members = BTreeSet::new();
         for group in &self.groups {
             let Some(shared_owner) = &group.shared_owner else {
@@ -687,6 +744,35 @@ impl HouseEngine {
                 );
             }
         }
+        // Refresh after desired state is updated: a sub-threshold curve drift
+        // replaces the desired target and cancels any dispatch staged before
+        // it, so a refresh staged first would never be published.
+        let commanded: BTreeSet<DeviceId> = actions
+            .iter()
+            .flat_map(|action| match action {
+                ReconcileAction::Command {
+                    entity: CommandEntity::Device(id),
+                    ..
+                } => vec![id.clone()],
+                ReconcileAction::Command {
+                    entity: CommandEntity::Group(group),
+                    ..
+                } => self
+                    .groups
+                    .iter()
+                    .filter(|runtime| &runtime.id == group)
+                    .flat_map(|runtime| runtime.members.iter().cloned())
+                    .collect(),
+                _ => Vec::new(),
+            })
+            .collect();
+        let refresh: BTreeSet<_> = refresh_due.difference(&commanded).cloned().collect();
+        if !refresh.is_empty() {
+            actions.extend(
+                self.reconciler
+                    .force_reconcile_devices(&refresh, now.monotonic)?,
+            );
+        }
         for id in update_devices {
             if let Some(target) = targets.get(&id) {
                 self.last_targets.insert(id.clone(), *target);
@@ -736,6 +822,241 @@ impl HouseEngine {
 
     pub fn reconciliation_timing(&self) -> ReconciliationTiming {
         self.reconciliation_timing
+    }
+
+    pub fn discovery_status(&self) -> DiscoveryStatus {
+        self.discovery
+    }
+
+    /// Applies one Zigbee2MQTT device list. A light that disappeared, stopped
+    /// being controllable, or changed name or room is released: its dispatch
+    /// work is dropped so its old name can never be commanded again. It is
+    /// then adopted under its current name, keeping its known availability.
+    pub fn apply_discovery(
+        &mut self,
+        devices: &[BridgeDevice],
+        now: RuntimeInstant,
+    ) -> Result<DiscoveryOutcome, RuntimeError> {
+        if self.discovery == DiscoveryStatus::Disabled {
+            return Err(RuntimeError::InvalidTopology(
+                "device discovery is disabled",
+            ));
+        }
+        let mut next = classify(
+            devices,
+            &StaticTopology {
+                friendly_names: &self.static_names,
+                device_ids: &self.static_device_ids,
+                declared_rooms: &self.declared_rooms,
+            },
+        );
+        let previous = std::mem::take(&mut self.discovered);
+        let mut outcome = DiscoveryOutcome::default();
+        let mut carried = BTreeMap::new();
+        for (id, old) in &previous {
+            if old.light().is_none() || same_binding(old, next.get(id)) {
+                continue;
+            }
+            carried.insert(id.clone(), self.release_device(id, now)?);
+            outcome.released += 1;
+        }
+        for (id, device) in &mut next {
+            let Some(light) = device.light().copied() else {
+                if device.disposition
+                    == Disposition::NotControlled(UncontrolledReason::DeclaredStatically)
+                    && previous
+                        .get(id)
+                        .is_none_or(|old| old.disposition != device.disposition)
+                {
+                    tracing::info!(
+                        source = "discovery",
+                        device = id.as_str(),
+                        "ignored discovered device; house.toml declares the same name"
+                    );
+                }
+                continue;
+            };
+            if same_binding(device, previous.get(id)) {
+                continue;
+            }
+            let availability = carried.get(id).copied().flatten();
+            match self.adopt_device(
+                id,
+                &device.friendly_name,
+                light,
+                device.membership.clone(),
+                availability,
+                now,
+            ) {
+                Ok(subscriptions) => {
+                    outcome.subscriptions.extend(subscriptions);
+                    outcome.adopted += 1;
+                }
+                Err(RuntimeError::Adapter(error)) if error.is_permanent() => {
+                    tracing::warn!(
+                        source = "discovery",
+                        device = id.as_str(),
+                        "discovered light name cannot be used as an MQTT topic"
+                    );
+                    device.disposition =
+                        Disposition::NotControlled(UncontrolledReason::TopicUnusable);
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        self.discovered = next;
+        self.discovery = DiscoveryStatus::Synced;
+        self.refresh_owners();
+        let (actions, _) = self.recompute_desired(now)?;
+        self.queue_reconcile_actions(actions, now)?;
+        Ok(outcome)
+    }
+
+    fn release_device(
+        &mut self,
+        id: &DeviceId,
+        now: RuntimeInstant,
+    ) -> Result<Option<Availability>, RuntimeError> {
+        let availability = self
+            .reconciler
+            .device_state(id)
+            .ok()
+            .map(|state| state.availability());
+        let actions = self.reconciler.remove_device(id, now.monotonic)?;
+        self.queue_reconcile_actions(actions, now)?;
+        self.adapter.unbind_device(id);
+        self.devices.remove(id);
+        self.last_targets.remove(id);
+        self.last_reconciled_at.remove(id);
+        tracing::info!(
+            source = "discovery",
+            device = id.as_str(),
+            "released discovered light"
+        );
+        Ok(availability)
+    }
+
+    fn adopt_device(
+        &mut self,
+        id: &DeviceId,
+        friendly_name: &str,
+        light: DerivedLight,
+        membership: Option<ScopeMembership>,
+        availability: Option<Availability>,
+        now: RuntimeInstant,
+    ) -> Result<Vec<Subscription>, RuntimeError> {
+        let binding = DeviceBinding::new(
+            id.clone(),
+            friendly_name,
+            light.capabilities,
+            light.mired_range,
+            light.single_transition_attribute,
+        )?;
+        let owner = resolve_owner(&self.scopes, membership.as_ref())?;
+        let subscriptions = self.adapter.bind_device(binding)?;
+        let mut actions = self.reconciler.add_device(
+            DeviceDefinition::new(id.clone(), light.capabilities),
+            now.monotonic,
+        )?;
+        if availability == Some(Availability::Online) {
+            actions.extend(self.reconciler.set_device_availability(
+                id,
+                Availability::Online,
+                now.monotonic,
+            )?);
+        }
+        self.queue_reconcile_actions(actions, now)?;
+        tracing::info!(source = "discovery", device = id.as_str(), owner = ?owner, "controlling discovered light");
+        self.devices.insert(
+            id.clone(),
+            DeviceRuntime {
+                membership,
+                capabilities: light.capabilities,
+                owner,
+            },
+        );
+        Ok(subscriptions)
+    }
+
+    fn refresh_owners(&mut self) {
+        let owners: BTreeSet<Scope> = self
+            .devices
+            .values()
+            .map(|device| device.owner.clone())
+            .collect();
+        self.overlays.retain(|scope, _| owners.contains(scope));
+        for owner in &owners {
+            self.overlays.entry(owner.clone()).or_default();
+        }
+        self.owners = owners;
+    }
+
+    /// Every controlled static light and every discovered device, for `/devices`.
+    pub fn device_reports(&self) -> Vec<DeviceReport> {
+        let discovered_light = |id: &DeviceId| {
+            self.discovered
+                .get(id)
+                .is_some_and(|device| device.light().is_some())
+        };
+        let mut reports = Vec::with_capacity(self.devices.len() + self.discovered.len());
+        for (id, device) in &self.devices {
+            if discovered_light(id) {
+                continue;
+            }
+            reports.push(DeviceReport {
+                id: id.as_str().to_owned(),
+                friendly_name: self
+                    .adapter
+                    .device_friendly_name(id)
+                    .unwrap_or_default()
+                    .to_owned(),
+                source: DeviceSource::Static,
+                vendor: None,
+                model: None,
+                floor: device
+                    .membership
+                    .as_ref()
+                    .map(|m| m.floor().as_str().to_owned()),
+                room: device
+                    .membership
+                    .as_ref()
+                    .map(|m| m.room().as_str().to_owned()),
+                owner: Some(scope_label(&device.owner)),
+                controlled: true,
+                reason: None,
+                note: None,
+                target: self.last_targets.get(id).map(TargetReport::from_target),
+            });
+        }
+        for (id, device) in &self.discovered {
+            let runtime = discovered_light(id).then(|| self.devices.get(id)).flatten();
+            reports.push(DeviceReport {
+                id: id.as_str().to_owned(),
+                friendly_name: device.friendly_name.clone(),
+                source: DeviceSource::Discovered,
+                vendor: device.vendor.clone(),
+                model: device.model.clone(),
+                floor: device
+                    .membership
+                    .as_ref()
+                    .map(|m| m.floor().as_str().to_owned()),
+                room: device
+                    .membership
+                    .as_ref()
+                    .map(|m| m.room().as_str().to_owned()),
+                owner: runtime.map(|runtime| scope_label(&runtime.owner)),
+                controlled: runtime.is_some(),
+                reason: match device.disposition {
+                    Disposition::NotControlled(reason) => Some(reason.as_str()),
+                    Disposition::Controlled(_) => None,
+                },
+                note: device.note.map(PlacementNote::as_str),
+                target: runtime
+                    .and_then(|_| self.last_targets.get(id))
+                    .map(TargetReport::from_target),
+            });
+        }
+        reports
     }
 }
 
@@ -937,21 +1258,8 @@ where
         engine.take_reconcile_actions();
         let scheduler = Scheduler::new(engine.circadian.tick_seconds)
             .map_err(|_| RuntimeError::InvalidTopology("invalid scheduler interval"))?;
-        let topology_units = engine
-            .adapter
-            .subscriptions()
-            .len()
-            .checked_add(engine.devices.len())
-            .and_then(|count| count.checked_add(engine.groups.len()))
-            .and_then(|count| count.checked_add(1))
-            .ok_or(RuntimeError::InvalidTopology(
-                "transport backlog topology overflow",
-            ))?;
-        let transport_backlog_limit = topology_units
-            .checked_mul(TRANSPORT_BACKLOG_OPERATIONS_PER_TOPOLOGY_UNIT)
-            .ok_or(RuntimeError::InvalidTopology(
-                "transport backlog capacity overflow",
-            ))?;
+        let transport_backlog_limit = backlog_limit_for(&engine)?;
+        health.set_discovery(engine.discovery_status(), engine.device_reports());
         Ok(Self {
             engine,
             transport,
@@ -969,6 +1277,11 @@ where
 
     pub fn engine(&self) -> &HouseEngine {
         &self.engine
+    }
+
+    fn publish_discovery_health(&self) {
+        self.health
+            .set_discovery(self.engine.discovery_status(), self.engine.device_reports());
     }
 
     pub async fn handle_transport_event(
@@ -1113,6 +1426,31 @@ where
                 return Ok(());
             }
             InboundEvent::UnknownInputAction { .. } => Vec::new(),
+            InboundEvent::BridgeDevices(devices) => {
+                let mut next = self.engine.clone();
+                let outcome = next.apply_discovery(&devices, sample.runtime)?;
+                self.engine = next;
+                // Never shrink: work queued for released devices drains later.
+                self.transport_backlog_limit = self
+                    .transport_backlog_limit
+                    .max(backlog_limit_for(&self.engine)?);
+                tracing::info!(
+                    source = "discovery",
+                    device_count = devices.len(),
+                    adopted = outcome.adopted,
+                    released = outcome.released,
+                    "applied Zigbee2MQTT device list"
+                );
+                for subscription in outcome.subscriptions {
+                    self.enqueue_transport_operation(PendingTransportOperation::Adapter(
+                        AdapterOperation::Subscribe(subscription),
+                    ))
+                    .await?;
+                }
+                self.publish_discovery_health();
+                self.drain_engine_actions(sample.runtime).await?;
+                return Ok(());
+            }
         };
         self.enqueue_actions(actions, sample.runtime).await
     }
@@ -1161,7 +1499,9 @@ where
         let retry = self.engine.reconciler.retry_due(sample.runtime.monotonic)?;
         self.enqueue_actions(retry, sample.runtime).await?;
         self.execute_due(self.clock.sample().runtime).await?;
-        self.drain_pending_transport().await
+        self.drain_pending_transport().await?;
+        self.publish_discovery_health();
+        Ok(())
     }
 
     async fn drain_engine_actions(&mut self, now: RuntimeInstant) -> Result<(), RuntimeError> {
@@ -1581,6 +1921,7 @@ fn normalize_state(
     persisted: AutomationState,
     configured_scopes: &BTreeSet<Scope>,
     controls: &[crate::config::ControlConfiguration],
+    new_scopes_on: bool,
 ) -> Result<AutomationState, RuntimeError> {
     let snapshot = persisted.snapshot().into_parts();
     let persisted_scopes: BTreeMap<_, _> = snapshot
@@ -1634,8 +1975,10 @@ fn normalize_state(
                 AutomationState::restore(one).and_then(|state| state.scope_state(scope).cloned())
             })
             .transpose()?
-            // Newly configured lights start safe/off; explicit user action turns them on.
-            .unwrap_or_else(|| ScopeState::new(false));
+            // Without discovery a newly configured scope starts off until a
+            // control turns it on. With discovery every light follows its curve
+            // as soon as it joins, so a scope without persisted state starts on.
+            .unwrap_or_else(|| ScopeState::new(new_scopes_on));
         normalized.insert_scope(scope.clone(), state)?;
     }
     for (id, (default_scope, aliases, allowed_scopes)) in configured_controls {
@@ -1676,19 +2019,59 @@ fn all_gestures() -> impl Iterator<Item = Gesture> {
     .into_iter()
 }
 
+fn same_binding(current: &DiscoveredDevice, other: Option<&DiscoveredDevice>) -> bool {
+    current.light().is_some()
+        && other.is_some_and(|other| {
+            other.friendly_name == current.friendly_name
+                && other.membership == current.membership
+                && other.disposition == current.disposition
+        })
+}
+
+fn is_member(membership: Option<&ScopeMembership>, scope: &Scope) -> bool {
+    membership.map_or(matches!(scope, Scope::House), |membership| {
+        membership.is_in(scope)
+    })
+}
+
+fn scope_label(scope: &Scope) -> String {
+    match scope {
+        Scope::Room(room) => format!("room {}", room.as_str()),
+        Scope::Floor(floor) => format!("floor {}", floor.as_str()),
+        Scope::House => "house".to_owned(),
+    }
+}
+
 fn resolve_owner(
     scopes: &BTreeSet<Scope>,
-    membership: &ScopeMembership,
+    membership: Option<&ScopeMembership>,
 ) -> Result<Scope, RuntimeError> {
     let mut matching: Vec<_> = scopes
         .iter()
-        .filter(|scope| membership.is_in(scope))
+        .filter(|scope| is_member(membership, scope))
         .cloned()
         .collect();
     matching.sort_by_key(scope_rank);
     matching.pop().ok_or(RuntimeError::InvalidTopology(
         "controllable device has no configured physical owner",
     ))
+}
+
+fn backlog_limit_for(engine: &HouseEngine) -> Result<usize, RuntimeError> {
+    engine
+        .adapter
+        .subscriptions()
+        .len()
+        .checked_add(engine.devices.len())
+        .and_then(|count| count.checked_add(engine.groups.len()))
+        .and_then(|count| count.checked_add(1))
+        .ok_or(RuntimeError::InvalidTopology(
+            "transport backlog topology overflow",
+        ))?
+        .checked_mul(TRANSPORT_BACKLOG_OPERATIONS_PER_TOPOLOGY_UNIT)
+        .ok_or(RuntimeError::InvalidTopology(
+            "transport backlog capacity overflow",
+        ))
 }
 
 fn scope_rank(scope: &Scope) -> u8 {

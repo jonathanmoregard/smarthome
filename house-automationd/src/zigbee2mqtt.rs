@@ -221,6 +221,7 @@ pub struct Zigbee2MqttAdapter {
     availability_topics: BTreeMap<String, DeviceBinding>,
     devices: BTreeMap<DeviceId, DeviceBinding>,
     groups: BTreeMap<EntityId, GroupBinding>,
+    device_discovery: bool,
 }
 
 impl Zigbee2MqttAdapter {
@@ -290,6 +291,7 @@ impl Zigbee2MqttAdapter {
             availability_topics,
             devices: device_map,
             groups: group_map,
+            device_discovery: false,
         })
     }
 
@@ -299,6 +301,11 @@ impl Zigbee2MqttAdapter {
     ) -> Result<Option<InboundEvent>, AdapterError> {
         let topic = message.topic;
         let payload = message.payload;
+        if self.device_discovery && topic == format!("{}/bridge/devices", self.base_topic) {
+            return crate::discovery::parse_bridge_devices(payload)
+                .map(|devices| Some(InboundEvent::BridgeDevices(devices)))
+                .map_err(|error| AdapterError::message(topic, error.to_string()));
+        }
         if topic == format!("{}/bridge/state", self.base_topic) {
             return parse_availability(topic, payload)
                 .map(|availability| Some(InboundEvent::BridgeAvailability(availability)));
@@ -335,6 +342,12 @@ impl Zigbee2MqttAdapter {
             format!("{}/bridge/state", self.base_topic),
             Qos::AtLeastOnce,
         )]);
+        if self.device_discovery {
+            topics.insert(
+                format!("{}/bridge/devices", self.base_topic),
+                Qos::AtLeastOnce,
+            );
+        }
         for (topic, binding) in &self.state_topics {
             let qos = match binding {
                 StateBinding::Device(_) => Qos::AtLeastOnce,
@@ -476,6 +489,89 @@ impl Zigbee2MqttAdapter {
                 .map(|(_, _, operation)| operation),
         );
         Ok(plan)
+    }
+
+    /// Also subscribes to and parses Zigbee2MQTT's retained device list.
+    pub fn with_device_discovery(mut self) -> Self {
+        self.device_discovery = true;
+        self
+    }
+
+    pub fn device_discovery(&self) -> bool {
+        self.device_discovery
+    }
+
+    /// Every friendly name currently bound to a device, control or group.
+    pub fn friendly_names(&self) -> BTreeSet<String> {
+        let controls = self
+            .state_topics
+            .values()
+            .filter_map(|binding| match binding {
+                StateBinding::Control(control) => Some(control.friendly_name.clone()),
+                StateBinding::Device(_) => None,
+            });
+        self.devices
+            .values()
+            .map(|binding| binding.friendly_name.clone())
+            .chain(controls)
+            .chain(
+                self.groups
+                    .values()
+                    .map(|binding| binding.friendly_name.clone()),
+            )
+            .collect()
+    }
+
+    pub fn device_friendly_name(&self, id: &DeviceId) -> Option<&str> {
+        self.devices
+            .get(id)
+            .map(|binding| binding.friendly_name.as_str())
+    }
+
+    /// Binds a device discovered at runtime and returns the subscriptions it
+    /// needs. A name or topic collision changes nothing.
+    pub fn bind_device(
+        &mut self,
+        binding: DeviceBinding,
+    ) -> Result<Vec<Subscription>, AdapterError> {
+        let state_topic = format!("{}/{}", self.base_topic, binding.friendly_name);
+        let availability_topic = format!("{state_topic}/availability");
+        if self.devices.contains_key(&binding.id)
+            || self.state_topics.contains_key(&state_topic)
+            || self.state_topics.contains_key(&availability_topic)
+            || self.availability_topics.contains_key(&state_topic)
+            || self.availability_topics.contains_key(&availability_topic)
+            || self
+                .groups
+                .values()
+                .any(|group| group.friendly_name == binding.friendly_name)
+        {
+            return Err(AdapterError::configuration(
+                "duplicate or reserved Zigbee2MQTT device binding",
+            ));
+        }
+        self.state_topics
+            .insert(state_topic.clone(), StateBinding::Device(binding.clone()));
+        self.availability_topics
+            .insert(availability_topic.clone(), binding.clone());
+        self.devices.insert(binding.id.clone(), binding);
+        Ok(vec![
+            Subscription::new(state_topic, Qos::AtLeastOnce),
+            Subscription::new(availability_topic, Qos::AtLeastOnce),
+        ])
+    }
+
+    /// Forgets a device binding; later messages on its topics are ignored and
+    /// commands for it are refused.
+    pub fn unbind_device(&mut self, id: &DeviceId) -> bool {
+        let Some(binding) = self.devices.remove(id) else {
+            return false;
+        };
+        let state_topic = format!("{}/{}", self.base_topic, binding.friendly_name);
+        self.availability_topics
+            .remove(&format!("{state_topic}/availability"));
+        self.state_topics.remove(&state_topic);
+        true
     }
 }
 
@@ -865,6 +961,7 @@ pub enum InboundEvent {
         control: ControlId,
         action: String,
     },
+    BridgeDevices(Vec<crate::discovery::BridgeDevice>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2330,6 +2427,108 @@ mod tests {
                 false,
             )
             .is_err()
+        );
+    }
+
+    #[test]
+    fn rebinding_a_device_moves_every_topic_to_the_new_name() {
+        let mut adapter = adapter(false);
+        let command = [ReconcileAction::Command {
+            token: dispatch_token(),
+            entity: CommandEntity::Device(device_id("ikea_lamp")),
+            target: command_target(),
+        }];
+
+        assert!(adapter.unbind_device(&device_id("ikea_lamp")));
+        assert!(
+            adapter
+                .apply_actions(plan_epoch(), &command)
+                .unwrap_err()
+                .is_permanent()
+        );
+        let subscriptions = adapter
+            .bind_device(
+                DeviceBinding::new(
+                    device_id("ikea_lamp"),
+                    "upstairs/hall/lamp",
+                    capabilities(),
+                    Some(MiredRange::new(250, 454).unwrap()),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        let topics: Vec<_> = subscriptions
+            .iter()
+            .map(|subscription| subscription.topic())
+            .collect();
+        assert_eq!(
+            topics,
+            [
+                "zigbee2mqtt/upstairs/hall/lamp",
+                "zigbee2mqtt/upstairs/hall/lamp/availability"
+            ]
+        );
+        for old in [
+            "zigbee2mqtt/living/ikea lamp",
+            "zigbee2mqtt/living/ikea lamp/availability",
+        ] {
+            assert_eq!(parse(&adapter, old, br#"{"state":"ON"}"#).unwrap(), None);
+        }
+        assert!(matches!(
+            parse(
+                &adapter,
+                "zigbee2mqtt/upstairs/hall/lamp",
+                br#"{"state":"ON"}"#
+            )
+            .unwrap(),
+            Some(InboundEvent::DeviceState { .. })
+        ));
+        let plan = adapter.apply_actions(plan_epoch(), &command).unwrap();
+        assert!(
+            publications(&plan)
+                .iter()
+                .all(|publication| publication.topic() == "zigbee2mqtt/upstairs/hall/lamp/set")
+        );
+        for taken in ["living/hue lamp", "living/all lights", "living/remote"] {
+            let binding = DeviceBinding::new(
+                device_id("intruder"),
+                taken,
+                capabilities(),
+                Some(MiredRange::new(250, 454).unwrap()),
+                false,
+            )
+            .unwrap();
+            assert!(adapter.bind_device(binding).is_err(), "{taken}");
+        }
+        assert!(adapter.friendly_names().contains("living/remote"));
+    }
+
+    #[test]
+    fn bridge_device_list_is_an_event_only_when_discovery_is_enabled() {
+        let payload = include_bytes!("../tests/fixtures/bridge-devices.json");
+        assert_eq!(
+            parse(&adapter(false), "zigbee2mqtt/bridge/devices", payload).unwrap(),
+            None
+        );
+
+        let discovering = adapter(false).with_device_discovery();
+
+        assert!(matches!(
+            parse(&discovering, "zigbee2mqtt/bridge/devices", payload).unwrap(),
+            Some(InboundEvent::BridgeDevices(devices)) if devices.len() == 3
+        ));
+        assert!(
+            discovering
+                .subscriptions()
+                .iter()
+                .any(|subscription| subscription.topic() == "zigbee2mqtt/bridge/devices")
+        );
+        assert!(
+            !parse(&discovering, "zigbee2mqtt/bridge/devices", b"not json")
+                .unwrap_err()
+                .is_permanent()
         );
     }
 }
