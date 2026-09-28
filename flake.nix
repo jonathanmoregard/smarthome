@@ -68,16 +68,17 @@
         house = house;
       };
 
-      apps.${system}.pair-zigbee = {
-        type = "app";
-        program = pkgs.lib.getExe pairZigbee;
-        meta.description = pairZigbee.meta.description;
-      };
-
-      apps.${system}.house = {
-        type = "app";
-        program = pkgs.lib.getExe house;
-        meta.description = house.meta.description;
+      apps.${system} = {
+        pair-zigbee = {
+          type = "app";
+          program = pkgs.lib.getExe pairZigbee;
+          meta.description = pairZigbee.meta.description;
+        };
+        house = {
+          type = "app";
+          program = pkgs.lib.getExe house;
+          meta.description = house.meta.description;
+        };
       };
 
       nixosModules.default = import ./nix/module.nix;
