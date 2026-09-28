@@ -37,6 +37,7 @@
         )
       );
       pairZigbee = pkgs.callPackage ./nix/pair-zigbee.nix { };
+      house = pkgs.callPackage ./nix/house.nix { inherit pairZigbee; };
       mkCargoCheck =
         {
           name,
@@ -64,12 +65,19 @@
       packages.${system} = {
         default = package;
         pair-zigbee = pairZigbee;
+        house = house;
       };
 
       apps.${system}.pair-zigbee = {
         type = "app";
         program = pkgs.lib.getExe pairZigbee;
         meta.description = pairZigbee.meta.description;
+      };
+
+      apps.${system}.house = {
+        type = "app";
+        program = pkgs.lib.getExe house;
+        meta.description = house.meta.description;
       };
 
       nixosModules.default = import ./nix/module.nix;
@@ -155,6 +163,10 @@
           module = self.nixosModules.default;
         };
         pair-zigbee = import ./nix/tests/pair-zigbee.nix { inherit pkgs pairZigbee; };
+        house = import ./nix/tests/house.nix {
+          inherit pkgs package house;
+          module = self.nixosModules.default;
+        };
         standalone-host = import ./nixos/tests/standalone-host.nix {
           inherit pkgsSystem;
           host = self.nixosConfigurations.home-server;
