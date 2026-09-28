@@ -1,0 +1,119 @@
+# Runtime device registry
+
+Date: 2026-09-28
+
+## Why
+
+Adding a lamp must not require a pull request. Today house-automationd reads
+one TOML file baked into the NixOS system, so every new device is a repo edit,
+a review and a deploy. The user also requires that devices persist across
+reboots and support create, read, update, delete and inspect.
+
+## Decision
+
+Zigbee2MQTT's own state directory is the device registry. Git keeps policy
+only. house-automationd discovers devices from Zigbee2MQTT at runtime, and a
+`house` command gives operators CRUD over SSH.
+
+Rejected:
+
+- A second runtime device file edited by a CLI: a second source of truth that
+  drifts from Zigbee2MQTT, with capabilities typed by hand.
+- Git-driven device list pushed without review: still a repo edit per device.
+
+## Persistence
+
+The NixOS zigbee2mqtt module copies the generated `configuration.yaml` over the
+live file on every start (`ExecStartPre`), which discards renames that
+Zigbee2MQTT writes there. Zigbee2MQTT 2.13 reads and writes devices and groups
+in separate files when `devices` / `groups` are filename strings
+(`util/settings.js`, `readDevicesOrGroups` / `writeDevicesOrGroups`).
+
+The host sets `services.zigbee2mqtt.settings.devices = "devices.yaml"` and
+`groups = "groups.yaml"`. Those files live in `/var/lib/zigbee2mqtt` and are
+never rewritten by Nix. Pairing data stays in `database.db` as today.
+
+Invariant: a device renamed at runtime keeps its name after
+`systemctl restart zigbee2mqtt` and after reboot.
+
+## Placement by name
+
+A device's Zigbee2MQTT `friendly_name` is `<floor>/<room>/<device>`, each
+segment matching the existing id grammar. Example:
+`upper-floor/upper-hallway/lamp`.
+
+- Matching name: the device is placed in that floor and room.
+- Any other name (including the default `0x…` address): the device is
+  **unplaced**. It is listed and inspectable but never controlled.
+
+A floor or room that appears only in device names is created implicitly. Each
+implicit room gets a room scope using the configured `default_curve`. A room
+declared in TOML keeps its declared scope and curve; devices discovered into it
+join that scope.
+
+## Base configuration (git)
+
+New top-level key `default_curve = "<curve id>"`, required when discovery is
+enabled. Everything else in the schema is unchanged. `[[devices]]` stay valid;
+if a static device and a discovered device share a `friendly_name`, the static
+declaration wins and the discovered one is ignored with a log line.
+
+The first production `nixos/hosts/home-server/house.toml` holds location,
+MQTT, circadian settings, curves and `default_curve`. No devices.
+
+## Discovery in house-automationd
+
+- Subscribe to retained `zigbee2mqtt/bridge/devices`.
+- For each device of type `Router`/`EndDevice` with a `definition` whose
+  exposes contain a `light`:
+  - `state` → on/off; `brightness` → dimming.
+  - `color_temp` with `value_min`/`value_max` mired → colour temperature;
+    Kelvin bounds are `1e6 / mired`, rounded inward so the derived range is
+    always inside the bulb's range.
+  - `color_xy` / `color_hs` → colour capabilities.
+  - Vendor `IKEA` → `single_transition_attribute = true`.
+- Non-light devices are listed but not controlled in this iteration.
+- Every bridge update is diffed against the current discovered set:
+  added devices start reconciliation, removed devices stop it and their
+  per-device state is dropped, moved devices change owner scope.
+- No restart is needed for any of these.
+- Until the first bridge message arrives, the daemon runs with static devices
+  only and `/health` reports `discovery: pending`.
+- A light whose exposes cannot be mapped is unplaced with a reason.
+
+## `house` command
+
+Runs from any machine with Tailscale and an accepted SSH key, like
+`pair-zigbee`, by speaking MQTT to the server's local broker over SSH.
+
+| Operation | Command | Effect |
+|---|---|---|
+| Create | `house add <floor/room/name> [--time S]` | Opens pairing; renames the first joined device to the name |
+| Read | `house list` | Name, placement, model, availability |
+| Inspect | `house show <name>` | Above plus live state, circadian target, unplaced reason |
+| Update | `house rename <old> <new>` | Zigbee2MQTT rename; moves rooms when the path changes |
+| Delete | `house remove <name> [--force]` | Zigbee2MQTT remove; device leaves the network |
+
+`pair-zigbee` stays as the low-level pairing command; `house add` reuses it.
+`house show` reads live state from Zigbee2MQTT and the circadian target from
+the daemon's health endpoint over the same SSH connection.
+
+## Testing
+
+Invariants, not mirrors of the implementation:
+
+- Derived colour-temperature range is inside the reported mired range for
+  every fixture, including the captured LED2111G6 interview payload.
+- A device renamed out of a room is never commanded under its old room.
+- VM test: a fake Zigbee2MQTT publishes a device list; the daemon commands the
+  device; a rename moves it; removal stops commands.
+- VM test: rename through Zigbee2MQTT, restart zigbee2mqtt, name survives.
+
+## Rollout
+
+1. PR: enable house-automationd on home-server with the base `house.toml` and
+   split `devices.yaml` / `groups.yaml`.
+2. PR: discovery in the daemon and the `house` command.
+3. Operator: `house rename 0x7cc6b6fffe3cef1c upper-floor/upper-hallway/lamp`.
+
+After step 2, adding a device never needs a pull request.
