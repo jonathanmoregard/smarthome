@@ -113,11 +113,18 @@ Invariants, not mirrors of the implementation:
 
 ## Rollout
 
-1. PR: enable house-automationd on home-server with the base `house.toml`, and
-   a module assertion that `devices.yaml` / `groups.yaml` stay the Zigbee2MQTT
-   device and group files (the test VM has no working radio, so a live rename
-   test is not possible there).
-2. PR: discovery in the daemon and the `house` command.
-3. Operator: `house rename 0x7cc6b6fffe3cef1c upper-floor/upper-hallway/lamp`.
+1. One PR: discovery in the daemon, the `house` command, the base
+   `house.toml` enabled on home-server, and a module assertion that
+   `devices.yaml` / `groups.yaml` stay the Zigbee2MQTT device and group files.
+   These cannot ship separately: today the config, scope and runtime layers
+   all reject a topology with no static devices, so the daemon cannot run
+   until discovery makes an empty static device list valid.
+2. Operator: `house rename 0x7cc6b6fffe3cef1c upper-floor/upper-hallway/lamp`.
 
-After step 2, adding a device never needs a pull request.
+After step 1, adding a device never needs a pull request.
+
+## Empty static topology
+
+With discovery, `devices = []` and `controls = []` are valid, a scope may have
+no devices until discovery fills it, and the runtime idles with no devices
+instead of refusing to start.

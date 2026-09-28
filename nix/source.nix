@@ -9,5 +9,6 @@ lib.fileset.toSource {
     (root + "/examples")
     (root + "/house-automation-core")
     (root + "/house-automationd")
+    (root + "/nixos/hosts/home-server/house.toml")
   ];
 }

@@ -14,6 +14,12 @@ use house_automationd::config::{
 use house_automationd::zigbee2mqtt::{InboundEvent, InboundMessage, PlanEpoch, Qos};
 
 const EXAMPLE: &str = include_str!("../../examples/house.toml");
+const PRODUCTION: &str = include_str!("../../nixos/hosts/home-server/house.toml");
+
+#[test]
+fn production_topology_validates() {
+    ValidatedConfig::parse(PRODUCTION).expect("home-server house.toml must validate");
+}
 
 #[test]
 fn anonymous_example_loads_and_uses_safe_defaults() {
