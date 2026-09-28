@@ -182,6 +182,22 @@ pkgs.testers.runNixOSTest {
             f"{STATE}/identify.jsonl"
         )
 
+    with subtest("control off releases a paired lamp and control on takes it back"):
+        out = house(f"control {LAMP} off")
+        assert f"{LAMP} is released from house-automationd control." in out, out
+        assert "does not control it: disabled in Zigbee2MQTT" in out, out
+        before = sets(LAMP)
+        time.sleep(6)
+        assert sets(LAMP) == before, "a released lamp was still commanded"
+        assert "not controlled: disabled in Zigbee2MQTT" in house("list")
+        released = sets(LAMP)
+        out = house(f"control {LAMP} on")
+        assert "house-automationd controls it (owner: room upper-hallway)." in out, out
+        server.wait_until_succeeds(
+            f"test $(grep -c -F 'zigbee2mqtt/{LAMP}/set {{' /tmp/mqtt.log) -gt {released}",
+            timeout=30,
+        )
+
     with subtest("remove stops every command to the lamp"):
         out = house(f"remove {LAMP}")
         assert f"Removed {LAMP}." in out, out
@@ -232,6 +248,8 @@ pkgs.testers.runNixOSTest {
             "identify x --seconds 31",
             "show",
             "remove",
+            "control x",
+            "control x maybe",
             "--host -oProxyCommand=touch list",
         ]:
             status, out = client.execute(f"house {args} 2>&1")
