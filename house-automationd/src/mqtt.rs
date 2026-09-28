@@ -498,6 +498,9 @@ fn build_mqtt_options(
     // A clean broker and local session prevents invalidated QoS1 commands from
     // the previous connection from being replayed ahead of that reconciliation.
     options.set_clean_session(true);
+    // Zigbee2MQTT's retained device list carries every device's exposes and
+    // outgrows rumqttc's 10 KiB default; outgoing commands stay small.
+    options.set_max_packet_size(crate::discovery::MAX_BRIDGE_DEVICES_BYTES, 10 * 1024);
     options.set_last_will(LastWill::new(
         status_topic,
         b"offline".to_vec(),
@@ -1090,6 +1093,19 @@ mod tests {
         let options = super::build_mqtt_options(&settings, None);
 
         assert!(options.clean_session());
+    }
+
+    #[test]
+    fn transport_accepts_the_largest_device_list_discovery_parses() {
+        let settings =
+            crate::config::ValidatedConfig::parse(include_str!("../../examples/house.toml"))
+                .unwrap()
+                .into_runtime_parts()
+                .mqtt;
+
+        let options = super::build_mqtt_options(&settings, None);
+
+        assert!(options.max_packet_size() >= crate::discovery::MAX_BRIDGE_DEVICES_BYTES);
     }
 
     #[tokio::test(start_paused = true)]
