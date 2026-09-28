@@ -36,25 +36,35 @@ the host must simply not override those two settings.
 Invariant: a device renamed at runtime keeps its name after
 `systemctl restart zigbee2mqtt` and after reboot.
 
-## Placement by name
+## Every light follows the curve on join
 
-A device's Zigbee2MQTT `friendly_name` is `<floor>/<room>/<device>`, each
+A discovered light is controlled as soon as Zigbee2MQTT finishes its
+interview, whatever its name — including the default `0x…` address. With no
+room, it is owned by the house scope and follows `default_curve`.
+
+## Placement by name (optional)
+
+Room placement exists only to target remotes at a room and for future per-room
+or per-lamp adjustments. It never gates control.
+
+A device's Zigbee2MQTT `friendly_name` may be `<floor>/<room>/<device>`, each
 segment matching the existing id grammar. Example:
 `upper-floor/upper-hallway/lamp`.
 
-- Matching name: the device is placed in that floor and room.
-- Any other name (including the default `0x…` address): the device is
-  **unplaced**. It is listed and inspectable but never controlled.
+- Matching name: the device is a member of that floor and room.
+- Any other name: the device has no room and is owned by the house scope.
 
-A floor or room that appears only in device names is created implicitly. Each
-implicit room gets a room scope using the configured `default_curve`. A room
-declared in TOML keeps its declared scope and curve; devices discovered into it
-join that scope.
+A floor or room that appears only in device names is created implicitly as a
+membership target; it gets no scope of its own. Ownership follows the existing
+most-specific-scope rule: a declared room scope, else a declared floor scope,
+else the house scope. So a placed device keeps following `default_curve` until
+someone declares an override scope for its room or floor.
 
 ## Base configuration (git)
 
 New top-level key `default_curve = "<curve id>"`, required when discovery is
-enabled. Everything else in the schema is unchanged. `[[devices]]` stay valid;
+enabled. The daemon synthesizes a house scope with that curve if the TOML does
+not declare one. Everything else in the schema is unchanged. `[[devices]]` stay valid;
 if a static device and a discovered device share a `friendly_name`, the static
 declaration wins and the discovered one is ignored with a log line.
 
@@ -79,7 +89,9 @@ MQTT, circadian settings, curves and `default_curve`. No devices.
 - No restart is needed for any of these.
 - Until the first bridge message arrives, the daemon runs with static devices
   only and `/health` reports `discovery: pending`.
-- A light whose exposes cannot be mapped is unplaced with a reason.
+- A light whose exposes cannot be mapped is not controlled; `house show`
+  reports the reason. This is the only case where a discovered light is not
+  controlled.
 
 ## `house` command
 
@@ -90,7 +102,7 @@ Runs from any machine with Tailscale and an accepted SSH key, like
 |---|---|---|
 | Create | `house add <floor/room/name> [--time S]` | Opens pairing; renames the first joined device to the name |
 | Read | `house list` | Name, placement, model, availability |
-| Inspect | `house show <name>` | Above plus live state, circadian target, unplaced reason |
+| Inspect | `house show <name>` | Above plus owner scope, live state, circadian target, not-controlled reason |
 | Update | `house rename <old> <new>` | Zigbee2MQTT rename; moves rooms when the path changes |
 | Delete | `house remove <name> [--force]` | Zigbee2MQTT remove; device leaves the network |
 
