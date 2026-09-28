@@ -1115,6 +1115,7 @@ where
                 return Ok(());
             }
             InboundEvent::UnknownInputAction { .. } => Vec::new(),
+            InboundEvent::BridgeDevices(_) => Vec::new(),
         };
         self.enqueue_actions(actions, sample.runtime).await
     }

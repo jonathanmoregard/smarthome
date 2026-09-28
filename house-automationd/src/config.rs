@@ -716,7 +716,7 @@ impl RawConfig {
         let (controls, control_bindings) =
             validate_controls(self.controls, &scopes, &devices, aliases, discovery)?;
 
-        let zigbee2mqtt = Zigbee2MqttAdapter::new(
+        let mut zigbee2mqtt = Zigbee2MqttAdapter::new(
             mqtt.zigbee2mqtt_base_topic.clone(),
             device_bindings,
             group_bindings,
@@ -728,6 +728,9 @@ impl RawConfig {
                 "names or topics are duplicate, reserved, or malformed",
             )
         })?;
+        if discovery {
+            zigbee2mqtt = zigbee2mqtt.with_device_discovery();
+        }
 
         Ok(RuntimeConfigParts {
             time_zone,
