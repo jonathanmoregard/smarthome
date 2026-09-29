@@ -1,4 +1,5 @@
-# List, inspect, identify, rename, remove and add devices on the home server.
+# List, inspect, identify, rename, control, remove and add devices on the
+# home server.
 #
 # Zigbee2MQTT is the device registry: every change here is a Zigbee2MQTT
 # bridge request, and house-automationd follows the retained device list.
@@ -19,6 +20,8 @@ Commands:
   show NAME                    details, live state and circadian target
   identify NAME [--seconds S]  make a device flash for 1-30 s (default 10)
   rename OLD NEW               rename a device; a new floor/room moves it
+  control NAME on|off          hand a light to house-automationd or release it
+                               (it stays paired; off disables it in Zigbee2MQTT)
   remove NAME [--force]        remove a device from the Zigbee network
   add [NEW] [--time S]         pair a device (1-254 s window, default 180)
                                and optionally name it NEW
@@ -81,6 +84,7 @@ name=
 old=
 seconds=
 force=0
+control=
 new_name_hint="new name must be floor/room/device, for example upper-floor/upper-hallway/lamp"
 case $command in
   list)
@@ -112,6 +116,12 @@ case $command in
     old=$1
     name=$2
     valid_name "$name" || usage_error "$new_name_hint"
+    ;;
+  control)
+    [ "$#" -eq 2 ] || usage_error "control needs a device name and on or off"
+    name=$1
+    control=$2
+    [[ $control =~ ^(on|off)$ ]] || usage_error "control takes on or off, not '$control'"
     ;;
   remove)
     [ "$#" -ge 1 ] || usage_error "remove needs a device name"
@@ -273,12 +283,14 @@ bridge_request() {
   fi
 }
 
-# Waits briefly until house-automationd reports the device under $1.
+# Waits briefly until house-automationd reports the device under $1 and, when
+# $2 is true or false, until its control state matches.
 report_daemon_view() {
-  local wanted=$1 entry deadline=$((SECONDS + 15))
+  local wanted=$1 expected=${2:-} entry deadline=$((SECONDS + 15))
   while [ "$SECONDS" -lt "$deadline" ]; do
     fetch_daemon_devices
-    if entry=$(jq -ce --arg name "$wanted" 'first(.[] | select(.friendly_name == $name))' "$daemon"); then
+    if entry=$(jq -ce --arg name "$wanted" 'first(.[] | select(.friendly_name == $name))' "$daemon") &&
+      { [ -z "$expected" ] || jq -e --argjson want "$expected" '.controlled == $want' <<<"$entry" >/dev/null; }; then
       if jq -e .controlled <<<"$entry" >/dev/null; then
         echo "house-automationd controls it (owner: $(jq -r .owner <<<"$entry"))."
       else
@@ -443,6 +455,23 @@ rename_device() {
   report_daemon_view "$name"
 }
 
+control_device() {
+  local entry friendly disabled=false
+  entry=$(device_entry "$name") || fail "no device named $name on $host (see: house list)" 1
+  friendly=$(jq -r .friendly_name <<<"$entry")
+  if [ "$control" = off ]; then disabled=true; fi
+  bridge_request device/options \
+    "$(jq -cn --arg id "$friendly" --argjson disabled "$disabled" '{id: $id, options: {disabled: $disabled}}')" 15 ||
+    fail "Zigbee2MQTT could not change $friendly: $bridge_error" 1
+  if [ "$control" = off ]; then
+    echo "$friendly is released from house-automationd control. It stays paired and keeps its current state."
+    report_daemon_view "$friendly" false
+  else
+    echo "$friendly is handed back to house-automationd."
+    report_daemon_view "$friendly" true
+  fi
+}
+
 remove_device() {
   local entry friendly force_json=false
   entry=$(device_entry "$name") || fail "no device named $name on $host (see: house list)" 1
@@ -496,6 +525,7 @@ case $command in
     ;;
   identify) identify_device ;;
   rename) rename_device ;;
+  control) control_device ;;
   remove) remove_device ;;
   add) add_device ;;
 esac

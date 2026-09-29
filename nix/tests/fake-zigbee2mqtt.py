@@ -205,10 +205,15 @@ def remove(client, request):
 
 def options(client, request):
     log(OPTIONS, request)
-    if find(request.get("id", "")) is None:
+    device = find(request.get("id", ""))
+    if device is None:
         refuse(client, "device/options", request,
                f"Device '{request.get('id')}' does not exist")
         return
+    # Zigbee2MQTT republishes the device list when `disabled` changes.
+    if "disabled" in request.get("options", {}):
+        device["disabled"] = bool(request["options"]["disabled"])
+        publish_devices(client)
     respond(client, "device/options", request, {
         "data": {"id": request["id"], "from": {},
                  "to": request.get("options", {}),

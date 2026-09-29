@@ -1,6 +1,6 @@
 ---
 name: pair-zigbee-device
-description: Use when someone wants to pair, add, connect or join a Zigbee bulb, lamp, plug, remote or sensor to the home server; asks to "open pairing", "permit join" or "put the server in pairing mode"; has a bulb without a button that needs resetting before it will pair; or wants to find out which physical lamp a server device is ("which lamp is this", "make it flash", "identify"), name, move, list or remove a paired device.
+description: Use when someone wants to pair, add, connect or join a Zigbee bulb, lamp, plug, remote or sensor to the home server; asks to "open pairing", "permit join" or "put the server in pairing mode"; has a bulb without a button that needs resetting before it will pair; or wants to find out which physical lamp a server device is ("which lamp is this", "make it flash", "identify"), name, move, list, release from control or remove a paired device.
 ---
 
 # Pair a Zigbee device
@@ -100,6 +100,7 @@ across reboots (Zigbee2MQTT keeps names in `devices.yaml`).
 | Details and live state | `nix run .#house -- show <name>` |
 | Make a lamp flash | `nix run .#house -- identify <name> [--seconds 1-30]` |
 | Name or move a device | `nix run .#house -- rename <old> <new>` |
+| Stop or resume circadian control (stays paired) | `nix run .#house -- control <name> off\|on` |
 | Remove a device | `nix run .#house -- remove <name>` |
 | Pair and name in one go | `nix run .#house -- add [<floor/room/device>]` |
 
@@ -111,4 +112,6 @@ where it is, then `house rename` it. Unnamed devices appear in `house list` in
 pairing order, so the newest `0x…` entry is usually the lamp just paired.
 
 Ask before `house remove`: the device leaves the Zigbee network and must be
-reset and paired again to come back.
+reset and paired again to come back. To only take a lamp off the curve, such as
+"stop controlling it" or "remove it from smarthome control", use
+`house control <name> off`. That is reversible with `on`.
