@@ -30,8 +30,6 @@ pub struct BridgeDevice {
     pub kind: String,
     pub friendly_name: String,
     #[serde(default)]
-    pub supported: bool,
-    #[serde(default)]
     pub disabled: bool,
     #[serde(default = "interview_completed_default")]
     pub interview_completed: bool,
@@ -115,7 +113,7 @@ impl UncontrolledReason {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::NotALight => "not a light; only lights are controlled",
-            Self::Unsupported => "Zigbee2MQTT does not support this model",
+            Self::Unsupported => "Zigbee2MQTT has no definition for this model",
             Self::InterviewIncomplete => "Zigbee2MQTT has not finished identifying it",
             Self::Disabled => "disabled in Zigbee2MQTT",
             Self::MultiEndpointLight => "light has several endpoints; not supported yet",
@@ -366,7 +364,9 @@ fn light_of(device: &BridgeDevice) -> Result<DerivedLight, UncontrolledReason> {
     if !device.interview_completed {
         return Err(UncontrolledReason::InterviewIncomplete);
     }
-    let Some(definition) = device.definition.as_ref().filter(|_| device.supported) else {
+    // `supported` is ignored: Zigbee2MQTT sets it false for definitions it
+    // generated from standard clusters, and those exposes are still usable.
+    let Some(definition) = device.definition.as_ref() else {
         return Err(UncontrolledReason::Unsupported);
     };
     if !matches!(device.kind.as_str(), "Router" | "EndDevice") {
