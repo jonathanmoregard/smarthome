@@ -332,8 +332,12 @@ pkgsSystem.testers.runNixOSTest {
         "systemctl show home-assistant.service -P ExecStart "
         "| grep -o '/nix/store/[^ ;]*/bin/hass' | head -1"
     ).strip()
+    # The unit's Environment carries PYTHONPATH with every component and
+    # extra package; outside it hass cannot import them.
     home_server.succeed(
-        f"cd /var/lib/hass && runuser -u hass -- {hass} --script check_config -c /var/lib/hass"
+        "cd /var/lib/hass && runuser -u hass -- env "
+        "$(systemctl show home-assistant.service -P Environment) "
+        f"{hass} --script check_config -c /var/lib/hass"
     )
     home_server.succeed("test -e /var/lib/hass/custom_components/adaptive_lighting/manifest.json")
 
