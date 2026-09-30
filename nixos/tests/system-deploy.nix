@@ -150,13 +150,14 @@ pkgs.runCommand "system-deploy-contract" {
   grep -qF '${projectKey}' "$deploy"
   grep -qF '${nixosCache}' "$deploy"
   grep -qF '${nixosKey}' "$deploy"
-  for unit in sshd.service tailscaled.service mosquitto.service app-deploy.timer system-deploy.timer; do
+  for unit in sshd.service tailscaled.service mosquitto.service system-deploy.timer; do
     grep -qF -- "--unit $unit" "$deploy"
   done
+  # A bare `! grep` never trips set -e, so fail explicitly.
+  if grep -qF -- 'app-deploy.timer' "$deploy"; then exit 1; fi
   for unit in sshd.service tailscaled.service mosquitto.service; do
     grep -qF -- "--recovery-unit $unit" "$deploy"
   done
-  grep -qF -- '--recovery-any-unit-group app-deploy.timer,smarthome-deploy.timer' "$deploy"
   grep -qF -- '--recovery-any-unit-group system-deploy.timer,nixos-deploy.timer' "$deploy"
   ! grep -qF -- '--unit smarthome-deploy.timer' "$deploy"
   ! grep -qF -- '--unit nixos-deploy.timer' "$deploy"

@@ -15,11 +15,9 @@ let
     "mosquitto.service"
   ];
   candidateHealthUnits = [
-    "app-deploy.timer"
     "system-deploy.timer"
   ];
   baseHealthUnitGroups = [
-    [ "app-deploy.timer" "smarthome-deploy.timer" ]
     [ "system-deploy.timer" "nixos-deploy.timer" ]
   ];
   candidateHealthArguments =
