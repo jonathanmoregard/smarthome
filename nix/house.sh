@@ -449,7 +449,7 @@ rename_device() {
   fi
   if device_entry "$name" >/dev/null; then fail "$name is already taken on $host" 1; fi
   bridge_request device/rename \
-    "$(jq -cn --arg from "$friendly" --arg to "$name" '{from: $from, to: $to, homeassistant_rename: false}')" 30 ||
+    "$(jq -cn --arg from "$friendly" --arg to "$name" '{from: $from, to: $to, homeassistant_rename: true}')" 30 ||
     fail "Zigbee2MQTT refused to rename $friendly: $bridge_error" 1
   echo "Renamed $friendly to $name."
   report_daemon_view "$name"
@@ -506,7 +506,7 @@ add_device() {
     return
   fi
   bridge_request device/rename \
-    "$(jq -cn --arg from "$ieee" --arg to "$name" '{from: $from, to: $to, homeassistant_rename: false}')" 30 ||
+    "$(jq -cn --arg from "$ieee" --arg to "$name" '{from: $from, to: $to, homeassistant_rename: true}')" 30 ||
     fail "paired $ieee but could not name it: $bridge_error. Retry with: house rename $ieee $name" 1
   echo "Renamed $ieee to $name."
   report_daemon_view "$name"
