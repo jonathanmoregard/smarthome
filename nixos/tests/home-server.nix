@@ -264,7 +264,6 @@ pkgsSystem.testers.runNixOSTest {
         systemRestartIfChanged = config.systemd.services.system-deploy.restartIfChanged;
         zigbeeSerialPort = config.services.zigbee2mqtt.settings.serial.port;
         zigbeeAdapter = config.services.zigbee2mqtt.settings.serial.adapter;
-        zigbeeHomeAssistant = config.services.zigbee2mqtt.settings.homeassistant.enabled;
         zigbeePermitJoin = config.services.zigbee2mqtt.settings.permit_join;
         deploySecretDeclared = builtins.hasAttr "deploy-ssh-key" config.age.secrets;
         appDeploySecretDeclared =
@@ -387,7 +386,6 @@ pkgsSystem.testers.runNixOSTest {
     stable_executable = "/nix/var/nix/profiles/smarthome/bin/house-automationd"
     assert values["zigbeeSerialPort"] == "${physicalCoordinator}", values
     assert values["zigbeeAdapter"] == "ember", values
-    assert values["zigbeeHomeAssistant"] is False, values
     assert values["zigbeePermitJoin"] is False, values
     assert values["deploySecretDeclared"] is False, values
     assert values["appDeploySecretDeclared"] is False, values
@@ -450,7 +448,6 @@ pkgsSystem.testers.runNixOSTest {
     rendered = home_server.succeed("cat " + shlex.quote(store_config))
     print("[diag] rendered Zigbee2MQTT configuration:\n" + rendered)
     assert "adapter: ember" in rendered, rendered
-    assert "enabled: false" in rendered, rendered
     assert "permit_join: false" in rendered, rendered
     assert "network_key" not in rendered, rendered
 

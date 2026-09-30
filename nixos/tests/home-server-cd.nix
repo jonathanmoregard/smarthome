@@ -380,8 +380,8 @@ pkgsSystem.testers.runNixOSTest {
     system_deploy_executable = service_executable("system-deploy.service")
     print(f"[diag] strict candidate health program={system_deploy_executable}")
     home_server.succeed(
-        f"grep -F -- '--unit app-deploy.timer' {quote(system_deploy_executable)} "
-        f"&& grep -F -- '--unit system-deploy.timer' {quote(system_deploy_executable)}"
+        f"grep -F -- '--unit system-deploy.timer' {quote(system_deploy_executable)} "
+        f"&& ! grep -F -- 'app-deploy.timer' {quote(system_deploy_executable)}"
     )
     home_server.fail("systemctl start system-deploy.service", timeout=600)
     diagnostics("bad system candidate rolled back")

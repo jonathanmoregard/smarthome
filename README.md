@@ -12,8 +12,9 @@ the server only evaluates and substitutes promoted revisions with builders
 disabled. Start with the runbooks for [bootstrap](docs/home-server/bootstrap.md),
 [deployment](docs/home-server/deployment.md),
 [recovery](docs/home-server/recovery.md),
-[secrets](docs/home-server/secrets.md), and
-[access](docs/home-server/access.md).
+[secrets](docs/home-server/secrets.md),
+[access](docs/home-server/access.md), and
+[Home Assistant](docs/home-server/home-assistant.md).
 
 ## Architecture
 

@@ -199,18 +199,18 @@ pkgsSystem.testers.runNixOSTest {
           message = "Zigbee coordinator must use the Ember adapter";
         }
         {
-          assertion = !config.services.zigbee2mqtt.settings.homeassistant.enabled;
-          message = "Home Assistant integration must remain disabled";
-        }
-        {
           assertion = !config.services.zigbee2mqtt.settings.permit_join;
           message = "Zigbee pairing must remain disabled";
         }
       ];
 
-      environment.systemPackages = [ pkgsSystem.gnugrep ];
+      environment.systemPackages = [
+        pkgsSystem.curl
+        pkgsSystem.gnugrep
+        pkgsSystem.mosquitto
+      ];
       virtualisation = {
-        memorySize = 2048;
+        memorySize = 3072;
         diskSize = 4096;
       };
     };
@@ -218,6 +218,14 @@ pkgsSystem.testers.runNixOSTest {
   testScript = ''
     start_all()
     home_server.wait_for_unit("mosquitto.service")
+    # HA and Zigbee2MQTT exchange discovery and birth messages on
+    # homeassistant/# through the anonymous loopback listener.
+    home_server.succeed(
+        "(timeout 10 mosquitto_sub -h 127.0.0.1 -t homeassistant/status -C 1 "
+        "> /tmp/ha-status &) ; sleep 1; "
+        "mosquitto_pub -h 127.0.0.1 -t homeassistant/status -m online"
+    )
+    home_server.wait_until_succeeds("grep -Fx online /tmp/ha-status", timeout=15)
     home_server.succeed("systemctl show agenix.service -P Result | grep -Fx success")
     home_server.succeed("test -f /run/agenix/zigbee2mqtt-network-key")
     home_server.succeed("test \"$(stat -c '%U:%G %a' /run/agenix/zigbee2mqtt-network-key)\" = 'root:root 400'")
@@ -275,7 +283,6 @@ pkgsSystem.testers.runNixOSTest {
     assert "ext_pan_id:" in rendered, rendered
     assert "- 52" in rendered and "- 61" in rendered, rendered
     assert "adapter: ember" in rendered, rendered
-    assert "enabled: false" in rendered, rendered
     assert "permit_join: false" in rendered, rendered
     assert "network_key" not in rendered, rendered
 
@@ -314,6 +321,25 @@ pkgsSystem.testers.runNixOSTest {
     )
     home_server.fail("ss -lnt | grep -F ':8080'")
     home_server.succeed("systemctl stop zigbee2mqtt.service; rm /var/lib/zigbee2mqtt/devices.yaml")
+
+    home_server.wait_for_unit("home-assistant.service")
+    home_server.wait_until_succeeds(
+        "curl -fsS http://127.0.0.1:8123/api/onboarding", timeout=300
+    )
+    # HA itself must accept the generated configuration, custom component
+    # included, or a deploy would ship a config it rejects.
+    hass = home_server.succeed(
+        "systemctl show home-assistant.service -P ExecStart "
+        "| grep -o '/nix/store/[^ ;]*/bin/hass' | head -1"
+    ).strip()
+    # The unit's Environment carries PYTHONPATH with every component and
+    # extra package; outside it hass cannot import them.
+    home_server.succeed(
+        "cd /var/lib/hass && runuser -u hass -- env "
+        "$(systemctl show home-assistant.service -P Environment) "
+        f"{hass} --script check_config -c /var/lib/hass"
+    )
+    home_server.succeed("test -e /var/lib/hass/custom_components/adaptive_lighting/manifest.json")
 
     home_server.fail("systemctl list-unit-files --no-legend | grep -E 'build-coordination|nixos-auto-deploy|smarthome-auto-deploy'")
     home_server.fail("find /etc/ssh -maxdepth 1 -type f -name '*deploy*' -print -quit | grep -q .")

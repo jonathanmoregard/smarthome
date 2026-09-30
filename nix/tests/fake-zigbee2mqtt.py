@@ -177,7 +177,11 @@ def rename(client, request):
     set_availability(client, target, True)
     publish_devices(client)
     respond(client, "device/rename", request, {
-        "data": {"from": old, "to": target, "homeassistant_rename": False},
+        "data": {
+            "from": old,
+            "to": target,
+            "homeassistant_rename": request.get("homeassistant_rename", False),
+        },
         "status": "ok",
     })
 

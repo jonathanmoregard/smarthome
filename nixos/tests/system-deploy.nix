@@ -127,6 +127,8 @@ pkgs.runCommand "system-deploy-contract" {
   nativeBuildInputs = with pkgs; [ bash coreutils git gnugrep ];
 } ''
   set -euo pipefail
+  # A bare `! cmd` never trips set -e; refute fails when cmd succeeds.
+  refute() { if "$@"; then echo "refuted command succeeded: $*" >&2; exit 1; fi; }
   deploy=${service.serviceConfig.ExecStart}
   export STATE_DIRECTORY="$PWD/state" RUNTIME_DIRECTORY="$PWD/run"
   export DEPLOY_LOCK="$PWD/run/deploy.lock" DEPLOY_LOG="$PWD/deploy.log"
@@ -150,17 +152,17 @@ pkgs.runCommand "system-deploy-contract" {
   grep -qF '${projectKey}' "$deploy"
   grep -qF '${nixosCache}' "$deploy"
   grep -qF '${nixosKey}' "$deploy"
-  for unit in sshd.service tailscaled.service mosquitto.service app-deploy.timer system-deploy.timer; do
+  for unit in sshd.service tailscaled.service mosquitto.service system-deploy.timer; do
     grep -qF -- "--unit $unit" "$deploy"
   done
+  refute grep -qF -- 'app-deploy.timer' "$deploy"
   for unit in sshd.service tailscaled.service mosquitto.service; do
     grep -qF -- "--recovery-unit $unit" "$deploy"
   done
-  grep -qF -- '--recovery-any-unit-group app-deploy.timer,smarthome-deploy.timer' "$deploy"
   grep -qF -- '--recovery-any-unit-group system-deploy.timer,nixos-deploy.timer' "$deploy"
-  ! grep -qF -- '--unit smarthome-deploy.timer' "$deploy"
-  ! grep -qF -- '--unit nixos-deploy.timer' "$deploy"
-  ! grep -Eq 'IdentitiesOnly|deploy[Kk]ey|GIT_SSH_COMMAND|ssh -i' "$deploy"
+  refute grep -qF -- '--unit smarthome-deploy.timer' "$deploy"
+  refute grep -qF -- '--unit nixos-deploy.timer' "$deploy"
+  refute grep -Eq 'IdentitiesOnly|deploy[Kk]ey|GIT_SSH_COMMAND|ssh -i' "$deploy"
 
   mkdir work run state
   git init -q work
@@ -259,9 +261,9 @@ pkgs.runCommand "system-deploy-contract" {
   git -C work push -q --force origin "$switch_retry":refs/heads/release/home-server
   export ACTIVATOR_TRANSIENT_REV="$switch_retry"
   if "$deploy" > switch-retry.log 2>&1; then exit 1; fi
-  ! grep -qF 'poisoned' switch-retry.log
+  refute grep -qF 'poisoned' switch-retry.log
   "$deploy"
-  ! grep -qF 'poisoned' switch-retry.log
+  refute grep -qF 'poisoned' switch-retry.log
   unset ACTIVATOR_TRANSIENT_REV
 
   # Even a health failure is retryable while exact rollback is incomplete.
@@ -274,7 +276,7 @@ pkgs.runCommand "system-deploy-contract" {
   export ACTIVATOR_INCOMPLETE_REV="$incomplete_rev"
   if "$deploy" > incomplete.log 2>&1; then exit 1; fi
   if "$deploy" > incomplete-replay.log 2>&1; then exit 1; fi
-  ! grep -qF 'poisoned' incomplete-replay.log
+  refute grep -qF 'poisoned' incomplete-replay.log
   unset ACTIVATOR_INCOMPLETE_REV
 
   # Only switch success followed by sustained health failure and complete

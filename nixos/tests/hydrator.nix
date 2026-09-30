@@ -269,6 +269,10 @@ pkgs.runCommand "smarthome-hydrator-harness"
     nativeBuildInputs = with pkgs; [ bash coreutils gnugrep jq nix ];
   } ''
     export HOME="$PWD/home"
+    # Wall-clock ceiling per hydration. No case asserts a timeout; --attempts
+    # bounds retries. A loaded CI runner must not turn a slow answer into a
+    # failure.
+    BUDGET=60
 
     TARGET_STORE="$PWD/target-store"
     TARGET_STATE="$PWD/target-state"
@@ -566,7 +570,7 @@ pkgs.runCommand "smarthome-hydrator-harness"
       NIX_STORE_DIR="$TARGET_STORE" \
       NIX_STATE_DIR="$TARGET_STATE" \
       NIX_LOG_DIR="$TARGET_LOG" \
-        bash "$script" --timeout-seconds 2 --attempts 1 \
+        bash "$script" --timeout-seconds "$BUDGET" --attempts 1 \
           "''${cache_args[@]}" \
           "$@"
     }
@@ -626,7 +630,9 @@ pkgs.runCommand "smarthome-hydrator-harness"
       : > delayed-publication.log
       (
         published=0
-        for _ in $(seq 1 100); do
+        # Wait for the event (the first miss), not a fixed number of polls.
+        deadline=$((SECONDS + BUDGET))
+        while [ "$SECONDS" -lt "$deadline" ]; do
           # Helper prints captured copy diagnostics only after first copy
           # attempt has failed. Publish through cache adapter after that edge.
           if [ -s delayed-publication.log ]; then
@@ -651,7 +657,8 @@ pkgs.runCommand "smarthome-hydrator-harness"
       NIX_STORE_DIR="$TARGET_STORE" \
       NIX_STATE_DIR="$TARGET_STATE" \
       NIX_LOG_DIR="$TARGET_LOG" \
-        bash "$script" --timeout-seconds 6 --interval 1 --attempts 4 \
+        # Enough retries to outlast a slow publisher; BUDGET still caps them.
+        bash "$script" --timeout-seconds "$BUDGET" --interval 1 --attempts 30 \
           --from "file://$DELAYED_CACHE" \
           --trusted-key "$PUBLIC_KEY" \
           "$DELAYED_PATH" > delayed-publication.log 2>&1 || helper_status=$?
@@ -713,7 +720,7 @@ pkgs.runCommand "smarthome-hydrator-harness"
       if NIX_STORE_DIR="$TARGET_STORE" \
         NIX_STATE_DIR="$TARGET_STATE" \
         NIX_LOG_DIR="$TARGET_LOG" \
-        bash "$script" --timeout-seconds 2 --attempts 1 \
+        bash "$script" --timeout-seconds "$BUDGET" --attempts 1 \
           --from "file://$SIGNED_CACHE" \
           --trusted-key "$PUBLIC_KEY" \
           "$SIGNED_CLOSURE_ROOT" > preexisting-wrong-key-dependency.log 2>&1; then
@@ -767,7 +774,7 @@ pkgs.runCommand "smarthome-hydrator-harness"
       if NIX_STORE_DIR="$TARGET_STORE" \
         NIX_STATE_DIR="$TARGET_STATE" \
         NIX_LOG_DIR="$TARGET_LOG" \
-        bash "$script" --timeout-seconds 2 --attempts 1 \
+        bash "$script" --timeout-seconds "$BUDGET" --attempts 1 \
           --from "$NIX_WRAPPER_SOURCE_URL" \
           --trusted-key "$PUBLIC_KEY" \
           "$SIGNED_CLOSURE_ROOT" > preexisting-ultimate-dependency.log 2>&1; then
@@ -815,7 +822,7 @@ pkgs.runCommand "smarthome-hydrator-harness"
       if ! NIX_STORE_DIR="$TARGET_STORE" \
         NIX_STATE_DIR="$TARGET_STATE" \
         NIX_LOG_DIR="$TARGET_LOG" \
-        bash "$script" --timeout-seconds 6 --interval 1 --attempts 4 \
+        bash "$script" --timeout-seconds "$BUDGET" --interval 1 --attempts 4 \
           --from "$NIX_WRAPPER_SOURCE_URL" \
           --trusted-key "$PUBLIC_KEY" \
           --from "file://$UPSTREAM_CACHE" \
@@ -866,7 +873,7 @@ pkgs.runCommand "smarthome-hydrator-harness"
       if NIX_STORE_DIR="$TARGET_STORE" \
         NIX_STATE_DIR="$TARGET_STATE" \
         NIX_LOG_DIR="$TARGET_LOG" \
-        bash "$script" --timeout-seconds 2 --attempts 1 \
+        bash "$script" --timeout-seconds "$BUDGET" --attempts 1 \
           --from "$NIX_WRAPPER_SOURCE_URL" \
           --trusted-key "$PUBLIC_KEY" \
           "$SIGNED_CA_ROOT" > preexisting-ca-dependency.log 2>&1; then
@@ -902,7 +909,7 @@ pkgs.runCommand "smarthome-hydrator-harness"
     if ! NIX_STORE_DIR="$TARGET_STORE" \
       NIX_STATE_DIR="$TARGET_STATE" \
       NIX_LOG_DIR="$TARGET_LOG" \
-      bash "$script" --timeout-seconds 2 --attempts 1 \
+      bash "$script" --timeout-seconds "$BUDGET" --attempts 1 \
         --from "file://$SPLIT_ROOT_CACHE" \
         --trusted-key "$PUBLIC_KEY" \
         --from "file://$UPSTREAM_CACHE" \
