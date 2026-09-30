@@ -232,7 +232,12 @@ in
             address = "127.0.0.1";
             port = 1883;
             omitPasswordAuth = true;
-            acl = [ "topic readwrite zigbee2mqtt/#" "topic readwrite house/v1/#" ];
+            acl = [
+              "topic readwrite zigbee2mqtt/#"
+              "topic readwrite house/v1/#"
+              # Home Assistant discovery and birth messages.
+              "topic readwrite homeassistant/#"
+            ];
             settings.allow_anonymous = true;
           }
         ] ++ optional mqttNetworkEnabled {
@@ -287,7 +292,7 @@ in
         enable = true;
         dataDir = "/var/lib/zigbee2mqtt";
         settings = {
-          homeassistant.enabled = false;
+          homeassistant.enabled = true;
           permit_join = false;
           availability.enabled = true;
           serial = { port = cfg.zigbeeSerialPort; adapter = "ember"; };
