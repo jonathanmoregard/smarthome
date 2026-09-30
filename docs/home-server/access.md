@@ -56,10 +56,11 @@ Keep the policy limited to TCP 22. Zigbee2MQTT remains loopback-only and is
 reached through the SSH tunnel below. Validate the housemate's login before
 removing any existing operator or changing the tailnet policy again.
 
-`jonathan@dellan` remains authorized during cutover. Add and verify a Tuxedo or
-portable Jonathan operator public key in
-[`home-server-base.nix`](../../nixos/profiles/home-server-base.nix) before
-retiring Dellan. Private keys never enter this repository.
+`jonathan@dellan` and `jonathan@tuxedo` are both authorized while the two
+laptops run in parallel. The Tuxedo key was generated on that machine; verify
+its login before removing Dellan's key from
+[`home-server-base.nix`](../../nixos/profiles/home-server-base.nix). Private
+keys never enter this repository.
 
 ## Housemate account
 
