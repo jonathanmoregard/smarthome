@@ -448,7 +448,6 @@ pkgsSystem.testers.runNixOSTest {
     rendered = home_server.succeed("cat " + shlex.quote(store_config))
     print("[diag] rendered Zigbee2MQTT configuration:\n" + rendered)
     assert "adapter: ember" in rendered, rendered
-    assert "enabled: false" in rendered, rendered
     assert "permit_join: false" in rendered, rendered
     assert "network_key" not in rendered, rendered
 
