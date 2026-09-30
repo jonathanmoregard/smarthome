@@ -15,6 +15,9 @@ in
       "mobile_app"
       "backup"
     ];
+    # `hass --script check_config` needs colorlog; without it HA tries a
+    # runtime pip install, which NixOS cannot do.
+    extraPackages = ps: [ ps.colorlog ];
     customComponents = [
       pkgs.home-assistant-custom-components.adaptive_lighting
     ];
