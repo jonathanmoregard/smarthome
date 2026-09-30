@@ -7,6 +7,7 @@
     ./zigbee-coordinator.nix
     ../../profiles/home-server-base.nix
     ../../modules/home-server-services.nix
+    ../../modules/home-assistant.nix
     ../../modules/system-auto-deploy.nix
   ];
 
@@ -18,9 +19,11 @@
   services.app-auto-deploy.enable = true;
   services.system-auto-deploy = {
     enable = true;
+    # house-automationd is deliberately absent: the next change switches it
+    # off, and the running generation's gate must not require it by then.
     healthUnits = lib.mkAfter (
       lib.optional (config.homeServer.zigbeeSerialPort != null) "zigbee2mqtt.service"
-      ++ lib.optional (config.homeServer.houseSettings != null) "house-automationd.service"
+      ++ [ "home-assistant.service" ]
     );
   };
 }
