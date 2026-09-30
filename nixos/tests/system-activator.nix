@@ -28,6 +28,8 @@ pkgs.runCommand "system-activator-contract" {
   nativeBuildInputs = with pkgs; [ bash coreutils gnugrep gnused ];
 } ''
   set -euo pipefail
+  # A bare `! cmd` never trips set -e; refute fails when cmd succeeds.
+  refute() { if "$@"; then echo "refuted command succeeded: $*" >&2; exit 1; fi; }
   state="$PWD/state" profile="$PWD/system" events="$PWD/events.log"
   mkdir -p "$PWD/bin"
 
@@ -286,10 +288,10 @@ EOF
     [ "$(grep -c "^systemctl is-active --quiet -- $unit$" "$EVENTS")" -eq 3 ]
   done
   for unit in smarthome-deploy.timer nixos-deploy.timer; do
-    ! grep -q "^systemctl is-active --quiet -- $unit$" "$EVENTS"
+    refute grep -q "^systemctl is-active --quiet -- $unit$" "$EVENTS"
   done
   grep -qxF 'systemctl is-failed --quiet -- app-deploy.timer' "$EVENTS"
-  ! grep -qxF 'systemctl reset-failed -- app-deploy.timer' "$EVENTS"
+  refute grep -qxF 'systemctl reset-failed -- app-deploy.timer' "$EVENTS"
   if grep -qxF 'systemctl reset-failed' "$EVENTS"; then
     echo 'activation used bare reset-failed and masked unrelated failures' >&2
     exit 1
@@ -344,7 +346,7 @@ EOF
   grep -qF 'systemctl show --property=LoadState --value -- app-deploy.timer' "$EVENTS"
   grep -qF 'systemctl show --property=LoadState --value -- smarthome-deploy.timer' "$EVENTS"
   grep -qF 'systemctl reset-failed -- smarthome-deploy.timer' "$EVENTS"
-  ! grep -qF 'systemctl reset-failed -- app-deploy.timer' "$EVENTS"
+  refute grep -qF 'systemctl reset-failed -- app-deploy.timer' "$EVENTS"
 
   # A hard crash immediately after profile allocation leaves an atomic pending
   # journal. Recovery mode bypasses drift, restores the exact old generation,
@@ -392,7 +394,7 @@ EOF
   if run ${v2} 2222222222222222222222222222222222222222; then exit 1; fi
   grep -qxF 'reason=candidate-switch-failed' "$state/last-failure"
   [ ! -e "$START_LIMIT" ]
-  ! grep -qxF 'systemctl reset-failed' "$EVENTS"
+  refute grep -qxF 'systemctl reset-failed' "$EVENTS"
   [ "$(grep -c '^systemctl reset-failed -- sshd.service$' "$EVENTS")" -eq 2 ]
   [ "$(readlink -f "$profile")" = ${v1} ]
 
@@ -458,7 +460,7 @@ EOF
   [ -s "$state/pending-activation" ]
   [ -e "$profile-1-link" ]
   [ "$(links)" -eq 1 ]
-  ! grep -q '^nix-env --set ' "$EVENTS"
+  refute grep -q '^nix-env --set ' "$EVENTS"
 
   # Without an auto-deploy journal, a newer non-current generation is a manual
   # rollback topology. Refuse it before deletion or candidate allocation.
@@ -476,8 +478,8 @@ EOF
   [ -e "$profile-3-link" ]
   [ "$(links)" -eq 3 ]
   [ ! -e "$state/pending-activation" ]
-  ! grep -q '^nix-env --delete-generations' "$EVENTS"
-  ! grep -q '^nix-env --set ' "$EVENTS"
+  refute grep -q '^nix-env --delete-generations' "$EVENTS"
+  refute grep -q '^nix-env --set ' "$EVENTS"
 
   touch "$out"
 ''
