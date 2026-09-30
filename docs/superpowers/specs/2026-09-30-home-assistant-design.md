@@ -27,14 +27,25 @@ Rejected:
 
 ## Delivery in two pull requests
 
-1. **Add HA, switch the daemon off** (this spec's scope). The app track
-   (app-deploy timer, activator, publish job) stays in place, inert.
-2. **Delete the Rust workspace and the app track**: crates, `nix/package.nix`,
-   `nix/module.nix`, app-deploy module and tests, the publish workflow's app
-   job, CI's app job and path classifier branch, and the `house control`
-   command. It gets its own spec. It is separate because system-deploy's
-   health gate lists `app-deploy.timer`; removing the timer and the gate must
-   land in one reviewed generation, and a mistake there rolls the host back.
+The deploy script that activates a new generation belongs to the generation
+already running, and it checks the candidate against its own health list. The
+running generation requires `house-automationd.service` and
+`app-deploy.timer`, so a change that removes either one fails its own health
+check and rolls back. Each deploy may only drop what the previous generation
+no longer requires:
+
+1. **Add HA, loosen the health gate** (this spec's scope). The system-deploy
+   gate stops requiring `house-automationd.service` and `app-deploy.timer`.
+   The daemon and the app track keep running, unchanged.
+2. **Switch the daemon off and delete the Rust workspace and the app track**,
+   after PR 1 is deployed: crates, `nix/package.nix`, `nix/module.nix`,
+   `house.toml`, the app-deploy module and tests, the publish workflow's app
+   job, CI's app job and path classifier branch, and `house control`. It gets
+   its own spec.
+
+Between the two deploys the daemon still controls every enabled light it
+discovers. The only lamp is released (disabled in Zigbee2MQTT), so neither the
+daemon nor HA touches it. No lamp is enrolled in AL before PR 2 deploys.
 
 ## Components (PR 1)
 
@@ -53,7 +64,7 @@ Rejected:
   `automations.yaml`, `scenes.yaml` and `scripts.yaml` in `/var/lib/hass`,
   created empty by systemd-tmpfiles when absent (`f`, never truncated).
 - Port 8123 opens on `tailscale0` only, like SSH and the Zigbee2MQTT frontend.
-- `home-assistant.service` joins `services.system-deploy.healthUnits`, so a
+- `home-assistant.service` joins the health gate (below), so any later
   generation where HA fails to start rolls back.
 
 ### Zigbee2MQTT and Mosquitto
@@ -63,13 +74,16 @@ Rejected:
 - The loopback listener ACL adds `topic readwrite homeassistant/#`, the
   discovery and HA birth topics. Z2M and HA both use the anonymous loopback
   listener, as the daemon did.
+- `house rename` sends `homeassistant_rename: true`, so HA entity IDs follow
+  a device's new name.
 
-### house-automationd off
+### Health gate
 
-- `homeServer.houseSettings = null` on the host. The module then disables the
-  daemon, the app-deploy restart target becomes `-`, and the system-deploy
-  health list drops `house-automationd.service`. `house.toml` is deleted.
-- The package stays built and published until PR 2.
+- On the host, `services.system-deploy.healthUnits` drops
+  `house-automationd.service` and gains `home-assistant.service`.
+- `system-auto-deploy.nix` drops `app-deploy.timer` from its fixed candidate
+  list and its recovery groups, keeping `system-deploy.timer` (or the legacy
+  `nixos-deploy.timer` during recovery).
 
 ### Adaptive Lighting (runtime, not Nix)
 
@@ -105,7 +119,7 @@ does nothing until the AL switch exists, so it is safe before onboarding.
 `docs/home-server/home-assistant.md` covers, once per install: HA onboarding
 (owner account), adding the MQTT integration (broker `127.0.0.1`, port 1883,
 no credentials), creating the AL `House` switch with the table above, adding
-lamps to it, and accounts for other residents. Backups use HA's built-in
+lamps to it (only after PR 2 deploys), and accounts for other residents. Backups use HA's built-in
 Backup integration; off-box copies of `/var/lib/hass`, `/var/lib/zigbee2mqtt`
 and `/var/lib/mosquitto` are a follow-up.
 
@@ -122,5 +136,5 @@ and `/var/lib/mosquitto` are a follow-up.
 
 ## Out of scope
 
-Automatic AL enrolment, modes, dashboards, wake-up from the phone alarm,
-notification flashes, Music Assistant, off-box backups, and PR 2.
+PR 2, automatic AL enrolment, modes, dashboards, wake-up from the phone
+alarm, notification flashes, Music Assistant and off-box backups.
