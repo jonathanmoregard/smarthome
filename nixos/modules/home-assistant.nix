@@ -83,21 +83,20 @@ in
     after = [ "tailscaled.service" "home-assistant.service" ];
     wants = [ "tailscaled.service" ];
     path = [ config.services.tailscale.package ];
+    # Type=simple retrying in the script, never Restart=on-failure: a node
+    # that is not enrolled yet, or has HTTPS certificates disabled, must not
+    # leave a failed or restarting unit behind, because switch-to-configuration
+    # would count that as a failed deploy and roll back.
     serviceConfig = {
-      Type = "oneshot";
+      Type = "simple";
       RemainAfterExit = true;
-      # Not yet enrolled, or HTTPS certificates disabled: fail visibly and
-      # retry instead of hanging on Tailscale's interactive enable prompt.
-      TimeoutStartSec = 90;
-      Restart = "on-failure";
-      RestartSec = 30;
     };
     script = ''
-      for _ in $(seq 1 30); do
-        tailscale status --json | grep -q '"BackendState": "Running"' && break
-        sleep 2
+      until tailscale status --json | grep -q '"BackendState": "Running"' \
+        && timeout 30 tailscale serve --bg --yes --https=443 http://127.0.0.1:8123; do
+        echo "tailscale serve not ready (node not enrolled or HTTPS certificates disabled?); retrying in 30s" >&2
+        sleep 30
       done
-      tailscale serve --bg --yes --https=443 http://127.0.0.1:8123
     '';
   };
 }
