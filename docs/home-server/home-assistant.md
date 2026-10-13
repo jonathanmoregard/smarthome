@@ -9,8 +9,45 @@ changed in the web UI, without a pull request.
 
 ## Open it
 
-From a machine on the tailnet: <http://home-server:8123>. Port 8123 is open on
-`tailscale0` only.
+From a machine on the tailnet: <https://home-server.tailbebb40.ts.net>.
+Tailscale Serve terminates TLS with a certificate Tailscale issues for that
+name, so browsers accept a password and `Secure` cookies. Home Assistant
+listens on loopback only, and port 443 is open on `tailscale0` only: there is
+no plain-HTTP path and nothing is exposed to the public Internet. Do not enable
+Funnel.
+
+One-time, in the Tailscale admin console: DNS, then enable **HTTPS
+Certificates**. Until then `tailscale-serve-home-assistant.service` fails and
+retries every 30 s. Check it with
+`systemctl status tailscale-serve-home-assistant`.
+
+## Give a housemate access, isolated from your other machines
+
+Use node sharing, not an invite into your tailnet. The housemate keeps their own
+tailnet and sees only `home-server`. They cannot see your laptops or any deploy
+target, even if a policy is misconfigured.
+
+1. Admin console, Machines, `home-server`, Share. Send the link to the
+   housemate's own Tailscale account.
+2. In the tailnet policy, limit what shared users may reach to HTTPS only:
+
+   ```json
+   "grants": [
+     {
+       "src": ["autogroup:shared"],
+       "dst": ["100.87.199.107"],
+       "ip":  ["tcp:443"]
+     }
+   ]
+   ```
+
+   Port 22 stays unreachable to them, so SSH access described in
+   [`access.md`](access.md) remains operator-only.
+3. The housemate accepts the share and opens the same URL. Create their HA
+   account under Settings, People first: sharing grants reachability, not a
+   login.
+
+Revoke by removing the share. Their reachability ends at once.
 
 ## First-time setup
 

@@ -1,4 +1,4 @@
-{ pkgs, ... }:
+{ config, lib, pkgs, ... }:
 
 let
   stateDir = "/var/lib/hass";
@@ -31,7 +31,14 @@ in
         time_zone = "Europe/Stockholm";
         unit_system = "metric";
       };
-      http.server_port = 8123;
+      # Loopback only: the sole way in is Tailscale Serve below, which
+      # terminates TLS. Plain HTTP is never reachable from the tailnet.
+      http = {
+        server_host = [ "127.0.0.1" "::1" ];
+        server_port = 8123;
+        use_x_forwarded_for = true;
+        trusted_proxies = [ "127.0.0.1" "::1" ];
+      };
       # UI-managed files next to the declarative configuration.
       "automation ui" = "!include automations.yaml";
       "scene ui" = "!include scenes.yaml";
@@ -64,5 +71,32 @@ in
         "scripts.yaml"
       ];
 
-  networking.firewall.interfaces.tailscale0.allowedTCPPorts = [ 8123 ];
+  # HTTPS for the web UI over the tailnet, with a certificate Tailscale issues
+  # for `<node>.<tailnet>.ts.net`. Serve listens on tailscale0:443 only; the
+  # host firewall opens 443 there and nothing else is added for HA. Needs
+  # "HTTPS Certificates" enabled once in the Tailscale admin console.
+  networking.firewall.interfaces.tailscale0.allowedTCPPorts = [ 443 ];
+
+  systemd.services.tailscale-serve-home-assistant = lib.mkIf config.services.tailscale.enable {
+    description = "Serve Home Assistant over HTTPS on the tailnet";
+    wantedBy = [ "multi-user.target" ];
+    after = [ "tailscaled.service" "home-assistant.service" ];
+    wants = [ "tailscaled.service" ];
+    path = [ config.services.tailscale.package ];
+    # Type=simple retrying in the script, never Restart=on-failure: a node
+    # that is not enrolled yet, or has HTTPS certificates disabled, must not
+    # leave a failed or restarting unit behind, because switch-to-configuration
+    # would count that as a failed deploy and roll back.
+    serviceConfig = {
+      Type = "simple";
+      RemainAfterExit = true;
+    };
+    script = ''
+      until tailscale status --json | grep -q '"BackendState": "Running"' \
+        && timeout 30 tailscale serve --bg --yes --https=443 http://127.0.0.1:8123; do
+        echo "tailscale serve not ready (node not enrolled or HTTPS certificates disabled?); retrying in 30s" >&2
+        sleep 30
+      done
+    '';
+  };
 }
