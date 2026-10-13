@@ -2,7 +2,6 @@
 
 let
   stateDir = "/var/lib/hass";
-  sleepSwitch = "switch.adaptive_lighting_sleep_mode_house";
 in
 {
   services.home-assistant = {
@@ -30,14 +29,11 @@ in
     ];
     config = {
       default_config = { };
-      homeassistant = {
-        name = "Home";
-        # Approximate coordinates are enough for sun-based automations.
-        latitude = 59.3;
-        longitude = 18.1;
-        time_zone = "Europe/Stockholm";
-        unit_system = "metric";
-      };
+      # Name, location, time zone and units stay out of YAML: set there, HA
+      # locks them in the UI. Onboarding stores them in HA's own state. The
+      # NixOS module defaults time_zone to time.timeZone; null drops it.
+      homeassistant.time_zone = null;
+
       # Loopback only: the sole way in is Tailscale Serve below, which
       # terminates TLS. Plain HTTP is never reachable from the tailnet.
       http = {
@@ -50,22 +46,6 @@ in
       "automation ui" = "!include automations.yaml";
       "scene ui" = "!include scenes.yaml";
       "script ui" = "!include scripts.yaml";
-      # The Adaptive Lighting switch is created in the UI
-      # (docs/home-server/home-assistant.md); these do nothing until it exists.
-      "automation nix" = [
-        {
-          id = "house_sleep_mode_on";
-          alias = "House sleep mode on";
-          triggers = [ { trigger = "time"; at = "23:00:00"; } ];
-          actions = [ { action = "switch.turn_on"; target.entity_id = sleepSwitch; } ];
-        }
-        {
-          id = "house_sleep_mode_off";
-          alias = "House sleep mode off";
-          triggers = [ { trigger = "time"; at = "06:40:00"; } ];
-          actions = [ { action = "switch.turn_off"; target.entity_id = sleepSwitch; } ];
-        }
-      ];
     };
   };
 

@@ -1,3 +1,5 @@
+# Dormant reference for the former production policy. The production host sets
+# homeServer.houseSettings = null and does not import this file.
 schema_version = 1
 default_curve = "home-day"
 # Devices are discovered at runtime from Zigbee2MQTT (spec rollout step 2).

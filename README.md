@@ -3,8 +3,9 @@
 This repository owns the complete home-automation appliance: Rust lighting
 daemon, physical `home-server` NixOS configuration, MQTT and Zigbee2MQTT,
 encrypted runtime secrets, tests, release publication, deployment, rollback,
-and recovery documentation. Rust owns automation semantics; protocol services
-translate device events and commands. Home Assistant is deliberately absent.
+and recovery documentation. Home Assistant and its UI-managed Adaptive
+Lighting integration own the production lighting schedule. The Rust daemon is
+still built, published, and tested, but is disabled on the production host.
 
 `smarthome` has no import or runtime dependency on another configuration
 repository. GitHub builds both release closures, Cachix distributes them, and
@@ -20,8 +21,8 @@ disabled. Start with the runbooks for [bootstrap](docs/home-server/bootstrap.md)
 
 ```text
                          +-------------------+
-                         |  Rust automation  |
-                         |  desired state    |
+                         |  Home Assistant   |
+                         | Adaptive Lighting |
                          +---------+---------+
                                    |
                                   MQTT
@@ -37,8 +38,9 @@ disabled. Start with the runbooks for [bootstrap](docs/home-server/bootstrap.md)
                                       433 MHz        Z-Wave
 ```
 
-Zigbee, Z-Wave, and 433 MHz remain separate radio systems. MQTT and the Rust
-domain model are where they meet. Automation rules do not belong in Mosquitto,
+Zigbee, Z-Wave, and 433 MHz remain separate radio systems. The Rust domain
+model continues to exercise them in daemon tests; Home Assistant is the
+production automation layer. Automation rules do not belong in Mosquitto,
 Zigbee2MQTT, the TellStick adapter, Matrix, or shell scripts.
 
 ## Build and configure
@@ -67,8 +69,8 @@ unknown fields, duplicate IDs, invalid references, unsafe MQTT namespaces, and
 impossible capability combinations. Static topology belongs in Git; deliberate
 runtime choices do not.
 
-The exported NixOS module integrates the daemon without describing a particular
-machine:
+The exported NixOS module still supports the daemon without describing a
+particular machine:
 
 ```nix
 services.houseAutomation = {
@@ -82,7 +84,9 @@ The module generates the non-secret TOML, runs the service as its own
 unprivileged account, stores state below `/var/lib/house-automation`, and applies
 systemd hardening. The production host currently leaves
 `homeServer.houseSettings = null`, so it deploys the app profile but does not
-start the daemon until real paired device IDs replace the example topology.
+start the daemon. This makes Adaptive Lighting the sole production lighting
+controller. `nixos/hosts/home-server/house.toml` is retained only as a checked
+reference for the former policy; the production host does not import it.
 
 ## Releases
 
@@ -106,49 +110,23 @@ the public repository over HTTPS, serializes both deployers on one lock, and
 keeps at most two application and two system profile generations. Dellan is not
 part of either release path; its SSH key remains ordinary operator access.
 
-### Add a room, light, or control
+### Add a light to the production schedule
 
 Adding, naming, moving or removing a light needs no repository change and no
-pull request. Zigbee2MQTT is the device registry (`devices.yaml` in
-`/var/lib/zigbee2mqtt`, kept across restarts), and `house-automationd`
-follows its retained `zigbee2mqtt/bridge/devices` list at runtime.
+pull request. Zigbee2MQTT remains the device registry (`devices.yaml` in
+`/var/lib/zigbee2mqtt`, kept across restarts) and publishes paired devices to
+Home Assistant through MQTT discovery.
 
-```console
-nix run .#house -- add upper-floor/upper-hallway/lamp   # pair and name
-nix run .#house -- list                                 # name, room, model, availability
-nix run .#house -- show upper-floor/upper-hallway/lamp  # owner, live state, circadian target
-nix run .#house -- identify 0x7cc6b6fffe3cef1c          # make it flash
-nix run .#house -- rename 0x7cc6b6fffe3cef1c upper-floor/upper-hallway/lamp
-nix run .#house -- remove upper-floor/upper-hallway/lamp
-```
+Pair and name the device through Home Assistant's Zigbee2MQTT bridge, then add
+its `light.*` entity to the UI-created Adaptive Lighting entry named `House`.
+Open Settings, Devices & services, Adaptive Lighting, then **Configure** to see
+or edit the schedule and lamp membership. The complete procedure and the
+former `home-day` curve mapping are in
+[the Home Assistant runbook](docs/home-server/home-assistant.md).
 
-- A light follows the curve as soon as Zigbee2MQTT finishes its interview,
-  even under its `0x…` name. A light whose exposes cannot be mapped is not
-  controlled, and `house show` says why. Remotes and sensors are listed but
-  not discovered as controls.
-- A `<floor>/<room>/<device>` name only adds room membership. It lets remotes
-  target the room and allows later per-room adjustments. Ownership is the
-  most specific declared scope: room, then floor, then house. The house scope
-  uses `default_curve` and is created automatically when `house.toml`
-  declares none.
-- A `[[devices]]` entry still works. When it shares a `friendly_name` with a
-  discovered device, the static entry wins.
-
-Policy still lives in `nixos/hosts/home-server/house.toml` and goes through
-the [Releases](#releases) tracks: `default_curve`, curves, a declared
-`[[rooms]]` + `[[scopes]]` pair to give a room its own curve or make it a
-remote target, and `[[controls]]` for remotes. Run `nix flake check -L`
-after such changes.
-
-`/healthz` on the daemon's loopback listener reports
-`discovery: disabled | pending | synced` without naming devices. `/devices`
-lists every device with its room, owner, target and any not-controlled
-reason; `house` reads it through the same SSH connection.
-
-Scopes compose as room, floor, and house ownership. The most specific physical
-owner holds durable offsets and curve state; broader actions fan out to those
-owners. A control's selected scope is declarative initially and is persisted if
-runtime scope selection is later enabled.
+The `house` CLI, `house-automationd`, and `house.toml` remain development and
+compatibility tooling; they do not control production lights while
+`homeServer.houseSettings = null`.
 
 ## MQTT contract
 
@@ -163,9 +141,9 @@ zigbee2mqtt/bridge/state                  bridge availability
 ```
 
 Application-owned topics are under the separately configured, versioned
-namespace `house/v1/...`; today it carries daemon status/LWT and leaves room for
-future normalized APIs. The application namespace must not overlap the
-Zigbee2MQTT base topic.
+namespace `house/v1/...`; when the daemon is enabled it carries status/LWT and
+leaves room for future normalized APIs. The application namespace must not
+overlap the Zigbee2MQTT base topic.
 
 MQTT is an internal bus, normally on loopback for co-located services. Commands,
 button actions, and ephemeral events are never retained. Retained observed state
@@ -232,7 +210,7 @@ a late hold to cancel it. Holds and releases are classified separately, so they
 cannot accidentally become clicks. The daemon never toggles immediately and
 then undoes it, avoiding visible power flashes.
 
-## Lighting semantics
+## Rust daemon lighting semantics (inactive in production)
 
 Each output is recomputed from independent layers:
 
@@ -331,12 +309,13 @@ Z-Wave. A future adapter may discover and translate its **verified local API** t
 normalized MQTT events/commands; it must not depend on Telldus cloud. This
 repository intentionally does not invent endpoint paths or payload semantics
 before the hardware/API is inspected. The adapter owns protocol translation
-only—automation stays in Rust, and no radio-level Zigbee/Z-Wave bridge is
-attempted.
+only—production automation stays in Home Assistant, and no radio-level
+Zigbee/Z-Wave bridge is attempted.
 
-## Operations and diagnostics
+## Rust daemon development diagnostics
 
-The daemon logs structured events through `tracing`, including device, room,
+When enabled in a test or development host, the daemon logs structured events
+through `tracing`, including device, room,
 source, action, scope, old/new target, availability, reconnect, curve mode, and
 overlay where relevant. Secret-bearing MQTT payloads are not logged wholesale.
 The loopback health endpoint returns success only after the database migration,

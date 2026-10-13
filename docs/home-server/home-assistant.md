@@ -3,9 +3,13 @@
 Home Assistant (HA) runs on home-server through the NixOS module in
 [`nixos/modules/home-assistant.nix`](../../nixos/modules/home-assistant.nix).
 Nix owns the service, its integrations, the Adaptive Lighting (AL) component
-and the sleep-mode schedule. Accounts, the MQTT connection, AL's settings and
-which lamps AL controls live in HA's own state under `/var/lib/hass` and are
-changed in the web UI, without a pull request.
+and HTTPS access. Everything residents may want to change lives in HA's own
+state under `/var/lib/hass` and is changed in the web UI, without a pull
+request: accounts, home name, location and time zone, the MQTT connection,
+AL's settings, which lamps AL controls, and every automation, including the
+sleep-mode schedule. `house-automationd` is disabled
+on the production host, so AL is the only controller changing lamp brightness
+and color temperature on a schedule.
 
 ## Open it
 
@@ -59,8 +63,8 @@ Do these steps once per install, in order.
    Broker `127.0.0.1`, port `1883`, no username or password. Zigbee2MQTT
    devices then appear on their own through MQTT discovery.
 3. **Adaptive Lighting.** Go to Settings → Devices & services → Add
-   integration → Adaptive Lighting. Name it exactly `House`, because the
-   sleep-mode schedule below targets
+   integration → Adaptive Lighting. Name it `House`; the automations below
+   then target `switch.adaptive_lighting_house` and
    `switch.adaptive_lighting_sleep_mode_house`. Then open the integration's
    options and set:
 
@@ -77,6 +81,29 @@ Do these steps once per install, in order.
 
    50 % is about 400 lm on an 800 lm bulb, the evening level. Daytime peaks
    at 3500 K.
+4. **Verify the schedule.** On Settings → Devices & services, open Adaptive
+   Lighting and select **Configure** on `House`. The options above and the
+   `lights` selector are the production schedule: changes saved here take
+   effect without a repository change or deployment.
+5. **Sleep mode.** Create the automation in [Sleep mode](#sleep-mode).
+
+## How the former home-day curve maps to House
+
+The UI-owned `House` entry replaces the `home-day` curve retained in
+`nixos/hosts/home-server/house.toml`. It is an approximation rather than a
+byte-for-byte translation:
+
+| Former `home-day` behavior | Adaptive Lighting `House` | Difference |
+|---|---|---|
+| 2200 K night / 3500 K day | `min_color_temp` 2200 / `max_color_temp` 3500 | Same temperature range |
+| 10 % night / 100 % day | 50 % normal minimum / 100 % maximum; sleep mode is 1 % dim red | The normal evening floor is brighter, while scheduled sleep mode is dimmer and redder |
+| Wake 07:00 / bed 23:00 | Fixed sunrise 07:40 / sunset 20:00; sleep mode starts 23:00 and ends 06:40 | AL splits the normal transition from the sleep window |
+| Solar-derived anchors with `winter_hold` from 11-01 through 01-31 | Fixed UI times with `brightness_mode` `tanh` | AL has no `winter_hold`; the fixed times intentionally stay the same all year |
+| Daemon owns every discovered compatible lamp | Only entities selected under `lights` | Membership is explicit and editable in the UI |
+
+To change the approximation later, return to Settings → Devices & services →
+Adaptive Lighting → `House` → **Configure**. Do not edit `house.toml`; it is a
+dormant reference and is not imported by the production host.
 
 ## Pair a device from the UI
 
@@ -93,17 +120,66 @@ does not apply. Pair through Zigbee2MQTT's bridge entity instead:
 
 ## Add a lamp to the circadian curve
 
-Pair and name the lamp with `house add` as usual. Then, in the AL `House`
-options, add the lamp's `light.*` entity under `lights`.
+1. Complete the pairing steps above and open the new device under Settings →
+   Devices & services → MQTT.
+2. Note the lamp's `light.*` entity. Sensors, update entities and the device
+   name itself are not valid AL light targets.
+3. Go to Settings → Devices & services → Adaptive Lighting → `House` →
+   **Configure**, add that entity under `lights`, and save.
+4. Return to the same **Configure** screen whenever the lamp membership or
+   schedule should change.
 
-Do not add lamps until house-automationd has been switched off. Until then
-the daemon also drives every enabled lamp, and two controllers would fight
-over it.
+Do not add lamps until the deployed host generation has switched
+`house-automationd` off. Before the cutover, the daemon also drives every
+enabled lamp and two controllers would fight over it. After the cutover,
+`systemctl status house-automationd.service` reports that the unit is absent.
 
 ## Sleep mode
 
-Nix switches AL's sleep mode on at 23:00 (dim red) and off at 06:40. Change
-the times in `nixos/modules/home-assistant.nix` through a pull request.
+Sleep mode turns `House` lamps dim red. A UI automation switches it on at
+23:00 and off at 06:40. Create it once under Settings → Automations & scenes →
+Create automation → ⋮ → Edit in YAML, paste, and save:
+
+```yaml
+alias: House sleep mode
+triggers:
+  - trigger: time
+    at: "23:00:00"
+    id: "on"
+  - trigger: time
+    at: "06:40:00"
+    id: "off"
+actions:
+  - action: switch.turn_{{ trigger.id }}
+    target:
+      entity_id: switch.adaptive_lighting_sleep_mode_house
+```
+
+Change the times in the automation editor whenever the household wants to.
+Another AL entry has its own sleep-mode switch; add it to `entity_id` to share
+this schedule, or give it its own automation.
+
+## Hand control back on a schedule
+
+With `take_over_control` on, a lamp changed by hand or remote stops following
+the curve until it is turned off and on again. To hand every `House` lamp back
+at set times as well, add this automation the same way:
+
+```yaml
+alias: House hand back to schedule
+triggers:
+  - trigger: time
+    at: "06:40:00"
+  - trigger: time
+    at: "17:00:00"
+actions:
+  - action: adaptive_lighting.set_manual_control
+    data:
+      entity_id: switch.adaptive_lighting_house
+      manual_control: false
+```
+
+Listing `lights:` under `data` limits it to those lamps.
 
 ## Backups
 
