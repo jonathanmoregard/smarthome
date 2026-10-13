@@ -14,6 +14,13 @@ in
       "mqtt"
       "mobile_app"
       "backup"
+      # Onboarding creates config entries for these; without their Python
+      # deps they fail with ModuleNotFoundError (gtts, radios).
+      "analytics"
+      "google_translate"
+      "radio_browser"
+      "shopping_list"
+      "isal"
     ];
     # `hass --script check_config` needs colorlog; without it HA tries a
     # runtime pip install, which NixOS cannot do.
