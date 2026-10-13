@@ -11,7 +11,7 @@ let
   physicalCoordinator =
     "/dev/serial/by-id/usb-Itead_Sonoff_Zigbee_3.0_USB_Dongle_Plus_V2_94b12b3f9478f011aba8a3e70ba521c7-if00-port0";
   projectCache = "https://jonathanmoregard.cachix.org";
-  projectKey = "jonathanmoregard.cachix.org-1:Qzksr/c2ciAaV4j/U2mGFd1HTgOAicks8gJNs1Ztxo8=";
+  projectKey = "jonathanmoregard.cachix.org-1:dx2ddtW26xQClPgpJYu0ba6B3n/2FGGLw96vpREEw7w=";
   nixosCache = "https://cache.nixos.org";
   nixosKey = "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=";
   fakeAutomation = pkgsSystem.writeShellApplication {

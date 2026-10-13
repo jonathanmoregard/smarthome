@@ -5,7 +5,7 @@ let
   stateDir = "/var/lib/smarthome-deploy";
   runtimeDir = "/run/smarthome-deploy";
   projectCache = "https://jonathanmoregard.cachix.org";
-  projectKey = "jonathanmoregard.cachix.org-1:Qzksr/c2ciAaV4j/U2mGFd1HTgOAicks8gJNs1Ztxo8=";
+  projectKey = "jonathanmoregard.cachix.org-1:dx2ddtW26xQClPgpJYu0ba6B3n/2FGGLw96vpREEw7w=";
   nixosCache = "https://cache.nixos.org";
   nixosKey = "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=";
   rollbackDatabaseArg = if cfg.serviceName == "-" then "-" else cfg.rollbackDatabase;
