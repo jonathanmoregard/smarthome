@@ -78,6 +78,19 @@ Do these steps once per install, in order.
    50 % is about 400 lm on an 800 lm bulb, the evening level. Daytime peaks
    at 3500 K.
 
+## Pair a device from the UI
+
+Zigbee2MQTT owns the radio, so Home Assistant's own Add device flow (ZHA)
+does not apply. Pair through Zigbee2MQTT's bridge entity instead:
+
+1. Settings → Devices & services → MQTT → device **Zigbee2MQTT Bridge** →
+   switch **Permit join** on. It closes by itself after 254 seconds.
+2. Factory-reset the device close to the server while the window is open.
+3. Once the interview completes, the device appears under the MQTT
+   integration. Rename it there, then switch **Permit join** off.
+
+`nix run .#pair-zigbee` from the repository does the same from a terminal.
+
 ## Add a lamp to the circadian curve
 
 Pair and name the lamp with `house add` as usual. Then, in the AL `House`
