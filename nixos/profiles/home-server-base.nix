@@ -88,7 +88,6 @@
             options = [ "NOPASSWD" ];
           })
           [
-            "/run/current-system/sw/bin/systemctl start app-deploy.service"
             "/run/current-system/sw/bin/systemctl start system-deploy.service"
             "/run/current-system/sw/bin/systemctl reboot"
           ];

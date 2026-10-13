@@ -9,10 +9,8 @@
 let
   inherit (lib) hasPrefix mkIf mkMerge mkOption optional types;
   cfg = config.homeServer;
-  toml = pkgs.formats.toml { };
   zigbeeEnabled = cfg.zigbeeSerialPort != null;
   mqttNetworkEnabled = cfg.mqttNetworkPasswordFile != null;
-  houseAutomationEnabled = cfg.houseSettings != null;
   matrixEnabled = cfg.matrixServerName != null && cfg.matrixSecretFile != null;
   tellstickConfigured =
     cfg.tellstickAddress != null
@@ -42,10 +40,7 @@ let
   };
 in
 {
-  imports = [
-    ./app-auto-deploy.nix
-    ./house-automation-service.nix
-  ];
+  imports = [ ];
 
   options.homeServer = {
     zigbeeSerialPort = mkOption {
@@ -97,16 +92,6 @@ in
       type = types.port;
       default = 1884;
       description = "Optional network MQTT port.";
-    };
-    houseAutomationEnvironmentFile = mkOption {
-      type = types.nullOr types.str;
-      default = null;
-      description = "Optional runtime environment file for house-automation credentials.";
-    };
-    houseSettings = mkOption {
-      type = types.nullOr toml.type;
-      default = null;
-      description = "Declarative house-automation topology; null keeps the daemon disabled.";
     };
     tellstickAddress = mkOption {
       type = types.nullOr types.str;
@@ -186,10 +171,6 @@ in
           message = "homeServer.mqttNetworkAcl must not be empty when defining the network listener";
         }
         {
-          assertion = isRuntimePath cfg.houseAutomationEnvironmentFile;
-          message = "homeServer.houseAutomationEnvironmentFile must be an absolute runtime path outside the Nix store";
-        }
-        {
           assertion = (cfg.tellstickAddress == null && cfg.tellstickTokenFile == null && cfg.tellstickAdapterPackage == null) || tellstickConfigured;
           message = "homeServer TellStick address, token file, and adapter package must be supplied together";
         }
@@ -251,14 +232,6 @@ in
         };
       };
 
-      # The base host deliberately has no house topology.  Promoted profiles
-      # remain deployable there, while a configured daemon gets the restart
-      # and health gate.
-      services.app-auto-deploy = {
-        serviceName = if houseAutomationEnabled then "house-automationd.service" else "-";
-        healthUrl = if houseAutomationEnabled then "http://127.0.0.1:9876/healthz" else "-";
-      };
-
       networking.firewall.interfaces.tailscale0.allowedTCPPorts =
         optional mqttNetworkEnabled cfg.mqttNetworkPort
         ++ optional (zigbeeEnabled && cfg.zigbeeFrontendTailnet) 8080
@@ -318,18 +291,6 @@ in
           LoadCredential = "network-key:${cfg.zigbeeNetworkKeyFile}";
           ExecStart = lib.mkForce (lib.getExe zigbee2mqttWithNetworkKey);
         };
-      };
-    })
-
-    (mkIf houseAutomationEnabled {
-      services.houseAutomation = {
-        enable = true;
-        settings = cfg.houseSettings;
-        environmentFile = cfg.houseAutomationEnvironmentFile;
-      };
-      systemd.services.house-automationd = {
-        requires = [ "mosquitto.service" ];
-        after = [ "mosquitto.service" ];
       };
     })
 

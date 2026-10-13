@@ -8,13 +8,6 @@
 let
   physicalCoordinator =
     "/dev/serial/by-id/usb-Itead_Sonoff_Zigbee_3.0_USB_Dongle_Plus_V2_94b12b3f9478f011aba8a3e70ba521c7-if00-port0";
-  fakeAutomation = pkgsSystem.writeShellApplication {
-    name = "house-automationd";
-    runtimeInputs = [ pkgsSystem.coreutils ];
-    text = ''
-      exec sleep infinity
-    '';
-  };
   zigbeeTestAgenix = pkgsSystem.runCommand "home-server-zigbee-test-agenix"
     {
       nativeBuildInputs = [
@@ -53,19 +46,6 @@ let
         (throw "homeServer.mqttNetworkUsername assertion is missing")
         evaluated.config.assertions;
     in assertion.assertion;
-  appDeployFor = settings:
-    (nixosSystem {
-      system = "x86_64-linux";
-      modules = [
-        ../modules/home-server-services.nix
-        {
-          boot.isContainer = true;
-          services.app-auto-deploy.enable = true;
-          homeServer.houseSettings = settings;
-          system.stateVersion = "26.05";
-        }
-      ];
-    }).config.services.app-auto-deploy;
   registryFilesGuard = devicesFile:
     let
       evaluated = host.extendModules {
@@ -81,16 +61,9 @@ let
         evaluated.config.assertions;
     in assertion.assertion;
 in
-assert host.config.homeServer.houseSettings == null;
-assert !(builtins.hasAttr "house-automationd" host.config.systemd.services);
-assert host.config.services.app-auto-deploy.serviceName == "-";
-assert host.config.services.app-auto-deploy.healthUrl == "-";
-assert !(builtins.elem "house-automationd.service" host.config.services.system-auto-deploy.healthUnits);
 assert builtins.elem "home-assistant.service" host.config.services.system-auto-deploy.healthUnits;
 assert registryFilesGuard "devices.yaml";
 assert !(registryFilesGuard "configuration.yaml");
-assert (appDeployFor { schema_version = 1; }).serviceName == "house-automationd.service";
-assert (appDeployFor { schema_version = 1; }).healthUrl == "http://127.0.0.1:9876/healthz";
 assert host.config.homeServer.zigbeeSerialPort == physicalCoordinator;
 assert host.config.homeServer.zigbeeChannel == 25;
 assert host.config.homeServer.zigbeePanId == 50324;
@@ -149,21 +122,6 @@ pkgsSystem.testers.runNixOSTest {
 
       homeServer = {
         # These defaults are intentional boundaries for this task.
-        houseSettings = lib.mkForce {
-          schema_version = 1;
-          mqtt = {
-            host = "127.0.0.1";
-            port = 1883;
-            client_id = "home-server-services-test";
-          };
-          floors = [ { id = "test-floor"; } ];
-          rooms = [
-            {
-              id = "test-room";
-              floor = "test-floor";
-            }
-          ];
-        };
         mqttNetworkPasswordFile = null;
         matrixServerName = null;
         matrixSecretFile = null;
@@ -174,7 +132,6 @@ pkgsSystem.testers.runNixOSTest {
       age.identityPaths = lib.mkForce [ "${zigbeeTestAgenix}/id_ed25519" ];
       age.secrets.zigbee2mqtt-network-key.file =
         lib.mkForce "${zigbeeTestAgenix}/zigbee2mqtt-network-key.age";
-      services.houseAutomation.executable = "${fakeAutomation}/bin/house-automationd";
 
       assertions = [
         {
@@ -273,8 +230,6 @@ pkgsSystem.testers.runNixOSTest {
     home_server.succeed("systemctl show zigbee2mqtt.service -P ActiveState | grep -Fx inactive")
 
     home_server.wait_for_unit("postgresql.service")
-    home_server.wait_for_unit("house-automationd.service")
-
     store_config = home_server.succeed(
         "systemctl show zigbee2mqtt.service -P ExecStartPre | "
         "grep -o '/nix/store/[^ ;]*\\.yaml' | head -1"

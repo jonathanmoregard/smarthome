@@ -13,7 +13,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
-      app: ${{ steps.changes.outputs.app }}
       system: ${{ steps.changes.outputs.system }}
     steps:
       - name: Check out exact revision
@@ -35,79 +34,6 @@ jobs:
             git ls-tree -r --name-only -z "$GITHUB_SHA" \
               | bash nix/ci/classify-paths.sh >> "$GITHUB_OUTPUT"
           fi
-
-  publish-app:
-    name: publish application closure
-    needs: classify
-    if: needs.classify.outputs.app == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - name: Check out exact revision
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          persist-credentials: false
-      - name: Install Nix
-        uses: cachix/install-nix-action@ba0dd844c9180cbf77aa72a116d6fbc515d0e87b # v27
-      - name: Configure authenticated Cachix publication
-        uses: cachix/cachix-action@1eb2ef646ac0255473d23a5907ad7b04ce94065c # v17
-        with:
-          name: jonathanmoregard
-          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          skipPush: true
-      - name: Build and publish exact application
-        run: |
-          set -euo pipefail
-          root="$(nix build --no-link --print-out-paths .#packages.x86_64-linux.default)"
-          test "$(printf '%s\n' "$root" | wc -l)" -eq 1
-          bash nix/ci/push-closure.sh jonathanmoregard "$root"
-
-  verify-app:
-    name: verify application substitution
-    needs: publish-app
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - name: Check out exact revision
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          persist-credentials: false
-      - name: Install Nix
-        uses: cachix/install-nix-action@ba0dd844c9180cbf77aa72a116d6fbc515d0e87b # v27
-      - name: Verify project provenance and full closure
-        run: |
-          set -euo pipefail
-          project_cache='https://jonathanmoregard.cachix.org'
-          official_cache='https://cache.nixos.org'
-          project_key='jonathanmoregard.cachix.org-1:dx2ddtW26xQClPgpJYu0ba6B3n/2FGGLw96vpREEw7w='
-          official_key='cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY='
-          root="$(nix eval --raw .#packages.x86_64-linux.default.outPath)"
-          test "$(nix path-info --store https://jonathanmoregard.cachix.org "$root")" = "$root"
-          nix store verify --store https://jonathanmoregard.cachix.org \
-            --no-contents --sigs-needed 1 \
-            --option trusted-public-keys "$project_key" "$root"
-          nix build --no-link \
-            --option substituters "$project_cache $official_cache" \
-            --option trusted-public-keys "$project_key $official_key" \
-            --option max-jobs 0 --option fallback false --option builders "" \
-            .#packages.x86_64-linux.default
-
-  promote-app:
-    name: promote application release
-    needs: verify-app
-    permissions:
-      contents: write
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Check out exact revision
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          persist-credentials: false
-      - name: Fast-forward release/app
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: bash nix/ci/promote-release-ref.sh release/app "$GITHUB_SHA"
 
   publish-system:
     name: publish home-server closure

@@ -12,7 +12,7 @@ ref_name="$1"
 candidate="$2"
 
 case "$ref_name" in
-  release/app | release/home-server) ;;
+  release/home-server) ;;
   *) die "unsupported release ref: $ref_name" ;;
 esac
 
