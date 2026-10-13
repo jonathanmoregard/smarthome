@@ -81,9 +81,12 @@ let
         evaluated.config.assertions;
     in assertion.assertion;
 in
-assert host.config.homeServer.houseSettings.default_curve == "home-day";
-assert host.config.services.app-auto-deploy.serviceName == "house-automationd.service";
-assert host.config.services.app-auto-deploy.healthUrl == "http://127.0.0.1:9876/healthz";
+assert host.config.homeServer.houseSettings == null;
+assert !(builtins.hasAttr "house-automationd" host.config.systemd.services);
+assert host.config.services.app-auto-deploy.serviceName == "-";
+assert host.config.services.app-auto-deploy.healthUrl == "-";
+assert !(builtins.elem "house-automationd.service" host.config.services.system-auto-deploy.healthUnits);
+assert builtins.elem "home-assistant.service" host.config.services.system-auto-deploy.healthUnits;
 assert registryFilesGuard "devices.yaml";
 assert !(registryFilesGuard "configuration.yaml");
 assert (appDeployFor { schema_version = 1; }).serviceName == "house-automationd.service";
