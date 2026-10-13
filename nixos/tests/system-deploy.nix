@@ -155,7 +155,6 @@ pkgs.runCommand "system-deploy-contract" {
   for unit in sshd.service tailscaled.service mosquitto.service system-deploy.timer; do
     grep -qF -- "--unit $unit" "$deploy"
   done
-  refute grep -qF -- 'app-deploy.timer' "$deploy"
   for unit in sshd.service tailscaled.service mosquitto.service; do
     grep -qF -- "--recovery-unit $unit" "$deploy"
   done

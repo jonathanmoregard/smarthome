@@ -14,43 +14,6 @@ let
   projectKey = "jonathanmoregard.cachix.org-1:dx2ddtW26xQClPgpJYu0ba6B3n/2FGGLw96vpREEw7w=";
   nixosCache = "https://cache.nixos.org";
   nixosKey = "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=";
-  fakeAutomation = pkgsSystem.writeShellApplication {
-    name = "house-automationd";
-    runtimeInputs = [ pkgsSystem.python3 ];
-    text = ''
-      if [ "$#" -ne 4 ] \
-        || [ "$1" != --config ] \
-        || [ ! -r "$2" ] \
-        || [ "$3" != --state ] \
-        || [ "$4" != /var/lib/house-automation/state.sqlite3 ]; then
-        printf 'unexpected arguments:' >&2
-        printf ' %q' "$@" >&2
-        printf '\n' >&2
-        exit 64
-      fi
-
-      exec python3 -u - <<'PY'
-      from http.server import BaseHTTPRequestHandler, HTTPServer
-
-      class Handler(BaseHTTPRequestHandler):
-          def do_GET(self):
-              if self.path != "/healthz":
-                  self.send_error(404)
-                  return
-              body = b'{"ready":true,"fixture":"standalone-home-server"}\n'
-              self.send_response(200)
-              self.send_header("Content-Type", "application/json")
-              self.send_header("Content-Length", str(len(body)))
-              self.end_headers()
-              self.wfile.write(body)
-
-          def log_message(self, format, *args):
-              pass
-
-      HTTPServer(("127.0.0.1", 9876), Handler).serve_forever()
-      PY
-    '';
-  };
   zigbeeTestAgenix = pkgsSystem.runCommand "home-server-vm-zigbee-agenix"
     {
       nativeBuildInputs = [
@@ -115,112 +78,12 @@ pkgsSystem.testers.runNixOSTest {
       age.secrets.zigbee2mqtt-network-key.file =
         lib.mkForce "${zigbeeTestAgenix}/zigbee2mqtt-network-key.age";
 
-      homeServer.houseSettings = lib.mkForce {
-        schema_version = 1;
-        mqtt = {
-          host = "127.0.0.1";
-          port = 1883;
-          client_id = "home-server-vm";
-          application_namespace = "house/v1";
-          zigbee2mqtt_base_topic = "zigbee2mqtt";
-        };
-        circadian = {
-          daily_reset_time = "04:00";
-          unfreeze_convergence_seconds = 30;
-        };
-        acknowledgement = {
-          overlay_id = "circadian-ack";
-          amplitude = 0.10;
-          duration_ms = 180;
-          priority = 100;
-        };
-        health.bind = "127.0.0.1:9876";
-        floors = [ { id = "test-floor"; } ];
-        rooms = [
-          {
-            id = "test-room";
-            floor = "test-floor";
-          }
-        ];
-        curves = [
-          {
-            id = "test-day";
-            anchors = [
-              {
-                time = "04:00";
-                brightness = 0.10;
-                color_temperature_kelvin = 2200;
-              }
-              {
-                time = "16:00";
-                brightness = 0.80;
-                color_temperature_kelvin = 4000;
-              }
-            ];
-          }
-        ];
-        scopes = [
-          {
-            id = "test-room-lights";
-            kind = "room";
-            room = "test-room";
-            curve = "test-day";
-          }
-        ];
-        devices = [
-          {
-            id = "test-lamp";
-            friendly_name = "test/room/lamp";
-            room = "test-room";
-            capabilities.on_off = true;
-          }
-        ];
-        controls = [
-          {
-            id = "test-control";
-            friendly_name = "test/room/control";
-            selected_scope = "test-room-lights";
-            mappings = [
-              {
-                gesture = "center_single";
-                target = "selected";
-                action.kind = "toggle_power";
-              }
-            ];
-          }
-        ];
-      };
-
-      systemd.services.home-server-test-app-profile = {
-        description = "Install the VM application fixture into the stable profile";
-        before = [ "house-automationd.service" ];
-        serviceConfig = {
-          Type = "oneshot";
-          RemainAfterExit = true;
-        };
-        script = ''
-          ${config.nix.package}/bin/nix-env \
-            --profile /nix/var/nix/profiles/smarthome \
-            --set ${fakeAutomation}
-        '';
-      };
-      systemd.services.house-automationd = {
-        requires = [ "home-server-test-app-profile.service" ];
-        after = [ "home-server-test-app-profile.service" ];
-      };
-
-      # Keep both real timers loaded and active while ensuring this composition
+      # Keep the real timer loaded and active while ensuring this composition
       # smoke never reaches external GitHub. Transaction behavior has its own VM.
-      systemd.timers.app-deploy.timerConfig = {
-        OnBootSec = lib.mkForce "1h";
-        OnUnitActiveSec = lib.mkForce "1h";
-      };
       systemd.timers.system-deploy.timerConfig = {
         OnBootSec = lib.mkForce "1h";
         OnUnitActiveSec = lib.mkForce "1h";
       };
-      services.app-auto-deploy.testRepository =
-        "file:///var/empty/home-server-vm-app-origin.git";
       services.system-auto-deploy.testRepository =
         "file:///var/empty/home-server-vm-system-origin.git";
 
@@ -259,7 +122,6 @@ pkgsSystem.testers.runNixOSTest {
         nixKeepOutputs = config.nix.settings.keep-outputs;
         nixSubstituters = config.nix.settings.substituters;
         nixTrustedPublicKeys = config.nix.settings.trusted-public-keys;
-        appDeployProgram = config.systemd.services.app-deploy.serviceConfig.ExecStart;
         systemDeployProgram = config.systemd.services.system-deploy.serviceConfig.ExecStart;
         systemRestartIfChanged = config.systemd.services.system-deploy.restartIfChanged;
         zigbeeSerialPort = config.services.zigbee2mqtt.settings.serial.port;
@@ -313,13 +175,13 @@ pkgsSystem.testers.runNixOSTest {
 
     assert values["systemRestartIfChanged"] is False, values
 
-    shared_lock = "/run/smarthome-deploy/deploy.lock"
+    deploy_lock = "/run/smarthome-deploy/deploy.lock"
     lock_ready = "/run/smarthome-deploy/lock-holder-ready"
     home_server.succeed("install -d -m 0700 /run/smarthome-deploy")
     home_server.succeed(
         "systemd-run --quiet --collect --unit=home-server-lock-holder.service "
         "--property=Type=exec ${pkgsSystem.util-linux}/bin/flock --exclusive "
-        + shlex.quote(shared_lock)
+        + shlex.quote(deploy_lock)
         + " /bin/sh -c "
         + shlex.quote(
             "${pkgsSystem.coreutils}/bin/touch "
@@ -329,24 +191,19 @@ pkgsSystem.testers.runNixOSTest {
     )
     home_server.wait_until_succeeds("test -e " + shlex.quote(lock_ready))
 
-    for label, program in (
-        ("app", values["appDeployProgram"]),
-        ("system", values["systemDeployProgram"]),
-    ):
-        probe_log = "/tmp/" + label + "-deploy-lock-probe.log"
-        status = home_server.succeed(
-            "set +e; "
-            "STATE_DIRECTORY=/tmp/" + label + "-deploy-lock-state "
-            "RUNTIME_DIRECTORY=/run/smarthome-deploy "
-            "timeout --signal=TERM --kill-after=1s 2s "
-            + shlex.quote(program)
-            + " >"
-            + shlex.quote(probe_log)
-            + " 2>&1; printf '%s' \"$?\""
-        ).strip()
-        assert status == "124", (label, status, home_server.succeed("cat " + probe_log))
+    probe_log = "/tmp/system-deploy-lock-probe.log"
+    status = home_server.succeed(
+        "set +e; "
+        "STATE_DIRECTORY=/tmp/system-deploy-lock-state "
+        "RUNTIME_DIRECTORY=/run/smarthome-deploy "
+        "timeout --signal=TERM --kill-after=1s 2s "
+        + shlex.quote(values["systemDeployProgram"])
+        + " >"
+        + shlex.quote(probe_log)
+        + " 2>&1; printf '%s' \"$?\""
+    ).strip()
+    assert status == "124", (status, home_server.succeed("cat " + probe_log))
 
-    home_server.succeed("test ! -e /var/lib/smarthome-deploy/source/.git")
     home_server.succeed("test ! -e /var/lib/smarthome-system-deploy/source/.git")
     home_server.succeed("systemctl stop home-server-lock-holder.service")
 
@@ -383,7 +240,6 @@ pkgsSystem.testers.runNixOSTest {
         + shlex.quote(no_build_log)
     )
 
-    stable_executable = "/nix/var/nix/profiles/smarthome/bin/house-automationd"
     assert values["zigbeeSerialPort"] == "${physicalCoordinator}", values
     assert values["zigbeeAdapter"] == "ember", values
     assert values["zigbeePermitJoin"] is False, values
@@ -400,32 +256,7 @@ pkgsSystem.testers.runNixOSTest {
     home_server.wait_for_unit("tailscaled.service")
     home_server.wait_for_unit("mosquitto.service")
     home_server.wait_for_unit("postgresql.service")
-    home_server.wait_for_unit("app-deploy.timer")
     home_server.wait_for_unit("system-deploy.timer")
-    home_server.wait_for_unit("house-automationd.service")
-
-    home_server.wait_until_succeeds(
-        "curl --fail --silent http://127.0.0.1:9876/healthz "
-        "| jq -e '.ready == true and .fixture == \"standalone-home-server\"'",
-        timeout=60,
-    )
-    invalid_argv_status = home_server.succeed(
-        "set +e; "
-        + shlex.quote(stable_executable)
-        + " >/tmp/house-automation-invalid-argv.log 2>&1; "
-        "printf '%s' \"$?\""
-    ).strip()
-    assert invalid_argv_status == "64", (
-        invalid_argv_status,
-        home_server.succeed("cat /tmp/house-automation-invalid-argv.log"),
-    )
-    home_server.succeed(
-        "test $(readlink -f /nix/var/nix/profiles/smarthome) = ${fakeAutomation}"
-    )
-    home_server.succeed(
-        "systemctl cat house-automationd.service | "
-        "grep -F 'ConditionFileIsExecutable=/nix/var/nix/profiles/smarthome/bin/house-automationd'"
-    )
 
     home_server.succeed("systemctl show agenix.service -P Result | grep -Fx success")
     home_server.wait_until_succeeds("test -L '${physicalCoordinator}'", timeout=30)
@@ -452,6 +283,8 @@ pkgsSystem.testers.runNixOSTest {
     assert "network_key" not in rendered, rendered
 
     for unit in (
+        "app-deploy.service",
+        "app-deploy.timer",
         "nixos-deploy.service",
         "nixos-deploy.timer",
         "smarthome-deploy.service",
@@ -465,7 +298,7 @@ pkgsSystem.testers.runNixOSTest {
     )
 
     # Operators (and agents using their SSH login) may trigger the signed
-    # deployers and reboot without a password; nothing else is widened.
+    # deployer and reboot without a password; nothing else is widened.
     # Wheel membership still permits everything *with* a password, so the
     # contract is the exact passwordless set, not `sudo -l CMD`.
     listing = home_server.succeed("runuser -u jonathan -- sudo -n -l")
@@ -479,7 +312,6 @@ pkgsSystem.testers.runNixOSTest {
     )
     assert passwordless == [
         "/run/current-system/sw/bin/systemctl reboot",
-        "/run/current-system/sw/bin/systemctl start app-deploy.service",
         "/run/current-system/sw/bin/systemctl start system-deploy.service",
     ], passwordless
     denied = home_server.fail("runuser -u jonathan -- sudo -n /run/current-system/sw/bin/true 2>&1")

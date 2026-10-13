@@ -1,5 +1,5 @@
 {
-  description = "Reproducible house automation service";
+  description = "Reproducible home-server configuration";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
   inputs.nixpkgs-system.url =
@@ -18,9 +18,6 @@
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
       pkgsSystem = import nixpkgs-system { inherit system; };
-      appSource = import ./nix/source.nix { inherit (pkgs) lib; };
-      cargoLockFile = ./Cargo.lock;
-      package = pkgs.callPackage ./nix/package.nix { inherit appSource cargoLockFile; };
       collectInputSources = input:
         let
           inputSource = if builtins.isAttrs input && input ? outPath then input.outPath else input;
@@ -37,35 +34,10 @@
         )
       );
       pairZigbee = pkgs.callPackage ./nix/pair-zigbee.nix { };
-      house = pkgs.callPackage ./nix/house.nix { inherit pairZigbee; };
-      mkCargoCheck =
-        {
-          name,
-          command,
-          extraNativeBuildInputs ? [ ],
-        }:
-        package.overrideAttrs (old: {
-          pname = name;
-          nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ extraNativeBuildInputs;
-          doCheck = false;
-          buildPhase = ''
-            runHook preBuild
-            ${command}
-            runHook postBuild
-          '';
-          installPhase = ''
-            runHook preInstall
-            mkdir -p "$out"
-            touch "$out/passed"
-            runHook postInstall
-          '';
-        });
     in
     {
       packages.${system} = {
-        default = package;
         pair-zigbee = pairZigbee;
-        house = house;
       };
 
       apps.${system} = {
@@ -74,14 +46,8 @@
           program = pkgs.lib.getExe pairZigbee;
           meta.description = pairZigbee.meta.description;
         };
-        house = {
-          type = "app";
-          program = pkgs.lib.getExe house;
-          meta.description = house.meta.description;
-        };
       };
 
-      nixosModules.default = import ./nix/module.nix;
       nixosModules.system-deploy = import ./nixos/modules/system-auto-deploy.nix;
 
       nixosConfigurations.home-server = nixpkgs-system.lib.nixosSystem {
@@ -116,63 +82,13 @@
         };
 
       devShells.${system}.default = pkgs.mkShell {
-        inputsFrom = [ package ];
         packages = with pkgs; [
-          cargo
-          clippy
           age
-          rustc
-          rustfmt
         ];
       };
 
       checks.${system} = {
-        app-source = import ./nix/tests/app-source.nix {
-          inherit appSource cargoLockFile package pkgs;
-        };
-        release-scripts = import ./nix/tests/release-scripts.nix { inherit pkgs; };
-        publish-workflow = import ./nix/tests/publish-workflow.nix { inherit pkgs; };
-        package = package;
-        fmt = pkgs.runCommand "house-automation-formatting" {
-          inherit appSource;
-          nativeBuildInputs = [
-            pkgs.cargo
-            pkgs.rustfmt
-          ];
-        } ''
-          cp -R "$appSource" source
-          chmod -R u+w source
-          cd source
-          cargo fmt --all -- --check
-          touch "$out"
-        '';
-        clippy = mkCargoCheck {
-          name = "house-automation-clippy";
-          command = "cargo clippy --offline --workspace --all-targets -- -D warnings";
-          extraNativeBuildInputs = [ pkgs.clippy ];
-        };
-        tests = mkCargoCheck {
-          name = "house-automation-tests";
-          command = "cargo test --offline --workspace";
-        };
-        module-vm = import ./nix/tests/module.nix {
-          inherit pkgs package;
-          module = self.nixosModules.default;
-        };
-        simulated-house = import ./nix/tests/simulated-house.nix {
-          inherit pkgs package;
-          module = self.nixosModules.default;
-        };
         pair-zigbee = import ./nix/tests/pair-zigbee.nix { inherit pkgs pairZigbee; };
-        house = import ./nix/tests/house.nix {
-          inherit pkgs package house;
-          module = self.nixosModules.default;
-        };
-        # The shipped daemon must accept the shipped home-server topology.
-        house-config = pkgs.runCommand "house-config" { } ''
-          ${package}/bin/house-automationd check-config ${./nixos/hosts/home-server/house.toml}
-          touch $out
-        '';
         standalone-host = import ./nixos/tests/standalone-host.nix {
           inherit pkgsSystem;
           host = self.nixosConfigurations.home-server;
@@ -198,14 +114,6 @@
             self.nixosConfigurations.home-server-cd-bad.config.system.build.toplevel;
           homeServerCdV2System =
             self.nixosConfigurations.home-server-cd-v2.config.system.build.toplevel;
-        };
-        app-deploy = import ./nixos/tests/app-deploy.nix {
-          inherit pkgs;
-          nixosSystem = nixpkgs.lib.nixosSystem;
-        };
-        app-activator = import ./nixos/tests/app-activator.nix {
-          inherit pkgs;
-          script = ./nixos/modules/activate-app.sh;
         };
         system-deploy = import ./nixos/tests/system-deploy.nix {
           inherit pkgs;

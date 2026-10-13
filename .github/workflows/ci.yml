@@ -20,7 +20,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
-      app: ${{ steps.changes.outputs.app }}
       system: ${{ steps.changes.outputs.system }}
     steps:
       - name: Check out exact revision
@@ -61,32 +60,6 @@ jobs:
       - name: Evaluate all outputs
         run: nix flake check --no-build -L
 
-  app:
-    name: application checks
-    needs: classify
-    if: needs.classify.outputs.app == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - name: Check out exact revision
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          persist-credentials: false
-      - name: Install Nix
-        uses: cachix/install-nix-action@ba0dd844c9180cbf77aa72a116d6fbc515d0e87b # v27
-      - name: Build application checks
-        run: |
-          nix build --no-link -L \
-            .#checks.x86_64-linux.app-source \
-            .#checks.x86_64-linux.release-scripts \
-            .#checks.x86_64-linux.publish-workflow \
-            .#checks.x86_64-linux.package \
-            .#checks.x86_64-linux.fmt \
-            .#checks.x86_64-linux.clippy \
-            .#checks.x86_64-linux.tests \
-            .#checks.x86_64-linux.module-vm \
-            .#checks.x86_64-linux.simulated-house
-
   system:
     name: home-server checks
     needs: classify
@@ -106,8 +79,6 @@ jobs:
             .#checks.x86_64-linux.standalone-host \
             .#checks.x86_64-linux.home-server-ssh \
             .#checks.x86_64-linux.home-server-services \
-            .#checks.x86_64-linux.app-deploy \
-            .#checks.x86_64-linux.app-activator \
             .#checks.x86_64-linux.system-deploy \
             .#checks.x86_64-linux.system-activator \
             .#checks.x86_64-linux.hydrator \
@@ -121,15 +92,12 @@ jobs:
     needs:
       - classify
       - evaluate
-      - app
       - system
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Require every selected lane
         env:
-          APP_RESULT: ${{ needs.app.result }}
-          APP_SELECTED: ${{ needs.classify.outputs.app }}
           CLASSIFY_RESULT: ${{ needs.classify.result }}
           EVALUATE_RESULT: ${{ needs.evaluate.result }}
           SYSTEM_RESULT: ${{ needs.system.result }}
@@ -139,13 +107,10 @@ jobs:
           if [[ "$CLASSIFY_RESULT" != success || "$EVALUATE_RESULT" != success ]]; then
             exit 1
           fi
-          if [[ "$APP_SELECTED" == true && "$APP_RESULT" != success ]]; then
-            exit 1
-          fi
           if [[ "$SYSTEM_SELECTED" == true && "$SYSTEM_RESULT" != success ]]; then
             exit 1
           fi
-          for result in "$CLASSIFY_RESULT" "$EVALUATE_RESULT" "$APP_RESULT" "$SYSTEM_RESULT"; do
+          for result in "$CLASSIFY_RESULT" "$EVALUATE_RESULT" "$SYSTEM_RESULT"; do
             if [[ "$result" == failure || "$result" == cancelled ]]; then
               exit 1
             fi

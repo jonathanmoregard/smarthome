@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-app=false
 system=false
 
 classify_path() {
@@ -10,19 +9,14 @@ classify_path() {
   case "$path" in
     docs/* | README.md)
       ;;
-    flake.nix | flake.lock | .github/* | nix/ci/* | nix/tests/release-scripts.nix | nix/tests/publish-workflow.nix)
-      app=true
+    flake.nix | flake.lock | .github/* | nix/ci/*)
       system=true
-      ;;
-    Cargo.toml | Cargo.lock | rust-toolchain.toml | examples/* | house-automation-core/* | house-automationd/* | nix/package.nix | nix/source.nix | nix/module.nix | nix/tests/app-source.nix | nix/tests/module.nix | nix/tests/simulated-house.nix)
-      app=true
       ;;
     nixos/*)
       system=true
       ;;
     *)
       # Unknown paths are deliberately fail-closed.
-      app=true
       system=true
       ;;
   esac
@@ -45,4 +39,4 @@ while true; do
   fi
 done
 
-printf 'app=%s\nsystem=%s\n' "$app" "$system"
+printf 'system=%s\n' "$system"

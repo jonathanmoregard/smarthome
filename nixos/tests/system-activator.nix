@@ -61,7 +61,7 @@ case "$1" in
       sshd.service|tailscaled.service|mosquitto.service|zigbee2mqtt.service)
         printf 'loaded\n'
         ;;
-      app-deploy.timer|system-deploy.timer)
+      system-deploy.timer)
         if [ "$running" = "$LEGACY" ] || [ "$running" = "$LEGACY_TIMERS_ONLY" ]; then
           printf 'not-found\n'
         else
@@ -85,7 +85,7 @@ case "$1" in
     fi
     case "$4" in
       sshd.service|tailscaled.service|mosquitto.service|zigbee2mqtt.service) ;;
-      app-deploy.timer|system-deploy.timer)
+      system-deploy.timer)
         [ "$running" != "$LEGACY" ] && [ "$running" != "$LEGACY_TIMERS_ONLY" ] || exit 3
         ;;
       smarthome-deploy.timer|nixos-deploy.timer)
@@ -194,8 +194,8 @@ EOF
   export SUCCESS_MOVE_FAILURE_TRIGGERED="$PWD/success-move-failure-triggered"
   export RECOVERY_SIGNAL_SENT="$PWD/recovery-signal-sent"
   health_units=(sshd.service tailscaled.service mosquitto.service zigbee2mqtt.service)
-  candidate_health_units=("''${health_units[@]}" app-deploy.timer system-deploy.timer)
-  recovery_health_unit_groups=(app-deploy.timer,smarthome-deploy.timer system-deploy.timer,nixos-deploy.timer)
+  candidate_health_units=("''${health_units[@]}" system-deploy.timer)
+  recovery_health_unit_groups=(system-deploy.timer,nixos-deploy.timer)
   candidate_health_args=()
   recovery_health_args=()
   for unit in "''${candidate_health_units[@]}"; do candidate_health_args+=(--unit "$unit"); done
@@ -211,7 +211,7 @@ EOF
   fi
   grep -qxF 'activate-system: invalid required recovery health unit' "$PWD/invalid-recovery-unit.err"
   if bash ${script} --recover "$state" "$profile" "$CURRENT_SYSTEM" \
-      --recovery-any-unit-group 'app-deploy.timer,../bad.timer' 2> "$PWD/invalid-recovery-group.err"; then
+      --recovery-any-unit-group 'system-deploy.timer,../bad.timer' 2> "$PWD/invalid-recovery-group.err"; then
     exit 1
   fi
   grep -qxF 'activate-system: invalid required health unit group' "$PWD/invalid-recovery-group.err"
@@ -276,7 +276,7 @@ EOF
   # A healthy candidate is switched, observed healthy for the sustained
   # window, committed atomically, and only then may old generations be pruned.
   reset_fixture
-  export NEVER_LOADED_UNIT=app-deploy.timer
+  export NEVER_LOADED_UNIT=system-deploy.timer
   run ${v1} 1111111111111111111111111111111111111111 || {
     echo 'structured all-of/any-of unit health contract is absent' >&2
     exit 1
@@ -290,8 +290,8 @@ EOF
   for unit in smarthome-deploy.timer nixos-deploy.timer; do
     refute grep -q "^systemctl is-active --quiet -- $unit$" "$EVENTS"
   done
-  grep -qxF 'systemctl is-failed --quiet -- app-deploy.timer' "$EVENTS"
-  refute grep -qxF 'systemctl reset-failed -- app-deploy.timer' "$EVENTS"
+  grep -qxF 'systemctl is-failed --quiet -- system-deploy.timer' "$EVENTS"
+  refute grep -qxF 'systemctl reset-failed -- system-deploy.timer' "$EVENTS"
   if grep -qxF 'systemctl reset-failed' "$EVENTS"; then
     echo 'activation used bare reset-failed and masked unrelated failures' >&2
     exit 1
@@ -323,8 +323,8 @@ EOF
   grep -qF 'switch system-v1 switch' "$EVENTS"
   [ "$(links)" -eq 1 ]
 
-  # A candidate cannot satisfy health with legacy deploy timers. Its rollback
-  # may use those compatibility names to recover the pre-cutover system.
+  # A candidate cannot satisfy health with the legacy deploy timer name. Its
+  # rollback may use that compatibility name to recover the pre-cutover system.
   seed_legacy
   if run ${legacyTimersOnly} 3333333333333333333333333333333333333333; then
     echo 'candidate accepted legacy timer names without standalone timers' >&2
@@ -339,14 +339,12 @@ EOF
     exit 1
   }
   [ ! -e "$state/pending-activation" ]
-  grep -qF 'health ${legacyTimersOnly} is-active --quiet -- app-deploy.timer' "$EVENTS"
   grep -qF 'health ${legacyTimersOnly} is-active --quiet -- system-deploy.timer' "$EVENTS"
-  grep -qF 'health ${legacy} is-active --quiet -- smarthome-deploy.timer' "$EVENTS"
   grep -qF 'health ${legacy} is-active --quiet -- nixos-deploy.timer' "$EVENTS"
-  grep -qF 'systemctl show --property=LoadState --value -- app-deploy.timer' "$EVENTS"
-  grep -qF 'systemctl show --property=LoadState --value -- smarthome-deploy.timer' "$EVENTS"
-  grep -qF 'systemctl reset-failed -- smarthome-deploy.timer' "$EVENTS"
-  refute grep -qF 'systemctl reset-failed -- app-deploy.timer' "$EVENTS"
+  grep -qF 'systemctl show --property=LoadState --value -- system-deploy.timer' "$EVENTS"
+  grep -qF 'systemctl show --property=LoadState --value -- nixos-deploy.timer' "$EVENTS"
+  grep -qF 'systemctl reset-failed -- nixos-deploy.timer' "$EVENTS"
+  refute grep -qF 'systemctl reset-failed -- system-deploy.timer' "$EVENTS"
 
   # A hard crash immediately after profile allocation leaves an atomic pending
   # journal. Recovery mode bypasses drift, restores the exact old generation,

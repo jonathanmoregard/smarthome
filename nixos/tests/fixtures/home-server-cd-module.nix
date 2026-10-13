@@ -10,71 +10,6 @@ let
   inherit (lib) mkForce mkIf mkOption types;
   releaseDir = ./home-server-cd-release;
   releaseState = config.homeServerCd.releaseState;
-  releaseAppPath = lib.removeSuffix "\n" (builtins.readFile (releaseDir + "/app-path"));
-
-  fakeApp = version: healthy:
-    pkgs.writeShellApplication {
-      name = "house-automationd";
-      runtimeInputs = [ pkgs.coreutils pkgs.python3 ];
-      text = ''
-        while [ "$#" -gt 0 ]; do
-          case "$1" in
-            --config|--state)
-              [ "$#" -ge 2 ] || exit 64
-              shift 2
-              ;;
-            *)
-              echo "unexpected argument: $1" >&2
-              exit 64
-              ;;
-          esac
-        done
-
-        ${if healthy then ''
-          exec python3 -u - <<'PY'
-          from http.server import BaseHTTPRequestHandler, HTTPServer
-
-          class ReusableHTTPServer(HTTPServer):
-              allow_reuse_address = True
-
-          class Handler(BaseHTTPRequestHandler):
-              def do_GET(self):
-                  if self.path != "/healthz":
-                      self.send_error(404)
-                      return
-                  body = b'{"ready":true,"version":"${version}"}\n'
-                  self.send_response(200)
-                  self.send_header("Content-Type", "application/json")
-                  self.send_header("Content-Length", str(len(body)))
-                  self.end_headers()
-                  self.wfile.write(body)
-
-              def log_message(self, format, *args):
-                  pass
-
-          ReusableHTTPServer(("127.0.0.1", 9876), Handler).serve_forever()
-          PY
-        '' else ''
-          # Restart succeeds, but the deliberately broken candidate never
-          # serves health. This reaches activate-app's deterministic health
-          # rollback instead of failing in systemctl restart.
-          exec sleep infinity
-        ''}
-      '';
-    };
-
-  fakeAppV1 = fakeApp "v1" true;
-  fakeAppV2 = fakeApp "v2" true;
-  fakeAppBroken = fakeApp "broken" false;
-  selectedApp =
-    if releaseAppPath == "@APP_V1@" || releaseAppPath == toString fakeAppV1 then
-      fakeAppV1
-    else if releaseAppPath == toString fakeAppV2 then
-      fakeAppV2
-    else if releaseAppPath == toString fakeAppBroken then
-      fakeAppBroken
-    else
-      throw "home-server CD app-path does not name a fixture application";
 
   testAgenix = pkgs.runCommand "home-server-cd-agenix" {
     nativeBuildInputs = [ pkgs.age pkgs.openssh ];
@@ -151,18 +86,10 @@ in
       default = lib.removeSuffix "\n" (builtins.readFile (releaseDir + "/system-state"));
       description = "Tracked system release state for the complete CD VM fixture.";
     };
-    appPackage = mkOption {
-      type = types.package;
-      readOnly = true;
-      internal = true;
-      description = "Application selected by the tracked CD app-path fixture.";
-    };
   };
 
   config = lib.mkMerge [
     {
-      homeServerCd.appPackage = selectedApp;
-
       # Every promoted generation must retain the VM serial backdoor and use
       # the test disk rather than the physical server's SSD/EFI layout.
       boot.loader.systemd-boot.enable = mkForce false;
@@ -176,18 +103,7 @@ in
 
       # QEMU has no coordinator. The agenix declaration stays present so a
       # real activation must preserve its ramfs mount in the host namespace.
-      homeServer = {
-        zigbeeSerialPort = mkForce null;
-        houseSettings = mkForce {
-          schema_version = 1;
-          mqtt = {
-            host = "127.0.0.1";
-            port = 1883;
-            client_id = "home-server-cd";
-          };
-          health.bind = "127.0.0.1:9876";
-        };
-      };
+      homeServer.zigbeeSerialPort = mkForce null;
       age.identityPaths = mkForce [ "${testAgenix}/id_ed25519" ];
       age.secrets.zigbee2mqtt-network-key.file =
         mkForce "${testAgenix}/zigbee2mqtt-network-key.age";
@@ -202,73 +118,21 @@ in
       # release files and timer topology are the only intended system deltas.
       system.configurationRevision = mkForce "home-server-cd";
 
-      services.app-auto-deploy = {
-        testRepository = "file:///var/lib/home-server-cd-origin.git";
-        packageAttr =
-          "nixosConfigurations.home-server-cd.config.homeServerCd.appPackage";
-        hydratorPackage = hydratorSeam;
-      };
       services.system-auto-deploy = {
         testRepository = "file:///var/lib/home-server-cd-origin.git";
         hostAttr = "home-server-cd";
         hydratorPackage = hydratorSeam;
       };
-      systemd.services.app-deploy.serviceConfig.ReadWritePaths = [
-        "/var/lib/home-server-cd"
-      ];
 
-      # Prevent wall-clock races; the test invokes both real services itself.
-      systemd.timers.app-deploy.timerConfig = {
-        OnBootSec = mkForce "1d";
-        OnUnitActiveSec = mkForce "1d";
-        Persistent = mkForce false;
-      };
+      # Prevent wall-clock races; the test invokes the real service itself.
       systemd.timers.system-deploy.timerConfig = {
         OnBootSec = mkForce "1d";
         OnUnitActiveSec = mkForce "1d";
         Persistent = mkForce false;
       };
 
-      # Seed generation 1 of the stable app profile exactly once. The unit is
-      # deliberately invariant across system releases, so later app switches
-      # are not overwritten during a NixOS activation.
-      systemd.services.home-server-cd-app-profile = {
-        description = "Seed the stable app profile for the CD fixture";
-        wantedBy = [ "multi-user.target" ];
-        before = [ "house-automationd.service" ];
-        restartIfChanged = false;
-        stopIfChanged = false;
-        serviceConfig = {
-          Type = "oneshot";
-          RemainAfterExit = true;
-        };
-        script = ''
-          if [ ! -e /nix/var/nix/profiles/smarthome ]; then
-            ${config.nix.package}/bin/nix-env \
-              --profile /nix/var/nix/profiles/smarthome \
-              --set ${fakeAppV1}
-          fi
-        '';
-      };
-      systemd.services.house-automationd = {
-        requires = [ "home-server-cd-app-profile.service" ];
-        after = [ "home-server-cd-app-profile.service" ];
-      };
-
-      # App packages are both runtime fixtures and evaluator outputs. These
-      # references keep all three paths present while guest builders are off.
-      environment.etc = {
-        "home-server-cd/app-v1-path".text = "${fakeAppV1}\n";
-        "home-server-cd/app-v2-path".text = "${fakeAppV2}\n";
-        "home-server-cd/app-broken-path".text = "${fakeAppBroken}\n";
-        "home-server-cd/system-state".text = "${releaseState}\n";
-      };
-      system.extraDependencies = [
-        fakeAppV1
-        fakeAppV2
-        fakeAppBroken
-        testAgenix
-      ];
+      environment.etc."home-server-cd/system-state".text = "${releaseState}\n";
+      system.extraDependencies = [ testAgenix ];
       environment.systemPackages = with pkgs; [
         curl
         git
@@ -287,21 +151,11 @@ in
     }
 
     (mkIf (releaseState == "legacy") {
-      # Model the pre-cutover active topology: only the two historical timer
-      # names are enabled. Keep the standalone unit files defined but inactive
-      # to model installed units that systemd has never loaded. Recovery accepts
-      # either historical or standalone name per track.
-      systemd.timers.app-deploy.wantedBy = mkForce [ ];
+      # Model the pre-cutover active topology: only the historical system
+      # timer name is enabled. Keep the standalone unit file defined but
+      # inactive to model an installed unit that systemd has never loaded.
+      # Recovery accepts either the historical or the standalone name.
       systemd.timers.system-deploy.wantedBy = mkForce [ ];
-      systemd.timers.smarthome-deploy = {
-        wantedBy = [ "timers.target" ];
-        timerConfig = {
-          OnBootSec = "1d";
-          OnUnitActiveSec = "1d";
-          Persistent = false;
-          Unit = "app-deploy.service";
-        };
-      };
       systemd.timers.nixos-deploy = {
         wantedBy = [ "timers.target" ];
         timerConfig = {
@@ -314,9 +168,9 @@ in
     })
 
     (mkIf (releaseState == "bad") {
-      # Keep both standalone units present, but condition-skip one required
-      # timer. switch-to-configuration succeeds; strict candidate health then
-      # fails deterministically and exercises exact legacy rollback.
+      # Keep the standalone timer unit present, but condition-skip it.
+      # switch-to-configuration succeeds; strict candidate health then fails
+      # deterministically and exercises exact legacy rollback.
       systemd.timers.system-deploy.unitConfig.ConditionPathExists =
         "/run/home-server-cd-never";
     })
