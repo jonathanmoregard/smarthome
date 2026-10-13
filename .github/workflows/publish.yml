@@ -79,7 +79,7 @@ jobs:
           set -euo pipefail
           project_cache='https://jonathanmoregard.cachix.org'
           official_cache='https://cache.nixos.org'
-          project_key='jonathanmoregard.cachix.org-1:Qzksr/c2ciAaV4j/U2mGFd1HTgOAicks8gJNs1Ztxo8='
+          project_key='jonathanmoregard.cachix.org-1:dx2ddtW26xQClPgpJYu0ba6B3n/2FGGLw96vpREEw7w='
           official_key='cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY='
           root="$(nix eval --raw .#packages.x86_64-linux.default.outPath)"
           test "$(nix path-info --store https://jonathanmoregard.cachix.org "$root")" = "$root"
@@ -152,7 +152,7 @@ jobs:
           set -euo pipefail
           project_cache='https://jonathanmoregard.cachix.org'
           official_cache='https://cache.nixos.org'
-          project_key='jonathanmoregard.cachix.org-1:Qzksr/c2ciAaV4j/U2mGFd1HTgOAicks8gJNs1Ztxo8='
+          project_key='jonathanmoregard.cachix.org-1:dx2ddtW26xQClPgpJYu0ba6B3n/2FGGLw96vpREEw7w='
           official_key='cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY='
           root="$(nix eval --raw .#nixosConfigurations.home-server.config.system.build.toplevel.outPath)"
           test "$(nix path-info --store https://jonathanmoregard.cachix.org "$root")" = "$root"

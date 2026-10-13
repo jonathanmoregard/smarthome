@@ -119,7 +119,7 @@ pkgs.runCommand "smarthome-publish-workflow-contract"
         verify_script="$(yq -r ".jobs.\"verify-$track\".steps[] | select(has(\"run\")) | .run" "$candidate")"
         grep -Fq 'https://jonathanmoregard.cachix.org' <<<"$verify_script" || return 1
         grep -Fq 'https://cache.nixos.org' <<<"$verify_script" || return 1
-        grep -Fq 'jonathanmoregard.cachix.org-1:Qzksr/c2ciAaV4j/U2mGFd1HTgOAicks8gJNs1Ztxo8=' <<<"$verify_script" || return 1
+        grep -Fq 'jonathanmoregard.cachix.org-1:dx2ddtW26xQClPgpJYu0ba6B3n/2FGGLw96vpREEw7w=' <<<"$verify_script" || return 1
         grep -Fq 'cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=' <<<"$verify_script" || return 1
         grep -Fq 'nix path-info --store https://jonathanmoregard.cachix.org' <<<"$verify_script" || return 1
         grep -Fq 'nix store verify' <<<"$verify_script" || return 1

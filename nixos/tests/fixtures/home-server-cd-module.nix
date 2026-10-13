@@ -95,7 +95,7 @@ let
     text = ''
       expected=(
         --from https://jonathanmoregard.cachix.org
-        --trusted-key 'jonathanmoregard.cachix.org-1:Qzksr/c2ciAaV4j/U2mGFd1HTgOAicks8gJNs1Ztxo8='
+        --trusted-key 'jonathanmoregard.cachix.org-1:dx2ddtW26xQClPgpJYu0ba6B3n/2FGGLw96vpREEw7w='
         --from https://cache.nixos.org
         --trusted-key 'cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY='
         --timeout-seconds 300
