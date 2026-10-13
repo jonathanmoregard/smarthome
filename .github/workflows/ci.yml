@@ -82,6 +82,8 @@ jobs:
             .#checks.x86_64-linux.system-deploy \
             .#checks.x86_64-linux.system-activator \
             .#checks.x86_64-linux.hydrator \
+            .#checks.x86_64-linux.vm-home-server \
+            .#checks.x86_64-linux.vm-home-server-cd \
             .#nixosConfigurations.home-server.config.system.build.toplevel
 
   ci:

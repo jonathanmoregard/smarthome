@@ -290,6 +290,8 @@ EOF
   for unit in smarthome-deploy.timer nixos-deploy.timer; do
     refute grep -q "^systemctl is-active --quiet -- $unit$" "$EVENTS"
   done
+  grep -qxF 'systemctl is-failed --quiet -- system-deploy.timer' "$EVENTS"
+  refute grep -qxF 'systemctl reset-failed -- system-deploy.timer' "$EVENTS"
   if grep -qxF 'systemctl reset-failed' "$EVENTS"; then
     echo 'activation used bare reset-failed and masked unrelated failures' >&2
     exit 1
@@ -320,6 +322,29 @@ EOF
   grep -qxF 'rollback=complete' "$state/last-failure"
   grep -qF 'switch system-v1 switch' "$EVENTS"
   [ "$(links)" -eq 1 ]
+
+  # A candidate cannot satisfy health with the legacy deploy timer name. Its
+  # rollback may use that compatibility name to recover the pre-cutover system.
+  seed_legacy
+  if run ${legacyTimersOnly} 3333333333333333333333333333333333333333; then
+    echo 'candidate accepted legacy timer names without standalone timers' >&2
+    exit 1
+  fi
+  [ "$(readlink -f "$profile")" = ${legacy} ]
+  [ "$(readlink -f "$CURRENT_SYSTEM")" = ${legacy} ]
+  grep -qxF 'reason=candidate-health-failed' "$state/last-failure"
+  grep -qxF 'rollback=complete' "$state/last-failure" || {
+    cat "$state/last-failure" >&2
+    echo 'legacy timer names did not satisfy rollback health' >&2
+    exit 1
+  }
+  [ ! -e "$state/pending-activation" ]
+  grep -qF 'health ${legacyTimersOnly} is-active --quiet -- system-deploy.timer' "$EVENTS"
+  grep -qF 'health ${legacy} is-active --quiet -- nixos-deploy.timer' "$EVENTS"
+  grep -qF 'systemctl show --property=LoadState --value -- system-deploy.timer' "$EVENTS"
+  grep -qF 'systemctl show --property=LoadState --value -- nixos-deploy.timer' "$EVENTS"
+  grep -qF 'systemctl reset-failed -- nixos-deploy.timer' "$EVENTS"
+  refute grep -qF 'systemctl reset-failed -- system-deploy.timer' "$EVENTS"
 
   # A hard crash immediately after profile allocation leaves an atomic pending
   # journal. Recovery mode bypasses drift, restores the exact old generation,

@@ -18,6 +18,21 @@
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
       pkgsSystem = import nixpkgs-system { inherit system; };
+      collectInputSources = input:
+        let
+          inputSource = if builtins.isAttrs input && input ? outPath then input.outPath else input;
+          children =
+            if builtins.isAttrs input && input ? inputs then
+              builtins.attrValues input.inputs
+            else
+              [ ];
+        in
+        [ inputSource ] ++ pkgsSystem.lib.concatMap collectInputSources children;
+      homeServerCdInputSources = pkgsSystem.lib.unique (
+        pkgsSystem.lib.concatMap collectInputSources (
+          builtins.attrValues (builtins.removeAttrs flakeInputs [ "self" ])
+        )
+      );
       pairZigbee = pkgs.callPackage ./nix/pair-zigbee.nix { };
     in
     {
@@ -44,6 +59,28 @@
         ];
       };
 
+      nixosConfigurations.home-server-cd =
+        self.nixosConfigurations.home-server.extendModules {
+          modules = [
+            ./nixos/tests/fixtures/home-server-cd-module.nix
+            { system.extraDependencies = homeServerCdInputSources; }
+          ];
+        };
+
+      nixosConfigurations.home-server-cd-bad =
+        self.nixosConfigurations.home-server-cd.extendModules {
+          modules = [
+            { homeServerCd.releaseState = pkgsSystem.lib.mkForce "bad"; }
+          ];
+        };
+
+      nixosConfigurations.home-server-cd-v2 =
+        self.nixosConfigurations.home-server-cd.extendModules {
+          modules = [
+            { homeServerCd.releaseState = pkgsSystem.lib.mkForce "v2"; }
+          ];
+        };
+
       devShells.${system}.default = pkgs.mkShell {
         packages = with pkgs; [
           age
@@ -65,6 +102,18 @@
           inherit agenix pkgsSystem;
           nixosSystem = nixpkgs-system.lib.nixosSystem;
           host = self.nixosConfigurations.home-server;
+        };
+        vm-home-server = import ./nixos/tests/home-server.nix {
+          inherit agenix pkgsSystem;
+        };
+        vm-home-server-cd = import ./nixos/tests/home-server-cd.nix {
+          inherit agenix pkgsSystem;
+          inputSources = homeServerCdInputSources;
+          homeServerCdSystem = self.nixosConfigurations.home-server-cd.config.system.build.toplevel;
+          homeServerCdBadSystem =
+            self.nixosConfigurations.home-server-cd-bad.config.system.build.toplevel;
+          homeServerCdV2System =
+            self.nixosConfigurations.home-server-cd-v2.config.system.build.toplevel;
         };
         system-deploy = import ./nixos/tests/system-deploy.nix {
           inherit pkgs;
