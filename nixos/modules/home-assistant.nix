@@ -2,6 +2,23 @@
 
 let
   stateDir = "/var/lib/hass";
+
+  # Wraps a group of cards in one framed card; the lighting-schedule
+  # dashboard uses it to box each room. Not in nixpkgs; the release is a
+  # single plain JS file, so there is nothing to build.
+  vertical-stack-in-card = pkgs.stdenvNoCC.mkDerivation rec {
+    pname = "vertical-stack-in-card";
+    version = "1.1.4";
+    src = pkgs.fetchFromGitHub {
+      owner = "ofekashery";
+      repo = "vertical-stack-in-card";
+      rev = "v${version}";
+      hash = "sha256-aLekmPUo6dxt1+abMsvn/m8hE7+epconkQ4z8x+Ayjk=";
+    };
+    installPhase = ''
+      install -Dm644 vertical-stack-in-card.js $out/vertical-stack-in-card.js
+    '';
+  };
 in
 {
   services.home-assistant = {
@@ -27,6 +44,9 @@ in
     customComponents = [
       pkgs.home-assistant-custom-components.adaptive_lighting
     ];
+    # Also switches lovelace.resource_mode to "yaml": resources come from
+    # here, not the UI. Dashboards themselves stay UI-managed.
+    customLovelaceModules = [ vertical-stack-in-card ];
     config = {
       default_config = { };
       # Name, location, time zone and units stay out of YAML: set there, HA
