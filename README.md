@@ -3,8 +3,8 @@
 This repository owns the complete home-automation appliance: the physical
 `home-server` NixOS configuration, Home Assistant, MQTT and Zigbee2MQTT,
 encrypted runtime secrets, tests, release publication, deployment, rollback,
-and recovery documentation. Home Assistant and its UI-managed Adaptive Lighting
-(AL) integration own the production lighting schedule.
+and recovery documentation. Home Assistant owns the production lighting schedule:
+fixed Day, Cosy and Night blocks, managed in its UI.
 
 `smarthome` has no import or runtime dependency on another configuration
 repository. GitHub builds the release closure, Cachix distributes it, and the
@@ -21,7 +21,7 @@ disabled. Start with the runbooks for [bootstrap](docs/home-server/bootstrap.md)
 ```text
                          +-------------------+
                          |  Home Assistant   |
-                         | Adaptive Lighting |
+                         | lighting blocks   |
                          +---------+---------+
                                    |
                                   MQTT
@@ -91,11 +91,10 @@ pull request. Zigbee2MQTT remains the device registry (`devices.yaml` in
 `/var/lib/zigbee2mqtt`, kept across restarts) and publishes paired devices to
 Home Assistant through MQTT discovery.
 
-Pair and name the device through Home Assistant's Zigbee2MQTT bridge, then add
-its `light.*` entity to the UI-created Adaptive Lighting entry named `House`.
-Open Settings, Devices & services, Adaptive Lighting, then **Configure** to see
-or edit the schedule and lamp membership. The complete procedure and the
-former `home-day` curve mapping are in
+Pair and name the device through Home Assistant's Zigbee2MQTT bridge, label it
+`house_schedule` (or `on_off` for a plug), and assign its room. The block
+times and light settings are edited on the `/lighting-schedule` dashboard. The
+complete procedure is in
 [the Home Assistant runbook](docs/home-server/home-assistant.md).
 
 ## MQTT contract
@@ -145,17 +144,15 @@ Mosquitto over ordinary SSH (`home-server` by default; `--host` or
 `SMARTHOME_HOST` override it), refuses to continue unless Zigbee2MQTT reports
 online, permits joining for the given 1–254 seconds, prints joins and
 identification results, and closes pairing again at the end or on Ctrl-C. If the
-connection drops, pairing still closes when the window expires. The
-`pair-zigbee-device` skill in `.claude/skills/` lets a Claude session run it and
-walk someone through resetting a bulb that has no button.
+connection drops, pairing still closes when the window expires.
 
 To pair an IKEA LED2111G6 or Philips Hue bulb directly (no Hue Bridge):
 
 1. Run `pair-zigbee` (or enable pairing briefly through the private/localhost
    Zigbee2MQTT frontend).
 2. Factory-reset the bulb and wait for its interview to complete.
-3. Assign a unique stable `friendly_name`, make sure pairing is closed, and add
-   its `light.*` entity to Adaptive Lighting `House` in the Home Assistant UI.
+3. Assign a unique stable `friendly_name`, make sure pairing is closed, and
+   label it `house_schedule` in the Home Assistant UI.
 4. Confirm its state and availability topics, then exercise on/off, brightness,
    color temperature, and optional color.
 
@@ -166,7 +163,7 @@ hold rather than treat it as a click.
 ## State, secrets, and backups
 
 Mutable service state lives under `/var/lib/hass` (Home Assistant, including
-the Adaptive Lighting configuration), `/var/lib/zigbee2mqtt` (device database
+the lighting schedule), `/var/lib/zigbee2mqtt` (device database
 and coordinator identity), and `/var/lib/mosquitto` (persistence). Git is only a
 recovery source for declarative configuration and encrypted agenix material; it
 does **not** back up any of these, nor Matrix PostgreSQL or Matrix media. HA's
