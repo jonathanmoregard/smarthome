@@ -66,6 +66,50 @@ in
       "automation ui" = "!include automations.yaml";
       "scene ui" = "!include scenes.yaml";
       "script ui" = "!include scripts.yaml";
+
+      # Record of lighting overrides (a block forced in an area, or a lamp
+      # changed by hand), keyed "<kind>:<target>" with when/who/via metadata.
+      # The UI-managed lighting engine reads it; scripts and automations add
+      # and remove records by firing `ls_override` events:
+      #   {op: set, records: [{kind, target, value}], via?, who?}
+      #   {op: clear, keys: [...]}  |  {op: clear_all}
+      # `who` defaults to the user behind the event. Trigger-based so the
+      # record survives restarts; only YAML can define one.
+      template = [
+        {
+          triggers = [
+            {
+              trigger = "event";
+              event_type = "ls_override";
+            }
+          ];
+          sensor = [
+            {
+              name = "ls overrides";
+              unique_id = "ls_overrides";
+              device_class = "timestamp";
+              state = "{{ now().isoformat() }}";
+              attributes.overrides = ''
+                {%- set prev = this.attributes.get('overrides', {}) if (this is defined and this.attributes is defined) else {} -%}
+                {%- set d = trigger.event.data -%}
+                {%- set op = d.get('op', 'set') -%}
+                {%- set ns = namespace(o=(prev if prev is mapping else {})) -%}
+                {%- if op == 'clear_all' -%}
+                  {%- set ns.o = {} -%}
+                {%- elif op == 'clear' -%}
+                  {%- set ns.o = dict(ns.o.items() | rejectattr(0, 'in', d.get('keys', [])) | list) -%}
+                {%- elif op == 'set' -%}
+                  {%- set who = d.get('who') or trigger.event.context.user_id -%}
+                  {%- for r in d.get('records', []) -%}
+                    {%- set ns.o = dict(ns.o, **{r.kind ~ ':' ~ r.target: {'kind': r.kind, 'target': r.target, 'value': r.get('value'), 'when': now().isoformat(), 'who': who, 'via': d.get('via')}}) -%}
+                  {%- endfor -%}
+                {%- endif -%}
+                {{ ns.o }}
+              '';
+            }
+          ];
+        }
+      ];
     };
   };
 
