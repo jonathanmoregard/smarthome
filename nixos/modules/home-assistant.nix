@@ -19,6 +19,22 @@ let
       install -Dm644 vertical-stack-in-card.js $out/vertical-stack-in-card.js
     '';
   };
+
+  # HACS, so custom integrations are installed at runtime from the HA UI
+  # instead of being packaged here. Not in nixpkgs; the release zip is the
+  # integration directory itself. HACS cannot update itself (store path);
+  # bump the version here.
+  hacs = pkgs.buildHomeAssistantComponent rec {
+    owner = "hacs";
+    domain = "hacs";
+    version = "2.0.5";
+    src = pkgs.fetchzip {
+      url = "https://github.com/hacs/integration/releases/download/${version}/hacs.zip";
+      stripRoot = false;
+      hash = "sha256-iMomioxH7Iydy+bzJDbZxt6BX31UkCvqhXrxYFQV8Gw=";
+    };
+    dependencies = [ pkgs.home-assistant.python3Packages.aiogithubapi ];
+  };
 in
 {
   services.home-assistant = {
@@ -39,10 +55,17 @@ in
       "isal"
     ];
     # `hass --script check_config` needs colorlog; without it HA tries a
-    # runtime pip install, which NixOS cannot do.
-    extraPackages = ps: [ ps.colorlog ];
+    # runtime pip install, which NixOS cannot do. The same holds for
+    # integrations installed through HACS: their Python requirements must
+    # be listed here.
+    extraPackages = ps: [
+      ps.colorlog
+      # Variables+History (variable): runtime store for lighting overrides.
+      ps.iso4217
+    ];
     customComponents = [
       pkgs.home-assistant-custom-components.adaptive_lighting
+      hacs
     ];
     # Also switches lovelace.resource_mode to "yaml": resources come from
     # here, not the UI. Dashboards themselves stay UI-managed.
