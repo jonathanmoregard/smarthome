@@ -72,6 +72,9 @@ in
     customLovelaceModules = [
       vertical-stack-in-card
       pkgs.home-assistant-custom-lovelace-modules.mushroom
+      # Builds the per-room dashboard rows from the rooms that exist, so a
+      # new room needs no dashboard edit.
+      pkgs.home-assistant-custom-lovelace-modules.auto-entities
     ];
     config = {
       default_config = { };
