@@ -68,7 +68,10 @@ in
     ];
     # Also switches lovelace.resource_mode to "yaml": resources come from
     # here, not the UI. Dashboards themselves stay UI-managed.
-    customLovelaceModules = [ vertical-stack-in-card ];
+    customLovelaceModules = [
+      vertical-stack-in-card
+      pkgs.home-assistant-custom-lovelace-modules.mushroom
+    ];
     config = {
       default_config = { };
       # Name, location, time zone and units stay out of YAML: set there, HA
