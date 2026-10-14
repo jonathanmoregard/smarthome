@@ -37,7 +37,8 @@ for infrastructure only.
    - template light `light.ls_<area>_<block>`: copy an existing room's template
      helper options and swap the `input_text` it reads and stores to
    - `input_select.ls_<area>_override` with options Day, Cosy, Night (display
-     mirror of the effective block)
+     mirror of the effective block). Give it the room's icon: templates cannot
+     read area icons, so dashboards take the room icon from this helper.
 
    Copy the starting values from the House helpers. Never set `initial`; it
    resets the value on every restart.
@@ -54,4 +55,6 @@ for infrastructure only.
    `dbg`, and that a `test_overrides` record `block:<area>` moves only that room.
 
 Calling `light.*` services from the agent counts as setting a lamp by hand and
-records a hold in `sensor.ls_overrides`; clear it afterwards.
+records a hold in `sensor.ls_overrides`; clear it afterwards. Light calls made
+inside a running script (its context) are not holds, so running
+`script.ls_apply` by hand is safe.
