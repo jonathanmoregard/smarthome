@@ -297,7 +297,7 @@ pkgsSystem.testers.runNixOSTest {
         "$(systemctl show home-assistant.service -P Environment) "
         f"{hass} --script check_config -c /var/lib/hass"
     )
-    home_server.succeed("test -e /var/lib/hass/custom_components/adaptive_lighting/manifest.json")
+    home_server.succeed("test -e /var/lib/hass/custom_components/hacs/manifest.json")
     # Every Lovelace resource HA advertises must actually be served, or
     # dashboards using those cards render "custom element doesn't exist".
     resources = home_server.succeed(

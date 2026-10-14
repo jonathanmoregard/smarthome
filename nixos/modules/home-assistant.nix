@@ -64,7 +64,6 @@ in
       ps.iso4217
     ];
     customComponents = [
-      pkgs.home-assistant-custom-components.adaptive_lighting
       hacs
     ];
     # Also switches lovelace.resource_mode to "yaml": resources come from
