@@ -74,6 +74,8 @@ in
       # Builds the per-room dashboard rows from the rooms that exist, so a
       # new room needs no dashboard edit.
       pkgs.home-assistant-custom-lovelace-modules.auto-entities
+      # Pop-ups (the per-lamp lists on /lighting-schedule).
+      pkgs.home-assistant-custom-lovelace-modules.bubble-card
     ];
     config = {
       default_config = { };
