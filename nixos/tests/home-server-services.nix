@@ -298,6 +298,15 @@ pkgsSystem.testers.runNixOSTest {
         f"{hass} --script check_config -c /var/lib/hass"
     )
     home_server.succeed("test -e /var/lib/hass/custom_components/adaptive_lighting/manifest.json")
+    # Every Lovelace resource HA advertises must actually be served, or
+    # dashboards using those cards render "custom element doesn't exist".
+    resources = home_server.succeed(
+        "sed -n '/^  resources:/,/^[^ ]/p' /var/lib/hass/configuration.yaml "
+        "| grep -o '/local/[^ ]*'"
+    ).split()
+    assert resources, "no lovelace resources declared"
+    for url in resources:
+        home_server.succeed(f"curl -fsS -o /dev/null 'http://127.0.0.1:8123{url}'")
 
     home_server.fail("systemctl list-unit-files --no-legend | grep -E 'build-coordination|nixos-auto-deploy|smarthome-auto-deploy'")
     home_server.fail("find /etc/ssh -maxdepth 1 -type f -name '*deploy*' -print -quit | grep -q .")
