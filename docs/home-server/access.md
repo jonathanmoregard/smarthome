@@ -95,8 +95,8 @@ Forward the loopback Zigbee2MQTT UI over the pinned SSH connection:
 
 Open `http://127.0.0.1:8080`, enable joining briefly, reset and interview one
 device, assign a unique stable `friendly_name`, then disable joining. A lamp is
-then added to Adaptive Lighting in the Home Assistant UI, as described in
-[`home-assistant.md`](home-assistant.md#add-a-lamp-to-the-circadian-curve); no
+then added to the lighting schedule in the Home Assistant UI, as described in
+[`home-assistant.md`](home-assistant.md#add-a-lamp-to-the-schedule); no
 repository change is needed. Never expose the UI or MQTT broker to the public
 Internet.
 
