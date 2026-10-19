@@ -133,6 +133,12 @@ does not apply. Pair through Zigbee2MQTT's bridge entity instead:
 The lamp gets its block's setting at its next switch-on. No repository change
 is needed.
 
+Those two steps make the lamp follow the blocks. The full wiring (room Zigbee
+group, All Lamps group, per-lamp settings helpers, the engine's
+power-restore trigger, the room tile) is a checklist in
+[`.claude/skills/add-lamp`](../../.claude/skills/add-lamp/SKILL.md). An agent
+with the Home Assistant MCP tools runs it on request ("new lamp in <room>").
+
 ## Backups
 
 HA's Backup integration (Settings → System → Backups) covers `/var/lib/hass`.
