@@ -133,6 +133,15 @@ pkgsSystem.testers.runNixOSTest {
       age.secrets.zigbee2mqtt-network-key.file =
         lib.mkForce "${zigbeeTestAgenix}/zigbee2mqtt-network-key.age";
 
+      # Keep the real timer loaded and active while ensuring a slow runner
+      # never lets it fire mid-test. Transaction behavior has its own VM.
+      systemd.timers.system-deploy.timerConfig = {
+        OnBootSec = lib.mkForce "1h";
+        OnUnitActiveSec = lib.mkForce "1h";
+      };
+      services.system-auto-deploy.testRepository =
+        "file:///var/empty/home-server-services-vm-system-origin.git";
+
       assertions = [
         {
           assertion = !(builtins.hasAttr "buildCoordination" options.services);
