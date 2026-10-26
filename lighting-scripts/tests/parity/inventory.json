@@ -1,0 +1,266 @@
+{
+  "aliases": {
+    "gestures": "smarthome-remote-20261026/test_gestures.py",
+    "core": "lighting-algebra/core/test_core.py",
+    "core-relational": "lighting-algebra/tests/test_core.py",
+    "grouping": "lighting-algebra/grouping/test_grouping.py",
+    "input": "lighting-algebra/input-processors/tests/test_input_processors.py",
+    "input-edges": "lighting-algebra/input-processors/tests/test_input_edges.py",
+    "input-review": "lighting-algebra/input-processors/tests/test_input_review.py",
+    "gradient": "lighting-algebra/tests/test_gradient_cache.py"
+  },
+  "modules": [
+    {
+      "path": "effects-promotion/tests/test_logic.py",
+      "seam": "unsupported",
+      "classification": "historical-behavior",
+      "reason": "Retained assertions; current-source compatibility must be demonstrated by execution."
+    },
+    {
+      "path": "lighting-algebra/adapters/test_adapters.py",
+      "seam": "simulator",
+      "classification": "historical-behavior",
+      "reason": "Retained assertions; current-source compatibility must be demonstrated by execution."
+    },
+    {
+      "path": "lighting-algebra/core/test_core.py",
+      "seam": "pure-template",
+      "classification": "historical-behavior",
+      "reason": "Retained assertions; current-source compatibility must be demonstrated by execution."
+    },
+    {
+      "path": "lighting-algebra/grouping/test_grouping.py",
+      "seam": "pure-template",
+      "classification": "historical-behavior",
+      "reason": "Retained assertions; current-source compatibility must be demonstrated by execution."
+    },
+    {
+      "path": "lighting-algebra/input-processors/tests/test_input_edges.py",
+      "seam": "simulator",
+      "classification": "active-in-remote-ranges-gate",
+      "reason": "Included by preserved remote-ranges/run_gate.py; newer live behavior still needs verification."
+    },
+    {
+      "path": "lighting-algebra/input-processors/tests/test_input_processors.py",
+      "seam": "simulator",
+      "classification": "active-in-remote-ranges-gate",
+      "reason": "Included by preserved remote-ranges/run_gate.py; newer live behavior still needs verification."
+    },
+    {
+      "path": "lighting-algebra/input-processors/tests/test_input_review.py",
+      "seam": "simulator",
+      "classification": "active-in-remote-ranges-gate",
+      "reason": "Included by preserved remote-ranges/run_gate.py; newer live behavior still needs verification."
+    },
+    {
+      "path": "lighting-algebra/remote/gesture_test.py",
+      "seam": "simulator",
+      "classification": "historical-behavior",
+      "reason": "Retained assertions; current-source compatibility must be demonstrated by execution."
+    },
+    {
+      "path": "lighting-algebra/remote/preset_test.py",
+      "seam": "simulator",
+      "classification": "historical-behavior",
+      "reason": "Retained assertions; current-source compatibility must be demonstrated by execution."
+    },
+    {
+      "path": "lighting-algebra/remote/test_remote.py",
+      "seam": "simulator",
+      "classification": "historical-behavior",
+      "reason": "Retained assertions; current-source compatibility must be demonstrated by execution."
+    },
+    {
+      "path": "lighting-algebra/remote-ranges/test_period_stream.py",
+      "seam": "simulator",
+      "classification": "active-in-remote-ranges-gate",
+      "reason": "Included by preserved remote-ranges/run_gate.py; newer live behavior still needs verification."
+    },
+    {
+      "path": "lighting-algebra/remote-ranges/test_preset_roundtrip.py",
+      "seam": "simulator",
+      "classification": "active-in-remote-ranges-gate",
+      "reason": "Included by preserved remote-ranges/run_gate.py; newer live behavior still needs verification."
+    },
+    {
+      "path": "lighting-algebra/remote-ranges/test_remote_ranges.py",
+      "seam": "simulator",
+      "classification": "active-in-remote-ranges-gate",
+      "reason": "Included by preserved remote-ranges/run_gate.py; newer live behavior still needs verification."
+    },
+    {
+      "path": "lighting-algebra/remote-regressions/test_first_arrow.py",
+      "seam": "simulator",
+      "classification": "active-in-remote-ranges-gate",
+      "reason": "Included by preserved remote-ranges/run_gate.py; newer live behavior still needs verification."
+    },
+    {
+      "path": "lighting-algebra/remote-regressions/test_pending_input.py",
+      "seam": "simulator",
+      "classification": "active-in-remote-ranges-gate",
+      "reason": "Included by preserved remote-ranges/run_gate.py; newer live behavior still needs verification."
+    },
+    {
+      "path": "lighting-algebra/sara-window/test_sara_window.py",
+      "seam": "simulator",
+      "classification": "historical-behavior",
+      "reason": "Retained assertions; current-source compatibility must be demonstrated by execution."
+    },
+    {
+      "path": "lighting-algebra/tests/test_cache_integration.py",
+      "seam": "simulator",
+      "classification": "active-in-remote-ranges-gate",
+      "reason": "Included by preserved remote-ranges/run_gate.py; newer live behavior still needs verification."
+    },
+    {
+      "path": "lighting-algebra/tests/test_core.py",
+      "seam": "simulator",
+      "classification": "active-in-remote-ranges-gate",
+      "reason": "Included by preserved remote-ranges/run_gate.py; newer live behavior still needs verification."
+    },
+    {
+      "path": "lighting-algebra/tests/test_dispatch.py",
+      "seam": "simulator",
+      "classification": "active-in-remote-ranges-gate",
+      "reason": "Included by preserved remote-ranges/run_gate.py; newer live behavior still needs verification."
+    },
+    {
+      "path": "lighting-algebra/tests/test_effect_pacing.py",
+      "seam": "simulator",
+      "classification": "active-in-remote-ranges-gate",
+      "reason": "Included by preserved remote-ranges/run_gate.py; newer live behavior still needs verification."
+    },
+    {
+      "path": "lighting-algebra/tests/test_final_regressions.py",
+      "seam": "simulator",
+      "classification": "active-in-remote-ranges-gate",
+      "reason": "Included by preserved remote-ranges/run_gate.py; newer live behavior still needs verification."
+    },
+    {
+      "path": "lighting-algebra/tests/test_gesture_integration.py",
+      "seam": "simulator",
+      "classification": "active-in-remote-ranges-gate",
+      "reason": "Included by preserved remote-ranges/run_gate.py; newer live behavior still needs verification."
+    },
+    {
+      "path": "lighting-algebra/tests/test_gesture_native_conditions.py",
+      "seam": "simulator",
+      "classification": "reference-implementation-contract",
+      "reason": "Contains Python/Jinja interpreter, macro instrumentation, or sequence-shape assertions; unsupported execution fails explicitly."
+    },
+    {
+      "path": "lighting-algebra/tests/test_gradient_cache.py",
+      "seam": "simulator",
+      "classification": "reference-implementation-contract",
+      "reason": "Contains Python/Jinja interpreter, macro instrumentation, or sequence-shape assertions; unsupported execution fails explicitly."
+    },
+    {
+      "path": "lighting-algebra/tests/test_harness.py",
+      "seam": "simulator",
+      "classification": "reference-implementation-contract",
+      "reason": "Contains Python/Jinja interpreter, macro instrumentation, or sequence-shape assertions; unsupported execution fails explicitly."
+    },
+    {
+      "path": "lighting-algebra/tests/test_integration.py",
+      "seam": "simulator",
+      "classification": "active-in-remote-ranges-gate",
+      "reason": "Included by preserved remote-ranges/run_gate.py; newer live behavior still needs verification."
+    },
+    {
+      "path": "lighting-algebra/tests/test_native_controls.py",
+      "seam": "simulator",
+      "classification": "active-in-remote-ranges-gate",
+      "reason": "Included by preserved remote-ranges/run_gate.py; newer live behavior still needs verification."
+    },
+    {
+      "path": "lighting-algebra/tests/test_performance_pipeline.py",
+      "seam": "simulator",
+      "classification": "active-in-remote-ranges-gate",
+      "reason": "Included by preserved remote-ranges/run_gate.py; newer live behavior still needs verification."
+    },
+    {
+      "path": "lighting-algebra/tests/test_remote_cycle.py",
+      "seam": "simulator",
+      "classification": "active-in-remote-ranges-gate",
+      "reason": "Included by preserved remote-ranges/run_gate.py; newer live behavior still needs verification."
+    },
+    {
+      "path": "lighting-algebra/tests/test_remote_fast.py",
+      "seam": "simulator",
+      "classification": "explicitly-superseded",
+      "reason": "input-processors/run_gate.py and remote-ranges/run_gate.py explicitly replace old scale-claim assertions with input invariants."
+    },
+    {
+      "path": "lighting-algebra/tests/test_remote_gestures.py",
+      "seam": "simulator",
+      "classification": "active-in-remote-ranges-gate",
+      "reason": "Included by preserved remote-ranges/run_gate.py; newer live behavior still needs verification."
+    },
+    {
+      "path": "lighting-algebra/tests/test_remote_store.py",
+      "seam": "simulator",
+      "classification": "explicitly-superseded",
+      "reason": "input-processors/run_gate.py and remote-ranges/run_gate.py explicitly replace old scale-claim assertions with input invariants."
+    },
+    {
+      "path": "lighting-algebra/tests/test_remote_transition.py",
+      "seam": "simulator",
+      "classification": "active-in-remote-ranges-gate",
+      "reason": "Included by preserved remote-ranges/run_gate.py; newer live behavior still needs verification."
+    },
+    {
+      "path": "lighting-algebra/tests/test_room_cache.py",
+      "seam": "simulator",
+      "classification": "active-in-remote-ranges-gate",
+      "reason": "Included by preserved remote-ranges/run_gate.py; newer live behavior still needs verification."
+    },
+    {
+      "path": "lighting-algebra/tests/test_room_wake_baseline.py",
+      "seam": "simulator",
+      "classification": "active-in-remote-ranges-gate",
+      "reason": "Included by preserved remote-ranges/run_gate.py; newer live behavior still needs verification."
+    },
+    {
+      "path": "lighting-algebra/tests/test_state_sequences.py",
+      "seam": "simulator",
+      "classification": "active-in-remote-ranges-gate",
+      "reason": "Included by preserved remote-ranges/run_gate.py; newer live behavior still needs verification."
+    },
+    {
+      "path": "lighting-algebra/tests/test_transport.py",
+      "seam": "simulator",
+      "classification": "active-in-remote-ranges-gate",
+      "reason": "Included by preserved remote-ranges/run_gate.py; newer live behavior still needs verification."
+    },
+    {
+      "path": "smarthome-remote-20261026/test_auto_requests.py",
+      "seam": "unsupported",
+      "classification": "undeployed-autogroup-candidate",
+      "reason": "Automatic group provisioning is an unfinished candidate, not deployed behavior."
+    },
+    {
+      "path": "smarthome-remote-20261026/test_auto_transport.py",
+      "seam": "unsupported",
+      "classification": "undeployed-autogroup-candidate",
+      "reason": "Automatic group provisioning is an unfinished candidate, not deployed behavior."
+    },
+    {
+      "path": "smarthome-remote-20261026/test_autogroup_collector.py",
+      "seam": "unsupported",
+      "classification": "undeployed-autogroup-candidate",
+      "reason": "Automatic group provisioning is an unfinished candidate, not deployed behavior."
+    },
+    {
+      "path": "smarthome-remote-20261026/test_autogroup_planner.py",
+      "seam": "unsupported",
+      "classification": "undeployed-autogroup-candidate",
+      "reason": "Automatic group provisioning is an unfinished candidate, not deployed behavior."
+    },
+    {
+      "path": "smarthome-remote-20261026/test_gestures.py",
+      "seam": "gestures",
+      "classification": "current-native-regression",
+      "reason": "33 native HA gesture cases from the deployed revision."
+    }
+  ]
+}
