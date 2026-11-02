@@ -2,12 +2,16 @@
 set -euo pipefail
 
 system=false
+scripts=false
 
 classify_path() {
   local path="$1"
 
   case "$path" in
     docs/* | README.md)
+      ;;
+    lighting-scripts/*)
+      scripts=true
       ;;
     flake.nix | flake.lock | .github/* | nix/ci/*)
       system=true
@@ -40,3 +44,4 @@ while true; do
 done
 
 printf 'system=%s\n' "$system"
+printf 'scripts=%s\n' "$scripts"
