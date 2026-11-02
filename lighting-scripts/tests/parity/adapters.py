@@ -460,7 +460,15 @@ def module_seams(module, module_path):
                 elif directions:
                     sim.run('automation.remote_directions', room='bedroom', device_id=binding['device_id'],
                             source=binding['source'], trigger=directions)
-                assert current_center or current_directions
+                # The preserved configs drive dispatch so the suite keeps its original
+                # identity, but the current captured automations must route every event
+                # the same way, or binding to current source would prove nothing. A bare
+                # `current_center or current_directions` would pass even if an event
+                # moved between the two automations.
+                assert bool(current_center) == bool(center) and bool(current_directions) == bool(directions), \
+                    ('Current captured remote automations route an event differently than the preserved '
+                     f'configs: preserved(center={bool(center)}, directions={bool(directions)}) vs '
+                     f'current(center={bool(current_center)}, directions={bool(current_directions)})')
             drain()
             return sim.commands
 
