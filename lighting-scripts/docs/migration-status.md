@@ -108,11 +108,13 @@ the old expectation.
    and detailed reports are intentionally local and ignored by Git. Restoring that
    private archive is required to rerun the original-test parity gate in a fresh
    checkout. Ordinary runtime tests do not require it.
-2. A clean package install and lockfile are unverified. Registry resolution failed;
-   offline installation lacks cached metadata. The local checks use TypeScript5.9.3,
-   Node type definitions22.19.17 and an unmodified build of official
-   `home-assistant-js-websocket`9.7.1 at commit
-   `1a2349c49951e4fc9090e2c8049189157cc21f8b`.
+2. ~~A clean package install and lockfile are unverified.~~ **Resolved
+   2026-11-02.** `package-lock.json` (lockfileVersion3) pins all five resolved
+   packages with integrity hashes. A clean `npm ci` in a separate worktree
+   installs the published `home-assistant-js-websocket`9.7.1 from the registry
+   rather than the previously vendored local build, after which `npm run check`
+   is clean and all65 runtime tests pass. TypeScript5.9.3 and Node type
+   definitions22.19.17 are unchanged.
 3. No HA cutover or physical lighting test has been performed. Generated bridges
    are reviewable local artifacts. The response-consumer audit removes the earlier
    response-client migration concern, but does not authorize cutover. Finish the
