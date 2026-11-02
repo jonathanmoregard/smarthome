@@ -116,6 +116,15 @@ test('room schedule handler requires its declared room string', async () => {
   assert.throws(() => ctx.run('ls_room_base', { room: 0, overrides: {} }), /ls_room_base\.room.*string/);
 });
 
+test('saved profile get fallbacks preserve explicit null values', async () => {
+  const ctx = await configured();
+  ctx.put('input_text.ls_house_day', JSON.stringify({ effect: null, effect_channels: null }));
+  const result = ctx.run('ls_base', { test_now: '2026-10-23T12:00:00+02:00', overrides: {} });
+  assert.equal(result.schedule.profiles['light.studio'].effect, null);
+  assert.equal(result.schedule.profiles['light.studio'].effect_channels, null);
+  assert.equal(result.targets['room:studio'].effect, null);
+});
+
 test('saved profile ownership accepts only a real optional boolean', async () => {
   const ctx = await configured();
   ctx.put('input_text.ls_lamp_studio_day', JSON.stringify({ own: [], on: true, b: 100, m: 'ct', k: 3000 }));

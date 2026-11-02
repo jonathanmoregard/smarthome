@@ -1,8 +1,9 @@
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
 import { ParseError, requireArray, requireBoolean, requireFinite, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { BLOCKS, DEFAULT_BLOCK, isBlock, type Block } from './blocks.ts';
 import { object, isObject, roundEven } from './scale.ts';
 
-export const blocks = ['day', 'cosy', 'night'];
+export const blocks: readonly string[] = BLOCKS;
 export const list = (value: JsonValue | undefined): JsonValue[] =>
   value === undefined ? [] : requireArray({ value }, 'value', 'schedule list');
 export const strings = (value: JsonValue | undefined): string[] => list(value).map((item, index) =>
@@ -103,8 +104,8 @@ export function nextMidnight(at: number, timezone: string): number {
   return localTime(year, month, day + 1, 0, 0, timezone);
 }
 interface ScheduleDetails extends JsonObject {
-  cur: string | null;
-  nxt: string | null;
+  cur: Block | null;
+  nxt: Block | null;
   fading: boolean;
   p: number;
   edge: boolean;
@@ -136,11 +137,11 @@ function parseScheduledBaseArgs(args: JsonObject, context: string, roomOnly: str
 export function scheduleDetails(ctx: ScriptContext, scope: string, at: number): ScheduleDetails {
   const zone = ctx.timezone ?? 'Europe/Stockholm';
   const [year, month, day] = localParts(at, zone) as [number, number, number];
-  let cur: string | null = null, nxt: string | null = null;
+  let cur: Block | null = null, nxt: Block | null = null;
   let curTs = 0, nextTs = 0, nextFade = 0, lastFs = 0, nextFs = 0;
   for (const off of [-2, -1, 0, 1]) {
     const eve = new Date(Date.UTC(year, month - 1, day + off));
-    for (const block of blocks) {
+    for (const block of BLOCKS) {
       const src = scope === 'house' || ctx.get(`input_boolean.ls_${scope}_${block}_own_timing`) === 'on' ? scope : 'house';
       const isDay = block === 'day';
       const weekday = (eve.getUTCDay() + (isDay ? 1 : 0)) % 7;
@@ -163,7 +164,9 @@ export function scheduleDetails(ctx: ScriptContext, scope: string, at: number): 
 }
 interface Stage { from: string; to: string; p: number; moving: boolean; edge: boolean; source: string }
 function initialStage(S: ScheduleDetails): Stage {
-  return { from: String(S.cur ?? 'night'), to: String((S.fading ? S.nxt : S.cur) ?? 'night'), p: num(S.p), moving: S.fading, edge: S.edge, source: 'schedule' };
+  const cur = S.cur === null ? DEFAULT_BLOCK : S.cur;
+  const next = S.fading ? S.nxt : S.cur;
+  return { from: cur, to: next === null ? DEFAULT_BLOCK : next, p: num(S.p), moving: S.fading, edge: S.edge, source: 'schedule' };
 }
 function wakeStage(ctx: ScriptContext, area: string, S: JsonObject, at: number, stage: Stage): Stage {
   const entity = `input_datetime.ls_${area}_wake`;
@@ -238,8 +241,8 @@ export function scheduledBase(ctx: ScriptContext, args: ScheduledBaseArgs, roomL
       if (!['channels', 'input'].includes(String(r.kind)) || !applies(r, key, lamp, room, privateRoom)) continue;
       if (r.scope === 'room' && isRemote(r) && key !== newest) continue;
       const stamp = value.period_updated === undefined ? timestampOrZero(r.when) : num(value.period_updated);
-      if (blocks.includes(String(value.period)) && stamp >= chosenStamp && !(expiry && timestampOrZero(r.when) <= num(S.last_fs))) {
-        chosen = { value: value.period!, when: r.when ?? null }; chosenStamp = stamp;
+      if (isBlock(value.period) && stamp >= chosenStamp && !(expiry && timestampOrZero(r.when) <= num(S.last_fs))) {
+        chosen = { value: value.period, when: r.when ?? null }; chosenStamp = stamp;
       }
     }
     if (expiry && !S.fading && timestampOrZero(chosen.when) <= num(S.last_fs)) chosen = {};
@@ -280,8 +283,8 @@ export function scheduledBase(ctx: ScriptContext, args: ScheduledBaseArgs, roomL
     const target = interpolate(from, to, stage);
     const transition = stage.moving && why === 'tick' ? 60 : 3;
     const color = object(target.color);
-    const p: JsonObject = { effect: pr.effect ?? 'Normal light', brightness: target.brightness ?? 1, on: target.on ?? false, period: block, area: area || null,
-      effect_channels: pr.effect_channels ?? ['brightness', 'color'], send: why !== 'tick' || stage.moving || stage.edge, ignore_overrides: ignored };
+    const p: JsonObject = { effect: pr.effect === undefined ? 'Normal light' : pr.effect, brightness: target.brightness ?? 1, on: target.on ?? false, period: block, area: area || null,
+      effect_channels: pr.effect_channels === undefined ? ['brightness', 'color'] : pr.effect_channels, send: why !== 'tick' || stage.moving || stage.edge, ignore_overrides: ignored };
     profiles[lamp] = p;
     const command: JsonObject = !target.on ? { kind: 'off', transition } : 'kelvin' in color
       ? { kind: 'ct', brightness: Math.max(num(target.brightness), 1), kelvin: color.kelvin!, transition }
@@ -303,7 +306,8 @@ export function scheduledBase(ctx: ScriptContext, args: ScheduledBaseArgs, roomL
       const match = (r.scope === 'room' && r.target === area) || (r.scope === 'house' && !privateRoom) || (key === 'mode:sara' && !privateRoom) || (r.kind === 'block' && r.target === area);
       return expiry && match && timestampOrZero(r.when) <= num(S.last_fs);
     });
-    let period = String(S.cur ?? 'night'), stamp = 0, explicit = false;
+    let period: Block = S.cur === null ? DEFAULT_BLOCK : S.cur;
+    let stamp = 0, explicit = false;
     const newest = latestRemote(records, area);
     for (const key of Object.keys(records).sort()) {
       const r = object(records[key]);
@@ -312,14 +316,14 @@ export function scheduledBase(ctx: ScriptContext, args: ScheduledBaseArgs, roomL
       if (!match || (r.scope === 'room' && isRemote(r) && key !== newest)) continue;
       const value = object(r.value), selected = r.kind === 'block' ? r.value : value.period;
       const updated = value.period_updated === undefined ? timestampOrZero(r.when) : num(value.period_updated);
-      if (blocks.includes(String(selected)) && updated >= stamp) { period = String(selected); stamp = updated; explicit = true; }
+      if (isBlock(selected) && updated >= stamp) { period = selected; stamp = updated; explicit = true; }
     }
     let stage = explicit ? { ...initialStage(S), from: period, to: period, p: 0, moving: false } : wakeStage(ctx, area, S, at, initialStage(S));
     const from = sample(ctx, sourceEntity(ctx, null, area, stage.from, false));
     const to = sample(ctx, sourceEntity(ctx, null, area, stage.to, false));
     const target = interpolate(from, to, stage);
     const pr = saved(ctx, `input_text.ls_${scopeFor(ctx, area, stage.from)}_${stage.from}`);
-    targets[`room:${area}`] = { brightness: target.brightness!, color: target.color!, area, is_room: true, period: stage.from, effect: pr.effect ?? 'Normal light', on: target.on!,
+    targets[`room:${area}`] = { brightness: target.brightness!, color: target.color!, area, is_room: true, period: stage.from, effect: pr.effect === undefined ? 'Normal light' : pr.effect, on: target.on!,
       day: profile(ctx, sourceEntity(ctx, null, area, 'day', false)), cosy: profile(ctx, sourceEntity(ctx, null, area, 'cosy', false)), ignore_overrides: ignored };
   }
   const stale = Object.keys(records).filter(key => {
@@ -332,9 +336,9 @@ export function scheduledBase(ctx: ScriptContext, args: ScheduledBaseArgs, roomL
   });
   const sched: JsonObject = {}, mirror: JsonValue[] = [];
   for (const scope of ['house', ...rooms]) {
-    const S = object(details[scope]); sched[scope] = S.cur ?? null;
+    const S = details[scope]!; sched[scope] = S.cur;
     const override = String(object(records[`block:${scope}`]).value).toLowerCase();
-    const effective = blocks.includes(override) && !stale.includes(`block:${scope}`) ? override : String(S.cur ?? 'night');
+    const effective = isBlock(override) && !stale.includes(`block:${scope}`) ? override : S.cur === null ? DEFAULT_BLOCK : S.cur;
     const option = effective[0]!.toUpperCase() + effective.slice(1), entity = `input_select.ls_${scope}_override`;
     if (ctx.state[entity] && ctx.get(entity) !== option) mirror.push({ entity, option });
   }
