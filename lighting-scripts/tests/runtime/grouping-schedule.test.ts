@@ -64,26 +64,35 @@ test('room cache skips baseline recomputation while updating observations and po
   assert.equal(hit.plan.resolved.targets['light.studio'].on, false);
   const fresh = ctx.run('ls_room_plan', { room: 'studio', overrides: {}, reason: 'remote', power: { studio: false } });
   assert.deepEqual(hit.plan, fresh.plan);
-  const numericCache = structuredClone(first.cache_update);
-  numericCache.baseline.schedule.schedule_details.studio.cur = 5;
-  const numeric = ctx.run('ls_room_plan', { room: 'studio', overrides: {}, reason: 'remote', cache: numericCache });
-  assert.equal(numeric.cache_hit, true);
-  assert.equal(numeric.plan.sched.studio, 5);
-  // `S.get('cur') or 'night'` replaces every falsy value, not just a missing
-  // key, so a cached 0 mirrors as Night while `sched` keeps the raw 0. A
-  // `default('night')` reading would emit '0' here.
+  // A cached block is a Block or it is nothing. The captured source would
+  // coerce — `or 'night'` turns 0 into Night and `| capitalize` repairs
+  // 'NIGHT' — and both of those hide a malformed cache, so the port rejects
+  // instead (mandate v2). Earlier revisions of this test asserted the
+  // coercions; they asserted a bug.
   ctx.put('input_select.ls_studio_override', 'Day');
-  const falsyCache = structuredClone(first.cache_update);
-  falsyCache.baseline.schedule.schedule_details.studio.cur = 0;
-  const falsy = ctx.run('ls_room_plan', { room: 'studio', overrides: {}, reason: 'remote', cache: falsyCache });
-  assert.equal(falsy.plan.sched.studio, 0);
-  assert.deepEqual(falsy.plan.mirror, [{ entity: 'input_select.ls_studio_override', option: 'Night' }]);
-  // `| capitalize` lowers the remainder, so an upper-case cached block is not
-  // passed through unchanged.
-  const shoutCache = structuredClone(first.cache_update);
-  shoutCache.baseline.schedule.schedule_details.studio.cur = 'NIGHT';
-  const shout = ctx.run('ls_room_plan', { room: 'studio', overrides: {}, reason: 'remote', cache: shoutCache });
-  assert.deepEqual(shout.plan.mirror, [{ entity: 'input_select.ls_studio_override', option: 'Night' }]);
+  for (const bad of [5, 0, '', 'NIGHT', 'evening', [], {}, true]) {
+    const badCache = structuredClone(first.cache_update);
+    badCache.baseline.schedule.schedule_details.studio.cur = bad;
+    assert.throws(() => ctx.run('ls_room_plan', { room: 'studio', overrides: {}, reason: 'remote', cache: badCache }),
+      /must be one of day\/cosy\/night/, `cached cur ${JSON.stringify(bad)} must be rejected, not coerced`);
+  }
+  // Absent and null both mean "no block decided yet", which legitimately
+  // falls back to Night rather than raising.
+  for (const absent of [undefined, null]) {
+    const emptyCache = structuredClone(first.cache_update);
+    emptyCache.baseline.schedule.schedule_details.studio.cur = absent;
+    if (absent === undefined) delete emptyCache.baseline.schedule.schedule_details.studio.cur;
+    const plan = ctx.run('ls_room_plan', { room: 'studio', overrides: {}, reason: 'remote', cache: emptyCache });
+    assert.deepEqual(plan.plan.mirror, [{ entity: 'input_select.ls_studio_override', option: 'Night' }],
+      `cur ${JSON.stringify(absent) ?? 'absent'} should mirror Night`);
+  }
+  // A valid cached block still round-trips, option label included.
+  const cosyCache = structuredClone(first.cache_update);
+  cosyCache.baseline.schedule.schedule_details.studio.cur = 'cosy';
+  const cosy = ctx.run('ls_room_plan', { room: 'studio', overrides: {}, reason: 'remote', cache: cosyCache });
+  assert.equal(cosy.cache_hit, true);
+  assert.equal(cosy.plan.sched.studio, 'cosy');
+  assert.deepEqual(cosy.plan.mirror, [{ entity: 'input_select.ls_studio_override', option: 'Cosy' }]);
 });
 
 test('scheduled baseline packs only explicitly configured complete command groups', async () => {

@@ -127,6 +127,78 @@ export class ParseError extends Error {
  * coercions above wherever the original template applied an explicit filter or
  * `| default(...)`, and these where it did not.
  */
+/**
+ * A finite number, accepting the numeric strings Home Assistant sends for
+ * values that originate in a template or an `input_text`.
+ *
+ * Unlike {@link jinjaFloat} there is no fallback: an un-parseable string, a
+ * non-finite value, a container, `null` or `undefined` all raise. The parity
+ * probe measured zero gate dependence on any of those lenient paths, so the
+ * fallback only ever hid a malformed value. Non-finite is rejected even though
+ * `float("inf")` succeeds in Python, because no lighting quantity is infinite.
+ */
+export function requireFinite(value: JsonValue | undefined, context = 'value'): number {
+  const parsed = parseFinite(value);
+  if (parsed === undefined) throw new ParseError(`${context} must be a finite number, got ${describe(value)}`);
+  return parsed;
+}
+
+/**
+ * The non-throwing half of {@link requireFinite}, for validations that collect
+ * error messages rather than raising.
+ *
+ * Numeric strings go through Python's float grammar, not JavaScript's: this
+ * matters because `Number('0x10')` is `16` while `float('0x10')` raises, and
+ * `'inf'`/`'nan'` parse in Python but are not finite. Keeping one grammar in
+ * one place is the reason this is exported rather than reimplemented per site.
+ */
+export function parseFinite(value: JsonValue | undefined): number | undefined {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
+  if (typeof value !== 'string') return undefined;
+  const parsed = pythonFloat(value.trim());
+  return parsed !== undefined && Number.isFinite(parsed) ? parsed : undefined;
+}
+
+/**
+ * {@link parseFinite}, but additionally treating a boolean as `1`/`0`.
+ *
+ * In Python `bool` is a subclass of `int`, so `float(True)` is `1.0` and a
+ * boolean is genuinely a number there. This is deliberately **not** folded
+ * into `parseFinite`: a brightness of `true` is nonsense, and the default
+ * should be to reject it.
+ *
+ * It exists because one oracle-backed behaviour depends on it — `effects_set`
+ * with `value: true` is accepted as brightness `1` — and that case is covered
+ * by a parity test. Keeping the quirk in a separately named function confines
+ * it to the one site that needs it instead of weakening every numeric parse,
+ * and makes it searchable when that behaviour is reconsidered.
+ */
+export function parsePythonNumeric(value: JsonValue | undefined): number | undefined {
+  if (typeof value === 'boolean') return value ? 1 : 0;
+  return parseFinite(value);
+}
+
+/**
+ * Explicit optional number. Absent **or** `null` yields `undefined`, because
+ * `null` is how Home Assistant spells "this attribute has no value"; a present
+ * value must parse. Stating that here is the point — it replaces a `??` or a
+ * `-1`/`0` sentinel whose meaning lived only in the reader's head.
+ */
+export function optionalFinite(value: JsonValue | undefined, context = 'value'): number | undefined {
+  return value === undefined || value === null ? undefined : requireFinite(value, context);
+}
+
+/** A real boolean. No string allow-list, no truthiness — see {@link jinjaTruthy}. */
+export function requireBoolean(value: JsonValue | undefined, context = 'value'): boolean {
+  if (typeof value !== 'boolean') throw new ParseError(`${context} must be true or false, got ${describe(value)}`);
+  return value;
+}
+
+/** Explicit optional boolean; absent or `null` yields `undefined`. */
+export function optionalBoolean(value: JsonValue | undefined, context = 'value'): boolean | undefined {
+  return value === undefined || value === null ? undefined : requireBoolean(value, context);
+}
+
 export function requireNumber(container: JsonObject, key: string, context = 'value'): number {
   const value = container[key];
   if (typeof value !== 'number' || !Number.isFinite(value)) {

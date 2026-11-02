@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { jinjaFloat, jinjaString, jinjaTruthy, requireArray, requireNumber, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { jinjaFloat, jinjaTruthy, requireArray, requireNumber, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { blockOption, DEFAULT_BLOCK, isBlock, optionalBlock } from './blocks.ts';
 import { object, isObject } from './scale.ts';
 import { blocks, hasValue, isRemote, labelled, latestRemote, list, nextMidnight, privateRooms, profile, timestamp } from './schedule.ts';
 
@@ -136,14 +137,16 @@ function refreshBaseline(ctx: ScriptContext, baseline: ParsedBaseline, cache: Pa
   }
   const blockKey = `block:${room}`;
   const chosen = records[blockKey] === undefined ? undefined : requireObject(records, blockKey, 'ls_room_plan.overrides').value;
-  // The captured fallback is `S.get('cur') or 'night'`, not `default('night')`:
-  // `or` replaces every falsy value, so 0, '', false, [] and {} all become
-  // 'night', and only a truthy cached block survives. The emitted option is
-  // `effective | capitalize`, which is Python's `str.capitalize()` — upper
-  // first character, lower remainder — so 'NIGHT' mirrors as 'Night'.
-  const effective = typeof chosen === 'string' && blocks.includes(chosen) && !stale.includes(blockKey) ? chosen : jinjaTruthy(S.cur) ? S.cur! : 'night';
-  const effectiveText = jinjaString(effective);
-  const entity = `input_select.ls_${room}_override`, option = effectiveText ? effectiveText[0]!.toUpperCase() + effectiveText.slice(1).toLowerCase() : '';
+  // The captured source spells this `(S.get('cur') or 'night') | capitalize`.
+  // We deliberately do not reproduce either half (mandate v2): `or` would make
+  // a cached 0 or '' mean Night, hiding a malformed cache, and `| capitalize`
+  // would quietly repair 'NIGHT'. Here an absent or null `cur` means "no block
+  // decided yet" and falls back to Night, a valid block is used as-is, and
+  // anything else raises. The option label comes from the union, so there is no
+  // string transformation left to get wrong.
+  const override = isBlock(chosen) && !stale.includes(blockKey) ? chosen : undefined;
+  const effective = override ?? optionalBlock(S.cur, 'ls_room_plan schedule details.cur') ?? DEFAULT_BLOCK;
+  const entity = `input_select.ls_${room}_override`, option = blockOption(effective);
   const mirrors: JsonValue[] = ctx.state[entity] && ctx.get(entity) !== option ? [{ entity, option }] : [];
   const profiles: JsonObject = {};
   for (const [lamp, p] of Object.entries(baseline.schedule.profiles)) {

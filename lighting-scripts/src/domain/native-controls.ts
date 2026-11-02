@@ -1,5 +1,5 @@
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { jinjaFloat, jinjaInt, jinjaString, jinjaTruthy, ParseError, requireArray, requireNumber, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { jinjaFloat, jinjaInt, jinjaString, jinjaTruthy, ParseError, parsePythonNumeric, requireArray, requireNumber, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
 import { object, rgbValue, roundEven } from './scale.ts';
 import type { RGB } from './scale.ts';
 import { recordTimestamp } from './resolution.ts';
@@ -268,6 +268,23 @@ function requiredValue(container: JsonObject, key: string, context: string): Jso
   if (value === undefined) throw new ParseError(`${context}.${key} is required`);
   return value;
 }
+/**
+ * Is `value` a finite number within `[low, high]`?
+ *
+ * A non-numeric input is simply out of range rather than being coerced to a
+ * sentinel first. `optionalFinite` is not used here because an un-parseable
+ * *string* must answer `false` rather than raise: this is a validation that
+ * collects error messages, so rejecting is the job.
+ *
+ * `parsePythonNumeric` rather than `parseFinite` because the oracle accepts
+ * `value: true` as brightness 1 — `bool` is an `int` subclass in Python — and
+ * a parity test covers it. That is the only inherited numeric quirk left here.
+ */
+function inRange(value: JsonValue | undefined, low: number, high: number): boolean {
+  const parsed = parsePythonNumeric(value);
+  return parsed !== undefined && low <= parsed && parsed <= high;
+}
+
 function unique(values: string[]): string[] { return [...new Set(values)]; }
 function numeric(value: JsonValue | undefined): value is number | boolean { return typeof value === 'number' || typeof value === 'boolean'; }
 function populated(value: JsonObject): boolean { return Object.keys(value).length > 0; }
@@ -402,12 +419,19 @@ export function planUIControls(ctx: ScriptContext, args: SetArgs, catalog: Nativ
   if (!['power', 'brightness', 'rgb', 'temperature', 'effect'].includes(attribute)) errors.push('Unsupported control attribute.');
   if (attribute === 'effect' && value !== 'Normal light' && !(jinjaString(value) in catalog.effects)) errors.push('Unknown effect.');
   if (attribute === 'power' && value !== 'ON' && value !== 'OFF') errors.push('Power must be ON or OFF.');
-  if (attribute === 'brightness' && !(0 <= jinjaFloat(value, -1) && jinjaFloat(value, -1) <= 255)) errors.push('Brightness must be 0–255.');
-  if (attribute === 'temperature' && !(100 <= jinjaFloat(value, -1) && jinjaFloat(value, -1) <= 1000)) errors.push('Temperature must be 100–1000 mireds.');
+  // These were `jinjaFloat(value, -1)` range checks: a non-numeric input took
+  // the -1 fallback and so failed the bound, which is how the captured
+  // `| float(-1)` reports it. `inRange` keeps that outcome — the same error
+  // string, for the same inputs — without a sentinel standing in for "not a
+  // number". The parity probe found all 14 of the gate's coercion-fallback
+  // hits here, every one of them a `null` value, so this is the only site
+  // where the leniency was load-bearing at all.
+  if (attribute === 'brightness' && !inRange(value, 0, 255)) errors.push('Brightness must be 0–255.');
+  if (attribute === 'temperature' && !inRange(value, 100, 1000)) errors.push('Temperature must be 100–1000 mireds.');
   const rgb = typeof value === 'string' ? value.split(',') : value;
   if (attribute === 'rgb') {
     if (!Array.isArray(rgb) || rgb.length !== 3) errors.push('RGB needs three components.');
-    else for (const component of rgb) if (!(0 <= jinjaFloat(component, -1) && jinjaFloat(component, -1) <= 255)) errors.push('RGB components must be 0–255.');
+    else for (const component of rgb) if (!inRange(component, 0, 255)) errors.push('RGB components must be 0–255.');
   }
   if (profile) {
     const store = source.replace('light.', 'input_text.');
