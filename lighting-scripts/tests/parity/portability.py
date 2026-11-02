@@ -2,6 +2,7 @@
 from __future__ import annotations
 import ast
 import hashlib
+from importlib.metadata import PackageNotFoundError, version
 import json
 import os
 from pathlib import Path
@@ -12,7 +13,9 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 LEGACY = ROOT / 'reference' / 'legacy'
-HA_WRAPPER = Path(os.environ.get('HA_WRAPPER', '/nix/store/lrb2mmjfq9f6ikv454cn499xw4d2drsp-homeassistant-2026.7.4/bin/.hass-wrapped'))
+EXPECTED_HA_VERSION = '2026.7.4'
+EXPECTED_JINJA_VERSION = '3.1.6'
+LEGACY_HA_WRAPPER = Path('/nix/store/lrb2mmjfq9f6ikv454cn499xw4d2drsp-homeassistant-2026.7.4/bin/.hass-wrapped')
 
 LEGACY_SCRIPT_ALIASES = {
     'gesture_script_bedroom': 'ls_remote_gesture_bedroom',
@@ -31,12 +34,39 @@ LEGACY_AUTOMATION_ALIASES = {
 }
 
 
+def ha_wrapper(store=Path('/nix/store')):
+    """Return an explicit or discovered HA 2026.7.4 wrapper."""
+    explicit = os.environ.get('HA_WRAPPER')
+    if explicit:
+        path = Path(explicit)
+        if not path.is_file():
+            raise RuntimeError(f'HA_WRAPPER does not exist or is not a file: {path}')
+        return path
+    candidates = [LEGACY_HA_WRAPPER, *sorted(store.glob(f'*-homeassistant-{EXPECTED_HA_VERSION}/bin/.hass-wrapped'))]
+    return next((path for path in candidates if path.is_file()), None)
+
+
 def dependencies():
-    if HA_WRAPPER.exists():
-        for node in ast.walk(ast.parse(HA_WRAPPER.read_text())):
-            if isinstance(node, ast.List) and node.elts and all(isinstance(x, ast.Constant) and isinstance(x.value, str) and x.value.startswith('/nix/store/') for x in node.elts):
-                for path in ast.literal_eval(node):
-                    site.addsitedir(path)
+    wrapper = ha_wrapper()
+    if wrapper:
+        dependency_lists = [ast.literal_eval(node) for node in ast.walk(ast.parse(wrapper.read_text()))
+                            if isinstance(node, ast.List) and node.elts
+                            and all(isinstance(item, ast.Constant) and isinstance(item.value, str)
+                                    and item.value.startswith('/nix/store/') for item in node.elts)]
+        if not dependency_lists:
+            raise RuntimeError(f'HA_WRAPPER has no Nix dependency list: {wrapper}')
+        for paths in dependency_lists:
+            for path in paths:
+                site.addsitedir(path)
+    try:
+        actual_ha = version('homeassistant')
+        actual_jinja = version('Jinja2')
+    except PackageNotFoundError as error:
+        raise RuntimeError(f'Home Assistant {EXPECTED_HA_VERSION} parity oracle is unavailable; set HA_WRAPPER to a compatible wrapper') from error
+    if actual_ha != EXPECTED_HA_VERSION or actual_jinja != EXPECTED_JINJA_VERSION:
+        raise RuntimeError(f'Parity oracle requires Home Assistant {EXPECTED_HA_VERSION} and Jinja2 {EXPECTED_JINJA_VERSION}; '
+                           f'found Home Assistant {actual_ha} and Jinja2 {actual_jinja}. Set HA_WRAPPER to a compatible wrapper')
+    return wrapper
 
 
 def hashes():
@@ -80,6 +110,7 @@ def live_candidate(stage):
 
 class Stage:
     def __enter__(self):
+        wrapper = dependencies()
         self.before = hashes()
         self.temp = tempfile.TemporaryDirectory(prefix='smarthome-parity-')
         self.path = Path(self.temp.name)
@@ -94,12 +125,12 @@ class Stage:
             # The native tests' only remaining machine-specific path is their
             # dependency closure. An empty Python file is its portable equivalent;
             # installed packages are already on sys.path in a normal virtualenv.
-            wrapper = str(HA_WRAPPER)
-            if not HA_WRAPPER.exists():
+            wrapper_path = str(wrapper) if wrapper else ''
+            if wrapper is None:
                 empty = self.path / 'installed-dependencies.py'
-                empty.write_text('# Dependencies are supplied by this Python environment.\n')
-                wrapper = str(empty)
-            rewritten = rewritten.replace('/nix/store/lrb2mmjfq9f6ikv454cn499xw4d2drsp-homeassistant-2026.7.4/bin/.hass-wrapped', wrapper)
+                empty.write_text('# dependencies() verified packages supplied by this Python environment.\n')
+                wrapper_path = str(empty)
+            rewritten = rewritten.replace(str(LEGACY_HA_WRAPPER), wrapper_path)
             if rewritten != source:
                 path.write_text(rewritten)
                 self.rewrites[str(path.relative_to(self.path))] = 'absolute filesystem paths only'
