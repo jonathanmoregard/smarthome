@@ -17,15 +17,27 @@ interface DispatchDetails {
   outputTargets: JsonValue[];
   remoteRooms: JsonValue[];
   remote: boolean;
-  switches: Array<{ entity: string; on: boolean }>;
-  mirrors: Array<{ option: string; entity: string }>;
-  staleKeys: JsonValue[];
+  switches: () => Array<() => { entity: string; on: boolean }>;
+  mirrors: () => Array<() => { option: string; entity: string }>;
+  staleKeys: () => JsonValue[];
   saraMirror: JsonValue | undefined;
 }
 interface DispatchArgs {
   revision: string;
   planOrder: number;
   details: () => DispatchDetails;
+}
+
+function lazy<T>(parse: () => T): () => T {
+  let parsed = false;
+  let value: T;
+  return () => {
+    if (!parsed) {
+      value = parse();
+      parsed = true;
+    }
+    return value;
+  };
 }
 
 function parseRequestedLights(value: JsonValue | undefined): JsonValue[] {
@@ -41,29 +53,28 @@ function parseDispatchDetails(plan: JsonObject, lights: JsonValue | undefined): 
     const target = requireObject({ raw }, 'raw', `ls_dispatch.plan.resolved.targets.${lamp}`);
     return [lamp, { raw: target, isRoom: jinjaTruthy(target.is_room), area: target.area }];
   }));
-  const switches = requireObject(plan, 'switches', 'ls_dispatch.plan');
-  const mirror = requireArray(plan, 'mirror', 'ls_dispatch.plan');
   return {
     base,
     targets,
     targetViews,
     assignments: requireObject(resolved, 'assignments', 'ls_dispatch.plan.resolved'),
     requested: parseRequestedLights(lights),
-    outputTargets: plan.output_targets === undefined ? [] : requireArray(plan, 'output_targets', 'ls_dispatch.plan'),
-    remoteRooms: plan.remote_rooms === undefined ? [] : requireArray(plan, 'remote_rooms', 'ls_dispatch.plan'),
+    outputTargets: requireArray(plan, 'output_targets', 'ls_dispatch.plan'),
+    remoteRooms: requireArray(plan, 'remote_rooms', 'ls_dispatch.plan'),
     remote: jinjaTruthy(plan.remote),
-    switches: Object.entries(switches).map(([entity, raw]) => {
-      const value = requireObject({ raw }, 'raw', `ls_dispatch.plan.switches.${entity}`);
-      return { entity, on: jinjaTruthy(value.on) };
-    }),
-    mirrors: mirror.map((raw, index) => {
-      const value = requireObject({ raw }, 'raw', `ls_dispatch.plan.mirror[${index}]`);
-      return {
-        option: requireString(value, 'option', `ls_dispatch.plan.mirror[${index}]`),
-        entity: requireString(value, 'entity', `ls_dispatch.plan.mirror[${index}]`),
-      };
-    }),
-    staleKeys: requireArray(plan, 'stale_keys', 'ls_dispatch.plan'),
+    // These stages run only after effect assignment and publication.
+    switches: lazy(() => Object.entries(requireObject(plan, 'switches', 'ls_dispatch.plan')).map(([entity, raw]) => lazy(() => {
+        const value = requireObject({ raw }, 'raw', `ls_dispatch.plan.switches.${entity}`);
+        return { entity, on: jinjaTruthy(value.on) };
+      }))),
+    mirrors: lazy(() => requireArray(plan, 'mirror', 'ls_dispatch.plan').map((raw, index) => lazy(() => {
+        const value = requireObject({ raw }, 'raw', `ls_dispatch.plan.mirror[${index}]`);
+        return {
+          option: requireString(value, 'option', `ls_dispatch.plan.mirror[${index}]`),
+          entity: requireString(value, 'entity', `ls_dispatch.plan.mirror[${index}]`),
+        };
+      }))),
+    staleKeys: lazy(() => requireArray(plan, 'stale_keys', 'ls_dispatch.plan')),
     saraMirror: plan.sara_mirror,
   };
 }
@@ -102,16 +113,19 @@ export function dispatch(ctx: ScriptContext, args: DispatchArgs): JsonValue {
       attributes: { applied: { ...object(ctx.attr(runtime, 'applied')), ...ordinary } } }, { entity_id: runtime },
     { revision, generation, requiresOutputSuccess: true });
   }
-  for (const { entity, on } of switches) {
+  for (const parseSwitch of switches()) {
+    const { entity, on } = parseSwitch();
     const state = on ? 'on' : 'off';
     if (revision === revisionOf(ctx) && ctx.get(entity) !== state) ctx.emit(`homeassistant.turn_${state}`, {}, { entity_id: entity }, { revision, generation });
   }
   if (revision !== revisionOf(ctx)) return null;
-  for (const mirror of mirrors) {
+  for (const parseMirror of mirrors()) {
+    const mirror = parseMirror();
     ctx.emit('input_select.select_option', { option: mirror.option }, { entity_id: mirror.entity }, { revision, generation });
   }
   if (saraMirror === 'on' || saraMirror === 'off') ctx.emit(`input_boolean.turn_${saraMirror}`, {}, { entity_id: 'input_boolean.ls_sara_mode_mirror' }, { revision, generation });
-  if (staleKeys.length) ctx.fire('ls_override', { op: 'clear', keys: staleKeys, via: 'rule_next_block', expected_revision: revision });
+  const parsedStaleKeys = staleKeys();
+  if (parsedStaleKeys.length) ctx.fire('ls_override', { op: 'clear', keys: parsedStaleKeys, via: 'rule_next_block', expected_revision: revision });
   return { completed: Boolean(emission.completed) && revision === revisionOf(ctx) && generation === ctx.attr(runtime, 'generation'), published_at: emission.published_at ?? [] };
 }
 

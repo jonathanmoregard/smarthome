@@ -12,7 +12,7 @@ function snapshot(): Snapshot {
     'light.lamp': { state: 'on', attributes: {} }, 'light.endpoint': { state: 'on', attributes: { supported_color_modes: ['color_temp'], min_color_temp_kelvin: 2000, max_color_temp_kelvin: 6500 } },
   } };
 }
-function plan(): JsonObject { return { revision, plan_order: Date.parse(revision) / 1000, base: { 'light.lamp': { send: true } }, resolved: { targets: { 'light.lamp': target }, assignments: {} }, switches: {}, mirror: [], stale_keys: [], sara_mirror: null }; }
+function plan(): JsonObject { return { revision, plan_order: Date.parse(revision) / 1000, base: { 'light.lamp': { send: true } }, resolved: { targets: { 'light.lamp': target }, assignments: {} }, output_targets: [], remote_rooms: [], switches: {}, mirror: [], stale_keys: [], sara_mirror: null }; }
 async function handlers() {
   const modulePath = '../../src/domain/dispatch-render.ts';
   const port = await import(modulePath).catch(() => ({}));
