@@ -1,7 +1,8 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
+import { requireBoolean, withParsedArgs } from '../runtime/parse.ts';
 import { object, roundEven } from './scale.ts';
-import { list, num, saved, strings } from './schedule.ts';
+import { isAreaId, list, num, saved, strings } from './schedule.ts';
 
 function rows(ctx: ScriptContext, key: string): JsonValue[] {
   const value = ctx.catalog?.[key];
@@ -45,7 +46,7 @@ export function uiMessages(ctx: ScriptContext, force: boolean): JsonObject[] {
     let b = ctx.attr(source, 'brightness'), k = ctx.attr(source, 'color_temp_kelvin'), rgb = ctx.attr(source, 'rgb_color'), mode = ctx.attr(source, 'color_mode');
     let target = object(targets[source]);
     if (!store && (members.length > 1 || !members.includes(source))) {
-      const areas = [...new Set(members.map(e => ctx.areas[e]).filter((a): a is string => Boolean(a)))];
+      const areas = [...new Set(members.map(e => ctx.areas[e]).filter(isAreaId))];
       if (areas.length === 1) target = object(targets[`room:${areas[0]}`]);
     }
     if (!store) {
@@ -108,12 +109,15 @@ export function rangeSave(ctx: ScriptContext, args: JsonObject): JsonObject {
 }
 export const uiHandlers: ScriptHandlers = {
   effects_ui_catalog: ctx => uiCatalog(ctx),
-  effects_ui_sync: (ctx, args) => {
-    if (!args.dry_run) ctx.run('effects_ui_catalog');
-    const messages = uiMessages(ctx, Boolean(args.force));
-    if (args.dry_run) return { messages };
+  effects_ui_sync: withParsedArgs({
+    parse: args => ({ raw: args, force: args.force === undefined ? false : requireBoolean(args.force, 'effects_ui_sync.force') }),
+    run: (ctx, args) => {
+    if (!args.raw.dry_run) ctx.run('effects_ui_catalog');
+    const messages = uiMessages(ctx, args.force);
+    if (args.raw.dry_run) return { messages };
     for (const message of messages) ctx.emit('mqtt.publish', { ...message, qos: 0, retain: true });
     return null;
-  },
+    },
+  }),
   ls_range_save: rangeSave,
 };

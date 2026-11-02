@@ -57,6 +57,14 @@ test('Candle readiness needs exact fresh acknowledged membership, power and endp
   assert.equal(plan.ready, false);
 });
 
+test('Candle group existence accepts only a real boolean', async () => {
+  const { groupingHandlers } = await load();
+  const ctx = context(groupingHandlers);
+  ctx.put('sensor.ls_effects_runtime', 'active', { assignments: {}, candle_group: { exists: 'yes', members: [], observed_at: 0 } });
+  ctx.put('sensor.ls_overrides', 'ready', {});
+  assert.throws(() => ctx.run('effects_candle_plan', { catalog: { members: {} } }), /must be true or false/);
+});
+
 test('explicit null group ID survives the deployed planner response', async () => {
   const { groupingHandlers } = await load();
   const ctx = context(groupingHandlers);

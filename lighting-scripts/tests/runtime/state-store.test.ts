@@ -17,6 +17,12 @@ test('ls_commit power rejects values rejected by the captured Home Assistant boo
   );
 });
 
+test('ls_store profile booleans use the captured Home Assistant bool filter', () => {
+  const ctx = context({ ...stateStoreHandlers, effects_catalog: () => ({ effects: {} }) });
+  ctx.put('input_text.profile', '{}');
+  assert.throws(() => ctx.run('ls_store', { store: 'input_text.profile', own: 'hot' }), /ls_store\.own/);
+});
+
 test('ls_commit rejects unhashable record keys on the shared affected-room lookup', () => {
   const ctx = context(stateStoreHandlers);
   assert.throws(

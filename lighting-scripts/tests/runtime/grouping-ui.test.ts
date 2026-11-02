@@ -34,6 +34,16 @@ test('UI mirror suppresses unchanged messages and mixed effect ownership is blan
   assert.deepEqual(ctx.run('effects_ui_sync', { dry_run: true }), { messages: [] });
 });
 
+test('UI force accepts only a real optional boolean', async () => {
+  const ctx = await load();
+  ctx.catalog = { ui_rows: [row('light.group')] };
+  ctx.put('light.group', 'on', { brightness: 20 });
+  for (const force of [null, [], {}, 0, '', 'false']) {
+    assert.throws(() => ctx.run('effects_ui_sync', { dry_run: true, force }), /must be true or false/,
+      `force ${JSON.stringify(force)} must be rejected, not coerced`);
+  }
+});
+
 test('range save validates physical devices, rejects boolean ranges, and emits only the config event', async () => {
   const ctx = await load();
   ctx.put('switch.new_lamp', 'off'); ctx.areas['switch.new_lamp'] = 'studio'; ctx.devices = { physical_device: ['switch.new_lamp'] };

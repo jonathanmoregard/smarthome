@@ -1,4 +1,5 @@
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
+import { requireBoolean } from '../runtime/parse.ts';
 import { object, isObject } from './scale.ts';
 import { recordTimestamp } from './resolution.ts';
 
@@ -13,7 +14,8 @@ export function switchPlan(ctx: ScriptContext, args: JsonObject): JsonObject {
     const low = interval[0], high = interval[1];
     if (interval.length !== 2 || typeof low !== 'number' || typeof high !== 'number' || !(0 <= low && low <= high && high <= 100) || !Object.keys(group).length) continue;
     const brightness = Number(group.level) * 100 / 255;
-    switches[entity] = { on: Boolean(group.on) && low <= brightness && brightness <= high,
+    const on = requireBoolean(group.on, `ls_switch_plan.targets.room:${room}.on`);
+    switches[entity] = { on: on && low <= brightness && brightness <= high,
       room: room!, brightness, range: [low, high] };
   }
   return { switches };
@@ -59,8 +61,12 @@ function remoteCommand(ctx: ScriptContext, args: JsonObject): JsonValue {
   let result: JsonObject = {}, accepted = false;
   for (let attempt = 0; attempt < 1_000 && !accepted; attempt++) {
     result = object(ctx.run('ls_remote_plan', input));
-    accepted = result.op === 'noop' || Boolean(object(ctx.run('ls_commit', { data: { ...result,
-      expected_revision: result.input_revision ?? null, area: input.area, via: 'remote', source: input.source } })).accepted);
+    if (result.op === 'noop') accepted = true;
+    else {
+      const committed = object(ctx.run('ls_commit', { data: { ...result,
+        expected_revision: result.input_revision ?? null, area: input.area, via: 'remote', source: input.source } }));
+      accepted = requireBoolean(committed.accepted, 'ls_remote_command.commit.accepted');
+    }
   }
   if (!accepted) throw new Error('Override revision kept changing; retry budget exhausted');
   if (result.op === 'power') {
