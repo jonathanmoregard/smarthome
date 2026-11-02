@@ -79,16 +79,43 @@ Points that cost real debugging time in this port:
 
 ## Missing keys
 
-| expression | Jinja 3.1.6 | JavaScript |
+**Whether a missing key raises depends on how it is used, not on whether a
+filter was applied.** Jinja's default `Undefined` is falsy, iterates as empty
+and reports a `length` of zero; it raises only in arithmetic or a coercion
+filter. Measured:
+
+| use of a missing key | Jinja 3.1.6 | JavaScript |
 |---|---|---|
+| `{% if d.missing %}` | `False`, no error | `undefined` is falsy too |
+| `{% if not d.missing %}` | `True`, no error | same |
+| `{% for x in d.missing %}` | **empty, no error** | `TypeError` |
+| `d.missing \| length` | **`0`** | `TypeError` |
+| `d.missing \| list \| length` | `0` | `TypeError` |
+| `d.missing is defined` | `False` | — |
 | `d.missing \| default(9)` | `9` | — |
-| `d.missing \| int` | `UndefinedError` | — |
-| `d.missing + 1` | `UndefinedError` | `NaN` |
+| `d.missing + 1` | **`UndefinedError`** | `NaN` |
+| `d.missing \| int` | **`UndefinedError`** | — |
+| `d.missing[0]` | `UndefinedError` | `TypeError` |
 | `[] \| min` | `""` | `Infinity` for `Math.min()` |
 | `[1, "a"] \| min` | `TypeError` | `1` |
 
-A missing key raises as soon as it is *used*, so the port's `require*` helpers
-throw `ParseError` rather than letting `undefined` become `NaN`. Where the
-original template applied `| default(...)` or an explicit filter, use the
-matching `jinja*` coercion instead — the fallback is part of the observable
-behaviour and must be reproduced, not tightened.
+So the rule for choosing a primitive is:
+
+1. The captured template applies `| int`, `| float` or `| default(x)` → use the
+   matching `jinja*` coercion with the same fallback. The fallback is observable
+   behaviour; tightening it is a divergence.
+2. The template reads the field unfiltered **and uses it in arithmetic, in a
+   coercion filter, or by indexing** → absence raises in the oracle, so
+   `require*` is faithful.
+3. The template reads the field unfiltered but only **tests it for truthiness,
+   iterates it, or takes its `length`** → absence is silently empty in the
+   oracle, so the field is **optional with an empty default**. `require*` here
+   is a divergence.
+
+Case 3 is easy to get wrong and expensive: an earlier revision of this work
+read "unfiltered" as "required" for `ls_dispatch`'s `output_targets` and
+`remote_rooms`, both of which are iterated and only set on the partial-plan
+path. That broke seven parity modules and cost 69 clean assertion tests.
+Grepping a narrow window around the field name also misclassifies — a
+`| default(...)` or `is defined` further along the same expression is missed,
+which is how `switches` and `stale_keys` were first read as unfiltered.

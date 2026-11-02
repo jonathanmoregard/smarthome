@@ -59,22 +59,32 @@ function parseDispatchDetails(plan: JsonObject, lights: JsonValue | undefined): 
     targetViews,
     assignments: requireObject(resolved, 'assignments', 'ls_dispatch.plan.resolved'),
     requested: parseRequestedLights(lights),
-    outputTargets: requireArray(plan, 'output_targets', 'ls_dispatch.plan'),
-    remoteRooms: requireArray(plan, 'remote_rooms', 'ls_dispatch.plan'),
+    // Both are read unfiltered in the captured script, but an unfiltered read
+    // is not the same as a required field: Jinja's Undefined iterates as empty
+    // and reports `| length` 0, raising only in arithmetic or a coercion
+    // filter. These two are iterated, and `ls_render` only sets
+    // `output_targets` on the partial-plan path, so absence is legal and
+    // requiring them broke seven parity modules.
+    outputTargets: plan.output_targets === undefined ? [] : requireArray(plan, 'output_targets', 'ls_dispatch.plan'),
+    remoteRooms: plan.remote_rooms === undefined ? [] : requireArray(plan, 'remote_rooms', 'ls_dispatch.plan'),
     remote: jinjaTruthy(plan.remote),
-    // These stages run only after effect assignment and publication.
-    switches: lazy(() => Object.entries(requireObject(plan, 'switches', 'ls_dispatch.plan')).map(([entity, raw]) => lazy(() => {
+    // These stages run only after effect assignment and publication. All three
+    // collections are iterated rather than used arithmetically, and the
+    // captured script guards them (`switches` has a `| default(...)` site,
+    // `stale_keys` two `is defined` tests), so an absent key is silently empty
+    // in the oracle and must be here too.
+    switches: lazy(() => Object.entries(plan.switches === undefined ? {} : requireObject(plan, 'switches', 'ls_dispatch.plan')).map(([entity, raw]) => lazy(() => {
         const value = requireObject({ raw }, 'raw', `ls_dispatch.plan.switches.${entity}`);
         return { entity, on: jinjaTruthy(value.on) };
       }))),
-    mirrors: lazy(() => requireArray(plan, 'mirror', 'ls_dispatch.plan').map((raw, index) => lazy(() => {
+    mirrors: lazy(() => (plan.mirror === undefined ? [] : requireArray(plan, 'mirror', 'ls_dispatch.plan')).map((raw, index) => lazy(() => {
         const value = requireObject({ raw }, 'raw', `ls_dispatch.plan.mirror[${index}]`);
         return {
           option: requireString(value, 'option', `ls_dispatch.plan.mirror[${index}]`),
           entity: requireString(value, 'entity', `ls_dispatch.plan.mirror[${index}]`),
         };
       }))),
-    staleKeys: lazy(() => requireArray(plan, 'stale_keys', 'ls_dispatch.plan')),
+    staleKeys: lazy(() => plan.stale_keys === undefined ? [] : requireArray(plan, 'stale_keys', 'ls_dispatch.plan')),
     saraMirror: plan.sara_mirror,
   };
 }
