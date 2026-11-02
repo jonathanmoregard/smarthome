@@ -1,4 +1,5 @@
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
+import { ParseError } from '../runtime/parse.ts';
 
 export type RGB = [number, number, number];
 export type Color = ({ kelvin: number; rgb?: never } | { rgb: RGB; kelvin?: never }) & JsonObject;
@@ -23,14 +24,44 @@ export function roundEven(value: number): number {
   const remainder = value - lower;
   return remainder === 0.5 ? (lower % 2 === 0 ? lower : lower + 1) : Math.round(value);
 }
-export function canonicalColor(color: JsonValue | undefined): Color {
-  const c = object(color);
-  if ('kelvin' in c) return { kelvin: c.kelvin as number };
-  return { rgb: [...c.rgb as RGB] };
+/**
+ * Shape of a `Color` without imposing any call-site's kelvin range — exactly
+ * one of `kelvin` or `rgb`, carrying finite numbers. {@link validColor} keeps
+ * the stricter range-checking contract its own callers rely on.
+ */
+export function colorShape(value: unknown): value is Color {
+  if (!isObject(value)) return false;
+  if ('kelvin' in value) return !('rgb' in value) && boundedNumber(value.kelvin);
+  return Array.isArray(value.rgb) && value.rgb.length === 3 && value.rgb.every(boundedNumber);
 }
+/**
+ * Parse a color instead of asserting one.
+ *
+ * The deployed Jinja reads these values raw — all 52 `day.brightness` /
+ * `cosy.brightness` reads in the captured source apply no filter — so the
+ * oracle raises `TypeError` on a malformed value. Casting here used to let
+ * JavaScript coerce instead: `canonicalColor({kelvin: 'hot'})` returned a
+ * `Color` whose `kelvin` was a string, and `canonicalColor({})` threw an
+ * opaque `TypeError: c.rgb is not iterable`. Both now fail as a named
+ * `ParseError`, which is what the oracle does.
+ */
+export function canonicalColor(color: JsonValue | undefined): Color {
+  if (!colorShape(color)) {
+    throw new ParseError(`color must be {kelvin} or {rgb:[r,g,b]} with finite numbers, got ${JSON.stringify(color) ?? 'undefined'}`);
+  }
+  return color.kelvin !== undefined ? { kelvin: color.kelvin } : { rgb: [...color.rgb as RGB] };
+}
+/**
+ * Parse an anchor instead of asserting one. A brightness arriving as the
+ * string `"80"` previously kept its string type under a `number` declaration,
+ * which made {@link scaleValue} return 255 at position 0.5 and NaN below zero.
+ */
 export function anchor(value: JsonValue | undefined): Anchor {
   const a = object(value);
-  return { brightness: a.brightness as number, color: canonicalColor(a.color) };
+  if (!boundedNumber(a.brightness)) {
+    throw new ParseError(`anchor.brightness must be a finite number, got ${JSON.stringify(a.brightness) ?? 'undefined'}`);
+  }
+  return { brightness: a.brightness, color: canonicalColor(a.color) };
 }
 export function validColor(color: unknown, minimum = 1000, maximum = 10000): color is Color {
   if (!isObject(color)) return false;
@@ -39,6 +70,14 @@ export function validColor(color: unknown, minimum = 1000, maximum = 10000): col
   }
   return !('kelvin' in color) && Array.isArray(color.rgb) && color.rgb.length === 3 &&
     color.rgb.every(v => typeof v === 'number' && v >= 0 && v <= 255);
+}
+/** Parse an `[r,g,b]` triple. The captured source reads `warm_end` raw, so the oracle raises on anything else. */
+export function requireRgb(value: JsonValue | undefined, context = 'rgb'): RGB {
+  if (Array.isArray(value) && value.length === 3) {
+    const [r, g, b] = value;
+    if (boundedNumber(r) && boundedNumber(g) && boundedNumber(b)) return [r, g, b];
+  }
+  throw new ParseError(`${context} must be [r, g, b] with finite numbers, got ${JSON.stringify(value) ?? 'undefined'}`);
 }
 export function rgbValue(color: Color): RGB {
   if (color.rgb) return [...color.rgb];
