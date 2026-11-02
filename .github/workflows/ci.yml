@@ -109,9 +109,14 @@ jobs:
         run: npm ci
       - name: Type-check
         run: npm run check
-      # Parity requires private, gitignored household captures and cannot run on GitHub runners.
       - name: Test
         run: npm test
+      # The audit tooling tests build their own fixtures, so they run anywhere.
+      # `npm run audit:responses` itself is capture-only and deliberately absent,
+      # as is `npm run parity`: both need private, gitignored household captures
+      # that never leave the capture host, so neither can run on a GitHub runner.
+      - name: Audit tooling tests
+        run: python3 -m unittest discover -s tests/tools -p 'test_*.py'
 
   ci:
     name: CI
