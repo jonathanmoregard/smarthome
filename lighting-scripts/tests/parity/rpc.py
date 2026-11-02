@@ -63,15 +63,19 @@ class Rpc:
         self.requests = 0
         self.comparisons = 0
         self.fixtures = []
+        self.dependency_calls = []
 
     def send(self, payload):
         self.process.stdin.write(json.dumps(encode_numbers(payload) if self.numeric_bridge else payload, allow_nan=False) + '\n')
         self.process.stdin.flush()
 
-    def call(self, name, args=None, snapshot=None, callback=None, callback_mode='all', instrument_log=False):
+    def call(self, name, args=None, snapshot=None, callback=None, callback_mode='all', instrument_log=False,
+             literal_dependencies=None):
         self.entrypoints.add(name)
         self.requests += 1
         payload = {'script': name, 'args': args or {}, 'snapshot': snapshot or empty_snapshot()}
+        if literal_dependencies:
+            payload['parityDependencies'] = copy.deepcopy(literal_dependencies)
         if callback:
             assert self.numeric_bridge, 'Synchronous callbacks require the explicit parity bridge'
             payload['parityHooks'] = callback_mode
@@ -102,6 +106,7 @@ class Rpc:
         if callback_error is not None:
             raise callback_error
         assert not response.get('error'), f'TypeScript {name}: {response["error"]}'
+        self.dependency_calls.extend(response.get('dependencyCalls', []))
         return response
 
     def pure(self, name, args):

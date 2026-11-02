@@ -114,8 +114,11 @@ export const automationHandlers: ScriptHandlers = {
   },
   'automation.lighting_schedule_lamp_change_detector': (ctx, args) => {
     // The HA bridge preserves the original running-script context condition.
-    const event = object(object(args.trigger).event), data = object(event.data), who = object(event.context).user_id;
-    if (who === null || who === undefined || data.service !== 'turn_on') return null;
+    const event = object(object(args.trigger).event), data = object(event.data), eventContext = object(event.context), who = eventContext.user_id;
+    const runningScript = typeof eventContext.id === 'string' && Object.entries(ctx.state).some(([entity, raw]) =>
+      entity.startsWith('script.') && raw.state === 'on'
+      && object(raw.context).id === eventContext.id);
+    if (who === null || who === undefined || data.service !== 'turn_on' || runningScript) return null;
     const catalog = ctx.run('effects_catalog'), current = ctx.run('ls_apply', { dry_run: true, reason: 'config' });
     const capture = object(ctx.run('effects_native_plan', { sd: object(data.service_data), catalog, current, stamp: timestamp(ctx.now) }));
     for (const power of list(capture.power)) ctx.fire('ls_override', { op: 'power', area: object(power).area ?? '', on: true, via: 'app', who });

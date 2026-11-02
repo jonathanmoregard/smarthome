@@ -34,7 +34,8 @@ export function remoteGesture(ctx: ScriptContext, args: JsonObject): JsonValue {
   };
   const clearChord = () => { set('chord_step', 0); timer(false); };
   const send = (logical: string) => {
-    const area = (typeof args.device_id === 'string' && ctx.areas[args.device_id]) || room;
+    const area = typeof args.device_id === 'string' ? ctx.areas[args.device_id] : room;
+    if (!area) return;
     ctx.emit('script.turn_on', { variables: { source: args.source ?? '', area, command: logical, dry_run: false } }, { entity_id: 'script.ls_remote_command' });
   };
   const step = Math.trunc(number(ctx.get(helper('chord_step'))));

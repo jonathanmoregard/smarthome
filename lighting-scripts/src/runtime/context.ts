@@ -4,6 +4,7 @@ export interface JsonObject { [key: string]: JsonValue }
 export interface EntityState {
   state: string;
   attributes: JsonObject;
+  context?: JsonObject;
   entity_id?: string;
   last_updated?: string;
   last_changed?: string;

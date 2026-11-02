@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
-from portability import ROOT
+from portability import ROOT, dependencies
 from run import ALIASES, inventory
 
 SUITES = ['gestures', 'core', 'core-relational', 'grouping', 'input-edges',
@@ -60,6 +60,7 @@ def failed_ids(outcome):
 
 
 def main():
+    dependencies()
     report_path = ROOT / 'tests/parity/gate-comparison-report.json'
     command = [sys.executable, str(ROOT / 'tests/parity/run.py'), '--backend', 'compare', '--report', str(report_path)]
     for name in SUITES:

@@ -57,3 +57,35 @@ test('own Sara mirror events arriving before service ACK are suppressed while ge
   assert.equal(overrides[0].data.records[0].kind, 'mode');
   await transport.close();
 });
+
+test('entity context survives full refresh and acknowledged state snapshots', async () => {
+  class SnapshotPort extends SocketPort {
+    override send(data: string) {
+      const frame = JSON.parse(data) as Record<string, unknown>;
+      this.frames.push(frame);
+      const states = [
+        { entity_id: 'script.test', state: 'on', attributes: {}, context: { id: 'script-call' }, last_changed: '2026-10-26T12:00:00Z', last_updated: '2026-10-26T12:00:00Z' },
+        { entity_id: 'sensor.ls_overrides', state: '1', attributes: {}, context: { id: 'state-call' }, last_changed: '2026-10-26T12:00:00Z', last_updated: '2026-10-26T12:00:00Z' },
+      ];
+      const result = frame.type === 'get_states' ? states
+        : frame.type === 'get_config' ? { time_zone: 'Europe/Stockholm' }
+        : frame.type === 'config/entity_registry/list' ? []
+        : frame.type === 'config/device_registry/list' ? []
+        : frame.type === 'config/area_registry/list' ? []
+        : frame.type === 'config/label_registry/list' ? []
+        : frame.type === 'entity/source' ? {}
+        : frame.type === 'call_service' ? { context: { id: 'own-call' } }
+        : null;
+      queueMicrotask(() => this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify({ id: frame.id, type: 'result', success: true, result }) })));
+    }
+  }
+  const socket = new SnapshotPort();
+  const connection = await createConnection({ createSocket: async () => socket as unknown as HaWebSocket });
+  const transport = new HomeAssistantTransport(connection);
+  const previous = { state: {}, areas: {}, members: [], now: '2026-10-26T12:00:00Z', catalog: { members: {}, effects: {} } };
+  const refreshed = await transport.refresh(previous);
+  assert.deepEqual(refreshed.state['script.test']?.context, { id: 'script-call' });
+  const acknowledged = await transport.send({ service: 'variable.set_variable', data: { entity_id: 'sensor.ls_overrides' } });
+  assert.deepEqual(acknowledged?.states?.['sensor.ls_overrides']?.context, { id: 'state-call' });
+  await transport.close();
+});

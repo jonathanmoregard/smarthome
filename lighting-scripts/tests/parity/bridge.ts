@@ -5,7 +5,7 @@ import { readSync, writeSync } from 'node:fs';
 import { StringDecoder } from 'node:string_decoder';
 import { execute, type ExecutionHooks, type ExecutionRequest } from '../../src/runtime/engine.ts';
 import { handlers } from '../../src/runtime/registry.ts';
-import type { ScriptContext, ServiceCall, Snapshot } from '../../src/runtime/context.ts';
+import type { JsonValue, ScriptContext, ServiceCall, Snapshot } from '../../src/runtime/context.ts';
 
 type PathPart = string | number;
 interface Nonfinite { path: PathPart[]; value: 'NaN' | 'Infinity' | '-Infinity' }
@@ -67,11 +67,17 @@ function readMessage(): unknown {
 }
 function send(value: unknown): void { writeSync(1, JSON.stringify(encode(value)) + '\n'); }
 const nativeLog = Math.log;
+function isJsonLiteral(value: unknown): value is JsonValue {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every(isJsonLiteral);
+  return typeof value === 'object' && Object.values(value).every(isJsonLiteral);
+}
 
 function perform(value: unknown): void {
   const previousLog = Math.log;
   try {
-    const request = value as ExecutionRequest & { parityHooks?: 'all' | 'commit'; parityLog?: boolean };
+    const request = value as ExecutionRequest & { parityHooks?: 'all' | 'commit'; parityLog?: boolean; parityDependencies?: Record<string, unknown> };
     const mathLogCalls: number[] = [];
     Math.log = request.parityLog ? (input: number) => { mathLogCalls.push(input); return nativeLog(input); } : nativeLog;
     let depth = 0;
@@ -113,8 +119,15 @@ function perform(value: unknown): void {
         if (--depth > 0 && request.parityHooks === 'all') callback('after', { service: 'script.' + name, data: args }, ctx);
       },
     } : {};
-    const result = execute(request, handlers, hooks);
-    send({ ...result, ...(request.parityHooks ? { calls: trace } : {}), mathLogCalls });
+    const requestHandlers = { ...handlers };
+    const dependencyCalls: string[] = [];
+    for (const [name, result] of Object.entries(request.parityDependencies ?? {})) {
+      if (name !== 'ls_plan') throw new Error(`Unsupported parity literal dependency: ${name}`);
+      if (!isJsonLiteral(result)) throw new Error(`Parity literal dependency is not finite JSON data: ${name}`);
+      requestHandlers[name] = () => { dependencyCalls.push(name); return structuredClone(result); };
+    }
+    const result = execute(request, requestHandlers, hooks);
+    send({ ...result, ...(request.parityHooks ? { calls: trace } : {}), mathLogCalls, dependencyCalls });
   } catch (error) {
     send({ error: error instanceof Error ? error.message : String(error) });
   } finally {
