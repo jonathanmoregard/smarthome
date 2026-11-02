@@ -54,7 +54,7 @@ def inventory():
         elif path.name in ('test_harness.py', 'test_gradient_cache.py', 'test_gesture_native_conditions.py'):
             classification, reason = 'reference-implementation-contract', 'Contains Python/Jinja interpreter, macro instrumentation, or sequence-shape assertions; unsupported execution fails explicitly.'
         elif name == 'effects-promotion/tests/test_logic.py':
-            seam = 'unsupported'
+            seam = 'standalone-simulator'
         if name in ('lighting-algebra/tests/test_remote_fast.py', 'lighting-algebra/tests/test_remote_store.py'):
             classification = 'explicitly-superseded'
             reason = 'input-processors/run_gate.py and remote-ranges/run_gate.py explicitly replace old scale-claim assertions with input invariants.'
@@ -134,7 +134,7 @@ def observe_equal_assertions():
 
 def execute(args, row):
     dependencies()
-    from adapters import gestures, migration_fixtures, module_seams, pure_templates, simulator
+    from adapters import gestures, migration_fixtures, module_seams, pure_templates, simulator, standalone_simulator
     from rpc import Rpc
     with Stage() as stage:
         root = stage.path
@@ -163,9 +163,14 @@ def execute(args, row):
         try:
             if rpc and row['seam'] == 'unsupported':
                 raise AssertionError('Uncovered TypeScript adapter: ' + row['path'])
+            if rpc and row['seam'] == 'standalone-simulator':
+                standalone_simulator(root, rpc)
             if rpc and row['seam'] in ('simulator', 'module-assertions'):
                 simulator(root, rpc, row['path'])
             module = module_assertion_suite(path) if row['seam'] == 'module-assertions' else load(path)
+            if args.source == 'live' and row['path'] == 'effects-promotion/tests/test_logic.py':
+                stage.bind_module_path(module, row['path'], 'CANDIDATE',
+                                       None, candidate)
             if args.source == 'live' and row['path'] in (
                     'lighting-algebra/remote/gesture_test.py', 'lighting-algebra/remote/test_remote.py'):
                 stage.bind_module_path(module, row['path'], 'ROOT', root / 'lighting-algebra/remote', candidate)

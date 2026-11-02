@@ -164,7 +164,7 @@ class Stage:
 
     def bind_module_path(self, module, relative, attribute, source, target):
         """Replace one module path binding after import when it derives from __file__."""
-        source, target = Path(source), Path(target)
+        source, target = (Path(source) if source is not None else None), Path(target)
         assert getattr(module, attribute, None) == source and target.is_dir(), \
             f'Unexpected module path binding for {relative}:{attribute}'
         setattr(module, attribute, target)

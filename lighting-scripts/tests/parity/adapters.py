@@ -402,6 +402,165 @@ def simulator(stage, rpc, module_path=None):
     return dry
 
 
+def standalone_simulator(stage, rpc):
+    """Replace the preserved effects simulator's decisions with typed RPC calls."""
+    harness = importlib.import_module('harness')
+    original_init = harness.Sim.__init__
+    catalog_document = json.loads((stage / 'effects-promotion/live/effects_catalog.json').read_text())
+    fixture_catalog = catalog_document.get('config', catalog_document)['sequence'][0]['variables']['result']
+    assert isinstance(fixture_catalog, dict), 'Standalone catalog fixture must be literal data'
+    candidate = Path(os.environ['LIGHTING_CANDIDATE'])
+    runtime_document = json.loads((candidate / 'effects_catalog.json').read_text())
+    catalog = runtime_document.get('config', runtime_document)['sequence'][0]['variables']['result']
+    assert isinstance(catalog, dict), 'Standalone runtime catalog must be literal data'
+    catalog = copy.deepcopy(catalog)
+    catalog['baseline_groups'] = {
+        'light.kitchen_all': copy.deepcopy(fixture_catalog['groups']['light.kitchen_all'])}
+
+    def initialize(self, *args, **kwargs):
+        self._parity_initializing = True
+        self._parity_extra = {'labels': {'private_room': ['jonathan_bedroom']}}
+        self._parity_runtime = None
+        self._parity_overrides = None
+        try:
+            original_init(self, *args, **kwargs)
+        finally:
+            self._parity_initializing = False
+
+    def snapshot(self):
+        state = copy.deepcopy(self.state)
+        if 'sensor.effects_controller' in state:
+            state['sensor.ls_effects_runtime'] = copy.deepcopy(
+                self._parity_runtime if self._parity_runtime is not None else state['sensor.effects_controller'])
+        if self._parity_overrides is not None:
+            state['sensor.ls_overrides'] = copy.deepcopy(self._parity_overrides)
+        return {'state': state, 'areas': copy.deepcopy(self.areas), 'members': copy.deepcopy(self.members),
+                'now': self.now.isoformat(), 'elapsed': self.elapsed, 'catalog': copy.deepcopy(catalog),
+                **copy.deepcopy(self._parity_extra)}
+
+    def restore(self, value):
+        state = copy.deepcopy(value['state'])
+        if 'sensor.effects_controller' in self.state:
+            runtime = copy.deepcopy(state.pop('sensor.ls_effects_runtime'))
+            self._parity_runtime = runtime
+            attributes = copy.deepcopy(runtime.get('attributes', {}))
+            projected = {}
+            for target, raw in attributes.get('assignments', {}).items():
+                effects = [channel.get('effect') for channel in (raw.get('brightness', {}), raw.get('color', {}))
+                           if isinstance(channel, dict) and channel.get('kind') == 'effect']
+                projected[target] = {'effect': effects[0]} if effects else copy.deepcopy(raw)
+            attributes['assignments'] = projected
+            state['sensor.effects_controller'] = {**runtime, 'entity_id': 'sensor.effects_controller',
+                                                  'attributes': attributes}
+        if 'sensor.ls_overrides' in state:
+            current = copy.deepcopy(state['sensor.ls_overrides'])
+            self._parity_overrides = current
+            attributes = copy.deepcopy(current.get('attributes', {}))
+            projected = {}
+            for raw in attributes.get('overrides', {}).values():
+                if not isinstance(raw, dict) or raw.get('kind') != 'channels':
+                    continue
+                target, channels = raw.get('target'), raw.get('value', {}).get('channels', {})
+                if not isinstance(target, str) or not isinstance(channels, dict):
+                    continue
+                legacy_value = {}
+                for channel, source in channels.items():
+                    if not isinstance(source, dict):
+                        continue
+                    if source.get('kind') == 'effect':
+                        legacy_value['effect'] = source.get('effect')
+                    elif source.get('kind') == 'constant' and channel == 'brightness':
+                        legacy_value['brightness'] = source.get('value')
+                    elif source.get('kind') == 'constant' and channel == 'color' and isinstance(source.get('value'), dict):
+                        color = source['value']
+                        if 'kelvin' in color:
+                            legacy_value['kelvin'] = color['kelvin']
+                        elif 'rgb' in color:
+                            legacy_value['rgb'] = color['rgb']
+                projected['light:' + target] = {**raw, 'kind': 'light', 'value': legacy_value}
+            attributes['overrides'] = projected
+            state['sensor.ls_overrides'] = {**current, 'attributes': attributes}
+        self.state, self.areas, self.members = state, value['areas'], value['members']
+        self.now = datetime.fromisoformat(value['now'])
+        self.elapsed = value.get('elapsed', self.elapsed)
+        self._parity_extra = {key: copy.deepcopy(item) for key, item in value.items()
+                              if key not in ('state', 'areas', 'members', 'now', 'elapsed', 'catalog')}
+
+    def record(self, response):
+        self.calls.extend({'time': call.get('time', self.elapsed), 'action': call['service'],
+                           'data': copy.deepcopy(call['data']), 'target': copy.deepcopy(call.get('target', {}))}
+                          for call in response.get('calls', []))
+        incoming = response.get('events', [])
+        self.events.extend((event['event'], copy.deepcopy(event['data'])) for event in incoming)
+        for event in incoming:
+            if event['event'] == 'ls_override':
+                run(self, 'ls_commit', data=event['data'])
+
+    def run(self, name, **args):
+        if getattr(self, '_parity_initializing', False):
+            assert name == 'effects_catalog', f'Unexpected standalone fixture execution: {name}'
+            return copy.deepcopy(catalog)
+        if os.environ.get('PARITY_DEBUG'):
+            current = self.state.get('sensor.effects_controller', {}).get('attributes', {})
+            overrides = self.state.get('sensor.ls_overrides', {}).get('attributes', {}).get('overrides', {})
+            print('PARITY_DEBUG before', name, sorted(args), 'assignments', len(current.get('assignments', {})),
+                  'targets', len(current.get('targets', {})), 'overrides', len(overrides))
+        response = rpc.call(name, args, snapshot(self))
+        restore(self, response['snapshot'])
+        record(self, response)
+        if os.environ.get('PARITY_DEBUG'):
+            current = self.state.get('sensor.effects_controller', {}).get('attributes', {})
+            overrides = self.state.get('sensor.ls_overrides', {}).get('attributes', {}).get('overrides', {})
+            override_shapes = [{'kind': item.get('kind'), 'scope': item.get('scope'),
+                                'channels': sorted(item.get('value', {}).get('channels', {}))}
+                               for item in overrides.values()]
+            print('PARITY_DEBUG after', name, 'assignments', len(current.get('assignments', {})),
+                  'targets', len(current.get('targets', {})), 'overrides', len(overrides),
+                  'override_shapes', override_shapes,
+                  'calls', [call['service'] for call in response.get('calls', [])],
+                  'events', [event['event'] for event in response.get('events', [])])
+        if name == 'effects_engine' and self.max_elapsed is not None:
+            limit = self.max_elapsed
+            while self.elapsed < limit:
+                tasks = self._parity_extra.get('scheduled', [])
+                if not tasks:
+                    break
+                task = min(tasks, key=lambda item: item['due'])
+                tasks.remove(task)
+                due = datetime.fromtimestamp(task['due'] / 1000, tz=self.now.tzinfo)
+                self.elapsed += max(0, (due - self.now).total_seconds())
+                self.now = max(self.now, due)
+                if self.on_delay:
+                    self.on_delay(self)
+                if self.elapsed >= limit:
+                    break
+                run(self, task['script'], **task['args'])
+        return copy.deepcopy(response['result'])
+
+    def reconcile(self, **args):
+        planned = run(self, 'ls_apply', dry_run=True, reason=args.pop('reason', 'config'), **args)
+        assert isinstance(planned, dict) and isinstance(planned.get('plan'), dict), \
+            'Typed standalone planning must return a plan object'
+        return run(self, 'ls_dispatch', plan=planned['plan'])
+
+    def event(self, name, data):
+        assert name == 'ls_override', 'Standalone host accepts only the typed override event'
+        self.events.append((name, copy.deepcopy(data)))
+        return run(self, 'ls_commit', data=data)
+
+    def no_reference_execution(self, *args, **kwargs):
+        raise AssertionError('Legacy standalone interpreter execution is forbidden for the TypeScript backend')
+
+    harness.Sim.__init__ = initialize
+    harness.Sim.run = run
+    harness.Sim.seq = no_reference_execution
+    harness.Sim.render = no_reference_execution
+    harness.Sim.cond = no_reference_execution
+    harness.Sim.reconcile = reconcile
+    harness.Sim.event = event
+    return harness
+
+
 def module_seams(module, module_path):
     """Bind narrow host continuations after the preserved module is loaded."""
     if module_path == 'lighting-algebra/remote/test_remote.py':

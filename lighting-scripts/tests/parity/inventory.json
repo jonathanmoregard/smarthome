@@ -12,7 +12,7 @@
   "modules": [
     {
       "path": "effects-promotion/tests/test_logic.py",
-      "seam": "unsupported",
+      "seam": "standalone-simulator",
       "classification": "historical-behavior",
       "reason": "Retained assertions; current-source compatibility must be demonstrated by execution."
     },
