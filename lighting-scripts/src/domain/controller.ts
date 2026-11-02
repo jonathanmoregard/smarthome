@@ -1,6 +1,7 @@
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
 import { requireArray, requireBoolean, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
 import { object, requireRgb, WARM_END } from './scale.ts';
+import { optionalTimestamp } from './schedule.ts';
 import { recordTimestamp } from './resolution.ts';
 
 const list = (v: JsonValue | undefined): JsonValue[] => Array.isArray(v) ? v : [];
@@ -14,7 +15,7 @@ interface SwitchPlanArgs {
 
 interface PlanArgs {
   testOverrides: JsonObject | undefined;
-  testNow: string | null;
+  testNow: number | null;
   reason: string;
   room: string;
 }
@@ -22,7 +23,7 @@ interface PlanArgs {
 interface ApplyArgs {
   dryRun: boolean;
   forceAll: boolean;
-  testNow: string | undefined;
+  testNow: number | undefined;
   hasTestOverrides: boolean;
   testOverrides: JsonObject | undefined;
   reason: string;
@@ -176,9 +177,10 @@ export const controllerHandlers: ScriptHandlers = {
   ls_plan: withParsedArgs({
     parse: args => ({
       testOverrides: optionalScriptObject(args.test_overrides, 'ls_plan.test_overrides'),
-      testNow: args.test_now === undefined || args.test_now === null
-        ? null
-        : requireString(args, 'test_now', 'ls_plan'),
+      // Captured ls_plan reads test_now raw behind default(none); a numeric
+      // epoch is as legal as a date string, and ls_base parses the same field
+      // with optionalTimestamp. requireString here rejected a valid value.
+      testNow: optionalTimestamp(args.test_now) ?? null,
       reason: args.reason === undefined ? 'config' : requireString(args, 'reason', 'ls_plan'),
       room: args.room === undefined ? '' : requireString(args, 'room', 'ls_plan'),
     }),
@@ -191,9 +193,8 @@ export const controllerHandlers: ScriptHandlers = {
     parse: args => ({
       dryRun: optionalScriptBoolean(args.dry_run, 'ls_apply.dry_run'),
       forceAll: optionalScriptBoolean(args.force_all, 'ls_apply.force_all'),
-      testNow: args.test_now === undefined || args.test_now === null
-        ? undefined
-        : requireString(args, 'test_now', 'ls_apply'),
+      // Same as ls_plan: captured source reads test_now raw.
+      testNow: optionalTimestamp(args.test_now),
       hasTestOverrides: Object.hasOwn(args, 'test_overrides'),
       testOverrides: optionalScriptObject(args.test_overrides, 'ls_apply.test_overrides'),
       reason: args.reason === undefined ? 'config' : requireString(args, 'reason', 'ls_apply'),
