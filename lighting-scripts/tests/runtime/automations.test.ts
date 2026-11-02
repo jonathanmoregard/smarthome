@@ -35,6 +35,13 @@ test('writer preserves event data and explicit who, recovery only requests dirty
   ctx.run('automation.lighting_recover_pending_output', {});
   assert.deepEqual(ctx.calls[0], { service: 'script.turn_on', data: {}, target: { entity_id: 'script.ls_render' } });
 });
+test('writer uses Jinja or semantics for empty-container who values', async () => {
+  const { ctx, invoked } = await driver();
+  ctx.run('automation.lighting_schedule_override_store_writer', {
+    trigger: { event: { data: { op: 'clear_all', who: {} }, context: { user_id: 'person' } } },
+  });
+  assert.deepEqual(invoked, [{ name: 'ls_commit', args: { data: { op: 'clear_all', who: 'person' } } }]);
+});
 test('remote adapters preserve generic room topology and exact preset payload', async () => {
   const { ctx, invoked } = await driver();
   ctx.run('automation.remote_center', { room: 'new_room', trigger: { payload: 'off' } });
