@@ -23,7 +23,11 @@ SUITES = ['gestures', 'core', 'core-relational', 'grouping', 'input-edges',
           'lighting-algebra/tests/test_cache_integration.py',
           'lighting-algebra/remote-ranges/test_period_stream.py',
           'lighting-algebra/remote-ranges/test_preset_roundtrip.py',
-          'lighting-algebra/remote-ranges/test_remote_ranges.py']
+          'lighting-algebra/remote-ranges/test_remote_ranges.py',
+          'lighting-algebra/remote/preset_test.py',
+          'lighting-algebra/remote-regressions/test_first_arrow.py',
+          'lighting-algebra/remote-regressions/test_pending_input.py',
+          'lighting-algebra/sara-window/test_sara_window.py']
 SUPPLEMENTS = ['native_gradient.py', 'native_resolution.py', 'native_controls.py', 'native_drift.py', 'native_bridges.py',
                '../runtime/automations-native.py', '../runtime/grouping-native-schedule.py', '../runtime/grouping-native-ui.py']
 
@@ -37,6 +41,17 @@ def omissions():
         'lighting-algebra/tests/test_native_controls.py': 'Original automation execution seam remains uncovered; native_controls.py covers pure native/UI plans with explicit dependencies.',
         'lighting-algebra/adapters/test_adapters.py': 'Module-level assertions have no supported per-test outcome adapter yet.',
         'effects-promotion/tests/test_logic.py': 'Older standalone simulator entrypoint has no migrated adapter yet.',
+        # Measured 2026-11-02: these five are blocked by stale simulator
+        # preconditions, not by the migrated domain. Each one's reference run
+        # dies inside the preserved harness before any lighting behavior is
+        # exercised, so a compare run would match two failures that share only
+        # the bare string 'AssertionError'. Gating them requires reconciling the
+        # precondition with the captured revision, not porting anything.
+        'lighting-algebra/remote/test_remote.py': "GestureSim.drive asserts CENTER['mode'] == 'single'; the captured lighting_jonathan_s_bedroom_remote_center runs mode 'queued', so all 11 reference tests fail on that precondition. The TypeScript run differs on one test only because module_seams substitutes a harness-authored drive loop that never evaluates the precondition.",
+        'lighting-algebra/remote/gesture_test.py': "Replay asserts the gesture script is mode 'restart' with a leading 400 ms delay step; the captured revision does not match, failing 19 of 20 reference tests on the precondition. One genuine behavioral difference ([] != ['left']) is hidden behind it.",
+        'lighting-algebra/tests/test_gesture_integration.py': "IntegratedReplay carries the same stale mode 'restart'/400 ms gesture-script precondition; all 5 reference failures are that assert, not lighting behavior.",
+        'lighting-algebra/tests/test_gesture_native_conditions.py': "Subclasses IntegratedReplay and inherits the same stale gesture-script precondition; both reference failures are that assert. The inventory additionally classifies this module by filename alone, which overstates its coupling to the reference interpreter.",
+        'lighting-algebra/tests/test_remote_gestures.py': "The replay's external-action allowlist raises ('Unknown external action blocked', 'input_number.set_value') for all 8 reference failures; the captured revision reaches a service the preserved harness predates.",
     }
     result = []
     for row in inventory():
