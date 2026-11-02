@@ -119,3 +119,60 @@ path. That broke seven parity modules and cost 69 clean assertion tests.
 Grepping a narrow window around the field name also misclassifies — a
 `| default(...)` or `is defined` further along the same expression is missed,
 which is how `switches` and `stale_keys` were first read as unfiltered.
+
+## `or` is not `default()`
+
+A third fallback spelling sits alongside `| default(x)` and `dict.get(k, x)`,
+and it has the widest trigger of the three:
+
+| value of `d.k` | `d.k or 'FB'` | `d.k \| default('FB')` | `d.get('k','FB')` |
+|---|---|---|---|
+| `none` | **`FB`** | `None` | `None` |
+| `false` | **`FB`** | `False` | `False` |
+| `0` | **`FB`** | `0` | `0` |
+| `""` | **`FB`** | `""` | `""` |
+| `[]` | **`FB`** | `[]` | `[]` |
+| `{}` | **`FB`** | `{}` | `{}` |
+| `"night"` | `night` | `night` | `night` |
+| key absent | `FB` | `FB` | `FB` |
+
+Note the second column: **`| default(d)` does not fire on `none`.** It replaces
+`Undefined` only, so a key that is explicitly null keeps its null. `or` is the
+only one of the three that treats null, zero and the empty container alike.
+
+Because Jinja's falsy set includes the empty container and JavaScript's does
+not, `x or d` cannot be rendered as `x === undefined ? d : x`. Use
+`jinjaTruthy(x) ? x : d`.
+
+Measured consequence in this port: `ls_room_plan`'s mirrored override option is
+`(S.get('cur') or 'night') | capitalize`. Read as a `default('night')`, a cached
+`cur` of `0` emits option `'0'`; the oracle emits `'Night'`.
+
+So when gathering evidence, grep for
+`\bor\s+(?:'[a-z]*'|\{\}|\[\]|0|none|false)` as well as `default(`.
+
+## Case filters are coercions, not cosmetics
+
+`| capitalize` is Python `str.capitalize()`: upper-case first character,
+**lower-case remainder**. `| title` capitalises every word. Neither equals
+`s[0].toUpperCase() + s.slice(1)`, which preserves the remainder's case:
+
+| input | `\| capitalize` | `\| title` | `s[0].upper() + s[1:]` |
+|---|---|---|---|
+| `'night'` | `'Night'` | `'Night'` | `'Night'` |
+| `'NIGHT'` | `'Night'` | `'Night'` | **`'NIGHT'`** |
+| `'nIgHt'` | `'Night'` | `'Night'` | **`'NIgHt'`** |
+| `'day night'` | `'Day night'` | **`'Day Night'`** | `'Day night'` |
+| `''` | `''` | `''` | `''` |
+
+All three agree only on an already-lower-case single word — which is why a port
+can carry this divergence for a long time before a value like `'NIGHT'` reaches
+it. Both filters apply `soft_str()` first, so they accept non-strings:
+`none | capitalize` is `'None'`, `5 | capitalize` is `'5'`,
+`[] | capitalize` is `'[]'`.
+
+That last row is a warning about `jinjaString`: it renders containers with
+`JSON.stringify`, so `{a: 1}` becomes `{"a":1}` where Python's `str()` gives
+`{'a': 1}`. No captured site legitimately stringifies a container, so treat a
+container reaching `jinjaString` as an upstream parsing bug rather than relying
+on its output.

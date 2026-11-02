@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { jinjaFloat, jinjaTruthy, requireArray, requireNumber, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { jinjaFloat, jinjaString, jinjaTruthy, requireArray, requireNumber, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
 import { object, isObject } from './scale.ts';
 import { blocks, hasValue, isRemote, labelled, latestRemote, list, nextMidnight, privateRooms, profile, timestamp } from './schedule.ts';
 
@@ -48,9 +48,6 @@ function requiredObjectValue(value: JsonValue | undefined, context: string): Jso
 }
 function optionalNumber(container: JsonObject, key: string, fallback: number, context: string): number {
   return container[key] === undefined ? fallback : requireNumber(container, key, context);
-}
-function optionalString(container: JsonObject, key: string, fallback: string, context: string): string {
-  return container[key] === undefined ? fallback : requireString(container, key, context);
 }
 function parseSchedule(value: JsonValue | undefined, room: string, context: string): ParsedSchedule {
   const raw = requiredObjectValue(value, context);
@@ -139,8 +136,14 @@ function refreshBaseline(ctx: ScriptContext, baseline: ParsedBaseline, cache: Pa
   }
   const blockKey = `block:${room}`;
   const chosen = records[blockKey] === undefined ? undefined : requireObject(records, blockKey, 'ls_room_plan.overrides').value;
-  const effective = typeof chosen === 'string' && blocks.includes(chosen) && !stale.includes(blockKey) ? chosen : optionalString(S, 'cur', 'night', 'ls_room_plan schedule details');
-  const entity = `input_select.ls_${room}_override`, option = effective[0]!.toUpperCase() + effective.slice(1);
+  // The captured fallback is `S.get('cur') or 'night'`, not `default('night')`:
+  // `or` replaces every falsy value, so 0, '', false, [] and {} all become
+  // 'night', and only a truthy cached block survives. The emitted option is
+  // `effective | capitalize`, which is Python's `str.capitalize()` — upper
+  // first character, lower remainder — so 'NIGHT' mirrors as 'Night'.
+  const effective = typeof chosen === 'string' && blocks.includes(chosen) && !stale.includes(blockKey) ? chosen : jinjaTruthy(S.cur) ? S.cur! : 'night';
+  const effectiveText = jinjaString(effective);
+  const entity = `input_select.ls_${room}_override`, option = effectiveText ? effectiveText[0]!.toUpperCase() + effectiveText.slice(1).toLowerCase() : '';
   const mirrors: JsonValue[] = ctx.state[entity] && ctx.get(entity) !== option ? [{ entity, option }] : [];
   const profiles: JsonObject = {};
   for (const [lamp, p] of Object.entries(baseline.schedule.profiles)) {
@@ -210,7 +213,9 @@ export const planningHandlers: ScriptHandlers = {
   // conditional. Cache is read raw 26 times behind mapping guards; an absent
   // or non-mapping cache remains a miss, while its indexed baseline, schedule,
   // targets, details, profiles, gradients and catalog are parsed. A missing
-  // selected-room schedule detail keeps the captured empty-object fallback.
+  // selected-room schedule detail keeps the captured empty-object fallback;
+  // its `cur` is read raw and falls back through `or 'night'`, which accepts
+  // non-string cached values and replaces every falsy one.
   // power/ranges/defaults each have one mapping guard and one source default,
   // so malformed or absent values retain the captured runtime fallbacks.
   ls_room_plan: withParsedArgs({

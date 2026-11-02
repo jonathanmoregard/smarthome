@@ -64,6 +64,26 @@ test('room cache skips baseline recomputation while updating observations and po
   assert.equal(hit.plan.resolved.targets['light.studio'].on, false);
   const fresh = ctx.run('ls_room_plan', { room: 'studio', overrides: {}, reason: 'remote', power: { studio: false } });
   assert.deepEqual(hit.plan, fresh.plan);
+  const numericCache = structuredClone(first.cache_update);
+  numericCache.baseline.schedule.schedule_details.studio.cur = 5;
+  const numeric = ctx.run('ls_room_plan', { room: 'studio', overrides: {}, reason: 'remote', cache: numericCache });
+  assert.equal(numeric.cache_hit, true);
+  assert.equal(numeric.plan.sched.studio, 5);
+  // `S.get('cur') or 'night'` replaces every falsy value, not just a missing
+  // key, so a cached 0 mirrors as Night while `sched` keeps the raw 0. A
+  // `default('night')` reading would emit '0' here.
+  ctx.put('input_select.ls_studio_override', 'Day');
+  const falsyCache = structuredClone(first.cache_update);
+  falsyCache.baseline.schedule.schedule_details.studio.cur = 0;
+  const falsy = ctx.run('ls_room_plan', { room: 'studio', overrides: {}, reason: 'remote', cache: falsyCache });
+  assert.equal(falsy.plan.sched.studio, 0);
+  assert.deepEqual(falsy.plan.mirror, [{ entity: 'input_select.ls_studio_override', option: 'Night' }]);
+  // `| capitalize` lowers the remainder, so an upper-case cached block is not
+  // passed through unchanged.
+  const shoutCache = structuredClone(first.cache_update);
+  shoutCache.baseline.schedule.schedule_details.studio.cur = 'NIGHT';
+  const shout = ctx.run('ls_room_plan', { room: 'studio', overrides: {}, reason: 'remote', cache: shoutCache });
+  assert.deepEqual(shout.plan.mirror, [{ entity: 'input_select.ls_studio_override', option: 'Night' }]);
 });
 
 test('scheduled baseline packs only explicitly configured complete command groups', async () => {
