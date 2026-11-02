@@ -1,6 +1,55 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { list, num, saved, strings, timestamp } from '../../src/domain/schedule.ts';
 import { context } from './gestures-context.ts';
+
+test('schedule numeric parsing uses explicit absence and rejects malformed present values', () => {
+  assert.equal(num(undefined, 255), 255);
+  assert.equal(num(null, 3000), 3000);
+  assert.equal(num('unknown', 20), 20);
+  assert.equal(num('unavailable', 20), 20);
+  assert.equal(num(0, 255), 0);
+  assert.equal(num('1e3'), 1000);
+  for (const value of ['0x10', 'hot', '', true, Infinity]) {
+    assert.throws(() => num(value as never, 255), /finite number/,
+      `${JSON.stringify(value)} must not silently become a numeric default`);
+  }
+});
+
+test('schedule list parsing defaults only absence and rejects present non-arrays', () => {
+  assert.deepEqual(list(undefined), []);
+  assert.deepEqual(list([0, false, '']), [0, false, '']);
+  for (const value of [null, 'light.one', 0, false, {}]) {
+    assert.throws(() => list(value as never), /array/,
+      `${JSON.stringify(value)} is present and must not be erased to an empty list`);
+  }
+});
+
+test('schedule string arrays reject malformed members instead of dropping them', () => {
+  assert.deepEqual(strings(undefined), []);
+  assert.deepEqual(strings(['light.one', 'light.two']), ['light.one', 'light.two']);
+  assert.throws(() => strings(['light.one', 7]), /string/);
+});
+
+test('schedule timestamps distinguish epoch zero from parse failure', () => {
+  assert.equal(timestamp(0), 0);
+  assert.equal(timestamp('1970-01-01T00:00:00Z'), 0);
+  for (const value of ['not-a-date', '', null, undefined, true]) {
+    assert.throws(() => timestamp(value as never), /timestamp/,
+      `${JSON.stringify(value) ?? 'undefined'} must not alias epoch zero`);
+  }
+});
+
+test('saved profiles reject corrupt present caches but allow HA no-value states', () => {
+  const ctx = context();
+  assert.deepEqual(saved(ctx, 'input_text.missing'), {});
+  ctx.put('input_text.profile', 'unavailable');
+  assert.deepEqual(saved(ctx, 'input_text.profile'), {});
+  ctx.put('input_text.profile', '{bad json');
+  assert.throws(() => saved(ctx, 'input_text.profile'), /valid JSON object/);
+  ctx.put('input_text.profile', '[]');
+  assert.throws(() => saved(ctx, 'input_text.profile'), /object/);
+});
 
 async function configured() {
   const modulePath = '../../src/domain/schedule.ts';

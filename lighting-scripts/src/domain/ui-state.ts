@@ -92,7 +92,7 @@ export function uiMessages(ctx: ScriptContext, force: boolean): JsonObject[] {
     if (force || ctx.attr(proxy, 'effect') !== effect) append('effect', effect);
     if (typeof b === 'number' && (force || ctx.attr(proxy, 'brightness') !== roundEven(b))) append('brightness', String(roundEven(b)));
     if (mode === 'color_temp' && typeof k === 'number' && k > 0) {
-      const mired = roundEven(1e6 / k), proxyK = num(ctx.attr(proxy, 'color_temp_kelvin'));
+      const mired = roundEven(1e6 / k), proxyK = num(ctx.attr(proxy, 'color_temp_kelvin'), 0);
       const proxyMired = proxyK > 0 ? roundEven(1e6 / proxyK) : 0;
       if (force || ctx.attr(proxy, 'color_mode') !== 'color_temp' || proxyMired !== mired) append('temperature', String(mired));
     } else if (Array.isArray(rgb) && rgb.length === 3) {
