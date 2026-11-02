@@ -2,7 +2,8 @@ import { isDeepStrictEqual } from 'node:util';
 import type { JsonObject, JsonValue, ScriptHandlers } from '../runtime/context.ts';
 import { gradientSignature, planGradients, sampleGradient, validGradient } from './gradient.ts';
 import type { GradientCurve } from './gradient.ts';
-import { anchor, boundedNumber, canonicalColor, clamp, isObject, object, scaleValue, validColor, WARM_END } from './scale.ts';
+import { requireNumber, withParsedArgs } from '../runtime/parse.ts';
+import { anchor, boundedNumber, canonicalColor, clamp, isObject, object, requireRgb, scaleValue, validColor, WARM_END } from './scale.ts';
 import type { RGB, Scaled } from './scale.ts';
 
 const CHANNELS = ['brightness', 'color'] as const;
@@ -245,6 +246,20 @@ export function resolveEffects(args: JsonObject): ResolutionResult {
 
 export const resolutionHandlers: ScriptHandlers = {
   effects_resolve: (_context, args) => resolveEffects(args),
-  effects_scale: (_context, args) => scaleValue(anchor(args.day), anchor(args.cosy), args.position as number, (args.warm_end ?? WARM_END) as RGB),
+  // Reference conversion for `withParsedArgs`. Every field's primitive is
+  // chosen from the captured source: `day`, `cosy`, `position` and `warm_end`
+  // are all read raw there (52, 52, 34 and 32 sites, no `| int`, `| float` or
+  // `| default`), so the oracle raises on a malformed value and `require*` is
+  // the faithful choice. A filtered field would use the matching `jinja*`
+  // coercion instead, because its fallback is observable behaviour.
+  effects_scale: withParsedArgs({
+    parse: args => ({
+      day: anchor(args.day),
+      cosy: anchor(args.cosy),
+      position: requireNumber(args, 'position', 'effects_scale'),
+      warmEnd: args.warm_end === undefined ? WARM_END : requireRgb(args.warm_end, 'effects_scale.warm_end'),
+    }),
+    run: (_context, a) => scaleValue(a.day, a.cosy, a.position, a.warmEnd),
+  }),
   effects_gradient_plan: (_context, args) => planGradients(args),
 };
