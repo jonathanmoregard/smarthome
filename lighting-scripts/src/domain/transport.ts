@@ -112,13 +112,6 @@ export function assignEffects(ctx: ScriptContext, args: JsonObject): JsonObject 
   return { generation: ctx.attr(runtime, 'generation') ?? null };
 }
 
-export function releaseEffects(ctx: ScriptContext, args: JsonObject): JsonValue {
-  const released = new Set(strings(args.targets));
-  const remaining = Object.fromEntries(Object.entries(object(ctx.attr(runtime, 'assignments')))
-    .filter(([target]) => !released.has(target)));
-  return ctx.run('effects_assign', { targets: remaining, assignments: remaining, revision: revisionNow(ctx) });
-}
-
 const tickScript = 'effects_engine_tick';
 function engineActive(ctx: ScriptContext): boolean {
   return Object.keys(object(ctx.attr(runtime, 'assignments'))).length > 0 && ctx.get('binary_sensor.zigbee2mqtt_bridge_connection_state') === 'on';
@@ -161,7 +154,7 @@ export function engineTick(ctx: ScriptContext, args: JsonObject): JsonValue {
 
 export const transportHandlers: ScriptHandlers = {
   effects_engine: startEngine, effects_engine_tick: engineTick,
-  effects_frame_plan: framePlan, effects_emit: emitCommands, effects_assign: assignEffects, effects_release: releaseEffects,
+  effects_frame_plan: framePlan, effects_emit: emitCommands, effects_assign: assignEffects,
   effects_filter_commands: (ctx, args) => {
     const catalog = object(ctx.run('effects_catalog')), active = Object.keys(object(ctx.attr(runtime, 'assignments')));
     const commands: JsonValue[] = [];
