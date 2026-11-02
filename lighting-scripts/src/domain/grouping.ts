@@ -1,4 +1,5 @@
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
+import { requireBoolean } from '../runtime/parse.ts';
 
 function object(value: JsonValue | undefined): JsonObject {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {};
@@ -119,7 +120,12 @@ export function planCandle(ctx: ScriptContext, catalog: JsonObject): JsonObject 
   const restarted = Math.max(epoch(ctx.state['binary_sensor.zigbee2mqtt_bridge_connection_state']?.last_changed), epoch(ctx.state['automation.effects_candle_group_state']?.last_changed));
   const observed = numeric(actual.observed_at);
   const fresh = observed >= restarted && observed > 0;
-  const synchronized = Boolean(actual.exists) && fresh && equal(members, wanted);
+  // Captured `actual.get('exists', false)` makes an absent first observation
+  // genuinely optional; a present value is still required to be a boolean.
+  const exists = actual.exists === undefined
+    ? false
+    : requireBoolean(actual.exists, 'effects_candle_plan.actual.exists');
+  const synchronized = exists && fresh && equal(members, wanted);
   return {
     lamps, entities: [...new Set(entities)].sort(compare), members: wanted, actual, remove, add, owners, fresh, synchronized,
     ready: synchronized && wanted.length > 0 && !ctx.attr('sensor.ls_effects_runtime', 'candle_syncing') && ctx.get('binary_sensor.zigbee2mqtt_bridge_connection_state') === 'on',

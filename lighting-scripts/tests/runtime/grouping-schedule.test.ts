@@ -41,6 +41,12 @@ test('schedule chooses weekend timing on local calendar across DST fall-back', a
   assert.equal(result.schedule.schedule_details.studio.cur_ts, Date.parse('2026-10-24T23:00:00+02:00') / 1000);
 });
 
+test('saved profile ownership accepts only a real optional boolean', async () => {
+  const ctx = await configured();
+  ctx.put('input_text.ls_lamp_studio_day', JSON.stringify({ own: [], on: true, b: 100, m: 'ct', k: 3000 }));
+  assert.throws(() => ctx.run('ls_base', { test_now: '2026-10-23T12:00:00+02:00', overrides: {} }), /must be true or false/);
+});
+
 test('room cache skips baseline recomputation while updating observations and power', async () => {
   const ctx = await configured();
   const modulePath = '../../src/domain/planning.ts';

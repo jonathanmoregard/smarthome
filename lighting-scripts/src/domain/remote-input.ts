@@ -1,4 +1,5 @@
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
+import { requireBoolean } from '../runtime/parse.ts';
 import { latestRemoteKey, recordTimestamp } from './resolution.ts';
 import { clamp, isObject, object } from './scale.ts';
 
@@ -79,9 +80,12 @@ export function remotePlan(ctx: ScriptContext, args: JsonObject): JsonObject {
       if (old.kind === 'channels' && Object.values(object(value.channels)).some(x => object(x).kind === 'effect')) next.legacy_channels = value.channels!;
       if (command === 'up' || command === 'down') {
         const delta = command === 'up' ? 1 : -1;
+        const hasUp = adjustment.has_up === undefined
+          ? false
+          : requireBoolean(adjustment.has_up, 'ls_remote_plan.adjustment.has_up');
         lower = clamp(lower + delta, low, high); upper = clamp(upper + delta, low, high);
         adjustment = { ...adjustment, steps: lower === upper ? 0 : Number(adjustment.steps) + delta, lower, upper,
-          updated: stamp, last: command, has_up: Boolean(adjustment.has_up) || command === 'up' };
+          updated: stamp, last: command, has_up: hasUp || command === 'up' };
         next.adjustment = adjustment;
       } else {
         const choices = ['day', 'cosy', 'Candle', ...Object.keys(object(catalog.effects)).filter(k => !['Candle', 'Colour loop', 'Breathe', 'Normal light'].includes(k))];

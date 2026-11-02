@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
+import { requireBoolean } from '../runtime/parse.ts';
 import { object } from './scale.ts';
 import { list, nativeScalar, num, timestamp } from './schedule.ts';
 
@@ -41,7 +42,10 @@ function iterate(ctx: ScriptContext, catalog: JsonObject, iteration: number): vo
     return;
   }
   const remove = list(membership.remove), add = list(membership.add), wanted = list(membership.members);
-  const operation = !actual.exists ? 'create' : remove.length ? 'remove' : 'add';
+  const exists = actual.exists === undefined
+    ? false
+    : requireBoolean(actual.exists, 'effects_candle_sync.plan.actual.exists');
+  const operation = !exists ? 'create' : remove.length ? 'remove' : 'add';
   const member = object(wanted.length || remove.length ? remove[0] ?? add[0] ?? wanted[0] : {});
   const token = `candle:${ctx.now}`;
   const config = object(ctx.catalog?.candle_group);
@@ -71,7 +75,9 @@ function resume(ctx: ScriptContext): null {
   const actual = object(ctx.attr(runtime, 'candle_group'));
   if (num(actual.observed_at) < num(state.started)) return null;
   const contains = list(actual.members).some(member => isDeepStrictEqual(member, state.member));
-  const confirmed = state.operation === 'create' ? Boolean(actual.exists) : state.operation === 'remove' ? !contains : contains;
+  const confirmed = state.operation === 'create'
+    ? requireBoolean(actual.exists, 'effects_candle_sync.candle_group.exists')
+    : state.operation === 'remove' ? !contains : contains;
   if (!confirmed) return null;
   const owners = object(state.owners), member = object(state.member);
   if (state.operation === 'remove' && typeof member.ieee_address === 'string' && Object.hasOwn(owners, member.ieee_address)) {

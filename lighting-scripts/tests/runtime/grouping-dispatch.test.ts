@@ -42,6 +42,21 @@ test('dispatch marks applied only with an output-success fence after completed e
   assert.deepEqual(result.snapshot.state['sensor.ls_effects_runtime'].attributes.applied, { 'light.lamp': target });
 });
 
+test('dispatch rejects a non-boolean emission completion flag', async () => {
+  const registry = await handlers();
+  registry.effects_emit = () => ({ completed: [] });
+  assert.throws(() => execute({ script: 'ls_dispatch', args: { plan: plan() }, snapshot: snapshot() }, registry), /must be true or false/);
+});
+
+test('render rejects malformed full revision tokens instead of treating them as absent', async () => {
+  const registry = await handlers();
+  for (const fullVersion of [0, '']) {
+    const initial = snapshot();
+    initial.state['sensor.ls_overrides'].attributes = { pending_rooms: {}, full_version: fullVersion };
+    assert.throws(() => execute({ script: 'ls_render', args: {}, snapshot: initial }, registry), /non-empty string/);
+  }
+});
+
 test('revision change during publication prevents applied bookkeeping and stale override clearing', async () => {
   const current = plan(); current.stale_keys = ['expired'];
   const result = execute({ script: 'ls_dispatch', args: { plan: current }, snapshot: snapshot() }, await handlers(), {

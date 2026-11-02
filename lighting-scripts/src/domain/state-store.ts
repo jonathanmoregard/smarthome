@@ -2,10 +2,9 @@ import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../ru
 import { jinjaString, jinjaTruthy, ParseError, requireArray, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
 import { isObject, object } from './scale.ts';
 import { recordTimestamp } from './resolution.ts';
-import { labelled, privateRooms } from './schedule.ts';
+import { isAreaId, labelled, privateRooms } from './schedule.ts';
 
 const values = (value: JsonValue | undefined): JsonValue[] => Array.isArray(value) ? value : [];
-const bool = (v: JsonValue | undefined) => typeof v === 'string' ? ['true', 'on', 'yes', '1'].includes(v.toLowerCase()) : Boolean(v);
 
 interface CommitRecord {
   raw: JsonObject;
@@ -265,7 +264,9 @@ export function storeProfile(ctx: ScriptContext, args: JsonObject): JsonValue {
   try { current = object(JSON.parse(ctx.get(entity)) as JsonValue); } catch { current = {}; }
   const catalog = object(ctx.run('effects_catalog'));
   const patch: JsonObject = {};
-  for (const key of ['on', 'own']) if (args[key] != null) patch[key] = bool(args[key]);
+  for (const key of ['on', 'own']) {
+    if (args[key] != null) patch[key] = haBoolean(args[key], `ls_store.${key}`);
+  }
   if (args.brightness != null) patch.b = Math.trunc(Number(args.brightness)) || 0;
   if (args.kelvin != null) { patch.m = 'ct'; patch.k = Math.trunc(Number(args.kelvin)) || 0; }
   else if (args.mireds != null) { patch.m = 'ct'; patch.k = Math.trunc(1_000_000 / Number(args.mireds)); }
@@ -324,7 +325,7 @@ export const stateStoreHandlers: ScriptHandlers = {
     if (scope === 'house') {
       const privateAreas = privateRooms(ctx);
       const entities = [...labelled(ctx, 'house_schedule'), ...labelled(ctx, 'on_off')];
-      const rooms = entities.map(entity => ctx.areas[entity]).filter((area): area is string => Boolean(area) && !privateAreas.includes(area!));
+      const rooms = entities.map(entity => ctx.areas[entity]).filter(isAreaId).filter(area => !privateAreas.includes(area));
       targets.push(...new Set(rooms));
     }
     const scheduled = (target: JsonValue | undefined) => jinjaMappingGet(schedule, target, 'ls_override_block.scope');

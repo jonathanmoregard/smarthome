@@ -1,9 +1,11 @@
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
+import { requireBoolean } from '../runtime/parse.ts';
 import { object, isObject, roundEven } from './scale.ts';
 
 export const blocks = ['day', 'cosy', 'night'];
 export const list = (value: JsonValue | undefined): JsonValue[] => Array.isArray(value) ? value : [];
 export const strings = (value: JsonValue | undefined): string[] => list(value).filter((v): v is string => typeof v === 'string');
+export function isAreaId(value: string | undefined): value is string { return value !== undefined && value.length > 0; }
 export function num(value: JsonValue | undefined, fallback = 0): number {
   const n = typeof value === 'number' || typeof value === 'boolean' ? Number(value) : typeof value === 'string' && value.trim() ? Number(value) : NaN;
   return Number.isFinite(n) ? n : fallback;
@@ -77,7 +79,18 @@ export function nextMidnight(at: number, timezone: string): number {
   const [year, month, day] = localParts(at, timezone) as [number, number, number];
   return localTime(year, month, day + 1, 0, 0, timezone);
 }
-export function scheduleDetails(ctx: ScriptContext, scope: string, at: number): JsonObject {
+interface ScheduleDetails extends JsonObject {
+  cur: string | null;
+  nxt: string | null;
+  fading: boolean;
+  p: number;
+  edge: boolean;
+  last_fs: number;
+  next_fs: number;
+  left: number;
+  cur_ts: number;
+}
+export function scheduleDetails(ctx: ScriptContext, scope: string, at: number): ScheduleDetails {
   const zone = ctx.timezone ?? 'Europe/Stockholm';
   const [year, month, day] = localParts(at, zone) as [number, number, number];
   let cur: string | null = null, nxt: string | null = null;
@@ -106,8 +119,8 @@ export function scheduleDetails(ctx: ScriptContext, scope: string, at: number): 
   return { cur, nxt, fading, p: fading ? 1 - left / nextFade : 0, edge: at - curTs < 90, last_fs: lastFs, next_fs: nextFs, left, cur_ts: curTs };
 }
 interface Stage { from: string; to: string; p: number; moving: boolean; edge: boolean; source: string }
-function initialStage(S: JsonObject): Stage {
-  return { from: String(S.cur ?? 'night'), to: String((S.fading ? S.nxt : S.cur) ?? 'night'), p: num(S.p), moving: Boolean(S.fading), edge: Boolean(S.edge), source: 'schedule' };
+function initialStage(S: ScheduleDetails): Stage {
+  return { from: String(S.cur ?? 'night'), to: String((S.fading ? S.nxt : S.cur) ?? 'night'), p: num(S.p), moving: S.fading, edge: S.edge, source: 'schedule' };
 }
 function wakeStage(ctx: ScriptContext, area: string, S: JsonObject, at: number, stage: Stage): Stage {
   const entity = `input_datetime.ls_${area}_wake`;
@@ -128,8 +141,11 @@ function scopeFor(ctx: ScriptContext, area: string, block: string): string { ret
 function sourceEntity(ctx: ScriptContext, lamp: string | null, area: string, block: string, fallback = true): string {
   if (block === 'lamp' && lamp) return lamp;
   const scope = scopeFor(ctx, area, block);
-  const own = lamp && saved(ctx, `input_text.ls_lamp_${lamp.split('.')[1]}_${block}`).own;
-  const candidates = [...(own ? [`light.ls_lamp_${lamp!.split('.')[1]}_${block}`] : []), `light.ls_${scope}_${block}`, ...(fallback ? [`light.ls_house_${block}`] : [])];
+  const lampProfile = lamp === null ? undefined : saved(ctx, `input_text.ls_lamp_${lamp.split('.')[1]}_${block}`);
+  const own = lampProfile === undefined || lampProfile.own === undefined
+    ? false
+    : requireBoolean(lampProfile.own, `ls_base.saved.${lamp}.${block}.own`);
+  const candidates = [...(own && lamp !== null ? [`light.ls_lamp_${lamp.split('.')[1]}_${block}`] : []), `light.ls_${scope}_${block}`, ...(fallback ? [`light.ls_house_${block}`] : [])];
   return (fallback ? candidates.find(e => hasValue(ctx, e)) : candidates[0]) ?? candidates[0]!;
 }
 function sample(ctx: ScriptContext, entity: string): JsonObject {
@@ -158,8 +174,8 @@ export function scheduledBase(ctx: ScriptContext, args: JsonObject, roomLocal = 
   const plugs = labelled(ctx, 'on_off').filter(e => /^(light|switch)\./.test(e));
   const all = [...dimmables, ...plugs, ...Object.keys(object(ctx.attr('sensor.ls_overrides', 'switch_ranges')))];
   const roomOnly = String((roomLocal ? args.room : args.room_only) ?? '');
-  const rooms = [...new Set(all.map(e => ctx.areas[e]).filter((a): a is string => Boolean(a)))].sort().filter(a => !roomOnly || roomOnly === a);
-  const details: JsonObject = Object.fromEntries(['house', ...rooms].map(room => [room, scheduleDetails(ctx, room, at)]));
+  const rooms = [...new Set(all.map(e => ctx.areas[e]).filter(isAreaId))].sort().filter(a => !roomOnly || roomOnly === a);
+  const details = Object.fromEntries(['house', ...rooms].map(room => [room, scheduleDetails(ctx, room, at)])) as Record<string, ScheduleDetails>;
   const profiles: JsonObject = {}, targets: JsonObject = {}, commands = new Map<string, JsonObject>();
   const debug: string[] = [];
   for (const lamp of [...dimmables, ...plugs]) {
@@ -167,7 +183,7 @@ export function scheduledBase(ctx: ScriptContext, args: JsonObject, roomLocal = 
     if (roomLocal && !dimmables.includes(lamp)) continue;
     const area = ctx.areas[lamp] ?? '';
     const room = rooms.includes(area) ? area : 'house';
-    const S = object(details[room]);
+    const S = details[room]!;
     const privateRoom = privateRooms(ctx).includes(area);
     const newest = latestRemote(records, room);
     let chosen = object(records[`block:${room}`]);
@@ -192,13 +208,21 @@ export function scheduledBase(ctx: ScriptContext, args: JsonObject, roomLocal = 
     const block = stage.from === 'lamp' ? stage.to : stage.from;
     const scope = scopeFor(ctx, area, block);
     const lampSaved = saved(ctx, `input_text.ls_lamp_${lamp.split('.')[1]}_${block}`);
-    const pr = lampSaved.own ? lampSaved : saved(ctx, `input_text.ls_${scope}_${block}`);
+    const lampOwn = lampSaved.own === undefined
+      ? false
+      : requireBoolean(lampSaved.own, `ls_base.saved.${lamp}.${block}.own`);
+    const pr = lampOwn ? lampSaved : saved(ctx, `input_text.ls_${scope}_${block}`);
     if (plugs.includes(lamp)) {
       const selectedBlock = !stage.moving || stage.p >= 1 ? stage.to : stage.from;
       const selectedScope = scopeFor(ctx, area, selectedBlock);
       const lp = saved(ctx, `input_text.ls_lamp_${lamp.split('.')[1]}_${selectedBlock}`);
       const src = [`input_boolean.ls_${selectedScope}_${selectedBlock}_on_off`, `input_boolean.ls_house_${selectedBlock}_on_off`].find(e => hasValue(ctx, e));
-      const want = lp.own ? Boolean(lp.on) : src ? ctx.get(src) === 'on' : null;
+      const ownsPower = lp.own === undefined
+        ? false
+        : requireBoolean(lp.own, `ls_base.saved.${lamp}.${selectedBlock}.own`);
+      const want = ownsPower
+        ? requireBoolean(lp.on, `ls_base.saved.${lamp}.${selectedBlock}.on`)
+        : src ? ctx.get(src) === 'on' : null;
       if (!stage.moving && want !== null && ctx.get(lamp) !== (want ? 'on' : 'off')) {
         const service = `homeassistant.turn_${want ? 'on' : 'off'}`;
         const previous = commands.get(service);
@@ -228,7 +252,7 @@ export function scheduledBase(ctx: ScriptContext, args: JsonObject, roomLocal = 
     debug.push(`${lamp} ${room}/${room} ${stage.source} ${stage.from}>${stage.to} p=${debugP} send=True`);
   }
   for (const area of rooms) {
-    const S = object(details[area]), privateRoom = privateRooms(ctx).includes(area);
+    const S = details[area]!, privateRoom = privateRooms(ctx).includes(area);
     const ignored = Object.keys(records).filter(key => {
       const r = object(records[key]);
       const match = (r.scope === 'room' && r.target === area) || (r.scope === 'house' && !privateRoom) || (key === 'mode:sara' && !privateRoom) || (r.kind === 'block' && r.target === area);
@@ -259,7 +283,7 @@ export function scheduledBase(ctx: ScriptContext, args: JsonObject, roomLocal = 
     const area = r.kind === 'light' || r.scope === 'lamp' ? ctx.areas[String(r.target)] : String(r.target);
     const scope = rooms.includes(area ?? '') ? area! : 'house';
     const scopes = r.scope === 'house' || key === 'mode:sara' ? rooms.filter(a => !privateRooms(ctx).includes(a)) : [scope];
-    return scopes.length > 0 && scopes.every(a => timestamp(r.when) <= num(object(details[a]).last_fs) && !object(details[a]).fading);
+    return scopes.length > 0 && scopes.every(a => timestamp(r.when) <= num(details[a]!.last_fs) && !details[a]!.fading);
   });
   const sched: JsonObject = {}, mirror: JsonValue[] = [];
   for (const scope of ['house', ...rooms]) {

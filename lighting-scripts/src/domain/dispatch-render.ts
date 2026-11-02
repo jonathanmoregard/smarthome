@@ -1,12 +1,19 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { jinjaTruthy, requireArray, requireNumber, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { jinjaTruthy, ParseError, requireArray, requireBoolean, requireNumber, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
 import { object, isObject } from './scale.ts';
 import { hasValue, list, strings, timestamp } from './schedule.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
 const overrideSensor = 'sensor.ls_overrides';
 function revisionOf(ctx: ScriptContext): string { return ctx.state[overrideSensor]?.last_updated ?? ''; }
+
+/** HA uses null for an entity attribute with no value; a present revision is a timestamp token. */
+function optionalRevisionAttribute(value: JsonValue | undefined, context: string): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'string' || value.length === 0) throw new ParseError(`${context} must be a non-empty string`);
+  return value;
+}
 
 interface DispatchDetails {
   base: JsonObject;
@@ -116,9 +123,10 @@ export function dispatch(ctx: ScriptContext, args: DispatchArgs): JsonValue {
   const batch = object(ctx.run('effects_frame_plan', { targets: ordinary, catalog, timestamp: timestamp(ctx.now),
     transition_cap: remote || remoteRooms.length ? 0.5 : null, transition_rooms: remote ? null : remoteRooms }));
   const emission = object(ctx.run('effects_emit', { commands: batch.commands ?? [], revision, generation: assigned.generation ?? null }));
+  const completed = requireBoolean(emission.completed, 'ls_dispatch.emission.completed');
   const generation = assigned.generation ?? null;
   if (revision !== revisionOf(ctx) || generation !== ctx.attr(runtime, 'generation')) return null;
-  if (Object.keys(ordinary).length && emission.completed) {
+  if (Object.keys(ordinary).length && completed) {
     ctx.emit('variable.update_sensor', { value: generation, replace_attributes: false,
       attributes: { applied: { ...object(ctx.attr(runtime, 'applied')), ...ordinary } } }, { entity_id: runtime },
     { revision, generation, requiresOutputSuccess: true });
@@ -136,7 +144,7 @@ export function dispatch(ctx: ScriptContext, args: DispatchArgs): JsonValue {
   if (saraMirror === 'on' || saraMirror === 'off') ctx.emit(`input_boolean.turn_${saraMirror}`, {}, { entity_id: 'input_boolean.ls_sara_mode_mirror' }, { revision, generation });
   const parsedStaleKeys = staleKeys();
   if (parsedStaleKeys.length) ctx.fire('ls_override', { op: 'clear', keys: parsedStaleKeys, via: 'rule_next_block', expected_revision: revision });
-  return { completed: Boolean(emission.completed) && revision === revisionOf(ctx) && generation === ctx.attr(runtime, 'generation'), published_at: emission.published_at ?? [] };
+  return { completed: completed && revision === revisionOf(ctx) && generation === ctx.attr(runtime, 'generation'), published_at: emission.published_at ?? [] };
 }
 
 /** Coalesce pending room versions, preserving unrelated rooms and retrying incomplete output. */
@@ -144,8 +152,8 @@ export function render(ctx: ScriptContext): JsonValue {
   const started = timestamp(ctx.now), revision = revisionOf(ctx);
   const received = ctx.attr(overrideSensor, 'received_at') ?? null, request = ctx.attr(overrideSensor, 'last_request') ?? null;
   const pending = object(ctx.attr(overrideSensor, 'pending_rooms')), handled = object(ctx.attr(runtime, 'handled_rooms'));
-  const fullVersion = ctx.attr(overrideSensor, 'full_version') ?? null;
-  const full = Boolean(fullVersion) && fullVersion !== ctx.attr(runtime, 'handled_full');
+  const fullVersion = optionalRevisionAttribute(ctx.attr(overrideSensor, 'full_version'), 'ls_render.full_version');
+  const full = fullVersion !== undefined && fullVersion !== ctx.attr(runtime, 'handled_full');
   const rooms = Object.keys(pending).filter(room => pending[room] !== handled[room]);
   if (!full && !rooms.length) return null;
   let plan: JsonObject, lights: JsonValue = [], updates: JsonObject = {};
@@ -183,11 +191,15 @@ export function render(ctx: ScriptContext): JsonValue {
   }
   if (!full) plan = { ...plan, output_targets: Object.keys(object(plan.base)) };
   const plannedAt = timestamp(ctx.now);
-  const emission = object(ctx.run('ls_dispatch', { plan, lights }));
-  if (!emission.completed || revision !== revisionOf(ctx)) return null;
+  const emissionResult = ctx.run('ls_dispatch', { plan, lights });
+  if (emissionResult === null) return null;
+  const emission = requireObject({ emission: emissionResult }, 'emission', 'ls_render');
+  const completed = requireBoolean(emission.completed, 'ls_render.emission.completed');
+  if (!completed || revision !== revisionOf(ctx)) return null;
   const generation = ctx.attr(runtime, 'generation') ?? null;
   ctx.emit('variable.update_sensor', { value: ctx.now, replace_attributes: false, attributes: {
-    handled_rooms: pending, handled_full: full ? fullVersion : ctx.attr(runtime, 'handled_full') ?? null,
+    handled_rooms: pending,
+    handled_full: fullVersion === undefined ? ctx.attr(runtime, 'handled_full') ?? null : fullVersion,
     last_latency: { request_id: request, received_at: received, started_at: started, planned_at: plannedAt, published_at: emission.published_at ?? [], completed_at: timestamp(ctx.now), rooms, full },
   } }, { entity_id: runtime }, { revision, generation, requiresOutputSuccess: true });
   return null;

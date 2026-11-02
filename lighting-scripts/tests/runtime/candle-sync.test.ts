@@ -47,6 +47,17 @@ test('Candle waits for publish completion, matching response and fresh actual me
   assert.equal(d.run('effects_candle_sync_timeout', { token, stage: 'membership' }).calls.length, 0);
 });
 
+test('Candle membership confirmation rejects a non-boolean existence flag', async () => {
+  const d = await driver();
+  d.run('effects_candle_sync');
+  const token = pending(d).token;
+  d.run('effects_candle_sync_published', { token, host_output_success: true });
+  change(d, 'candle_response', { transaction: token, status: 'ok' });
+  d.snapshot.now = '2026-10-26T12:00:01Z';
+  change(d, 'candle_group', { exists: 'yes', members: [], observed_at: Date.parse(d.snapshot.now) / 1000 });
+  assert.throws(() => d.run('effects_candle_sync_resume'), /must be true or false/);
+});
+
 test('departures are removed before additions and repaired only after both confirmations', async () => {
   const state = initial();
   state.state['sensor.ls_effects_runtime'].attributes.candle_group = { exists: true, members: [{ ieee_address: '0xbbbb', endpoint: 1 }], observed_at: Date.parse(at) / 1000 };

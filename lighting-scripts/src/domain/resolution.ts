@@ -2,7 +2,7 @@ import { isDeepStrictEqual } from 'node:util';
 import type { JsonObject, JsonValue, ScriptHandlers } from '../runtime/context.ts';
 import { gradientSignature, planGradients, sampleGradient, validGradient } from './gradient.ts';
 import type { GradientCurve } from './gradient.ts';
-import { requireNumber, withParsedArgs } from '../runtime/parse.ts';
+import { jinjaTruthy, requireNumber, withParsedArgs } from '../runtime/parse.ts';
 import { anchor, boundedNumber, canonicalColor, clamp, isObject, object, requireRgb, scaleValue, validColor, WARM_END } from './scale.ts';
 import type { RGB, Scaled } from './scale.ts';
 
@@ -30,7 +30,7 @@ function lexical(a: string, b: string): number {
   return x < y ? -1 : x > y ? 1 : 0;
 }
 function truth(value: JsonValue | undefined): boolean {
-  return Array.isArray(value) ? value.length > 0 : isObject(value) ? Object.keys(value).length > 0 : Boolean(value);
+  return jinjaTruthy(value);
 }
 export function recordTimestamp(value: JsonValue | undefined): number {
   if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
