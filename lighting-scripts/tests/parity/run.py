@@ -152,8 +152,6 @@ def execute(args, row):
                 os.environ[key] = str(candidate)
             if row['path'] == ALIASES['input-review']:
                 stage.rewrite_path(root / 'lighting-algebra/simple-effects/candidate', candidate)
-            if row['path'] == 'lighting-algebra/remote/gesture_test.py':
-                stage.rewrite_module_path(row['path'], root / 'lighting-algebra/remote', candidate)
         rpc = Rpc() if args.backend == 'typescript' else None
         try:
             if rpc and row['seam'] == 'unsupported':
@@ -161,6 +159,8 @@ def execute(args, row):
             if rpc and row['seam'] == 'simulator':
                 simulator(root, rpc, row['path'])
             module = module_assertion_suite(path) if row['path'] == 'lighting-algebra/adapters/test_adapters.py' else load(path)
+            if args.source == 'live' and row['path'] == 'lighting-algebra/remote/gesture_test.py':
+                stage.bind_module_path(module, row['path'], 'ROOT', root / 'lighting-algebra/remote', candidate)
             if rpc and row['seam'] == 'simulator':
                 module_seams(module, row['path'])
             if rpc and row['path'] == ALIASES['input-review']:

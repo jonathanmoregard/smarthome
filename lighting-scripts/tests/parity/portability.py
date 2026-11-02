@@ -161,15 +161,11 @@ class Stage:
             replacements += count
         assert replacements == 1, f'Expected one staged path rewrite for {source}, found {replacements}'
 
-    def rewrite_module_path(self, relative, source, target):
-        """Redirect one module's source root before import, without editing evidence."""
+    def bind_module_path(self, module, relative, attribute, source, target):
+        """Replace one module path binding after import when it derives from __file__."""
         source, target = Path(source), Path(target)
-        path = self.path / relative
-        assert path.is_file() and source.is_absolute() and target.is_absolute() and target.is_dir(), \
-            'Invalid module path rewrite'
-        text = path.read_text()
-        count = text.count(str(source))
-        assert count == 1, f'Expected one source-root binding in {relative}, found {count}'
-        path.write_text(text.replace(str(source), str(target)))
+        assert getattr(module, attribute, None) == source and target.is_dir(), \
+            f'Unexpected module path binding for {relative}:{attribute}'
+        setattr(module, attribute, target)
         detail = self.rewrites.get(relative, 'absolute filesystem paths only')
-        self.rewrites[relative] = detail + '; selected live source root before import'
+        self.rewrites[relative] = detail + '; selected live module source root'
