@@ -3,6 +3,14 @@ import unittest
 from tests.parity.rpc import Rpc, empty_snapshot
 
 
+def plan_snapshot():
+    """Minimal real HA entity state for controller tests; HA always supplies last_updated."""
+    snapshot = empty_snapshot()
+    snapshot['state']['sensor.ls_overrides'] = {
+        'state': '0', 'attributes': {}, 'last_updated': snapshot['now']}
+    return snapshot
+
+
 class BridgeTests(unittest.TestCase):
     def setUp(self):
         self.rpc = Rpc()
@@ -24,7 +32,7 @@ class BridgeTests(unittest.TestCase):
             message['snapshot']['state']['input_number.parity_fixture'] = {'state': '7', 'attributes': {}}
             return message['snapshot']
 
-        result = self.rpc.call('ls_plan', {}, empty_snapshot(), callback=callback)
+        result = self.rpc.call('ls_plan', {}, plan_snapshot(), callback=callback)
         self.assertTrue(observed)
         self.assertEqual(result['snapshot']['state']['input_number.parity_fixture']['state'], '7')
 
@@ -33,7 +41,7 @@ class BridgeTests(unittest.TestCase):
             raise ValueError('fixture assertion failed')
 
         with self.assertRaisesRegex(ValueError, 'fixture assertion failed'):
-            self.rpc.call('ls_plan', {}, empty_snapshot(), callback=callback)
+            self.rpc.call('ls_plan', {}, plan_snapshot(), callback=callback)
         result = self.rpc.call('effects_group_plan', {'rows': [], 'groups': []}, empty_snapshot())
         self.assertEqual(result['result']['commands'], [])
 

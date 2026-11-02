@@ -1,9 +1,30 @@
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { requireBoolean } from '../runtime/parse.ts';
-import { object, isObject } from './scale.ts';
+import { requireArray, requireBoolean, requireObject, requireString } from '../runtime/parse.ts';
+import { object, requireRgb, WARM_END } from './scale.ts';
 import { recordTimestamp } from './resolution.ts';
 
 const list = (v: JsonValue | undefined): JsonValue[] => Array.isArray(v) ? v : [];
+const rangeDefaults: JsonObject = { bright: [90, 100], cosy: [30, 60] };
+
+function optionalScriptBoolean(value: JsonValue | undefined, context: string): boolean {
+  return value === undefined ? false : requireBoolean(value, context);
+}
+
+/** Script callers use null for an explicitly empty optional payload. */
+function optionalScriptObject(value: JsonValue | undefined, context: string): JsonObject | undefined {
+  if (value === undefined || value === null) return undefined;
+  return requireObject({ value }, 'value', context);
+}
+
+/** HA entity attributes use null for no value; present values must be objects. */
+function optionalAttributeObject(value: JsonValue | undefined, context: string): JsonObject {
+  if (value === undefined || value === null) return {};
+  return requireObject({ value }, 'value', context);
+}
+
+function requiredResultObject(value: JsonValue, context: string): JsonObject {
+  return requireObject({ value }, 'value', context);
+}
 
 export function switchPlan(ctx: ScriptContext, args: JsonObject): JsonObject {
   const targets = object(args.targets), switches: JsonObject = {}, defaults = object(args.defaults);
@@ -22,56 +43,97 @@ export function switchPlan(ctx: ScriptContext, args: JsonObject): JsonObject {
 }
 
 export function plan(ctx: ScriptContext, args: JsonObject): JsonObject {
-  const overrides = isObject(args.test_overrides) ? args.test_overrides : object(ctx.attr('sensor.ls_overrides', 'overrides'));
-  const baseline = object(ctx.run('ls_base', { overrides, test_now: args.test_now ?? null,
-    reason: args.reason ?? 'config', room_only: args.room ?? '' }));
-  const schedule = object(baseline.schedule);
+  const testOverrides = optionalScriptObject(args.test_overrides, 'ls_plan.test_overrides');
+  const overrides = testOverrides === undefined
+    ? optionalAttributeObject(ctx.attr('sensor.ls_overrides', 'overrides'), 'ls_plan.overrides')
+    : testOverrides;
+  const testNow = args.test_now === undefined || args.test_now === null
+    ? null
+    : requireString(args, 'test_now', 'ls_plan');
+  const reason = args.reason === undefined ? 'config' : requireString(args, 'reason', 'ls_plan');
+  const room = args.room === undefined ? '' : requireString(args, 'room', 'ls_plan');
+  const baseline = requiredResultObject(ctx.run('ls_base', { overrides, test_now: testNow,
+    reason, room_only: room }), 'ls_plan.baseline');
+  const schedule = requireObject(baseline, 'schedule', 'ls_plan.baseline');
+  const baselineTargets = requireObject(baseline, 'targets', 'ls_plan.baseline');
   const active: JsonObject = Object.fromEntries(Object.entries(overrides).filter(([key]) => !list(schedule.stale_keys).includes(key)));
   const catalog = ctx.run('effects_catalog');
-  const warmEnd = ctx.attr('light.candle_test_rgb_warm_end', 'rgb_color') ?? [255, 126, 0];
+  const rawWarmEnd = ctx.attr('light.candle_test_rgb_warm_end', 'rgb_color');
+  // Home Assistant uses null for an attribute with no value.
+  const warmEnd = rawWarmEnd === undefined || rawWarmEnd === null
+    ? WARM_END
+    : requireRgb(rawWarmEnd, 'ls_plan.warm_end');
   let cached: JsonObject = {};
-  for (const raw of Object.values(object(baseline.targets))) {
+  for (const raw of Object.values(baselineTargets)) {
     const room = object(raw).area;
     cached = { ...cached, ...object(object(ctx.attr(`sensor.ls_cache_${room}`, 'cache')).gradients) };
   }
-  const compiled = object(ctx.run('effects_gradient_plan', { base: baseline.targets ?? {}, warm_end: warmEnd, cached }));
-  const resolved = object(ctx.run('effects_resolve', { base: baseline.targets ?? {}, overrides: active, catalog,
-    sara: Object.hasOwn(active, 'mode:sara'), private: ctx.labels?.private_room ?? [],
-    power: ctx.attr('sensor.ls_overrides', 'power') ?? {}, warm_end: warmEnd, gradients: compiled.gradients ?? {} }));
-  const switches = object(ctx.run('ls_switch_plan', { targets: resolved.targets ?? {},
-    ranges: ctx.attr('sensor.ls_overrides', 'switch_ranges') ?? {},
-    defaults: ctx.attr('sensor.ls_overrides', 'range_defaults') ?? { bright: [90, 100], cosy: [30, 60] } }));
+  const compiled = requiredResultObject(ctx.run('effects_gradient_plan', { base: baselineTargets, warm_end: warmEnd, cached }), 'ls_plan.compiled');
+  const gradients = requireObject(compiled, 'gradients', 'ls_plan.compiled');
+  const privateRooms = ctx.labels?.private_room;
+  const power = optionalAttributeObject(ctx.attr('sensor.ls_overrides', 'power'), 'ls_plan.power');
+  const resolved = requiredResultObject(ctx.run('effects_resolve', { base: baselineTargets, overrides: active, catalog,
+    sara: Object.hasOwn(active, 'mode:sara'), private: privateRooms === undefined ? [] : privateRooms,
+    power, warm_end: warmEnd, gradients }), 'ls_plan.resolved');
+  const resolvedTargets = requireObject(resolved, 'targets', 'ls_plan.resolved');
+  const ranges = optionalAttributeObject(ctx.attr('sensor.ls_overrides', 'switch_ranges'), 'ls_plan.switch_ranges');
+  const rawDefaults = ctx.attr('sensor.ls_overrides', 'range_defaults');
+  const defaults = rawDefaults === undefined || rawDefaults === null
+    ? rangeDefaults
+    : requireObject({ value: rawDefaults }, 'value', 'ls_plan.range_defaults');
+  const switches = requiredResultObject(ctx.run('ls_switch_plan', { targets: resolvedTargets, ranges, defaults }), 'ls_plan.switches');
+  const plannedSwitches = requireObject(switches, 'switches', 'ls_plan.switches');
+  const revisionValue = ctx.state['sensor.ls_overrides']?.last_updated;
+  const revision = requireString({ value: revisionValue === undefined ? null : revisionValue }, 'value', 'ls_plan.revision');
   const wanted = Object.hasOwn(active, 'mode:sara') ? 'on' : 'off';
-  return { plan: { ...schedule, base: baseline.targets ?? {}, resolved, gradients: compiled.gradients ?? {},
-    switches: switches.switches ?? {}, revision: ctx.state['sensor.ls_overrides']?.last_updated ?? ctx.now,
+  return { plan: { ...schedule, base: baselineTargets, resolved, gradients,
+    switches: plannedSwitches, revision,
     plan_order: recordTimestamp(ctx.now), remote: args.reason === 'remote',
     sara_mirror: ctx.get('input_boolean.ls_sara_mode_mirror') !== wanted ? wanted : null } };
 }
 
 function apply(ctx: ScriptContext, args: JsonObject): JsonValue {
-  if (!args.dry_run && (args.test_now || Object.hasOwn(args, 'test_overrides') || args.force_all)) return null;
-  if (args.dry_run) return ctx.run('ls_plan', { reason: args.reason ?? 'config', test_now: args.test_now ?? null, test_overrides: args.test_overrides ?? null });
-  ctx.run('ls_commit', { data: { op: 'render_request', via: 'render_request', reason: args.reason ?? 'config', lights: args.lights ?? [] } });
+  const dryRun = optionalScriptBoolean(args.dry_run, 'ls_apply.dry_run');
+  const forceAll = optionalScriptBoolean(args.force_all, 'ls_apply.force_all');
+  const testNow = args.test_now === undefined || args.test_now === null
+    ? undefined
+    : requireString(args, 'test_now', 'ls_apply');
+  const hasTestOverrides = Object.hasOwn(args, 'test_overrides');
+  const testOverrides = optionalScriptObject(args.test_overrides, 'ls_apply.test_overrides');
+  const reason = args.reason === undefined ? 'config' : requireString(args, 'reason', 'ls_apply');
+  if (!dryRun && (testNow !== undefined || hasTestOverrides || forceAll)) return null;
+  if (dryRun) return ctx.run('ls_plan', { reason, test_now: testNow === undefined ? null : testNow,
+    test_overrides: testOverrides === undefined ? null : testOverrides });
+  const lights = args.lights === undefined ? [] : requireArray(args, 'lights', 'ls_apply');
+  ctx.run('ls_commit', { data: { op: 'render_request', via: 'render_request', reason, lights } });
   return null;
 }
 
 function remoteCommand(ctx: ScriptContext, args: JsonObject): JsonValue {
-  const input = { source: args.source ?? '', area: args.area ?? '', command: args.command ?? '' };
-  if (args.dry_run) return ctx.run('ls_remote_plan', input);
+  const input = {
+    source: requireString(args, 'source', 'ls_remote_command'),
+    area: requireString(args, 'area', 'ls_remote_command'),
+    command: requireString(args, 'command', 'ls_remote_command'),
+  };
+  const dryRun = optionalScriptBoolean(args.dry_run, 'ls_remote_command.dry_run');
+  if (dryRun) return ctx.run('ls_remote_plan', input);
   let result: JsonObject = {}, accepted = false;
   for (let attempt = 0; attempt < 1_000 && !accepted; attempt++) {
-    result = object(ctx.run('ls_remote_plan', input));
+    result = requiredResultObject(ctx.run('ls_remote_plan', input), 'ls_remote_command.plan');
     if (result.op === 'noop') accepted = true;
     else {
+      const inputRevision = requireString(result, 'input_revision', 'ls_remote_command.plan');
       const committed = object(ctx.run('ls_commit', { data: { ...result,
-        expected_revision: result.input_revision ?? null, area: input.area, via: 'remote', source: input.source } }));
+        expected_revision: inputRevision, area: input.area, via: 'remote', source: input.source } }));
       accepted = requireBoolean(committed.accepted, 'ls_remote_command.commit.accepted');
     }
   }
   if (!accepted) throw new Error('Override revision kept changing; retry budget exhausted');
   if (result.op === 'power') {
-    ctx.emit(result.on ? 'homeassistant.turn_on' : 'homeassistant.turn_off', {}, { entity_id: result.targets ?? [] });
-    if (result.on) ctx.run('ls_apply', { reason: 'lamp_on', lights: result.targets ?? [] });
+    const on = requireBoolean(result.on, 'ls_remote_command.plan.on');
+    const targets = requireArray(result, 'targets', 'ls_remote_command.plan');
+    ctx.emit(on ? 'homeassistant.turn_on' : 'homeassistant.turn_off', {}, { entity_id: targets });
+    if (on) ctx.run('ls_apply', { reason: 'lamp_on', lights: targets });
   }
   return null;
 }

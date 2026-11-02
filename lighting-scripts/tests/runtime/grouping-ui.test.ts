@@ -6,7 +6,7 @@ async function load() {
   const modulePath = '../../src/domain/ui-state.ts';
   const port = await import(modulePath).catch(() => ({}));
   assert.equal(typeof port.uiHandlers?.effects_ui_sync, 'function', 'UI mirror exists');
-  return context(port.uiHandlers);
+  return context({ ...port.uiHandlers, effects_catalog: ctx => ctx.catalog === undefined ? {} : ctx.catalog });
 }
 function row(source: string, members = [source]) {
   return { source, proxy: 'light.ep_test', members, store: '', topics: Object.fromEntries(['availability', 'power', 'effect', 'brightness', 'temperature', 'rgb'].map(k => [k, `test/${k}`])) };
@@ -42,6 +42,46 @@ test('UI force accepts only a real optional boolean', async () => {
     assert.throws(() => ctx.run('effects_ui_sync', { dry_run: true, force }), /must be true or false/,
       `force ${JSON.stringify(force)} must be rejected, not coerced`);
   }
+});
+
+test('UI catalog and row fields distinguish absence from malformed present values', async () => {
+  const ctx = await load();
+  ctx.catalog = { ui_rows: [{ ...row('light.group'), store: null }] };
+  ctx.put('light.group', 'on');
+  assert.throws(() => ctx.run('effects_ui_sync', { dry_run: true }), /store.*string/);
+
+  ctx.catalog = { ui_discovery: [], ui_choices: null };
+  assert.throws(() => ctx.run('effects_ui_catalog'), /ui_choices.*array/);
+});
+
+test('stored UI profiles require typed effect fields when present', async () => {
+  const ctx = await load();
+  ctx.catalog = { ui_rows: [row('light.group')] };
+  ctx.catalog.ui_rows[0].store = 'input_text.profile';
+  ctx.put('light.group', 'on');
+  ctx.put('input_text.profile', JSON.stringify({ effect_channels: null, effect: null }));
+  assert.throws(() => ctx.run('effects_ui_sync', { dry_run: true }), /effect_channels.*array/);
+});
+
+test('range save preserves explicit null bounds and rejects malformed typed fields', async () => {
+  const ctx = await load();
+  ctx.put('switch.new_lamp', 'off');
+  ctx.areas['switch.new_lamp'] = 'studio';
+  ctx.devices = { physical_device: ['switch.new_lamp'] };
+  ctx.put('sensor.ls_overrides', '0', { switch_ranges: { 'switch.new_lamp': { profile: 'custom', min: 30, max: 60 } } });
+  const explicitNull = ctx.run('ls_range_save', { entity: 'switch.new_lamp', profile: 'custom', minimum: null, dry_run: true });
+  assert.equal(explicitNull.valid, false);
+  assert.throws(() => ctx.run('ls_range_save', { entity: null, dry_run: true }), /entity.*string/);
+  assert.throws(() => ctx.run('ls_range_save', { entity: 'switch.new_lamp', profile: null, dry_run: true }), /profile.*string/);
+  assert.throws(() => ctx.run('ls_range_save', { entity: 'switch.new_lamp', dry_run: [] }), /dry_run.*true or false/);
+});
+
+test('range save parses Home Assistant capability attributes explicitly', async () => {
+  const ctx = await load();
+  ctx.put('light.new_lamp', 'off', { supported_color_modes: false });
+  ctx.areas['light.new_lamp'] = 'studio';
+  ctx.devices = { physical_device: ['light.new_lamp'] };
+  assert.throws(() => ctx.run('ls_range_save', { entity: 'light.new_lamp', dry_run: true }), /supported_color_modes.*array/);
 });
 
 test('range save validates physical devices, rejects boolean ranges, and emits only the config event', async () => {
