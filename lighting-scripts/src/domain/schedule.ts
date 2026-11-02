@@ -1,5 +1,5 @@
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { ParseError, requireArray, requireBoolean, requireFinite, requireObject, requireString } from '../runtime/parse.ts';
+import { ParseError, requireArray, requireBoolean, requireFinite, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
 import { object, isObject, roundEven } from './scale.ts';
 
 export const blocks = ['day', 'cosy', 'night'];
@@ -113,6 +113,26 @@ interface ScheduleDetails extends JsonObject {
   left: number;
   cur_ts: number;
 }
+interface ScheduledBaseArgs {
+  testNow: number | undefined;
+  reason: string;
+  overrides: JsonObject | undefined;
+  roomOnly: string;
+  includeDebug: boolean;
+}
+function parseScheduledBaseArgs(args: JsonObject, context: string, roomOnly: string): ScheduledBaseArgs {
+  return {
+    testNow: optionalTimestamp(args.test_now),
+    reason: args.reason === undefined ? 'config' : requireString(args, 'reason', context),
+    overrides: args.overrides === undefined || args.overrides === null
+      ? undefined
+      : requireObject(args, 'overrides', context),
+    roomOnly,
+    // The captured template tests definition, not truthiness. The raw value is
+    // never otherwise consumed, so the typed domain only carries the decision.
+    includeDebug: Object.hasOwn(args, 'debug'),
+  };
+}
 export function scheduleDetails(ctx: ScriptContext, scope: string, at: number): ScheduleDetails {
   const zone = ctx.timezone ?? 'Europe/Stockholm';
   const [year, month, day] = localParts(at, zone) as [number, number, number];
@@ -188,15 +208,17 @@ function applies(r: JsonObject, key: string, lamp: string | null, room: string, 
     || (key === 'mode:sara' && !privateRoom);
 }
 
-export function scheduledBase(ctx: ScriptContext, args: JsonObject, roomLocal = false): JsonObject {
-  const at = timestamp(args.test_now || ctx.now);
-  const why = String(args.reason ?? 'config');
-  const records = object(args.overrides ?? ctx.attr('sensor.ls_overrides', 'overrides'));
+export function scheduledBase(ctx: ScriptContext, args: ScheduledBaseArgs, roomLocal = false): JsonObject {
+  const at = args.testNow === undefined ? timestamp(ctx.now) : args.testNow;
+  const why = args.reason;
+  const records = args.overrides === undefined
+    ? object(ctx.attr('sensor.ls_overrides', 'overrides'))
+    : args.overrides;
   const expiry = ctx.get('input_boolean.ls_ovr_next_block_on') === 'on';
   const dimmables = labelled(ctx, 'house_schedule').filter(e => e.startsWith('light.'));
   const plugs = labelled(ctx, 'on_off').filter(e => /^(light|switch)\./.test(e));
   const all = [...dimmables, ...plugs, ...Object.keys(object(ctx.attr('sensor.ls_overrides', 'switch_ranges')))];
-  const roomOnly = String((roomLocal ? args.room : args.room_only) ?? '');
+  const roomOnly = args.roomOnly;
   const rooms = [...new Set(all.map(e => ctx.areas[e]).filter(isAreaId))].sort().filter(a => !roomOnly || roomOnly === a);
   const details = Object.fromEntries(['house', ...rooms].map(room => [room, scheduleDetails(ctx, room, at)])) as Record<string, ScheduleDetails>;
   const profiles: JsonObject = {}, targets: JsonObject = {}, commands = new Map<string, JsonObject>();
@@ -326,10 +348,26 @@ export function scheduledBase(ctx: ScriptContext, args: JsonObject, roomLocal = 
   });
   const schedule: JsonObject = { cmds: packed, profiles, revision: ctx.state['sensor.ls_overrides']?.last_updated ?? ctx.now, stale_keys: stale, sched, schedule_details: details, mirror,
     sara_mirror: ctx.state['input_boolean.ls_sara_mode_mirror'] && ctx.get('input_boolean.ls_sara_mode_mirror') !== 'off' ? 'off' : null };
-  if (args.debug) schedule.dbg = debug;
+  if (args.includeDebug === true) schedule.dbg = debug;
   return { targets, schedule };
 }
 export const scheduleHandlers: ScriptHandlers = {
-  ls_base: (ctx, args) => scheduledBase(ctx, args),
-  ls_room_base: (ctx, args) => scheduledBase(ctx, args, true),
+  // Captured test_now/overrides are guarded by definition before use; reason
+  // and room_only use Undefined-only defaults; debug is definition-tested.
+  // Present optional values are parsed, while null overrides retain the
+  // producer's explicit "use the state attribute" spelling.
+  ls_base: withParsedArgs({
+    parse: args => parseScheduledBaseArgs(
+      args,
+      'ls_base',
+      args.room_only === undefined ? '' : requireString(args, 'room_only', 'ls_base'),
+    ),
+    run: scheduledBase,
+  }),
+  // The captured script declaration marks room required, and it drives entity
+  // names, comparisons, and indexing rather than iteration or membership.
+  ls_room_base: withParsedArgs({
+    parse: args => parseScheduledBaseArgs(args, 'ls_room_base', requireString(args, 'room', 'ls_room_base')),
+    run: (ctx, args) => scheduledBase(ctx, args, true),
+  }),
 };

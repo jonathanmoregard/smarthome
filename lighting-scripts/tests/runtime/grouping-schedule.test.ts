@@ -90,6 +90,32 @@ test('schedule chooses weekend timing on local calendar across DST fall-back', a
   assert.equal(result.schedule.schedule_details.studio.cur_ts, Date.parse('2026-10-24T23:00:00+02:00') / 1000);
 });
 
+test('schedule handlers parse optional values without using falsiness as presence', async () => {
+  const ctx = await configured();
+  const omitted = ctx.run('ls_base', { overrides: {} });
+  const epoch = ctx.run('ls_base', { test_now: 0, overrides: {} });
+  assert.notEqual(epoch.schedule.schedule_details.house.cur_ts, omitted.schedule.schedule_details.house.cur_ts,
+    'epoch zero is an explicit timestamp, not an absent test_now');
+
+  const debug = ctx.run('ls_base', { overrides: {}, debug: false });
+  assert.ok(Array.isArray(debug.schedule.dbg), 'captured source includes dbg when debug is defined, even when false');
+
+  for (const [field, value, message] of [
+    ['overrides', 0, /ls_base\.overrides.*object/],
+    ['reason', false, /ls_base\.reason.*string/],
+    ['room_only', 0, /ls_base\.room_only.*string/],
+  ] as const) {
+    assert.throws(() => ctx.run('ls_base', { [field]: value }), message,
+      `${field} must reject an ill-typed present value`);
+  }
+});
+
+test('room schedule handler requires its declared room string', async () => {
+  const ctx = await configured();
+  assert.throws(() => ctx.run('ls_room_base', { overrides: {} }), /ls_room_base\.room.*string/);
+  assert.throws(() => ctx.run('ls_room_base', { room: 0, overrides: {} }), /ls_room_base\.room.*string/);
+});
+
 test('saved profile ownership accepts only a real optional boolean', async () => {
   const ctx = await configured();
   ctx.put('input_text.ls_lamp_studio_day', JSON.stringify({ own: [], on: true, b: 100, m: 'ct', k: 3000 }));
