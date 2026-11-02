@@ -1,16 +1,27 @@
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { requireBoolean } from '../runtime/parse.ts';
+import { ParseError, requireArray, requireBoolean, requireFinite, requireObject, requireString } from '../runtime/parse.ts';
 import { object, isObject, roundEven } from './scale.ts';
 
 export const blocks = ['day', 'cosy', 'night'];
-export const list = (value: JsonValue | undefined): JsonValue[] => Array.isArray(value) ? value : [];
-export const strings = (value: JsonValue | undefined): string[] => list(value).filter((v): v is string => typeof v === 'string');
+export const list = (value: JsonValue | undefined): JsonValue[] =>
+  value === undefined ? [] : requireArray({ value }, 'value', 'schedule list');
+export const strings = (value: JsonValue | undefined): string[] => list(value).map((item, index) =>
+  requireString({ item }, 'item', `schedule string list[${index}]`));
 export function isAreaId(value: string | undefined): value is string { return value !== undefined && value.length > 0; }
-export function num(value: JsonValue | undefined, fallback = 0): number {
-  const n = typeof value === 'number' || typeof value === 'boolean' ? Number(value) : typeof value === 'string' && value.trim() ? Number(value) : NaN;
-  return Number.isFinite(n) ? n : fallback;
+export function num(value: JsonValue | undefined, fallback?: number): number {
+  // `null` is Home Assistant's no-value spelling for entity attributes. A
+  // caller that has a real default must state it; malformed present values do
+  // not get to take that default.
+  if ((value === undefined || value === null || value === 'unknown' || value === 'unavailable') && fallback !== undefined) return fallback;
+  return requireFinite(value, 'schedule number');
 }
-/** HA template output coercion for scalar sensor/control values. */
+/**
+ * Home Assistant native-template output coercion at the render/re-entry
+ * boundary. This is deliberately not a general parser: HA turns a template's
+ * exact scalar output back into a native value before a script or variable
+ * sensor receives it, so confining that behavior here models the transport
+ * boundary without weakening lighting-domain numbers or strings.
+ */
 export function nativeScalar(value: JsonValue): JsonValue {
   if (typeof value !== 'string') return value;
   const text = value.trim();
@@ -21,13 +32,25 @@ export function nativeScalar(value: JsonValue): JsonValue {
   return numeric && Number.isFinite(Number(text)) ? Number(text) : value;
 }
 export function timestamp(value: JsonValue | undefined): number {
-  if (typeof value === 'number') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
   const ts = typeof value === 'string' ? Date.parse(value) / 1000 : NaN;
-  return Number.isFinite(ts) ? ts : 0;
+  if (!Number.isFinite(ts)) throw new ParseError(`schedule timestamp must be a finite epoch or date string, got ${JSON.stringify(value) ?? 'undefined'}`);
+  return ts;
 }
+export function optionalTimestamp(value: JsonValue | undefined): number | undefined {
+  return value === undefined || value === null ? undefined : timestamp(value);
+}
+const timestampOrZero = (value: JsonValue | undefined): number => optionalTimestamp(value) ?? 0;
 export function hasValue(ctx: ScriptContext, entity: string): boolean { return !['unknown', 'unavailable'].includes(ctx.get(entity)); }
 export function saved(ctx: ScriptContext, entity: string): JsonObject {
-  try { return object(JSON.parse(ctx.get(entity))); } catch { return {}; }
+  const state = ctx.get(entity);
+  // Home Assistant uses these sentinel states when an input_text has no value;
+  // malformed present JSON is a corrupt profile, not another absence spelling.
+  if (state === 'unknown' || state === 'unavailable') return {};
+  let parsed: JsonValue;
+  try { parsed = JSON.parse(state) as JsonValue; }
+  catch { throw new ParseError(`${entity} must contain a valid JSON object`); }
+  return requireObject({ parsed }, 'parsed', entity);
 }
 export function labelled(ctx: ScriptContext, label: string): string[] {
   // Registry snapshots supply label members, including device-expanded entities.
@@ -40,7 +63,7 @@ export function latestRemote(records: JsonObject, room: string): string {
   for (const k of Object.keys(records).sort()) {
     const r = object(records[k]);
     if (r.scope !== 'room' || r.target !== room || !isRemote(r)) continue;
-    const ts = timestamp(r.when);
+    const ts = timestampOrZero(r.when);
     if (ts >= stamp) { key = k; stamp = ts; }
   }
   return key;
@@ -187,20 +210,20 @@ export function scheduledBase(ctx: ScriptContext, args: JsonObject, roomLocal = 
     const privateRoom = privateRooms(ctx).includes(area);
     const newest = latestRemote(records, room);
     let chosen = object(records[`block:${room}`]);
-    let chosenStamp = timestamp(chosen.when);
+    let chosenStamp = timestampOrZero(chosen.when);
     for (const key of Object.keys(records).sort()) {
       const r = object(records[key]), value = object(r.value);
       if (!['channels', 'input'].includes(String(r.kind)) || !applies(r, key, lamp, room, privateRoom)) continue;
       if (r.scope === 'room' && isRemote(r) && key !== newest) continue;
-      const stamp = num(value.period_updated, timestamp(r.when));
-      if (blocks.includes(String(value.period)) && stamp >= chosenStamp && !(expiry && timestamp(r.when) <= num(S.last_fs))) {
+      const stamp = value.period_updated === undefined ? timestampOrZero(r.when) : num(value.period_updated);
+      if (blocks.includes(String(value.period)) && stamp >= chosenStamp && !(expiry && timestampOrZero(r.when) <= num(S.last_fs))) {
         chosen = { value: value.period!, when: r.when ?? null }; chosenStamp = stamp;
       }
     }
-    if (expiry && !S.fading && timestamp(chosen.when) <= num(S.last_fs)) chosen = {};
-    const ignored = Object.keys(records).sort().filter(key => expiry && applies(object(records[key]), key, lamp, room, privateRoom) && timestamp(object(records[key]).when) <= num(S.last_fs));
+    if (expiry && !S.fading && timestampOrZero(chosen.when) <= num(S.last_fs)) chosen = {};
+    const ignored = Object.keys(records).sort().filter(key => expiry && applies(object(records[key]), key, lamp, room, privateRoom) && timestampOrZero(object(records[key]).when) <= num(S.last_fs));
     let stage = initialStage(S);
-    if (S.fading && (ignored.length || (Object.keys(chosen).length > 0 && timestamp(chosen.when) <= num(S.last_fs)))) {
+    if (S.fading && (ignored.length || (Object.keys(chosen).length > 0 && timestampOrZero(chosen.when) <= num(S.last_fs)))) {
       stage = { from: 'lamp', to: String(S.nxt), p: Math.min(1, (why === 'tick' ? 60 : 3) / Math.max(num(S.left), 1)), moving: true, edge: false, source: 'fadeout' };
     } else if (blocks.includes(String(chosen.value).toLowerCase())) {
       stage = { ...stage, from: String(chosen.value).toLowerCase(), to: String(chosen.value).toLowerCase(), p: 0, moving: false, source: 'override' };
@@ -256,7 +279,7 @@ export function scheduledBase(ctx: ScriptContext, args: JsonObject, roomLocal = 
     const ignored = Object.keys(records).filter(key => {
       const r = object(records[key]);
       const match = (r.scope === 'room' && r.target === area) || (r.scope === 'house' && !privateRoom) || (key === 'mode:sara' && !privateRoom) || (r.kind === 'block' && r.target === area);
-      return expiry && match && timestamp(r.when) <= num(S.last_fs);
+      return expiry && match && timestampOrZero(r.when) <= num(S.last_fs);
     });
     let period = String(S.cur ?? 'night'), stamp = 0, explicit = false;
     const newest = latestRemote(records, area);
@@ -266,7 +289,7 @@ export function scheduledBase(ctx: ScriptContext, args: JsonObject, roomLocal = 
       const match = (r.kind === 'block' && r.target === area) || (['channels', 'input'].includes(String(r.kind)) && ((r.scope === 'room' && r.target === area) || (r.scope === 'house' && !privateRoom)));
       if (!match || (r.scope === 'room' && isRemote(r) && key !== newest)) continue;
       const value = object(r.value), selected = r.kind === 'block' ? r.value : value.period;
-      const updated = num(value.period_updated, timestamp(r.when));
+      const updated = value.period_updated === undefined ? timestampOrZero(r.when) : num(value.period_updated);
       if (blocks.includes(String(selected)) && updated >= stamp) { period = String(selected); stamp = updated; explicit = true; }
     }
     let stage = explicit ? { ...initialStage(S), from: period, to: period, p: 0, moving: false } : wakeStage(ctx, area, S, at, initialStage(S));
@@ -283,7 +306,7 @@ export function scheduledBase(ctx: ScriptContext, args: JsonObject, roomLocal = 
     const area = r.kind === 'light' || r.scope === 'lamp' ? ctx.areas[String(r.target)] : String(r.target);
     const scope = rooms.includes(area ?? '') ? area! : 'house';
     const scopes = r.scope === 'house' || key === 'mode:sara' ? rooms.filter(a => !privateRooms(ctx).includes(a)) : [scope];
-    return scopes.length > 0 && scopes.every(a => timestamp(r.when) <= num(details[a]!.last_fs) && !details[a]!.fading);
+    return scopes.length > 0 && scopes.every(a => timestampOrZero(r.when) <= num(details[a]!.last_fs) && !details[a]!.fading);
   });
   const sched: JsonObject = {}, mirror: JsonValue[] = [];
   for (const scope of ['house', ...rooms]) {

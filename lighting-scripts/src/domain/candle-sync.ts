@@ -73,7 +73,7 @@ function resume(ctx: ScriptContext): null {
   }
   if (state.stage !== 'membership') return null;
   const actual = object(ctx.attr(runtime, 'candle_group'));
-  if (num(actual.observed_at) < num(state.started)) return null;
+  if (num(actual.observed_at, 0) < num(state.started)) return null;
   const contains = list(actual.members).some(member => isDeepStrictEqual(member, state.member));
   const confirmed = state.operation === 'create'
     ? requireBoolean(actual.exists, 'effects_candle_sync.candle_group.exists')
@@ -91,7 +91,7 @@ export const candleSyncHandlers: ScriptHandlers = {
   effects_candle_sync: ctx => {
     // Native mode: single. State/response triggers own continuation while a
     // request is pending; periodic membership triggers cannot double-publish.
-    if (Object.keys(pending(ctx)).length || timestamp(ctx.now) < num(ctx.attr(runtime, 'candle_retry_at')) || ctx.get(bridge) !== 'on') return null;
+    if (Object.keys(pending(ctx)).length || timestamp(ctx.now) < num(ctx.attr(runtime, 'candle_retry_at'), 0) || ctx.get(bridge) !== 'on') return null;
     const source = object(ctx.run('effects_catalog'));
     const catalog: JsonObject = { members: object(source.members) };
     update(ctx, { candle_syncing: true });

@@ -3,7 +3,7 @@ import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../ru
 import { jinjaFloat, jinjaTruthy, requireArray, requireNumber, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
 import { blockOption, DEFAULT_BLOCK, isBlock, optionalBlock } from './blocks.ts';
 import { object, isObject } from './scale.ts';
-import { blocks, hasValue, isRemote, labelled, latestRemote, list, nextMidnight, privateRooms, profile, timestamp } from './schedule.ts';
+import { blocks, hasValue, isRemote, labelled, latestRemote, list, nextMidnight, optionalTimestamp, privateRooms, profile, timestamp } from './schedule.ts';
 
 const cacheVersion = 'db7981f72ee868e8d33ff1481dffb34e5e26570e8bf949a3cb2c505d7c3f37e1:input-processors-v1:preset-stream-v1';
 interface Dependencies extends JsonObject {
@@ -111,8 +111,9 @@ function periods(records: JsonObject, room: string, deps: Dependencies, boundary
       ((r.scope === 'room' && r.target === room) || (r.scope === 'lamp' && typeof r.target === 'string' && deps.lamps.includes(r.target)) || (r.scope === 'house' && !deps.private)));
     const period = r.kind === 'block' ? r.value : value.period;
     if (!match || (r.scope === 'room' && isRemote(r) && key !== newest) || typeof period !== 'string' || !blocks.includes(period)) continue;
-    const stamp = value.period_updated ?? timestamp(r.when);
-    result[r.scope === 'room' && isRemote(r) ? `remote-input:${room}` : key] = [r.kind ?? null, r.scope ?? null, r.target ?? null, period!, stamp, deps.expiry === 'on' && timestamp(r.when) <= boundary];
+    const when = optionalTimestamp(r.when) ?? 0;
+    const stamp = value.period_updated === undefined ? when : requireNumber(value, 'period_updated', 'ls_room_plan override value');
+    result[r.scope === 'room' && isRemote(r) ? `remote-input:${room}` : key] = [r.kind ?? null, r.scope ?? null, r.target ?? null, period!, stamp, deps.expiry === 'on' && when <= boundary];
   }
   return result;
 }
@@ -126,14 +127,14 @@ function refreshBaseline(ctx: ScriptContext, baseline: ParsedBaseline, cache: Pa
       const r = requiredObjectValue(record, `ls_room_plan.overrides.${key}`);
       const match = (r.scope === 'room' && r.target === room) || (r.scope === 'house' && !deps.private) || (key === 'mode:sara' && !deps.private) || (r.kind === 'block' && r.target === room)
         || (!jinjaTruthy(t.is_room) && ((r.scope === 'lamp' && r.target === entity) || (r.kind === 'light' && r.target === entity)));
-      if (match && timestamp(r.when) <= optionalNumber(S, 'last_fs', 0, 'ls_room_plan schedule details')) ignored.push(key);
+      if (match && (optionalTimestamp(r.when) ?? 0) <= optionalNumber(S, 'last_fs', 0, 'ls_room_plan schedule details')) ignored.push(key);
     }
     targets[entity] = { ...t, ignore_overrides: ignored, ...(!jinjaTruthy(t.is_room) ? { observed: profile(ctx, entity) } : {}) };
   }
   if (deps.expiry === 'on' && !jinjaTruthy(S.fading)) for (const [key, record] of Object.entries(records)) {
     const r = requiredObjectValue(record, `ls_room_plan.overrides.${key}`);
     const local = (r.scope === 'room' && r.target === room) || ((r.scope === 'lamp' || r.kind === 'light') && typeof r.target === 'string' && deps.lamps.includes(r.target)) || (r.kind === 'block' && r.target === room);
-    if (local && timestamp(r.when) <= optionalNumber(S, 'last_fs', 0, 'ls_room_plan schedule details')) stale.push(key);
+    if (local && (optionalTimestamp(r.when) ?? 0) <= optionalNumber(S, 'last_fs', 0, 'ls_room_plan schedule details')) stale.push(key);
   }
   const blockKey = `block:${room}`;
   const chosen = records[blockKey] === undefined ? undefined : requireObject(records, blockKey, 'ls_room_plan.overrides').value;
