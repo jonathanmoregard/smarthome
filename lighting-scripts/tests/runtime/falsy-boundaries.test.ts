@@ -14,6 +14,17 @@ test('switch targets accept only a real on boolean', () => {
   }), /must be true or false/);
 });
 
+test('switch planning rejects malformed top-level mappings', () => {
+  const ctx = context(controllerHandlers);
+  for (const [field, args] of [
+    ['targets', { ranges: {}, defaults: {} }],
+    ['ranges', { targets: {}, defaults: {} }],
+    ['defaults', { targets: {}, ranges: {} }],
+  ] as const) {
+    assert.throws(() => ctx.run('ls_switch_plan', args), new RegExp(`ls_switch_plan\\.${field}.*object`));
+  }
+});
+
 test('remote commit acknowledgement accepts only a real boolean', () => {
   const ctx = context({
     ...controllerHandlers,

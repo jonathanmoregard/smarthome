@@ -1,10 +1,52 @@
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { requireArray, requireBoolean, requireObject, requireString } from '../runtime/parse.ts';
+import { requireArray, requireBoolean, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
 import { object, requireRgb, WARM_END } from './scale.ts';
 import { recordTimestamp } from './resolution.ts';
 
 const list = (v: JsonValue | undefined): JsonValue[] => Array.isArray(v) ? v : [];
 const rangeDefaults: JsonObject = { bright: [90, 100], cosy: [30, 60] };
+
+interface SwitchPlanArgs {
+  targets: JsonObject;
+  ranges: JsonObject;
+  defaults: JsonObject;
+}
+
+interface PlanArgs {
+  testOverrides: JsonObject | undefined;
+  testNow: string | null;
+  reason: string;
+  room: string;
+}
+
+interface ApplyArgs {
+  dryRun: boolean;
+  forceAll: boolean;
+  testNow: string | undefined;
+  hasTestOverrides: boolean;
+  testOverrides: JsonObject | undefined;
+  reason: string;
+  lights: () => JsonValue[];
+}
+
+interface RemoteCommandArgs {
+  source: string;
+  area: string;
+  command: string;
+  dryRun: boolean;
+}
+
+function lazy<T>(parse: () => T): () => T {
+  let parsed = false;
+  let value: T;
+  return () => {
+    if (!parsed) {
+      value = parse();
+      parsed = true;
+    }
+    return value;
+  };
+}
 
 function optionalScriptBoolean(value: JsonValue | undefined, context: string): boolean {
   return value === undefined ? false : requireBoolean(value, context);
@@ -26,11 +68,11 @@ function requiredResultObject(value: JsonValue, context: string): JsonObject {
   return requireObject({ value }, 'value', context);
 }
 
-export function switchPlan(ctx: ScriptContext, args: JsonObject): JsonObject {
-  const targets = object(args.targets), switches: JsonObject = {}, defaults = object(args.defaults);
-  for (const [entity, raw] of Object.entries(object(args.ranges))) {
+export function switchPlan(ctx: ScriptContext, args: SwitchPlanArgs): JsonObject {
+  const targets = args.targets, switches: JsonObject = {}, defaults = args.defaults;
+  for (const [entity, raw] of Object.entries(args.ranges)) {
     const rule = object(raw), room = ctx.areas[entity];
-    const group = room ? object(targets[`room:${room}`]) : {};
+    const group = room === undefined ? {} : object(targets[`room:${room}`]);
     const interval = rule.profile === 'custom' ? [rule.min, rule.max] : list(defaults[String(rule.profile)]);
     const low = interval[0], high = interval[1];
     if (interval.length !== 2 || typeof low !== 'number' || typeof high !== 'number' || !(0 <= low && low <= high && high <= 100) || !Object.keys(group).length) continue;
@@ -42,18 +84,12 @@ export function switchPlan(ctx: ScriptContext, args: JsonObject): JsonObject {
   return { switches };
 }
 
-export function plan(ctx: ScriptContext, args: JsonObject): JsonObject {
-  const testOverrides = optionalScriptObject(args.test_overrides, 'ls_plan.test_overrides');
-  const overrides = testOverrides === undefined
+export function plan(ctx: ScriptContext, args: PlanArgs): JsonObject {
+  const overrides = args.testOverrides === undefined
     ? optionalAttributeObject(ctx.attr('sensor.ls_overrides', 'overrides'), 'ls_plan.overrides')
-    : testOverrides;
-  const testNow = args.test_now === undefined || args.test_now === null
-    ? null
-    : requireString(args, 'test_now', 'ls_plan');
-  const reason = args.reason === undefined ? 'config' : requireString(args, 'reason', 'ls_plan');
-  const room = args.room === undefined ? '' : requireString(args, 'room', 'ls_plan');
-  const baseline = requiredResultObject(ctx.run('ls_base', { overrides, test_now: testNow,
-    reason, room_only: room }), 'ls_plan.baseline');
+    : args.testOverrides;
+  const baseline = requiredResultObject(ctx.run('ls_base', { overrides, test_now: args.testNow,
+    reason: args.reason, room_only: args.room }), 'ls_plan.baseline');
   const schedule = requireObject(baseline, 'schedule', 'ls_plan.baseline');
   const baselineTargets = requireObject(baseline, 'targets', 'ls_plan.baseline');
   const active: JsonObject = Object.fromEntries(Object.entries(overrides).filter(([key]) => !list(schedule.stale_keys).includes(key)));
@@ -92,31 +128,17 @@ export function plan(ctx: ScriptContext, args: JsonObject): JsonObject {
     sara_mirror: ctx.get('input_boolean.ls_sara_mode_mirror') !== wanted ? wanted : null } };
 }
 
-function apply(ctx: ScriptContext, args: JsonObject): JsonValue {
-  const dryRun = optionalScriptBoolean(args.dry_run, 'ls_apply.dry_run');
-  const forceAll = optionalScriptBoolean(args.force_all, 'ls_apply.force_all');
-  const testNow = args.test_now === undefined || args.test_now === null
-    ? undefined
-    : requireString(args, 'test_now', 'ls_apply');
-  const hasTestOverrides = Object.hasOwn(args, 'test_overrides');
-  const testOverrides = optionalScriptObject(args.test_overrides, 'ls_apply.test_overrides');
-  const reason = args.reason === undefined ? 'config' : requireString(args, 'reason', 'ls_apply');
-  if (!dryRun && (testNow !== undefined || hasTestOverrides || forceAll)) return null;
-  if (dryRun) return ctx.run('ls_plan', { reason, test_now: testNow === undefined ? null : testNow,
-    test_overrides: testOverrides === undefined ? null : testOverrides });
-  const lights = args.lights === undefined ? [] : requireArray(args, 'lights', 'ls_apply');
-  ctx.run('ls_commit', { data: { op: 'render_request', via: 'render_request', reason, lights } });
+function apply(ctx: ScriptContext, args: ApplyArgs): JsonValue {
+  if (!args.dryRun && (args.testNow !== undefined || args.hasTestOverrides || args.forceAll)) return null;
+  if (args.dryRun) return ctx.run('ls_plan', { reason: args.reason, test_now: args.testNow === undefined ? null : args.testNow,
+    test_overrides: args.testOverrides === undefined ? null : args.testOverrides });
+  ctx.run('ls_commit', { data: { op: 'render_request', via: 'render_request', reason: args.reason, lights: args.lights() } });
   return null;
 }
 
-function remoteCommand(ctx: ScriptContext, args: JsonObject): JsonValue {
-  const input = {
-    source: requireString(args, 'source', 'ls_remote_command'),
-    area: requireString(args, 'area', 'ls_remote_command'),
-    command: requireString(args, 'command', 'ls_remote_command'),
-  };
-  const dryRun = optionalScriptBoolean(args.dry_run, 'ls_remote_command.dry_run');
-  if (dryRun) return ctx.run('ls_remote_plan', input);
+function remoteCommand(ctx: ScriptContext, args: RemoteCommandArgs): JsonValue {
+  const input = { source: args.source, area: args.area, command: args.command };
+  if (args.dryRun) return ctx.run('ls_remote_plan', input);
   let result: JsonObject = {}, accepted = false;
   for (let attempt = 0; attempt < 1_000 && !accepted; attempt++) {
     result = requiredResultObject(ctx.run('ls_remote_plan', input), 'ls_remote_command.plan');
@@ -138,4 +160,56 @@ function remoteCommand(ctx: ScriptContext, args: JsonObject): JsonValue {
   return null;
 }
 
-export const controllerHandlers: ScriptHandlers = { ls_switch_plan: switchPlan, ls_plan: plan, ls_apply: apply, ls_remote_command: remoteCommand };
+export const controllerHandlers: ScriptHandlers = {
+  // Captured targets/defaults each use mapping.get once and ranges uses
+  // mapping.items once; all three therefore require real mappings.
+  ls_switch_plan: withParsedArgs({
+    parse: args => ({
+      targets: requireObject(args, 'targets', 'ls_switch_plan'),
+      ranges: requireObject(args, 'ranges', 'ls_switch_plan'),
+      defaults: requireObject(args, 'defaults', 'ls_switch_plan'),
+    }),
+    run: switchPlan,
+  }),
+  // Captured test_now has one default(none), reason two default('config')
+  // sites, room one default(''), and test_overrides is optional at two sites.
+  ls_plan: withParsedArgs({
+    parse: args => ({
+      testOverrides: optionalScriptObject(args.test_overrides, 'ls_plan.test_overrides'),
+      testNow: args.test_now === undefined || args.test_now === null
+        ? null
+        : requireString(args, 'test_now', 'ls_plan'),
+      reason: args.reason === undefined ? 'config' : requireString(args, 'reason', 'ls_plan'),
+      room: args.room === undefined ? '' : requireString(args, 'room', 'ls_plan'),
+    }),
+    run: plan,
+  }),
+  // Captured dry_run/force_all use boolean defaults, test_now and
+  // test_overrides are definition-guarded, reason defaults only when absent,
+  // and lights is consumed only after the dry-run/test guard.
+  ls_apply: withParsedArgs({
+    parse: args => ({
+      dryRun: optionalScriptBoolean(args.dry_run, 'ls_apply.dry_run'),
+      forceAll: optionalScriptBoolean(args.force_all, 'ls_apply.force_all'),
+      testNow: args.test_now === undefined || args.test_now === null
+        ? undefined
+        : requireString(args, 'test_now', 'ls_apply'),
+      hasTestOverrides: Object.hasOwn(args, 'test_overrides'),
+      testOverrides: optionalScriptObject(args.test_overrides, 'ls_apply.test_overrides'),
+      reason: args.reason === undefined ? 'config' : requireString(args, 'reason', 'ls_apply'),
+      lights: lazy(() => args.lights === undefined ? [] : requireArray(args, 'lights', 'ls_apply')),
+    }),
+    run: apply,
+  }),
+  // Captured source/area/command are raw at four/four/two sites and drive
+  // identifiers and command dispatch; dry_run has default(false).
+  ls_remote_command: withParsedArgs({
+    parse: args => ({
+      source: requireString(args, 'source', 'ls_remote_command'),
+      area: requireString(args, 'area', 'ls_remote_command'),
+      command: requireString(args, 'command', 'ls_remote_command'),
+      dryRun: optionalScriptBoolean(args.dry_run, 'ls_remote_command.dry_run'),
+    }),
+    run: remoteCommand,
+  }),
+};
