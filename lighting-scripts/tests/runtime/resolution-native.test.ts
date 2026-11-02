@@ -42,6 +42,22 @@ test('native expansion does not treat incidental entity_id attributes as group i
   assert.deepEqual(result.result, { records: [], power: [] });
 });
 
+test('empty native requests do not evaluate unused current state or stamp', async () => {
+  const { nativeHandlers } = await import('../../src/domain/native-controls.ts');
+  const result = execute({ script: 'effects_native_plan', snapshot, args: { sd: {}, catalog: { groups: {}, members: {}, effects: {} } } }, nativeHandlers);
+  assert.deepEqual(result.result, { records: [], power: [] });
+  const area = execute({ script: 'effects_native_plan', snapshot, args: { sd: { area_id: 'living' }, catalog: { groups: {}, members: {}, effects: {} }, current: { plan: { base: {} } }, stamp: 5 } }, nativeHandlers);
+  assert.deepEqual(area.result, { records: [], power: [] });
+});
+
+test('raw Kelvin payloads retain their captured value type', async () => {
+  const { nativeHandlers } = await import('../../src/domain/native-controls.ts');
+  const result = execute({ script: 'effects_native_plan', snapshot, args: { sd: { entity_id: 'light.bulb', color_temp_kelvin: '2300' }, catalog, current, stamp: 5 } }, nativeHandlers);
+  assert.deepEqual(result.result.records[0].value.channels.color.value, { kelvin: '2300' });
+  const stamped = execute({ script: 'effects_native_plan', snapshot, args: { sd: { entity_id: 'light.bulb', brightness: 10 }, catalog, current, stamp: '5' } }, nativeHandlers);
+  assert.equal(stamped.result.records[0].value.channels.brightness.updated, '5');
+});
+
 test('HSV conversion preserves off-grid hue precision at RGB rounding boundaries', async () => {
   const { nativeHandlers } = await import('../../src/domain/native-controls.ts');
   const result = execute({ script: 'effects_native_plan', snapshot, args: { sd: { entity_id: 'light.bulb', hs_color: [29.99999999999999, 100] }, catalog, current, stamp: 5 } }, nativeHandlers);

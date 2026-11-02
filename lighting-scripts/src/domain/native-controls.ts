@@ -168,6 +168,10 @@ interface NativeCurrent {
   baseTargets: JsonObject;
   resolvedTargets: JsonObject;
 }
+interface LazyNativeCurrent {
+  baseTargets: JsonObject;
+  resolvedTargets: () => JsonObject;
+}
 interface NativePlanArgs {
   sd: JsonObject;
   areas: string[];
@@ -175,8 +179,8 @@ interface NativePlanArgs {
   labels: string[];
   requested: string[];
   catalog: NativeCatalog;
-  current: () => NativeCurrent;
-  stamp: number;
+  current: () => LazyNativeCurrent;
+  stamp: () => JsonValue;
 }
 interface SetArgs {
   source: string;
@@ -238,6 +242,17 @@ function parseCurrent(value: JsonValue | undefined, context: string): NativeCurr
     resolvedTargets: requireObject(resolved, 'targets', `${context}.plan.resolved`),
   };
 }
+function parseLazyCurrent(value: JsonValue | undefined, context: string): LazyNativeCurrent {
+  const current = value === undefined ? requireObject({}, 'value', context) : requireObject({ value }, 'value', context);
+  const plan = requireObject(current, 'plan', context);
+  return {
+    baseTargets: requireObject(plan, 'base', `${context}.plan`),
+    resolvedTargets: lazy(() => {
+      const resolved = requireObject(plan, 'resolved', `${context}.plan`);
+      return requireObject(resolved, 'targets', `${context}.plan.resolved`);
+    }),
+  };
+}
 function group(catalog: NativeCatalog, source: string): string[] {
   return catalog.groups[source] === undefined ? [] : stringArray(catalog.groups[source], `catalog.groups.${source}`);
 }
@@ -247,6 +262,11 @@ function effectChannels(catalog: NativeCatalog, effect: string): string[] {
 }
 function requiredStringValue(value: JsonValue | undefined, context: string): string {
   return value === undefined ? requireString({}, 'value', context) : requireString({ value }, 'value', context);
+}
+function requiredValue(container: JsonObject, key: string, context: string): JsonValue {
+  const value = container[key];
+  if (value === undefined) throw new ParseError(`${context}.${key} is required`);
+  return value;
 }
 function unique(values: string[]): string[] { return [...new Set(values)]; }
 function numeric(value: JsonValue | undefined): value is number | boolean { return typeof value === 'number' || typeof value === 'boolean'; }
@@ -277,8 +297,8 @@ function underlyingColor(base: JsonObject, resolved: JsonObject): JsonValue {
 
 /** Convert native HA colour payloads to the existing logical RGB/Kelvin form. */
 export function nativeColor(ctx: ScriptContext, data: JsonObject, lamp: string): JsonObject {
-  if ('color_temp_kelvin' in data) return { kelvin: requireNumber(data, 'color_temp_kelvin', 'effects_native_plan.sd') };
-  if ('kelvin' in data) return { kelvin: requireNumber(data, 'kelvin', 'effects_native_plan.sd') };
+  if ('color_temp_kelvin' in data) return { kelvin: data.color_temp_kelvin! };
+  if ('kelvin' in data) return { kelvin: data.kelvin! };
   if ('rgb_color' in data) return { rgb: numberArray(data, 'rgb_color', 3, 'effects_native_plan.sd') };
   if ('hs_color' in data) {
     const [hue, saturation] = numberArray(data, 'hs_color', 2, 'effects_native_plan.sd');
@@ -334,14 +354,17 @@ export function planNativeControls(ctx: ScriptContext, args: NativePlanArgs): Na
     const membersOfGroup = group(catalog, source);
     for (const area of areasOf(ctx, membersOfGroup)) if (Object.keys(members).filter(lamp => ctx.areas[lamp] === area).every(lamp => membersOfGroup.includes(lamp))) roomScopes.push(area);
   }
+  if (!roomScopes.length && !lamps.length) return { records: [], power: [] };
   const { baseTargets, resolvedTargets } = args.current();
   const items: ScopeItem[] = unique(roomScopes).sort().filter(area => populated(object(baseTargets[`room:${area}`]))).map(area => ({ scope: 'room', target: area, base: `room:${area}` }));
   for (const lamp of lamps) if (!roomScopes.includes(ctx.areas[lamp] ?? '')) items.push({ scope: 'lamp', target: lamp, base: lamp });
   const power = areasOf(ctx, lamps).sort().map(area => ({ op: 'power', area, on: true, via: 'app' }));
+  if (!items.length) return { records: [], power };
+  const resolvedTargetMap = resolvedTargets();
   const records: JsonObject[] = [];
   for (const item of items) {
     const base = optionalObject(baseTargets, item.base, 'effects_native_plan.current.plan.base');
-    const resolved = optionalObject(resolvedTargets, item.base, 'effects_native_plan.current.plan.resolved.targets');
+    const resolved = optionalObject(resolvedTargetMap, item.base, 'effects_native_plan.current.plan.resolved.targets');
     if (!populated(base) || !populated(resolved)) continue;
     let brightness: JsonValue = null, channels: JsonObject = {};
     if ('brightness' in sd) brightness = sd.brightness!;
@@ -352,17 +375,17 @@ export function planNativeControls(ctx: ScriptContext, args: NativePlanArgs): Na
     if (numeric(brightness)) {
       if (Number(brightness) < 0) brightness = 0;
       else if (Number(brightness) > 255) brightness = 255;
-      channels.brightness = constant(brightness, args.stamp);
+      channels.brightness = constant(brightness, args.stamp());
     }
     const color = nativeColor(ctx, sd, item.target);
-    if (populated(color)) channels.color = constant(color, args.stamp);
+    if (populated(color)) channels.color = constant(color, args.stamp());
     if ('effect' in sd) {
       const requestedEffect = jinjaString(sd.effect).toLowerCase();
       let selected: string | undefined;
       for (const effect of Object.keys(catalog.effects)) if (effect.toLowerCase() === requestedEffect || (effect === 'Colour loop' && requestedEffect === 'colorloop')) selected = effect;
       if (selected) {
-        for (const channel of effectChannels(catalog, selected)) channels[channel] = { kind: 'effect', effect: selected, instance: `native:${[...requested, ...areas, ...devices, ...labels].sort().join('|')}:${selected}`, updated: args.stamp, ...(numeric(brightness) ? { intensity: brightness } : {}) };
-      } else if (['none', 'normal light', 'off'].includes(requestedEffect)) channels = { brightness: constant(requireNumber(resolved, 'level', 'effects_native_plan resolved target'), args.stamp), color: constant(underlyingColor(base, resolved), args.stamp), ...channels };
+        for (const channel of effectChannels(catalog, selected)) channels[channel] = { kind: 'effect', effect: selected, instance: `native:${[...requested, ...areas, ...devices, ...labels].sort().join('|')}:${selected}`, updated: args.stamp(), ...(numeric(brightness) ? { intensity: brightness } : {}) };
+      } else if (['none', 'normal light', 'off'].includes(requestedEffect)) channels = { brightness: constant(requireNumber(resolved, 'level', 'effects_native_plan resolved target'), args.stamp()), color: constant(underlyingColor(base, resolved), args.stamp()), ...channels };
     }
     if (populated(channels)) records.push({ kind: 'channels', key: `channels:native:${item.base}`, source: `native:${item.base}`, scope: item.scope, target: item.target, value: { channels } });
   }
@@ -458,9 +481,11 @@ export const nativeHandlers: ScriptHandlers = {
   // sites). Selector fields entity_id/area_id/device_id/label_id use missing
   // empty-list fallbacks before iteration; brightness_pct/brightness_step/
   // brightness_step_pct and hs/xy/rgbw/rgbww components are raw arithmetic or
-  // indexed values, so they parse strictly. The two HA Kelvin attributes use
-  // `| int(6500)` / `| int(2000)`. Nested members/groups/effects and
-  // plan/base/resolved/targets are indexed raw structures.
+  // indexed values, so they parse strictly. color_temp_kelvin/kelvin are raw
+  // pass-through payloads. The two HA Kelvin attributes use `| int(6500)` /
+  // `| int(2000)`. Nested members/groups/effects and plan/base/resolved/targets
+  // are indexed raw structures. Stamp is a raw pass-through payload; current,
+  // its resolved subtree, and stamp stay lazy until selected work needs them.
   effects_native_plan: withParsedArgs({
     parse: args => {
       const sd = requireObject(args, 'sd', 'effects_native_plan');
@@ -471,8 +496,8 @@ export const nativeHandlers: ScriptHandlers = {
         labels: selector(sd, 'label_id'),
         requested: selector(sd, 'entity_id', true),
         catalog: parseCatalog(args.catalog, 'effects_native_plan.catalog'),
-        current: lazy(() => parseCurrent(args.current, 'effects_native_plan.current')),
-        stamp: requireNumber(args, 'stamp', 'effects_native_plan'),
+        current: lazy(() => parseLazyCurrent(args.current, 'effects_native_plan.current')),
+        stamp: lazy(() => requiredValue(args, 'stamp', 'effects_native_plan')),
       };
     },
     run: planNativeControls,
