@@ -117,7 +117,7 @@ export const automationHandlers: ScriptHandlers = {
     const event = object(object(args.trigger).event), data = object(event.data), eventContext = object(event.context), who = eventContext.user_id;
     const runningScript = typeof eventContext.id === 'string' && Object.entries(ctx.state).some(([entity, raw]) =>
       entity.startsWith('script.') && raw.state === 'on'
-      && object((raw as unknown as JsonObject).context).id === eventContext.id);
+      && object(raw.context).id === eventContext.id);
     if (who === null || who === undefined || data.service !== 'turn_on' || runningScript) return null;
     const catalog = ctx.run('effects_catalog'), current = ctx.run('ls_apply', { dry_run: true, reason: 'config' });
     const capture = object(ctx.run('effects_native_plan', { sd: object(data.service_data), catalog, current, stamp: timestamp(ctx.now) }));

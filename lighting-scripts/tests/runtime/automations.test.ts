@@ -70,7 +70,7 @@ test('native app capture preserves power first and channel record order', async 
 });
 test('lamp capture ignores contexts owned by running scripts', async () => {
   const { ctx, invoked } = await driver();
-  (ctx.state as Record<string, unknown>)['script.running'] = {
+  ctx.state['script.running'] = {
     state: 'on', attributes: {}, context: { id: 'script-call' },
   };
   ctx.run('automation.lighting_schedule_lamp_change_detector', {

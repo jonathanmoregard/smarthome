@@ -1,6 +1,6 @@
 import { callService, createConnection, createLongLivedTokenAuth, getConfig, getStates } from 'home-assistant-js-websocket';
 import type { Connection } from 'home-assistant-js-websocket';
-import type { JsonObject, JsonValue, ServiceCall, Snapshot } from './runtime/context.ts';
+import type { EntityState, JsonObject, JsonValue, ServiceCall, Snapshot } from './runtime/context.ts';
 import type { OutputAcknowledgement, OutputTransport } from './runtime/host.ts';
 
 const object = (value: unknown): JsonObject => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as JsonObject : {};
@@ -9,6 +9,12 @@ interface DeviceEntry { id: string; area_id: string | null; labels?: string[]; i
 interface AreaEntry { area_id: string; labels?: string[] }
 interface LabelEntry { label_id: string; name: string }
 export interface HaEvent { event_type: string; data: JsonObject; context?: { user_id?: string | null } }
+function snapshotState(state: { state: string; attributes: unknown; entity_id: string; context?: unknown; last_changed: string; last_updated: string }): EntityState {
+  const context = state.context !== null && typeof state.context === 'object' && !Array.isArray(state.context)
+    ? state.context as JsonObject : undefined;
+  return { state: state.state, attributes: state.attributes as JsonObject, entity_id: state.entity_id,
+    last_changed: state.last_changed, last_updated: state.last_updated, ...(context ? { context } : {}) };
+}
 /** Connection/reconnect/authentication are owned by the official HA client. */
 export class HomeAssistantTransport implements OutputTransport {
   private readonly connection: Connection;
@@ -48,7 +54,7 @@ export class HomeAssistantTransport implements OutputTransport {
       const target = call.target?.entity_id ?? call.data.entity_id;
       const entities = Array.isArray(target) ? target.map(String) : typeof target === 'string' ? [target] : [];
       const states = await getStates(this.connection);
-      return { states: Object.fromEntries(states.filter(state => entities.includes(state.entity_id)).map(state => [state.entity_id, { state: state.state, attributes: state.attributes as JsonObject, entity_id: state.entity_id, last_changed: state.last_changed, last_updated: state.last_updated }])) };
+      return { states: Object.fromEntries(states.filter(state => entities.includes(state.entity_id)).map(state => [state.entity_id, snapshotState(state)])) };
     }
   }
   private deliverBridge(event: HaEvent, callback: (event: HaEvent) => void): void {
@@ -82,7 +88,7 @@ export class HomeAssistantTransport implements OutputTransport {
       this.connection.sendMessagePromise<Record<string, { domain: string }>>({ type: 'entity/source' }),
     ]);
     const next: Snapshot = { ...previous, now: new Date().toISOString(), timezone: config.time_zone,
-      state: Object.fromEntries(states.map(state => [state.entity_id, { state: state.state, attributes: state.attributes as JsonObject, entity_id: state.entity_id, last_changed: state.last_changed, last_updated: state.last_updated }])),
+      state: Object.fromEntries(states.map(state => [state.entity_id, snapshotState(state)])),
       areas: {}, devices: {}, identifiers: {}, labels: {}, entitySources: Object.fromEntries(Object.entries(sources).map(([entity, source]) => [entity, source.domain])),
     };
     const deviceIndex = new Map(devices.map(device => [device.id, device]));

@@ -52,7 +52,7 @@ test('unknown cursor never invents navigation and invalid canonical preset cance
   assert.equal(ctx.get('input_number.ls_studio_remote_preset'), '0');
 });
 
-test('missing dynamic remote area resynchronizes preset without dispatch', async () => {
+test('missing dynamic remote area falls back to the configured room', async () => {
   const ctx = context(await load());
   ctx.put('input_number.ls_studio_remote_preset', '4');
   ctx.run('ls_remote_gesture', {
@@ -60,5 +60,5 @@ test('missing dynamic remote area resynchronizes preset without dispatch', async
     payload: { action: 'color_temperature_move', action_color_temperature: 200 },
   });
   assert.equal(ctx.get('input_number.ls_studio_remote_preset'), '0');
-  assert.deepEqual(commandCalls(ctx), []);
+  assert.deepEqual(commandCalls(ctx).map(call => call.area), ['studio']);
 });
