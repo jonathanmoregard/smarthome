@@ -12,9 +12,7 @@ const revisionNow = (ctx: ScriptContext) => ctx.state['sensor.ls_overrides']?.la
 interface FrameSource {
   kind: string;
   effect: string | null;
-  instance: string | null;
-  intensity: number | null;
-  value: JsonValue | undefined;
+  details: () => { instance: string | null; intensity: number | null; value: JsonValue | undefined };
 }
 interface FrameTarget {
   brightness: FrameSource;
@@ -26,10 +24,10 @@ interface FrameTarget {
 }
 interface FrameCatalog {
   effects: Record<string, { renderer: string }>;
-  phases: JsonObject;
+  phases: () => JsonObject;
   members: Record<string, string[]>;
   topics: Record<string, string>;
-  multicast: JsonValue[];
+  multicast: () => JsonValue[];
 }
 interface FramePlanArgs {
   catalog: FrameCatalog;
@@ -41,21 +39,24 @@ interface FramePlanArgs {
 }
 
 interface EmitArgs {
-  commands: Array<{ payload: JsonObject; owners: string[]; members: string[]; topic: string }>;
+  commands: Array<() => { payload: JsonObject; owners: string[]; members: string[]; topic: string }>;
   revision: string;
-  generation: string;
-  effectTargets: JsonObject;
+  generation: string | null;
+  effectTargets: () => JsonObject;
 }
 
 interface AssignArgs {
+  revision: string;
+  details: () => AssignDetails;
+}
+interface AssignDetails {
   targets: JsonObject;
-  targetViews: Record<string, {
+  targetViews: () => Record<string, {
     isRoom: boolean;
     channels: Record<'brightness' | 'color', { kind: string; effect: string | null; updated: number | null }>;
     owners: Record<'brightness' | 'color', string>;
   }>;
   assignments: JsonObject;
-  revision: string;
   invalidate: JsonValue[];
   planOrder: number | undefined;
 }
@@ -64,6 +65,18 @@ interface EngineTickArgs {
   served: Record<string, number>;
   admission: number;
   catalog: JsonObject;
+}
+
+function lazy<T>(parse: () => T): () => T {
+  let parsed = false;
+  let value: T;
+  return () => {
+    if (!parsed) {
+      value = parse();
+      parsed = true;
+    }
+    return value;
+  };
 }
 
 function requireStrings(container: JsonObject, key: string, context: string): string[] {
@@ -78,9 +91,12 @@ function parseFrameSource(target: JsonObject, channel: 'brightness' | 'color', c
   return {
     kind,
     effect,
-    instance: kind === 'effect' ? requireString(source, 'instance', `${context}.${channel}`) : null,
-    intensity: kind === 'effect' ? requireNumber(source, 'intensity', `${context}.${channel}`) : null,
-    value: source.value,
+    // The animation-tick Candle branch skips the color channel entirely.
+    details: lazy(() => ({
+      instance: kind === 'effect' ? requireString(source, 'instance', `${context}.${channel}`) : null,
+      intensity: kind === 'effect' ? requireNumber(source, 'intensity', `${context}.${channel}`) : null,
+      value: source.value,
+    })),
   };
 }
 
@@ -94,12 +110,13 @@ function parseFrameCatalog(args: JsonObject): FrameCatalog {
       const effect = requireObject({ raw }, 'raw', `effects_frame_plan.catalog.effects.${name}`);
       return [name, { renderer: requireString(effect, 'renderer', `effects_frame_plan.catalog.effects.${name}`) }];
     })),
-    phases: catalog.phases === undefined ? {} : requireObject(catalog, 'phases', 'effects_frame_plan.catalog'),
+    // These raw fields occur only when their captured control-flow site runs.
+    phases: lazy(() => requireObject(catalog, 'phases', 'effects_frame_plan.catalog')),
     members: Object.fromEntries(Object.keys(membersRaw).map(lamp =>
       [lamp, requireStrings(membersRaw, lamp, 'effects_frame_plan.catalog.members')])),
     topics: Object.fromEntries(Object.keys(topicsRaw).map(member =>
       [member, requireString(topicsRaw, member, 'effects_frame_plan.catalog.topics')])),
-    multicast: catalog.multicast === undefined ? [] : requireArray(catalog, 'multicast', 'effects_frame_plan.catalog'),
+    multicast: lazy(() => requireArray(catalog, 'multicast', 'effects_frame_plan.catalog')),
   };
 }
 
@@ -123,19 +140,19 @@ function parseFrameTargets(args: JsonObject): Record<string, FrameTarget> {
 }
 
 function parseEmitCommands(args: JsonObject): EmitArgs['commands'] {
-  return requireArray(args, 'commands', 'effects_emit').map((raw, index) => {
-    const context = `effects_emit.commands[${index}]`;
-    const command = requireObject({ raw }, 'raw', context);
-    return {
-      payload: requireObject(command, 'payload', context),
-      owners: requireStrings(command, 'owners', context),
-      members: requireStrings(command, 'members', context),
-      topic: requireString(command, 'topic', context),
-    };
-  });
+  return requireArray(args, 'commands', 'effects_emit').map((raw, index) => lazy(() => {
+      const context = `effects_emit.commands[${index}]`;
+      const command = requireObject({ raw }, 'raw', context);
+      return {
+        payload: requireObject(command, 'payload', context),
+        owners: requireStrings(command, 'owners', context),
+        members: requireStrings(command, 'members', context),
+        topic: requireString(command, 'topic', context),
+      };
+    }));
 }
 
-function parseAssignTargetViews(targets: JsonObject): AssignArgs['targetViews'] {
+function parseAssignTargetViews(targets: JsonObject): ReturnType<AssignDetails['targetViews']> {
   return Object.fromEntries(Object.entries(targets).map(([lamp, raw]) => {
     const context = `effects_assign.targets.${lamp}`;
     const target = requireObject({ raw }, 'raw', context);
@@ -148,14 +165,14 @@ function parseAssignTargetViews(targets: JsonObject): AssignArgs['targetViews'] 
         effect: kind === 'effect' ? requireString(source, 'effect', `${context}.${channel}`) : null,
         updated: kind === 'effect' ? requireNumber(source, 'updated', `${context}.${channel}`) : null,
       }];
-    })) as AssignArgs['targetViews'][string]['channels'];
+    })) as ReturnType<AssignDetails['targetViews']>[string]['channels'];
     return [lamp, {
       isRoom: jinjaTruthy(target.is_room),
       channels,
       owners: Object.fromEntries((['brightness', 'color'] as const).map(channel => [
         channel,
         owners[channel] === undefined ? '' : requireString(owners, channel, `${context}.owners`),
-      ])) as AssignArgs['targetViews'][string]['owners'],
+      ])) as ReturnType<AssignDetails['targetViews']>[string]['owners'],
     }];
   }));
 }
@@ -175,13 +192,14 @@ export function framePlan(ctx: ScriptContext, args: FramePlanArgs): JsonValue {
     const channels: Array<'brightness' | 'color'> = args.animationTick && color.kind === 'effect' && color.effect === 'Candle' ? ['brightness'] : ['brightness', 'color'];
     for (const channel of channels) {
       const source = target[channel];
-      let value = source.value;
+      const { instance, intensity, value: sourceValue } = source.details();
+      let value = sourceValue;
       if (source.kind === 'effect' && source.effect !== null && Object.hasOwn(effects, source.effect)) {
-        const frameKey = `${source.instance}:${source.effect}`;
+        const frameKey = `${instance}:${source.effect}`;
         if (!Object.hasOwn(frames, frameKey)) {
           frames[frameKey] = ctx.run(effects[source.effect]!.renderer, {
-            timestamp: args.timestamp, brightness: source.intensity ?? null, transition: 0.4,
-            phase: catalog.phases[lamp] ?? lamp,
+            timestamp: args.timestamp, brightness: intensity ?? null, transition: 0.4,
+            phase: catalog.phases()[lamp] ?? lamp,
           });
         }
         const frame = object(frames[frameKey]);
@@ -202,20 +220,21 @@ export function framePlan(ctx: ScriptContext, args: FramePlanArgs): JsonValue {
         topic: catalog.topics[member] ?? null, payload });
     }
   }
-  return ctx.run('effects_group_plan', { rows, groups: catalog.multicast });
+  return ctx.run('effects_group_plan', { rows, groups: catalog.multicast() });
 }
 
 export function emitCommands(ctx: ScriptContext, args: EmitArgs): JsonObject {
   const revision = args.revision, generation = args.generation;
   let completed = true;
   const published: number[] = [];
-  for (const command of args.commands) {
+  for (const parseCommand of args.commands) {
+    const command = parseCommand();
     const payload = command.payload;
     const owners = command.owners, members = command.members;
     let allowed = revision === revisionNow(ctx) && generation === ctx.attr(runtime, 'generation');
     for (const owner of owners) if (ctx.get(owner) !== 'on' || payload.state !== 'OFF' && object(ctx.attr('sensor.ls_overrides', 'power'))[ctx.areas[owner] ?? ''] === false) allowed = false;
     for (const member of members) if (ctx.get(member) !== 'on') allowed = false;
-    const effectTargets = args.effectTargets;
+    const effectTargets = args.effectTargets();
     if (Object.keys(effectTargets).length) for (const owner of owners) {
       if (!Object.hasOwn(effectTargets, owner) || !isDeepStrictEqual(object(ctx.attr(runtime, 'assignments'))[owner], effectTargets[owner])) allowed = false;
     }
@@ -231,12 +250,13 @@ export function emitCommands(ctx: ScriptContext, args: EmitArgs): JsonObject {
 
 export function assignEffects(ctx: ScriptContext, args: AssignArgs): JsonObject {
   if (args.revision !== revisionNow(ctx)) return { generation: ctx.attr(runtime, 'generation') ?? null };
-  const targets = args.targets, assignments = args.assignments;
+  const details = args.details();
+  const targets = details.targets, assignments = details.assignments;
   const old = object(ctx.attr(runtime, 'assignments')), oldTargets = object(ctx.attr(runtime, 'targets'));
-  const invalidate = args.invalidate;
+  const invalidate = details.invalidate;
   const changed = !isDeepStrictEqual(targets, oldTargets) || args.revision !== ctx.attr(runtime, 'revision') || invalidate.length > 0;
   let generation = ctx.attr(runtime, 'generation') ?? null;
-  const planOrder = args.planOrder ?? requireNumber({ plan_order: ctx.attr(runtime, 'plan_order') ?? 0 }, 'plan_order', 'effects_assign runtime');
+  const planOrder = details.planOrder ?? requireNumber({ plan_order: ctx.attr(runtime, 'plan_order') ?? 0 }, 'plan_order', 'effects_assign runtime');
   if (changed) {
     if (!Object.keys(assignments).length) ctx.emit('script.turn_off', {}, { entity_id: 'script.effects_engine' });
     generation = ctx.now;
@@ -250,7 +270,7 @@ export function assignEffects(ctx: ScriptContext, args: AssignArgs): JsonObject 
   if (changed) {
     const catalog = object(ctx.run('effects_catalog'));
     const commands: JsonValue[] = [];
-    for (const [lamp, target] of Object.entries(args.targetViews)) {
+    for (const [lamp, target] of Object.entries(details.targetViews())) {
       if (target.isRoom) continue;
       let needed = ['Breathe', 'Colour loop'].includes(String(object(old[lamp]).effect));
       for (const channel of ['brightness', 'color']) {
@@ -348,8 +368,9 @@ export const transportHandlers: ScriptHandlers = {
     parse: args => ({
       commands: parseEmitCommands(args),
       revision: requireString(args, 'revision', 'effects_emit'),
-      generation: requireString(args, 'generation', 'effects_emit'),
-      effectTargets: args.effect_targets === undefined ? {} : requireObject(args, 'effect_targets', 'effects_emit'),
+      // The runtime legitimately has no generation before its first assignment.
+      generation: args.generation === null ? null : requireString(args, 'generation', 'effects_emit'),
+      effectTargets: lazy(() => args.effect_targets === undefined ? {} : requireObject(args, 'effect_targets', 'effects_emit')),
     }),
     run: emitCommands,
   }),
@@ -359,17 +380,20 @@ export const transportHandlers: ScriptHandlers = {
   // effect five times, owners twice, brightness/color once, and updated twice;
   // typed target views parse those fields without altering persisted targets.
   effects_assign: withParsedArgs({
-    parse: args => {
-      const targets = requireObject(args, 'targets', 'effects_assign');
-      return {
-        targets,
-        targetViews: parseAssignTargetViews(targets),
-        assignments: requireObject(args, 'assignments', 'effects_assign'),
-        revision: requireString(args, 'revision', 'effects_assign'),
-        invalidate: args.invalidate === undefined ? [] : requireArray(args, 'invalidate', 'effects_assign'),
-        planOrder: args.plan_order === undefined ? undefined : requireNumber(args, 'plan_order', 'effects_assign'),
-      };
-    },
+    parse: args => ({
+      revision: requireString(args, 'revision', 'effects_assign'),
+      // The captured stale-revision stop precedes every other argument read.
+      details: lazy(() => {
+        const targets = requireObject(args, 'targets', 'effects_assign');
+        return {
+          targets,
+          targetViews: lazy(() => parseAssignTargetViews(targets)),
+          assignments: requireObject(args, 'assignments', 'effects_assign'),
+          invalidate: args.invalidate === undefined ? [] : requireArray(args, 'invalidate', 'effects_assign'),
+          planOrder: args.plan_order === undefined ? undefined : requireNumber(args, 'plan_order', 'effects_assign'),
+        };
+      }),
+    }),
     run: assignEffects,
   }),
   // Captured `commands` is raw at both sites and nested `ids` is raw nine
