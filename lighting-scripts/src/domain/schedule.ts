@@ -1,8 +1,9 @@
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { ParseError, requireArray, requireBoolean, requireFinite, requireObject, requireString } from '../runtime/parse.ts';
+import { ParseError, requireArray, requireBoolean, requireFinite, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { BLOCKS, DEFAULT_BLOCK, isBlock, type Block } from './blocks.ts';
 import { object, isObject, roundEven } from './scale.ts';
 
-export const blocks = ['day', 'cosy', 'night'];
+export const blocks: readonly string[] = BLOCKS;
 export const list = (value: JsonValue | undefined): JsonValue[] =>
   value === undefined ? [] : requireArray({ value }, 'value', 'schedule list');
 export const strings = (value: JsonValue | undefined): string[] => list(value).map((item, index) =>
@@ -103,8 +104,8 @@ export function nextMidnight(at: number, timezone: string): number {
   return localTime(year, month, day + 1, 0, 0, timezone);
 }
 interface ScheduleDetails extends JsonObject {
-  cur: string | null;
-  nxt: string | null;
+  cur: Block | null;
+  nxt: Block | null;
   fading: boolean;
   p: number;
   edge: boolean;
@@ -113,14 +114,34 @@ interface ScheduleDetails extends JsonObject {
   left: number;
   cur_ts: number;
 }
+interface ScheduledBaseArgs {
+  testNow: number | undefined;
+  reason: string;
+  overrides: JsonObject | undefined;
+  roomOnly: string;
+  includeDebug: boolean;
+}
+function parseScheduledBaseArgs(args: JsonObject, context: string, roomOnly: string): ScheduledBaseArgs {
+  return {
+    testNow: optionalTimestamp(args.test_now),
+    reason: args.reason === undefined ? 'config' : requireString(args, 'reason', context),
+    overrides: args.overrides === undefined || args.overrides === null
+      ? undefined
+      : requireObject(args, 'overrides', context),
+    roomOnly,
+    // The captured template tests definition, not truthiness. The raw value is
+    // never otherwise consumed, so the typed domain only carries the decision.
+    includeDebug: Object.hasOwn(args, 'debug'),
+  };
+}
 export function scheduleDetails(ctx: ScriptContext, scope: string, at: number): ScheduleDetails {
   const zone = ctx.timezone ?? 'Europe/Stockholm';
   const [year, month, day] = localParts(at, zone) as [number, number, number];
-  let cur: string | null = null, nxt: string | null = null;
+  let cur: Block | null = null, nxt: Block | null = null;
   let curTs = 0, nextTs = 0, nextFade = 0, lastFs = 0, nextFs = 0;
   for (const off of [-2, -1, 0, 1]) {
     const eve = new Date(Date.UTC(year, month - 1, day + off));
-    for (const block of blocks) {
+    for (const block of BLOCKS) {
       const src = scope === 'house' || ctx.get(`input_boolean.ls_${scope}_${block}_own_timing`) === 'on' ? scope : 'house';
       const isDay = block === 'day';
       const weekday = (eve.getUTCDay() + (isDay ? 1 : 0)) % 7;
@@ -143,7 +164,9 @@ export function scheduleDetails(ctx: ScriptContext, scope: string, at: number): 
 }
 interface Stage { from: string; to: string; p: number; moving: boolean; edge: boolean; source: string }
 function initialStage(S: ScheduleDetails): Stage {
-  return { from: String(S.cur ?? 'night'), to: String((S.fading ? S.nxt : S.cur) ?? 'night'), p: num(S.p), moving: S.fading, edge: S.edge, source: 'schedule' };
+  const cur = S.cur === null ? DEFAULT_BLOCK : S.cur;
+  const next = S.fading ? S.nxt : S.cur;
+  return { from: cur, to: next === null ? DEFAULT_BLOCK : next, p: num(S.p), moving: S.fading, edge: S.edge, source: 'schedule' };
 }
 function wakeStage(ctx: ScriptContext, area: string, S: JsonObject, at: number, stage: Stage): Stage {
   const entity = `input_datetime.ls_${area}_wake`;
@@ -188,15 +211,17 @@ function applies(r: JsonObject, key: string, lamp: string | null, room: string, 
     || (key === 'mode:sara' && !privateRoom);
 }
 
-export function scheduledBase(ctx: ScriptContext, args: JsonObject, roomLocal = false): JsonObject {
-  const at = timestamp(args.test_now || ctx.now);
-  const why = String(args.reason ?? 'config');
-  const records = object(args.overrides ?? ctx.attr('sensor.ls_overrides', 'overrides'));
+export function scheduledBase(ctx: ScriptContext, args: ScheduledBaseArgs, roomLocal = false): JsonObject {
+  const at = args.testNow === undefined ? timestamp(ctx.now) : args.testNow;
+  const why = args.reason;
+  const records = args.overrides === undefined
+    ? object(ctx.attr('sensor.ls_overrides', 'overrides'))
+    : args.overrides;
   const expiry = ctx.get('input_boolean.ls_ovr_next_block_on') === 'on';
   const dimmables = labelled(ctx, 'house_schedule').filter(e => e.startsWith('light.'));
   const plugs = labelled(ctx, 'on_off').filter(e => /^(light|switch)\./.test(e));
   const all = [...dimmables, ...plugs, ...Object.keys(object(ctx.attr('sensor.ls_overrides', 'switch_ranges')))];
-  const roomOnly = String((roomLocal ? args.room : args.room_only) ?? '');
+  const roomOnly = args.roomOnly;
   const rooms = [...new Set(all.map(e => ctx.areas[e]).filter(isAreaId))].sort().filter(a => !roomOnly || roomOnly === a);
   const details = Object.fromEntries(['house', ...rooms].map(room => [room, scheduleDetails(ctx, room, at)])) as Record<string, ScheduleDetails>;
   const profiles: JsonObject = {}, targets: JsonObject = {}, commands = new Map<string, JsonObject>();
@@ -216,8 +241,8 @@ export function scheduledBase(ctx: ScriptContext, args: JsonObject, roomLocal = 
       if (!['channels', 'input'].includes(String(r.kind)) || !applies(r, key, lamp, room, privateRoom)) continue;
       if (r.scope === 'room' && isRemote(r) && key !== newest) continue;
       const stamp = value.period_updated === undefined ? timestampOrZero(r.when) : num(value.period_updated);
-      if (blocks.includes(String(value.period)) && stamp >= chosenStamp && !(expiry && timestampOrZero(r.when) <= num(S.last_fs))) {
-        chosen = { value: value.period!, when: r.when ?? null }; chosenStamp = stamp;
+      if (isBlock(value.period) && stamp >= chosenStamp && !(expiry && timestampOrZero(r.when) <= num(S.last_fs))) {
+        chosen = { value: value.period, when: r.when ?? null }; chosenStamp = stamp;
       }
     }
     if (expiry && !S.fading && timestampOrZero(chosen.when) <= num(S.last_fs)) chosen = {};
@@ -258,8 +283,8 @@ export function scheduledBase(ctx: ScriptContext, args: JsonObject, roomLocal = 
     const target = interpolate(from, to, stage);
     const transition = stage.moving && why === 'tick' ? 60 : 3;
     const color = object(target.color);
-    const p: JsonObject = { effect: pr.effect ?? 'Normal light', brightness: target.brightness ?? 1, on: target.on ?? false, period: block, area: area || null,
-      effect_channels: pr.effect_channels ?? ['brightness', 'color'], send: why !== 'tick' || stage.moving || stage.edge, ignore_overrides: ignored };
+    const p: JsonObject = { effect: pr.effect === undefined ? 'Normal light' : pr.effect, brightness: target.brightness ?? 1, on: target.on ?? false, period: block, area: area || null,
+      effect_channels: pr.effect_channels === undefined ? ['brightness', 'color'] : pr.effect_channels, send: why !== 'tick' || stage.moving || stage.edge, ignore_overrides: ignored };
     profiles[lamp] = p;
     const command: JsonObject = !target.on ? { kind: 'off', transition } : 'kelvin' in color
       ? { kind: 'ct', brightness: Math.max(num(target.brightness), 1), kelvin: color.kelvin!, transition }
@@ -281,7 +306,8 @@ export function scheduledBase(ctx: ScriptContext, args: JsonObject, roomLocal = 
       const match = (r.scope === 'room' && r.target === area) || (r.scope === 'house' && !privateRoom) || (key === 'mode:sara' && !privateRoom) || (r.kind === 'block' && r.target === area);
       return expiry && match && timestampOrZero(r.when) <= num(S.last_fs);
     });
-    let period = String(S.cur ?? 'night'), stamp = 0, explicit = false;
+    let period: Block = S.cur === null ? DEFAULT_BLOCK : S.cur;
+    let stamp = 0, explicit = false;
     const newest = latestRemote(records, area);
     for (const key of Object.keys(records).sort()) {
       const r = object(records[key]);
@@ -290,14 +316,14 @@ export function scheduledBase(ctx: ScriptContext, args: JsonObject, roomLocal = 
       if (!match || (r.scope === 'room' && isRemote(r) && key !== newest)) continue;
       const value = object(r.value), selected = r.kind === 'block' ? r.value : value.period;
       const updated = value.period_updated === undefined ? timestampOrZero(r.when) : num(value.period_updated);
-      if (blocks.includes(String(selected)) && updated >= stamp) { period = String(selected); stamp = updated; explicit = true; }
+      if (isBlock(selected) && updated >= stamp) { period = selected; stamp = updated; explicit = true; }
     }
     let stage = explicit ? { ...initialStage(S), from: period, to: period, p: 0, moving: false } : wakeStage(ctx, area, S, at, initialStage(S));
     const from = sample(ctx, sourceEntity(ctx, null, area, stage.from, false));
     const to = sample(ctx, sourceEntity(ctx, null, area, stage.to, false));
     const target = interpolate(from, to, stage);
     const pr = saved(ctx, `input_text.ls_${scopeFor(ctx, area, stage.from)}_${stage.from}`);
-    targets[`room:${area}`] = { brightness: target.brightness!, color: target.color!, area, is_room: true, period: stage.from, effect: pr.effect ?? 'Normal light', on: target.on!,
+    targets[`room:${area}`] = { brightness: target.brightness!, color: target.color!, area, is_room: true, period: stage.from, effect: pr.effect === undefined ? 'Normal light' : pr.effect, on: target.on!,
       day: profile(ctx, sourceEntity(ctx, null, area, 'day', false)), cosy: profile(ctx, sourceEntity(ctx, null, area, 'cosy', false)), ignore_overrides: ignored };
   }
   const stale = Object.keys(records).filter(key => {
@@ -310,9 +336,9 @@ export function scheduledBase(ctx: ScriptContext, args: JsonObject, roomLocal = 
   });
   const sched: JsonObject = {}, mirror: JsonValue[] = [];
   for (const scope of ['house', ...rooms]) {
-    const S = object(details[scope]); sched[scope] = S.cur ?? null;
+    const S = details[scope]!; sched[scope] = S.cur;
     const override = String(object(records[`block:${scope}`]).value).toLowerCase();
-    const effective = blocks.includes(override) && !stale.includes(`block:${scope}`) ? override : String(S.cur ?? 'night');
+    const effective = isBlock(override) && !stale.includes(`block:${scope}`) ? override : S.cur === null ? DEFAULT_BLOCK : S.cur;
     const option = effective[0]!.toUpperCase() + effective.slice(1), entity = `input_select.ls_${scope}_override`;
     if (ctx.state[entity] && ctx.get(entity) !== option) mirror.push({ entity, option });
   }
@@ -326,10 +352,26 @@ export function scheduledBase(ctx: ScriptContext, args: JsonObject, roomLocal = 
   });
   const schedule: JsonObject = { cmds: packed, profiles, revision: ctx.state['sensor.ls_overrides']?.last_updated ?? ctx.now, stale_keys: stale, sched, schedule_details: details, mirror,
     sara_mirror: ctx.state['input_boolean.ls_sara_mode_mirror'] && ctx.get('input_boolean.ls_sara_mode_mirror') !== 'off' ? 'off' : null };
-  if (args.debug) schedule.dbg = debug;
+  if (args.includeDebug === true) schedule.dbg = debug;
   return { targets, schedule };
 }
 export const scheduleHandlers: ScriptHandlers = {
-  ls_base: (ctx, args) => scheduledBase(ctx, args),
-  ls_room_base: (ctx, args) => scheduledBase(ctx, args, true),
+  // Captured test_now/overrides are guarded by definition before use; reason
+  // and room_only use Undefined-only defaults; debug is definition-tested.
+  // Present optional values are parsed, while null overrides retain the
+  // producer's explicit "use the state attribute" spelling.
+  ls_base: withParsedArgs({
+    parse: args => parseScheduledBaseArgs(
+      args,
+      'ls_base',
+      args.room_only === undefined ? '' : requireString(args, 'room_only', 'ls_base'),
+    ),
+    run: scheduledBase,
+  }),
+  // The captured script declaration marks room required, and it drives entity
+  // names, comparisons, and indexing rather than iteration or membership.
+  ls_room_base: withParsedArgs({
+    parse: args => parseScheduledBaseArgs(args, 'ls_room_base', requireString(args, 'room', 'ls_room_base')),
+    run: (ctx, args) => scheduledBase(ctx, args, true),
+  }),
 };
