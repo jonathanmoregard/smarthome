@@ -10,6 +10,7 @@ const bool = (v: JsonValue | undefined) => typeof v === 'string' ? ['true', 'on'
 interface CommitRecord {
   raw: JsonObject;
   key: JsonValue;
+  keyContext: string;
   writeKey: () => string;
   kind: JsonValue | undefined;
   scope: JsonValue | undefined;
@@ -55,6 +56,14 @@ function concatString(value: JsonValue | undefined): string {
   return value === undefined ? '' : jinjaString(value);
 }
 
+/** Python mappings reject the unhashable JSON container types as keys. */
+function jinjaMappingGet(record: JsonObject, key: JsonValue | undefined, context: string): JsonValue | undefined {
+  if (Array.isArray(key) || isObject(key)) {
+    throw new ParseError(`${context} is unhashable for Jinja mapping lookup`);
+  }
+  return typeof key === 'string' ? record[key] : undefined;
+}
+
 /** Home Assistant's custom `| bool` filter, measured from the pinned oracle. */
 function haBoolean(value: JsonValue | undefined, context: string): boolean {
   if (typeof value === 'boolean') return value;
@@ -83,6 +92,7 @@ function parseRecords(value: JsonValue | undefined, context: string): CommitReco
     return {
       raw: record,
       key,
+      keyContext: `${recordContext}.key`,
       writeKey: lazy(() => record.key === undefined ? fallbackKey : requireString(record, 'key', recordContext)),
       kind: record.kind,
       scope: record.scope,
@@ -223,7 +233,10 @@ export function commit(ctx: ScriptContext, args: CommitArgs): JsonObject {
   const pending = { ...object(ctx.attr(entity, 'pending_rooms')) };
   const affected: Array<JsonValue | undefined> = [];
   if (jinjaTruthy(parsed.area)) affected.push(parsed.area);
-  for (const record of parsed.records) for (const item of [typeof record.key === 'string' ? object(before[record.key]) : {}, record.raw]) {
+  for (const record of parsed.records) for (const item of [
+    object(jinjaMappingGet(before, record.key, record.keyContext)),
+    record.raw,
+  ]) {
     if (item.scope === 'room') affected.push(item.target);
   }
   for (const [index, room] of affected.entries()) {
@@ -314,7 +327,7 @@ export const stateStoreHandlers: ScriptHandlers = {
       const rooms = entities.map(entity => ctx.areas[entity]).filter((area): area is string => Boolean(area) && !privateAreas.includes(area!));
       targets.push(...new Set(rooms));
     }
-    const scheduled = (target: JsonValue | undefined) => typeof target === 'string' ? schedule[target] : undefined;
+    const scheduled = (target: JsonValue | undefined) => jinjaMappingGet(schedule, target, 'ls_override_block.scope');
     const set = targets.filter(target => scheduled(target) !== block).map(target => ({ kind: 'block', target: target ?? null, value: block }));
     const clear = targets.filter(target => scheduled(target) === block).map(target => `block:${concatString(target)}`);
     if (set.length) ctx.fire('ls_override', { op: 'set', records: set, via: args.via });

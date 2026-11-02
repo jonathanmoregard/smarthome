@@ -41,11 +41,11 @@
 1. Consumes: `withParsedArgs`, `jinja*`, `require*`, and captured-source evidence.
 2. Produces: typed arguments for `ls_commit`, `ls_override_block`, `ls_clear_overrides`, and `ls_sara_mode`; `ls_store` remains unchanged.
 
-- [ ] **Step 1:** Gather per-field counts and classify every raw use as strict access versus truthiness/iteration/length.
-- [ ] **Step 2:** If captured evidence proves an existing helper divergence in a named handler, add and run the focused regression test to observe the expected failure.
-- [ ] **Step 3:** Implement the four parsed handlers, preserving captured control-flow laziness and documenting evidence in comments.
-- [ ] **Step 4:** Run the focused test if added, then `npm run check`, `npm test`, and `npm run parity`; compare the structured parity summary to the exact baseline.
-- [ ] **Step 5:** Stage only the intended state-store change and any focused runtime test, verify forbidden paths are absent, and commit with all field counts.
+- [x] **Step 1:** Gather per-field counts and classify every raw use as strict access versus truthiness/iteration/length.
+- [x] **Step 2:** If captured evidence proves an existing helper divergence in a named handler, add and run the focused regression test to observe the expected failure.
+- [x] **Step 3:** Implement the four parsed handlers, preserving captured control-flow laziness and documenting evidence in comments.
+- [x] **Step 4:** Run the focused test if added, then `npm run check`, `npm test`, and `npm run parity`; compare the structured parity summary to the exact baseline.
+- [x] **Step 5:** Stage only the intended state-store change and any focused runtime test, verify forbidden paths are absent, and commit with all field counts.
 
 ### Task 2: Parse automation handlers
 
@@ -59,11 +59,11 @@
 1. Consumes: the same runtime parsing primitives and evidence convention established by Task 1.
 2. Produces: parsed automation handlers, including a `remote(kind)` parser parameterized without conflating sibling field semantics.
 
-- [ ] **Step 1:** Gather per-field counts and classify every raw use as strict access versus truthiness/iteration/length.
-- [ ] **Step 2:** Add and observe any evidence-backed focused red regression before fixing an existing behavior bug.
-- [ ] **Step 3:** Implement parsed argument types and `withParsedArgs` registrations, retaining the shared remote factory and control-flow laziness.
-- [ ] **Step 4:** Run focused tests if added, then `npm run check`, `npm test`, and `npm run parity`; compare the structured parity summary to the exact baseline.
-- [ ] **Step 5:** Stage only the intended automation change and focused runtime tests, verify forbidden paths are absent, and commit with all field counts.
+- [x] **Step 1:** Gather per-field counts and classify every raw use as strict access versus truthiness/iteration/length.
+- [x] **Step 2:** Add and observe any evidence-backed focused red regression before fixing an existing behavior bug.
+- [x] **Step 3:** Implement parsed argument types and `withParsedArgs` registrations, retaining the shared remote factory and control-flow laziness.
+- [x] **Step 4:** Run focused tests if added, then `npm run check`, `npm test`, and `npm run parity`; compare the structured parity summary to the exact baseline.
+- [x] **Step 5:** Stage only the intended automation change and focused runtime tests, verify forbidden paths are absent, and commit with all field counts.
 
 ### Task 3: Whole-branch review
 
@@ -76,6 +76,6 @@
 1. Consumes: both green commits, their evidence comments, and verifier outputs.
 2. Produces: a fresh read-only review verdict and any evidence-backed fix pass.
 
-- [ ] **Step 1:** Build a review package and dispatch one fresh read-only reviewer.
-- [ ] **Step 2:** Re-grade findings against the task brief; address Critical/Important findings with RED-to-GREEN tests in one fix pass.
-- [ ] **Step 3:** Run final verification and report exact counts, deliberate omissions, helper divergences, rulings, and deferred minors.
+- [x] **Step 1:** Build a review package and dispatch one fresh read-only reviewer.
+- [x] **Step 2:** Re-grade findings against the task brief; address Critical/Important findings with RED-to-GREEN tests in one fix pass.
+- [x] **Step 3:** Run final verification and report exact counts, deliberate omissions, helper divergences, rulings, and deferred minors.
