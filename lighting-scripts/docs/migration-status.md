@@ -101,6 +101,24 @@ to the designated logical lamp; older tests assumed arbitrary lamps. The native 
 comparison records this difference without restoring obsolete behavior or changing
 the old expectation.
 
+### Remote gesture area resolution is fail-closed, matching the deployed script
+
+A remote gesture whose area cannot be resolved dispatches nothing. This is not a
+choice the port made: each captured `ls_remote_gesture_*` script computes its
+dispatch area from `area_id(...)` with no `default(...)` filter, and every one of
+the four dispatch sites sits behind a truthiness condition on that value, so an
+unresolvable area is already a silent no-op in the deployed configuration. An
+earlier revision of the port added a fallback to the wrapper's configured room;
+that fallback was invented by the port and has been removed, because acting on a
+room the device may not belong to is a behavior the oracle never had.
+
+The operator-visible consequence is unchanged from today's system but worth
+stating: if a device registry entry loses its area assignment, that remote's
+button presses stop working silently rather than acting on the wrong area. There
+is no diagnostic for it in either implementation. Restoring a fallback, or adding
+a warning, is a deliberate behavior change and belongs with the cutover review
+rather than with the port.
+
 ## Delivery blockers
 
 1. Code and the test harness use the existing public `smarthome` repository.
