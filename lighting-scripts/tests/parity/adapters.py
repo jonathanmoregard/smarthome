@@ -89,6 +89,7 @@ def simulator(stage, rpc, module_path=None):
     dry = importlib.import_module('dry_harness')
     original_init = dry.DrySim.__init__
     original_render = dry.DrySim.render
+    original_service = dry.DrySim.service
     catalog_path = stage / 'effects-promotion/live/effects_catalog.json'
     value = json.loads(catalog_path.read_text())
     catalog = value.get('config', value)['sequence'][0]['variables']['result']
@@ -124,6 +125,7 @@ def simulator(stage, rpc, module_path=None):
         'lighting-algebra/sara-window/test_sara_window.py',
         'lighting-algebra/tests/test_gesture_integration.py',
         'lighting-algebra/tests/test_gesture_native_conditions.py',
+        'lighting-algebra/tests/test_remote_gestures.py',
     }
     direct_script_service_modules = {
         'lighting-algebra/remote/preset_test.py',
@@ -234,6 +236,8 @@ def simulator(stage, rpc, module_path=None):
             if hook:
                 hook(action, target, data)
             class_wrapper = getattr(type(self), 'service', None) if module_path in class_service_modules else None
+            if module_path == 'lighting-algebra/tests/test_remote_gestures.py' and class_wrapper is service:
+                class_wrapper = original_service
             wrapper = self.__dict__.get('service')
             if wrapper is None and class_wrapper is not None and class_wrapper is not service:
                 function = ast.parse(textwrap.dedent(inspect.getsource(class_wrapper))).body[0]
@@ -282,7 +286,8 @@ def simulator(stage, rpc, module_path=None):
             return snapshot(self)
 
         has_class_service = module_path in class_service_modules \
-            and getattr(type(self), 'service', None) not in (None, service)
+            and (getattr(type(self), 'service', None) not in (None, service)
+                 or module_path == 'lighting-algebra/tests/test_remote_gestures.py')
         mode = 'all' if 'service' in self.__dict__ or has_class_service or any(getattr(self, key, None) for key in ('before_service', 'after_service', 'on_publish', 'before_emit', 'after_publish')) else 'commit'
         response = rpc.call(name, args, snapshot(self), callback=callback, callback_mode=mode,
                             instrument_log=self.env.filters['log'] is not math.log,
