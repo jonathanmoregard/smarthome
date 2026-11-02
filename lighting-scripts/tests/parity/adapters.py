@@ -417,13 +417,16 @@ def module_seams(module, module_path):
                     sim.run(task['script'], **task['args'])
 
             start = sim.now
+            event_configs = getattr(module, '_parity_event_configs', {'CENTER': module.CENTER, 'DIRECTIONS': module.DIRECTIONS})
             for event in sorted(events, key=lambda item: item['time']):
                 event_time = start.timestamp() * 1000 + event['time'] * 1000
                 drain(event_time)
                 target = datetime.fromtimestamp(event_time / 1000, tz=start.tzinfo)
                 sim.advance(max(0, (target - sim.now).total_seconds()))
-                center = matching(module.CENTER, event)
-                directions = matching(module.DIRECTIONS, event)
+                current_center = matching(module.CENTER, event)
+                current_directions = matching(module.DIRECTIONS, event)
+                center = matching(event_configs['CENTER'], event)
+                directions = matching(event_configs['DIRECTIONS'], event)
                 if center:
                     sim.run('automation.remote_center', room='bedroom', device_id=binding['device_id'],
                             source=binding['source'], trigger=center)
@@ -435,6 +438,7 @@ def module_seams(module, module_path):
                 elif directions:
                     sim.run('automation.remote_directions', room='bedroom', device_id=binding['device_id'],
                             source=binding['source'], trigger=directions)
+                assert current_center or current_directions
             drain()
             return sim.commands
 

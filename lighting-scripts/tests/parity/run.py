@@ -159,8 +159,16 @@ def execute(args, row):
             if rpc and row['seam'] == 'simulator':
                 simulator(root, rpc, row['path'])
             module = module_assertion_suite(path) if row['path'] == 'lighting-algebra/adapters/test_adapters.py' else load(path)
-            if args.source == 'live' and row['path'] == 'lighting-algebra/remote/gesture_test.py':
+            if args.source == 'live' and row['path'] in (
+                    'lighting-algebra/remote/gesture_test.py', 'lighting-algebra/remote/test_remote.py'):
                 stage.bind_module_path(module, row['path'], 'ROOT', root / 'lighting-algebra/remote', candidate)
+                if row['path'] == 'lighting-algebra/remote/test_remote.py':
+                    module._parity_event_configs = {'CENTER': module.CENTER, 'DIRECTIONS': module.DIRECTIONS}
+                    for attribute, name in (('CENTER', 'automation_remote_center'), ('DIRECTIONS', 'automation_remote_directions')):
+                        config = json.loads((candidate / (name + '.json')).read_text())
+                        assert isinstance(config, dict) and isinstance(config.get('triggers'), list) \
+                            and isinstance(config.get('actions'), list), 'Invalid live remote automation alias: ' + name
+                        setattr(module, attribute, config)
             if rpc and row['seam'] == 'simulator':
                 module_seams(module, row['path'])
             if rpc and row['path'] == ALIASES['input-review']:

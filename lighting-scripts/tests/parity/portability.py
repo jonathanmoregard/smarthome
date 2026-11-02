@@ -25,6 +25,7 @@ LEGACY_SCRIPT_ALIASES = {
 }
 LEGACY_AUTOMATION_ALIASES = {
     'automation_remote_center': 'lighting_jonathan_s_bedroom_remote_center',
+    'automation_remote_directions': 'lighting_jonathan_s_bedroom_remote_directions',
     'gesture_center_bedroom': 'lighting_jonathan_s_bedroom_remote_center',
     'gesture_directions_bedroom': 'lighting_jonathan_s_bedroom_remote_directions',
     'gesture_presets_bedroom': 'lighting_bedroom_remote_preset_arrows',
