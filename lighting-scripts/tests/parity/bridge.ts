@@ -5,7 +5,7 @@ import { readSync, writeSync } from 'node:fs';
 import { StringDecoder } from 'node:string_decoder';
 import { execute, type ExecutionHooks, type ExecutionRequest } from '../../src/runtime/engine.ts';
 import { handlers } from '../../src/runtime/registry.ts';
-import type { ScriptContext, ServiceCall, Snapshot } from '../../src/runtime/context.ts';
+import type { JsonValue, ScriptContext, ServiceCall, Snapshot } from '../../src/runtime/context.ts';
 
 type PathPart = string | number;
 interface Nonfinite { path: PathPart[]; value: 'NaN' | 'Infinity' | '-Infinity' }
@@ -71,7 +71,7 @@ const nativeLog = Math.log;
 function perform(value: unknown): void {
   const previousLog = Math.log;
   try {
-    const request = value as ExecutionRequest & { parityHooks?: 'all' | 'commit'; parityLog?: boolean };
+    const request = value as ExecutionRequest & { parityHooks?: 'all' | 'commit'; parityLog?: boolean; parityReturns?: Record<string, JsonValue> };
     const mathLogCalls: number[] = [];
     Math.log = request.parityLog ? (input: number) => { mathLogCalls.push(input); return nativeLog(input); } : nativeLog;
     let depth = 0;
@@ -113,7 +113,12 @@ function perform(value: unknown): void {
         if (--depth > 0 && request.parityHooks === 'all') callback('after', { service: 'script.' + name, data: args }, ctx);
       },
     } : {};
-    const result = execute(request, handlers, hooks);
+    const requestHandlers = { ...handlers };
+    for (const [name, result] of Object.entries(request.parityReturns ?? {})) {
+      if (name !== 'ls_plan') throw new Error(`Unsupported parity literal return: ${name}`);
+      requestHandlers[name] = () => structuredClone(result);
+    }
+    const result = execute(request, requestHandlers, hooks);
     send({ ...result, ...(request.parityHooks ? { calls: trace } : {}), mathLogCalls });
   } catch (error) {
     send({ error: error instanceof Error ? error.message : String(error) });

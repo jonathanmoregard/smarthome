@@ -15,6 +15,7 @@ import re
 from pathlib import Path
 import subprocess
 import sys
+import types
 import unittest
 from portability import LEGACY, ROOT, Stage, dependencies, live_candidate
 
@@ -64,6 +65,19 @@ def load(path):
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
+    return module
+
+
+def module_assertion_suite(path):
+    """Expose an immutable module-level assertion script as one import outcome."""
+    module = types.ModuleType('parity_original')
+
+    class ModuleAssertions(unittest.TestCase):
+        def test_preserved_module_assertions(self):
+            load(path)
+
+    ModuleAssertions.__module__ = module.__name__
+    module.ModuleAssertions = ModuleAssertions
     return module
 
 
@@ -118,7 +132,7 @@ def observe_equal_assertions():
 
 def execute(args, row):
     dependencies()
-    from adapters import gestures, migration_fixtures, pure_templates, simulator
+    from adapters import gestures, migration_fixtures, module_seams, pure_templates, simulator
     from rpc import Rpc
     with Stage() as stage:
         root = stage.path
@@ -136,13 +150,19 @@ def execute(args, row):
             candidate = live_candidate(root)
             for key in ('LIGHTING_CANDIDATE', 'LIGHTING_CORE_DIR', 'INPUT_CANDIDATE'):
                 os.environ[key] = str(candidate)
+            if row['path'] == ALIASES['input-review']:
+                stage.rewrite_path(root / 'lighting-algebra/simple-effects/candidate', candidate)
+            if row['path'] == 'lighting-algebra/remote/gesture_test.py':
+                stage.rewrite_module_path(row['path'], root / 'lighting-algebra/remote', candidate)
         rpc = Rpc() if args.backend == 'typescript' else None
         try:
             if rpc and row['seam'] == 'unsupported':
                 raise AssertionError('Uncovered TypeScript adapter: ' + row['path'])
             if rpc and row['seam'] == 'simulator':
-                simulator(root, rpc)
-            module = load(path)
+                simulator(root, rpc, row['path'])
+            module = module_assertion_suite(path) if row['path'] == 'lighting-algebra/adapters/test_adapters.py' else load(path)
+            if rpc and row['seam'] == 'simulator':
+                module_seams(module, row['path'])
             if rpc and row['path'] == ALIASES['input-review']:
                 migration_fixtures(module, rpc)
             if args.source == 'live' and row['seam'] == 'pure-template':

@@ -68,6 +68,18 @@ test('native app capture preserves power first and channel record order', async 
   assert.deepEqual(ctx.events.map(e => e.data.op), ['power', 'set']);
   assert.deepEqual(ctx.events[0].data, { op: 'power', area: 'studio', on: true, via: 'app', who: 'person' });
 });
+test('lamp capture ignores contexts owned by running scripts', async () => {
+  const { ctx, invoked } = await driver();
+  (ctx.state as Record<string, unknown>)['script.running'] = {
+    state: 'on', attributes: {}, context: { id: 'script-call' },
+  };
+  ctx.run('automation.lighting_schedule_lamp_change_detector', {
+    trigger: { event: { data: { service: 'turn_on', service_data: { entity_id: 'light.a', brightness: 70 } },
+      context: { id: 'script-call', user_id: 'person' } } },
+  });
+  assert.deepEqual(invoked, []);
+  assert.deepEqual(ctx.events, []);
+});
 test('Candle group observations store fresh actual state before resuming waiting operation', async () => {
   const { ctx, invoked } = await driver(); ctx.put('sensor.ls_effects_runtime', '1');
   ctx.run('automation.effects_candle_group_state', { trigger: { id: 'groups', payload_json: [{ friendly_name: 'fx_candle_active', id: 1100, members: [{ ieee_address: '0xa', endpoint: 1 }] }] } });

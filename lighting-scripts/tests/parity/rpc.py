@@ -68,10 +68,13 @@ class Rpc:
         self.process.stdin.write(json.dumps(encode_numbers(payload) if self.numeric_bridge else payload, allow_nan=False) + '\n')
         self.process.stdin.flush()
 
-    def call(self, name, args=None, snapshot=None, callback=None, callback_mode='all', instrument_log=False):
+    def call(self, name, args=None, snapshot=None, callback=None, callback_mode='all', instrument_log=False,
+             literal_returns=None):
         self.entrypoints.add(name)
         self.requests += 1
         payload = {'script': name, 'args': args or {}, 'snapshot': snapshot or empty_snapshot()}
+        if literal_returns:
+            payload['parityReturns'] = copy.deepcopy(literal_returns)
         if callback:
             assert self.numeric_bridge, 'Synchronous callbacks require the explicit parity bridge'
             payload['parityHooks'] = callback_mode
