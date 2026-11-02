@@ -81,13 +81,15 @@ small `smarthome_script` event. The existing generated files have not been appli
 They replace the corresponding action bodies under the same automation IDs; they
 must not run alongside a second copy of those actions.
 
-The script shims cover dashboard commands. They forward only supplied fields and
-suppress dry-run requests. Existing HA script response calls are **not** compatible
-with these event shims: query/validation clients must use the local JSON-lines RPC
-(`node --experimental-strip-types src/rpc.ts`, with `{script,args,snapshot}`).
-Response clients need migration before cutover; there is no correlated HA response
-bridge yet. The retained infrastructure recovery automation still reads the literal
-HA `effects_catalog`, so keep that catalog aligned with runtime topology until that
+The script shims cover dashboard commands. They forward only supplied fields,
+remain command-only and suppress dry-run requests. A 2026-11-02 audit of all 18
+shimmed entrypoints found no caller outside TypeScript that consumes a response, so
+no correlated HA response bridge or response-client migration is required for
+cutover. Query and validation clients use the local JSON-lines RPC
+(`node --experimental-strip-types src/rpc.ts`, with `{script,args,snapshot}`). Run
+`npm run audit:responses` with the local captures to recheck that boundary. The
+retained infrastructure recovery automation still reads the literal HA
+`effects_catalog`, so keep that catalog aligned with runtime topology until that
 consumer is migrated too.
 
 The three disabled legacy `house_*` automations remain disabled. The wake blueprint

@@ -9,6 +9,7 @@
     "build": "tsc",
     "test": "node --experimental-strip-types --test --experimental-test-isolation=none tests/runtime/*.test.ts",
     "dev": "node scripts/dev.mjs",
+    "audit:responses": "python3 scripts/audit_response_consumers.py",
     "parity": "python3 tests/parity/gate.py",
     "parity:inventory": "python3 tests/parity/run.py --inventory",
     "verify": "npm run check && npm test && npm run parity"
