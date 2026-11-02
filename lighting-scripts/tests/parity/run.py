@@ -45,6 +45,8 @@ def inventory():
             reason = 'Included by preserved remote-ranges/run_gate.py; newer live behavior still needs verification.'
         if name == ALIASES['gestures']:
             seam, classification, reason = 'gestures', 'current-native-regression', '33 native HA gesture cases from the deployed revision.'
+        elif name == 'lighting-algebra/adapters/test_adapters.py':
+            seam = 'module-assertions'
         elif name in (ALIASES['core'], ALIASES['grouping']):
             seam = 'pure-template'
         elif name.startswith('smarthome-remote-20261026/'):
@@ -152,13 +154,18 @@ def execute(args, row):
                 os.environ[key] = str(candidate)
             if row['path'] == ALIASES['input-review']:
                 stage.rewrite_path(root / 'lighting-algebra/simple-effects/candidate', candidate)
+            if row['path'] == 'lighting-algebra/adapters/test_adapters.py':
+                stage.overlay_files('lighting-algebra/adapters', candidate, [
+                    'automation_lighting_schedule_lamp_change_detector.json',
+                    'effects_native_plan.json', 'effects_set.json', 'effects_ui_sync.json',
+                ])
         rpc = Rpc() if args.backend == 'typescript' else None
         try:
             if rpc and row['seam'] == 'unsupported':
                 raise AssertionError('Uncovered TypeScript adapter: ' + row['path'])
-            if rpc and row['seam'] == 'simulator':
+            if rpc and row['seam'] in ('simulator', 'module-assertions'):
                 simulator(root, rpc, row['path'])
-            module = module_assertion_suite(path) if row['path'] == 'lighting-algebra/adapters/test_adapters.py' else load(path)
+            module = module_assertion_suite(path) if row['seam'] == 'module-assertions' else load(path)
             if args.source == 'live' and row['path'] in (
                     'lighting-algebra/remote/gesture_test.py', 'lighting-algebra/remote/test_remote.py'):
                 stage.bind_module_path(module, row['path'], 'ROOT', root / 'lighting-algebra/remote', candidate)
@@ -169,7 +176,7 @@ def execute(args, row):
                         assert isinstance(config, dict) and isinstance(config.get('triggers'), list) \
                             and isinstance(config.get('actions'), list), 'Invalid live remote automation alias: ' + name
                         setattr(module, attribute, config)
-            if rpc and row['seam'] == 'simulator':
+            if rpc and row['seam'] in ('simulator', 'module-assertions'):
                 module_seams(module, row['path'])
             if rpc and row['path'] == ALIASES['input-review']:
                 migration_fixtures(module, rpc)
@@ -223,7 +230,7 @@ def execute(args, row):
             if rpc:
                 print(json.dumps({'backend': 'typescript', 'original': row['path'], 'requests': rpc.requests,
                                   'entrypoints': sorted(rpc.entrypoints), 'differential_comparisons': rpc.comparisons,
-                                  'historical_fixtures': rpc.fixtures,
+                                  'historical_fixtures': rpc.fixtures, 'literal_dependencies': rpc.dependency_calls,
                                   'path_rewrites': len(stage.rewrites)}), flush=True)
                 rpc.close()
 

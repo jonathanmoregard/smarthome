@@ -151,6 +151,19 @@ def simulator(stage, rpc, module_path=None):
     def snapshot(self):
         selected = self.config['effects_catalog']['sequence'][0]['variables']['result']
         assert isinstance(selected, dict), 'Catalog fixture must remain literal data'
+        state = copy.deepcopy(self.state)
+        if module_path == 'lighting-algebra/adapters/test_adapters.py':
+            if 'sensor.effects_controller' in state:
+                state['sensor.ls_effects_runtime'] = copy.deepcopy(state['sensor.effects_controller'])
+            scripts = getattr(self.env.globals.get('states'), 'script', None)
+            if isinstance(scripts, list):
+                for index, item in enumerate(scripts):
+                    context = getattr(item, 'context', None)
+                    assert isinstance(getattr(item, 'state', None), str) and isinstance(getattr(context, 'id', None), str), \
+                        'Adapter running-script state must contain literal state/context values'
+                    state[f'script.parity_running_{index}'] = {
+                        'state': item.state, 'attributes': {}, 'context': {'id': context.id},
+                    }
         runtime_catalog = copy.deepcopy(selected)
         runtime_catalog['baseline_groups'] = self._parity_catalog['baseline_groups']
         runtime_catalog['remotes'] = copy.deepcopy(self._parity_catalog['remotes'])
@@ -158,7 +171,7 @@ def simulator(stage, rpc, module_path=None):
             runtime_catalog['ui_rows'] = self.config['effects_ui_sync']['sequence'][1]['variables']['rows']
         if 'effects_ui_catalog' in self.config:
             runtime_catalog['ui_discovery'] = self.config['effects_ui_catalog']['sequence'][2]['repeat']['for_each']
-        return {'state': copy.deepcopy(self.state), 'areas': self.areas, 'members': self.members,
+        return {'state': state, 'areas': self.areas, 'members': self.members,
                 'now': self.now.isoformat(), 'elapsed': self.elapsed,
                 'catalog': runtime_catalog, **self._parity_extra}
 
@@ -166,7 +179,16 @@ def simulator(stage, rpc, module_path=None):
         self._parity_extra = {key: value for key, value in result.items()
                              if key not in ('state', 'areas', 'members', 'now', 'elapsed', 'catalog')}
         self._parity_catalog = result.get('catalog', self._parity_catalog)
-        self.state, self.areas, self.members = result['state'], result['areas'], result['members']
+        state = copy.deepcopy(result['state'])
+        if module_path == 'lighting-algebra/adapters/test_adapters.py':
+            for entity in [name for name in state if name.startswith('script.parity_running_')]:
+                state.pop(entity)
+            if 'sensor.effects_controller' in self.state:
+                if 'sensor.ls_effects_runtime' in self.state:
+                    state['sensor.ls_effects_runtime'] = copy.deepcopy(self.state['sensor.ls_effects_runtime'])
+                else:
+                    state.pop('sensor.ls_effects_runtime', None)
+        self.state, self.areas, self.members = state, result['areas'], result['members']
         self.now = datetime.fromisoformat(result['now'])
         self.elapsed = result.get('elapsed', self.elapsed)
 
@@ -187,7 +209,7 @@ def simulator(stage, rpc, module_path=None):
             return copy.deepcopy(step['result'])
         if name == 'ls_commit':
             self.advance(.000001)
-        literal_returns = None
+        literal_dependencies = None
         if module_path == 'lighting-algebra/adapters/test_adapters.py' and name == 'effects_set':
             sequence = self.config['ls_apply']['sequence']
             assert len(sequence) == 2 and set(sequence[0]) == {'variables'} \
@@ -198,7 +220,7 @@ def simulator(stage, rpc, module_path=None):
             assert isinstance(result, dict) and set(result) == {'plan'} \
                 and isinstance(result['plan'], dict) and set(result['plan']) == {'base', 'resolved'}, \
                 'Adapter plan dependency must contain only literal base/resolved data'
-            literal_returns = {'ls_plan': copy.deepcopy(result)}
+            literal_dependencies = {'ls_plan': copy.deepcopy(result)}
         observed_calls, observed_events, observed_scripts = 0, 0, 1
 
         def observe(response):
@@ -291,7 +313,7 @@ def simulator(stage, rpc, module_path=None):
         mode = 'all' if 'service' in self.__dict__ or has_class_service or any(getattr(self, key, None) for key in ('before_service', 'after_service', 'on_publish', 'before_emit', 'after_publish')) else 'commit'
         response = rpc.call(name, args, snapshot(self), callback=callback, callback_mode=mode,
                             instrument_log=self.env.filters['log'] is not math.log,
-                            literal_returns=literal_returns)
+                            literal_dependencies=literal_dependencies)
         restore(self, response['snapshot'])
         observe(response)
         self._parity_last_calls = copy.deepcopy(response.get('calls', []))

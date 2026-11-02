@@ -170,3 +170,13 @@ class Stage:
         setattr(module, attribute, target)
         detail = self.rewrites.get(relative, 'absolute filesystem paths only')
         self.rewrites[relative] = detail + '; selected live module source root'
+
+    def overlay_files(self, relative, source, names):
+        """Materialize an explicit set of normalized live configs in one staged directory."""
+        target = self.path / relative
+        assert target.is_dir(), 'Parity overlay target is missing: ' + str(relative)
+        for name in names:
+            current, staged = Path(source) / name, target / name
+            assert current.is_file() and staged.is_file(), 'Parity overlay file is missing: ' + name
+            shutil.copyfile(current, staged)
+        self.rewrites[str(relative)] = 'selected normalized live config overlay: ' + ','.join(names)

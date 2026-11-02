@@ -67,11 +67,17 @@ function readMessage(): unknown {
 }
 function send(value: unknown): void { writeSync(1, JSON.stringify(encode(value)) + '\n'); }
 const nativeLog = Math.log;
+function isJsonLiteral(value: unknown): value is JsonValue {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every(isJsonLiteral);
+  return typeof value === 'object' && Object.values(value).every(isJsonLiteral);
+}
 
 function perform(value: unknown): void {
   const previousLog = Math.log;
   try {
-    const request = value as ExecutionRequest & { parityHooks?: 'all' | 'commit'; parityLog?: boolean; parityReturns?: Record<string, JsonValue> };
+    const request = value as ExecutionRequest & { parityHooks?: 'all' | 'commit'; parityLog?: boolean; parityDependencies?: Record<string, unknown> };
     const mathLogCalls: number[] = [];
     Math.log = request.parityLog ? (input: number) => { mathLogCalls.push(input); return nativeLog(input); } : nativeLog;
     let depth = 0;
@@ -114,12 +120,14 @@ function perform(value: unknown): void {
       },
     } : {};
     const requestHandlers = { ...handlers };
-    for (const [name, result] of Object.entries(request.parityReturns ?? {})) {
-      if (name !== 'ls_plan') throw new Error(`Unsupported parity literal return: ${name}`);
-      requestHandlers[name] = () => structuredClone(result);
+    const dependencyCalls: string[] = [];
+    for (const [name, result] of Object.entries(request.parityDependencies ?? {})) {
+      if (name !== 'ls_plan') throw new Error(`Unsupported parity literal dependency: ${name}`);
+      if (!isJsonLiteral(result)) throw new Error(`Parity literal dependency is not finite JSON data: ${name}`);
+      requestHandlers[name] = () => { dependencyCalls.push(name); return structuredClone(result); };
     }
     const result = execute(request, requestHandlers, hooks);
-    send({ ...result, ...(request.parityHooks ? { calls: trace } : {}), mathLogCalls });
+    send({ ...result, ...(request.parityHooks ? { calls: trace } : {}), mathLogCalls, dependencyCalls });
   } catch (error) {
     send({ error: error instanceof Error ? error.message : String(error) });
   } finally {

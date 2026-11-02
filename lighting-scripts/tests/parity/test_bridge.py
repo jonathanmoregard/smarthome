@@ -1,6 +1,6 @@
 """Transport regressions: paused callbacks must support nested real execution."""
 import unittest
-from rpc import Rpc, empty_snapshot
+from tests.parity.rpc import Rpc, empty_snapshot
 
 
 class BridgeTests(unittest.TestCase):
@@ -40,6 +40,14 @@ class BridgeTests(unittest.TestCase):
     def test_unknown_entrypoint_fails_explicitly(self):
         with self.assertRaisesRegex(AssertionError, 'Unsupported script: parity_missing'):
             self.rpc.call('parity_missing', {}, empty_snapshot())
+
+    def test_literal_dependency_is_consumed_by_the_real_typescript_caller(self):
+        dependency = {'marker': ['literal', 7]}
+        result = self.rpc.call('ls_apply', {'dry_run': True}, empty_snapshot(),
+                               literal_dependencies={'ls_plan': dependency})
+        self.assertEqual(result['result'], dependency)
+        self.assertEqual(result['dependencyCalls'], ['ls_plan'])
+        self.assertEqual(self.rpc.dependency_calls, ['ls_plan'])
 
 
 if __name__ == '__main__':

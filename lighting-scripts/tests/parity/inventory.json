@@ -18,7 +18,7 @@
     },
     {
       "path": "lighting-algebra/adapters/test_adapters.py",
-      "seam": "simulator",
+      "seam": "module-assertions",
       "classification": "historical-behavior",
       "reason": "Retained assertions; current-source compatibility must be demonstrated by execution."
     },
