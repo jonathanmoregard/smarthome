@@ -7,8 +7,18 @@
 // stay legal, and invalid states stay representable.
 //
 // The legitimate JSON edges are the HA transport, the parity harness RPC and
-// on-disk state -- all under src/runtime or src/live.ts. src/domain is not an
-// edge, and inter-handler calls are not an edge either.
+// on-disk state -- under src/runtime, src/parse or src/live.ts. src/domain is
+// not an edge, and inter-handler calls are not an edge either.
+//
+// Read this honestly: these counts cover src/domain ONLY, so moving a parser
+// into src/parse lowers them without deleting a single `JsonObject`. That is
+// the intended mechanism for criteria 4 through 8 -- the parse layer is the
+// declared boundary and is EXPECTED to grow as the domain empties -- but it
+// means a falling total here is evidence about where JSON lives, not about how
+// much of it there is. Two things therefore do not count as progress: moving a
+// parser to src/parse and leaving its call sites in the domain (the accessor
+// and type counts stay put, correctly), and relocating domain logic that was
+// never a parser just to get it out of this directory.
 //
 // Ceilings ratchet DOWN only. Raising one is the regression this guard exists
 // to catch, so a raise must be argued in the commit message, never done to make
@@ -40,12 +50,22 @@ const DOMAIN = join(ROOT, 'src/domain');
  * handler return types and entity-state reads, and move with criteria 4
  * through 8. A criterion that reduces accessors without reducing types is still
  * making real progress, so the four ratchet independently.
+ *
+ * Criterion 4 cleared the four leaf modules — `scale`, `gradient`, `blocks`,
+ * `frames` — to zero on every count, which is why they no longer appear in the
+ * table at all. `jsonTypes 431 -> 414`, `lenientAccessors 282 -> 277`,
+ * `rawJsonReturns 62 -> 60`. The parsers they used to hold now live in
+ * `src/parse/`, and `isObject`/`object` moved to `src/runtime/parse.ts`. Note
+ * that moving a *definition* out of `src/domain` does not move these counts:
+ * the regexes count call sites and signatures, so the 277 remaining accessor
+ * calls are still in domain code and only fall as each module gets properly
+ * parsed in criteria 5 through 8.
  */
 const CEILINGS = {
-  jsonTypes: 431,
+  jsonTypes: 414,
   validatedBags: 0,
-  lenientAccessors: 282,
-  rawJsonReturns: 62,
+  lenientAccessors: 277,
+  rawJsonReturns: 60,
 };
 
 /** Comments may legitimately name these types while explaining why they are gone. */

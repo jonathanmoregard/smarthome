@@ -1,8 +1,8 @@
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { jinjaTruthy, requireBoolean, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { isObject, jinjaTruthy, object, requireBoolean, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
 import { catalogOf, emptyCatalog } from '../runtime/catalog.ts';
 import { latestRemoteKey, recordTimestamp } from './resolution.ts';
-import { clamp, isObject, object } from './scale.ts';
+import { clamp } from './scale.ts';
 import { list, num } from './schedule.ts';
 
 const numeric = (v: JsonValue | undefined): v is number => typeof v === 'number' && Number.isFinite(v);

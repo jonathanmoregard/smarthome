@@ -1,6 +1,5 @@
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandler, ScriptHandlers } from '../runtime/context.ts';
-import { jinjaString, jinjaTruthy, ParseError, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
-import { isObject, object } from './scale.ts';
+import { isObject, jinjaString, jinjaTruthy, object, ParseError, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
 import { list, nativeScalar, num, timestamp } from './schedule.ts';
 
 const runtime = 'sensor.ls_effects_runtime';

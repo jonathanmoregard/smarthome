@@ -1,10 +1,12 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { JsonObject, JsonValue, ScriptHandlers } from '../runtime/context.ts';
-import { gradientSignature, planGradients, sampleGradient, validGradient } from './gradient.ts';
+import { gradientSignature, sampleGradient } from './gradient.ts';
 import type { GradientCurve } from './gradient.ts';
-import { jinjaTruthy, requireNumber, withParsedArgs } from '../runtime/parse.ts';
-import { anchor, boundedNumber, canonicalColor, clamp, isObject, object, requireRgb, scaleValue, validColor, WARM_END } from './scale.ts';
+import { isObject, jinjaTruthy, object, requireNumber, withParsedArgs } from '../runtime/parse.ts';
+import { boundedNumber, clamp, scaleValue, WARM_END } from './scale.ts';
 import type { RGB, Scaled } from './scale.ts';
+import { planGradients, validGradient } from '../parse/gradient.ts';
+import { anchor, canonicalColor, requireRgb, validColor } from '../parse/scale.ts';
 
 const CHANNELS = ['brightness', 'color'] as const;
 type Channel = typeof CHANNELS[number];

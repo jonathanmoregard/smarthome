@@ -1,7 +1,8 @@
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { ParseError, requireArray, requireBoolean, requireFinite, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
-import { BLOCKS, DEFAULT_BLOCK, isBlock, type Block } from './blocks.ts';
-import { object, isObject, roundEven } from './scale.ts';
+import { isObject, object, ParseError, requireArray, requireBoolean, requireFinite, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { BLOCKS, DEFAULT_BLOCK, type Block } from './blocks.ts';
+import { roundEven } from './scale.ts';
+import { isBlock } from '../parse/blocks.ts';
 
 export const blocks: readonly string[] = BLOCKS;
 export const list = (value: JsonValue | undefined): JsonValue[] =>

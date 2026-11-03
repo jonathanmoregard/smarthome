@@ -1,8 +1,9 @@
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { requireArray, requireBoolean, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
-import { object, requireRgb, WARM_END } from './scale.ts';
+import { object, requireArray, requireBoolean, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { WARM_END } from './scale.ts';
 import { optionalTimestamp } from './schedule.ts';
 import { recordTimestamp } from './resolution.ts';
+import { requireRgb } from '../parse/scale.ts';
 
 const list = (v: JsonValue | undefined): JsonValue[] => Array.isArray(v) ? v : [];
 const rangeDefaults: JsonObject = { bright: [90, 100], cosy: [30, 60] };

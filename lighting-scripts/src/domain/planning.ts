@@ -1,9 +1,9 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { jinjaFloat, jinjaTruthy, requireArray, requireNumber, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
-import { blockOption, DEFAULT_BLOCK, isBlock, optionalBlock } from './blocks.ts';
-import { object, isObject } from './scale.ts';
+import { isObject, jinjaFloat, jinjaTruthy, object, requireArray, requireNumber, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { blockOption, DEFAULT_BLOCK } from './blocks.ts';
 import { blocks, hasValue, isRemote, labelled, latestRemote, list, nextMidnight, optionalTimestamp, privateRooms, profile, timestamp } from './schedule.ts';
+import { isBlock, optionalBlock } from '../parse/blocks.ts';
 
 const cacheVersion = 'db7981f72ee868e8d33ff1481dffb34e5e26570e8bf949a3cb2c505d7c3f37e1:input-processors-v1:preset-stream-v1';
 type Dependencies = {

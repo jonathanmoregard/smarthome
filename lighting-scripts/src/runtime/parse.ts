@@ -17,6 +17,31 @@
  */
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandler } from './context.ts';
 
+/**
+ * Is this value a JSON mapping? Arrays and `null` are not, which is the
+ * distinction Jinja draws too.
+ *
+ * Lives here rather than in `domain/scale.ts`, where it used to: its signature
+ * names `JsonObject`, so it is a parse-layer tool by the definition this
+ * mission works to. The domain reads parsed types and has no business asking
+ * whether something is a mapping.
+ */
+export function isObject(value: unknown): value is JsonObject {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * The lenient mapping read: a non-mapping becomes `{}` rather than raising.
+ *
+ * This is deliberately *not* a parser — it discards the distinction between
+ * "absent" and "present but wrong", which is why its presence in domain logic
+ * is the signal that the data was never parsed. Prefer {@link requireObject},
+ * which names the context and raises as the oracle does. `object` exists for
+ * the captured sites that genuinely spell `.get(key, {})`, and the `json-edges`
+ * guard counts every remaining call so they cannot multiply.
+ */
+export function object(value: unknown): JsonObject { return isObject(value) ? value : {}; }
+
 /** Python `float(str)` grammar: no hex, no thousands separators, inf/nan allowed. */
 const PYTHON_FLOAT = /^[+-]?(?:(?:\d(?:_?\d)*)?\.?(?:\d(?:_?\d)*)(?:[eE][+-]?\d(?:_?\d)*)?|(?:\d(?:_?\d)*)\.(?:\d(?:_?\d)*)?(?:[eE][+-]?\d(?:_?\d)*)?|inf(?:inity)?|nan)$/i;
 /** Python `int(str, 10)` grammar: digits only, so `"1e3"` and `"0x10"` fail here. */

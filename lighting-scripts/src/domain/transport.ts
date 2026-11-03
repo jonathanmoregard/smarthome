@@ -1,9 +1,10 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { JsonObject, JsonValue, OutputGuard, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { jinjaFloat, jinjaTruthy, requireArray, requireNumber, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { jinjaFloat, jinjaTruthy, object, requireArray, requireNumber, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
 import { catalogOf } from '../runtime/catalog.ts';
-import { object, roundEven, clamp, requireRgb } from './scale.ts';
+import { roundEven, clamp } from './scale.ts';
 import { recordTimestamp } from './resolution.ts';
+import { requireRgb } from '../parse/scale.ts';
 
 const list = (v: JsonValue | undefined): JsonValue[] => Array.isArray(v) ? v : [];
 const strings = (v: JsonValue | undefined): string[] => list(v).filter((x): x is string => typeof x === 'string');

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { anchor, canonicalColor, colorShape, requireRgb, scaleValue } from '../../src/domain/scale.ts';
+import { scaleValue } from '../../src/domain/scale.ts';
+import { anchor, canonicalColor, colorShape, requireRgb } from '../../src/parse/scale.ts';
 import { ParseError } from '../../src/runtime/parse.ts';
 
 /**

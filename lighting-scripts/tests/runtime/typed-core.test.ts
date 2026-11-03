@@ -10,7 +10,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { optionalBoolean, optionalFinite, parseFinite, ParseError, parsePythonNumeric, requireBoolean, requireFinite } from '../../src/runtime/parse.ts';
-import { blockOption, BLOCKS, DEFAULT_BLOCK, isBlock, optionalBlock, requireBlock } from '../../src/domain/blocks.ts';
+import { blockOption, BLOCKS, DEFAULT_BLOCK } from '../../src/domain/blocks.ts';
+import { isBlock, optionalBlock, requireBlock } from '../../src/parse/blocks.ts';
 
 test('parseFinite uses Python float grammar, not JavaScript Number', () => {
   // The divergence that motivates a shared parser: JavaScript reads hex,

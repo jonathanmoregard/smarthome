@@ -1,6 +1,5 @@
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { jinjaInt, ParseError, requireString, withParsedArgs } from '../runtime/parse.ts';
-import { isObject } from './scale.ts';
+import { isObject, jinjaInt, ParseError, requireString, withParsedArgs } from '../runtime/parse.ts';
 
 const presets = [200, 285, 370, 454, 588];
 const directions = ['left', 'right', 'up', 'down'];

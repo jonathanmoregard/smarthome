@@ -1,4 +1,10 @@
-import type { JsonObject, JsonValue } from '../runtime/context.ts';
+/**
+ * The scaling algebra: fixed Day/Cosy/Night anchors interpolated by position.
+ *
+ * Pure domain. Nothing here takes or returns JSON — the parsers that turn a
+ * document into an {@link Anchor} or {@link Color} live in `src/parse/scale.ts`,
+ * and `isObject`/`object` moved to `src/runtime/parse.ts`.
+ */
 import { ParseError } from '../runtime/parse.ts';
 
 export type RGB = [number, number, number];
@@ -8,10 +14,6 @@ export type Scaled = Anchor & { position: number };
 export const WARM_END: RGB = [255, 126, 0];
 export const CROSSOVER: Color = { rgb: [255, 134, 7] };
 
-export function isObject(value: unknown): value is JsonObject {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-export function object(value: unknown): JsonObject { return isObject(value) ? value : {}; }
 export function boundedNumber(value: unknown): value is number {
   return typeof value === 'number' && value > -1e20 && value < 1e20;
 }
@@ -24,60 +26,50 @@ export function roundEven(value: number): number {
   const remainder = value - lower;
   return remainder === 0.5 ? (lower % 2 === 0 ? lower : lower + 1) : Math.round(value);
 }
-/**
- * Shape of a `Color` without imposing any call-site's kelvin range — exactly
- * one of `kelvin` or `rgb`, carrying finite numbers. {@link validColor} keeps
- * the stricter range-checking contract its own callers rely on.
- */
-export function colorShape(value: unknown): value is Color {
-  if (!isObject(value)) return false;
-  if ('kelvin' in value) return !('rgb' in value) && boundedNumber(value.kelvin);
-  return Array.isArray(value.rgb) && value.rgb.length === 3 && value.rgb.every(boundedNumber);
+/** Message shared with `parse/scale.ts`, so a raise reads the same wherever it fires. */
+export const COLOR_SHAPE_MESSAGE = 'color must be {kelvin} or {rgb:[r,g,b]} with finite numbers, got ';
+
+/** Does an already-typed `Color` carry finite numbers? */
+export function finiteColor(color: Color): boolean {
+  return color.kelvin !== undefined ? boundedNumber(color.kelvin) : color.rgb.every(boundedNumber);
 }
+
 /**
- * Parse a color instead of asserting one.
+ * Copy a `Color`, raising if its numbers are not finite.
  *
- * The deployed Jinja reads these values raw — all 52 `day.brightness` /
- * `cosy.brightness` reads in the captured source apply no filter — so the
- * oracle raises `TypeError` on a malformed value. Casting here used to let
- * JavaScript coerce instead: `canonicalColor({kelvin: 'hot'})` returned a
- * `Color` whose `kelvin` was a string, and `canonicalColor({})` threw an
- * opaque `TypeError: c.rgb is not iterable`. Both now fail as a named
- * `ParseError`, which is what the oracle does.
+ * This replaces the in-domain calls to `canonicalColor`, which used to sit here
+ * and took an unparsed value. The copy matters (callers must not alias an anchor's
+ * colour) but **so does the raise, and it is not dead code**: a non-finite
+ * position reaches it. `clamp(NaN, -2, 2)` is `NaN`, because `Math.max`/
+ * `Math.min` propagate it, so no branch of {@link scaleValue} matches, and
+ * `mixColor(..., NaN)` yields `{kelvin: NaN}`. Both call sites happen to be
+ * NaN-proof today — `resolution.ts:201` guards with `boundedNumber(p)` and
+ * `effects_scale` parses `position` with `requireNumber`, which rejects
+ * non-finite — but swapping this for a bare copy would delete the guard that
+ * keeps `NaN` out of an MQTT payload, so the raise is kept deliberately rather
+ * than by inertia.
  */
-export function canonicalColor(color: JsonValue | undefined): Color {
-  if (!colorShape(color)) {
-    throw new ParseError(`color must be {kelvin} or {rgb:[r,g,b]} with finite numbers, got ${JSON.stringify(color) ?? 'undefined'}`);
+export function copyColor(color: Color): Color {
+  if (!finiteColor(color)) {
+    throw new ParseError(`${COLOR_SHAPE_MESSAGE}${JSON.stringify(color) ?? 'undefined'}`);
   }
-  return color.kelvin !== undefined ? { kelvin: color.kelvin } : { rgb: [...color.rgb as RGB] };
+  return color.kelvin !== undefined ? { kelvin: color.kelvin } : { rgb: [...color.rgb] };
 }
+/** Message shared with `parse/scale.ts`, so a raise reads the same wherever it fires. */
+export const ANCHOR_BRIGHTNESS_MESSAGE = 'anchor.brightness must be a finite number, got ';
+
 /**
- * Parse an anchor instead of asserting one. A brightness arriving as the
- * string `"80"` previously kept its string type under a `number` declaration,
- * which made {@link scaleValue} return 255 at position 0.5 and NaN below zero.
+ * Copy an `Anchor`, raising if its numbers are not finite. The domain-typed
+ * counterpart of `parse/scale.ts`'s `anchor()`, for the places that already
+ * hold an `Anchor` and need an unaliased one — `compileGradient` stores its
+ * anchors in a persisted curve, so it must not keep a reference to its
+ * caller's.
  */
-export function anchor(value: JsonValue | undefined): Anchor {
-  const a = object(value);
+export function copyAnchor(a: Anchor): Anchor {
   if (!boundedNumber(a.brightness)) {
-    throw new ParseError(`anchor.brightness must be a finite number, got ${JSON.stringify(a.brightness) ?? 'undefined'}`);
+    throw new ParseError(`${ANCHOR_BRIGHTNESS_MESSAGE}${JSON.stringify(a.brightness) ?? 'undefined'}`);
   }
-  return { brightness: a.brightness, color: canonicalColor(a.color) };
-}
-export function validColor(color: unknown, minimum = 1000, maximum = 10000): color is Color {
-  if (!isObject(color)) return false;
-  if ('kelvin' in color && !('rgb' in color)) {
-    return typeof color.kelvin === 'number' && color.kelvin >= minimum && color.kelvin <= maximum;
-  }
-  return !('kelvin' in color) && Array.isArray(color.rgb) && color.rgb.length === 3 &&
-    color.rgb.every(v => typeof v === 'number' && v >= 0 && v <= 255);
-}
-/** Parse an `[r,g,b]` triple. The captured source reads `warm_end` raw, so the oracle raises on anything else. */
-export function requireRgb(value: JsonValue | undefined, context = 'rgb'): RGB {
-  if (Array.isArray(value) && value.length === 3) {
-    const [r, g, b] = value;
-    if (boundedNumber(r) && boundedNumber(g) && boundedNumber(b)) return [r, g, b];
-  }
-  throw new ParseError(`${context} must be [r, g, b] with finite numbers, got ${JSON.stringify(value) ?? 'undefined'}`);
+  return { brightness: a.brightness, color: copyColor(a.color) };
 }
 export function rgbValue(color: Color): RGB {
   if (color.rgb) return [...color.rgb];
@@ -88,8 +80,8 @@ export function rgbValue(color: Color): RGB {
   return [roundEven(clamp(r, 0, 255)), roundEven(clamp(g, 0, 255)), roundEven(clamp(b, 0, 255))];
 }
 export function mixColor(a: Color, b: Color, amount: number): Color {
-  if (amount <= 0) return canonicalColor(a);
-  if (amount >= 1) return canonicalColor(b);
+  if (amount <= 0) return copyColor(a);
+  if (amount >= 1) return copyColor(b);
   if (a.kelvin !== undefined && b.kelvin !== undefined) return { kelvin: a.kelvin + (b.kelvin - a.kelvin) * amount };
   const x = rgbValue(a), y = rgbValue(b);
   return { rgb: [0, 1, 2].map(i => roundEven(x[i]! + (y[i]! - x[i]!) * amount)) as RGB };
@@ -114,5 +106,5 @@ export function scaleValue(day: Anchor, cosy: Anchor, position: number, warmEnd:
         ? { kelvin: cosy.color.kelvin + (1950 - cosy.color.kelvin) * -p }
         : mixColor(cosy.color, CROSSOVER, -p);
   }
-  return { brightness: clamp(brightness, 0, 255), color: canonicalColor(color), position: p };
+  return { brightness: clamp(brightness, 0, 255), color: copyColor(color), position: p };
 }

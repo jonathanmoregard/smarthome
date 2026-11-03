@@ -1,6 +1,5 @@
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { jinjaFloat, jinjaInt, jinjaString, jinjaTruthy, ParseError, requireArray, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
-import { isObject, object } from './scale.ts';
+import { isObject, jinjaFloat, jinjaInt, jinjaString, jinjaTruthy, object, ParseError, requireArray, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
 import { recordTimestamp } from './resolution.ts';
 import { isAreaId, labelled, privateRooms } from './schedule.ts';
 

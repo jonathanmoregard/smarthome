@@ -1,7 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { jinjaTruthy, ParseError, requireArray, requireBoolean, requireNumber, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
-import { object, isObject } from './scale.ts';
+import { isObject, jinjaTruthy, object, ParseError, requireArray, requireBoolean, requireNumber, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
 import { hasValue, list, strings, timestamp } from './schedule.ts';
 
 const runtime = 'sensor.ls_effects_runtime';

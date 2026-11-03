@@ -1,6 +1,6 @@
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { jinjaFloat, jinjaInt, jinjaString, jinjaTruthy, ParseError, parsePythonNumeric, requireArray, requireNumber, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
-import { object, rgbValue, roundEven } from './scale.ts';
+import { jinjaFloat, jinjaInt, jinjaString, jinjaTruthy, object, ParseError, parsePythonNumeric, requireArray, requireNumber, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { rgbValue, roundEven } from './scale.ts';
 import type { RGB } from './scale.ts';
 import { recordTimestamp } from './resolution.ts';
 
