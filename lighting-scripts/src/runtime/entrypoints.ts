@@ -3,6 +3,7 @@ import { resultCodecs } from '../parse/results.ts';
 import type { SwitchPlanResult } from '../domain/controller.ts';
 import type { ResolutionResult } from '../domain/resolution.ts';
 import type { GradientPlanResult } from '../domain/gradient.ts';
+import type { AssignResult, EmitResult } from '../domain/transport.ts';
 
 /**
  * The typed result of each converted internal entrypoint, keyed by the script
@@ -26,6 +27,8 @@ export interface TypedResults {
   ls_switch_plan: SwitchPlanResult;
   effects_resolve: ResolutionResult;
   effects_gradient_plan: GradientPlanResult;
+  effects_emit: EmitResult;
+  effects_assign: AssignResult;
 }
 
 export type TypedName = keyof TypedResults;

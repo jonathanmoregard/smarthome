@@ -86,12 +86,29 @@ const DOMAIN = join(ROOT, 'src/domain');
  * therefore a LOWER BOUND on the handler boundary, and converting an
  * unannotated handler shows up only in the accessor column. Do not widen the
  * regex to fix this: that would raise every count and read as a regression.
+ *
+ * `effects_emit` and `effects_assign` move all three live columns —
+ * `jsonTypes 408 -> 407`, `lenientAccessors 257 -> 255`,
+ * `rawJsonReturns 56 -> 54` — because both were annotated `): JsonObject` and
+ * `emitCommands` builds its whole result (`{published_at, completed}`) from
+ * what this call published, so its type adds no JSON token back.
+ *
+ * **The selection rule that fell out of these five conversions, and the reason
+ * the next ones are not in this order:** an entrypoint pays off here only when
+ * its result is CONSTRUCTED. Where the result is mostly passthrough of an
+ * unparsed document, its type has to keep saying `JsonObject` to stay lossless,
+ * so converting it ADDS tokens here while removing accessors elsewhere.
+ * `effects_candle_plan` is the measured example: `lamps`, `actual`, `members`
+ * and `remove` are all raw HA attribute data, so its result type costs ~5
+ * tokens to save ~5 accessor calls. Those entrypoints wait for criteria 6/7 to
+ * parse the underlying data first; converting them now would need a ceiling
+ * raise to show no real progress.
  */
 const CEILINGS = {
-  jsonTypes: 408,
+  jsonTypes: 407,
   validatedBags: 0,
-  lenientAccessors: 257,
-  rawJsonReturns: 56,
+  lenientAccessors: 255,
+  rawJsonReturns: 54,
 };
 
 /** Comments may legitimately name these types while explaining why they are gone. */

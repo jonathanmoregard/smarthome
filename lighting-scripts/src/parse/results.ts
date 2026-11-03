@@ -1,6 +1,7 @@
 import type { JsonValue } from '../runtime/context.ts';
 import type { TypedResults } from '../runtime/entrypoints.ts';
 import type { SwitchDecision, SwitchPlanResult } from '../domain/controller.ts';
+import type { AssignResult, EmitResult } from '../domain/transport.ts';
 import { ParseError, requireArray, requireBoolean, requireFinite, requireNumber, requireObject, requireString } from '../runtime/parse.ts';
 
 /**
@@ -65,6 +66,22 @@ function decodeSwitchPlan(value: JsonValue, context: string): SwitchPlanResult {
   };
 }
 
+function decodeEmit(value: JsonValue, context: string): EmitResult {
+  const result = requireObject({ value }, 'value', context);
+  const published = requireArray(result, 'published_at', context);
+  return {
+    published_at: published.map((at, index) => requireFinite(at, `${context}.published_at.${index}`)),
+    completed: requireBoolean(result.completed, `${context}.completed`),
+  };
+}
+
+/** `generation` must be *present* and may legitimately be null; it is raw. */
+function decodeAssign(value: JsonValue, context: string): AssignResult {
+  const result = requireObject({ value }, 'value', context);
+  if (!Object.hasOwn(result, 'generation')) throw new ParseError(`${context}.generation must be present, got undefined`);
+  return { generation: result.generation ?? null };
+}
+
 /**
  * One codec per converted entrypoint.
  *
@@ -82,4 +99,9 @@ export const resultCodecs: { [K in keyof TypedResults]: ResultCodec<TypedResults
   // No decoder, for the opposite reason: `GradientCurve` is a deep structure
   // and its only JSON stub is `{gradients: {}}`.
   effects_gradient_plan: { encode: result => result },
+  // Decoders: both results are small and flat, and `ls_dispatch` reads every
+  // field of them, so a drifted stub here would corrupt a dispatch rather than
+  // fail loudly.
+  effects_emit: { encode: result => result, decode: decodeEmit },
+  effects_assign: { encode: result => result, decode: decodeAssign },
 };

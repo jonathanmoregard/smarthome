@@ -2,6 +2,7 @@ import { isDeepStrictEqual } from 'node:util';
 import type { JsonObject, JsonValue, OutputGuard, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
 import { jinjaFloat, jinjaTruthy, object, requireArray, requireNumber, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
 import { catalogOf } from '../runtime/catalog.ts';
+import { typed } from '../runtime/entrypoints.ts';
 import { roundEven, clamp } from './scale.ts';
 import { recordTimestamp } from './resolution.ts';
 import { requireRgb } from '../parse/scale.ts';
@@ -225,7 +226,22 @@ export function framePlan(ctx: ScriptContext, args: FramePlanArgs): JsonValue {
   return ctx.run('effects_group_plan', { rows, groups: catalog.multicast() });
 }
 
-export function emitCommands(ctx: ScriptContext, args: EmitArgs): JsonObject {
+/**
+ * `effects_emit`'s result. Both fields are built here from the publishes this
+ * call made, so nothing is passed through and the type is lossless.
+ */
+export type EmitResult = { published_at: number[]; completed: boolean };
+/**
+ * `effects_assign`'s result.
+ *
+ * `generation` stays a `JsonValue` deliberately: it is the runtime sensor's own
+ * attribute, read raw and handed back raw, and `ls_dispatch` compares it with
+ * `!==` against the same attribute. Narrowing it to a string would be a
+ * projection of a value the gate compares.
+ */
+export type AssignResult = { generation: JsonValue };
+
+export function emitCommands(ctx: ScriptContext, args: EmitArgs): EmitResult {
   const revision = args.revision, generation = args.generation;
   let completed = true;
   const published: number[] = [];
@@ -250,7 +266,7 @@ export function emitCommands(ctx: ScriptContext, args: EmitArgs): JsonObject {
   return { published_at: published, completed: completed && revision === revisionNow(ctx) && generation === ctx.attr(runtime, 'generation') };
 }
 
-export function assignEffects(ctx: ScriptContext, args: AssignArgs): JsonObject {
+export function assignEffects(ctx: ScriptContext, args: AssignArgs): AssignResult {
   if (args.revision !== revisionNow(ctx)) return { generation: ctx.attr(runtime, 'generation') ?? null };
   const details = args.details();
   const targets = details.targets, assignments = details.assignments;
@@ -285,7 +301,7 @@ export function assignEffects(ctx: ScriptContext, args: AssignArgs): JsonObject 
           payload: { effect }, members: [member], owners: [lamp], group: false });
       }
     }
-    ctx.run('effects_emit', { commands, revision: args.revision, generation });
+    ctx.call('effects_emit', { commands, revision: args.revision, generation });
   }
   if (Object.keys(assignments).length) ctx.emit('script.turn_on', {}, { entity_id: 'script.effects_engine' });
   return { generation: ctx.attr(runtime, 'generation') ?? null };
@@ -328,7 +344,7 @@ export function engineTick(ctx: ScriptContext, args: EngineTickArgs): JsonValue 
       if (age < oldest) { chosen = command; oldest = age; }
     }
     if (chosen) {
-      ctx.run('effects_emit', { commands: [chosen], revision, generation, effect_targets: targets });
+      ctx.call('effects_emit', { commands: [chosen], revision, generation, effect_targets: targets });
       admission++;
       for (const member of strings(chosen.members)) served[member] = admission;
     }
@@ -372,7 +388,7 @@ export const transportHandlers: ScriptHandlers = {
   // sites); `effect_targets` is raw twice with one `| default({})` fallback.
   // Nested payload/owners/members/topic are raw (2/2/1/1), so commands get a
   // strict object/string-array/string parser rather than permissive casts.
-  effects_emit: withParsedArgs({
+  effects_emit: typed('effects_emit', {
     parse: args => ({
       commands: parseEmitCommands(args),
       revision: requireString(args, 'revision', 'effects_emit'),
@@ -387,7 +403,7 @@ export const transportHandlers: ScriptHandlers = {
   // times with one runtime-attribute default. Nested is_room/kind are raw once,
   // effect five times, owners twice, brightness/color once, and updated twice;
   // typed target views parse those fields without altering persisted targets.
-  effects_assign: withParsedArgs({
+  effects_assign: typed('effects_assign', {
     parse: args => ({
       revision: requireString(args, 'revision', 'effects_assign'),
       // The captured stale-revision stop precedes every other argument read.

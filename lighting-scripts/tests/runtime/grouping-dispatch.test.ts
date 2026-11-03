@@ -44,7 +44,11 @@ test('dispatch marks applied only with an output-success fence after completed e
 
 test('dispatch rejects a non-boolean emission completion flag', async () => {
   const registry = await handlers();
-  registry.effects_emit = () => ({ completed: [] });
+  // `published_at` is stated because `emitCommands` always returns it: the
+  // result decoder stands in for the reads `ls_dispatch` used to do itself, so
+  // an incomplete stub now fails on the missing field instead of on the one the
+  // test is about.
+  registry.effects_emit = () => ({ completed: [], published_at: [] });
   assert.throws(() => execute({ script: 'ls_dispatch', args: { plan: plan() }, snapshot: snapshot() }, registry), /must be true or false/);
 });
 

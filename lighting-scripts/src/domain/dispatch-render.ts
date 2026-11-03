@@ -118,12 +118,16 @@ export function dispatch(ctx: ScriptContext, args: DispatchArgs): JsonValue {
     if (!(requested.includes(lamp) || remoteRooms.includes(target.area ?? null) || baselineSend(base, lamp))) continue;
     if (requested.includes(lamp) || (Object.hasOwn(previousEffects, lamp) && !Object.hasOwn(assignments, lamp)) || !isDeepStrictEqual(target.raw, previous[lamp])) ordinary[lamp] = target.raw;
   }
-  const assigned = object(ctx.run('effects_assign', { targets, assignments, revision, invalidate: Object.keys(ordinary), plan_order: args.planOrder }));
+  const assigned = ctx.call('effects_assign', { targets, assignments, revision, invalidate: Object.keys(ordinary), plan_order: args.planOrder });
   const batch = object(ctx.run('effects_frame_plan', { targets: ordinary, catalog, timestamp: timestamp(ctx.now),
     transition_cap: remote || remoteRooms.length ? 0.5 : null, transition_rooms: remote ? null : remoteRooms }));
-  const emission = object(ctx.run('effects_emit', { commands: batch.commands ?? [], revision, generation: assigned.generation ?? null }));
-  const completed = requireBoolean(emission.completed, 'ls_dispatch.emission.completed');
-  const generation = assigned.generation ?? null;
+  const emission = ctx.call('effects_emit', { commands: batch.commands ?? [], revision, generation: assigned.generation });
+  // `requireBoolean(emission.completed)`, `?? null` on the generation and
+  // `?? []` on published_at are all gone: `emitCommands` builds both fields
+  // every time and `assignEffects` already normalises an absent generation to
+  // null, so none of the three could fire for the real handlers.
+  const completed = emission.completed;
+  const generation = assigned.generation;
   if (revision !== revisionOf(ctx) || generation !== ctx.attr(runtime, 'generation')) return null;
   if (Object.keys(ordinary).length && completed) {
     ctx.emit('variable.update_sensor', { value: generation, replace_attributes: false,
@@ -143,7 +147,7 @@ export function dispatch(ctx: ScriptContext, args: DispatchArgs): JsonValue {
   if (saraMirror === 'on' || saraMirror === 'off') ctx.emit(`input_boolean.turn_${saraMirror}`, {}, { entity_id: 'input_boolean.ls_sara_mode_mirror' }, { revision, generation });
   const parsedStaleKeys = staleKeys();
   if (parsedStaleKeys.length) ctx.fire('ls_override', { op: 'clear', keys: parsedStaleKeys, via: 'rule_next_block', expected_revision: revision });
-  return { completed: completed && revision === revisionOf(ctx) && generation === ctx.attr(runtime, 'generation'), published_at: emission.published_at ?? [] };
+  return { completed: completed && revision === revisionOf(ctx) && generation === ctx.attr(runtime, 'generation'), published_at: emission.published_at };
 }
 
 /** Coalesce pending room versions, preserving unrelated rooms and retrying incomplete output. */
