@@ -1,4 +1,4 @@
-import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
+import type { JsonObject, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
 import { isObject, jinjaInt, ParseError, requireString, withParsedArgs } from '../runtime/parse.ts';
 
 const presets = [200, 285, 370, 454, 588];
@@ -52,7 +52,7 @@ function parseGestureArgs(args: JsonObject): GestureArgs {
 }
 
 /** Serialized actor. It never waits for actuator services or the power quiet window. */
-export function remoteGesture(ctx: ScriptContext, args: GestureArgs): JsonValue {
+export function remoteGesture(ctx: ScriptContext, args: GestureArgs): null {
   const room = args.room;
   let command = args.command;
   if (!accepted.includes(command)) return null;

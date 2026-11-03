@@ -108,12 +108,26 @@ const DOMAIN = join(ROOT, 'src/domain');
  * say what the handler really answers (`null` for a stale plan; `{accepted:
  * false}` for a stale revision): `jsonTypes 407 -> 405`,
  * `lenientAccessors 255 -> 254`, `rawJsonReturns 54 -> 52`.
+ *
+ * **The seam is not required to type a result, and eight handlers prove it.**
+ * `typed()` exists so a CALLER can read a real type; where nothing internal
+ * consumes the result, the whole of criterion 8 is the return annotation. Eight
+ * such handlers went over in one pass -- `effects_ui_sync`'s messages and
+ * `ls_range_save`'s rule are constructed, and `ls_store`, `ls_render`,
+ * `effects_engine`, `effects_engine_tick`, `ls_remote_gesture` and
+ * `effects_set` answer `null` or an already-named `ControlPlan` on every path.
+ * `jsonTypes 405 -> 393`, `lenientAccessors 254 -> 253`,
+ * `rawJsonReturns 52 -> 44`: eight raw returns for eight signatures, and the
+ * biggest single movement in this mission so far, at no seam cost and with no
+ * call site touched. Read THE SELECTION RULE above together with this: the
+ * question is whether the result is constructed, NOT whether it goes through
+ * `typed()`.
  */
 const CEILINGS = {
-  jsonTypes: 405,
+  jsonTypes: 393,
   validatedBags: 0,
-  lenientAccessors: 254,
-  rawJsonReturns: 52,
+  lenientAccessors: 253,
+  rawJsonReturns: 44,
 };
 
 /** Comments may legitimately name these types while explaining why they are gone. */

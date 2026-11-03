@@ -313,14 +313,14 @@ function engineActive(ctx: ScriptContext): boolean {
 }
 
 /** A continuation replaces HA's blocking delay without holding the input queue. */
-export function startEngine(ctx: ScriptContext): JsonValue {
+export function startEngine(ctx: ScriptContext): null {
   if (engineActive(ctx) && !(ctx.scheduled ?? []).some(task => task.script === tickScript)) {
     ctx.schedule(tickScript, { served: {}, admission: 0, catalog: ctx.run('effects_catalog') }, 200);
   }
   return null;
 }
 
-export function engineTick(ctx: ScriptContext, args: EngineTickArgs): JsonValue {
+export function engineTick(ctx: ScriptContext, args: EngineTickArgs): null {
   if (!engineActive(ctx)) return null;
   // Runtime topology may change without restarting the actor or its fairness state.
   const served = { ...args.served }, catalog = object(ctx.run('effects_catalog'));

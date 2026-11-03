@@ -159,7 +159,7 @@ export function dispatch(ctx: ScriptContext, args: DispatchArgs): DispatchResult
 }
 
 /** Coalesce pending room versions, preserving unrelated rooms and retrying incomplete output. */
-export function render(ctx: ScriptContext): JsonValue {
+export function render(ctx: ScriptContext): null {
   const started = timestamp(ctx.now), revision = revisionOf(ctx);
   const received = ctx.attr(overrideSensor, 'received_at') ?? null, request = ctx.attr(overrideSensor, 'last_request') ?? null;
   const pending = object(ctx.attr(overrideSensor, 'pending_rooms')), handled = object(ctx.attr(runtime, 'handled_rooms'));

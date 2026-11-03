@@ -349,7 +349,8 @@ function cachedProfile(ctx: ScriptContext, entity: string): JsonObject {
   return parsed;
 }
 
-export function storeProfile(ctx: ScriptContext, args: StoreProfileArgs): JsonValue {
+/** Writes the profile store and answers nothing; every path returns null. */
+export function storeProfile(ctx: ScriptContext, args: StoreProfileArgs): null {
   const entity = args.entity;
   const current = cachedProfile(ctx, entity);
   const effects = object(object(ctx.run('effects_catalog')).effects);

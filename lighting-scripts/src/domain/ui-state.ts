@@ -37,17 +37,26 @@ function optionalAttributeArray(value: JsonValue | undefined, context: string): 
   return requireArray({ value }, 'value', context);
 }
 
-export function uiMessages(ctx: ScriptContext, force: boolean): JsonObject[] {
+/**
+ * One MQTT message for the UI proxy. Both fields are built here -- the topic
+ * only after the row's topics mapping is proved to hold a string for the
+ * channel, the payload formatted from locals -- so nothing is passed through
+ * from an input document and the published bytes cannot drift from the type.
+ */
+export type UiMessage = { topic: string; payload: string };
+
+export function uiMessages(ctx: ScriptContext, force: boolean): UiMessage[] {
   const targets = object(ctx.attr('sensor.ls_effects_runtime', 'targets'));
   const assignments = object(ctx.attr('sensor.ls_effects_runtime', 'assignments'));
-  const messages: JsonObject[] = [];
+  const messages: UiMessage[] = [];
   for (const raw of rows(ctx, 'ui_rows')) {
     const row = object(raw), source = String(row.source), proxy = String(row.proxy);
     const store = optionalStoreId(row.store, 'effects_ui_sync.row.store');
     const members = strings(row.members), topics = object(row.topics);
     const append = (channel: string, payload: string) => {
-      if (typeof topics[channel] !== 'string') throw Error(`UI row has no ${channel} topic: ${source}`);
-      messages.push({ topic: topics[channel], payload });
+      const topic = topics[channel];
+      if (typeof topic !== 'string') throw Error(`UI row has no ${channel} topic: ${source}`);
+      messages.push({ topic, payload });
     };
     const available = ['on', 'off'].includes(ctx.get(source));
     if (force || available !== ['on', 'off'].includes(ctx.get(proxy))) append('availability', available ? 'online' : 'offline');
@@ -124,7 +133,20 @@ function uiCatalog(ctx: ScriptContext): null {
   }
   return null;
 }
-export function rangeSave(ctx: ScriptContext, args: JsonObject): JsonObject {
+/**
+ * One switch's stored range rule. `min`/`max` are present only for the
+ * `custom` profile, and this object is serialised into compared JSON, so an
+ * absent bound must stay absent rather than become an explicit null.
+ */
+export type RangeConfig = { profile: string; min?: number; max?: number };
+export type RangeSaveResult = {
+  valid: boolean;
+  errors: string[];
+  entity: string;
+  config: RangeConfig;
+};
+
+export function rangeSave(ctx: ScriptContext, args: JsonObject): RangeSaveResult {
   const entity = args.entity === undefined ? '' : requireString(args, 'entity', 'ls_range_save');
   const profile = args.profile === undefined ? 'bright' : requireString(args, 'profile', 'ls_range_save');
   const dryRun = args.dry_run === undefined ? false : requireBoolean(args.dry_run, 'ls_range_save.dry_run');
@@ -132,7 +154,7 @@ export function rangeSave(ctx: ScriptContext, args: JsonObject): JsonObject {
   const previous = object(object(ctx.attr('sensor.ls_overrides', 'switch_ranges'))[e]);
   const lo = args.minimum === undefined ? previous.min : args.minimum;
   const hi = args.maximum === undefined ? previous.max : args.maximum;
-  const errors: string[] = [], config: JsonObject = { profile };
+  const errors: string[] = [], config: RangeConfig = { profile };
   const domain = e.split('.')[0];
   const supportedDomain = domain !== undefined && ['switch', 'light'].includes(domain);
   const blocked = /^(switch|light)\.(ls_|ep_)/.test(e) || e.includes('permit_join');
@@ -144,12 +166,14 @@ export function rangeSave(ctx: ScriptContext, args: JsonObject): JsonObject {
     if (!isDeepStrictEqual(modes, ['onoff'])) errors.push('Choose an on/off lamp; dimmable lamps use the normal lighting settings.');
   }
   if (supportedDomain && ctx.state[e] && ctx.areas[e] === undefined) errors.push('Assign this lamp to a room before configuring its range.');
-  if (!['bright', 'cosy', 'custom'].includes(String(profile))) errors.push('Choose Bright Default, Cosy Default, or Own Range.');
+  // `profile` is already a string from the parse above, so the String() this
+  // read used to carry converted nothing.
+  if (!['bright', 'cosy', 'custom'].includes(profile)) errors.push('Choose Bright Default, Cosy Default, or Own Range.');
   else if (profile === 'custom') {
     if (typeof lo !== 'number' || typeof hi !== 'number' || !(0 <= lo && lo <= hi && hi <= 100)) errors.push('Enter both ends of Own Range: 0–100%, with From no higher than Through.');
     else { config.min = lo; config.max = hi; }
   }
-  const result: JsonObject = { valid: errors.length === 0, errors, entity, config };
+  const result: RangeSaveResult = { valid: errors.length === 0, errors, entity, config };
   if (dryRun) return result;
   if (errors.length) throw new Error(errors.join(' '));
   ctx.fire('ls_override', { op: 'range_set', entity, profile,

@@ -486,7 +486,7 @@ export function planUIControls(ctx: ScriptContext, args: SetArgs, catalog: Nativ
   return { valid: errors.length === 0, errors, events: errors.length ? [] : events, commands: errors.length ? [] : commands, records: errors.length ? [] : records };
 }
 
-function setControls(ctx: ScriptContext, args: SetArgs): JsonValue {
+function setControls(ctx: ScriptContext, args: SetArgs): ControlPlan {
   const catalog = parseCatalog(ctx.run('effects_catalog'), 'effects_set.catalog');
   const current = !args.source.startsWith('light.ls_') && args.attribute !== 'power' ? parseCurrent(ctx.run('ls_plan', { reason: 'config' }), 'effects_set.current') : undefined;
   const result = planUIControls(ctx, args, catalog, current);
