@@ -71,10 +71,30 @@ export function latestRemote(records: JsonObject, room: string): string {
   return key;
 }
 export function isRemote(r: JsonObject): boolean { return r.kind === 'input' || (r.kind === 'channels' && r.via === 'remote'); }
-export function profile(ctx: ScriptContext, entity: string): JsonObject {
+/**
+ * A lamp's colour as the schedule carries it.
+ *
+ * `rgb` stays an unparsed list **by design, not by omission**. Home Assistant's
+ * `rgb_color` attribute is read raw and handed straight to the command payload,
+ * which the parity harness compares byte for byte, so the elements must survive
+ * uncoerced. Parsing them into an `RGB` triple here would raise where the
+ * oracle passes the value through — a divergence. The elements are coerced only
+ * where the captured source coerces them, by `num()` inside
+ * {@link interpolate}.
+ */
+export type LampColor = { kelvin: number; rgb?: never } | { rgb: JsonValue[]; kelvin?: never };
+/** What {@link profile} reads off a lamp or schedule entity. */
+export type LampProfile = { brightness: number; color: LampColor };
+/** A profile plus its on/off state. {@link interpolate} returns this. */
+export type LampTarget = LampProfile & { on: boolean };
+/** A target plus the raw rgb triple {@link interpolate} mixes with. */
+export type LampSample = LampTarget & { rgb: JsonValue[] };
+
+export function profile(ctx: ScriptContext, entity: string): LampProfile {
+  const rgb = list(ctx.attr(entity, 'rgb_color'));
   return { brightness: Math.trunc(num(ctx.attr(entity, 'brightness'), 255)), color: ctx.attr(entity, 'color_mode') === 'color_temp'
     ? { kelvin: Math.trunc(num(ctx.attr(entity, 'color_temp_kelvin'), 3000)) }
-    : { rgb: list(ctx.attr(entity, 'rgb_color')).length ? ctx.attr(entity, 'rgb_color')! : [255, 255, 255] } };
+    : { rgb: rgb.length > 0 ? rgb : [255, 255, 255] } };
 }
 const formatters = new Map<string, Intl.DateTimeFormat>();
 export function localParts(at: number, timezone: string): number[] {
@@ -195,16 +215,20 @@ function sourceEntity(ctx: ScriptContext, lamp: string | null, area: string, blo
   const candidates = [...(own && lamp !== null ? [`light.ls_lamp_${lamp.split('.')[1]}_${block}`] : []), `light.ls_${scope}_${block}`, ...(fallback ? [`light.ls_house_${block}`] : [])];
   return (fallback ? candidates.find(e => hasValue(ctx, e)) : candidates[0]) ?? candidates[0]!;
 }
-function sample(ctx: ScriptContext, entity: string): JsonObject {
-  return { ...profile(ctx, entity), on: ctx.get(entity) === 'on', rgb: list(ctx.attr(entity, 'rgb_color')).length ? ctx.attr(entity, 'rgb_color')! : [255, 255, 255] };
+function sample(ctx: ScriptContext, entity: string): LampSample {
+  const rgb = list(ctx.attr(entity, 'rgb_color'));
+  // `on` is `=== 'on'`, so it is always a real boolean — never absent, never a
+  // falsy stand-in. That is what lets every downstream `target.on` read be a
+  // boolean test by construction rather than a truthiness gamble.
+  return { ...profile(ctx, entity), on: ctx.get(entity) === 'on', rgb: rgb.length > 0 ? rgb : [255, 255, 255] };
 }
-function interpolate(A: JsonObject, B: JsonObject, stage: Stage): JsonObject {
+function interpolate(A: LampSample, B: LampSample, stage: Stage): LampTarget {
   if (!stage.moving || !A.on) return B;
-  if (!B.on) return { ...A, brightness: Math.max(1, roundEven(num(A.brightness) * (1 - stage.p))) };
-  const a = object(A.color), b = object(B.color);
-  const color: JsonObject = 'kelvin' in a && 'kelvin' in b ? { kelvin: roundEven(num(a.kelvin) + (num(b.kelvin) - num(a.kelvin)) * stage.p) }
-    : { rgb: [0, 1, 2].map(i => roundEven(num(list(A.rgb)[i]) + (num(list(B.rgb)[i]) - num(list(A.rgb)[i])) * stage.p)) };
-  return { on: true, brightness: roundEven(num(A.brightness) + (num(B.brightness) - num(A.brightness)) * stage.p), color };
+  if (!B.on) return { ...A, brightness: Math.max(1, roundEven(A.brightness * (1 - stage.p))) };
+  const a = A.color, b = B.color;
+  const color: LampColor = 'kelvin' in a && 'kelvin' in b ? { kelvin: roundEven(a.kelvin + (b.kelvin - a.kelvin) * stage.p) }
+    : { rgb: [0, 1, 2].map(i => roundEven(num(A.rgb[i]) + (num(B.rgb[i]) - num(A.rgb[i])) * stage.p)) };
+  return { on: true, brightness: roundEven(A.brightness + (B.brightness - A.brightness) * stage.p), color };
 }
 function applies(r: JsonObject, key: string, lamp: string | null, room: string, privateRoom: boolean): boolean {
   return (r.kind === 'light' && r.target === lamp && lamp !== null)
@@ -283,16 +307,22 @@ export function scheduledBase(ctx: ScriptContext, args: ScheduledBaseArgs, roomL
     const to = sample(ctx, sourceEntity(ctx, lamp, area, stage.to));
     const target = interpolate(from, to, stage);
     const transition = stage.moving && why === 'tick' ? 60 : 3;
-    const color = object(target.color);
-    const p: JsonObject = { effect: pr.effect === undefined ? 'Normal light' : pr.effect, brightness: target.brightness ?? 1, on: target.on ?? false, period: block, area: area || null,
+    const color = target.color;
+    // `target.brightness` is `number` and `target.on` is `boolean`, so the
+    // `?? 1` and `?? false` that used to guard these two reads are unreachable
+    // and are dropped rather than left as decoration. Neither ever fired:
+    // `??` only catches null/undefined, and `profile`/`interpolate` always
+    // produce a number, while `sample` sets `on` from `=== 'on'`. A brightness
+    // of 0 kept its 0 before and keeps it now.
+    const p: JsonObject = { effect: pr.effect === undefined ? 'Normal light' : pr.effect, brightness: target.brightness, on: target.on, period: block, area: area || null,
       effect_channels: pr.effect_channels === undefined ? ['brightness', 'color'] : pr.effect_channels, send: why !== 'tick' || stage.moving || stage.edge, ignore_overrides: ignored };
     profiles[lamp] = p;
     const command: JsonObject = !target.on ? { kind: 'off', transition } : 'kelvin' in color
-      ? { kind: 'ct', brightness: Math.max(num(target.brightness), 1), kelvin: color.kelvin!, transition }
-      : { kind: 'rgb', brightness: Math.max(num(target.brightness), 1), rgb: color.rgb ?? [255, 255, 255], transition };
+      ? { kind: 'ct', brightness: Math.max(target.brightness, 1), kelvin: color.kelvin, transition }
+      : { kind: 'rgb', brightness: Math.max(target.brightness, 1), rgb: color.rgb, transition };
     const key = JSON.stringify(command), previous = commands.get(key);
     commands.set(key, { ...command, ids: [...strings(previous?.ids), lamp] });
-    targets[lamp] = { ...p, is_room: false, brightness: target.on ? Math.max(num(target.brightness), 1) : p.brightness!, color: target.on ? color : { kelvin: 3000 },
+    targets[lamp] = { ...p, is_room: false, brightness: target.on ? Math.max(target.brightness, 1) : target.brightness, color: target.on ? color : { kelvin: 3000 },
       day: profile(ctx, sourceEntity(ctx, lamp, area, 'day', false)), cosy: profile(ctx, sourceEntity(ctx, lamp, area, 'cosy', false)), transition, observed: profile(ctx, lamp) };
     // Scaling first loses the original binary error (0.005 * 100 becomes
     // exactly 0.5). toFixed preserves it; exact binary half-cent values are /8.

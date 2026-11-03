@@ -60,12 +60,19 @@ const DOMAIN = join(ROOT, 'src/domain');
  * the regexes count call sites and signatures, so the 277 remaining accessor
  * calls are still in domain code and only fall as each module gets properly
  * parsed in criteria 5 through 8.
+ *
+ * Criterion 5's typing pass is the kind that IS real elimination, and it shows
+ * in the accessor column: giving `profile`/`sample`/`interpolate` real return
+ * types took `schedule.ts` from 64 lenient calls to 48 and from 7 raw-JSON
+ * returns to 4 without relocating a single function.
+ * `jsonTypes 414 -> 410`, `lenientAccessors 277 -> 261`,
+ * `rawJsonReturns 60 -> 57`.
  */
 const CEILINGS = {
-  jsonTypes: 414,
+  jsonTypes: 410,
   validatedBags: 0,
-  lenientAccessors: 277,
-  rawJsonReturns: 60,
+  lenientAccessors: 261,
+  rawJsonReturns: 57,
 };
 
 /** Comments may legitimately name these types while explaining why they are gone. */
