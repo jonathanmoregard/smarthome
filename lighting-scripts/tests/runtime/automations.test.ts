@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { context } from './gestures-context.ts';
+import { context, setCatalog } from './gestures-context.ts';
 async function driver() {
   const path = '../../src/domain/automations.ts';
   const port = await import(path).catch(() => ({}));
@@ -17,7 +17,7 @@ async function driver() {
 }
 test('MQTT native controls use runtime topic mapping and preserve ordered script outputs', async () => {
   const { ctx, invoked } = await driver();
-  ctx.catalog = { ui_rows: [{ source: 'light.custom', topics: { power: 'house/v1/effect_preview/new_alias/set/power' } }] };
+  setCatalog(ctx, { ui_rows: [{ source: 'light.custom', topics: { power: 'house/v1/effect_preview/new_alias/set/power' } }] });
   ctx.run('automation.effects_native_light_controls', { trigger: { topic: 'house/v1/effect_preview/new_alias/set/brightness', payload: '87' } });
   assert.deepEqual(invoked, [{ name: 'effects_set', args: { source: 'light.custom', attribute: 'brightness', value: 87 } }]);
   assert.deepEqual(ctx.calls, [{ service: 'script.turn_on', data: {}, target: { entity_id: 'script.effects_ui_sync' } }]);

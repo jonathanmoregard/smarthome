@@ -1,5 +1,6 @@
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
 import { jinjaTruthy, requireBoolean, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { catalogOf, emptyCatalog } from '../runtime/catalog.ts';
 import { latestRemoteKey, recordTimestamp } from './resolution.ts';
 import { clamp, isObject, object } from './scale.ts';
 import { list, num } from './schedule.ts';
@@ -41,7 +42,8 @@ export function remotePlan(ctx: ScriptContext, args: RemotePlanArgs): JsonObject
   const current = needsContext ? object(ctx.run('ls_room_plan', { room, overrides,
     cache, reason: 'remote' })) : { plan: {} };
   const plan = object(current.plan);
-  const catalog = ['toggle', 'left', 'right'].includes(command) ? object(ctx.run('effects_catalog')) : {};
+  // The captured script calls effects_catalog only for these three commands.
+  const catalog = ['toggle', 'left', 'right'].includes(command) ? catalogOf(ctx) : emptyCatalog();
   const key = `channels:${source}`;
   let old = inputRecord;
   if (old.scope !== 'room' || old.target !== room || list(plan.stale_keys).includes(inputKey)) old = {};
@@ -56,7 +58,7 @@ export function remotePlan(ctx: ScriptContext, args: RemotePlanArgs): JsonObject
       result = Object.hasOwn(overrides, 'mode:sara') ? { op: 'clear', keys: ['mode:sara'], via: 'remote' }
         : { op: 'set', records: [{ kind: 'mode', target: 'sara', value: 'on' }], via: 'remote' };
     } else if (command === 'toggle') {
-      const targets = [...Object.keys(object(catalog.members)), ...Object.keys(object(ctx.attr('sensor.ls_overrides', 'switch_ranges')))]
+      const targets = [...Object.keys(catalog.members), ...Object.keys(object(ctx.attr('sensor.ls_overrides', 'switch_ranges')))]
         .filter(id => ctx.areas[id] === room);
       const saved = object(ctx.attr('sensor.ls_overrides', 'power'))[room];
       result = { op: 'power', area: room, on: typeof saved === 'boolean' ? !saved : !targets.some(id => ctx.get(id) === 'on'), targets, via: 'remote' };
@@ -101,7 +103,7 @@ export function remotePlan(ctx: ScriptContext, args: RemotePlanArgs): JsonObject
           updated: stamp, last: command, has_up: hasUp || command === 'up' };
         next.adjustment = adjustment;
       } else {
-        const choices = ['day', 'cosy', 'Candle', ...Object.keys(object(catalog.effects)).filter(k => !['Candle', 'Colour loop', 'Breathe', 'Normal light'].includes(k))];
+        const choices = ['day', 'cosy', 'Candle', ...Object.keys(catalog.effects).filter(k => !['Candle', 'Colour loop', 'Breathe', 'Normal light'].includes(k))];
         const group = object(object(object(plan.resolved).targets)[`room:${room}`]);
         const selectedValue = value.selection === undefined
           ? (group.period === undefined ? 'day' : group.period)

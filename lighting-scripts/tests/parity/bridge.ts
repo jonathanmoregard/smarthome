@@ -5,7 +5,7 @@ import { readSync, writeSync } from 'node:fs';
 import { StringDecoder } from 'node:string_decoder';
 import { execute, type ExecutionHooks, type ExecutionRequest } from '../../src/runtime/engine.ts';
 import { handlers } from '../../src/runtime/registry.ts';
-import type { JsonValue, ScriptContext, ServiceCall, Snapshot } from '../../src/runtime/context.ts';
+import type { JsonObject, JsonValue, ScriptContext, ServiceCall, Snapshot } from '../../src/runtime/context.ts';
 
 type PathPart = string | number;
 interface Nonfinite { path: PathPart[]; value: 'NaN' | 'Infinity' | '-Infinity' }
@@ -83,7 +83,7 @@ function perform(value: unknown): void {
     let depth = 0;
     const trace: ServiceCall[] = [];
     function callback(phase: string, call: ServiceCall, context: ScriptContext): void {
-      const ctx = context as ScriptContext & { snapshot(): Snapshot; scriptRuns: string[] };
+      const ctx = context as ScriptContext & { snapshot(): Snapshot; scriptRuns: string[]; setRawCatalog(document: JsonObject | undefined): void };
       send({ callback: { phase, call, snapshot: ctx.snapshot(), calls: trace, events: ctx.events, scriptRuns: ctx.scriptRuns } });
       for (;;) {
         const incoming = readMessage();
@@ -92,7 +92,13 @@ function perform(value: unknown): void {
           const result = incoming.callback_result as { snapshot?: Snapshot; error?: string };
           if (result.error) throw new Error(result.error);
           if (!result.snapshot) throw new Error('Missing callback snapshot');
-          Object.assign(ctx, result.snapshot);
+          // The context's catalog is the parsed view and has no setter, so the
+          // raw document it carries is routed to the raw holder instead. An
+          // absent key leaves the current catalog alone, exactly as the plain
+          // Object.assign this replaces did.
+          const { catalog, ...rest } = result.snapshot;
+          Object.assign(ctx, rest);
+          if (Object.hasOwn(result.snapshot, 'catalog')) ctx.setRawCatalog(catalog);
           return;
         }
         // Original callbacks may run another script while the outer action is

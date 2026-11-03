@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { JsonObject, JsonValue, OutputGuard, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
 import { jinjaFloat, jinjaTruthy, requireArray, requireNumber, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { catalogOf } from '../runtime/catalog.ts';
 import { object, roundEven, clamp, requireRgb } from './scale.ts';
 import { recordTimestamp } from './resolution.ts';
 
@@ -268,7 +269,7 @@ export function assignEffects(ctx: ScriptContext, args: AssignArgs): JsonObject 
       attributes: { targets, assignments, applied, revision: args.revision, generation, plan_order: planOrder } }, { entity_id: runtime });
   }
   if (changed) {
-    const catalog = object(ctx.run('effects_catalog'));
+    const catalog = catalogOf(ctx);
     const commands: JsonValue[] = [];
     for (const [lamp, target] of Object.entries(details.targetViews())) {
       if (target.isRoom) continue;
@@ -278,8 +279,8 @@ export function assignEffects(ctx: ScriptContext, args: AssignArgs): JsonObject 
         const source = target.channels[typedChannel];
         if (source.kind === 'effect' && target.owners[typedChannel].startsWith('channels:native:') && source.updated !== object(object(oldTargets[lamp])[channel]).updated) needed = true;
       }
-      if (needed) for (const member of strings(object(catalog.members)[lamp])) if (ctx.get(member) === 'on') {
-        for (const effect of ['stop_colorloop', 'stop_effect']) commands.push({ topic: object(catalog.topics)[member] ?? null,
+      if (needed) for (const member of catalog.members[lamp] ?? []) if (ctx.get(member) === 'on') {
+        for (const effect of ['stop_colorloop', 'stop_effect']) commands.push({ topic: catalog.topics[member] ?? null,
           payload: { effect }, members: [member], owners: [lamp], group: false });
       }
     }
@@ -410,12 +411,12 @@ export const transportHandlers: ScriptHandlers = {
       return { raw: command, ids: requireStrings(command, 'ids', `effects_filter_commands.commands[${index}]`) };
     }) }),
     run: (ctx, args) => {
-    const catalog = object(ctx.run('effects_catalog')), active = Object.keys(object(ctx.attr(runtime, 'assignments')));
+    const catalog = catalogOf(ctx), active = Object.keys(object(ctx.attr(runtime, 'assignments')));
     const commands: JsonValue[] = [];
     for (const command of args.commands) {
       const ids: string[] = [];
       for (const id of command.ids) {
-        const members = strings(object(catalog.groups)[id] ?? [id]);
+        const members = catalog.groups[id] ?? [id];
         ids.push(...(members.some(x => active.includes(x)) ? members.filter(x => !active.includes(x)) : [id]));
       }
       if (ids.length) commands.push({ ...command.raw, ids: [...new Set(ids)] });

@@ -273,7 +273,8 @@ export function withParsedArgs<A>(handler: {
   return (context, args) => handler.run(context, handler.parse(args));
 }
 
-function describe(value: JsonValue | undefined): string {
+/** One error vocabulary for every boundary parser, this module's and the catalog's. */
+export function describe(value: JsonValue | undefined): string {
   if (value === undefined) return 'undefined';
   if (value === null) return 'null';
   if (Array.isArray(value)) return `array(${value.length})`;

@@ -6,7 +6,7 @@ import { remoteInputHandlers, remotePlan } from '../../src/domain/remote-input.t
 import { stateStoreHandlers } from '../../src/domain/state-store.ts';
 import { transportHandlers } from '../../src/domain/transport.ts';
 import { uiHandlers } from '../../src/domain/ui-state.ts';
-import { context } from './gestures-context.ts';
+import { context, setCatalog } from './gestures-context.ts';
 
 function remoteContext(value: JsonObject, nextFs: JsonObject['value'] = 100) {
   const ctx = context({
@@ -245,8 +245,8 @@ const UI_ROW = {
 };
 
 function uiContext(targets: JsonObject) {
-  const ctx = context({ ...uiHandlers, effects_catalog: inner => inner.catalog ?? {} });
-  ctx.catalog = { ui_rows: [UI_ROW] };
+  const ctx = context({ ...uiHandlers, effects_catalog: inner => inner.rawCatalog() });
+  setCatalog(ctx, { ui_rows: [UI_ROW] });
   ctx.areas['light.a'] = 'studio';
   ctx.put('light.group', 'on', { brightness: 20 });
   ctx.put('sensor.ls_effects_runtime', '2', { targets });

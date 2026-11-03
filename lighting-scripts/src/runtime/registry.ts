@@ -31,5 +31,8 @@ export const handlers: ScriptHandlers = {
   ...dispatchHandlers,
   ...candleSyncHandlers,
   ...automationHandlers,
-  effects_catalog: ctx => structuredClone(ctx.catalog ?? {}),
+  // Serves the unparsed document, deliberately: this is the name-keyed view
+  // that HA and the parity harness call, and they compare the whole document
+  // including fields no lighting logic reads. Domain logic reads ctx.catalog.
+  effects_catalog: ctx => structuredClone(ctx.rawCatalog()),
 };

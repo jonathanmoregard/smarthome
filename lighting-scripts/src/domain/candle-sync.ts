@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
 import { requireBoolean, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { catalogOf } from '../runtime/catalog.ts';
 import { object } from './scale.ts';
 import { list, nativeScalar, num, optionalTimestamp, timestamp } from './schedule.ts';
 
@@ -53,14 +54,12 @@ function iterate(ctx: ScriptContext, catalog: JsonObject, iteration: number): vo
   const selected = remove.length > 0 ? first(remove) : add.length > 0 ? first(add) : wanted.length > 0 ? first(wanted) : {};
   const member = requireObject({ selected }, 'selected', 'effects_candle_sync.plan.member');
   const token = `candle:${ctx.now}`;
-  const config = ctx.catalog?.candle_group === undefined
-    ? {}
-    : requireObject(ctx.catalog, 'candle_group', 'effects_candle_sync.catalog');
-  const group = config.friendly_name === undefined
-    ? 'fx_candle_active'
-    : requireString(config, 'friendly_name', 'effects_candle_sync.catalog.candle_group');
+  // No catalog so far names a candle group; absence selects the built-in name
+  // and id, and the two fields default independently.
+  const config = ctx.catalog.candle_group;
+  const group = config?.friendly_name === undefined ? 'fx_candle_active' : config.friendly_name;
   const request: JsonObject = operation === 'create'
-    ? { friendly_name: group, id: config.id === undefined ? 1100 : num(config.id), transaction: token }
+    ? { friendly_name: group, id: config?.id === undefined ? 1100 : config.id, transaction: token }
     : {
       group,
       device: requireString(member, 'ieee_address', 'effects_candle_sync.plan.member'),
@@ -109,8 +108,7 @@ export const candleSyncHandlers: ScriptHandlers = {
     // Native mode: single. State/response triggers own continuation while a
     // request is pending; periodic membership triggers cannot double-publish.
     if (Object.keys(pending(ctx)).length || timestamp(ctx.now) < num(ctx.attr(runtime, 'candle_retry_at'), 0) || ctx.get(bridge) !== 'on') return null;
-    const source = object(ctx.run('effects_catalog'));
-    const catalog: JsonObject = { members: object(source.members) };
+    const catalog: JsonObject = { members: catalogOf(ctx).members };
     update(ctx, { candle_syncing: true });
     iterate(ctx, catalog, 1);
     return null;

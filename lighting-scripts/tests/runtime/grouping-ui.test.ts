@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { context } from './gestures-context.ts';
+import { context, setCatalog } from './gestures-context.ts';
 
 async function load() {
   const modulePath = '../../src/domain/ui-state.ts';
   const port = await import(modulePath).catch(() => ({}));
   assert.equal(typeof port.uiHandlers?.effects_ui_sync, 'function', 'UI mirror exists');
-  return context({ ...port.uiHandlers, effects_catalog: ctx => ctx.catalog === undefined ? {} : ctx.catalog });
+  return context({ ...port.uiHandlers, effects_catalog: ctx => ctx.rawCatalog() });
 }
 function row(source: string, members = [source]) {
   return { source, proxy: 'light.ep_test', members, store: '', topics: Object.fromEntries(['availability', 'power', 'effect', 'brightness', 'temperature', 'rgb'].map(k => [k, `test/${k}`])) };
@@ -14,7 +14,7 @@ function row(source: string, members = [source]) {
 
 test('UI mirror uses logical room level and Sara color in ordered dry output', async () => {
   const ctx = await load();
-  ctx.catalog = { ui_rows: [row('light.studio_all', ['light.a', 'light.b'])] };
+  setCatalog(ctx, { ui_rows: [row('light.studio_all', ['light.a', 'light.b'])] });
   ctx.areas = { 'light.a': 'studio', 'light.b': 'studio' };
   ctx.put('light.studio_all', 'on', { brightness: 20, color_mode: 'color_temp', color_temp_kelvin: 3000 });
   ctx.put('sensor.ls_effects_runtime', '2', { targets: { 'room:studio': { level: 123, color: { kind: 'constant', value: { rgb: [255, 105, 180] } } } } });
@@ -27,7 +27,7 @@ test('UI mirror uses logical room level and Sara color in ordered dry output', a
 
 test('UI mirror suppresses unchanged messages and mixed effect ownership is blank', async () => {
   const ctx = await load();
-  ctx.catalog = { ui_rows: [row('light.group', ['light.a', 'light.b'])] };
+  setCatalog(ctx, { ui_rows: [row('light.group', ['light.a', 'light.b'])] });
   ctx.put('light.group', 'on', { brightness: 20, color_mode: 'rgb', rgb_color: [1, 2, 3] });
   ctx.put('light.ep_test', 'on', { effect: '', brightness: 20, color_mode: 'rgb', rgb_color: [1, 2, 3] });
   ctx.put('sensor.ls_effects_runtime', '2', { targets: { 'light.a': { brightness: { kind: 'effect', effect: 'Candle' }, level: 10 }, 'light.b': { color: { kind: 'effect', effect: 'Colour loop' }, level: 30 } } });
@@ -36,7 +36,7 @@ test('UI mirror suppresses unchanged messages and mixed effect ownership is blan
 
 test('UI force accepts only a real optional boolean', async () => {
   const ctx = await load();
-  ctx.catalog = { ui_rows: [row('light.group')] };
+  setCatalog(ctx, { ui_rows: [row('light.group')] });
   ctx.put('light.group', 'on', { brightness: 20 });
   for (const force of [null, [], {}, 0, '', 'false']) {
     assert.throws(() => ctx.run('effects_ui_sync', { dry_run: true, force }), /must be true or false/,
@@ -46,18 +46,17 @@ test('UI force accepts only a real optional boolean', async () => {
 
 test('UI catalog and row fields distinguish absence from malformed present values', async () => {
   const ctx = await load();
-  ctx.catalog = { ui_rows: [{ ...row('light.group'), store: null }] };
+  setCatalog(ctx, { ui_rows: [{ ...row('light.group'), store: null }] });
   ctx.put('light.group', 'on');
   assert.throws(() => ctx.run('effects_ui_sync', { dry_run: true }), /store.*string/);
 
-  ctx.catalog = { ui_discovery: [], ui_choices: null };
+  setCatalog(ctx, { ui_discovery: [], ui_choices: null });
   assert.throws(() => ctx.run('effects_ui_catalog'), /ui_choices.*array/);
 });
 
 test('stored UI profiles require typed effect fields when present', async () => {
   const ctx = await load();
-  ctx.catalog = { ui_rows: [row('light.group')] };
-  ctx.catalog.ui_rows[0].store = 'input_text.profile';
+  setCatalog(ctx, { ui_rows: [{ ...row('light.group'), store: 'input_text.profile' }] });
   ctx.put('light.group', 'on');
   ctx.put('input_text.profile', JSON.stringify({ effect_channels: null, effect: null }));
   assert.throws(() => ctx.run('effects_ui_sync', { dry_run: true }), /effect_channels.*array/);

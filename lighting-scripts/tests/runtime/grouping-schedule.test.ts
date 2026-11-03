@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { list, num, saved, strings, timestamp } from '../../src/domain/schedule.ts';
-import { context } from './gestures-context.ts';
+import { context, setCatalog } from './gestures-context.ts';
 
 test('schedule numeric parsing uses explicit absence and rejects malformed present values', () => {
   assert.equal(num(undefined, 255), 255);
@@ -143,7 +143,7 @@ test('room cache skips baseline recomputation while updating observations and po
   const handlers = { ...scheduleHandlers, ...resolutionHandlers, ...controllerHandlers, ...nativeHandlers, ...port.planningHandlers };
   ctx.run = function(name, args = {}) { return handlers[name.replace(/^script\./, '')](this, args); };
   ctx.now = '2026-10-23T12:00:00+02:00';
-  ctx.catalog = { effects: {}, processors: {} };
+  setCatalog(ctx, { effects: {}, processors: {} });
   const first = ctx.run('ls_room_plan', { room: 'studio', overrides: {}, reason: 'remote' });
   ctx.now = '2026-10-23T12:00:01+02:00';
   ctx.put('light.studio', 'on', { brightness: 42, color_mode: 'rgb', rgb_color: [1, 2, 3] });
@@ -189,7 +189,7 @@ test('scheduled baseline packs only explicitly configured complete command group
   const ctx = await configured();
   ctx.members.push('light.other'); ctx.areas['light.other'] = 'studio';
   ctx.put('light.other', 'on', { brightness: 100, color_mode: 'color_temp', color_temp_kelvin: 2500 });
-  ctx.catalog = { baseline_groups: { 'light.studio_group': ['light.studio', 'light.other'] } };
+  setCatalog(ctx, { baseline_groups: { 'light.studio_group': ['light.studio', 'light.other'] } });
   const result = ctx.run('ls_base', { test_now: '2026-10-23T12:00:00+02:00', overrides: {} });
   assert.deepEqual(result.schedule.cmds[0].ids, ['light.studio_group']);
   assert.equal(result.targets['light.studio'].brightness, 240);

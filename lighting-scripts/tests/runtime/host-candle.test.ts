@@ -21,7 +21,7 @@ test('Candle publish continuation waits for sink completion and receives failure
   const directory = await mkdtemp(join(tmpdir(), 'lighting-candle-host-'));
   let mqtt = 0;
   const host = await LightingHost.open({ path: join(directory, 'state.json'), initial, autoTimers: false, now: () => now,
-    program: request => execute(request, { ...groupingHandlers, ...candleSyncHandlers, effects_catalog: ctx => ctx.catalog! }),
+    program: request => execute(request, { ...groupingHandlers, ...candleSyncHandlers, effects_catalog: ctx => ctx.rawCatalog() }),
     transport: { send: async call => { if (call.service === 'mqtt.publish') { mqtt++; await gate; throw new Error('publish acknowledgement lost'); } }, close: async () => {} } });
   await host.dispatch('effects_candle_sync'); now += 20_000; await host.runDue();
   assert.equal(host.snapshot().state['sensor.ls_effects_runtime']!.attributes.candle_pending.stage, 'publishing');

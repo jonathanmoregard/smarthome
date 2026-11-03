@@ -19,7 +19,7 @@ async function driver(snapshot = initial()) {
   const path = '../../src/domain/candle-sync.ts';
   const port = await import(path).catch(() => ({}));
   assert.equal(typeof port.candleSyncHandlers?.effects_candle_sync, 'function', 'Candle reconciliation state machine exists');
-  const handlers = { ...groupingHandlers, ...port.candleSyncHandlers, effects_catalog: ctx => ctx.catalog, ls_apply: (ctx, args) => { ctx.fire('repair', args); return null; } };
+  const handlers = { ...groupingHandlers, ...port.candleSyncHandlers, effects_catalog: ctx => ctx.rawCatalog(), ls_apply: (ctx, args) => { ctx.fire('repair', args); return null; } };
   return { snapshot, run(script: string, args: JsonObject = {}) { const result = execute({ script, args, snapshot: this.snapshot }, handlers); this.snapshot = result.snapshot; return result; } };
 }
 const pending = d => d.snapshot.state['sensor.ls_effects_runtime'].attributes.candle_pending;

@@ -1,4 +1,6 @@
 import type { EntityState, EventRecord, JsonObject, JsonValue, OutputGuard, ScheduledTask, ScriptContext, ScriptHandlers, ServiceCall, Snapshot } from './context.ts';
+import type { Catalog } from './catalog.ts';
+import { emptyCatalog, parseCatalog } from './catalog.ts';
 
 export interface ExecutionRequest { script: string; args: JsonObject; snapshot: Snapshot }
 export interface ExecutionResult { result: JsonValue; snapshot: Snapshot; calls: ServiceCall[]; events: EventRecord[] }
@@ -26,11 +28,12 @@ class Context implements ScriptContext {
   devices: Record<string, string[]>;
   identifiers: Record<string, JsonValue[]>;
   scheduled: ScheduledTask[];
-  catalog: JsonObject;
   entitySources: Record<string, string>;
   calls: ServiceCall[] = [];
   events: EventRecord[] = [];
   private depth = 0;
+  private raw: JsonObject | undefined;
+  private parsed: Catalog | undefined;
   private readonly handlers: ScriptHandlers;
   private readonly original: Snapshot;
   private readonly hooks: ExecutionHooks;
@@ -52,8 +55,40 @@ class Context implements ScriptContext {
     this.devices = copy.devices ?? {};
     this.identifiers = copy.identifiers ?? {};
     this.scheduled = copy.scheduled ?? [];
-    this.catalog = copy.catalog ?? {};
+    this.raw = copy.catalog;
     this.entitySources = copy.entitySources ?? {};
+  }
+
+  /**
+   * Parsed on first read, not in the constructor.
+   *
+   * Most scripts never touch the catalog, and parsing eagerly would make a
+   * malformed registry raise for all of them instead of only for the ones that
+   * read it -- a different observable behaviour from the per-consumer parses
+   * this replaces, and the parity gate compares raised errors.
+   */
+  get catalog(): Catalog {
+    this.parsed ??= this.raw === undefined ? emptyCatalog() : parseCatalog(this.raw);
+    return this.parsed;
+  }
+
+  rawCatalog(): JsonObject { return this.raw ?? {}; }
+
+  /**
+   * Replace the raw catalog document and discard the parsed view.
+   *
+   * Edge-only, and deliberately **not** on {@link ScriptContext}: the parity
+   * bridge re-syncs a whole snapshot onto a live context mid-execution, and the
+   * catalog that snapshot carries is the raw document. Exposing this to domain
+   * logic would let a script swap the registry underneath itself.
+   *
+   * Like the `Object.assign` it replaces, this updates only what handlers read.
+   * `this.original` is left alone, so `snapshot()` keeps returning the document
+   * the transaction opened with.
+   */
+  setRawCatalog(document: JsonObject | undefined): void {
+    this.raw = document;
+    this.parsed = undefined;
   }
 
   run(name: string, args: JsonObject = {}): JsonValue {
@@ -63,9 +98,8 @@ class Context implements ScriptContext {
       const match = /^(ls_remote_gesture|ls_remote_power_quiet)_(.+)$/.exec(name);
       if (match?.[1] && match[2]) {
         handler = this.handlers[match[1]];
-        const remotes = this.catalog.remotes;
-        const metadata = remotes && typeof remotes === 'object' && !Array.isArray(remotes) ? remotes[match[2]] : null;
-        args = { ...(metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? metadata : {}), ...args, room: match[2] };
+        const remote = this.catalog.remotes[match[2]];
+        args = { ...(remote === undefined ? {} : { ...remote }), ...args, room: match[2] };
       }
     }
     if (!handler) throw new Error(`Unsupported script: ${name}`);

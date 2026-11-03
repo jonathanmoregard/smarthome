@@ -1,3 +1,5 @@
+import type { Catalog } from './catalog.ts';
+
 /** Explicit, serializable boundary between lighting decisions and HA I/O. */
 export type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject;
 export interface JsonObject { [key: string]: JsonValue }
@@ -37,12 +39,36 @@ export interface Snapshot {
   devices?: Record<string, string[]>;
   identifiers?: Record<string, JsonValue[]>;
   scheduled?: ScheduledTask[];
+  /**
+   * The raw registry document, as persisted and as transported to HA and the
+   * parity harness. Parsed into a {@link Catalog} for lighting logic; see
+   * {@link ScriptContext}.
+   */
   catalog?: JsonObject;
   entitySources?: Record<string, string>;
 }
-export interface ScriptContext extends Snapshot {
+/**
+ * `Omit<Snapshot, 'catalog'>` is the point: the snapshot carries the catalog as
+ * the raw JSON document it is persisted and transported as, and the context
+ * carries the parsed {@link Catalog} that lighting logic reads. Two views over
+ * one document, each serving its real caller -- an interface cannot narrow an
+ * inherited property, and conflating the two is what previously pushed raw
+ * catalog traversal into ten domain modules.
+ */
+export interface ScriptContext extends Omit<Snapshot, 'catalog'> {
   calls: ServiceCall[];
   events: EventRecord[];
+  /** Parsed once per execution, on first read. */
+  catalog: Catalog;
+  /**
+   * The unparsed catalog document.
+   *
+   * For the edges only: the name-keyed `effects_catalog` shim serves it
+   * verbatim so the HA and parity backends keep comparing the same bytes,
+   * including fields no lighting logic reads. Domain logic uses
+   * {@link ScriptContext.catalog}.
+   */
+  rawCatalog(): JsonObject;
   run(name: string, args?: JsonObject): JsonValue;
   get(entity: string): string;
   attr(entity: string, key: string): JsonValue | undefined;

@@ -20,11 +20,24 @@ import { fileURLToPath } from 'node:url';
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const DOMAIN = join(ROOT, 'src/domain');
 
-/** Ceilings for src/domain. Measured 2026-11-03 before any rework. */
+/**
+ * Ceilings for src/domain. Baseline measured 2026-11-03 before any rework was
+ * `442 / 9 / 293 / 62`.
+ *
+ * `lenientAccessors` 293 -> 282 after the runtime catalog was parsed once at
+ * the edge: eleven `object(...)`, `strings(...)` and `num(...)` calls existed
+ * only to re-dissolve the catalog document at each read site.
+ *
+ * `jsonTypes` is deliberately still 442. That count is dominated by handler
+ * arguments, handler return types and entity-state reads, none of which the
+ * catalog work touched; it moves with criteria 3 through 8, not with this one.
+ * A criterion that reduces accessors without reducing types is making real
+ * progress, so the two ratchet independently.
+ */
 const CEILINGS = {
   jsonTypes: 442,
   validatedBags: 9,
-  lenientAccessors: 293,
+  lenientAccessors: 282,
   rawJsonReturns: 62,
 };
 

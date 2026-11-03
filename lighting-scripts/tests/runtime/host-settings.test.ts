@@ -13,7 +13,10 @@ test('runtime catalog atomic edits hotload without replacing the program; malfor
   const initial = { members: {}, groups: {}, effects: {}, marker: 'before' };
   await writeFile(path, JSON.stringify(initial));
   const host = await LightingHost.open({ path: join(directory, 'state.json'), initial: { state: {}, areas: {}, members: [], now: '2026-10-26T12:00:00Z', catalog: await readRuntimeCatalog(path) }, autoTimers: false,
-    program: request => execute(request, { catalog: ctx => ctx.catalog! }), transport: { send: async () => {}, close: async () => {} } });
+    // Serves the raw document, as the effects_catalog shim does: this test is
+    // about the document hotloading, and `marker` is not a field any lighting
+    // logic reads, so the parsed view deliberately drops it.
+    program: request => execute(request, { catalog: ctx => ctx.rawCatalog() }), transport: { send: async () => {}, close: async () => {} } });
   let accepted!: () => void, rejected!: () => void;
   const loaded = new Promise<void>(resolve => { accepted = resolve; });
   const invalid = new Promise<void>(resolve => { rejected = resolve; });

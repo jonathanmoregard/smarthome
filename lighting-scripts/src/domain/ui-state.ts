@@ -4,9 +4,14 @@ import { jinjaTruthy, requireArray, requireBoolean, requireString, withParsedArg
 import { object, roundEven } from './scale.ts';
 import { isAreaId, list, num, saved, strings } from './schedule.ts';
 
-function rows(ctx: ScriptContext, key: string): JsonValue[] {
-  const value = ctx.catalog?.[key];
-  if (!Array.isArray(value)) throw new Error(`Missing runtime catalog.${key}`);
+/**
+ * A UI row collection the catalog must name. Absence is an error here, not an
+ * empty list: a catalog with no rows would otherwise publish nothing and look
+ * like a working sync.
+ */
+function rows(ctx: ScriptContext, key: 'ui_rows' | 'ui_discovery'): JsonValue[] {
+  const value = ctx.catalog[key];
+  if (value === undefined) throw new Error(`Missing runtime catalog.${key}`);
   return value;
 }
 
@@ -106,10 +111,11 @@ export function uiMessages(ctx: ScriptContext, force: boolean): JsonObject[] {
 }
 function uiCatalog(ctx: ScriptContext): null {
   ctx.run('effects_catalog');
-  const rawChoices = ctx.catalog?.ui_choices;
-  const choices = rawChoices === undefined
+  // Absent means the catalog names no choices, which selects these two; the
+  // catalog parse already rejected a present-but-malformed list.
+  const choices = ctx.catalog.ui_choices === undefined
     ? ['Normal Light', 'Candle']
-    : requireStringArray(rawChoices, 'effects_ui_catalog.ui_choices');
+    : ctx.catalog.ui_choices;
   for (const raw of rows(ctx, 'ui_discovery')) {
     const row = object(raw), config = object(row.config);
     if (!isDeepStrictEqual(ctx.attr(String(row.entity), 'effect_list'), choices)) {
