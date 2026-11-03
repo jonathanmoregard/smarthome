@@ -245,7 +245,14 @@ export function commit(ctx: ScriptContext, args: CommitArgs): JsonObject {
     received_at: data.received_at === undefined ? recordTimestamp(ctx.now) : data.received_at };
   const full = parsed.via !== 'remote' || ['render_request', 'clear', 'clear_all'].includes(typeof data.op === 'string' ? data.op : '') || parsed.records.some(r => r.kind === 'mode');
   if (full) {
-    const unhandled = ctx.attr(entity, 'full_version') !== (ctx.attr('sensor.ls_effects_runtime', 'handled_full') || null);
+    // Captured: `old != (state_attr(runtime,'handled_full') or none)`. Jinja `or`
+    // fires on every falsy value, `[]` and `{}` included, so an empty container
+    // becomes none and compares equal to an absent full_version. `|| null` left a
+    // container as itself, and a reference comparison against it is always
+    // unequal -- which marked the last full render unhandled and resurrected its
+    // stale light list.
+    const handled = ctx.attr('sensor.ls_effects_runtime', 'handled_full');
+    const unhandled = (ctx.attr(entity, 'full_version') ?? null) !== (jinjaTruthy(handled) ? handled : null);
     const previousLights = unhandled ? values(ctx.attr(entity, 'full_lights')) : [];
     const previousReason = unhandled ? ctx.attr(entity, 'full_reason') : null;
     const fullData = parsed.full();

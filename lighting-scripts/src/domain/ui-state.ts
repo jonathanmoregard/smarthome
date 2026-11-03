@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { requireArray, requireBoolean, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { jinjaTruthy, requireArray, requireBoolean, requireString, withParsedArgs } from '../runtime/parse.ts';
 import { object, roundEven } from './scale.ts';
 import { isAreaId, list, num, saved, strings } from './schedule.ts';
 
@@ -51,9 +51,12 @@ export function uiMessages(ctx: ScriptContext, force: boolean): JsonObject[] {
       const entry = object(Object.hasOwn(targets, member) ? targets[member] : assignments[member]);
       for (const channel of ['brightness', 'color']) {
         const claim = object(entry[channel]);
-        if (claim.kind === 'effect' && claim.effect) names.push(String(claim.effect));
+        // Captured `claim.get('effect')` sits in a Jinja boolean position, where
+        // an empty container is false. Bare truthiness let one through to
+        // String(), inventing '[object Object]' or '' as an effect name.
+        if (claim.kind === 'effect' && jinjaTruthy(claim.effect)) names.push(String(claim.effect));
       }
-      if (entry.effect && entry.effect !== 'Normal light') names.push(String(entry.effect));
+      if (jinjaTruthy(entry.effect) && entry.effect !== 'Normal light') names.push(String(entry.effect));
       if (typeof entry.level === 'number') levels.push(entry.level);
       else if (typeof entry.brightness === 'number') levels.push(entry.brightness);
       const color = object(entry.color);

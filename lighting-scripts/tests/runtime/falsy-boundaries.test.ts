@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { JsonObject } from '../../src/runtime/context.ts';
+import type { JsonObject, JsonValue } from '../../src/runtime/context.ts';
 import { controllerHandlers, switchPlan } from '../../src/domain/controller.ts';
 import { remoteInputHandlers, remotePlan } from '../../src/domain/remote-input.ts';
+import { stateStoreHandlers } from '../../src/domain/state-store.ts';
+import { transportHandlers } from '../../src/domain/transport.ts';
+import { uiHandlers } from '../../src/domain/ui-state.ts';
 import { context } from './gestures-context.ts';
 
 function remoteContext(value: JsonObject, nextFs: JsonObject['value'] = 100) {
@@ -228,4 +231,105 @@ test('controller requires producer-owned plan and remote result fields', () => {
     ls_commit: () => ({ accepted: true }),
   });
   assert.throws(() => remote.run('ls_remote_command', { source: 'remote', area: 'studio', command: 'toggle' }), /targets.*array/);
+});
+
+// The remaining bare-truthiness reads on JsonValue. Each captured site puts the
+// value in a Jinja boolean position, where `[]` and `{}` are FALSE and
+// JavaScript calls them true -- so `if (x)` is wrong in both directions and the
+// directive routes every one through jinjaTruthy.
+
+const UI_ROW = {
+  source: 'light.group', proxy: 'light.ep_test', members: ['light.a'], store: '',
+  topics: Object.fromEntries(['availability', 'power', 'effect', 'brightness', 'temperature', 'rgb']
+    .map(key => [key, `test/${key}`])),
+};
+
+function uiContext(targets: JsonObject) {
+  const ctx = context({ ...uiHandlers, effects_catalog: inner => inner.catalog ?? {} });
+  ctx.catalog = { ui_rows: [UI_ROW] };
+  ctx.areas['light.a'] = 'studio';
+  ctx.put('light.group', 'on', { brightness: 20 });
+  ctx.put('sensor.ls_effects_runtime', '2', { targets });
+  return ctx;
+}
+
+const effectPayload = (result: JsonValue): JsonValue | undefined => {
+  const messages = (result as JsonObject).messages as JsonObject[];
+  return messages.find(message => message.topic === 'test/effect')?.payload;
+};
+
+test('UI effect names treat an empty container as no effect, as the captured boolean does', () => {
+  // Captured: `claim.get('kind')=='effect' and claim.get('effect')`, and
+  // `entry.get('effect') and entry.effect!='Normal light'`. An empty container
+  // was truthy here, so it reached String() and became a literal effect name --
+  // '[object Object]' for a mapping, the empty string for a list.
+  for (const empty of [[], {}] as JsonValue[]) {
+    const claim = uiContext({ 'light.a': { brightness: { kind: 'effect', effect: empty } } });
+    assert.equal(effectPayload(claim.run('effects_ui_sync', { dry_run: true, force: true })), 'Normal Light',
+      `a channel claim whose effect is ${JSON.stringify(empty)} must not become an effect name`);
+
+    const entry = uiContext({ 'light.a': { effect: empty } });
+    assert.equal(effectPayload(entry.run('effects_ui_sync', { dry_run: true, force: true })), 'Normal Light',
+      `an entry effect of ${JSON.stringify(empty)} must not become an effect name`);
+  }
+});
+
+function tickContext(on: JsonValue, power: JsonObject) {
+  let seen: JsonObject = {};
+  const ctx = context({
+    ...transportHandlers,
+    // engineTick re-reads the catalog itself; the membership gate uses that copy.
+    effects_catalog: () => ({ members: { 'light.a': {} } }),
+    effects_frame_plan: (_inner, args) => { seen = args.targets as JsonObject; return { commands: [] }; },
+    effects_emit: () => null,
+  });
+  ctx.areas['light.a'] = 'studio';
+  ctx.put('light.a', 'on');
+  ctx.put('binary_sensor.zigbee2mqtt_bridge_connection_state', 'on');
+  ctx.put('sensor.ls_overrides', '0', { power });
+  ctx.put('sensor.ls_effects_runtime', '2', { assignments: { 'light.a': { on } }, revision: ctx.now });
+  const run = () => {
+    ctx.run('effects_engine_tick', { served: {}, admission: 0, catalog: { members: { 'light.a': {} } } });
+    return Object.keys(seen);
+  };
+  return run;
+}
+
+test('engine tick admits a target only when the captured boolean says its on is true', () => {
+  // Captured: `... and target.on and power.get(area_id(lamp),true)`.
+  assert.deepEqual(tickContext(true, {})(), ['light.a'], 'the baseline case must still admit the lamp');
+  for (const on of [[], {}, 0, '', null] as JsonValue[]) {
+    assert.deepEqual(tickContext(on, {})(), [],
+      `an assignment whose on is ${JSON.stringify(on)} is falsy to the captured boolean`);
+  }
+});
+
+test('engine tick power gate falls back only on an absent area, then tests Jinja truthiness', () => {
+  // `power.get(area_id(lamp), true)` defaults on an ABSENT key and then puts the
+  // value in a boolean position. `power[area] !== false` got the absent case
+  // right by accident but admitted every other falsy value.
+  assert.deepEqual(tickContext(true, {})(), ['light.a'], 'an absent area takes the true default');
+  for (const value of [false, 0, '', null, [], {}] as JsonValue[]) {
+    assert.deepEqual(tickContext(true, { studio: value })(), [],
+      `a power value of ${JSON.stringify(value)} is falsy to the captured boolean`);
+  }
+  assert.deepEqual(tickContext(true, { studio: true })(), ['light.a']);
+});
+
+test('ls_commit handled_full comparison uses the captured Jinja or, not JavaScript truthiness', () => {
+  // Captured: `unhandled = old != (state_attr(runtime,'handled_full') or none)`.
+  // Jinja `or` fires on every falsy value, `[]` and `{}` included, so an empty
+  // container becomes none and compares equal to an absent full_version. `|| null`
+  // left `[]` as itself, and `undefined !== []` is always true, which marked the
+  // last full render unhandled and resurrected its stale light list.
+  for (const empty of [[], {}] as JsonValue[]) {
+    const ctx = context(stateStoreHandlers);
+    ctx.put('sensor.ls_overrides', '0', { full_lights: ['light.stale'] });
+    ctx.put('sensor.ls_effects_runtime', '1', { handled_full: empty });
+    ctx.run('ls_commit', { data: { op: 'render_request', area: 'studio' } });
+    const update = ctx.calls.find(call => call.service === 'variable.update_sensor');
+    assert.ok(update, 'ls_commit writes the override sensor');
+    assert.deepEqual((update.data.attributes as JsonObject).full_lights, [],
+      `a handled_full of ${JSON.stringify(empty)} must compare equal to an absent full_version`);
+  }
 });
