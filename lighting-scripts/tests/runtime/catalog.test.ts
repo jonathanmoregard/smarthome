@@ -33,20 +33,25 @@ test('a members entry that is not a list of strings rejects the catalog', () => 
     { 'light.a': ['light.a_1'] });
 });
 
-test('an effect without a renderer rejects the catalog', () => {
-  // Break: the renderer name is used as a script name in ctx.run(), so a
-  // missing one becomes `Unsupported script: undefined` mid-frame instead of
-  // a load-time complaint about the catalog.
-  assert.throws(() => parseCatalog({ ...minimal, effects: { Candle: {} } }), /renderer must be a string/);
-  assert.throws(() => parseCatalog({ ...minimal, effects: { Candle: { renderer: 7 } } }), /renderer must be a string/);
+test('an effect without a renderer is accepted, because only the frame plan needs one', () => {
+  // Regression, found by the parity gate on lighting-algebra/tests/test_integration.py.
+  // An earlier revision required `renderer` here. That promoted a mid-frame
+  // error into a load-time one for every catalog reader, and `ls_apply` — which
+  // never renders a frame — began failing on a real document whose
+  // `effects.Breathe` carries no renderer: 8 failures against 20 clean
+  // reference tests. The requirement belongs to the one path that drives a
+  // renderer, and that path parses the raw document itself; see the sibling
+  // assertion in tests/runtime/frame-catalog.test.ts.
+  assert.deepEqual(parseCatalog({ ...minimal, effects: { Breathe: {} } }).effects.Breathe, { channels: [] });
+  assert.deepEqual(parseCatalog({ ...minimal, effects: { Candle: { renderer: 7 } } }).effects.Candle, { channels: [] });
   const parsed = parseCatalog({ ...minimal, effects: { Candle: { renderer: 'fx_candle', channels: ['brightness'] } } });
-  assert.deepEqual(parsed.effects.Candle, { renderer: 'fx_candle', channels: ['brightness'] });
+  assert.deepEqual(parsed.effects.Candle, { channels: ['brightness'] });
 });
 
 test('an effect may declare no channels, and that is an empty list', () => {
   // state-store treats a missing channel list as absence, not as an error.
   assert.deepEqual(parseCatalog({ ...minimal, effects: { Candle: { renderer: 'fx' } } }).effects.Candle,
-    { renderer: 'fx', channels: [] });
+    { channels: [] });
 });
 
 test('an absent candle_group stays absent rather than becoming an empty mapping', () => {

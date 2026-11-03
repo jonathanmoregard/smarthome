@@ -42,9 +42,24 @@
 import { ParseError, describe, requireArray, requireBoolean, requireObject, requireString } from './parse.ts';
 import type { JsonObject, JsonValue, ScriptContext } from './context.ts';
 
-/** A renderer script name plus the channels the effect drives. */
+/**
+ * The channels an effect drives.
+ *
+ * `renderer` is deliberately absent, and that is load-bearing. Only
+ * `effects_frame_plan` drives a renderer, and it parses the raw document
+ * itself (`parseFrameCatalog` in `domain/transport.ts`) and raises there —
+ * mid-frame, which is where the oracle raises too. Requiring it *here* instead
+ * promoted that to a load-time complaint for every catalog reader, so
+ * `ls_apply` started failing on a document whose `effects.Breathe` carries no
+ * renderer and whose frame plan is never reached. The parity gate caught it in
+ * `lighting-algebra/tests/test_integration.py` — 8 failures, every one
+ * `catalog.effects.Breathe.renderer must be a string, got undefined`, against
+ * 20 clean reference tests.
+ *
+ * Parsing a field no reader consumes only invents a way to fail. Same reason
+ * {@link CatalogProcessor} omits `animated` and `channels`.
+ */
 export interface CatalogEffect {
-  renderer: string;
   /** Absent in the document means "drives no channel explicitly", not an error. */
   channels: string[];
 }
@@ -73,7 +88,7 @@ export interface CatalogCandleGroup {
 }
 
 export interface Catalog {
-  /** Effect name to renderer. Required: a lamp cannot be driven without it. */
+  /** The effect names the registry knows, each with the channels it drives. */
   effects: Record<string, CatalogEffect>;
   /** Logical lamp to its physical member entities. Required. */
   members: Record<string, string[]>;
@@ -149,7 +164,6 @@ function valueList(document: JsonObject, key: string, context: string): JsonValu
 
 function parseEffect(effect: JsonObject, context: string): CatalogEffect {
   return {
-    renderer: requireString(effect, 'renderer', context),
     channels: effect.channels === undefined ? [] : stringList(effect.channels, `${context}.channels`),
   };
 }
