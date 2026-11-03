@@ -175,9 +175,21 @@ const DOMAIN = join(ROOT, 'src/domain');
  * the type only half-knows, and `falsy-boundaries.test.ts:219` stubs `ls_base`
  * with a deliberately missing `targets` that must keep raising.
  * `jsonTypes 382 -> 379`, `rawJsonReturns 38 -> 37`.
+ *
+ * Then `profiles` and `targets`, which had to land together because the lamp
+ * target is built as `{...p, ...}` from the profile. `targets` is a union of
+ * two genuinely asymmetric shapes -- the room entry has no `send`,
+ * `transition` or `observed`, and its `area` is a plain string where the
+ * lamp's is nullable -- so it is two union members rather than one
+ * optional-heavy shape. `jsonTypes 379 -> 377`; `effect` and
+ * `effect_channels` stay `JsonValue` on both, since `saved(...)` produces them
+ * and `ls_store`/`effects_ui_sync` round-trip them. `ScheduledBaseResult` is
+ * now complete, which is what makes the seam conversion's decoder writable at
+ * all -- that is the next commit, deliberately separate, because it is where
+ * the stub handling and the only behaviour change live.
  */
 const CEILINGS = {
-  jsonTypes: 379,
+  jsonTypes: 377,
   validatedBags: 0,
   lenientAccessors: 238,
   rawJsonReturns: 37,

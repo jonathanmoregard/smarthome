@@ -282,7 +282,7 @@ export type ScheduleCommand = ScheduleOutput & { ids: string[] } | { kind: 'swit
  */
 export type ScheduleEnvelope = {
   cmds: ScheduleCommand[];
-  profiles: JsonObject;
+  profiles: Record<string, LampProfileEntry>;
   revision: string;
   stale_keys: string[];
   sched: Record<string, Block | null>;
@@ -291,7 +291,67 @@ export type ScheduleEnvelope = {
   sara_mirror: 'off' | null;
   dbg?: string[];
 };
-export type ScheduledBaseResult = { targets: JsonObject; schedule: ScheduleEnvelope };
+/**
+ * One lamp's scheduled profile, as `schedule.profiles` carries it.
+ *
+ * `effect` and `effect_channels` stay `JsonValue`: both come from
+ * `saved(ctx, ...)`, which parses a stored `input_text` document, and both are
+ * handed on untouched -- `ls_store` round-trips `effect_channels` and
+ * `effects_ui_sync` reads `effect` back out. The `=== undefined` defaults are
+ * absence-only on purpose; a stored null is not the same as a missing key.
+ *
+ * `area` is `string | null` because the source writes `area || null`, turning
+ * a lamp with no area into an explicit null. That is a Jinja-truthiness
+ * fallback on a string, so the empty-string case is load-bearing and the
+ * spelling stays.
+ */
+export type LampProfileEntry = {
+  effect: JsonValue;
+  brightness: number;
+  on: boolean;
+  period: string;
+  area: string | null;
+  effect_channels: JsonValue;
+  send: boolean;
+  ignore_overrides: string[];
+};
+/**
+ * A lamp's entry in `targets`: its profile plus what the renderer needs.
+ * `color` is a `LampColor`, so its `rgb` arm is still raw -- see
+ * {@link ScheduleOutput}. The off case substitutes `{kelvin: 3000}`.
+ */
+export type LampTargetEntry = LampProfileEntry & {
+  is_room: false;
+  color: LampColor;
+  day: LampProfile;
+  cosy: LampProfile;
+  transition: number;
+  observed: LampProfile;
+};
+/**
+ * A room's entry in `targets`. **Not** a superset or subset of the lamp entry:
+ * it has no `send`, `transition` or `observed`, and it carries `area` as a
+ * plain string rather than a nullable one. Keeping them as two members of a
+ * union rather than one optional-heavy shape is what stops a reader assuming
+ * a field exists on both.
+ */
+export type RoomTargetEntry = {
+  brightness: number;
+  color: LampColor;
+  area: string;
+  is_room: true;
+  period: string;
+  effect: JsonValue;
+  on: boolean;
+  day: LampProfile;
+  cosy: LampProfile;
+  ignore_overrides: string[];
+};
+export type TargetEntry = LampTargetEntry | RoomTargetEntry;
+export type ScheduledBaseResult = {
+  targets: Record<string, TargetEntry>;
+  schedule: ScheduleEnvelope;
+};
 
 export function scheduledBase(ctx: ScriptContext, args: ScheduledBaseArgs, roomLocal = false): ScheduledBaseResult {
   const at = args.testNow === undefined ? timestamp(ctx.now) : args.testNow;
@@ -306,7 +366,7 @@ export function scheduledBase(ctx: ScriptContext, args: ScheduledBaseArgs, roomL
   const roomOnly = args.roomOnly;
   const rooms = [...new Set(all.map(e => ctx.areas[e]).filter(isAreaId))].sort().filter(a => !roomOnly || roomOnly === a);
   const details = Object.fromEntries(['house', ...rooms].map(room => [room, scheduleDetails(ctx, room, at)])) as Record<string, ScheduleDetails>;
-  const profiles: JsonObject = {}, targets: JsonObject = {}, commands = new Map<string, ScheduleCommand>();
+  const profiles: Record<string, LampProfileEntry> = {}, targets: Record<string, TargetEntry> = {}, commands = new Map<string, ScheduleCommand>();
   const debug: string[] = [];
   for (const lamp of [...dimmables, ...plugs]) {
     if (roomOnly && (!roomLocal || ctx.areas[lamp] !== roomOnly)) continue;
@@ -371,7 +431,7 @@ export function scheduledBase(ctx: ScriptContext, args: ScheduledBaseArgs, roomL
     // `??` only catches null/undefined, and `profile`/`interpolate` always
     // produce a number, while `sample` sets `on` from `=== 'on'`. A brightness
     // of 0 kept its 0 before and keeps it now.
-    const p: JsonObject = { effect: pr.effect === undefined ? 'Normal light' : pr.effect, brightness: target.brightness, on: target.on, period: block, area: area || null,
+    const p: LampProfileEntry = { effect: pr.effect === undefined ? 'Normal light' : pr.effect, brightness: target.brightness, on: target.on, period: block, area: area || null,
       effect_channels: pr.effect_channels === undefined ? ['brightness', 'color'] : pr.effect_channels, send: why !== 'tick' || stage.moving || stage.edge, ignore_overrides: ignored };
     profiles[lamp] = p;
     const command: ScheduleOutput = !target.on ? { kind: 'off', transition } : 'kelvin' in color
@@ -411,7 +471,10 @@ export function scheduledBase(ctx: ScriptContext, args: ScheduledBaseArgs, roomL
     const to = sample(ctx, sourceEntity(ctx, null, area, stage.to, false));
     const target = interpolate(from, to, stage);
     const pr = saved(ctx, `input_text.ls_${scopeFor(ctx, area, stage.from)}_${stage.from}`);
-    targets[`room:${area}`] = { brightness: target.brightness!, color: target.color!, area, is_room: true, period: stage.from, effect: pr.effect === undefined ? 'Normal light' : pr.effect, on: target.on!,
+    // The `!` on brightness/color/on is gone: `interpolate` returns
+    // `LampTarget`, where none of the three is optional, so the assertions
+    // were asserting something the signature already guaranteed.
+    targets[`room:${area}`] = { brightness: target.brightness, color: target.color, area, is_room: true, period: stage.from, effect: pr.effect === undefined ? 'Normal light' : pr.effect, on: target.on,
       day: profile(ctx, sourceEntity(ctx, null, area, 'day', false)), cosy: profile(ctx, sourceEntity(ctx, null, area, 'cosy', false)), ignore_overrides: ignored };
   }
   const stale = Object.keys(records).filter(key => {
