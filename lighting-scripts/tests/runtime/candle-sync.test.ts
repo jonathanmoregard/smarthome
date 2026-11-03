@@ -139,3 +139,41 @@ test('response timeout is anchored to MQTT completion, not subsequent helper ack
   const membership = d.snapshot.scheduled.find(task => task.args.stage === 'membership');
   assert.equal(membership.args.host_timer_deadline, Date.parse('2026-10-26T12:00:15Z'));
 });
+
+test('Candle continuation boundaries reject malformed present fields', async () => {
+  {
+    const d = await driver(); d.run('effects_candle_sync'); const token = pending(d).token;
+    assert.throws(() => d.run('effects_candle_sync_published', { token, host_output_success: 'yes' }), /must be true or false/);
+  }
+  {
+    const d = await driver(); d.run('effects_candle_sync');
+    assert.throws(() => d.run('effects_candle_sync_published', { token: null, host_output_success: true }), /token must be a string/);
+  }
+  {
+    const d = await driver(); d.run('effects_candle_sync'); const token = pending(d).token;
+    assert.throws(() => d.run('effects_candle_sync_published', { token, host_output_success: true, host_completed_at: 'not a date' }), /timestamp/);
+    assert.throws(() => d.run('effects_candle_sync_timeout', { token, stage: null }), /stage must be a string/);
+  }
+});
+
+test('Candle request construction does not replace explicit nulls with defaults', async () => {
+  {
+    const state = initial();
+    state.catalog.candle_group = { id: null };
+    const d = await driver(state);
+    assert.throws(() => d.run('effects_candle_sync'), /finite number/);
+  }
+  {
+    const state = initial();
+    state.state['sensor.ls_effects_runtime'].attributes.candle_group = {
+      exists: true, members: [{ ieee_address: '0xbbbb', endpoint: null }], observed_at: Date.parse(at) / 1000,
+    };
+    const d = await driver(state);
+    assert.throws(() => d.run('effects_candle_sync'), /finite number/);
+  }
+  {
+    const d = await driver(); d.run('effects_candle_sync'); const token = pending(d).token;
+    pending(d).request = null;
+    assert.throws(() => d.run('effects_candle_sync_published', { token, host_output_success: false }), /request must be an object/);
+  }
+});
