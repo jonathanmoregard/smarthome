@@ -1,5 +1,6 @@
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { jinjaInt, ParseError, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { jinjaInt, ParseError, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { isObject } from './scale.ts';
 
 const presets = [200, 285, 370, 454, 588];
 const directions = ['left', 'right', 'up', 'down'];
@@ -37,9 +38,13 @@ function parseGestureArgs(args: JsonObject): GestureArgs {
     token: command === 'power_done'
       ? args.token === undefined ? '' : requireString(args, 'token', 'ls_remote_gesture')
       : '',
-    payload: lazy(() => args.payload === undefined || args.payload === null
-      ? undefined
-      : requireObject(args, 'payload', 'ls_remote_gesture')),
+    // A remote publishes whatever JSON it likes, and only a mapping can carry
+    // a preset action. The preserved scenario enumerates the real domain --
+    // none, [], {}, and mappings whose action does not match -- and the
+    // captured script dispatches nothing for every one of them without
+    // raising. So a non-mapping payload is not malformed input to reject; it
+    // is an event that is not a preset payload, which is genuine optionality.
+    payload: lazy(() => isObject(args.payload) ? args.payload : undefined),
     delivery: lazy(() => ({
       deviceId: args.device_id === undefined ? undefined : requireString(args, 'device_id', 'ls_remote_gesture'),
       source: args.source === undefined ? '' : requireString(args, 'source', 'ls_remote_gesture'),
