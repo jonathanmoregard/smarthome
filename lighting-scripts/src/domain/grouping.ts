@@ -115,6 +115,9 @@ export function planGroups(rows: JsonValue[], groups: JsonValue[]): GroupPlanRes
 }
 
 function epoch(value: string | undefined): number { return value === undefined ? 0 : timestamp(value); }
+/** For members this function built: the address is already a string. */
+function byIeee(a: CandleMember, b: CandleMember): number { return compare(a.ieee_address, b.ieee_address); }
+/** For members read out of the runtime attribute, which are still documents. */
 function byAddress(a: JsonValue, b: JsonValue): number {
   const left = requireObject({ a }, 'a', 'effects_candle_plan.member');
   const right = requireObject({ b }, 'b', 'effects_candle_plan.member');
@@ -124,13 +127,49 @@ function byAddress(a: JsonValue, b: JsonValue): number {
   );
 }
 
+/**
+ * One endpoint this plan wants in the Candle group. Both fields are built from
+ * the device identifier, so the key order the gate compares is this order.
+ */
+export type CandleMember = { ieee_address: string; endpoint: number };
+/**
+ * `effects_candle_plan`'s result.
+ *
+ * Three fields stay JSON, each for its own reason:
+ *
+ * - `lamps` holds the assignment documents themselves, which are persisted
+ *   into `candle_pending` and compared.
+ * - `actual` is the runtime sensor's `candle_group` attribute, read raw and
+ *   handed back raw.
+ * - `remove` is filtered out of `actual.members`, whose entries this function
+ *   only *checks* (`requireObject` plus a required `ieee_address`) and never
+ *   rebuilds. Narrowing it to `CandleMember` would drop any other field the
+ *   real document carries, and the selected member is persisted -- THE
+ *   INVARIANT.
+ *
+ * `members` and `add` are `CandleMember[]` because every field of those is
+ * built here, in `endpoints`.
+ */
+export type CandlePlanResult = {
+  lamps: Record<string, JsonObject>;
+  entities: string[];
+  members: CandleMember[];
+  actual: JsonObject;
+  remove: JsonObject[];
+  add: CandleMember[];
+  owners: Record<string, string>;
+  fresh: boolean;
+  synchronized: boolean;
+  ready: boolean;
+};
+
 /** Membership uses current runtime assignments and device identifiers, never fixed lamp topology. */
-export function planCandle(ctx: ScriptContext, catalogMembers: JsonObject): JsonObject {
+export function planCandle(ctx: ScriptContext, catalogMembers: JsonObject): CandlePlanResult {
   const assignments = objectOrEmpty(ctx.attr('sensor.ls_effects_runtime', 'assignments'), 'effects_candle_plan.assignments');
   const power = objectOrEmpty(ctx.attr('sensor.ls_overrides', 'power'), 'effects_candle_plan.power');
   const actual = objectOrEmpty(ctx.attr('sensor.ls_effects_runtime', 'candle_group'), 'effects_candle_plan.actual');
-  const endpoints = new Map<string, JsonObject>();
-  const owners: JsonObject = {};
+  const endpoints = new Map<string, CandleMember>();
+  const owners: Record<string, string> = {};
   for (const [lamp, ends] of Object.entries(catalogMembers)) {
     for (const endpoint of stringList(ends, `effects_candle_plan.catalog.members.${lamp}`)) {
       for (const pair of ctx.identifiers?.[endpoint] ?? []) {
@@ -143,9 +182,9 @@ export function planCandle(ctx: ScriptContext, catalogMembers: JsonObject): Json
       }
     }
   }
-  const lamps: JsonObject = {};
+  const lamps: Record<string, JsonObject> = {};
   const entities: string[] = [];
-  const wanted: JsonValue[] = [];
+  const wanted: CandleMember[] = [];
   for (const [lamp, assignment] of Object.entries(assignments)) {
     if (!Object.hasOwn(catalogMembers, lamp) || ctx.get(lamp) !== 'on') continue;
     const t = requireObject({ assignment }, 'assignment', `effects_candle_plan.assignments.${lamp}`);
@@ -163,7 +202,7 @@ export function planCandle(ctx: ScriptContext, catalogMembers: JsonObject): Json
       if (ctx.get(endpoint) === 'on' && member !== undefined) { entities.push(endpoint); wanted.push(member); }
     }
   }
-  wanted.sort(byAddress);
+  wanted.sort(byIeee);
   const members = list(actual.members).map((member, index) => {
     const parsed = requireObject({ member }, 'member', `effects_candle_plan.actual.members[${index}]`);
     requireString(parsed, 'ieee_address', `effects_candle_plan.actual.members[${index}]`);
@@ -194,7 +233,7 @@ export const groupingHandlers: ScriptHandlers = {
     parse: args => ({ rows: list(args.rows), groups: list(args.groups) }),
     run: (_ctx, args) => planGroups(args.rows, args.groups),
   }),
-  effects_candle_plan: withParsedArgs({
+  effects_candle_plan: typed('effects_candle_plan', {
     parse: args => {
       const catalog = requireObject(args, 'catalog', 'effects_candle_plan');
       return { catalogMembers: requireObject(catalog, 'members', 'effects_candle_plan.catalog') };

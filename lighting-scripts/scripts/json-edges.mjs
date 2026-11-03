@@ -141,12 +141,21 @@ const DOMAIN = join(ROOT, 'src/domain');
  * the accessors its callers shed.** A constructed result is the case where
  * that holds automatically, not the only case. Before parking an entrypoint as
  * "passthrough", read its callers and count.
+ *
+ * `effects_candle_plan` is that rule applied, and it was the entrypoint parked
+ * TWICE as not worth converting -- the earlier note put it at "~5 tokens to
+ * save ~5 accessors". Counted properly: three fields stay JSON (`lamps`,
+ * `actual`, `remove`, each for a different and written-down reason) while
+ * seven accessors go from `iterate()`. `jsonTypes 389 -> 385`,
+ * `lenientAccessors 245 -> 238`, `rawJsonReturns 42 -> 40`. The accessor
+ * prediction was exact; the token drop beat it, because the caller shed its
+ * own `JsonValue` locals too.
  */
 const CEILINGS = {
-  jsonTypes: 389,
+  jsonTypes: 385,
   validatedBags: 0,
-  lenientAccessors: 245,
-  rawJsonReturns: 42,
+  lenientAccessors: 238,
+  rawJsonReturns: 40,
 };
 
 /** Comments may legitimately name these types while explaining why they are gone. */

@@ -15,9 +15,10 @@ function timeout(ctx: ScriptContext, token: string, stage: string, started = Dat
   ctx.schedule('effects_candle_sync_timeout', { token, stage, host_timer_deadline: deadline }, Math.max(0, deadline - Date.parse(ctx.now)));
 }
 function pending(ctx: ScriptContext): JsonObject { return object(ctx.attr(runtime, 'candle_pending')); }
-function first(values: JsonValue[]): JsonValue {
+/** Generic, so a typed member list does not come back out as `JsonValue`. */
+function first<T>(values: T[]): T {
   if (values.length === 0) throw new Error('Cannot take the first item of an empty Candle member list');
-  return values[0] as JsonValue;
+  return values[0] as T;
 }
 function interrupted(ctx: ScriptContext): void {
   update(ctx, { candle_pending: null, candle_syncing: true, candle_retry_at: timestamp(ctx.now) + 30, candle_error: 'Membership reconciliation interrupted' });
@@ -39,13 +40,16 @@ function failed(ctx: ScriptContext, state: JsonObject): void {
 }
 function iterate(ctx: ScriptContext, catalog: JsonObject, iteration: number): void {
   if (iteration >= 100 || ctx.get(bridge) !== 'on') { interrupted(ctx); return; }
-  const membership = object(ctx.run('effects_candle_plan', { catalog })), actual = object(membership.actual);
-  if (membership.synchronized || (!list(membership.members).length && !list(actual.members).length)) {
+  const membership = ctx.call('effects_candle_plan', { catalog }), actual = membership.actual;
+  // `synchronized` was read bare in this boolean position while it was a
+  // `JsonValue`. It is a real boolean now; `list(actual.members)` stays
+  // because `actual` is the runtime attribute, deliberately raw.
+  if (membership.synchronized || (!membership.members.length && !list(actual.members).length)) {
     if (ctx.attr(runtime, 'candle_error') !== null && ctx.attr(runtime, 'candle_error') !== undefined) ctx.emit('persistent_notification.dismiss', { notification_id: notice });
     update(ctx, { candle_pending: null, candle_syncing: false, candle_retry_at: 0, candle_error: null });
     return;
   }
-  const remove = list(membership.remove), add = list(membership.add), wanted = list(membership.members);
+  const remove = membership.remove, add = membership.add, wanted = membership.members;
   const exists = actual.exists === undefined
     ? false
     : requireBoolean(actual.exists, 'effects_candle_sync.plan.actual.exists');
@@ -66,7 +70,7 @@ function iterate(ctx: ScriptContext, catalog: JsonObject, iteration: number): vo
       skip_disable_reporting: true,
       transaction: token,
     };
-  const state: JsonObject = { stage: 'publishing', token, operation, member, request, started: timestamp(ctx.now), iteration, catalog, owners: object(membership.owners) };
+  const state: JsonObject = { stage: 'publishing', token, operation, member, request, started: timestamp(ctx.now), iteration, catalog, owners: membership.owners };
   // Persist the in-flight intent before output. A restart must not replay an
   // ambiguous group mutation. The host releases this continuation after ACK.
   update(ctx, { candle_pending: state });

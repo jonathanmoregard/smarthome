@@ -6,7 +6,7 @@ import type { GradientPlanResult } from '../domain/gradient.ts';
 import type { AssignResult, EmitResult } from '../domain/transport.ts';
 import type { DispatchResult } from '../domain/dispatch-render.ts';
 import type { CommitResult } from '../domain/state-store.ts';
-import type { GroupPlanResult } from '../domain/grouping.ts';
+import type { CandlePlanResult, GroupPlanResult } from '../domain/grouping.ts';
 
 /**
  * The typed result of each converted internal entrypoint, keyed by the script
@@ -40,6 +40,7 @@ export interface TypedResults {
   // impossible for their results to drift apart.
   effects_group_plan: GroupPlanResult;
   effects_frame_plan: GroupPlanResult;
+  effects_candle_plan: CandlePlanResult;
 }
 
 export type TypedName = keyof TypedResults;

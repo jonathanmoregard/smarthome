@@ -3,7 +3,7 @@ import type { TypedResults } from '../runtime/entrypoints.ts';
 import type { SwitchDecision, SwitchPlanResult } from '../domain/controller.ts';
 import type { AssignResult, EmitResult } from '../domain/transport.ts';
 import type { CommitResult } from '../domain/state-store.ts';
-import type { GroupCommand, GroupPlanResult, RejectedRow } from '../domain/grouping.ts';
+import type { CandleMember, CandlePlanResult, GroupCommand, GroupPlanResult, RejectedRow } from '../domain/grouping.ts';
 import { ParseError, requireArray, requireBoolean, requireFinite, requireNumber, requireObject, requireString } from '../runtime/parse.ts';
 
 function decodeStrings(container: JsonObject, key: string, context: string): string[] {
@@ -152,6 +152,41 @@ function decodeRejectedRow(value: JsonValue, context: string): RejectedRow {
   throw new ParseError(`${context}.reason must be invalid_endpoint_row or conflicting_endpoint_rows, got ${JSON.stringify(reason)}`);
 }
 
+function decodeCandleMember(value: JsonValue, context: string): CandleMember {
+  const member = requireObject({ value }, 'value', context);
+  return {
+    ieee_address: requireString(member, 'ieee_address', context),
+    endpoint: requireNumber(member, 'endpoint', context),
+  };
+}
+
+/**
+ * `lamps`, `actual` and `remove` are read raw, matching `CandlePlanResult`:
+ * `remove`'s entries are documents the planner only checks, and the selected
+ * one is persisted into `candle_pending` and compared.
+ */
+function decodeCandlePlan(value: JsonValue, context: string): CandlePlanResult {
+  const result = requireObject({ value }, 'value', context);
+  const decodeMembers = (key: 'members' | 'add'): CandleMember[] =>
+    requireArray(result, key, context)
+      .map((member, index) => decodeCandleMember(member, `${context}.${key}.${index}`));
+  return {
+    lamps: Object.fromEntries(Object.entries(requireObject(result, 'lamps', context))
+      .map(([lamp, raw]) => [lamp, requireObject({ raw }, 'raw', `${context}.lamps.${lamp}`)])),
+    entities: decodeStrings(result, 'entities', context),
+    members: decodeMembers('members'),
+    actual: requireObject(result, 'actual', context),
+    remove: requireArray(result, 'remove', context)
+      .map((raw, index) => requireObject({ raw }, 'raw', `${context}.remove.${index}`)),
+    add: decodeMembers('add'),
+    owners: Object.fromEntries(Object.entries(requireObject(result, 'owners', context))
+      .map(([ieee, lamp]) => [ieee, requireString({ lamp }, 'lamp', `${context}.owners.${ieee}`)])),
+    fresh: requireBoolean(result.fresh, `${context}.fresh`),
+    synchronized: requireBoolean(result.synchronized, `${context}.synchronized`),
+    ready: requireBoolean(result.ready, `${context}.ready`),
+  };
+}
+
 /**
  * One codec per converted entrypoint.
  *
@@ -189,4 +224,8 @@ export const resultCodecs: { [K in keyof TypedResults]: ResultCodec<TypedResults
   // leniency the two call sites used to apply inline.
   effects_group_plan: { encode: result => result, decode: decodeGroupPlan },
   effects_frame_plan: { encode: result => result, decode: decodeGroupPlan },
+  // A decoder because `iterate()` reads seven of the ten fields and drives a
+  // Zigbee group mutation off them, so a drifted stub would publish the wrong
+  // membership rather than fail.
+  effects_candle_plan: { encode: result => result, decode: decodeCandlePlan },
 };
