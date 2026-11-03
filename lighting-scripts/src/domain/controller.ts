@@ -3,7 +3,10 @@ import { object, requireArray, requireBoolean, requireObject, requireString, wit
 import { typed } from '../runtime/entrypoints.ts';
 import { WARM_END } from './scale.ts';
 import { optionalTimestamp } from './schedule.ts';
+import type { ScheduleEnvelope, TargetEntry } from './schedule.ts';
 import { recordTimestamp } from './resolution.ts';
+import type { ResolutionResult } from './resolution.ts';
+import type { GradientPlanResult } from './gradient.ts';
 import { requireRgb } from '../parse/scale.ts';
 import type { RemotePlanResult } from './remote-input.ts';
 
@@ -104,7 +107,57 @@ export function switchPlan(ctx: ScriptContext, args: SwitchPlanArgs): SwitchPlan
   return { switches };
 }
 
-export function plan(ctx: ScriptContext, args: PlanArgs): JsonObject {
+/**
+ * The document `ls_plan` builds, with every field concrete.
+ *
+ * `Omit` rather than a plain intersection, and that is load-bearing: `plan`
+ * spreads `...schedule` and then *overwrites* `revision` and `sara_mirror`, and
+ * the widths differ. `ScheduleEnvelope.sara_mirror` is `'off' | null`, but this
+ * document's is `'on' | 'off' | null`, because `wanted` is `'on'` whenever
+ * `mode:sara` is active. Intersecting would narrow the field back to the
+ * envelope's two cases and reject the value this function actually produces.
+ *
+ * Every field is either computed here or the result of an already-converted
+ * entrypoint, so there is no passthrough and THE INVARIANT (a projected field
+ * must never reach compared JSON) cannot be broken by this type. The envelope's
+ * own loosely-typed fields keep the reasons written at their declarations in
+ * `schedule.ts`.
+ */
+export type PlanDocument = Omit<ScheduleEnvelope, 'revision' | 'sara_mirror'> & {
+  base: Record<string, TargetEntry>;
+  resolved: ResolutionResult;
+  gradients: GradientPlanResult['gradients'];
+  switches: Record<string, SwitchDecision>;
+  revision: string;
+  plan_order: number;
+  remote: boolean;
+  sara_mirror: 'on' | 'off' | null;
+};
+export type PlanResult = { plan: PlanDocument };
+
+/**
+ * `ls_plan` is deliberately NOT in `TypedResults`, so no decoder exists for it
+ * and its three reading callers keep `ctx.run`. This is a return annotation
+ * only, which is the strongest typing available here.
+ *
+ * The parity harness answers to this name with two documents that no decoder
+ * could accept, and both are gate assertions:
+ *
+ * 1. `tests/parity/test_bridge.py:54-60` installs the literal
+ *    `{'marker': ['literal', 7]}` -- no `plan` key at all -- and asserts
+ *    `ls_apply`'s dry-run returns it verbatim. `gate.py:133` runs that file and
+ *    its exit code is `bridge_test_exit_code` in the report.
+ * 2. `tests/parity/adapters.py:220-222` asserts its literal dependency is
+ *    exactly `{plan: {base, resolved}}` and nothing else.
+ *
+ * So a decoder at either `ctx.call` site would raise where the oracle passes
+ * the bytes through. `effects_resolve` also has no decoder on purpose (see
+ * `resultCodecs` in `src/parse/results.ts`), so `resolved` had nothing to
+ * decode with either. Revisit only if `ls_dispatch`'s arguments ever become
+ * typed -- then this document has a typed producer and a typed consumer and the
+ * question does not arise.
+ */
+export function plan(ctx: ScriptContext, args: PlanArgs): PlanResult {
   const overrides = args.testOverrides === undefined
     ? optionalAttributeObject(ctx.attr('sensor.ls_overrides', 'overrides'), 'ls_plan.overrides')
     : args.testOverrides;
@@ -149,6 +202,15 @@ export function plan(ctx: ScriptContext, args: PlanArgs): JsonObject {
     sara_mirror: ctx.get('input_boolean.ls_sara_mode_mirror') !== wanted ? wanted : null } };
 }
 
+/**
+ * Stays `JsonValue`, and NOT because `ls_plan` is untyped -- because verbatim
+ * pass-through of whatever answered to `ls_plan` is an asserted contract.
+ * `tests/parity/test_bridge.py:54-60` stubs `ls_plan` with
+ * `{'marker': ['literal', 7]}` and asserts this function returns that object
+ * unchanged, so the dry-run path must forward an arbitrary document. Narrowing
+ * this to `PlanResult | null` would be a claim the harness disproves, and
+ * `ctx.call` here would raise on a document with no `plan` key.
+ */
 function apply(ctx: ScriptContext, args: ApplyArgs): JsonValue {
   if (!args.dryRun && (args.testNow !== undefined || args.hasTestOverrides || args.forceAll)) return null;
   if (args.dryRun) return ctx.run('ls_plan', { reason: args.reason, test_now: args.testNow === undefined ? null : args.testNow,

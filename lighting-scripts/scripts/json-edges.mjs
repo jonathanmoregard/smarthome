@@ -195,12 +195,26 @@ const DOMAIN = join(ROOT, 'src/domain');
  * predicted. Do not read the single digit as the size of the change: it moved a
  * 140-line decoder's worth of verification from the consumer to the boundary
  * and closed two of the four remaining entrypoints.
+ *
+ * `ls_plan` then got a return type and NO seam entry: `jsonTypes 377 -> 376`,
+ * `rawJsonReturns 37 -> 36`, and zero accessors, which is the whole honest
+ * story of this one. The seam was ruled out by measurement, not taste --
+ * `tests/parity/test_bridge.py:54-60` stubs `ls_plan` with
+ * `{'marker': ['literal', 7]}`, a document with no `plan` key, and asserts
+ * `ls_apply` returns it verbatim; `gate.py:133` runs that file and its exit
+ * code is one of the nine gate assertions. A second literal
+ * (`adapters.py:220-222`) is pinned to exactly `{plan: {base, resolved}}`. No
+ * decoder accepts both, so `ls_plan` stays out of `TypedResults` and `apply`
+ * stays `JsonValue`. The three reading callers keep their `object(...)` reads,
+ * which is why the accessor column does not move; typing the construction of
+ * all nine fields is the criterion-8 value here, and it is not a number this
+ * guard can see. Do NOT widen the regexes to make it visible.
  */
 const CEILINGS = {
-  jsonTypes: 377,
+  jsonTypes: 376,
   validatedBags: 0,
   lenientAccessors: 237,
-  rawJsonReturns: 37,
+  rawJsonReturns: 36,
 };
 
 /** Comments may legitimately name these types while explaining why they are gone. */
