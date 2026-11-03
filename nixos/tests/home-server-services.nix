@@ -133,6 +133,17 @@ pkgsSystem.testers.runNixOSTest {
       age.secrets.zigbee2mqtt-network-key.file =
         lib.mkForce "${zigbeeTestAgenix}/zigbee2mqtt-network-key.age";
 
+      # Keep the real timer loaded and active, but out of this run's window.
+      # Production fires at OnBootSec=3min, inside the ~9 minutes this VM takes,
+      # and the sandbox has no network for the fetch, so system-deploy exits 1
+      # and the no-failed-units assertion below trips on a timing accident.
+      # Same override, and the same reason, as nixos/tests/home-server.nix.
+      # Transaction behaviour has its own VM in home-server-cd.nix.
+      systemd.timers.system-deploy.timerConfig = {
+        OnBootSec = lib.mkForce "1h";
+        OnUnitActiveSec = lib.mkForce "1h";
+      };
+
       assertions = [
         {
           assertion = !(builtins.hasAttr "buildCoordination" options.services);
@@ -314,6 +325,10 @@ pkgsSystem.testers.runNixOSTest {
     home_server.succeed("test ! -e /run/agenix/smarthome-deploy-ssh-key")
     home_server.fail("find -L /run/agenix -maxdepth 1 -type f -name '*deploy*' -print -quit | grep -q .")
     failed_units = home_server.succeed("systemctl --failed --no-legend")
-    assert failed_units.strip() == "", failed_units
+    assert failed_units.strip() == "", (
+        "units failed in this composition; the system-deploy timer is pushed to 1h "
+        "above, so this is a real failure and not the deploy timer firing mid-run:\n"
+        + failed_units
+    )
   '';
 }

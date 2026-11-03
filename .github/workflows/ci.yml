@@ -20,6 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
+      scripts: ${{ steps.changes.outputs.scripts }}
       system: ${{ steps.changes.outputs.system }}
     steps:
       - name: Check out exact revision
@@ -86,12 +87,44 @@ jobs:
             .#checks.x86_64-linux.vm-home-server-cd \
             .#nixosConfigurations.home-server.config.system.build.toplevel
 
+  scripts:
+    name: lighting scripts checks
+    needs: classify
+    if: needs.classify.outputs.scripts == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: lighting-scripts
+    steps:
+      - name: Check out exact revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.18.0
+      - name: Install dependencies
+        run: npm ci
+      - name: Type-check
+        run: npm run check
+      - name: Test
+        run: npm test
+      # The audit tooling tests build their own fixtures, so they run anywhere.
+      # `npm run audit:responses` itself is capture-only and deliberately absent,
+      # as is `npm run parity`: both need private, gitignored household captures
+      # that never leave the capture host, so neither can run on a GitHub runner.
+      - name: Audit tooling tests
+        run: python3 -m unittest discover -s tests/tools -p 'test_*.py'
+
   ci:
     name: CI
     if: always()
     needs:
       - classify
       - evaluate
+      - scripts
       - system
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -100,6 +133,8 @@ jobs:
         env:
           CLASSIFY_RESULT: ${{ needs.classify.result }}
           EVALUATE_RESULT: ${{ needs.evaluate.result }}
+          SCRIPTS_RESULT: ${{ needs.scripts.result }}
+          SCRIPTS_SELECTED: ${{ needs.classify.outputs.scripts }}
           SYSTEM_RESULT: ${{ needs.system.result }}
           SYSTEM_SELECTED: ${{ needs.classify.outputs.system }}
         run: |
@@ -107,10 +142,17 @@ jobs:
           if [[ "$CLASSIFY_RESULT" != success || "$EVALUATE_RESULT" != success ]]; then
             exit 1
           fi
+          if [[ "$SCRIPTS_SELECTED" == true && "$SCRIPTS_RESULT" != success ]]; then
+            exit 1
+          fi
           if [[ "$SYSTEM_SELECTED" == true && "$SYSTEM_RESULT" != success ]]; then
             exit 1
           fi
-          for result in "$CLASSIFY_RESULT" "$EVALUATE_RESULT" "$SYSTEM_RESULT"; do
+          for result in \
+            "$CLASSIFY_RESULT" \
+            "$EVALUATE_RESULT" \
+            "$SCRIPTS_RESULT" \
+            "$SYSTEM_RESULT"; do
             if [[ "$result" == failure || "$result" == cancelled ]]; then
               exit 1
             fi

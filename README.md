@@ -16,6 +16,11 @@ disabled. Start with the runbooks for [bootstrap](docs/home-server/bootstrap.md)
 [access](docs/home-server/access.md), and
 [Home Assistant](docs/home-server/home-assistant.md).
 
+The staged TypeScript lighting program and its development reload loop live in
+[`lighting-scripts/`](lighting-scripts/README.md). Its tests reuse the preserved
+Home Assistant behavior through a local parity adapter; it is not deployed by the
+system release pipeline yet.
+
 ## Architecture
 
 ```text
