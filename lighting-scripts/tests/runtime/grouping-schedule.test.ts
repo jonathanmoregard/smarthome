@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { list, num, saved, strings, timestamp } from '../../src/domain/schedule.ts';
-import { context, setCatalog } from './gestures-context.ts';
+import { context, setCatalog, setHandlers } from './gestures-context.ts';
 
 test('schedule numeric parsing uses explicit absence and rejects malformed present values', () => {
   assert.equal(num(undefined, 255), 255);
@@ -140,8 +140,7 @@ test('room cache skips baseline recomputation while updating observations and po
   const { controllerHandlers } = await import('../../src/domain/controller.ts');
   const { nativeHandlers } = await import('../../src/domain/native-controls.ts');
   const { scheduleHandlers } = await import('../../src/domain/schedule.ts');
-  const handlers = { ...scheduleHandlers, ...resolutionHandlers, ...controllerHandlers, ...nativeHandlers, ...port.planningHandlers };
-  ctx.run = function(name, args = {}) { return handlers[name.replace(/^script\./, '')](this, args); };
+  setHandlers(ctx, { ...scheduleHandlers, ...resolutionHandlers, ...controllerHandlers, ...nativeHandlers, ...port.planningHandlers });
   ctx.now = '2026-10-23T12:00:00+02:00';
   setCatalog(ctx, { effects: {}, processors: {} });
   const first = ctx.run('ls_room_plan', { room: 'studio', overrides: {}, reason: 'remote' });

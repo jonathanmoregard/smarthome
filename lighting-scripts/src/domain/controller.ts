@@ -1,5 +1,6 @@
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
 import { object, requireArray, requireBoolean, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { typed } from '../runtime/entrypoints.ts';
 import { WARM_END } from './scale.ts';
 import { optionalTimestamp } from './schedule.ts';
 import { recordTimestamp } from './resolution.ts';
@@ -13,6 +14,22 @@ interface SwitchPlanArgs {
   ranges: JsonObject;
   defaults: JsonObject;
 }
+
+/**
+ * One switch's planned state.
+ *
+ * Every field is computed here from the rule and the room's target, so the
+ * parsed view and the serialised bytes cannot diverge -- nothing is passed
+ * through from an input document. That is what makes this result safe to hand
+ * callers as a type while `ls_plan` still serialises it into compared JSON.
+ */
+export type SwitchDecision = {
+  on: boolean;
+  room: string;
+  brightness: number;
+  range: [number, number];
+};
+export type SwitchPlanResult = { switches: Record<string, SwitchDecision> };
 
 interface PlanArgs {
   testOverrides: JsonObject | undefined;
@@ -70,8 +87,8 @@ function requiredResultObject(value: JsonValue, context: string): JsonObject {
   return requireObject({ value }, 'value', context);
 }
 
-export function switchPlan(ctx: ScriptContext, args: SwitchPlanArgs): JsonObject {
-  const targets = args.targets, switches: JsonObject = {}, defaults = args.defaults;
+export function switchPlan(ctx: ScriptContext, args: SwitchPlanArgs): SwitchPlanResult {
+  const targets = args.targets, switches: Record<string, SwitchDecision> = {}, defaults = args.defaults;
   for (const [entity, raw] of Object.entries(args.ranges)) {
     const rule = object(raw), room = ctx.areas[entity];
     const group = room === undefined ? {} : object(targets[`room:${room}`]);
@@ -119,13 +136,12 @@ export function plan(ctx: ScriptContext, args: PlanArgs): JsonObject {
   const defaults = rawDefaults === undefined || rawDefaults === null
     ? rangeDefaults
     : requireObject({ value: rawDefaults }, 'value', 'ls_plan.range_defaults');
-  const switches = requiredResultObject(ctx.run('ls_switch_plan', { targets: resolvedTargets, ranges, defaults }), 'ls_plan.switches');
-  const plannedSwitches = requireObject(switches, 'switches', 'ls_plan.switches');
+  const switches = ctx.call('ls_switch_plan', { targets: resolvedTargets, ranges, defaults });
   const revisionValue = ctx.state['sensor.ls_overrides']?.last_updated;
   const revision = requireString({ value: revisionValue === undefined ? null : revisionValue }, 'value', 'ls_plan.revision');
   const wanted = Object.hasOwn(active, 'mode:sara') ? 'on' : 'off';
   return { plan: { ...schedule, base: baselineTargets, resolved, gradients,
-    switches: plannedSwitches, revision,
+    switches: switches.switches, revision,
     plan_order: recordTimestamp(ctx.now), remote: args.reason === 'remote',
     sara_mirror: ctx.get('input_boolean.ls_sara_mode_mirror') !== wanted ? wanted : null } };
 }
@@ -165,7 +181,7 @@ function remoteCommand(ctx: ScriptContext, args: RemoteCommandArgs): JsonValue {
 export const controllerHandlers: ScriptHandlers = {
   // Captured targets/defaults each use mapping.get once and ranges uses
   // mapping.items once; all three therefore require real mappings.
-  ls_switch_plan: withParsedArgs({
+  ls_switch_plan: typed('ls_switch_plan', {
     parse: args => ({
       targets: requireObject(args, 'targets', 'ls_switch_plan'),
       ranges: requireObject(args, 'ranges', 'ls_switch_plan'),

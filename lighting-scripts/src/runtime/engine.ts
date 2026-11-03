@@ -1,6 +1,8 @@
 import type { EntityState, EventRecord, JsonObject, JsonValue, OutputGuard, ScheduledTask, ScriptContext, ScriptHandlers, ServiceCall, Snapshot } from './context.ts';
 import type { Catalog } from './catalog.ts';
+import type { TypedResults } from './entrypoints.ts';
 import { emptyCatalog, parseCatalog } from './catalog.ts';
+import { typedDispatch } from './entrypoints.ts';
 
 export interface ExecutionRequest { script: string; args: JsonObject; snapshot: Snapshot }
 export interface ExecutionResult { result: JsonValue; snapshot: Snapshot; calls: ServiceCall[]; events: EventRecord[] }
@@ -8,7 +10,14 @@ export interface ExecutionHooks {
   beforeService?: (call: ServiceCall, context: ScriptContext) => void;
   afterService?: (call: ServiceCall, context: ScriptContext) => void;
   beforeScript?: (name: string, args: JsonObject, context: ScriptContext) => void;
-  afterScript?: (name: string, args: JsonObject, result: JsonValue, context: ScriptContext) => void;
+  /**
+   * No `result` parameter, deliberately. A converted entrypoint's result never
+   * becomes JSON on the typed path, so a hook that received one would either
+   * force a serialisation nobody reads or hand out a lie. Its one consumer,
+   * `tests/parity/bridge.ts`, never read it: the parity trace is built from the
+   * name and the arguments.
+   */
+  afterScript?: (name: string, args: JsonObject, context: ScriptContext) => void;
 }
 
 function finite(value: unknown): void {
@@ -103,12 +112,32 @@ class Context implements ScriptContext {
       }
     }
     if (!handler) throw new Error(`Unsupported script: ${name}`);
+    const invoke = handler;
+    return this.dispatch(name, args, () => invoke(this, args));
+  }
+
+  /**
+   * The typed half of {@link run}.
+   *
+   * Identical dispatch -- same `scriptRuns` entry, same hooks, same depth
+   * guard, same argument bytes -- and then the converted handler's own result,
+   * with no JSON in between. When something else answers to this name (a unit
+   * test's stub, or the parity harness's literal dependency) it speaks JSON, so
+   * that answer is decoded at the edge instead.
+   */
+  call<K extends keyof TypedResults>(name: K, args: JsonObject = {}): TypedResults[K] {
+    const handler = this.handlers[name];
+    if (!handler) throw new Error(`Unsupported script: ${name}`);
+    return typedDispatch(name, handler, this, args, call => this.dispatch(name, args, call));
+  }
+
+  private dispatch<T>(name: string, args: JsonObject, invoke: () => T): T {
     this.scriptRuns.push(name);
     this.hooks.beforeScript?.(name, args, this);
     if (++this.depth > 64) throw new Error('Script call depth exceeded');
     try {
-      const result = handler(this, args);
-      this.hooks.afterScript?.(name, args, result, this);
+      const result = invoke();
+      this.hooks.afterScript?.(name, args, this);
       return result;
     } finally { this.depth--; }
   }

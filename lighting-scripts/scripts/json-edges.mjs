@@ -67,12 +67,21 @@ const DOMAIN = join(ROOT, 'src/domain');
  * returns to 4 without relocating a single function.
  * `jsonTypes 414 -> 410`, `lenientAccessors 277 -> 261`,
  * `rawJsonReturns 60 -> 57`.
+ *
+ * Criteria 2 and 8 then land one entrypoint at a time, and the per-entrypoint
+ * movement is small by construction: `ls_switch_plan` is worth
+ * `jsonTypes 410 -> 408`, `lenientAccessors 261 -> 260`,
+ * `rawJsonReturns 57 -> 56`. Read that as a unit price, not as the size of the
+ * change -- the commit that moves it also builds the seam (`ctx.call`, the
+ * typed/JSON handler pair and the result codecs) that the remaining 21
+ * entrypoints reuse. The expected total is the ~112 references the handler
+ * boundary holds: 57 raw-JSON returns plus 55 local JSON output builders.
  */
 const CEILINGS = {
-  jsonTypes: 410,
+  jsonTypes: 408,
   validatedBags: 0,
-  lenientAccessors: 261,
-  rawJsonReturns: 57,
+  lenientAccessors: 260,
+  rawJsonReturns: 56,
 };
 
 /** Comments may legitimately name these types while explaining why they are gone. */

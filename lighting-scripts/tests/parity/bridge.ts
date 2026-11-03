@@ -121,7 +121,7 @@ function perform(value: unknown): void {
           trace.push(structuredClone(call));
         }
       },
-      afterScript: (name, args, _result, ctx) => {
+      afterScript: (name, args, ctx) => {
         if (--depth > 0 && request.parityHooks === 'all') callback('after', { service: 'script.' + name, data: args }, ctx);
       },
     } : {};

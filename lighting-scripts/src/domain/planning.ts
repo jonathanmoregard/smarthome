@@ -210,11 +210,14 @@ export function roomPlan(ctx: ScriptContext, args: RoomPlanArgs): JsonObject {
   const active = Object.fromEntries(Object.entries(records).filter(([key]) => !stale.includes(key)));
   const resolved = object(ctx.run('effects_resolve', { base: baseline.targets, overrides: active, catalog, sara: Object.hasOwn(active, 'mode:sara'), private: privateRooms(ctx),
     power: args.power ?? object(ctx.attr('sensor.ls_overrides', 'power')), warm_end: warmEnd, gradients }));
-  const switches = object(ctx.run('ls_switch_plan', { targets: resolved.targets ?? {},
+  // `?? {}` on the result is gone, not dropped as decoration: `switchPlan`
+  // always returns `{switches}`, so the fallback was unreachable for the real
+  // handler and the type now says so.
+  const switches = ctx.call('ls_switch_plan', { targets: resolved.targets ?? {},
     ranges: args.ranges ?? object(ctx.attr('sensor.ls_overrides', 'switch_ranges')),
-    defaults: args.defaults ?? ctx.attr('sensor.ls_overrides', 'range_defaults') ?? { bright: [90, 100], cosy: [30, 60] } }));
+    defaults: args.defaults ?? ctx.attr('sensor.ls_overrides', 'range_defaults') ?? { bright: [90, 100], cosy: [30, 60] } });
   const wanted = Object.hasOwn(active, 'mode:sara') ? 'on' : 'off';
-  return { plan: { ...schedule, room, base: baseline.targets ?? {}, resolved, gradients, catalog, switches: switches.switches ?? {},
+  return { plan: { ...schedule, room, base: baseline.targets ?? {}, resolved, gradients, catalog, switches: switches.switches,
     revision: ctx.state['sensor.ls_overrides']?.last_updated ?? ctx.now, plan_order: timestamp(ctx.now), remote: reason === 'remote',
     sara_mirror: ctx.get('input_boolean.ls_sara_mode_mirror') !== wanted ? wanted : null }, cache_update: update, cache_hit: hit };
 }
