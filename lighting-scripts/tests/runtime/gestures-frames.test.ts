@@ -33,3 +33,12 @@ test('positive subsecond colour-loop samples retain exact half rounding', async 
   const ctx = await load();
   assert.deepEqual(ctx.run('effect_colour_loop_frame', { timestamp: 0.00980392156862745 }), { rgb: [255, 0, 0], transition: 0.4 });
 });
+
+test('frame filters keep Python numeric grammar and absent-only phase defaults', async () => {
+  const ctx = await load();
+  assert.deepEqual(ctx.run('effect_colour_loop_frame', { timestamp: '0x10' }), { rgb: [255, 0, 0], transition: 0.4 });
+  assert.notDeepEqual(
+    ctx.run('effect_candle_frame', { timestamp: 100, phase: null, brightness: 100 }),
+    ctx.run('effect_candle_frame', { timestamp: 100, brightness: 100 }),
+  );
+});
