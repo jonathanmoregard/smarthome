@@ -7,6 +7,7 @@ import type { AssignResult, EmitResult } from '../domain/transport.ts';
 import type { DispatchResult } from '../domain/dispatch-render.ts';
 import type { CommitResult } from '../domain/state-store.ts';
 import type { CandlePlanResult, GroupPlanResult } from '../domain/grouping.ts';
+import type { RemotePlanResult } from '../domain/remote-input.ts';
 
 /**
  * The typed result of each converted internal entrypoint, keyed by the script
@@ -41,6 +42,7 @@ export interface TypedResults {
   effects_group_plan: GroupPlanResult;
   effects_frame_plan: GroupPlanResult;
   effects_candle_plan: CandlePlanResult;
+  ls_remote_plan: RemotePlanResult;
 }
 
 export type TypedName = keyof TypedResults;

@@ -4,6 +4,7 @@ import type { SwitchDecision, SwitchPlanResult } from '../domain/controller.ts';
 import type { AssignResult, EmitResult } from '../domain/transport.ts';
 import type { CommitResult } from '../domain/state-store.ts';
 import type { CandleMember, CandlePlanResult, GroupCommand, GroupPlanResult, RejectedRow } from '../domain/grouping.ts';
+import type { RemoteInputRecord, RemoteModeRecord, RemotePlanOp, RemotePlanResult } from '../domain/remote-input.ts';
 import { ParseError, requireArray, requireBoolean, requireFinite, requireNumber, requireObject, requireString } from '../runtime/parse.ts';
 
 function decodeStrings(container: JsonObject, key: string, context: string): string[] {
@@ -187,6 +188,74 @@ function decodeCandlePlan(value: JsonValue, context: string): CandlePlanResult {
   };
 }
 
+/** Every operation but `noop` is tagged `via: 'remote'`; the literal is checked. */
+function decodeVia(result: JsonObject, context: string): 'remote' {
+  const via = requireString(result, 'via', context);
+  if (via !== 'remote') throw new ParseError(`${context}.via must be "remote", got ${JSON.stringify(via)}`);
+  return via;
+}
+
+function decodeRemoteRecord(value: JsonValue, context: string): RemoteModeRecord | RemoteInputRecord {
+  const record = requireObject({ value }, 'value', context);
+  const kind = requireString(record, 'kind', context);
+  if (kind === 'mode') {
+    return { kind, target: requireString(record, 'target', context), value: requireString(record, 'value', context) };
+  }
+  if (kind === 'input') {
+    const scope = requireString(record, 'scope', context);
+    if (scope !== 'room') throw new ParseError(`${context}.scope must be "room", got ${JSON.stringify(scope)}`);
+    return {
+      kind,
+      key: requireString(record, 'key', context),
+      source: requireString(record, 'source', context),
+      scope,
+      target: requireString(record, 'target', context),
+      // Raw, as `RemoteInputRecord` says: this is the stored override document.
+      value: requireObject(record, 'value', context),
+    };
+  }
+  throw new ParseError(`${context}.kind must be mode or input, got ${JSON.stringify(kind)}`);
+}
+
+function decodeRemoteOp(result: JsonObject, context: string): RemotePlanOp {
+  const op = requireString(result, 'op', context);
+  if (op === 'noop') return { op };
+  if (op === 'clear') return { op, keys: decodeStrings(result, 'keys', context), via: decodeVia(result, context) };
+  if (op === 'clear_room') return { op, area: requireString(result, 'area', context), via: decodeVia(result, context) };
+  if (op === 'power') {
+    return {
+      op,
+      area: requireString(result, 'area', context),
+      on: requireBoolean(result.on, `${context}.on`),
+      targets: decodeStrings(result, 'targets', context),
+      via: decodeVia(result, context),
+    };
+  }
+  if (op === 'set') {
+    return {
+      op,
+      records: requireArray(result, 'records', context)
+        .map((record, index) => decodeRemoteRecord(record, `${context}.records.${index}`)),
+      via: decodeVia(result, context),
+    };
+  }
+  throw new ParseError(`${context}.op must be one of noop, clear, clear_room, power, set, got ${JSON.stringify(op)}`);
+}
+
+/**
+ * The operation is decoded before the envelope, so a stub that gets the
+ * operation wrong is told about that rather than about a missing timestamp.
+ */
+function decodeRemotePlan(value: JsonValue, context: string): RemotePlanResult {
+  const result = requireObject({ value }, 'value', context);
+  return {
+    ...decodeRemoteOp(result, context),
+    input_revision: requireString(result, 'input_revision', context),
+    received_at: requireNumber(result, 'received_at', context),
+    request_id: requireString(result, 'request_id', context),
+  };
+}
+
 /**
  * One codec per converted entrypoint.
  *
@@ -228,4 +297,10 @@ export const resultCodecs: { [K in keyof TypedResults]: ResultCodec<TypedResults
   // Zigbee group mutation off them, so a drifted stub would publish the wrong
   // membership rather than fail.
   effects_candle_plan: { encode: result => result, decode: decodeCandlePlan },
+  // A decoder, and it is the most load-bearing one here. `ls_remote_command`
+  // used to read this result with `requireString(input_revision)`,
+  // `requireBoolean(on)` and `requireArray(targets)`, and
+  // `falsy-boundaries.test.ts:216` exists to pin that a `power` plan with no
+  // `targets` is refused. The decoder is where those reads moved.
+  ls_remote_plan: { encode: result => result, decode: decodeRemotePlan },
 };

@@ -5,6 +5,7 @@ import { WARM_END } from './scale.ts';
 import { optionalTimestamp } from './schedule.ts';
 import { recordTimestamp } from './resolution.ts';
 import { requireRgb } from '../parse/scale.ts';
+import type { RemotePlanResult } from './remote-input.ts';
 
 const list = (v: JsonValue | undefined): JsonValue[] => Array.isArray(v) ? v : [];
 const rangeDefaults: JsonObject = { bright: [90, 100], cosy: [30, 60] };
@@ -153,23 +154,27 @@ function apply(ctx: ScriptContext, args: ApplyArgs): JsonValue {
   return null;
 }
 
-function remoteCommand(ctx: ScriptContext, args: RemoteCommandArgs): JsonValue {
+function remoteCommand(ctx: ScriptContext, args: RemoteCommandArgs): RemotePlanResult | null {
   const input = { source: args.source, area: args.area, command: args.command };
-  if (args.dryRun) return ctx.run('ls_remote_plan', input);
-  let result: JsonObject = {}, accepted = false;
+  if (args.dryRun) return ctx.call('ls_remote_plan', input);
+  let result: RemotePlanResult | undefined, accepted = false;
   for (let attempt = 0; attempt < 1_000 && !accepted; attempt++) {
-    result = requiredResultObject(ctx.run('ls_remote_plan', input), 'ls_remote_command.plan');
+    result = ctx.call('ls_remote_plan', input);
     if (result.op === 'noop') accepted = true;
     else {
-      const inputRevision = requireString(result, 'input_revision', 'ls_remote_command.plan');
       accepted = ctx.call('ls_commit', { data: { ...result,
-        expected_revision: inputRevision, area: input.area, via: 'remote', source: input.source } }).accepted;
+        expected_revision: result.input_revision, area: input.area, via: 'remote', source: input.source } }).accepted;
     }
   }
   if (!accepted) throw new Error('Override revision kept changing; retry budget exhausted');
-  if (result.op === 'power') {
-    const on = requireBoolean(result.on, 'ls_remote_command.plan.on');
-    const targets = requireArray(result, 'targets', 'ls_remote_command.plan');
+  // `accepted` starts false, so the loop body always runs and assigns this.
+  // TypeScript cannot prove definite assignment through a loop, and widening
+  // the throw above to cover `undefined` would change a condition the gate
+  // compares, so the assertion stays here instead.
+  // `requireBoolean(result.on)` and `requireArray(result, 'targets')` are gone:
+  // the `op` discriminant narrows both, and `remotePlan` builds them.
+  if (result!.op === 'power') {
+    const { on, targets } = result!;
     ctx.emit(on ? 'homeassistant.turn_on' : 'homeassistant.turn_off', {}, { entity_id: targets });
     if (on) ctx.run('ls_apply', { reason: 'lamp_on', lights: targets });
   }

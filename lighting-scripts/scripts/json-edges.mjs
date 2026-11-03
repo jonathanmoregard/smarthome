@@ -150,12 +150,26 @@ const DOMAIN = join(ROOT, 'src/domain');
  * `lenientAccessors 245 -> 238`, `rawJsonReturns 42 -> 40`. The accessor
  * prediction was exact; the token drop beat it, because the caller shed its
  * own `JsonValue` locals too.
+ *
+ * `ls_remote_plan` (+ `ls_remote_command`, typed for free as its only caller)
+ * is the first conversion where **this script measures almost none of the
+ * value**: `jsonTypes 385 -> 382`, `rawJsonReturns 40 -> 38`, and
+ * `lenientAccessors does not move at all`. That is not a disappointing result,
+ * it is a limit of the four regexes. The reads it deleted were
+ * `requireString(result, 'input_revision')`, `requireBoolean(result.on)` and
+ * `requireArray(result, 'targets')` in `ls_remote_command`, and the
+ * `lenientAccessors` pattern counts only `object|values|list|num|
+ * jinjaMappingGet|String`. Strict `require*` re-reads of an already-produced
+ * result are invisible here and always were. When a conversion's payoff is
+ * strict re-reads rather than lenient ones, argue it in the commit message and
+ * ratchet what moved -- do not go looking for a different conversion because
+ * this table liked it better.
  */
 const CEILINGS = {
-  jsonTypes: 385,
+  jsonTypes: 382,
   validatedBags: 0,
   lenientAccessors: 238,
-  rawJsonReturns: 40,
+  rawJsonReturns: 38,
 };
 
 /** Comments may legitimately name these types while explaining why they are gone. */

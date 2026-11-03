@@ -1,6 +1,7 @@
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
 import { isObject, jinjaTruthy, object, requireBoolean, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
 import { catalogOf, emptyCatalog } from '../runtime/catalog.ts';
+import { typed } from '../runtime/entrypoints.ts';
 import { latestRemoteKey, recordTimestamp } from './resolution.ts';
 import { clamp } from './scale.ts';
 import { list, num } from './schedule.ts';
@@ -15,8 +16,46 @@ interface RemotePlanArgs {
   command: string;
 }
 
+/** A mode flip carries its own value; `sara_toggle` is the only producer. */
+export type RemoteModeRecord = { kind: 'mode'; target: string; value: string };
+/**
+ * A channel claim. `value` stays `JsonObject` because it is `next`, which is
+ * assembled by spreading the stored override document through `omit`/`pick`
+ * and the preset contexts -- it carries fields this planner never names, and
+ * it is persisted and compared. THE INVARIANT.
+ */
+export type RemoteInputRecord = {
+  kind: 'input';
+  key: string;
+  source: string;
+  scope: 'room';
+  target: string;
+  value: JsonObject;
+};
+/**
+ * What the remote decided, discriminated by `op`. Every field of every variant
+ * is built in `remotePlan` from locals, which is why this types at all -- the
+ * passthrough is confined to `RemoteInputRecord.value`.
+ *
+ * `noop` carries nothing on purpose: `ls_remote_command` tests `op === 'noop'`
+ * and accepts without committing, and inventing keys on it would change bytes
+ * the gate compares.
+ */
+export type RemotePlanOp =
+  | { op: 'noop' }
+  | { op: 'clear'; keys: string[]; via: 'remote' }
+  | { op: 'clear_room'; area: string; via: 'remote' }
+  | { op: 'power'; area: string; on: boolean; targets: string[]; via: 'remote' }
+  | { op: 'set'; records: (RemoteModeRecord | RemoteInputRecord)[]; via: 'remote' };
+/** The envelope every answer carries, whatever the operation. */
+export type RemotePlanResult = RemotePlanOp & {
+  input_revision: string;
+  received_at: number;
+  request_id: string;
+};
+
 /** Store button-domain intent; rendered brightness/color belong to the resolver. */
-export function remotePlan(ctx: ScriptContext, args: RemotePlanArgs): JsonObject {
+export function remotePlan(ctx: ScriptContext, args: RemotePlanArgs): RemotePlanResult {
   const source = args.source, command = args.command, area = args.area;
   const room = Object.values(ctx.areas).includes(area) ? area : '';
   const overrides = object(ctx.attr('sensor.ls_overrides', 'overrides'));
@@ -51,7 +90,7 @@ export function remotePlan(ctx: ScriptContext, args: RemotePlanArgs): JsonObject
   const bounds = Object.hasOwn(value, 'step_range') ? value.step_range : { min: -20, max: 20 };
   const validBounds = isObject(bounds) && numeric(bounds.min) && numeric(bounds.max)
     && -20 <= bounds.min && bounds.min <= bounds.max && bounds.max <= 20;
-  let result: JsonObject = { op: 'noop' };
+  let result: RemotePlanOp = { op: 'noop' };
   if (room !== '' && ['up', 'down', 'left', 'right', 'toggle', 'reset', 'sara_toggle'].includes(command)
     && (validBounds || ['toggle', 'reset', 'sara_toggle'].includes(command))) {
     if (command === 'sara_toggle') {
@@ -132,7 +171,7 @@ export function remotePlan(ctx: ScriptContext, args: RemotePlanArgs): JsonObject
 export const remoteInputHandlers: ScriptHandlers = {
   // Captured source/area/command are raw at 7/4/15 sites and form identifiers,
   // mapping keys and command branches. Missing or malformed values must raise.
-  ls_remote_plan: withParsedArgs({
+  ls_remote_plan: typed('ls_remote_plan', {
     parse: args => ({
       source: requireString(args, 'source', 'ls_remote_plan'),
       area: requireString(args, 'area', 'ls_remote_plan'),

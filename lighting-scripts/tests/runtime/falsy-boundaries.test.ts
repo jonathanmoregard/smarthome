@@ -49,7 +49,10 @@ test('switch planning rejects malformed top-level mappings', () => {
 test('remote commit acknowledgement accepts only a real boolean', () => {
   const ctx = context({
     ...controllerHandlers,
-    ls_remote_plan: () => ({ op: 'set', input_revision: 'revision' }),
+    // This test's subject is `ls_commit`'s acknowledgement, not the plan's
+    // shape, so the plan is a complete one and the stub gets past its decode.
+    ls_remote_plan: () => ({ op: 'set', records: [], via: 'remote',
+      input_revision: 'revision', received_at: 0, request_id: 'remote:0' }),
     ls_commit: () => ({ accepted: 'yes' }),
   });
   assert.throws(() => ctx.run('ls_remote_command', { source: 'remote', area: 'studio', command: 'up' }), /must be true or false/);
@@ -227,7 +230,13 @@ test('controller requires producer-owned plan and remote result fields', () => {
 
   const remote = context({
     ...controllerHandlers,
-    ls_remote_plan: () => ({ op: 'power', on: true, input_revision: 'revision' }),
+    // A realistic power plan missing exactly one field: `targets`. That
+    // rejection is this assertion's whole subject, and it moved from
+    // `ls_remote_command`'s `requireArray` into `decodeRemotePlan` when the
+    // result became typed. The other fields are filled so the decoder reaches
+    // it rather than refusing something else first.
+    ls_remote_plan: () => ({ op: 'power', area: 'studio', on: true, via: 'remote',
+      input_revision: 'revision', received_at: 0, request_id: 'remote:0' }),
     ls_commit: () => ({ accepted: true, revision: 'revision', committed_at: 0 }),
   });
   assert.throws(() => remote.run('ls_remote_command', { source: 'remote', area: 'studio', command: 'toggle' }), /targets.*array/);
