@@ -187,7 +187,16 @@ export function roomPlan(ctx: ScriptContext, args: RoomPlanArgs): JsonObject {
     baseline = cache.baseline; gradients = cache.gradients; catalog = cache.catalog;
   } else {
     baseline = parseBaseline(ctx.run('ls_room_base', { room, overrides: records, test_now: args.testNow ?? null, reason }), room, 'ls_room_plan baseline');
-    const fullCatalog = ctx.catalog && Object.keys(ctx.catalog).length ? ctx.catalog : object(ctx.run('effects_catalog'));
+    // The RAW document, not `ctx.catalog`. This mapping is persisted in the
+    // room cache and `test_room_cache.py:118` asserts
+    // `local['catalog']['effects'] == pure('effects_catalog')['effects']`, so
+    // these are compared bytes and a projection cannot stand in for them:
+    // `Catalog` drops `budget`, drops `animated`/`channels` from each processor,
+    // and defaults an absent `channels` to `[]`. Reading the parsed view here
+    // matched only by coincidence, while the projection still happened to carry
+    // every field these two keys contain.
+    const rawCatalog = ctx.rawCatalog();
+    const fullCatalog = Object.keys(rawCatalog).length > 0 ? rawCatalog : object(ctx.run('effects_catalog'));
     catalog = { effects: object(fullCatalog.effects), processors: object(fullCatalog.processors) };
     const compiled = object(ctx.run('effects_gradient_plan', { base: baseline.targets, warm_end: warmEnd, cached: cache?.gradients ?? {} }));
     gradients = object(compiled.gradients);
