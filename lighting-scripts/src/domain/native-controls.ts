@@ -157,8 +157,8 @@ const COLOR_NAMES: Record<string, RGB> = {
 };
 
 interface ScopeItem { scope: 'room' | 'lamp'; target: string; base: string; suffix?: string }
-interface NativePlan extends JsonObject { records: JsonObject[]; power: JsonObject[] }
-interface ControlPlan extends JsonObject { valid: boolean; errors: string[]; events: JsonObject[]; commands: JsonObject[]; records: JsonObject[] }
+type NativePlan = { records: JsonObject[]; power: JsonObject[] };
+type ControlPlan = { valid: boolean; errors: string[]; events: JsonObject[]; commands: JsonObject[]; records: JsonObject[] };
 interface NativeCatalog {
   members: Record<string, string[]>;
   groups: JsonObject;

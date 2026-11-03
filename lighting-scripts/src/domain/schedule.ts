@@ -103,7 +103,7 @@ export function nextMidnight(at: number, timezone: string): number {
   const [year, month, day] = localParts(at, timezone) as [number, number, number];
   return localTime(year, month, day + 1, 0, 0, timezone);
 }
-interface ScheduleDetails extends JsonObject {
+type ScheduleDetails = {
   cur: Block | null;
   nxt: Block | null;
   fading: boolean;
@@ -113,7 +113,7 @@ interface ScheduleDetails extends JsonObject {
   next_fs: number;
   left: number;
   cur_ts: number;
-}
+};
 interface ScheduledBaseArgs {
   testNow: number | undefined;
   reason: string;

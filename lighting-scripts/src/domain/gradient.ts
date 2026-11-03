@@ -3,15 +3,15 @@ import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import { anchor, boundedNumber, canonicalColor, clamp, CROSSOVER, isObject, object, rgbValue, roundEven, validColor, WARM_END } from './scale.ts';
 import type { Anchor, Color, RGB, Scaled } from './scale.ts';
 
-export type GradientPiece = ({ kind: 'kelvin'; start: number; delta: number } | { kind: 'rgb'; start: RGB; delta: RGB }) & { left: Color; right: Color } & JsonObject;
-export interface GradientCurve extends JsonObject {
+export type GradientPiece = ({ kind: 'kelvin'; start: number; delta: number } | { kind: 'rgb'; start: RGB; delta: RGB }) & { left: Color; right: Color };
+export type GradientCurve = {
   version: number;
   day: Anchor;
   cosy: Anchor;
   brightness: { floor: number; lower: number; middle: number; upper: number };
   colors: { lower: GradientPiece; middle: GradientPiece; upper: GradientPiece; tail: GradientPiece };
-}
-export interface GradientEntry extends JsonObject { signature: JsonValue[]; curve: GradientCurve }
+};
+export type GradientEntry = { signature: JsonValue[]; curve: GradientCurve };
 export function gradientSignature(day: Anchor, cosy: Anchor, warmEnd: RGB): JsonValue[] {
   return [1, day.brightness, canonicalColor(day.color), cosy.brightness, canonicalColor(cosy.color), [...warmEnd]];
 }

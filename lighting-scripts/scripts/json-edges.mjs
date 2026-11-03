@@ -28,15 +28,22 @@ const DOMAIN = join(ROOT, 'src/domain');
  * the edge: eleven `object(...)`, `strings(...)` and `num(...)` calls existed
  * only to re-dissolve the catalog document at each read site.
  *
- * `jsonTypes` is deliberately still 442. That count is dominated by handler
- * arguments, handler return types and entity-state reads, none of which the
- * catalog work touched; it moves with criteria 3 through 8, not with this one.
- * A criterion that reduces accessors without reducing types is making real
- * progress, so the two ratchet independently.
+ * `validatedBags` 9 -> 0 with criterion 3: every `interface X extends
+ * JsonObject` became a type alias, so arbitrary keys are now illegal (TS2353)
+ * and the fields no longer inherit an index signature. Type-level only, erased
+ * at runtime.
+ *
+ * `jsonTypes` 442 -> 431 as a mechanical consequence of that same change: the
+ * twelve debagged declarations contained eleven literal `JsonObject` tokens,
+ * which the regex counts. No *read* became typed here, so the drop overstates
+ * criterion 3's reach. The remaining 431 are dominated by handler arguments,
+ * handler return types and entity-state reads, and move with criteria 4
+ * through 8. A criterion that reduces accessors without reducing types is still
+ * making real progress, so the four ratchet independently.
  */
 const CEILINGS = {
-  jsonTypes: 442,
-  validatedBags: 9,
+  jsonTypes: 431,
+  validatedBags: 0,
   lenientAccessors: 282,
   rawJsonReturns: 62,
 };

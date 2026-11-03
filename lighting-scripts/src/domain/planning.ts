@@ -6,7 +6,7 @@ import { object, isObject } from './scale.ts';
 import { blocks, hasValue, isRemote, labelled, latestRemote, list, nextMidnight, optionalTimestamp, privateRooms, profile, timestamp } from './schedule.ts';
 
 const cacheVersion = 'db7981f72ee868e8d33ff1481dffb34e5e26570e8bf949a3cb2c505d7c3f37e1:input-processors-v1:preset-stream-v1';
-interface Dependencies extends JsonObject {
+type Dependencies = {
   lamps: string[];
   switches: string[];
   values: JsonValue[];
@@ -15,7 +15,7 @@ interface Dependencies extends JsonObject {
   private: boolean;
   warm: JsonValue[];
   tick: boolean;
-}
+};
 interface ParsedSchedule {
   raw: JsonObject;
   details: JsonObject;

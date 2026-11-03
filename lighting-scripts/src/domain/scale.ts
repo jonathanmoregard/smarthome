@@ -2,9 +2,9 @@ import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import { ParseError } from '../runtime/parse.ts';
 
 export type RGB = [number, number, number];
-export type Color = ({ kelvin: number; rgb?: never } | { rgb: RGB; kelvin?: never }) & JsonObject;
-export interface Anchor extends JsonObject { brightness: number; color: Color }
-export interface Scaled extends Anchor { position: number }
+export type Color = ({ kelvin: number; rgb?: never } | { rgb: RGB; kelvin?: never });
+export type Anchor = { brightness: number; color: Color };
+export type Scaled = Anchor & { position: number };
 export const WARM_END: RGB = [255, 126, 0];
 export const CROSSOVER: Color = { rgb: [255, 134, 7] };
 

@@ -10,7 +10,7 @@ const CHANNELS = ['brightness', 'color'] as const;
 type Channel = typeof CHANNELS[number];
 interface Candidate { key: string; updated: number; source: JsonValue | undefined; baselineOnly: boolean }
 interface InputPosition { position: number; level: number }
-export interface ResolvedTarget extends JsonObject {
+export type ResolvedTarget = {
   brightness: JsonObject;
   color: JsonObject;
   period: JsonValue;
@@ -20,8 +20,8 @@ export interface ResolvedTarget extends JsonObject {
   level: JsonValue;
   owners: JsonObject;
   transition: JsonValue;
-}
-export interface ResolutionResult extends JsonObject { targets: Record<string, ResolvedTarget>; assignments: Record<string, ResolvedTarget> }
+};
+export type ResolutionResult = { targets: Record<string, ResolvedTarget>; assignments: Record<string, ResolvedTarget> };
 function sortedEntries(o: JsonObject): [string, JsonValue][] {
   return Object.entries(o).sort(([a], [b]) => lexical(a, b));
 }
