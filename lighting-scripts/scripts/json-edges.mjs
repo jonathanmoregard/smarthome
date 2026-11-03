@@ -1,0 +1,101 @@
+// Guard: JSON belongs at the edges, not in the domain.
+//
+// `JsonObject`/`JsonValue` is the INPUT to parsing, never the result. A parser
+// that returns the unparsed type has not parsed anything, and a domain type
+// written `interface X extends JsonObject` is a validated bag: it inherits the
+// index signature, so every field stays JsonValue-assignable, arbitrary keys
+// stay legal, and invalid states stay representable.
+//
+// The legitimate JSON edges are the HA transport, the parity harness RPC and
+// on-disk state -- all under src/runtime or src/live.ts. src/domain is not an
+// edge, and inter-handler calls are not an edge either.
+//
+// Ceilings ratchet DOWN only. Raising one is the regression this guard exists
+// to catch, so a raise must be argued in the commit message, never done to make
+// a build pass.
+import { readdir, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = fileURLToPath(new URL('../', import.meta.url));
+const DOMAIN = join(ROOT, 'src/domain');
+
+/** Ceilings for src/domain. Measured 2026-11-03 before any rework. */
+const CEILINGS = {
+  jsonTypes: 442,
+  validatedBags: 9,
+  lenientAccessors: 293,
+  rawJsonReturns: 62,
+};
+
+/** Comments may legitimately name these types while explaining why they are gone. */
+function stripComments(source) {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+}
+
+const PATTERNS = {
+  jsonTypes: /\bJson(?:Object|Value)\b/g,
+  validatedBags: /\binterface\s+\w+\s+extends\s+Json(?:Object|Value)\b/g,
+  lenientAccessors: /(?<![A-Za-z0-9_$.])(?:object|values|list|num|jinjaMappingGet|String)\s*\(/g,
+  rawJsonReturns: /\)\s*:\s*Json(?:Object|Value)\b/g,
+};
+
+const count = (text, pattern) => (text.match(pattern) ?? []).length;
+
+const files = (await readdir(DOMAIN)).filter(name => name.endsWith('.ts')).sort();
+const totals = Object.fromEntries(Object.keys(PATTERNS).map(key => [key, 0]));
+const rows = [];
+
+for (const name of files) {
+  const text = stripComments(await readFile(join(DOMAIN, name), 'utf8'));
+  const row = { name };
+  for (const [key, pattern] of Object.entries(PATTERNS)) {
+    row[key] = count(text, pattern);
+    totals[key] += row[key];
+  }
+  rows.push(row);
+}
+
+const COLUMNS = [
+  ['jsonTypes', 'JsonObject/Value'],
+  ['validatedBags', 'extends Json'],
+  ['lenientAccessors', 'lenient calls'],
+  ['rawJsonReturns', 'raw JSON returns'],
+];
+
+rows.sort((a, b) => b.jsonTypes - a.jsonTypes);
+const width = Math.max(...files.map(name => name.length), 8);
+console.log('src/domain — JSON at the edges\n');
+console.log(`${'file'.padEnd(width)}  ${COLUMNS.map(([, label]) => label.padStart(16)).join('  ')}`);
+for (const row of rows) {
+  if (!COLUMNS.some(([key]) => row[key] > 0)) continue;
+  console.log(`${row.name.padEnd(width)}  ${COLUMNS.map(([key]) => String(row[key]).padStart(16)).join('  ')}`);
+}
+console.log(`${'TOTAL'.padEnd(width)}  ${COLUMNS.map(([key]) => String(totals[key]).padStart(16)).join('  ')}`);
+console.log(`${'ceiling'.padEnd(width)}  ${COLUMNS.map(([key]) => String(CEILINGS[key]).padStart(16)).join('  ')}`);
+
+const over = COLUMNS.filter(([key]) => totals[key] > CEILINGS[key]);
+const slack = COLUMNS.filter(([key]) => totals[key] < CEILINGS[key]);
+
+if (over.length > 0) {
+  console.error('\nFAIL: JSON moved back into the domain.');
+  for (const [key, label] of over) {
+    console.error(`  ${label}: ${totals[key]} exceeds the ceiling of ${CEILINGS[key]}`);
+  }
+  console.error('Parse at the edge and hand the domain a real type. Do not raise the ceiling.');
+  process.exit(1);
+}
+
+// Progress does NOT fail the build. A red check mid-refactor invites someone to
+// "fix" it by reverting the improvement, and it breaks the edit-then-check loop.
+// The ratchet is applied deliberately at commit time, prompted by this notice.
+if (slack.length > 0) {
+  console.log('\nProgress made. Ratchet these ceilings down in scripts/json-edges.mjs before committing:');
+  for (const [key, label] of slack) {
+    console.log(`  ${label}: ${CEILINGS[key]} -> ${totals[key]}`);
+  }
+} else {
+  console.log('\nOK: every count sits exactly at its ceiling.');
+}
