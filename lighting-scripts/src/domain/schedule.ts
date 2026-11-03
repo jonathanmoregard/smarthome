@@ -3,6 +3,7 @@ import { isObject, object, ParseError, requireArray, requireBoolean, requireFini
 import { BLOCKS, DEFAULT_BLOCK, type Block } from './blocks.ts';
 import { roundEven } from './scale.ts';
 import { isBlock } from '../parse/blocks.ts';
+import { typed } from '../runtime/entrypoints.ts';
 
 export const blocks: readonly string[] = BLOCKS;
 export const list = (value: JsonValue | undefined): JsonValue[] =>
@@ -124,7 +125,7 @@ export function nextMidnight(at: number, timezone: string): number {
   const [year, month, day] = localParts(at, timezone) as [number, number, number];
   return localTime(year, month, day + 1, 0, 0, timezone);
 }
-type ScheduleDetails = {
+export type ScheduleDetails = {
   cur: Block | null;
   nxt: Block | null;
   fading: boolean;
@@ -511,7 +512,7 @@ export const scheduleHandlers: ScriptHandlers = {
   // and room_only use Undefined-only defaults; debug is definition-tested.
   // Present optional values are parsed, while null overrides retain the
   // producer's explicit "use the state attribute" spelling.
-  ls_base: withParsedArgs({
+  ls_base: typed('ls_base', {
     parse: args => parseScheduledBaseArgs(
       args,
       'ls_base',
@@ -521,7 +522,7 @@ export const scheduleHandlers: ScriptHandlers = {
   }),
   // The captured script declaration marks room required, and it drives entity
   // names, comparisons, and indexing rather than iteration or membership.
-  ls_room_base: withParsedArgs({
+  ls_room_base: typed('ls_room_base', {
     parse: args => parseScheduledBaseArgs(args, 'ls_room_base', requireString(args, 'room', 'ls_room_base')),
     run: (ctx, args) => scheduledBase(ctx, args, true),
   }),

@@ -219,6 +219,9 @@ test('controller preserves absent-only defaults and rejects explicit nulls', () 
 test('controller requires producer-owned plan and remote result fields', () => {
   const ctx = context({
     ...controllerHandlers,
+    // Absent `targets` is this assertion's subject. The refusal moved from
+    // `plan`'s own `requireObject(baseline, 'targets')` into
+    // `decodeScheduledBase` when `ls_base` became typed, hence the label.
     ls_base: () => ({ schedule: { stale_keys: [] } }),
     effects_catalog: () => ({}),
     effects_gradient_plan: stub('effects_gradient_plan', () => ({ gradients: {} })),
@@ -226,7 +229,7 @@ test('controller requires producer-owned plan and remote result fields', () => {
     ls_switch_plan: () => ({ switches: {} }),
   });
   ctx.put('sensor.ls_overrides', '0', { overrides: {} });
-  assert.throws(() => ctx.run('ls_plan', {}), /ls_plan\.baseline\.targets/);
+  assert.throws(() => ctx.run('ls_plan', {}), /ls_base\.targets/);
 
   const remote = context({
     ...controllerHandlers,

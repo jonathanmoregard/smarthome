@@ -16,6 +16,11 @@ import { context, stub } from './gestures-context.ts';
 function planContext() {
   const ctx = context({
     ...controllerHandlers,
+    // `targets` is absent ON PURPOSE: these tests assert that a legal
+    // test_now gets all the way to the baseline, and the baseline's refusal
+    // is the evidence. Completing this stub would make every assertion below
+    // vacuous. The refusal now comes from `decodeScheduledBase`, which is why
+    // it is labelled `ls_base.targets` and no longer `ls_plan.baseline`.
     ls_base: () => ({ schedule: { stale_keys: [] } }),
     effects_catalog: () => ({}),
     effects_gradient_plan: stub('effects_gradient_plan', () => ({ gradients: {} })),
@@ -31,7 +36,7 @@ test('ls_plan accepts a numeric epoch test_now, including zero', () => {
   // the point: the failure must come from there and never from test_now.
   for (const value of [0, 1762000000, 1762000000.5]) {
     assert.throws(() => planContext().run('ls_plan', { test_now: value }),
-      /ls_plan\.baseline\.targets/, `numeric test_now ${value} must reach the baseline`);
+      /ls_base\.targets/, `numeric test_now ${value} must reach the baseline`);
   }
 });
 
@@ -41,8 +46,8 @@ test('ls_plan still rejects a malformed present test_now', () => {
 });
 
 test('ls_plan treats an absent or null test_now as absent', () => {
-  assert.throws(() => planContext().run('ls_plan', {}), /ls_plan\.baseline\.targets/);
-  assert.throws(() => planContext().run('ls_plan', { test_now: null }), /ls_plan\.baseline\.targets/);
+  assert.throws(() => planContext().run('ls_plan', {}), /ls_base\.targets/);
+  assert.throws(() => planContext().run('ls_plan', { test_now: null }), /ls_base\.targets/);
 });
 
 test('ls_apply accepts a numeric epoch test_now without treating zero as absent', () => {

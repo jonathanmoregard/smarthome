@@ -5,6 +5,8 @@ import type { AssignResult, EmitResult } from '../domain/transport.ts';
 import type { CommitResult } from '../domain/state-store.ts';
 import type { CandleMember, CandlePlanResult, GroupCommand, GroupPlanResult, RejectedRow } from '../domain/grouping.ts';
 import type { RemoteInputRecord, RemoteModeRecord, RemotePlanOp, RemotePlanResult } from '../domain/remote-input.ts';
+import type { LampColor, LampProfile, LampProfileEntry, ScheduleCommand, ScheduleDetails, ScheduleEnvelope, ScheduledBaseResult, TargetEntry } from '../domain/schedule.ts';
+import { optionalBlock } from './blocks.ts';
 import { ParseError, requireArray, requireBoolean, requireFinite, requireNumber, requireObject, requireString } from '../runtime/parse.ts';
 
 function decodeStrings(container: JsonObject, key: string, context: string): string[] {
@@ -256,6 +258,144 @@ function decodeRemotePlan(value: JsonValue, context: string): RemotePlanResult {
   };
 }
 
+function decodeLampColor(container: JsonObject, key: string, context: string): LampColor {
+  const color = requireObject(container, key, `${context}.${key}`);
+  // `kelvin` discriminates, and the rgb arm stays raw: `LampColor.rgb` is
+  // `JsonValue[]` because it comes from an `rgb_color` attribute.
+  if (Object.hasOwn(color, 'kelvin')) return { kelvin: requireNumber(color, 'kelvin', `${context}.${key}`) };
+  return { rgb: requireArray(color, 'rgb', `${context}.${key}`) };
+}
+
+function decodeLampProfile(container: JsonObject, key: string, context: string): LampProfile {
+  const entry = requireObject(container, key, `${context}.${key}`);
+  return {
+    brightness: requireNumber(entry, 'brightness', `${context}.${key}`),
+    color: decodeLampColor(entry, 'color', `${context}.${key}`),
+  };
+}
+
+/** `effect` and `effect_channels` must be PRESENT, and stay raw once they are. */
+function decodeProfileEntry(value: JsonValue, context: string): LampProfileEntry {
+  const entry = requireObject({ value }, 'value', context);
+  for (const key of ['effect', 'effect_channels'] as const) {
+    if (!Object.hasOwn(entry, key)) throw new ParseError(`${context}.${key} must be present, got undefined`);
+  }
+  return {
+    effect: entry.effect ?? null,
+    brightness: requireNumber(entry, 'brightness', context),
+    on: requireBoolean(entry.on, `${context}.on`),
+    period: requireString(entry, 'period', context),
+    area: entry.area === null ? null : requireString(entry, 'area', context),
+    effect_channels: entry.effect_channels ?? null,
+    send: requireBoolean(entry.send, `${context}.send`),
+    ignore_overrides: decodeStrings(entry, 'ignore_overrides', context),
+  };
+}
+
+/** Discriminated on `is_room`, exactly as every consumer of `targets` does. */
+function decodeTargetEntry(value: JsonValue, context: string): TargetEntry {
+  const entry = requireObject({ value }, 'value', context);
+  if (requireBoolean(entry.is_room, `${context}.is_room`)) {
+    if (!Object.hasOwn(entry, 'effect')) throw new ParseError(`${context}.effect must be present, got undefined`);
+    return {
+      brightness: requireNumber(entry, 'brightness', context),
+      color: decodeLampColor(entry, 'color', context),
+      area: requireString(entry, 'area', context),
+      is_room: true,
+      period: requireString(entry, 'period', context),
+      effect: entry.effect ?? null,
+      on: requireBoolean(entry.on, `${context}.on`),
+      day: decodeLampProfile(entry, 'day', context),
+      cosy: decodeLampProfile(entry, 'cosy', context),
+      ignore_overrides: decodeStrings(entry, 'ignore_overrides', context),
+    };
+  }
+  return {
+    ...decodeProfileEntry(value, context),
+    is_room: false,
+    color: decodeLampColor(entry, 'color', context),
+    day: decodeLampProfile(entry, 'day', context),
+    cosy: decodeLampProfile(entry, 'cosy', context),
+    transition: requireNumber(entry, 'transition', context),
+    observed: decodeLampProfile(entry, 'observed', context),
+  };
+}
+
+function decodeScheduleCommand(value: JsonValue, context: string): ScheduleCommand {
+  const command = requireObject({ value }, 'value', context);
+  const kind = requireString(command, 'kind', context);
+  const ids = decodeStrings(command, 'ids', context);
+  if (kind === 'switch') return { kind, service: requireString(command, 'service', context), ids };
+  const transition = requireNumber(command, 'transition', context);
+  if (kind === 'off') return { kind, transition, ids };
+  const brightness = requireNumber(command, 'brightness', context);
+  if (kind === 'ct') return { kind, brightness, kelvin: requireNumber(command, 'kelvin', context), transition, ids };
+  if (kind === 'rgb') return { kind, brightness, rgb: requireArray(command, 'rgb', context), transition, ids };
+  throw new ParseError(`${context}.kind must be one of switch, off, ct, rgb, got ${JSON.stringify(kind)}`);
+}
+
+function decodeScheduleDetails(container: JsonObject, key: string, context: string): ScheduleDetails {
+  const at = `${context}.${key}`;
+  const details = requireObject(container, key, at);
+  return {
+    cur: optionalBlock(details.cur, `${at}.cur`) ?? null,
+    nxt: optionalBlock(details.nxt, `${at}.nxt`) ?? null,
+    fading: requireBoolean(details.fading, `${at}.fading`),
+    p: requireNumber(details, 'p', at),
+    edge: requireBoolean(details.edge, `${at}.edge`),
+    last_fs: requireNumber(details, 'last_fs', at),
+    next_fs: requireNumber(details, 'next_fs', at),
+    left: requireNumber(details, 'left', at),
+    cur_ts: requireNumber(details, 'cur_ts', at),
+  };
+}
+
+/**
+ * `ls_base`/`ls_room_base`'s decoder, which is where `ls_plan`'s
+ * `requiredResultObject(...)`, its two `requireObject`s and its
+ * `list(schedule.stale_keys)` went. `falsy-boundaries.test.ts:219` stubs
+ * `ls_base` with `targets` deliberately absent and asserts that rejection, so
+ * `targets` being required here is load-bearing, not defensive.
+ *
+ * `dbg` is copied only when present: the producer adds it under
+ * `includeDebug`, and an absent key is not the same bytes as a null one.
+ */
+function decodeScheduledBase(value: JsonValue, context: string): ScheduledBaseResult {
+  const result = requireObject({ value }, 'value', context);
+  const targets = requireObject(result, 'targets', context);
+  const schedule = requireObject(result, 'schedule', context);
+  const details = requireObject(schedule, 'schedule_details', `${context}.schedule`);
+  const sched = requireObject(schedule, 'sched', `${context}.schedule`);
+  const saraMirror = schedule.sara_mirror ?? null;
+  if (saraMirror !== null && saraMirror !== 'off') {
+    throw new ParseError(`${context}.schedule.sara_mirror must be "off" or null, got ${JSON.stringify(saraMirror)}`);
+  }
+  const envelope: ScheduleEnvelope = {
+    cmds: requireArray(schedule, 'cmds', `${context}.schedule`)
+      .map((command, index) => decodeScheduleCommand(command, `${context}.schedule.cmds.${index}`)),
+    profiles: Object.fromEntries(Object.entries(requireObject(schedule, 'profiles', `${context}.schedule`))
+      .map(([lamp, entry]) => [lamp, decodeProfileEntry(entry ?? null, `${context}.schedule.profiles.${lamp}`)])),
+    revision: requireString(schedule, 'revision', `${context}.schedule`),
+    stale_keys: decodeStrings(schedule, 'stale_keys', `${context}.schedule`),
+    sched: Object.fromEntries(Object.entries(sched)
+      .map(([scope, block]) => [scope, optionalBlock(block, `${context}.schedule.sched.${scope}`) ?? null])),
+    schedule_details: Object.fromEntries(Object.keys(details)
+      .map(scope => [scope, decodeScheduleDetails(details, scope, `${context}.schedule.schedule_details`)])),
+    mirror: requireArray(schedule, 'mirror', `${context}.schedule`).map((entry, index) => {
+      const at = `${context}.schedule.mirror.${index}`;
+      const row = requireObject({ entry }, 'entry', at);
+      return { entity: requireString(row, 'entity', at), option: requireString(row, 'option', at) };
+    }),
+    sara_mirror: saraMirror,
+  };
+  if (Object.hasOwn(schedule, 'dbg')) envelope.dbg = decodeStrings(schedule, 'dbg', `${context}.schedule`);
+  return {
+    targets: Object.fromEntries(Object.entries(targets)
+      .map(([lamp, entry]) => [lamp, decodeTargetEntry(entry ?? null, `${context}.targets.${lamp}`)])),
+    schedule: envelope,
+  };
+}
+
 /**
  * One codec per converted entrypoint.
  *
@@ -303,4 +443,7 @@ export const resultCodecs: { [K in keyof TypedResults]: ResultCodec<TypedResults
   // `falsy-boundaries.test.ts:216` exists to pin that a `power` plan with no
   // `targets` is refused. The decoder is where those reads moved.
   ls_remote_plan: { encode: result => result, decode: decodeRemotePlan },
+  // Both names share one decoder, as they share one result type.
+  ls_base: { encode: result => result, decode: decodeScheduledBase },
+  ls_room_base: { encode: result => result, decode: decodeScheduledBase },
 };

@@ -8,6 +8,7 @@ import type { DispatchResult } from '../domain/dispatch-render.ts';
 import type { CommitResult } from '../domain/state-store.ts';
 import type { CandlePlanResult, GroupPlanResult } from '../domain/grouping.ts';
 import type { RemotePlanResult } from '../domain/remote-input.ts';
+import type { ScheduledBaseResult } from '../domain/schedule.ts';
 
 /**
  * The typed result of each converted internal entrypoint, keyed by the script
@@ -43,6 +44,10 @@ export interface TypedResults {
   effects_frame_plan: GroupPlanResult;
   effects_candle_plan: CandlePlanResult;
   ls_remote_plan: RemotePlanResult;
+  // One type, two names again: both run `scheduledBase`, which differs only in
+  // the `roomLocal` flag, never in the shape it answers.
+  ls_base: ScheduledBaseResult;
+  ls_room_base: ScheduledBaseResult;
 }
 
 export type TypedName = keyof TypedResults;

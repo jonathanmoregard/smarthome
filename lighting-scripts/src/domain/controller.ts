@@ -108,11 +108,14 @@ export function plan(ctx: ScriptContext, args: PlanArgs): JsonObject {
   const overrides = args.testOverrides === undefined
     ? optionalAttributeObject(ctx.attr('sensor.ls_overrides', 'overrides'), 'ls_plan.overrides')
     : args.testOverrides;
-  const baseline = requiredResultObject(ctx.run('ls_base', { overrides, test_now: args.testNow,
-    reason: args.reason, room_only: args.room }), 'ls_plan.baseline');
-  const schedule = requireObject(baseline, 'schedule', 'ls_plan.baseline');
-  const baselineTargets = requireObject(baseline, 'targets', 'ls_plan.baseline');
-  const active: JsonObject = Object.fromEntries(Object.entries(overrides).filter(([key]) => !list(schedule.stale_keys).includes(key)));
+  // `requiredResultObject`, two `requireObject`s and `list(...)` on
+  // `stale_keys` are gone: `decodeScheduledBase` performs all four for a stub
+  // and `scheduledBase` builds every field for the real handler.
+  const baseline = ctx.call('ls_base', { overrides, test_now: args.testNow,
+    reason: args.reason, room_only: args.room });
+  const schedule = baseline.schedule;
+  const baselineTargets = baseline.targets;
+  const active: JsonObject = Object.fromEntries(Object.entries(overrides).filter(([key]) => !schedule.stale_keys.includes(key)));
   const catalog = ctx.run('effects_catalog');
   const rawWarmEnd = ctx.attr('light.candle_test_rgb_warm_end', 'rgb_color');
   // Home Assistant uses null for an attribute with no value.

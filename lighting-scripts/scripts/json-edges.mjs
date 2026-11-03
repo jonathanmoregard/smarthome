@@ -187,11 +187,19 @@ const DOMAIN = join(ROOT, 'src/domain');
  * now complete, which is what makes the seam conversion's decoder writable at
  * all -- that is the next commit, deliberately separate, because it is where
  * the stub handling and the only behaviour change live.
+ *
+ * `ls_base`/`ls_room_base` then went through the seam, and the measured result
+ * is one accessor: `lenientAccessors 238 -> 237`, the `list(schedule.stale_keys)`
+ * in `plan`. The other three reads it deleted -- `requiredResultObject` and two
+ * `requireObject`s -- are strict and so invisible here, as the note above
+ * predicted. Do not read the single digit as the size of the change: it moved a
+ * 140-line decoder's worth of verification from the consumer to the boundary
+ * and closed two of the four remaining entrypoints.
  */
 const CEILINGS = {
   jsonTypes: 377,
   validatedBags: 0,
-  lenientAccessors: 238,
+  lenientAccessors: 237,
   rawJsonReturns: 37,
 };
 
