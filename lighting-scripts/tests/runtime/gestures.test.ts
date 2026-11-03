@@ -68,5 +68,6 @@ test('gesture boundaries distinguish missing optional fields from malformed pres
   assert.throws(() => ctx.run('ls_remote_gesture', { room: 'studio', command: 0 }), /command must be a string/);
   assert.throws(() => ctx.run('ls_remote_gesture', { room: 'studio', command: 'up', source: null }), /source must be a string/);
   assert.throws(() => ctx.run('ls_remote_gesture', { room: 'studio', command: 'power_done', token: null }), /token must be a string/);
-  assert.throws(() => ctx.run('ls_remote_gesture', { room: 'studio', command: 'preset', payload: null }), /payload must be an object/);
+  assert.equal(ctx.run('ls_remote_gesture', { room: 'studio', command: 'preset', payload: null }), null);
+  assert.throws(() => ctx.run('ls_remote_gesture', { room: 'studio', command: 'preset', payload: 0 }), /payload must be an object/);
 });

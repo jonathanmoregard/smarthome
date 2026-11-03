@@ -24,7 +24,7 @@ interface GestureArgs {
   room: string;
   command: string;
   token: string;
-  payload: () => JsonObject;
+  payload: () => JsonObject | undefined;
   delivery: () => { deviceId: string | undefined; source: string };
 }
 function parseGestureArgs(args: JsonObject): GestureArgs {
@@ -37,7 +37,9 @@ function parseGestureArgs(args: JsonObject): GestureArgs {
     token: command === 'power_done'
       ? args.token === undefined ? '' : requireString(args, 'token', 'ls_remote_gesture')
       : '',
-    payload: lazy(() => requireObject(args, 'payload', 'ls_remote_gesture')),
+    payload: lazy(() => args.payload === undefined || args.payload === null
+      ? undefined
+      : requireObject(args, 'payload', 'ls_remote_gesture')),
     delivery: lazy(() => ({
       deviceId: args.device_id === undefined ? undefined : requireString(args, 'device_id', 'ls_remote_gesture'),
       source: args.source === undefined ? '' : requireString(args, 'source', 'ls_remote_gesture'),
@@ -101,6 +103,7 @@ export function remoteGesture(ctx: ScriptContext, args: GestureArgs): JsonValue 
   }
   if (command === 'preset') {
     const payload = args.payload();
+    if (payload === undefined) return null;
     if (payload.action !== 'color_temperature_move') return null;
     const preset = payload.action_color_temperature;
     if (typeof preset !== 'number' || !presets.includes(preset)) { clearChord(); return null; }
