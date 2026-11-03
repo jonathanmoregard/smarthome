@@ -6,6 +6,7 @@ import type { GradientPlanResult } from '../domain/gradient.ts';
 import type { AssignResult, EmitResult } from '../domain/transport.ts';
 import type { DispatchResult } from '../domain/dispatch-render.ts';
 import type { CommitResult } from '../domain/state-store.ts';
+import type { GroupPlanResult } from '../domain/grouping.ts';
 
 /**
  * The typed result of each converted internal entrypoint, keyed by the script
@@ -33,6 +34,12 @@ export interface TypedResults {
   effects_assign: AssignResult;
   ls_dispatch: DispatchResult;
   ls_commit: CommitResult;
+  // One type for two names, because `framePlan` returns
+  // `ctx.call('effects_group_plan', ...)` unchanged. Registering both keeps the
+  // two addressable by name for HA and the parity RPC while making it
+  // impossible for their results to drift apart.
+  effects_group_plan: GroupPlanResult;
+  effects_frame_plan: GroupPlanResult;
 }
 
 export type TypedName = keyof TypedResults;

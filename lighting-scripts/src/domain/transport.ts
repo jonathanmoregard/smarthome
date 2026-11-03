@@ -6,9 +6,9 @@ import { typed } from '../runtime/entrypoints.ts';
 import { roundEven, clamp } from './scale.ts';
 import { recordTimestamp } from './resolution.ts';
 import { requireRgb } from '../parse/scale.ts';
+import type { GroupCommand, GroupPlanResult } from './grouping.ts';
 
 const list = (v: JsonValue | undefined): JsonValue[] => Array.isArray(v) ? v : [];
-const strings = (v: JsonValue | undefined): string[] => list(v).filter((x): x is string => typeof x === 'string');
 const runtime = 'sensor.ls_effects_runtime';
 const revisionNow = (ctx: ScriptContext) => ctx.state['sensor.ls_overrides']?.last_updated ?? ctx.now;
 
@@ -186,7 +186,7 @@ function parseServed(args: JsonObject): Record<string, number> {
     [member, requireNumber(served, member, 'effects_engine_tick.served')]));
 }
 
-export function framePlan(ctx: ScriptContext, args: FramePlanArgs): JsonValue {
+export function framePlan(ctx: ScriptContext, args: FramePlanArgs): GroupPlanResult {
   const catalog = args.catalog, effects = catalog.effects, rows: JsonValue[] = [];
   for (const [lamp, target] of Object.entries(args.targets)) {
     const frames: JsonObject = {};
@@ -223,7 +223,10 @@ export function framePlan(ctx: ScriptContext, args: FramePlanArgs): JsonValue {
         topic: catalog.topics[member] ?? null, payload });
     }
   }
-  return ctx.run('effects_group_plan', { rows, groups: catalog.multicast() });
+  // `ctx.call`, not `ctx.run`: this result is what `effects_frame_plan`
+  // answers, so it must arrive typed. The call itself is unchanged -- same
+  // name in `scriptRuns`, same argument bytes in the compared trace.
+  return ctx.call('effects_group_plan', { rows, groups: catalog.multicast() });
 }
 
 /**
@@ -336,17 +339,20 @@ export function engineTick(ctx: ScriptContext, args: EngineTickArgs): null {
     const targets = Object.fromEntries(Object.entries(object(ctx.attr(runtime, 'assignments'))).filter(([lamp, raw]) =>
       Object.hasOwn(object(catalog.members), lamp) && ctx.get(lamp) === 'on'
       && jinjaTruthy(object(raw).on) && admits(ctx.areas[lamp] ?? '')));
-    const batch = object(ctx.run('effects_frame_plan', { targets, catalog, timestamp: recordTimestamp(ctx.now), animation_tick: true }));
-    const commands = list(batch.commands).map(object).sort((a, b) => String(a.topic) < String(b.topic) ? -1 : String(a.topic) > String(b.topic) ? 1 : 0);
-    let chosen: JsonObject | undefined, oldest = Infinity;
+    const batch = ctx.call('effects_frame_plan', { targets, catalog, timestamp: recordTimestamp(ctx.now), animation_tick: true });
+    // The spread is load-bearing. `list(batch.commands).map(object)` used to
+    // make this a copy; sorting `batch.commands` itself would reorder the
+    // handler's own result in place.
+    const commands = [...batch.commands].sort((a, b) => a.topic < b.topic ? -1 : a.topic > b.topic ? 1 : 0);
+    let chosen: GroupCommand | undefined, oldest = Infinity;
     for (const command of commands) {
-      const age = Math.max(-1, ...strings(command.members).map(member => served[member] ?? -1));
+      const age = Math.max(-1, ...command.members.map(member => served[member] ?? -1));
       if (age < oldest) { chosen = command; oldest = age; }
     }
     if (chosen) {
       ctx.run('effects_emit', { commands: [chosen], revision, generation, effect_targets: targets });
       admission++;
-      for (const member of strings(chosen.members)) served[member] = admission;
+      for (const member of chosen.members) served[member] = admission;
     }
   }
   if (engineActive(ctx)) ctx.schedule(tickScript, { served, admission, catalog }, 200);
@@ -373,7 +379,7 @@ export const transportHandlers: ScriptHandlers = {
   // 7, kind 4, effect 8, instance/intensity 1 each, kelvin 2, rgb/on 4 each,
   // and transition 10. `value` is raw four times but has one `| float`, so
   // brightness uses jinjaFloat while color uses strict object/color parsers.
-  effects_frame_plan: withParsedArgs({
+  effects_frame_plan: typed('effects_frame_plan', {
     parse: args => ({
       catalog: parseFrameCatalog(args),
       targets: parseFrameTargets(args),

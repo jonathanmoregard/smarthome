@@ -280,7 +280,8 @@ function tickContext(on: JsonValue, power: JsonObject) {
     ...transportHandlers,
     // engineTick re-reads the catalog itself; the membership gate uses that copy.
     effects_catalog: () => ({ members: { 'light.a': {} } }),
-    effects_frame_plan: (_inner, args) => { seen = args.targets as JsonObject; return { commands: [] }; },
+    effects_frame_plan: (_inner, args) => { seen = args.targets as JsonObject;
+      return { commands: [], rejected: [], input_count: 0, endpoint_count: 0, command_count: 0 }; },
     effects_emit: () => null,
   });
   ctx.areas['light.a'] = 'studio';

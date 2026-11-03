@@ -127,9 +127,12 @@ export function dispatch(ctx: ScriptContext, args: DispatchArgs): DispatchResult
     if (requested.includes(lamp) || (Object.hasOwn(previousEffects, lamp) && !Object.hasOwn(assignments, lamp)) || !isDeepStrictEqual(target.raw, previous[lamp])) ordinary[lamp] = target.raw;
   }
   const assigned = ctx.call('effects_assign', { targets, assignments, revision, invalidate: Object.keys(ordinary), plan_order: args.planOrder });
-  const batch = object(ctx.run('effects_frame_plan', { targets: ordinary, catalog, timestamp: timestamp(ctx.now),
-    transition_cap: remote || remoteRooms.length ? 0.5 : null, transition_rooms: remote ? null : remoteRooms }));
-  const emission = ctx.call('effects_emit', { commands: batch.commands ?? [], revision, generation: assigned.generation });
+  const batch = ctx.call('effects_frame_plan', { targets: ordinary, catalog, timestamp: timestamp(ctx.now),
+    transition_cap: remote || remoteRooms.length ? 0.5 : null, transition_rooms: remote ? null : remoteRooms });
+  // `object(...)` and `?? []` are gone: `planGroups` builds all five fields on
+  // every path, so both could only fire for a stub, and `decodeGroupPlan` is
+  // where that case is handled now -- strictly, rather than as an empty batch.
+  const emission = ctx.call('effects_emit', { commands: batch.commands, revision, generation: assigned.generation });
   // `requireBoolean(emission.completed)`, `?? null` on the generation and
   // `?? []` on published_at are all gone: `emitCommands` builds both fields
   // every time and `assignEffects` already normalises an absent generation to

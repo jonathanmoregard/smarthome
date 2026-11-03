@@ -1,5 +1,6 @@
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
 import { jinjaTruthy, optionalBoolean, requireBoolean, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { typed } from '../runtime/entrypoints.ts';
 import { list, num, timestamp } from './schedule.ts';
 
 function mapping(value: JsonValue | undefined): value is JsonObject {
@@ -34,11 +35,44 @@ function stringList(value: JsonValue | undefined, context: string): string[] {
   return list(value).map((item, index) => requireString({ item }, 'item', `${context}[${index}]`));
 }
 
+/**
+ * One MQTT publish the planner decided on.
+ *
+ * `payload` and `group` stay JSON deliberately. The payload is the lamp's own
+ * MQTT body, assembled by `framePlan` and carried through here untouched;
+ * `group` is the multicast group's `id` when it names one and its `topic`
+ * otherwise, both read raw from the catalog. These are compared bytes, so
+ * narrowing either would be a projection -- THE INVARIANT. Everything else is
+ * decided here, from locals.
+ */
+export type GroupCommand = {
+  topic: string;
+  payload: JsonObject;
+  members: string[];
+  owners: string[];
+  group: JsonValue;
+};
+/** Why one endpoint row was dropped. Both shapes are built here. */
+export type RejectedRow =
+  | { reason: 'invalid_endpoint_row'; index: number }
+  | { entity: string; reason: 'conflicting_endpoint_rows' };
+/**
+ * `effects_group_plan`'s result -- and `effects_frame_plan`'s, which returns
+ * this unchanged (`transport.ts`), so one type keeps the two from drifting.
+ */
+export type GroupPlanResult = {
+  commands: GroupCommand[];
+  rejected: RejectedRow[];
+  input_count: number;
+  endpoint_count: number;
+  command_count: number;
+};
+
 /** Exact live effects_group_plan: only verified complete groups may replace unicast. */
-export function planGroups(rows: JsonValue[], groups: JsonValue[]): JsonObject {
+export function planGroups(rows: JsonValue[], groups: JsonValue[]): GroupPlanResult {
   const byEntity = new Map<string, EndpointRow>();
   const blocked = new Set<string>();
-  const rejected: JsonValue[] = [];
+  const rejected: RejectedRow[] = [];
   rows.forEach((row, index) => {
     if (!mapping(row) || typeof row.entity !== 'string' || typeof row.owner !== 'string' || !topic(row.topic)
       || !mapping(row.payload) || Object.keys(row.payload).length === 0) {
@@ -64,7 +98,7 @@ export function planGroups(rows: JsonValue[], groups: JsonValue[]): JsonObject {
   }
   candidates.sort((a, b) => b.members.length - a.members.length || compare(a.topic, b.topic));
   const used = new Set<string>();
-  const commands: JsonValue[] = [];
+  const commands: GroupCommand[] = [];
   for (const group of candidates) {
     if (candidates.some(other => other.topic === group.topic && !equal([...other.members].sort(compare), [...group.members].sort(compare)))) continue;
     const members = group.members.map(e => byEntity.get(e));
@@ -156,7 +190,7 @@ export function planCandle(ctx: ScriptContext, catalogMembers: JsonObject): Json
 export const groupingHandlers: ScriptHandlers = {
   // Captured rows/groups are iterated, so absence is empty while a malformed
   // present container raises. catalog.members is accessed through .items().
-  effects_group_plan: withParsedArgs({
+  effects_group_plan: typed('effects_group_plan', {
     parse: args => ({ rows: list(args.rows), groups: list(args.groups) }),
     run: (_ctx, args) => planGroups(args.rows, args.groups),
   }),

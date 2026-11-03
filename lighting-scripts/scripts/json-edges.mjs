@@ -122,12 +122,31 @@ const DOMAIN = join(ROOT, 'src/domain');
  * call site touched. Read THE SELECTION RULE above together with this: the
  * question is whether the result is constructed, NOT whether it goes through
  * `typed()`.
+ *
+ * **THE SELECTION RULE, REFINED — and this is the version to use.** The rule
+ * above weighed only the result's own tokens, and on that reading
+ * `effects_group_plan` looked not worth converting: its commands carry a raw
+ * `payload` and a raw `group`, so its result type must add two JSON tokens.
+ * Measured with the CALLERS counted, the trade is not close. `framePlan`
+ * returns `ctx.call('effects_group_plan', ...)` unchanged, so one result type
+ * serves `effects_frame_plan` too, and the two sites that read it shed an
+ * `object(`, a `list(`, a `.map(object)`, four `String(...)` comparisons on
+ * `command.topic` and two `strings(command.members)` calls -- which also
+ * killed `transport.ts`'s whole local `strings` helper.
+ * `jsonTypes 393 -> 389`, `lenientAccessors 253 -> 245`,
+ * `rawJsonReturns 44 -> 42`: the two added tokens are real and still the
+ * column falls.
+ *
+ * So: **a conversion pays off when the result's added tokens are fewer than
+ * the accessors its callers shed.** A constructed result is the case where
+ * that holds automatically, not the only case. Before parking an entrypoint as
+ * "passthrough", read its callers and count.
  */
 const CEILINGS = {
-  jsonTypes: 393,
+  jsonTypes: 389,
   validatedBags: 0,
-  lenientAccessors: 253,
-  rawJsonReturns: 44,
+  lenientAccessors: 245,
+  rawJsonReturns: 42,
 };
 
 /** Comments may legitimately name these types while explaining why they are gone. */

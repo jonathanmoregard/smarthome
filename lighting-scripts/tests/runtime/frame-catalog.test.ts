@@ -18,8 +18,10 @@ import { transportHandlers } from '../../src/domain/transport.ts';
 
 function framePlan(catalogEffects: Record<string, unknown>): () => unknown {
   // The plan hands its rows to the group planner; stub it so this test fails
-  // only on the renderer boundary it is about.
-  const ctx = context({ ...transportHandlers, effects_group_plan: () => ({ commands: [] }) });
+  // only on the renderer boundary it is about. The stub states the whole
+  // result shape because the plan's result type promises all five fields.
+  const ctx = context({ ...transportHandlers,
+    effects_group_plan: () => ({ commands: [], rejected: [], input_count: 0, endpoint_count: 0, command_count: 0 }) });
   return () => ctx.run('effects_frame_plan', {
     catalog: { effects: catalogEffects, members: {}, topics: {}, multicast: [] },
     targets: {},

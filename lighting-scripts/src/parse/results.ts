@@ -1,9 +1,15 @@
-import type { JsonValue } from '../runtime/context.ts';
+import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { TypedResults } from '../runtime/entrypoints.ts';
 import type { SwitchDecision, SwitchPlanResult } from '../domain/controller.ts';
 import type { AssignResult, EmitResult } from '../domain/transport.ts';
 import type { CommitResult } from '../domain/state-store.ts';
+import type { GroupCommand, GroupPlanResult, RejectedRow } from '../domain/grouping.ts';
 import { ParseError, requireArray, requireBoolean, requireFinite, requireNumber, requireObject, requireString } from '../runtime/parse.ts';
+
+function decodeStrings(container: JsonObject, key: string, context: string): string[] {
+  return requireArray(container, key, context)
+    .map((value, index) => requireString({ value }, 'value', `${context}.${key}.${index}`));
+}
 
 /**
  * The JSON edge of one converted entrypoint's result.
@@ -99,6 +105,54 @@ function decodeCommit(value: JsonValue, context: string): CommitResult {
 }
 
 /**
+ * `payload` and `group` are read raw on purpose, matching `GroupCommand`: the
+ * payload is the lamp's MQTT body and `group` is the catalog's own id, both
+ * compared bytes. `group` must be *present* and may legitimately be null --
+ * unicast commands carry `group: null`.
+ */
+function decodeGroupCommand(value: JsonValue, context: string): GroupCommand {
+  const command = requireObject({ value }, 'value', context);
+  if (!Object.hasOwn(command, 'group')) throw new ParseError(`${context}.group must be present, got undefined`);
+  return {
+    topic: requireString(command, 'topic', context),
+    payload: requireObject(command, 'payload', context),
+    members: decodeStrings(command, 'members', context),
+    owners: decodeStrings(command, 'owners', context),
+    group: command.group ?? null,
+  };
+}
+
+/**
+ * This decoder replaces a read rather than adding one. `dispatch-render.ts`
+ * used to write `batch.commands ?? []` and `transport.ts` wrapped the same
+ * field in `list(...).map(object)`; both could only ever fire for a stub,
+ * because `planGroups` builds all five fields on every path. The decoder is
+ * where that leniency now lives, and it is strict: a stub standing in for a
+ * frame plan has to say what it planned.
+ */
+function decodeGroupPlan(value: JsonValue, context: string): GroupPlanResult {
+  const result = requireObject({ value }, 'value', context);
+  const commands = requireArray(result, 'commands', context);
+  const rejected = requireArray(result, 'rejected', context);
+  return {
+    commands: commands.map((command, index) => decodeGroupCommand(command, `${context}.commands.${index}`)),
+    rejected: rejected.map((row, index) => decodeRejectedRow(row, `${context}.rejected.${index}`)),
+    input_count: requireNumber(result, 'input_count', context),
+    endpoint_count: requireNumber(result, 'endpoint_count', context),
+    command_count: requireNumber(result, 'command_count', context),
+  };
+}
+
+/** The two shapes `planGroups` pushes, and no third one. */
+function decodeRejectedRow(value: JsonValue, context: string): RejectedRow {
+  const row = requireObject({ value }, 'value', context);
+  const reason = requireString(row, 'reason', context);
+  if (reason === 'invalid_endpoint_row') return { reason, index: requireNumber(row, 'index', context) };
+  if (reason === 'conflicting_endpoint_rows') return { reason, entity: requireString(row, 'entity', context) };
+  throw new ParseError(`${context}.reason must be invalid_endpoint_row or conflicting_endpoint_rows, got ${JSON.stringify(reason)}`);
+}
+
+/**
  * One codec per converted entrypoint.
  *
  * The mapped type is the completeness check: adding a name to
@@ -127,4 +181,12 @@ export const resultCodecs: { [K in keyof TypedResults]: ResultCodec<TypedResults
   // No decoder: nothing stubs `ls_dispatch`, and `null` plus two built fields
   // is not a shape a stub would get subtly wrong without failing loudly.
   ls_dispatch: { encode: result => result },
+  // Both names share one result type, so they share its decoder. Both are
+  // stubbed in the suite -- `effects_group_plan` by `frame-catalog.test.ts`,
+  // which replaces the group planner so its two tests fail only on the
+  // renderer boundary they are about, and `effects_frame_plan` by
+  // `falsy-boundaries.test.ts`. The decoder is also what now carries the
+  // leniency the two call sites used to apply inline.
+  effects_group_plan: { encode: result => result, decode: decodeGroupPlan },
+  effects_frame_plan: { encode: result => result, decode: decodeGroupPlan },
 };
