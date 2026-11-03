@@ -1,13 +1,10 @@
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { requireBoolean } from '../runtime/parse.ts';
+import { jinjaTruthy, optionalBoolean, requireBoolean, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { list, num, timestamp } from './schedule.ts';
 
-function object(value: JsonValue | undefined): JsonObject {
-  return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {};
-}
 function mapping(value: JsonValue | undefined): value is JsonObject {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
-function list(value: JsonValue | undefined): JsonValue[] { return Array.isArray(value) ? value : []; }
 function strings(value: JsonValue | undefined): string[] { return list(value).filter((v): v is string => typeof v === 'string'); }
 function topic(value: JsonValue | undefined): value is string {
   return typeof value === 'string' && value.startsWith('zigbee2mqtt/') && value.endsWith('/set');
@@ -26,6 +23,17 @@ function equal(a: JsonValue | undefined, b: JsonValue | undefined): boolean {
 interface EndpointRow { entity: string; owner: string; topic: string; payload: JsonObject }
 interface Candidate { id: JsonValue; topic: string; members: string[] }
 
+function objectOrEmpty(value: JsonValue | undefined, context: string): JsonObject {
+  if (value === undefined) return {};
+  return jinjaTruthy(value) ? requireObject({ value }, 'value', context) : {};
+}
+function objectDefaultAbsent(container: JsonObject, key: string, context: string): JsonObject {
+  return container[key] === undefined ? {} : requireObject(container, key, context);
+}
+function stringList(value: JsonValue | undefined, context: string): string[] {
+  return list(value).map((item, index) => requireString({ item }, 'item', `${context}[${index}]`));
+}
+
 /** Exact live effects_group_plan: only verified complete groups may replace unicast. */
 export function planGroups(rows: JsonValue[], groups: JsonValue[]): JsonObject {
   const byEntity = new Map<string, EndpointRow>();
@@ -40,7 +48,7 @@ export function planGroups(rows: JsonValue[], groups: JsonValue[]): JsonObject {
     const entity = row.entity;
     if (blocked.has(entity)) return;
     const previous = byEntity.get(entity);
-    if (!previous) byEntity.set(entity, { entity, owner: row.owner, topic: row.topic, payload: row.payload });
+    if (previous === undefined) byEntity.set(entity, { entity, owner: row.owner, topic: row.topic, payload: row.payload });
     else if (previous.owner !== row.owner || previous.topic !== row.topic || !equal(previous.payload, row.payload)) {
       blocked.add(entity);
       byEntity.delete(entity);
@@ -52,7 +60,7 @@ export function planGroups(rows: JsonValue[], groups: JsonValue[]): JsonObject {
     if (!mapping(g) || g.verified !== true || !topic(g.topic) || !Array.isArray(g.members) || g.members.length <= 1) continue;
     const members = strings(g.members);
     if (members.length !== g.members.length || new Set(members).size !== members.length) continue;
-    candidates.push({ id: Object.hasOwn(g, 'id') ? g.id! : g.topic, topic: g.topic, members });
+    candidates.push({ id: Object.hasOwn(g, 'id') ? g.id as JsonValue : g.topic, topic: g.topic, members });
   }
   candidates.sort((a, b) => b.members.length - a.members.length || compare(a.topic, b.topic));
   const used = new Set<string>();
@@ -61,8 +69,8 @@ export function planGroups(rows: JsonValue[], groups: JsonValue[]): JsonObject {
     if (candidates.some(other => other.topic === group.topic && !equal([...other.members].sort(compare), [...group.members].sort(compare)))) continue;
     const members = group.members.map(e => byEntity.get(e));
     const first = members[0];
-    if (!first || group.members.some(e => used.has(e)) || members.some(row => !row || !equal(row.payload, first.payload))) continue;
-    const owners = [...new Set(members.flatMap(row => row ? [row.owner] : []))].sort(compare);
+    if (first === undefined || group.members.some(e => used.has(e)) || members.some(row => row === undefined || !equal(row.payload, first.payload))) continue;
+    const owners = [...new Set(members.flatMap(row => row === undefined ? [] : [row.owner]))].sort(compare);
     commands.push({ topic: group.topic, payload: first.payload, members: [...group.members].sort(compare), owners, group: group.id });
     group.members.forEach(e => used.add(e));
   }
@@ -72,23 +80,25 @@ export function planGroups(rows: JsonValue[], groups: JsonValue[]): JsonObject {
   return { commands, rejected, input_count: rows.length, endpoint_count: byEntity.size, command_count: commands.length };
 }
 
-function epoch(value: string | undefined): number {
-  const parsed = value ? Date.parse(value) / 1000 : 0;
-  return Number.isFinite(parsed) ? parsed : 0;
+function epoch(value: string | undefined): number { return value === undefined ? 0 : timestamp(value); }
+function byAddress(a: JsonValue, b: JsonValue): number {
+  const left = requireObject({ a }, 'a', 'effects_candle_plan.member');
+  const right = requireObject({ b }, 'b', 'effects_candle_plan.member');
+  return compare(
+    requireString(left, 'ieee_address', 'effects_candle_plan.member'),
+    requireString(right, 'ieee_address', 'effects_candle_plan.member'),
+  );
 }
-function numeric(value: JsonValue | undefined): number { return typeof value === 'number' && Number.isFinite(value) ? value : 0; }
-function byAddress(a: JsonValue, b: JsonValue): number { return compare(String(object(a).ieee_address ?? ''), String(object(b).ieee_address ?? '')); }
 
 /** Membership uses current runtime assignments and device identifiers, never fixed lamp topology. */
-export function planCandle(ctx: ScriptContext, catalog: JsonObject): JsonObject {
-  const assignments = object(ctx.attr('sensor.ls_effects_runtime', 'assignments'));
-  const power = object(ctx.attr('sensor.ls_overrides', 'power'));
-  const actual = object(ctx.attr('sensor.ls_effects_runtime', 'candle_group'));
+export function planCandle(ctx: ScriptContext, catalogMembers: JsonObject): JsonObject {
+  const assignments = objectOrEmpty(ctx.attr('sensor.ls_effects_runtime', 'assignments'), 'effects_candle_plan.assignments');
+  const power = objectOrEmpty(ctx.attr('sensor.ls_overrides', 'power'), 'effects_candle_plan.power');
+  const actual = objectOrEmpty(ctx.attr('sensor.ls_effects_runtime', 'candle_group'), 'effects_candle_plan.actual');
   const endpoints = new Map<string, JsonObject>();
   const owners: JsonObject = {};
-  const catalogMembers = object(catalog.members);
   for (const [lamp, ends] of Object.entries(catalogMembers)) {
-    for (const endpoint of strings(ends)) {
+    for (const endpoint of stringList(ends, `effects_candle_plan.catalog.members.${lamp}`)) {
       for (const pair of ctx.identifiers?.[endpoint] ?? []) {
         if (!Array.isArray(pair)) continue;
         const [domain, identifier] = pair;
@@ -103,22 +113,32 @@ export function planCandle(ctx: ScriptContext, catalog: JsonObject): JsonObject 
   const entities: string[] = [];
   const wanted: JsonValue[] = [];
   for (const [lamp, assignment] of Object.entries(assignments)) {
-    const t = object(assignment);
-    if (!Object.hasOwn(catalogMembers, lamp) || ctx.get(lamp) !== 'on' || !t.on || power[String(t.area)] === false) continue;
-    const brightness = object(t.brightness), color = object(t.color);
+    if (!Object.hasOwn(catalogMembers, lamp) || ctx.get(lamp) !== 'on') continue;
+    const t = requireObject({ assignment }, 'assignment', `effects_candle_plan.assignments.${lamp}`);
+    const on = t.on === undefined ? false : requireBoolean(t.on, `effects_candle_plan.assignments.${lamp}.on`);
+    if (!on) continue;
+    const area = requireString(t, 'area', `effects_candle_plan.assignments.${lamp}`);
+    const powered = power[area] === undefined ? true : requireBoolean(power[area], `effects_candle_plan.power.${area}`);
+    if (!powered) continue;
+    const brightness = objectDefaultAbsent(t, 'brightness', `effects_candle_plan.assignments.${lamp}`);
+    const color = objectDefaultAbsent(t, 'color', `effects_candle_plan.assignments.${lamp}`);
     if (brightness.kind !== 'effect' || brightness.effect !== 'Candle' || color.kind !== 'effect' || color.effect !== 'Candle') continue;
     lamps[lamp] = t;
-    for (const endpoint of strings(catalogMembers[lamp])) {
+    for (const endpoint of stringList(catalogMembers[lamp], `effects_candle_plan.catalog.members.${lamp}`)) {
       const member = endpoints.get(endpoint);
-      if (ctx.get(endpoint) === 'on' && member) { entities.push(endpoint); wanted.push(member); }
+      if (ctx.get(endpoint) === 'on' && member !== undefined) { entities.push(endpoint); wanted.push(member); }
     }
   }
   wanted.sort(byAddress);
-  const members = [...list(actual.members)].sort(byAddress);
+  const members = list(actual.members).map((member, index) => {
+    const parsed = requireObject({ member }, 'member', `effects_candle_plan.actual.members[${index}]`);
+    requireString(parsed, 'ieee_address', `effects_candle_plan.actual.members[${index}]`);
+    return parsed;
+  }).sort(byAddress);
   const remove = members.filter(member => !wanted.some(w => equal(w, member)));
   const add = wanted.filter(member => !members.some(m => equal(m, member)));
   const restarted = Math.max(epoch(ctx.state['binary_sensor.zigbee2mqtt_bridge_connection_state']?.last_changed), epoch(ctx.state['automation.effects_candle_group_state']?.last_changed));
-  const observed = numeric(actual.observed_at);
+  const observed = num(actual.observed_at, 0);
   const fresh = observed >= restarted && observed > 0;
   // Captured `actual.get('exists', false)` makes an absent first observation
   // genuinely optional; a present value is still required to be a boolean.
@@ -126,13 +146,25 @@ export function planCandle(ctx: ScriptContext, catalog: JsonObject): JsonObject 
     ? false
     : requireBoolean(actual.exists, 'effects_candle_plan.actual.exists');
   const synchronized = exists && fresh && equal(members, wanted);
+  const syncing = optionalBoolean(ctx.attr('sensor.ls_effects_runtime', 'candle_syncing'), 'effects_candle_plan.candle_syncing') ?? false;
   return {
     lamps, entities: [...new Set(entities)].sort(compare), members: wanted, actual, remove, add, owners, fresh, synchronized,
-    ready: synchronized && wanted.length > 0 && !ctx.attr('sensor.ls_effects_runtime', 'candle_syncing') && ctx.get('binary_sensor.zigbee2mqtt_bridge_connection_state') === 'on',
+    ready: synchronized && wanted.length > 0 && !syncing && ctx.get('binary_sensor.zigbee2mqtt_bridge_connection_state') === 'on',
   };
 }
 
 export const groupingHandlers: ScriptHandlers = {
-  effects_group_plan: (_ctx, args) => planGroups(list(args.rows), list(args.groups)),
-  effects_candle_plan: (ctx, args) => planCandle(ctx, object(args.catalog)),
+  // Captured rows/groups are iterated, so absence is empty while a malformed
+  // present container raises. catalog.members is accessed through .items().
+  effects_group_plan: withParsedArgs({
+    parse: args => ({ rows: list(args.rows), groups: list(args.groups) }),
+    run: (_ctx, args) => planGroups(args.rows, args.groups),
+  }),
+  effects_candle_plan: withParsedArgs({
+    parse: args => {
+      const catalog = requireObject(args, 'catalog', 'effects_candle_plan');
+      return { catalogMembers: requireObject(catalog, 'members', 'effects_candle_plan.catalog') };
+    },
+    run: (ctx, args) => planCandle(ctx, args.catalogMembers),
+  }),
 };

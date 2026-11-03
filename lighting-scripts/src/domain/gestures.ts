@@ -1,24 +1,61 @@
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
+import { jinjaInt, ParseError, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { isObject } from './scale.ts';
 
 const presets = [200, 285, 370, 454, 588];
 const directions = ['left', 'right', 'up', 'down'];
 const accepted = ['power', 'power_done', 'preset', 'cancel', ...directions];
-function object(value: JsonValue | undefined): JsonObject {
-  return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {};
-}
-function number(value: string, fallback = 0): number {
-  const parsed = value.trim() ? Number(value) : NaN;
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
 function roomArg(args: JsonObject): string {
-  if (typeof args.room !== 'string' || !/^[a-z0-9_]+$/.test(args.room)) throw Error('Gesture room must be a runtime room ID');
-  return args.room;
+  const room = requireString(args, 'room', 'ls_remote_gesture');
+  if (!/^[a-z0-9_]+$/.test(room)) throw new ParseError('Gesture room must be a runtime room ID');
+  return room;
+}
+function lazy<T>(parse: () => T): () => T {
+  let parsed = false;
+  let value: T;
+  return () => {
+    if (!parsed) {
+      value = parse();
+      parsed = true;
+    }
+    return value;
+  };
+}
+interface GestureArgs {
+  room: string;
+  command: string;
+  token: string;
+  payload: () => JsonObject | undefined;
+  delivery: () => { deviceId: string | undefined; source: string };
+}
+function parseGestureArgs(args: JsonObject): GestureArgs {
+  const command = args.command === undefined ? '' : requireString(args, 'command', 'ls_remote_gesture');
+  return {
+    room: roomArg(args),
+    command,
+    // Missing is empty under the captured length/membership operations. A
+    // present value is still typed, and branch-only data stays branch-lazy.
+    token: command === 'power_done'
+      ? args.token === undefined ? '' : requireString(args, 'token', 'ls_remote_gesture')
+      : '',
+    // A remote publishes whatever JSON it likes, and only a mapping can carry
+    // a preset action. The preserved scenario enumerates the real domain --
+    // none, [], {}, and mappings whose action does not match -- and the
+    // captured script dispatches nothing for every one of them without
+    // raising. So a non-mapping payload is not malformed input to reject; it
+    // is an event that is not a preset payload, which is genuine optionality.
+    payload: lazy(() => isObject(args.payload) ? args.payload : undefined),
+    delivery: lazy(() => ({
+      deviceId: args.device_id === undefined ? undefined : requireString(args, 'device_id', 'ls_remote_gesture'),
+      source: args.source === undefined ? '' : requireString(args, 'source', 'ls_remote_gesture'),
+    })),
+  };
 }
 
 /** Serialized actor. It never waits for actuator services or the power quiet window. */
-export function remoteGesture(ctx: ScriptContext, args: JsonObject): JsonValue {
-  const room = roomArg(args);
-  let command = typeof args.command === 'string' ? args.command : '';
+export function remoteGesture(ctx: ScriptContext, args: GestureArgs): JsonValue {
+  const room = args.room;
+  let command = args.command;
   if (!accepted.includes(command)) return null;
   const prefix = `ls_${room}_remote_`;
   const chord = `timer.${prefix}chord`;
@@ -34,13 +71,14 @@ export function remoteGesture(ctx: ScriptContext, args: JsonObject): JsonValue {
   };
   const clearChord = () => { set('chord_step', 0); timer(false); };
   const send = (logical: string) => {
-    const area = typeof args.device_id === 'string' ? ctx.areas[args.device_id] : room;
-    if (!area) return;
-    ctx.emit('script.turn_on', { variables: { source: args.source ?? '', area, command: logical, dry_run: false } }, { entity_id: 'script.ls_remote_command' });
+    const { deviceId, source } = args.delivery();
+    const area = deviceId === undefined ? room : ctx.areas[deviceId];
+    if (area === undefined || area.length === 0) return;
+    ctx.emit('script.turn_on', { variables: { source, area, command: logical, dry_run: false } }, { entity_id: 'script.ls_remote_command' });
   };
-  const step = Math.trunc(number(ctx.get(helper('chord_step'))));
+  const step = jinjaInt(ctx.get(helper('chord_step')));
   const active = ctx.get(chord) === 'active';
-  let clicks = Math.trunc(number(ctx.get(helper('power_count'))));
+  let clicks = jinjaInt(ctx.get(helper('power_count')));
   const saved = ctx.get(helper('power_token'));
   const stored = ['unknown', 'unavailable'].includes(saved) ? '' : saved;
   const quietActive = clicks > 0 && stored.length > 0 && Date.parse(stored) + 600 > Date.parse(ctx.now);
@@ -50,7 +88,7 @@ export function remoteGesture(ctx: ScriptContext, args: JsonObject): JsonValue {
     if (clicks === 1 || clicks >= 3) { clearChord(); send(clicks === 1 ? 'toggle' : 'reset'); }
   };
   if (command === 'power_done') {
-    if (!args.token || args.token !== stored || clicks <= 0) return null;
+    if (args.token.length === 0 || args.token !== stored || clicks <= 0) return null;
     complete();
     return null;
   }
@@ -69,12 +107,13 @@ export function remoteGesture(ctx: ScriptContext, args: JsonObject): JsonValue {
     return null;
   }
   if (command === 'preset') {
-    const payload = object(args.payload);
+    const payload = args.payload();
+    if (payload === undefined) return null;
     if (payload.action !== 'color_temperature_move') return null;
     const preset = payload.action_color_temperature;
     if (typeof preset !== 'number' || !presets.includes(preset)) { clearChord(); return null; }
     const index = presets.indexOf(preset);
-    const previous = number(ctx.get(helper('preset')), -2);
+    const previous = jinjaInt(ctx.get(helper('preset')), -2);
     if (index === previous) return null;
     const delta = previous === -1 ? (index === 0 ? 1 : index === 4 ? 4 : -1)
       : [0, 1, 2, 3, 4].includes(previous) ? (index - previous + 5) % 5 : -1;
@@ -92,10 +131,15 @@ export function remoteGesture(ctx: ScriptContext, args: JsonObject): JsonValue {
 }
 
 export const gestureHandlers: ScriptHandlers = {
-  ls_remote_gesture: remoteGesture,
-  ls_remote_power_quiet: (ctx, args) => {
-    const room = roomArg(args);
-    ctx.schedule('ls_remote_gesture', { ...args, room, command: 'power_done' }, 600);
+  // Captured command is membership-tested, token is length-tested, and payload
+  // is dereferenced only by preset. Missing command/token are empty; malformed
+  // present values raise, and branch-specific fields retain source order.
+  ls_remote_gesture: withParsedArgs({ parse: parseGestureArgs, run: remoteGesture }),
+  ls_remote_power_quiet: withParsedArgs({
+    parse: args => ({ raw: args, room: roomArg(args) }),
+    run: (ctx, args) => {
+    ctx.schedule('ls_remote_gesture', { ...args.raw, room: args.room, command: 'power_done' }, 600);
     return null;
-  },
+    },
+  }),
 };

@@ -73,3 +73,25 @@ test('explicit null group ID survives the deployed planner response', async () =
   assert.equal(result.commands[0].group, null);
   assert.equal(result.command_count, 1);
 });
+
+test('group handler lists default only absence and reject malformed present containers', async () => {
+  const { groupingHandlers } = await load();
+  const ctx = context(groupingHandlers);
+  assert.equal(ctx.run('effects_group_plan', {}).command_count, 0);
+  assert.throws(() => ctx.run('effects_group_plan', { rows: 0, groups: [] }), /must be an array/);
+  assert.throws(() => ctx.run('effects_group_plan', { rows: [], groups: {} }), /must be an array/);
+  assert.throws(() => ctx.run('effects_candle_plan', { catalog: null }), /catalog must be an object/);
+  assert.throws(() => ctx.run('effects_candle_plan', { catalog: { members: 0 } }), /members must be an object/);
+});
+
+test('Candle plan rejects malformed present runtime fields instead of inventing empty values', async () => {
+  const { groupingHandlers } = await load();
+  const ctx = context(groupingHandlers);
+  ctx.put('sensor.ls_effects_runtime', 'active', { assignments: {}, candle_group: { exists: false, members: [], observed_at: 'hot' } });
+  ctx.put('sensor.ls_overrides', 'ready', {});
+  assert.throws(() => ctx.run('effects_candle_plan', { catalog: { members: {} } }), /finite number/);
+  ctx.put('sensor.ls_effects_runtime', 'active', {
+    assignments: {}, candle_group: { exists: false, members: [{ ieee_address: null, endpoint: 1 }], observed_at: 0 },
+  });
+  assert.throws(() => ctx.run('effects_candle_plan', { catalog: { members: {} } }), /ieee_address must be a string/);
+});

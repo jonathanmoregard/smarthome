@@ -62,3 +62,27 @@ test('missing dynamic remote area resynchronizes preset without dispatch', async
   assert.equal(ctx.get('input_number.ls_studio_remote_preset'), '0');
   assert.deepEqual(commandCalls(ctx), []);
 });
+
+test('gesture boundaries distinguish missing optional fields from malformed present values', async () => {
+  const ctx = context(await load());
+  assert.throws(() => ctx.run('ls_remote_gesture', { room: 'studio', command: 0 }), /command must be a string/);
+  assert.throws(() => ctx.run('ls_remote_gesture', { room: 'studio', command: 'up', source: null }), /source must be a string/);
+  assert.throws(() => ctx.run('ls_remote_gesture', { room: 'studio', command: 'power_done', token: null }), /token must be a string/);
+});
+
+test('a gesture payload that is not a mapping is not a preset payload', async () => {
+  const ctx = context(await load());
+  // lighting-algebra/remote/preset_test.py's unknown-payload scenario feeds
+  // none, [] and {} and requires no dispatch and an unchanged cursor, so these
+  // three are oracle-backed. A bare scalar is not enumerated there, but the
+  // captured script's branch guard never inspects the payload's type, so it
+  // reaches the same no-dispatch path; treating it as "not a preset payload"
+  // follows from the same evidence rather than from JavaScript truthiness.
+  for (const payload of [null, [], {}, 0, 'text']) {
+    assert.equal(ctx.run('ls_remote_gesture', { room: 'studio', command: 'preset', payload }), null,
+      `payload ${JSON.stringify(payload)} must dispatch nothing instead of raising`);
+  }
+  // A mapping is still read, so a present mapping with an unusable action is
+  // silently ignored rather than coerced into a dispatch.
+  assert.equal(ctx.run('ls_remote_gesture', { room: 'studio', command: 'preset', payload: { action: 'on' } }), null);
+});
