@@ -310,8 +310,14 @@ export function engineTick(ctx: ScriptContext, args: EngineTickArgs): JsonValue 
   if (ctx.attr(runtime, 'revision') === revisionNow(ctx)) {
     const revision = ctx.attr(runtime, 'revision') ?? null, generation = ctx.attr(runtime, 'generation') ?? null;
     const power = object(ctx.attr('sensor.ls_overrides', 'power'));
+    // Captured: `... and target.on and power.get(area_id(lamp),true)`. Both sit
+    // in a Jinja boolean position. `power.get` defaults only on an ABSENT area;
+    // `power[area] !== false` got that case right but admitted every other
+    // falsy value, and bare truthiness on `on` admitted empty containers.
+    const admits = (area: string) => jinjaTruthy(Object.hasOwn(power, area) ? power[area] : true);
     const targets = Object.fromEntries(Object.entries(object(ctx.attr(runtime, 'assignments'))).filter(([lamp, raw]) =>
-      Object.hasOwn(object(catalog.members), lamp) && ctx.get(lamp) === 'on' && object(raw).on && power[ctx.areas[lamp] ?? ''] !== false));
+      Object.hasOwn(object(catalog.members), lamp) && ctx.get(lamp) === 'on'
+      && jinjaTruthy(object(raw).on) && admits(ctx.areas[lamp] ?? '')));
     const batch = object(ctx.run('effects_frame_plan', { targets, catalog, timestamp: recordTimestamp(ctx.now), animation_tick: true }));
     const commands = list(batch.commands).map(object).sort((a, b) => String(a.topic) < String(b.topic) ? -1 : String(a.topic) > String(b.topic) ? 1 : 0);
     let chosen: JsonObject | undefined, oldest = Infinity;

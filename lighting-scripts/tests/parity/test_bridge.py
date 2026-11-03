@@ -1,6 +1,8 @@
-"""Transport regressions: paused callbacks must support nested real execution."""
+"""Harness regressions: paused callbacks nesting real execution, and failure
+normalization, which decides whether two backends count as equivalent."""
 import unittest
 from tests.parity.rpc import Rpc, empty_snapshot
+from tests.parity.run import normalized_error
 
 
 def plan_snapshot():
@@ -56,6 +58,66 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(result['result'], dependency)
         self.assertEqual(result['dependencyCalls'], ['ls_plan'])
         self.assertEqual(self.rpc.dependency_calls, ['ls_plan'])
+
+
+STALE_PRECONDITION = '''Traceback (most recent call last):
+  File "/tmp/parity-reference-a1b2/lighting-algebra/remote/test_remote.py", line 42, in setUp
+    assert CENTER['mode'] == 'single'
+AssertionError
+'''
+
+BEHAVIOURAL_DIFFERENCE = '''Traceback (most recent call last):
+  File "/tmp/parity-reference-a1b2/lighting-algebra/remote/test_remote.py", line 91, in test_arrow_dispatch
+    assert commands == ['left']
+AssertionError
+'''
+
+# The same failing assert as STALE_PRECONDITION, seen by the other backend: a
+# different staging directory, and a line number moved by a substituted seam.
+SAME_ASSERT_OTHER_BACKEND = '''Traceback (most recent call last):
+  File "/tmp/parity-typescript-9f8e/lighting-algebra/remote/test_remote.py", line 57, in setUp
+    assert CENTER['mode'] == 'single'
+AssertionError
+'''
+
+TYPED_WITH_MESSAGE = '''Traceback (most recent call last):
+  File "/tmp/parity-reference-a1b2/lighting-algebra/remote/test_remote.py", line 12, in test_store
+    handlers.run('ls_store', {})
+ParseError: ls_store.store must be a string, got undefined
+'''
+
+
+class NormalizedErrorTests(unittest.TestCase):
+    def test_two_unrelated_bare_asserts_do_not_compare_equal(self):
+        self.assertNotEqual(
+            normalized_error(STALE_PRECONDITION),
+            normalized_error(BEHAVIOURAL_DIFFERENCE),
+            'a bare AssertionError must carry enough context to tell two failures apart',
+        )
+
+    def test_the_same_bare_assert_compares_equal_across_backends(self):
+        # Without this the fix would trade a false equivalence for a false
+        # difference, and every stale-precondition module would report as a
+        # behavioural divergence.
+        self.assertEqual(
+            normalized_error(STALE_PRECONDITION),
+            normalized_error(SAME_ASSERT_OTHER_BACKEND),
+        )
+
+    def test_no_machine_path_survives_normalization(self):
+        for raw in (STALE_PRECONDITION, BEHAVIOURAL_DIFFERENCE, TYPED_WITH_MESSAGE):
+            normalized = normalized_error(raw)
+            self.assertNotIn('/tmp/', normalized)
+            self.assertNotIn('parity-reference', normalized)
+
+    def test_a_typed_exception_with_a_message_is_unchanged(self):
+        self.assertEqual(
+            normalized_error(TYPED_WITH_MESSAGE),
+            'ParseError: ls_store.store must be a string, got undefined',
+        )
+
+    def test_a_bare_assert_still_names_the_exception_type(self):
+        self.assertIn('AssertionError', normalized_error(STALE_PRECONDITION))
 
 
 if __name__ == '__main__':

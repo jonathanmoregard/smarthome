@@ -235,11 +235,39 @@ def execute(args, row):
                 rpc.close()
 
 
+TYPED_EXCEPTION = re.compile(r'^[A-Za-z][A-Za-z0-9_.]*(Error|Exception):')
+TRACEBACK_FRAME = re.compile(r'^\s*File "[^"]*", line \d+, in (\S+)$')
+
+
+def failing_frame(lines):
+    """The innermost frame's function and source text, carrying no location.
+
+    Deliberately no path and no line number: the two backends stage into
+    different directories, and a substituted module seam shifts line numbers for
+    one of them only, so either would make an identical failure compare as a
+    difference.
+    """
+    for index in range(len(lines) - 1, -1, -1):
+        match = TRACEBACK_FRAME.match(lines[index])
+        if match is None:
+            continue
+        source = lines[index + 1].strip() if index + 1 < len(lines) else ''
+        return [f'in {match.group(1)}'] + ([source] if source else [])
+    return []
+
+
 def normalized_error(error):
     # Compare exception identity/message, never machine paths or implementation
     # stack frames. Tracebacks remain visible in the complete run output.
     lines = error.rstrip().splitlines()
-    return '\n'.join(line for line in lines if re.match(r'^[A-Za-z][A-Za-z0-9_.]*(Error|Exception):', line)) or lines[-1]
+    typed = '\n'.join(line for line in lines if TYPED_EXCEPTION.match(line))
+    if typed:
+        return typed
+    # A bare `assert` carries no message, so its traceback's last line is the
+    # single word "AssertionError". Two failures sharing nothing but that word
+    # compared equal and the backends were reported equivalent. Qualify it with
+    # the failing frame instead.
+    return '\n'.join(failing_frame(lines) + [lines[-1]])
 
 
 def outcome_from(output):

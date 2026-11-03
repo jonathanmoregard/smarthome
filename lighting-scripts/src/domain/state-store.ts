@@ -1,5 +1,5 @@
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { jinjaString, jinjaTruthy, ParseError, requireArray, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { jinjaFloat, jinjaInt, jinjaString, jinjaTruthy, ParseError, requireArray, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
 import { isObject, object } from './scale.ts';
 import { recordTimestamp } from './resolution.ts';
 import { isAreaId, labelled, privateRooms } from './schedule.ts';
@@ -245,7 +245,14 @@ export function commit(ctx: ScriptContext, args: CommitArgs): JsonObject {
     received_at: data.received_at === undefined ? recordTimestamp(ctx.now) : data.received_at };
   const full = parsed.via !== 'remote' || ['render_request', 'clear', 'clear_all'].includes(typeof data.op === 'string' ? data.op : '') || parsed.records.some(r => r.kind === 'mode');
   if (full) {
-    const unhandled = ctx.attr(entity, 'full_version') !== (ctx.attr('sensor.ls_effects_runtime', 'handled_full') || null);
+    // Captured: `old != (state_attr(runtime,'handled_full') or none)`. Jinja `or`
+    // fires on every falsy value, `[]` and `{}` included, so an empty container
+    // becomes none and compares equal to an absent full_version. `|| null` left a
+    // container as itself, and a reference comparison against it is always
+    // unequal -- which marked the last full render unhandled and resurrected its
+    // stale light list.
+    const handled = ctx.attr('sensor.ls_effects_runtime', 'handled_full');
+    const unhandled = (ctx.attr(entity, 'full_version') ?? null) !== (jinjaTruthy(handled) ? handled : null);
     const previousLights = unhandled ? values(ctx.attr(entity, 'full_lights')) : [];
     const previousReason = unhandled ? ctx.attr(entity, 'full_reason') : null;
     const fullData = parsed.full();
@@ -258,25 +265,119 @@ export function commit(ctx: ScriptContext, args: CommitArgs): JsonObject {
   return { accepted: true, revision: ctx.state[entity]?.last_updated ?? ctx.now, committed_at: recordTimestamp(ctx.now) };
 }
 
-export function storeProfile(ctx: ScriptContext, args: JsonObject): JsonValue {
-  const entity = String(args.store);
-  let current: JsonObject;
-  try { current = object(JSON.parse(ctx.get(entity)) as JsonValue); } catch { current = {}; }
-  const catalog = object(ctx.run('effects_catalog'));
-  const patch: JsonObject = {};
-  for (const key of ['on', 'own']) {
-    if (args[key] != null) patch[key] = haBoolean(args[key], `ls_store.${key}`);
+/**
+ * `is defined and is not none` -- the captured guard on every optional `ls_store`
+ * field. Absent and explicit none are indistinguishable to it, and both leave
+ * the field out of the patch entirely, so one predicate covers both.
+ */
+function supplied(value: JsonValue | undefined): boolean {
+  return value !== undefined && value !== null;
+}
+
+/** `(1000000 / (mireds | float)) | int` */
+function miredKelvin(mireds: JsonValue | undefined): number {
+  // The float filter yields 0.0 both for a zero and for anything it cannot
+  // parse, and Python division by 0.0 raises ZeroDivisionError. JavaScript
+  // instead produces Infinity or NaN, which `JSON.stringify` wrote to the store
+  // as `"k":null` -- a saved profile claiming colour temperature with no value.
+  const divisor = jinjaFloat(mireds);
+  if (divisor === 0) {
+    throw new ParseError('ls_store.mireds must convert to a kelvin value, got a zero divisor');
   }
-  if (args.brightness != null) patch.b = Math.trunc(Number(args.brightness)) || 0;
-  if (args.kelvin != null) { patch.m = 'ct'; patch.k = Math.trunc(Number(args.kelvin)) || 0; }
-  else if (args.mireds != null) { patch.m = 'ct'; patch.k = Math.trunc(1_000_000 / Number(args.mireds)); }
-  if (args.hs != null) { const hs = values(args.hs); patch.m = 'hs'; patch.h = Number(hs[0]); patch.s = Number(hs[1]); }
-  const effects = object(catalog.effects);
-  let channels = values(current.effect_channels ?? object(effects[String(current.effect ?? 'Normal light')]).channels);
-  if (args.effect != null) { patch.effect = args.effect; channels = values(object(effects[String(args.effect)]).channels); }
+  return jinjaInt(1_000_000 / divisor);
+}
+
+/** `h=hs[0] | float, s=hs[1] | float` */
+function huePair(hs: JsonValue | undefined): { h: number; s: number } {
+  // Subscripting past the end of a sequence, or into something that is not one,
+  // yields Jinja Undefined, and `Undefined | float` is 0.0. `Number(undefined)`
+  // was NaN, which serialized to null.
+  const pair = values(hs);
+  return { h: jinjaFloat(pair[0]), s: jinjaFloat(pair[1]) };
+}
+
+interface StoreProfileArgs {
+  entity: string;
+  on: boolean | undefined;
+  own: boolean | undefined;
+  brightness: number | undefined;
+  kelvin: number | undefined;
+  hs: { h: number; s: number } | undefined;
+  // `reject('eq','color')` fires when any of kelvin, mireds or hs was supplied.
+  // That is not the same as a kelvin having been computed: kelvin and mireds sit
+  // in one `elif`, so supplying both releases the channel once but converts once.
+  releasesColour: boolean;
+  effect: JsonValue | undefined;
+}
+
+function parseStoreProfile(args: JsonObject): StoreProfileArgs {
+  return {
+    // `store` is a required field and the captured tail evaluates
+    // `store.startswith('input_text.ls_lamp_')`, which raises for a non-string.
+    // Nothing in the captured script coerces it, so neither does this.
+    entity: requireString(args, 'store', 'ls_store'),
+    on: supplied(args.on) ? haBoolean(args.on, 'ls_store.on') : undefined,
+    own: supplied(args.own) ? haBoolean(args.own, 'ls_store.own') : undefined,
+    brightness: supplied(args.brightness) ? jinjaInt(args.brightness) : undefined,
+    kelvin: supplied(args.kelvin) ? jinjaInt(args.kelvin)
+      : supplied(args.mireds) ? miredKelvin(args.mireds) : undefined,
+    hs: supplied(args.hs) ? huePair(args.hs) : undefined,
+    releasesColour: supplied(args.kelvin) || supplied(args.mireds) || supplied(args.hs),
+    effect: supplied(args.effect) ? args.effect : undefined,
+  };
+}
+
+/** `states(store) | from_json(default={})` */
+function cachedProfile(ctx: ScriptContext, entity: string): JsonObject {
+  // The `default={}` genuinely swallows a parse failure -- an unset or
+  // non-JSON store reads as an empty profile -- so that fallback is faithful and
+  // stays. A cache that parses to a non-mapping is a different case: the
+  // captured `current.get(...)` raises on it.
+  let parsed: JsonValue;
+  try { parsed = JSON.parse(ctx.get(entity)) as JsonValue; } catch { return {}; }
+  if (!isObject(parsed)) {
+    throw new ParseError(`ls_store.store entity ${entity} holds a non-mapping saved profile`);
+  }
+  return parsed;
+}
+
+export function storeProfile(ctx: ScriptContext, args: StoreProfileArgs): JsonValue {
+  const entity = args.entity;
+  const current = cachedProfile(ctx, entity);
+  const effects = object(object(ctx.run('effects_catalog')).effects);
+  const patch: JsonObject = {};
+  if (args.on !== undefined) patch.on = args.on;
+  if (args.own !== undefined) patch.own = args.own;
+  if (args.brightness !== undefined) patch.b = args.brightness;
+  // Source order: the hs block runs last and overwrites `m`, leaving any kelvin
+  // the preceding block set still in the patch.
+  if (args.kelvin !== undefined) { patch.m = 'ct'; patch.k = args.kelvin; }
+  if (args.hs !== undefined) { patch.m = 'hs'; patch.h = args.hs.h; patch.s = args.hs.s; }
+  // `catalog.effects.get(key, {}).get('channels', [])`. The catalog is produced
+  // by effects_catalog, so a missing channel list there is absence, not a
+  // malformed value.
+  const catalogChannels = (key: JsonValue | undefined): JsonValue[] =>
+    values(object(jinjaMappingGet(effects, key, 'ls_store.effect')).channels);
+  // Both reads are `dict.get`, which falls back only on an ABSENT key. `??` also
+  // fired on an explicit null, so a cached null effect claimed Normal light's
+  // channels where the oracle resolves none and yields an empty list.
+  const active = Object.hasOwn(current, 'effect') ? current.effect : 'Normal light';
+  let channels: JsonValue[];
+  if (!Object.hasOwn(current, 'effect_channels')) channels = catalogChannels(active);
+  else if (Array.isArray(current.effect_channels)) channels = current.effect_channels;
   else {
-    if (args.brightness != null) channels = channels.filter(x => x !== 'brightness');
-    if (args.kelvin != null || args.mireds != null || args.hs != null) channels = channels.filter(x => x !== 'color');
+    // Deliberate divergence, under "rework so it's typed and correct instead".
+    // The oracle stores a present non-list verbatim when no release filter runs
+    // and raises inside `reject` when one does, so the same malformed cache
+    // behaves two ways depending on which fields the caller supplied.
+    throw new ParseError(`ls_store.store entity ${entity} holds a non-list effect_channels`);
+  }
+  if (args.effect !== undefined) {
+    patch.effect = args.effect;
+    channels = catalogChannels(args.effect);
+  } else {
+    if (args.brightness !== undefined) channels = channels.filter(x => x !== 'brightness');
+    if (args.releasesColour) channels = channels.filter(x => x !== 'color');
   }
   patch.effect_channels = channels;
   const value = JSON.stringify({ ...current, ...patch });
@@ -308,7 +409,13 @@ export const stateStoreHandlers: ScriptHandlers = {
     },
     run: commit,
   }),
-  ls_store: storeProfile,
+  // Captured `store` is required and reaches `.startswith`, so it is a plain
+  // string. Every other field is guarded `is defined and is not none`, which
+  // makes absence and none identical, and each carries its own filter: `| bool`
+  // for on/own, `| int` for brightness and kelvin, `| float` under a division
+  // for mireds, `| float` per element for hs. The saved profile's two reads are
+  // `dict.get`, so an explicit null is a value and not a fallback trigger.
+  ls_store: withParsedArgs({ parse: parseStoreProfile, run: storeProfile }),
   // Captured scope is raw twice (list construction and comparison), block has
   // one `| lower`, and via has two `| default('app')` sites. Raw scope remains
   // raw; the case filter coerces through Jinja string spelling.

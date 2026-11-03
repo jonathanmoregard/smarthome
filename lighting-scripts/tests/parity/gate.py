@@ -48,7 +48,15 @@ def omissions():
         # the bare string 'AssertionError'. Gating them requires reconciling the
         # precondition with the captured revision, not porting anything.
         'lighting-algebra/remote/test_remote.py': "GestureSim.drive asserts CENTER['mode'] == 'single'; the captured lighting_jonathan_s_bedroom_remote_center runs mode 'queued', so all 11 reference tests fail on that precondition. The TypeScript run differs on one test only because module_seams substitutes a harness-authored drive loop that never evaluates the precondition.",
-        'lighting-algebra/remote/gesture_test.py': "Replay asserts the gesture script is mode 'restart' with a leading 400 ms delay step; the captured revision does not match, failing 19 of 20 reference tests on the precondition. One genuine behavioral difference ([] != ['left']) is hidden behind it.",
+        # Measured 2026-11-03, correcting this entry: the leftover difference is
+        # NOT a port gap. Running the twentieth test alone under --backend
+        # compare exits 0 -- both backends produce [] where the test expects
+        # ['left'], identically. The expectation encodes a brightness-companion
+        # decoder keyed on action_level, which appears in none of the live
+        # captured scripts, so it is a stale assertion against the current
+        # revision. Gating the module would buy one more retained defect and no
+        # signal; the blocker is still the precondition below.
+        'lighting-algebra/remote/gesture_test.py': "Replay asserts the gesture script is mode 'restart' with a leading 400 ms delay step; the captured revision does not match, failing 19 of 20 reference tests on that precondition. The twentieth fails identically on both backends ([] != ['left']) against a stale expectation, so nothing behavioral is hidden here.",
         'lighting-algebra/tests/test_gesture_integration.py': "IntegratedReplay carries the same stale mode 'restart'/400 ms gesture-script precondition; all 5 reference failures are that assert, not lighting behavior.",
         'lighting-algebra/tests/test_gesture_native_conditions.py': "Subclasses IntegratedReplay and inherits the same stale gesture-script precondition; both reference failures are that assert. The inventory additionally classifies this module by filename alone, which overstates its coupling to the reference interpreter.",
         'lighting-algebra/tests/test_remote_gestures.py': "The replay's external-action allowlist raises ('Unknown external action blocked', 'input_number.set_value') for all 8 reference failures; the captured revision reaches a service the preserved harness predates.",
