@@ -62,3 +62,11 @@ test('missing dynamic remote area resynchronizes preset without dispatch', async
   assert.equal(ctx.get('input_number.ls_studio_remote_preset'), '0');
   assert.deepEqual(commandCalls(ctx), []);
 });
+
+test('gesture boundaries distinguish missing optional fields from malformed present values', async () => {
+  const ctx = context(await load());
+  assert.throws(() => ctx.run('ls_remote_gesture', { room: 'studio', command: 0 }), /command must be a string/);
+  assert.throws(() => ctx.run('ls_remote_gesture', { room: 'studio', command: 'up', source: null }), /source must be a string/);
+  assert.throws(() => ctx.run('ls_remote_gesture', { room: 'studio', command: 'power_done', token: null }), /token must be a string/);
+  assert.throws(() => ctx.run('ls_remote_gesture', { room: 'studio', command: 'preset', payload: null }), /payload must be an object/);
+});
