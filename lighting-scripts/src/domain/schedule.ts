@@ -236,7 +236,64 @@ function applies(r: JsonObject, key: string, lamp: string | null, room: string, 
     || (key === 'mode:sara' && !privateRoom);
 }
 
-export function scheduledBase(ctx: ScriptContext, args: ScheduledBaseArgs, roomLocal = false): JsonObject {
+/** One `input_select` the schedule wants moved to match the effective block. */
+export type ScheduleMirror = { entity: string; option: string };
+/**
+ * One output the schedule decided on, before the lamps that share it are
+ * attached. Discriminated on `kind`.
+ *
+ * `rgb` is `JsonValue[]` and must stay so: it comes off `LampColor`, which
+ * `profile` fills from `list(ctx.attr(entity, 'rgb_color'))` -- a raw Home
+ * Assistant attribute that is handed into compared JSON unchanged. Narrowing
+ * it to the three-element `RGB` would be a projection, and it is also simply
+ * not what the attribute guarantees. `kelvin` is a real number because
+ * `interpolate` computes it.
+ */
+export type ScheduleOutput =
+  | { kind: 'off'; transition: number }
+  | { kind: 'ct'; brightness: number; kelvin: number; transition: number }
+  | { kind: 'rgb'; brightness: number; rgb: JsonValue[]; transition: number };
+/**
+ * The same output with its lamps. `ids` is rewritten once more in `packed`,
+ * where a baseline group that covers every member replaces them by its own
+ * entity, so the field is a plain `string[]` throughout.
+ */
+export type ScheduleCommand = ScheduleOutput & { ids: string[] } | { kind: 'switch'; service: string; ids: string[] };
+/**
+ * `ls_base`/`ls_room_base`'s result, typed one layer at a time.
+ *
+ * `cmds`, `profiles` and `targets` are deliberately still JSON here, and that
+ * is a staging decision rather than an omission. All three are constructed and
+ * all three will type, but each is a union of several shapes built across two
+ * long loops, and `ls_plan` spreads this whole object into compared bytes
+ * (`{...schedule}`) while handing `targets` on to `effects_resolve` and
+ * `effects_gradient_plan` as JSON arguments. So they go in their own commits,
+ * each gated on its own, instead of one change nobody can review.
+ *
+ * Everything else is exact already:
+ *
+ * - `schedule_details` was ALWAYS `Record<string, ScheduleDetails>`; the type
+ *   existed and the field threw it away.
+ * - `revision` is `string` because `EntityState.last_updated` is
+ *   `string | undefined` and `ctx.now` is a `string`.
+ * - `sara_mirror` is the literal `'off'` or null, nothing else.
+ * - `dbg` is optional because the handler adds it only for `includeDebug`,
+ *   and an absent key is not the same bytes as a null one.
+ */
+export type ScheduleEnvelope = {
+  cmds: ScheduleCommand[];
+  profiles: JsonObject;
+  revision: string;
+  stale_keys: string[];
+  sched: Record<string, Block | null>;
+  schedule_details: Record<string, ScheduleDetails>;
+  mirror: ScheduleMirror[];
+  sara_mirror: 'off' | null;
+  dbg?: string[];
+};
+export type ScheduledBaseResult = { targets: JsonObject; schedule: ScheduleEnvelope };
+
+export function scheduledBase(ctx: ScriptContext, args: ScheduledBaseArgs, roomLocal = false): ScheduledBaseResult {
   const at = args.testNow === undefined ? timestamp(ctx.now) : args.testNow;
   const why = args.reason;
   const records = args.overrides === undefined
@@ -249,7 +306,7 @@ export function scheduledBase(ctx: ScriptContext, args: ScheduledBaseArgs, roomL
   const roomOnly = args.roomOnly;
   const rooms = [...new Set(all.map(e => ctx.areas[e]).filter(isAreaId))].sort().filter(a => !roomOnly || roomOnly === a);
   const details = Object.fromEntries(['house', ...rooms].map(room => [room, scheduleDetails(ctx, room, at)])) as Record<string, ScheduleDetails>;
-  const profiles: JsonObject = {}, targets: JsonObject = {}, commands = new Map<string, JsonObject>();
+  const profiles: JsonObject = {}, targets: JsonObject = {}, commands = new Map<string, ScheduleCommand>();
   const debug: string[] = [];
   for (const lamp of [...dimmables, ...plugs]) {
     if (roomOnly && (!roomLocal || ctx.areas[lamp] !== roomOnly)) continue;
@@ -299,7 +356,7 @@ export function scheduledBase(ctx: ScriptContext, args: ScheduledBaseArgs, roomL
       if (!stage.moving && want !== null && ctx.get(lamp) !== (want ? 'on' : 'off')) {
         const service = `homeassistant.turn_${want ? 'on' : 'off'}`;
         const previous = commands.get(service);
-        commands.set(service, { kind: 'switch', service, ids: [...strings(previous?.ids), lamp] });
+        commands.set(service, { kind: 'switch', service, ids: [...(previous?.ids ?? []), lamp] });
       }
       continue;
     }
@@ -317,11 +374,11 @@ export function scheduledBase(ctx: ScriptContext, args: ScheduledBaseArgs, roomL
     const p: JsonObject = { effect: pr.effect === undefined ? 'Normal light' : pr.effect, brightness: target.brightness, on: target.on, period: block, area: area || null,
       effect_channels: pr.effect_channels === undefined ? ['brightness', 'color'] : pr.effect_channels, send: why !== 'tick' || stage.moving || stage.edge, ignore_overrides: ignored };
     profiles[lamp] = p;
-    const command: JsonObject = !target.on ? { kind: 'off', transition } : 'kelvin' in color
+    const command: ScheduleOutput = !target.on ? { kind: 'off', transition } : 'kelvin' in color
       ? { kind: 'ct', brightness: Math.max(target.brightness, 1), kelvin: color.kelvin, transition }
       : { kind: 'rgb', brightness: Math.max(target.brightness, 1), rgb: color.rgb, transition };
     const key = JSON.stringify(command), previous = commands.get(key);
-    commands.set(key, { ...command, ids: [...strings(previous?.ids), lamp] });
+    commands.set(key, { ...command, ids: [...(previous?.ids ?? []), lamp] });
     targets[lamp] = { ...p, is_room: false, brightness: target.on ? Math.max(target.brightness, 1) : target.brightness, color: target.on ? color : { kelvin: 3000 },
       day: profile(ctx, sourceEntity(ctx, lamp, area, 'day', false)), cosy: profile(ctx, sourceEntity(ctx, lamp, area, 'cosy', false)), transition, observed: profile(ctx, lamp) };
     // Scaling first loses the original binary error (0.005 * 100 becomes
@@ -365,7 +422,7 @@ export function scheduledBase(ctx: ScriptContext, args: ScheduledBaseArgs, roomL
     const scopes = r.scope === 'house' || key === 'mode:sara' ? rooms.filter(a => !privateRooms(ctx).includes(a)) : [scope];
     return scopes.length > 0 && scopes.every(a => timestampOrZero(r.when) <= num(details[a]!.last_fs) && !details[a]!.fading);
   });
-  const sched: JsonObject = {}, mirror: JsonValue[] = [];
+  const sched: Record<string, Block | null> = {}, mirror: ScheduleMirror[] = [];
   for (const scope of ['house', ...rooms]) {
     const S = details[scope]!; sched[scope] = S.cur;
     const override = String(object(records[`block:${scope}`]).value).toLowerCase();
@@ -374,14 +431,14 @@ export function scheduledBase(ctx: ScriptContext, args: ScheduledBaseArgs, roomL
     if (ctx.state[entity] && ctx.get(entity) !== option) mirror.push({ entity, option });
   }
   const packed = [...commands.values()].map(command => {
-    let ids = strings(command.ids);
+    let ids = command.ids;
     for (const [entity, value] of Object.entries(object(ctx.catalog?.baseline_groups))) {
       const members = strings(value);
       if (members.length > 0 && members.every(member => ids.includes(member))) ids = [entity, ...ids.filter(id => !members.includes(id))];
     }
     return { ...command, ids };
   });
-  const schedule: JsonObject = { cmds: packed, profiles, revision: ctx.state['sensor.ls_overrides']?.last_updated ?? ctx.now, stale_keys: stale, sched, schedule_details: details, mirror,
+  const schedule: ScheduleEnvelope = { cmds: packed, profiles, revision: ctx.state['sensor.ls_overrides']?.last_updated ?? ctx.now, stale_keys: stale, sched, schedule_details: details, mirror,
     sara_mirror: ctx.state['input_boolean.ls_sara_mode_mirror'] && ctx.get('input_boolean.ls_sara_mode_mirror') !== 'off' ? 'off' : null };
   if (args.includeDebug === true) schedule.dbg = debug;
   return { targets, schedule };

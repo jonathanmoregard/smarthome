@@ -164,12 +164,23 @@ const DOMAIN = join(ROOT, 'src/domain');
  * strict re-reads rather than lenient ones, argue it in the commit message and
  * ratchet what moved -- do not go looking for a different conversion because
  * this table liked it better.
+ *
+ * `ls_base`/`ls_room_base` start here, and deliberately only start.
+ * `ScheduledBaseResult` types the envelope and the command union exactly --
+ * `schedule_details` was ALWAYS `Record<string, ScheduleDetails>` and the
+ * field threw the type away -- while `cmds`'s `rgb` stays `JsonValue[]`,
+ * because it comes off a raw `rgb_color` attribute that reaches compared JSON
+ * unchanged. `profiles`, `targets` and the seam conversion are NOT in this
+ * commit: a decoder for a half-described result would have to promise fields
+ * the type only half-knows, and `falsy-boundaries.test.ts:219` stubs `ls_base`
+ * with a deliberately missing `targets` that must keep raising.
+ * `jsonTypes 382 -> 379`, `rawJsonReturns 38 -> 37`.
  */
 const CEILINGS = {
-  jsonTypes: 382,
+  jsonTypes: 379,
   validatedBags: 0,
   lenientAccessors: 238,
-  rawJsonReturns: 38,
+  rawJsonReturns: 37,
 };
 
 /** Comments may legitimately name these types while explaining why they are gone. */
