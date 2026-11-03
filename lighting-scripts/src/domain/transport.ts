@@ -301,7 +301,7 @@ export function assignEffects(ctx: ScriptContext, args: AssignArgs): AssignResul
           payload: { effect }, members: [member], owners: [lamp], group: false });
       }
     }
-    ctx.call('effects_emit', { commands, revision: args.revision, generation });
+    ctx.run('effects_emit', { commands, revision: args.revision, generation });
   }
   if (Object.keys(assignments).length) ctx.emit('script.turn_on', {}, { entity_id: 'script.effects_engine' });
   return { generation: ctx.attr(runtime, 'generation') ?? null };
@@ -344,7 +344,7 @@ export function engineTick(ctx: ScriptContext, args: EngineTickArgs): JsonValue 
       if (age < oldest) { chosen = command; oldest = age; }
     }
     if (chosen) {
-      ctx.call('effects_emit', { commands: [chosen], revision, generation, effect_targets: targets });
+      ctx.run('effects_emit', { commands: [chosen], revision, generation, effect_targets: targets });
       admission++;
       for (const member of strings(chosen.members)) served[member] = admission;
     }

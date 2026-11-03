@@ -162,9 +162,8 @@ function remoteCommand(ctx: ScriptContext, args: RemoteCommandArgs): JsonValue {
     if (result.op === 'noop') accepted = true;
     else {
       const inputRevision = requireString(result, 'input_revision', 'ls_remote_command.plan');
-      const committed = object(ctx.run('ls_commit', { data: { ...result,
-        expected_revision: inputRevision, area: input.area, via: 'remote', source: input.source } }));
-      accepted = requireBoolean(committed.accepted, 'ls_remote_command.commit.accepted');
+      accepted = ctx.call('ls_commit', { data: { ...result,
+        expected_revision: inputRevision, area: input.area, via: 'remote', source: input.source } }).accepted;
     }
   }
   if (!accepted) throw new Error('Override revision kept changing; retry budget exhausted');

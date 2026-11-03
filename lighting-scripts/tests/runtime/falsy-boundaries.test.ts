@@ -205,7 +205,7 @@ test('controller preserves absent-only defaults and rejects explicit nulls', () 
     effects_gradient_plan: stub('effects_gradient_plan', () => ({ gradients: {} })),
     effects_resolve: stub('effects_resolve', () => ({ targets: {}, assignments: {} })),
     ls_switch_plan: () => ({ switches: {} }),
-    ls_commit: () => ({ accepted: true }),
+    ls_commit: () => ({ accepted: true, revision: 'revision', committed_at: 0 }),
   });
   ctx.put('sensor.ls_overrides', '0', { overrides: {} });
   ctx.state['sensor.ls_overrides']!.last_updated = ctx.now;
@@ -228,7 +228,7 @@ test('controller requires producer-owned plan and remote result fields', () => {
   const remote = context({
     ...controllerHandlers,
     ls_remote_plan: () => ({ op: 'power', on: true, input_revision: 'revision' }),
-    ls_commit: () => ({ accepted: true }),
+    ls_commit: () => ({ accepted: true, revision: 'revision', committed_at: 0 }),
   });
   assert.throws(() => remote.run('ls_remote_command', { source: 'remote', area: 'studio', command: 'toggle' }), /targets.*array/);
 });

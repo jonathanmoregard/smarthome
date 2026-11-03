@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
 import { isObject, jinjaTruthy, object, ParseError, requireArray, requireBoolean, requireNumber, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { typed } from '../runtime/entrypoints.ts';
 import { hasValue, list, strings, timestamp } from './schedule.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
@@ -102,7 +103,14 @@ function baselineSend(base: JsonObject, lamp: string): boolean {
 }
 
 /** Delta output actor: invalidate touched lamps before sending, acknowledge only complete batches. */
-export function dispatch(ctx: ScriptContext, args: DispatchArgs): JsonValue {
+/**
+ * `ls_dispatch`'s result. `null` is one of its real answers -- every
+ * revision-moved and stale-plan guard returns it -- so it is in the type rather
+ * than hidden behind a lenient read at the caller.
+ */
+export type DispatchResult = { completed: boolean; published_at: number[] } | null;
+
+export function dispatch(ctx: ScriptContext, args: DispatchArgs): DispatchResult {
   const revision = args.revision;
   if (revision !== revisionOf(ctx) || args.planOrder < requireNumber({ plan_order: ctx.attr(runtime, 'plan_order') ?? 0 }, 'plan_order', 'ls_dispatch runtime')) return null;
   const { base, targets, targetViews, assignments, requested, outputTargets, remoteRooms,
@@ -194,16 +202,15 @@ export function render(ctx: ScriptContext): JsonValue {
   }
   if (!full) plan = { ...plan, output_targets: Object.keys(object(plan.base)) };
   const plannedAt = timestamp(ctx.now);
-  const emissionResult = ctx.run('ls_dispatch', { plan, lights });
-  if (emissionResult === null) return null;
-  const emission = requireObject({ emission: emissionResult }, 'emission', 'ls_render');
-  const completed = requireBoolean(emission.completed, 'ls_render.emission.completed');
-  if (!completed || revision !== revisionOf(ctx)) return null;
+  const emission = ctx.call('ls_dispatch', { plan, lights });
+  // `requireObject`, `requireBoolean` and `?? []` below are gone: `null` is in
+  // the type, and `dispatch` builds both fields whenever it returns an object.
+  if (emission === null || !emission.completed || revision !== revisionOf(ctx)) return null;
   const generation = ctx.attr(runtime, 'generation') ?? null;
   ctx.emit('variable.update_sensor', { value: ctx.now, replace_attributes: false, attributes: {
     handled_rooms: pending,
     handled_full: fullVersion === undefined ? ctx.attr(runtime, 'handled_full') ?? null : fullVersion,
-    last_latency: { request_id: request, received_at: received, started_at: started, planned_at: plannedAt, published_at: emission.published_at ?? [], completed_at: timestamp(ctx.now), rooms, full },
+    last_latency: { request_id: request, received_at: received, started_at: started, planned_at: plannedAt, published_at: emission.published_at, completed_at: timestamp(ctx.now), rooms, full },
   } }, { entity_id: runtime }, { revision, generation, requiresOutputSuccess: true });
   return null;
 }
@@ -216,7 +223,7 @@ export const dispatchHandlers: ScriptHandlers = {
   // and sara_mirror retain their raw values. Boolean-context fields is_room,
   // send, remote, on use Python truthiness (1/1/2/5 raw sites). `lights` has
   // four raw uses and one `| default(none)`, preserved by its domain parser.
-  ls_dispatch: withParsedArgs({
+  ls_dispatch: typed('ls_dispatch', {
     parse: args => {
       const plan = requireObject(args, 'plan', 'ls_dispatch');
       return {

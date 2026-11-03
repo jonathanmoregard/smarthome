@@ -1,5 +1,6 @@
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
 import { isObject, jinjaFloat, jinjaInt, jinjaString, jinjaTruthy, object, ParseError, requireArray, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { typed } from '../runtime/entrypoints.ts';
 import { recordTimestamp } from './resolution.ts';
 import { isAreaId, labelled, privateRooms } from './schedule.ts';
 
@@ -178,7 +179,15 @@ function parseCommitData(data: JsonObject): CommitData {
 }
 
 /** The single override writer, preserving unrelated attributes and channel timestamps. */
-export function commit(ctx: ScriptContext, args: CommitArgs): JsonObject {
+/**
+ * `ls_commit`'s result, as a discriminated union because that is what it is:
+ * the stale-revision refusal answers `{accepted: false}` and nothing else, and
+ * the success answers all three fields. Spelling it as one optional-field shape
+ * would invent keys on the refusal, and those bytes are compared.
+ */
+export type CommitResult = { accepted: false } | { accepted: true; revision: string; committed_at: number };
+
+export function commit(ctx: ScriptContext, args: CommitArgs): CommitResult {
   const entity = 'sensor.ls_overrides';
   const currentRevision = ctx.state[entity]?.last_updated ?? ctx.now;
   if (args.expectedRevision != null && args.expectedRevision !== currentRevision) return { accepted: false };
@@ -398,7 +407,7 @@ export const stateStoreHandlers: ScriptHandlers = {
   // scope occur 2/5/2/6/1/3 times; value.channels has one empty-object fallback.
   // Keep the stale-revision stop ahead of every other parse and make operation-
   // specific strict fields lazy, matching the captured short-circuit order.
-  ls_commit: withParsedArgs({
+  ls_commit: typed('ls_commit', {
     parse: args => {
       const data = requireObject(args, 'data', 'ls_commit');
       return {

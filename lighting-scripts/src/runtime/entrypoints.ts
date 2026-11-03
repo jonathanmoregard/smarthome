@@ -4,6 +4,8 @@ import type { SwitchPlanResult } from '../domain/controller.ts';
 import type { ResolutionResult } from '../domain/resolution.ts';
 import type { GradientPlanResult } from '../domain/gradient.ts';
 import type { AssignResult, EmitResult } from '../domain/transport.ts';
+import type { DispatchResult } from '../domain/dispatch-render.ts';
+import type { CommitResult } from '../domain/state-store.ts';
 
 /**
  * The typed result of each converted internal entrypoint, keyed by the script
@@ -29,6 +31,8 @@ export interface TypedResults {
   effects_gradient_plan: GradientPlanResult;
   effects_emit: EmitResult;
   effects_assign: AssignResult;
+  ls_dispatch: DispatchResult;
+  ls_commit: CommitResult;
 }
 
 export type TypedName = keyof TypedResults;

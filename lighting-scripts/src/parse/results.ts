@@ -2,6 +2,7 @@ import type { JsonValue } from '../runtime/context.ts';
 import type { TypedResults } from '../runtime/entrypoints.ts';
 import type { SwitchDecision, SwitchPlanResult } from '../domain/controller.ts';
 import type { AssignResult, EmitResult } from '../domain/transport.ts';
+import type { CommitResult } from '../domain/state-store.ts';
 import { ParseError, requireArray, requireBoolean, requireFinite, requireNumber, requireObject, requireString } from '../runtime/parse.ts';
 
 /**
@@ -83,6 +84,21 @@ function decodeAssign(value: JsonValue, context: string): AssignResult {
 }
 
 /**
+ * Only `accepted` discriminates, and only the success branch carries the other
+ * two fields -- so a stub claiming a commit succeeded has to say what it
+ * committed, which is the shape the real handler always returns.
+ */
+function decodeCommit(value: JsonValue, context: string): CommitResult {
+  const result = requireObject({ value }, 'value', context);
+  if (!requireBoolean(result.accepted, `${context}.accepted`)) return { accepted: false };
+  return {
+    accepted: true,
+    revision: requireString(result, 'revision', context),
+    committed_at: requireNumber(result, 'committed_at', context),
+  };
+}
+
+/**
  * One codec per converted entrypoint.
  *
  * The mapped type is the completeness check: adding a name to
@@ -104,4 +120,11 @@ export const resultCodecs: { [K in keyof TypedResults]: ResultCodec<TypedResults
   // fail loudly.
   effects_emit: { encode: result => result, decode: decodeEmit },
   effects_assign: { encode: result => result, decode: decodeAssign },
+  // A decoder here is load-bearing for a real test: `falsy-boundaries` stubs
+  // `{accepted: 'yes'}` precisely to assert a non-boolean is refused, and a
+  // typed stub could not express that.
+  ls_commit: { encode: result => result, decode: decodeCommit },
+  // No decoder: nothing stubs `ls_dispatch`, and `null` plus two built fields
+  // is not a shape a stub would get subtly wrong without failing loudly.
+  ls_dispatch: { encode: result => result },
 };

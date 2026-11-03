@@ -103,12 +103,17 @@ const DOMAIN = join(ROOT, 'src/domain');
  * tokens to save ~5 accessor calls. Those entrypoints wait for criteria 6/7 to
  * parse the underlying data first; converting them now would need a ceiling
  * raise to show no real progress.
+ *
+ * `ls_dispatch` and `ls_commit`, both constructed results, both unions that
+ * say what the handler really answers (`null` for a stale plan; `{accepted:
+ * false}` for a stale revision): `jsonTypes 407 -> 405`,
+ * `lenientAccessors 255 -> 254`, `rawJsonReturns 54 -> 52`.
  */
 const CEILINGS = {
-  jsonTypes: 407,
+  jsonTypes: 405,
   validatedBags: 0,
-  lenientAccessors: 255,
-  rawJsonReturns: 54,
+  lenientAccessors: 254,
+  rawJsonReturns: 52,
 };
 
 /** Comments may legitimately name these types while explaining why they are gone. */
