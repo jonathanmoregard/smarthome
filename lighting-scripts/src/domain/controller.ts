@@ -123,14 +123,13 @@ export function plan(ctx: ScriptContext, args: PlanArgs): JsonObject {
     const room = object(raw).area;
     cached = { ...cached, ...object(object(ctx.attr(`sensor.ls_cache_${room}`, 'cache')).gradients) };
   }
-  const compiled = requiredResultObject(ctx.run('effects_gradient_plan', { base: baselineTargets, warm_end: warmEnd, cached }), 'ls_plan.compiled');
-  const gradients = requireObject(compiled, 'gradients', 'ls_plan.compiled');
+  const gradients = ctx.call('effects_gradient_plan', { base: baselineTargets, warm_end: warmEnd, cached }).gradients;
   const privateRooms = ctx.labels?.private_room;
   const power = optionalAttributeObject(ctx.attr('sensor.ls_overrides', 'power'), 'ls_plan.power');
-  const resolved = requiredResultObject(ctx.run('effects_resolve', { base: baselineTargets, overrides: active, catalog,
+  const resolved = ctx.call('effects_resolve', { base: baselineTargets, overrides: active, catalog,
     sara: Object.hasOwn(active, 'mode:sara'), private: privateRooms === undefined ? [] : privateRooms,
-    power, warm_end: warmEnd, gradients }), 'ls_plan.resolved');
-  const resolvedTargets = requireObject(resolved, 'targets', 'ls_plan.resolved');
+    power, warm_end: warmEnd, gradients });
+  const resolvedTargets = resolved.targets;
   const ranges = optionalAttributeObject(ctx.attr('sensor.ls_overrides', 'switch_ranges'), 'ls_plan.switch_ranges');
   const rawDefaults = ctx.attr('sensor.ls_overrides', 'range_defaults');
   const defaults = rawDefaults === undefined || rawDefaults === null

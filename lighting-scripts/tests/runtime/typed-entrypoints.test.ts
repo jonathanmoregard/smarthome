@@ -13,7 +13,7 @@ import test from 'node:test';
 import { execute } from '../../src/runtime/engine.ts';
 import type { JsonObject, ScriptContext, Snapshot } from '../../src/runtime/context.ts';
 import { controllerHandlers } from '../../src/domain/controller.ts';
-import { context } from './gestures-context.ts';
+import { context, stub } from './gestures-context.ts';
 
 const snapshot: Snapshot = {
   state: {}, areas: { 'light.studio': 'studio' }, members: ['light.studio'],
@@ -56,6 +56,21 @@ test('a name-keyed stub is decoded, so existing stubs keep standing in', () => {
   const planned = stubbed.call('ls_switch_plan', {});
   assert.equal(planned.switches['switch.hall']?.on, false);
   assert.equal(planned.switches['switch.hall']?.brightness, 0, 'a brightness of zero survives decoding');
+});
+
+test('an entrypoint with no decoder refuses a JSON stub instead of guessing', () => {
+  // `effects_gradient_plan` deliberately has no decoder, so a plain JSON stub
+  // is an error that names both ways out rather than a silent lenient read.
+  const stubbed = context({ effects_gradient_plan: () => ({ gradients: {} }) });
+  assert.throws(() => stubbed.call('effects_gradient_plan', {}),
+    /effects_gradient_plan.*no decoder.*typed\('effects_gradient_plan'/s);
+});
+
+test('a typed stub needs no decoder, and keeps the keys its caller never reads', () => {
+  const stubbed = context({ effects_resolve: stub('effects_resolve', () => ({ targets: {}, assignments: {} })) });
+  const resolved = stubbed.call('effects_resolve', {});
+  assert.deepEqual(resolved, { targets: {}, assignments: {} },
+    'assignments is never read by a caller but is always returned, so a stub states it');
 });
 
 test('a stub that has drifted from the result shape is rejected, not read leniently', () => {

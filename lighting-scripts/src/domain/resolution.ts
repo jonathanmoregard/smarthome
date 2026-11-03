@@ -3,6 +3,7 @@ import type { JsonObject, JsonValue, ScriptHandlers } from '../runtime/context.t
 import { gradientSignature, sampleGradient } from './gradient.ts';
 import type { GradientCurve } from './gradient.ts';
 import { isObject, jinjaTruthy, object, requireNumber, withParsedArgs } from '../runtime/parse.ts';
+import { typed } from '../runtime/entrypoints.ts';
 import { boundedNumber, clamp, scaleValue, WARM_END } from './scale.ts';
 import type { RGB, Scaled } from './scale.ts';
 import { planGradients, validGradient } from '../parse/gradient.ts';
@@ -247,7 +248,13 @@ export function resolveEffects(args: JsonObject): ResolutionResult {
 }
 
 export const resolutionHandlers: ScriptHandlers = {
-  effects_resolve: (_context, args) => resolveEffects(args),
+  // `parse: args => args` is not a placeholder standing in for a real parse: it
+  // records that this entrypoint's argument boundary is still unparsed, exactly
+  // as the bare `(_context, args) =>` registration it replaces was. Typing the
+  // result is safe on its own (`encode` is the identity, so the bytes cannot
+  // move); parsing these arguments changes where raises happen and belongs to
+  // the sweep that owns this module.
+  effects_resolve: typed('effects_resolve', { parse: args => args, run: (_context, args) => resolveEffects(args) }),
   // Reference conversion for `withParsedArgs`. Every field's primitive is
   // chosen from the captured source: `day`, `cosy`, `position` and `warm_end`
   // are all read raw there (52, 52, 34 and 32 sites, no `| int`, `| float` or
@@ -263,5 +270,7 @@ export const resolutionHandlers: ScriptHandlers = {
     }),
     run: (_context, a) => scaleValue(a.day, a.cosy, a.position, a.warmEnd),
   }),
-  effects_gradient_plan: (_context, args) => planGradients(args),
+  // Same: result typed, arguments still unparsed. `src/parse/gradient.ts`
+  // documents the two pieces of leniency in them that are load-bearing.
+  effects_gradient_plan: typed('effects_gradient_plan', { parse: args => args, run: (_context, args) => planGradients(args) }),
 };

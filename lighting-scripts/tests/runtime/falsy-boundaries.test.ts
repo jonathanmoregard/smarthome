@@ -6,7 +6,7 @@ import { remoteInputHandlers, remotePlan } from '../../src/domain/remote-input.t
 import { stateStoreHandlers } from '../../src/domain/state-store.ts';
 import { transportHandlers } from '../../src/domain/transport.ts';
 import { uiHandlers } from '../../src/domain/ui-state.ts';
-import { context, setCatalog } from './gestures-context.ts';
+import { context, setCatalog, stub } from './gestures-context.ts';
 
 function remoteContext(value: JsonObject, nextFs: JsonObject['value'] = 100) {
   const ctx = context({
@@ -202,8 +202,8 @@ test('controller preserves absent-only defaults and rejects explicit nulls', () 
     ...controllerHandlers,
     ls_base: () => ({ schedule: { stale_keys: [] }, targets: {} }),
     effects_catalog: () => ({}),
-    effects_gradient_plan: () => ({ gradients: {} }),
-    effects_resolve: () => ({ targets: {} }),
+    effects_gradient_plan: stub('effects_gradient_plan', () => ({ gradients: {} })),
+    effects_resolve: stub('effects_resolve', () => ({ targets: {}, assignments: {} })),
     ls_switch_plan: () => ({ switches: {} }),
     ls_commit: () => ({ accepted: true }),
   });
@@ -218,8 +218,8 @@ test('controller requires producer-owned plan and remote result fields', () => {
     ...controllerHandlers,
     ls_base: () => ({ schedule: { stale_keys: [] } }),
     effects_catalog: () => ({}),
-    effects_gradient_plan: () => ({ gradients: {} }),
-    effects_resolve: () => ({ targets: {} }),
+    effects_gradient_plan: stub('effects_gradient_plan', () => ({ gradients: {} })),
+    effects_resolve: stub('effects_resolve', () => ({ targets: {}, assignments: {} })),
     ls_switch_plan: () => ({ switches: {} }),
   });
   ctx.put('sensor.ls_overrides', '0', { overrides: {} });

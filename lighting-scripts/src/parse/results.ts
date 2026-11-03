@@ -17,10 +17,20 @@ import { ParseError, requireArray, requireBoolean, requireFinite, requireNumber,
  * instead of the registered handler: a unit test's stub, or the parity
  * harness's literal `ls_plan` dependency. The real handler's result never
  * passes through it.
+ *
+ * `decode` is therefore **optional**, and leaving it out is a real choice
+ * rather than laziness. Write one where it is cheap and catches a stub that has
+ * drifted from the shape it stands in for. Leave it out where the result type
+ * is rich enough that a faithful decoder would be a second implementation of
+ * the handler's output format -- `GradientCurve` is forty lines of structure
+ * whose only JSON-returning stub is `{gradients: {}}`, and a decoder that
+ * accepted that and nothing else would be theatre. Without one, a
+ * JSON-returning override gets a precise error naming the two ways forward, so
+ * the gap cannot pass silently.
  */
 export interface ResultCodec<R> {
   encode(result: R): JsonValue;
-  decode(value: JsonValue, context: string): R;
+  decode?(value: JsonValue, context: string): R;
 }
 
 function decodeSwitchDecision(value: JsonValue, context: string): SwitchDecision {
@@ -64,4 +74,12 @@ function decodeSwitchPlan(value: JsonValue, context: string): SwitchPlanResult {
  */
 export const resultCodecs: { [K in keyof TypedResults]: ResultCodec<TypedResults[K]> } = {
   ls_switch_plan: { encode: result => result, decode: decodeSwitchPlan },
+  // No decoder: a `ResolvedTarget` is `JsonObject`/`JsonValue` fields plus one
+  // string, so a decoder could only check that nine keys are present -- and the
+  // three stubs that stand in for this entrypoint declare their shape through
+  // `typed()` instead, which states the same thing where a reader will see it.
+  effects_resolve: { encode: result => result },
+  // No decoder, for the opposite reason: `GradientCurve` is a deep structure
+  // and its only JSON stub is `{gradients: {}}`.
+  effects_gradient_plan: { encode: result => result },
 };

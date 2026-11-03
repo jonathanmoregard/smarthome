@@ -23,6 +23,8 @@ export type GradientCurve = {
  */
 export type GradientSignature = [number, number, Color, number, Color, RGB];
 export type GradientEntry = { signature: GradientSignature; curve: GradientCurve };
+/** `effects_gradient_plan`'s result. One entry per target that compiled. */
+export type GradientPlanResult = { gradients: Record<string, GradientEntry> };
 export function gradientSignature(day: Anchor, cosy: Anchor, warmEnd: RGB): GradientSignature {
   return [1, day.brightness, copyColor(day.color), cosy.brightness, copyColor(cosy.color), [...warmEnd]];
 }

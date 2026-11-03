@@ -198,8 +198,7 @@ export function roomPlan(ctx: ScriptContext, args: RoomPlanArgs): JsonObject {
     const rawCatalog = ctx.rawCatalog();
     const fullCatalog = Object.keys(rawCatalog).length > 0 ? rawCatalog : object(ctx.run('effects_catalog'));
     catalog = { effects: object(fullCatalog.effects), processors: object(fullCatalog.processors) };
-    const compiled = object(ctx.run('effects_gradient_plan', { base: baseline.targets, warm_end: warmEnd, cached: cache?.gradients ?? {} }));
-    gradients = object(compiled.gradients);
+    gradients = ctx.call('effects_gradient_plan', { base: baseline.targets, warm_end: warmEnd, cached: cache?.gradients ?? {} }).gradients;
     const details = roomDetails(baseline.schedule, room, 'ls_room_plan.baseline.schedule.schedule_details');
     periodRecords = periods(records, room, deps, optionalNumber(details, 'last_fs', 0, 'ls_room_plan schedule details'));
     update = { version: cacheVersion, room, dependencies: deps, periods: periodRecords, valid_from: at, valid_until: expiry(ctx, baseline, room, at), baseline: baseline.raw, gradients, catalog };
@@ -208,12 +207,12 @@ export function roomPlan(ctx: ScriptContext, args: RoomPlanArgs): JsonObject {
   const schedule = baseline.schedule.raw;
   const stale = schedule.stale_keys === undefined ? [] : requireArray(schedule, 'stale_keys', 'ls_room_plan.baseline.schedule');
   const active = Object.fromEntries(Object.entries(records).filter(([key]) => !stale.includes(key)));
-  const resolved = object(ctx.run('effects_resolve', { base: baseline.targets, overrides: active, catalog, sara: Object.hasOwn(active, 'mode:sara'), private: privateRooms(ctx),
-    power: args.power ?? object(ctx.attr('sensor.ls_overrides', 'power')), warm_end: warmEnd, gradients }));
-  // `?? {}` on the result is gone, not dropped as decoration: `switchPlan`
-  // always returns `{switches}`, so the fallback was unreachable for the real
-  // handler and the type now says so.
-  const switches = ctx.call('ls_switch_plan', { targets: resolved.targets ?? {},
+  const resolved = ctx.call('effects_resolve', { base: baseline.targets, overrides: active, catalog, sara: Object.hasOwn(active, 'mode:sara'), private: privateRooms(ctx),
+    power: args.power ?? object(ctx.attr('sensor.ls_overrides', 'power')), warm_end: warmEnd, gradients });
+  // `?? {}` on both results is gone, not dropped as decoration: `switchPlan`
+  // and `resolveEffects` always return their key, so the fallbacks were
+  // unreachable for the real handlers and the types now say so.
+  const switches = ctx.call('ls_switch_plan', { targets: resolved.targets,
     ranges: args.ranges ?? object(ctx.attr('sensor.ls_overrides', 'switch_ranges')),
     defaults: args.defaults ?? ctx.attr('sensor.ls_overrides', 'range_defaults') ?? { bright: [90, 100], cosy: [30, 60] } });
   const wanted = Object.hasOwn(active, 'mode:sara') ? 'on' : 'off';

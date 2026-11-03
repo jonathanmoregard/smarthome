@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { controllerHandlers } from '../../src/domain/controller.ts';
-import { context } from './gestures-context.ts';
+import { context, stub } from './gestures-context.ts';
 
 // The captured ls_plan, ls_apply, ls_base and ls_room_base all read test_now
 // raw behind a default(...) guard; nothing coerces it to a string. ls_base and
@@ -18,8 +18,8 @@ function planContext() {
     ...controllerHandlers,
     ls_base: () => ({ schedule: { stale_keys: [] } }),
     effects_catalog: () => ({}),
-    effects_gradient_plan: () => ({ gradients: {} }),
-    effects_resolve: () => ({ targets: {} }),
+    effects_gradient_plan: stub('effects_gradient_plan', () => ({ gradients: {} })),
+    effects_resolve: stub('effects_resolve', () => ({ targets: {}, assignments: {} })),
     ls_switch_plan: () => ({ switches: {} }),
   });
   ctx.put('sensor.ls_overrides', '0', { overrides: {} });

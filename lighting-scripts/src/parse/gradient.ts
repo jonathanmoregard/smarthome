@@ -11,7 +11,7 @@ import { isObject, object } from '../runtime/parse.ts';
 import { boundedNumber, WARM_END } from '../domain/scale.ts';
 import type { RGB } from '../domain/scale.ts';
 import { compileGradient, gradientSignature } from '../domain/gradient.ts';
-import type { GradientEntry, GradientSignature } from '../domain/gradient.ts';
+import type { GradientEntry, GradientPlanResult, GradientSignature } from '../domain/gradient.ts';
 import { anchor, validColor } from './scale.ts';
 
 function validGradientColor(value: unknown): boolean {
@@ -50,7 +50,7 @@ export function validGradient(entry: unknown, signature: GradientSignature): ent
  *   fallback's trigger is observable behaviour. It is a known rough edge, left
  *   for whichever criterion owns this handler's argument boundary.
  */
-export function planGradients(args: JsonObject): { gradients: Record<string, GradientEntry> } {
+export function planGradients(args: JsonObject): GradientPlanResult {
   const gradients: Record<string, GradientEntry> = {};
   const cache = object(args.cached);
   const warmEnd = (args.warm_end ?? WARM_END) as RGB;

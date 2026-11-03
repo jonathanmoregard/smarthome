@@ -1,7 +1,8 @@
 import type { JsonObject, ScriptContext, ScriptHandler, ScriptHandlers } from '../../src/runtime/context.ts';
 import type { Catalog } from '../../src/runtime/catalog.ts';
 import { emptyCatalog, parseCatalog } from '../../src/runtime/catalog.ts';
-import { typedDispatch } from '../../src/runtime/entrypoints.ts';
+import { typed, typedDispatch } from '../../src/runtime/entrypoints.ts';
+import type { TypedName, TypedResults } from '../../src/runtime/entrypoints.ts';
 
 function handler(handlers: ScriptHandlers | undefined, name: string): ScriptHandler {
   const found = handlers?.[name.replace(/^script\./, '')];
@@ -33,6 +34,18 @@ const tables = new WeakMap<ScriptContext, ScriptHandlers>();
 /** Add handlers to an existing context, as a later `import` makes them available. */
 export function setHandlers(ctx: ScriptContext, handlers: ScriptHandlers): void {
   tables.set(ctx, { ...tables.get(ctx), ...handlers });
+}
+
+/**
+ * Stand in for a converted entrypoint with its real result type.
+ *
+ * A plain `() => ({...})` stub returns JSON, which only works for an entrypoint
+ * whose codec has a decoder. This states the shape instead, so the stub says
+ * out loud what it is standing in for -- including the keys the caller does not
+ * read but the handler always returns.
+ */
+export function stub<K extends TypedName>(name: K, result: () => TypedResults[K]): ScriptHandler {
+  return typed(name, { parse: args => args, run: () => result() });
 }
 
 /** Dry service sink: no network, while helper writes are visible to the next event. */

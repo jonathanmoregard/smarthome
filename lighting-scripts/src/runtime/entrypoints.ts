@@ -1,6 +1,8 @@
 import type { JsonObject, ScriptContext, ScriptHandler } from './context.ts';
 import { resultCodecs } from '../parse/results.ts';
 import type { SwitchPlanResult } from '../domain/controller.ts';
+import type { ResolutionResult } from '../domain/resolution.ts';
+import type { GradientPlanResult } from '../domain/gradient.ts';
 
 /**
  * The typed result of each converted internal entrypoint, keyed by the script
@@ -22,6 +24,8 @@ import type { SwitchPlanResult } from '../domain/controller.ts';
  */
 export interface TypedResults {
   ls_switch_plan: SwitchPlanResult;
+  effects_resolve: ResolutionResult;
+  effects_gradient_plan: GradientPlanResult;
 }
 
 export type TypedName = keyof TypedResults;
@@ -96,7 +100,14 @@ export function typedDispatch<K extends TypedName>(
   invoke: <T>(call: () => T) => T = call => call(),
 ): TypedResults[K] {
   const entry = typedEntry(handler, name);
-  if (entry === undefined) return resultCodecs[name].decode(invoke(() => handler(context, args)), name);
+  if (entry === undefined) {
+    const decode = resultCodecs[name].decode;
+    if (decode === undefined) {
+      throw new Error(`${name} was answered by a JSON-returning handler, but its result has no decoder. `
+        + `Register the stub with typed('${name}', ...) so it returns the real type, or add a decode to resultCodecs.${name}.`);
+    }
+    return decode(invoke(() => handler(context, args)), name);
+  }
   // Sound by construction: `typed()` is the only way to build a TypedEntry and
   // it ties `run`'s return type to `TypedResults[K]`. The entry is stored erased
   // because the table dispatches by name, so the pair cannot be known here.
