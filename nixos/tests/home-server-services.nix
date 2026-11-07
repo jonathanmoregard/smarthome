@@ -230,9 +230,18 @@ pkgsSystem.testers.runNixOSTest {
     home_server.succeed("test -c '${physicalCoordinator}'")
 
     home_server.succeed("systemctl show zigbee2mqtt.service -P LoadState | grep -Fx loaded")
+    # The broker is a Requires=, but the coordinator must be a BindsTo=: only
+    # BindsTo= propagates an *unexpected* inactive transition, which is what an
+    # unplugged device is. Asserting the device under Requires= -- as this did
+    # until the unplug half of the replug test below was actually exercised --
+    # pins the wiring that leaves Zigbee2MQTT running against a serial port
+    # that no longer exists.
     home_server.succeed(
-        "systemctl cat zigbee2mqtt.service | grep '^Requires=' | "
-        "grep -F mosquitto.service | grep -F dev-serial-by | grep -F Itead"
+        "systemctl cat zigbee2mqtt.service | grep '^Requires=' | grep -F mosquitto.service"
+    )
+    home_server.succeed(
+        "systemctl cat zigbee2mqtt.service | grep '^BindsTo=' | "
+        "grep -F dev-serial-by | grep -F Itead"
     )
     home_server.succeed(
         "systemctl cat zigbee2mqtt.service | grep '^After=' | "
@@ -314,31 +323,84 @@ pkgsSystem.testers.runNixOSTest {
     home_server.succeed("systemctl stop zigbee2mqtt.service; rm /var/lib/zigbee2mqtt/devices.yaml")
 
     # Replugging the coordinator must bring the radio back with no human in the
-    # loop. `requires` on the device unit propagates an unplug into a stop, but
-    # only multi-user.target wanted this service, and that target was reached
-    # long ago -- so before this the house stayed without Zigbee until someone
-    # noticed, which is what happened on 2026-11-07. Re-announcing the device is
-    # as close as the VM gets to a physical replug.
+    # loop, and that is two independent propagations: the unplug has to stop
+    # the service, and the re-add has to start it. Both need proving
+    # separately. An earlier version of this test asserted "inactive" right
+    # after a hand `systemctl stop` further up, so the unplug half was
+    # satisfied by that manual stop and was never exercised at all -- the
+    # second way this test has managed to pass while proving less than it
+    # claimed.
     device_unit = home_server.succeed(
         "systemd-escape -p --suffix=device '${physicalCoordinator}'"
     ).strip()
     home_server.succeed(
         f"test -L '/etc/systemd/system/{device_unit}.wants/zigbee2mqtt.service'"
     )
-    home_server.succeed("systemctl show zigbee2mqtt.service -P ActiveState | grep -Fx inactive")
-    starts_before = int(home_server.succeed(
-        "journalctl -u zigbee2mqtt.service --no-pager -o cat | "
-        "grep -c 'Starting Zigbee2MQTT version' || true"
-    ).strip())
     tty = home_server.succeed("readlink -f '${physicalCoordinator}'").strip()
-    # A remove before the add is what makes this a replug rather than a nudge.
-    # `wants` are pulled in when a unit *starts*, so re-announcing a device that
-    # never left produces no transition and therefore no recovery -- an add-only
-    # trigger passes while proving nothing, which is how this test first lied.
+
+    # The unplug half. The VM's coordinator is a null character device, so the
+    # real Zigbee2MQTT cannot stay up long enough to watch a dependency-driven
+    # stop land. A drop-in replaces ExecStart and nothing else, leaving the
+    # unit's own bindsTo/after/wantedBy wiring -- the thing actually under test
+    # -- intact, against a process that stays put.
+    home_server.succeed(
+        "mkdir -p /run/systemd/system/zigbee2mqtt.service.d && "
+        "printf '%s\\n' '[Service]' 'ExecStart=' "
+        "'ExecStart=/run/current-system/sw/bin/sleep infinity' "
+        "> /run/systemd/system/zigbee2mqtt.service.d/stub.conf && "
+        "systemctl daemon-reload && "
+        "systemctl reset-failed zigbee2mqtt.service && "
+        "systemctl start zigbee2mqtt.service"
+    )
+    home_server.wait_until_succeeds(
+        "systemctl show zigbee2mqtt.service -P ActiveState | grep -Fx active",
+        timeout=60,
+    )
+
+    # "Whatever the cause" includes a *clean* death. Under upstream's
+    # Restart=on-failure, systemd.service(5) counts exit code 0 and
+    # SIGHUP/SIGINT/SIGTERM/SIGPIPE as clean and does not restart, so a
+    # Zigbee2MQTT that exited 0 or took a SIGPIPE sat in "inactive" -- which
+    # the watchdog skips as somebody's decision, leaving the radio dead with
+    # nothing acting on it. `systemctl kill` signals the process without
+    # enqueueing a stop job, so Restart= applies and the unit has to come back
+    # on its own. This fails under on-failure.
+    home_server.succeed("systemctl kill -s TERM zigbee2mqtt.service")
+    home_server.wait_until_succeeds(
+        "systemctl show zigbee2mqtt.service -P NRestarts | grep -vFx 0", timeout=90
+    )
+    home_server.wait_until_succeeds(
+        "systemctl show zigbee2mqtt.service -P ActiveState | grep -Fx active",
+        timeout=90,
+    )
+
+    # Nothing stops the service here except the unplug itself. With Requires=
+    # in place of BindsTo= this assertion fails: systemd.unit(5) propagates
+    # only an *explicit* stop through Requires=, while BindsTo= "also does so
+    # when a listed unit stops unexpectedly", naming an unplugged backing
+    # device as exactly that case.
     home_server.succeed(f"udevadm trigger --action=remove {tty}; udevadm settle")
     home_server.wait_until_succeeds(
         f"systemctl show '{device_unit}' -P ActiveState | grep -Fx inactive", timeout=60
     )
+    home_server.wait_until_succeeds(
+        "systemctl show zigbee2mqtt.service -P ActiveState | grep -Fx inactive",
+        timeout=60,
+    )
+    home_server.succeed(
+        "rm -f /run/systemd/system/zigbee2mqtt.service.d/stub.conf && "
+        "rmdir /run/systemd/system/zigbee2mqtt.service.d && "
+        "systemctl daemon-reload"
+    )
+
+    # The re-add half, with the real binary back in place. `wants` are pulled
+    # in when a unit *starts*, so re-announcing a device that never left
+    # produces no transition and therefore no recovery -- an add-only trigger
+    # passes while proving nothing, which is how this test first lied.
+    starts_before = int(home_server.succeed(
+        "journalctl -u zigbee2mqtt.service --no-pager -o cat | "
+        "grep -c 'Starting Zigbee2MQTT version' || true"
+    ).strip())
     home_server.succeed(f"udevadm trigger --action=add {tty}; udevadm settle")
     home_server.wait_until_succeeds(
         f"systemctl show '{device_unit}' -P ActiveState | grep -Fx active", timeout=60

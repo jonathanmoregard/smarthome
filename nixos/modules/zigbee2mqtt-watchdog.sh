@@ -5,10 +5,9 @@
 # so "active" means "execed", and a Zigbee2MQTT that is running but not talking
 # to the radio or the broker is indistinguishable from a working one at that
 # level. That gap is how the house ends up with no Zigbee and nothing acting on
-# it: the known causes are now repaired or recovered on their own (invalid
-# persisted registries by the state guard, an unplugged coordinator by the
-# service being wanted by its device unit), but any cause nobody predicted still
-# leaves the radio down indefinitely.
+# it: an unplugged coordinator now recovers on its own (the service is bound to
+# its device unit and wanted by it, so an unplug stops it and a re-add starts
+# it), but any cause nobody predicted still leaves the radio down indefinitely.
 #
 # The authority on "working" is the bridge's own availability topic, which
 # Zigbee2MQTT publishes retained and backs with an MQTT will, so the broker
@@ -21,7 +20,15 @@
 #   - the broker down means there is nothing to judge and nothing to fix here
 #   - the coordinator absent means there is nothing to restart into; the device
 #     unit brings the service back when it returns
-#   - the unit stopped (inactive, not failed) was somebody's decision; respect it
+#   - the unit stopped (inactive, not failed) was somebody's decision; respect
+#     it. This leans on the unit carrying Restart=always: under upstream's
+#     Restart=on-failure, systemd.service(5) counts exit code 0 and
+#     SIGHUP/SIGINT/SIGTERM/SIGPIPE as clean and does not restart, so a
+#     Zigbee2MQTT that quietly exited 0 also sat in "inactive" and this skip
+#     made the radio stay dead. With Restart=always, systemd restarts every
+#     death it owns and leaves only deliberate stops inactive, so "inactive"
+#     really does mean somebody meant it. If that ever reverts to on-failure,
+#     this branch becomes a hole again.
 #   - the unit mid-transition gets left to settle
 #
 # and it requires the failure on two consecutive ticks before acting, then holds

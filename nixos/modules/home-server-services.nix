@@ -294,22 +294,42 @@ in
       };
 
       systemd.services.zigbee2mqtt = {
-        requires = [ "mosquitto.service" zigbeeDeviceUnit ];
+        requires = [ "mosquitto.service" ];
+        # BindsTo= rather than Requires= for the coordinator. systemd.unit(5):
+        # Requires= stops this service only when the listed unit is
+        # *explicitly* stopped, whereas BindsTo= "also does so when a listed
+        # unit stops unexpectedly", and names "the backing device of a device
+        # unit might be unplugged" as precisely that case. An unplug is the
+        # unexpected kind, so Requires= left Zigbee2MQTT running against a
+        # serial port that no longer existed -- and because `wants` are pulled
+        # in only when a unit *starts*, re-adding the device could not recover
+        # an already-active service. Paired with After= below, which the man
+        # page recommends combining with BindsTo=.
+        bindsTo = [ zigbeeDeviceUnit ];
         after = [ "mosquitto.service" zigbeeDeviceUnit ];
-        # Replugging the coordinator has to bring the radio back by itself.
-        # `requires` propagates the device's disappearance into a stop of this
-        # service, but nothing starts it again when the device reappears: the
-        # unit is only wanted by multi-user.target, which is long since reached.
-        # So an unplug leaves the house without Zigbee until a human notices and
-        # intervenes, which is exactly what happened on 2026-11-07 -- replugging
-        # the dongle did not recover it. Being wanted by the device unit closes
-        # that: udev creates the device, systemd pulls this service up with it,
-        # and the state guard above repairs the registry on the way in.
+        # Nothing starts this service again when the device reappears: it is
+        # only wanted by multi-user.target, long since reached. So an unplug
+        # left the house without Zigbee until a human noticed, which is what
+        # happened on 2026-11-07 -- replugging the dongle did not recover it.
+        # Being wanted by the device unit closes that: udev creates the device,
+        # systemd pulls this service up with it.
         wantedBy = [ zigbeeDeviceUnit ];
         environment.Z2M_ONBOARD_NO_SERVER = "1";
         serviceConfig = {
           LoadCredential = "network-key:${cfg.zigbeeNetworkKeyFile}";
           ExecStart = lib.mkForce (lib.getExe zigbee2mqttWithNetworkKey);
+          # Upstream ships Restart=on-failure. Under it systemd.service(5)
+          # counts "exit code of 0" and SIGHUP/SIGINT/SIGTERM/SIGPIPE as clean
+          # and does not restart, so a Zigbee2MQTT that exited 0 or died on
+          # SIGPIPE parked the unit in "inactive" indefinitely -- and the
+          # watchdog deliberately skips an inactive unit as "stopped rather
+          # than broken", so nothing recovered the radio at all. `always`
+          # closes that at the source without fighting deliberate stops,
+          # because "when the death of the process is a result of systemd
+          # operation (e.g. service stop or restart), the service will not be
+          # restarted" -- which is also what keeps the BindsTo= stop above from
+          # being undone on an unplug.
+          Restart = lib.mkForce "always";
         };
       };
     })
