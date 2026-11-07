@@ -1,0 +1,27 @@
+{# A scale owner already has its coordinate. Advance it without rendering any lights. #}
+{% set key='channels:'~source %}{% set record=overrides.get(key,{}) %}
+{% set value=record.get('value',{}) %}
+{% set brightness=value.get('channels',{}).get('brightness',{}) if value is mapping else {} %}
+{% set n=namespace(ok=command in ['up','down'] and record.get('scope')=='room' and record.get('target')==room and brightness.get('kind')=='scale' and brightness.get('position') is number,result=none) %}
+{% if n.ok and is_state('input_boolean.ls_ovr_next_block_on','on') %}
+ {% set n.ok=value.get('remote_valid_until',0)>stamp and value.get('remote_timing_revision')==timing_revision %}
+{% endif %}
+{% if n.ok %}
+ {% set own_stamp=brightness.get('updated',as_timestamp(record.get('when'),0)) %}
+ {% for other,r in overrides.items() if other!=key and r is mapping %}
+  {% set applies=(r.get('scope')=='room' and r.get('target')==room) or (r.get('scope')=='house' and r.get('target')=='house' and room not in label_areas('private_room')) %}
+  {% set v=r.get('value',{}) %}
+  {% if applies and v is mapping and v.get('channels') is mapping and 'brightness' in v.channels %}
+   {% set candidate=v.channels.brightness %}
+   {% set updated=candidate.get('updated',as_timestamp(r.get('when'),0)) if candidate is mapping else as_timestamp(r.get('when'),0) %}
+   {# Conservative fallback for a newer claim, even if the resolver later rejects it. #}
+   {% if updated is not number or updated>=own_stamp %}{% set n.ok=false %}{% endif %}
+  {% endif %}
+ {% endfor %}
+{% endif %}
+{% if n.ok %}
+ {% set position=[-2,[2,brightness.position+(0.1 if command=='up' else -0.1)]|min]|max %}
+ {% set claim={'kind':'scale','position':position,'updated':stamp} %}
+ {% set n.result={'op':'set','records':[{'kind':'channels','key':key,'source':source,'scope':'room','target':room,'value':{'position':position,'channels':{'brightness':claim,'color':claim}}}],'via':'remote'} %}
+{% endif %}
+{{ n.result }}

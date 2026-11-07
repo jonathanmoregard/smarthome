@@ -1,0 +1,136 @@
+{
+  "success": true,
+  "action": "get",
+  "automation_id": "automation.house_schedule",
+  "config": {
+    "id": "1791919631065",
+    "alias": "House schedule",
+    "description": "House mode (upper hall and rooms without their own schedule): Day at 08:00 (1 h glide), Cosy at 19:00 (1 h glide), Night at 22:30 (30 min glide). On HA start it re-syncs the mode to the clock. Kitchen and living room follow Downstairs schedule; the bedroom follows Bedroom schedule.",
+    "triggers": [
+      {
+        "trigger": "time",
+        "at": "08:00:00",
+        "id": "day"
+      },
+      {
+        "trigger": "time",
+        "at": "19:00:00",
+        "id": "cosy"
+      },
+      {
+        "trigger": "time",
+        "at": "22:30:00",
+        "id": "night"
+      },
+      {
+        "trigger": "homeassistant",
+        "event": "start",
+        "id": "start",
+        "note": "A restart can miss a block start; re-derive the mode from the clock."
+      }
+    ],
+    "actions": [
+      {
+        "choose": [
+          {
+            "conditions": [
+              {
+                "condition": "or",
+                "conditions": [
+                  {
+                    "condition": "trigger",
+                    "id": "day"
+                  },
+                  {
+                    "condition": "and",
+                    "conditions": [
+                      {
+                        "condition": "trigger",
+                        "id": "start"
+                      },
+                      {
+                        "condition": "time",
+                        "after": "08:00:00",
+                        "before": "19:00:00"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "sequence": [
+              {
+                "action": "input_select.select_option",
+                "target": {
+                  "entity_id": "input_select.house_mode"
+                },
+                "data": {
+                  "option": "Day"
+                }
+              }
+            ]
+          },
+          {
+            "conditions": [
+              {
+                "condition": "or",
+                "conditions": [
+                  {
+                    "condition": "trigger",
+                    "id": "cosy"
+                  },
+                  {
+                    "condition": "and",
+                    "conditions": [
+                      {
+                        "condition": "trigger",
+                        "id": "start"
+                      },
+                      {
+                        "condition": "time",
+                        "after": "19:00:00",
+                        "before": "22:30:00"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "sequence": [
+              {
+                "action": "input_select.select_option",
+                "target": {
+                  "entity_id": "input_select.house_mode"
+                },
+                "data": {
+                  "option": "Cosy"
+                }
+              }
+            ]
+          }
+        ],
+        "default": [
+          {
+            "action": "input_select.select_option",
+            "target": {
+              "entity_id": "input_select.house_mode"
+            },
+            "data": {
+              "option": "Night"
+            }
+          }
+        ]
+      },
+      {
+        "action": "script.house_apply_mode",
+        "data": {
+          "scope": "house",
+          "transition": "{{ {'day': 3600, 'cosy': 3600, 'night': 1800}.get(trigger.id, 2) }}"
+        },
+        "note": "Only lamps driven by House mode; the script skips lamps in a running sunrise."
+      }
+    ],
+    "mode": "restart"
+  },
+  "config_hash": "606be4ca10d20160"
+}

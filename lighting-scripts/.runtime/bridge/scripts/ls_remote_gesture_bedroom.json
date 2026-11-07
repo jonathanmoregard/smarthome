@@ -1,0 +1,38 @@
+{
+  "alias": "Lighting \u00b7 Bedroom Remote Gestures",
+  "description": "Command-only TypeScript bridge. Dry-run/response queries use local RPC. ",
+  "mode": "queued",
+  "max": 50,
+  "fields": {
+    "command": {
+      "selector": {
+        "text": {}
+      }
+    },
+    "payload": {
+      "default": {},
+      "selector": {
+        "object": {}
+      }
+    },
+    "token": {
+      "default": "",
+      "selector": {
+        "text": {}
+      }
+    }
+  },
+  "sequence": [
+    {
+      "condition": "template",
+      "value_template": "{{ not (dry_run | default(false)) }}"
+    },
+    {
+      "event": "smarthome_script",
+      "event_data": {
+        "script": "ls_remote_gesture_bedroom",
+        "args": "{% set n=namespace(args={}) %}{% if command is defined %}{% set n.args=dict(n.args,command=command) %}{% endif %}{% if payload is defined %}{% set n.args=dict(n.args,payload=payload) %}{% endif %}{% if token is defined %}{% set n.args=dict(n.args,token=token) %}{% endif %}{{ n.args }}"
+      }
+    }
+  ]
+}

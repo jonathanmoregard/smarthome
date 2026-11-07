@@ -1,0 +1,16 @@
+{% set n=namespace(lamps=[],switches=[],values=[]) %}
+{% for L in (label_entities('house_schedule')+(label_devices('house_schedule')|map('device_entities')|sum(start=[])))|unique|sort if L.startswith('light.') and area_id(L)==room %}{% set n.lamps=n.lamps+[L] %}{% endfor %}
+{% for L in (label_entities('on_off')+(label_devices('on_off')|map('device_entities')|sum(start=[]))+(state_attr('sensor.ls_overrides','switch_ranges') or {}).keys()|list)|unique|sort if area_id(L)==room %}{% set n.switches=n.switches+[L] %}{% endfor %}
+{% for scope in ['house',room] %}
+ {% for block in ['day','cosy','night'] %}
+  {% for suffix in ['start','weekend'] %}{% set n.values=n.values+[states('input_datetime.ls_'~scope~'_'~block~'_'~suffix)] %}{% endfor %}
+  {% set n.values=n.values+[states('input_number.ls_'~scope~'_'~block~'_fade'),states('input_boolean.ls_'~scope~'_'~block~'_own_timing'),states('input_boolean.ls_'~scope~'_'~block~'_own_light')] %}
+ {% endfor %}
+{% endfor %}
+{% for scope in ['house',room]+(n.lamps|map('replace','light.','lamp_')|list) %}
+ {% for block in ['day','cosy','night'] %}
+  {% set e='light.ls_'~scope~'_'~block %}
+  {% set n.values=n.values+[states('input_text.ls_'~scope~'_'~block),states(e),state_attr(e,'brightness'),state_attr(e,'color_mode'),state_attr(e,'color_temp_kelvin'),(state_attr(e,'rgb_color') or [])|list] %}
+ {% endfor %}
+{% endfor %}
+{{ {'lamps':n.lamps,'switches':n.switches,'values':n.values,'wake':[states('input_datetime.ls_'~room~'_wake'),state_attr('input_datetime.ls_'~room~'_wake','timestamp'),states('input_number.ls_'~room~'_wake_fade')],'expiry':states('input_boolean.ls_ovr_next_block_on'),'private':room in label_areas('private_room'),'warm':warm_end|list,'tick':reason=='tick'}|to_json|from_json }}

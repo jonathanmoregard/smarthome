@@ -1,0 +1,224 @@
+{
+  "success": true,
+  "action": "get",
+  "automation_id": "automation.lighting_schedule_engine",
+  "config": {
+    "id": "1791965775278",
+    "alias": "Lighting schedule: engine",
+    "description": "Clock/profile/start/lamp-on inputs request durable full work. Override commits schedule rendering directly, without a state-event echo.",
+    "triggers": [
+      {
+        "trigger": "time_pattern",
+        "minutes": "/1",
+        "id": "tick"
+      },
+      {
+        "trigger": "light.turned_on",
+        "target": {
+          "label_id": "house_schedule"
+        },
+        "id": "lamp_on"
+      },
+      {
+        "trigger": "state",
+        "entity_id": [
+          "light.jonathan_bedroom_ceiling",
+          "light.jonathan_bedroom_floor_lamp",
+          "light.kitchen_pendant",
+          "light.kitchen_spots_1",
+          "light.kitchen_spots_2",
+          "light.living_room_desk_ceiling",
+          "light.living_room_hall_ceiling",
+          "light.living_room_table_lamp",
+          "light.living_room_vicky_desk_lamp",
+          "light.living_room_window_lamp",
+          "light.living_room_yellow_retro_lamp",
+          "light.meditation_floor_lamp",
+          "light.meditation_ceiling",
+          "light.upper_hall_ceiling",
+          "light.upper_hall_stair_lamp",
+          "light.living_room_sofa_table_ceiling"
+        ],
+        "from": [
+          "unavailable",
+          "unknown"
+        ],
+        "to": "on",
+        "id": "lamp_on",
+        "note": "Power restored (wall switch back on): the lamp returns unavailable -> on at its own power-on setting, which light.turned_on does not report. Static list of house_schedule lamps; add new scheduled lamps here."
+      },
+      {
+        "trigger": "state",
+        "entity_id": [
+          "input_datetime.ls_house_day_start",
+          "input_datetime.ls_house_day_weekend",
+          "input_number.ls_house_day_fade",
+          "input_text.ls_house_day",
+          "input_datetime.ls_house_cosy_start",
+          "input_datetime.ls_house_cosy_weekend",
+          "input_number.ls_house_cosy_fade",
+          "input_text.ls_house_cosy",
+          "input_datetime.ls_house_night_start",
+          "input_datetime.ls_house_night_weekend",
+          "input_number.ls_house_night_fade",
+          "input_text.ls_house_night",
+          "input_datetime.ls_kitchen_day_start",
+          "input_datetime.ls_kitchen_day_weekend",
+          "input_number.ls_kitchen_day_fade",
+          "input_text.ls_kitchen_day",
+          "input_datetime.ls_kitchen_cosy_start",
+          "input_datetime.ls_kitchen_cosy_weekend",
+          "input_number.ls_kitchen_cosy_fade",
+          "input_text.ls_kitchen_cosy",
+          "input_datetime.ls_kitchen_night_start",
+          "input_datetime.ls_kitchen_night_weekend",
+          "input_number.ls_kitchen_night_fade",
+          "input_text.ls_kitchen_night",
+          "input_datetime.ls_living_room_day_start",
+          "input_datetime.ls_living_room_day_weekend",
+          "input_number.ls_living_room_day_fade",
+          "input_text.ls_living_room_day",
+          "input_datetime.ls_living_room_cosy_start",
+          "input_datetime.ls_living_room_cosy_weekend",
+          "input_number.ls_living_room_cosy_fade",
+          "input_text.ls_living_room_cosy",
+          "input_datetime.ls_living_room_night_start",
+          "input_datetime.ls_living_room_night_weekend",
+          "input_number.ls_living_room_night_fade",
+          "input_text.ls_living_room_night",
+          "input_datetime.ls_hall_overvaning_day_start",
+          "input_datetime.ls_hall_overvaning_day_weekend",
+          "input_number.ls_hall_overvaning_day_fade",
+          "input_text.ls_hall_overvaning_day",
+          "input_datetime.ls_hall_overvaning_cosy_start",
+          "input_datetime.ls_hall_overvaning_cosy_weekend",
+          "input_number.ls_hall_overvaning_cosy_fade",
+          "input_text.ls_hall_overvaning_cosy",
+          "input_datetime.ls_hall_overvaning_night_start",
+          "input_datetime.ls_hall_overvaning_night_weekend",
+          "input_number.ls_hall_overvaning_night_fade",
+          "input_text.ls_hall_overvaning_night",
+          "input_datetime.ls_bedroom_day_start",
+          "input_datetime.ls_bedroom_day_weekend",
+          "input_number.ls_bedroom_day_fade",
+          "input_text.ls_bedroom_day",
+          "input_datetime.ls_bedroom_cosy_start",
+          "input_datetime.ls_bedroom_cosy_weekend",
+          "input_number.ls_bedroom_cosy_fade",
+          "input_text.ls_bedroom_cosy",
+          "input_datetime.ls_bedroom_night_start",
+          "input_datetime.ls_bedroom_night_weekend",
+          "input_number.ls_bedroom_night_fade",
+          "input_text.ls_bedroom_night",
+          "input_boolean.ls_kitchen_day_own_timing",
+          "input_boolean.ls_kitchen_day_own_light",
+          "input_boolean.ls_kitchen_cosy_own_timing",
+          "input_boolean.ls_kitchen_cosy_own_light",
+          "input_boolean.ls_kitchen_night_own_timing",
+          "input_boolean.ls_kitchen_night_own_light",
+          "input_boolean.ls_living_room_day_own_timing",
+          "input_boolean.ls_living_room_day_own_light",
+          "input_boolean.ls_living_room_cosy_own_timing",
+          "input_boolean.ls_living_room_cosy_own_light",
+          "input_boolean.ls_living_room_night_own_timing",
+          "input_boolean.ls_living_room_night_own_light",
+          "input_boolean.ls_hall_overvaning_day_own_timing",
+          "input_boolean.ls_hall_overvaning_day_own_light",
+          "input_boolean.ls_hall_overvaning_cosy_own_timing",
+          "input_boolean.ls_hall_overvaning_cosy_own_light",
+          "input_boolean.ls_hall_overvaning_night_own_timing",
+          "input_boolean.ls_hall_overvaning_night_own_light",
+          "input_boolean.ls_bedroom_day_own_timing",
+          "input_boolean.ls_bedroom_day_own_light",
+          "input_boolean.ls_bedroom_cosy_own_timing",
+          "input_boolean.ls_bedroom_cosy_own_light",
+          "input_boolean.ls_bedroom_night_own_timing",
+          "input_boolean.ls_bedroom_night_own_light",
+          "input_datetime.ls_meditation_mys_day_start",
+          "input_datetime.ls_meditation_mys_day_weekend",
+          "input_number.ls_meditation_mys_day_fade",
+          "input_text.ls_meditation_mys_day",
+          "input_boolean.ls_meditation_mys_day_own_timing",
+          "input_boolean.ls_meditation_mys_day_own_light",
+          "input_datetime.ls_meditation_mys_cosy_start",
+          "input_datetime.ls_meditation_mys_cosy_weekend",
+          "input_number.ls_meditation_mys_cosy_fade",
+          "input_text.ls_meditation_mys_cosy",
+          "input_boolean.ls_meditation_mys_cosy_own_timing",
+          "input_boolean.ls_meditation_mys_cosy_own_light",
+          "input_datetime.ls_meditation_mys_night_start",
+          "input_datetime.ls_meditation_mys_night_weekend",
+          "input_number.ls_meditation_mys_night_fade",
+          "input_text.ls_meditation_mys_night",
+          "input_boolean.ls_meditation_mys_night_own_timing",
+          "input_boolean.ls_meditation_mys_night_own_light"
+        ],
+        "id": "config",
+        "not_to": [
+          "unavailable",
+          "unknown"
+        ]
+      },
+      {
+        "trigger": "event",
+        "event_type": "ls_lamp_store_changed",
+        "id": "config"
+      },
+      {
+        "trigger": "homeassistant",
+        "event": "start",
+        "id": "start"
+      }
+    ],
+    "actions": [
+      {
+        "choose": [
+          {
+            "conditions": [
+              {
+                "condition": "trigger",
+                "id": "lamp_on"
+              }
+            ],
+            "sequence": [
+              {
+                "action": "script.ls_apply",
+                "data": {
+                  "reason": "lamp_on",
+                  "lights": "{{ [trigger.entity_id] }}"
+                }
+              }
+            ]
+          },
+          {
+            "conditions": [
+              {
+                "condition": "trigger",
+                "id": "tick"
+              }
+            ],
+            "sequence": [
+              {
+                "action": "script.ls_apply",
+                "data": {
+                  "reason": "tick"
+                }
+              }
+            ]
+          }
+        ],
+        "default": [
+          {
+            "action": "script.ls_apply",
+            "data": {
+              "reason": "{{ trigger.id }}"
+            }
+          }
+        ]
+      }
+    ],
+    "mode": "parallel",
+    "max": 25
+  },
+  "config_hash": "edcaae81670a202d"
+}

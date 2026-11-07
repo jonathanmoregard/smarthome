@@ -1,0 +1,102 @@
+{
+  "success": true,
+  "action": "get",
+  "script_id": "house_sunrise",
+  "config": {
+    "alias": "House: sunrise",
+    "description": "Fades the Sunrise-labelled lamps from night red up to Day over 37.5 min. Started 30 min before the alarm, so the lamps are 80% of the way to Day when it rings. A morning sunrise (04:00-11:00) then sets Bedroom mode to Day.",
+    "mode": "restart",
+    "icon": "mdi:weather-sunset-up",
+    "sequence": [
+      {
+        "variables": {
+          "lamps": "{{ label_entities('sunrise') | select('match', 'light\\.') | reject('is_state', 'unavailable') | list }}",
+          "duration": 2250
+        }
+      },
+      {
+        "condition": "template",
+        "value_template": "{{ lamps | count > 0 }}"
+      },
+      {
+        "action": "light.turn_on",
+        "target": {
+          "entity_id": "{{ lamps }}"
+        },
+        "data": {
+          "rgb_color": [
+            255,
+            56,
+            0
+          ],
+          "brightness_pct": 1
+        },
+        "note": "Start point: the Night block (dim red)."
+      },
+      {
+        "delay": {
+          "seconds": 2
+        }
+      },
+      {
+        "action": "light.turn_on",
+        "target": {
+          "entity_id": "{{ lamps }}"
+        },
+        "data": {
+          "color_temp_kelvin": 3500,
+          "brightness_pct": 100,
+          "transition": "{{ duration }}"
+        },
+        "note": "One linear glide to Day; 30 of the 37.5 min elapse before the alarm = 80%."
+      },
+      {
+        "delay": {
+          "seconds": "{{ duration + 5 }}"
+        }
+      },
+      {
+        "if": [
+          {
+            "condition": "time",
+            "after": "04:00:00",
+            "before": "11:00:00"
+          }
+        ],
+        "then": [
+          {
+            "action": "input_select.select_option",
+            "target": {
+              "entity_id": "input_select.bedroom_mode"
+            },
+            "data": {
+              "option": "Day"
+            }
+          }
+        ],
+        "note": "A morning sunrise ends in Day, so a bedroom lamp switched on before the 11:00 Bedroom schedule gets Day, not Night. Placed before the settle pass, which stops when no lamp is on."
+      },
+      {
+        "variables": {
+          "still_on": "{{ lamps | select('is_state', 'on') | list }}"
+        }
+      },
+      {
+        "condition": "template",
+        "value_template": "{{ still_on | count > 0 }}"
+      },
+      {
+        "action": "light.turn_on",
+        "target": {
+          "entity_id": "{{ still_on }}"
+        },
+        "data": {
+          "color_temp_kelvin": 3500,
+          "brightness_pct": 100
+        },
+        "note": "Settle pass in case Zigbee dropped the long fade."
+      }
+    ]
+  },
+  "config_hash": "db28d2762df67f11"
+}

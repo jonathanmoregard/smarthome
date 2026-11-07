@@ -1,0 +1,212 @@
+{
+  "success": true,
+  "action": "get",
+  "script_id": "effects_set",
+  "config": {
+    "alias": "Effects · Native control adapter",
+    "description": "House commands become existing light overrides; profile commands update existing baseline stores. Brightness adjusts an active effect intensity; explicit colour returns to ordinary control.",
+    "mode": "queued",
+    "sequence": [
+      {
+        "action": "script.effects_catalog",
+        "response_variable": "catalog"
+      },
+      {
+        "condition": "template",
+        "value_template": "{{ attribute in ['power','brightness','rgb','temperature','effect'] }}"
+      },
+      {
+        "condition": "template",
+        "value_template": "{{ attribute != 'effect' or value in ['Normal light'] + catalog.effects.keys()|list }}"
+      },
+      {
+        "variables": {
+          "is_profile": "{{ source.startswith('light.ls_') }}",
+          "targets": "{{ catalog.groups.get(source,[source]) }}",
+          "stamp": "{{ as_timestamp(now()) }}"
+        }
+      },
+      {
+        "choose": [
+          {
+            "conditions": [
+              {
+                "condition": "template",
+                "value_template": "{{ is_profile }}"
+              }
+            ],
+            "sequence": [
+              {
+                "condition": "template",
+                "value_template": "{{ states[source.replace('light.','input_text.')] is not none }}"
+              },
+              {
+                "choose": [
+                  {
+                    "conditions": [
+                      {
+                        "condition": "template",
+                        "value_template": "{{ attribute == 'effect' }}"
+                      }
+                    ],
+                    "sequence": [
+                      {
+                        "action": "script.ls_store",
+                        "data": {
+                          "store": "{{ source.replace('light.','input_text.') }}",
+                          "effect": "{{ value }}"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "conditions": [
+                      {
+                        "condition": "template",
+                        "value_template": "{{ attribute == 'power' and value == 'OFF' }}"
+                      }
+                    ],
+                    "sequence": [
+                      {
+                        "action": "light.turn_off",
+                        "target": {
+                          "entity_id": "{{ source }}"
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "default": [
+                  {
+                    "action": "light.turn_on",
+                    "data": "{{ {'brightness':value|int} if attribute == 'brightness' else {'rgb_color':(value.split(',') if value is string else value)|map('int')|list} if attribute == 'rgb' else {'color_temp_kelvin':(1000000/(value|float))|round|int} if attribute == 'temperature' else {} }}",
+                    "target": {
+                      "entity_id": "{{ source }}"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "default": [
+          {
+            "condition": "template",
+            "value_template": "{{ targets|reject('in',catalog.members)|list|count == 0 }}"
+          },
+          {
+            "choose": [
+              {
+                "conditions": [
+                  {
+                    "condition": "template",
+                    "value_template": "{{ attribute == 'power' }}"
+                  }
+                ],
+                "sequence": [
+                  {
+                    "if": [
+                      {
+                        "condition": "template",
+                        "value_template": "{{ value == 'OFF' }}"
+                      }
+                    ],
+                    "then": [
+                      {
+                        "action": "script.effects_release",
+                        "data": {
+                          "targets": "{{ targets }}"
+                        }
+                      },
+                      {
+                        "action": "light.turn_off",
+                        "target": {
+                          "entity_id": "{{ targets }}"
+                        }
+                      }
+                    ],
+                    "else": [
+                      {
+                        "action": "light.turn_on",
+                        "target": {
+                          "entity_id": "{{ targets }}"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "default": [
+              {
+                "variables": {
+                  "records": "{% set n=namespace(r=[]) %}{% set active=state_attr('sensor.effects_controller','assignments') or {} %}{% set overrides=state_attr('sensor.ls_overrides','overrides') or {} %}{% for L in targets %}{% set record=overrides.get('light:' ~ L) %}{% set prior=record.get('value') if record is mapping else none %}{% set prior=prior if prior is mapping else {} %}{% set previous_effect=prior.get('effect','Normal light') if record is mapping else active.get(L,{}).get('effect','Normal light') %}{% set ef=value if attribute=='effect' else previous_effect if attribute=='brightness' else 'Normal light' %}{% set b=value|int if attribute=='brightness' else prior.get('brightness',active.get(L,{}).get('brightness',state_attr(L,'brightness')|int(150))) %}{% set val={'effect':ef,'brightness':b,'token':stamp} if attribute=='effect' or (attribute=='brightness' and ef!='Normal light') else {'brightness':b} if attribute=='brightness' else none %}{% set n.r=n.r+[{'kind':'light','target':L,'value':val}] %}{% endfor %}{{ n.r }}"
+                }
+              },
+              {
+                "event": "ls_override",
+                "event_data": {
+                  "op": "set",
+                  "records": "{{ records }}",
+                  "via": "effects-house"
+                }
+              },
+              {
+                "wait_template": "{% set ns=namespace(ok=true) %}{% for r in records %}{% set stored=(state_attr('sensor.ls_overrides','overrides') or {}).get('light:' ~ r.target,{}) %}{% if stored.get('value') != r.value or as_timestamp(stored.get('when'),0) < stamp|float %}{% set ns.ok=false %}{% endif %}{% endfor %}{{ ns.ok }}",
+                "timeout": 3,
+                "continue_on_timeout": false
+              },
+              {
+                "variables": {
+                  "normal_targets": "{% set n=namespace(ids=[]) %}{% for r in records if r.value is not mapping or 'effect' not in r.value %}{% set n.ids=n.ids+[r.target] %}{% endfor %}{{ n.ids }}"
+                }
+              },
+              {
+                "if": [
+                  {
+                    "condition": "template",
+                    "value_template": "{{ attribute in ['rgb','temperature','brightness'] and normal_targets|count > 0 }}"
+                  }
+                ],
+                "then": [
+                  {
+                    "action": "script.effects_release",
+                    "data": {
+                      "targets": "{{ normal_targets }}"
+                    }
+                  },
+                  {
+                    "action": "light.turn_on",
+                    "data": "{{ {'brightness':value|int} if attribute=='brightness' else {'rgb_color':(value.split(',') if value is string else value)|map('int')|list} if attribute=='rgb' else {'color_temp_kelvin':(1000000/(value|float))|round|int} }}",
+                    "target": {
+                      "entity_id": "{{ normal_targets }}"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "max": 50,
+    "fields": {
+      "source": {
+        "selector": {
+          "object": {}
+        }
+      },
+      "attribute": {
+        "selector": {
+          "object": {}
+        }
+      },
+      "value": {
+        "selector": {
+          "object": {}
+        }
+      }
+    }
+  },
+  "config_hash": "eb785c8651fd60f5"
+}

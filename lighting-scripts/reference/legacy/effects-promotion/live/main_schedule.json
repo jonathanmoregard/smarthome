@@ -1,0 +1,548 @@
+{
+  "success": true,
+  "action": "get",
+  "url_path": "lighting-schedule",
+  "config": {
+    "views": [
+      {
+        "title": "Schedule",
+        "path": "schedule",
+        "icon": "mdi:clock-outline",
+        "type": "sections",
+        "max_columns": 3,
+        "sections": [
+          {
+            "type": "grid",
+            "cards": [
+              {
+                "type": "custom:vertical-stack-in-card",
+                "title": "House (Default)",
+                "grid_options": {
+                  "columns": "full"
+                },
+                "styles": {
+                  "margin": "0 6px 6px",
+                  "border": "var(--ha-card-border-width, 1px) solid var(--ha-card-border-color, var(--divider-color, #e0e0e0))"
+                },
+                "cards": [
+                  {
+                    "type": "custom:vertical-stack-in-card",
+                    "cards": [
+                      {
+                        "type": "custom:vertical-stack-in-card",
+                        "styles": {
+                          "padding": "5px"
+                        },
+                        "cards": [
+                          {
+                            "type": "heading",
+                            "heading": "Day",
+                            "heading_style": "title",
+                            "icon": "mdi:white-balance-sunny"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "grid",
+                        "columns": 2,
+                        "square": false,
+                        "cards": [
+                          {
+                            "type": "tile",
+                            "entity": "light.ls_house_day",
+                            "name": "Day Light",
+                            "icon": "mdi:white-balance-sunny",
+                            "grid_options": {
+                              "columns": 12
+                            },
+                            "state_content": [
+                              "brightness",
+                              "color_temp_kelvin"
+                            ],
+                            "tap_action": {
+                              "action": "more-info"
+                            },
+                            "icon_tap_action": {
+                              "action": "more-info"
+                            }
+                          },
+                          {
+                            "type": "custom:mushroom-template-card",
+                            "primary": "Lamps…",
+                            "secondary": "{% set n = states.switch | selectattr('entity_id', 'match', 'switch\\\\.ls_lamp_.*_day_override$') | selectattr('state', 'eq', 'on') | list | count %}{{ (n ~ ' own light') if n else 'Per-lamp settings' }}",
+                            "icon": "mdi:lightbulb-group",
+                            "icon_color": "{{ 'amber' if states.switch | selectattr('entity_id', 'match', 'switch\\\\.ls_lamp_.*_day_override$') | selectattr('state', 'eq', 'on') | list | count else 'grey' }}",
+                            "color": "{{ 'amber' if states.switch | selectattr('entity_id', 'match', 'switch\\\\.ls_lamp_.*_day_override$') | selectattr('state', 'eq', 'on') | list | count else 'grey' }}",
+                            "tap_action": {
+                              "action": "navigate",
+                              "navigation_path": "#lamps-house-day"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "type": "custom:vertical-stack-in-card",
+                        "cards": [
+                          {
+                            "type": "tile",
+                            "entity": "input_number.ls_house_day_fade",
+                            "name": "Transition",
+                            "icon": "mdi:transition",
+                            "features": [
+                              {
+                                "type": "numeric-input",
+                                "style": "buttons"
+                              }
+                            ],
+                            "features_position": "inline"
+                          },
+                          {
+                            "type": "custom:vertical-stack-in-card",
+                            "styles": {
+                              "padding": "5px"
+                            },
+                            "cards": [
+                              {
+                                "type": "heading",
+                                "heading": "Start",
+                                "heading_style": "subtitle",
+                                "icon": "mdi:clock-start"
+                              }
+                            ]
+                          },
+                          {
+                            "type": "custom:vertical-stack-in-card",
+                            "horizontal": true,
+                            "styles": {
+                              "margin": "0 6px 6px",
+                              "border": "var(--ha-card-border-width, 1px) solid var(--ha-card-border-color, var(--divider-color, #e0e0e0))",
+                              "height": "auto"
+                            },
+                            "cards": [
+                              {
+                                "type": "tile",
+                                "entity": "input_datetime.ls_house_day_start",
+                                "name": "Week",
+                                "tap_action": {
+                                  "action": "more-info"
+                                }
+                              },
+                              {
+                                "type": "tile",
+                                "entity": "input_datetime.ls_house_day_weekend",
+                                "name": "Sat/Sun",
+                                "tap_action": {
+                                  "action": "more-info"
+                                }
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "custom:vertical-stack-in-card",
+                    "cards": [
+                      {
+                        "type": "custom:vertical-stack-in-card",
+                        "styles": {
+                          "padding": "5px"
+                        },
+                        "cards": [
+                          {
+                            "type": "heading",
+                            "heading": "Cosy",
+                            "heading_style": "title",
+                            "icon": "mdi:sofa"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "grid",
+                        "columns": 2,
+                        "square": false,
+                        "cards": [
+                          {
+                            "type": "tile",
+                            "entity": "light.ls_house_cosy",
+                            "name": "Cosy Light",
+                            "icon": "mdi:sofa",
+                            "grid_options": {
+                              "columns": 12
+                            },
+                            "state_content": [
+                              "brightness",
+                              "color_temp_kelvin"
+                            ],
+                            "tap_action": {
+                              "action": "more-info"
+                            },
+                            "icon_tap_action": {
+                              "action": "more-info"
+                            }
+                          },
+                          {
+                            "type": "custom:mushroom-template-card",
+                            "primary": "Lamps…",
+                            "secondary": "{% set n = states.switch | selectattr('entity_id', 'match', 'switch\\\\.ls_lamp_.*_cosy_override$') | selectattr('state', 'eq', 'on') | list | count %}{{ (n ~ ' own light') if n else 'Per-lamp settings' }}",
+                            "icon": "mdi:lightbulb-group",
+                            "icon_color": "{{ 'amber' if states.switch | selectattr('entity_id', 'match', 'switch\\\\.ls_lamp_.*_cosy_override$') | selectattr('state', 'eq', 'on') | list | count else 'grey' }}",
+                            "color": "{{ 'amber' if states.switch | selectattr('entity_id', 'match', 'switch\\\\.ls_lamp_.*_cosy_override$') | selectattr('state', 'eq', 'on') | list | count else 'grey' }}",
+                            "tap_action": {
+                              "action": "navigate",
+                              "navigation_path": "#lamps-house-cosy"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "type": "custom:vertical-stack-in-card",
+                        "cards": [
+                          {
+                            "type": "tile",
+                            "entity": "input_number.ls_house_cosy_fade",
+                            "name": "Transition",
+                            "icon": "mdi:transition",
+                            "features": [
+                              {
+                                "type": "numeric-input",
+                                "style": "buttons"
+                              }
+                            ],
+                            "features_position": "inline"
+                          },
+                          {
+                            "type": "custom:vertical-stack-in-card",
+                            "styles": {
+                              "padding": "5px"
+                            },
+                            "cards": [
+                              {
+                                "type": "heading",
+                                "heading": "Start",
+                                "heading_style": "subtitle",
+                                "icon": "mdi:clock-start"
+                              }
+                            ]
+                          },
+                          {
+                            "type": "custom:vertical-stack-in-card",
+                            "horizontal": true,
+                            "styles": {
+                              "margin": "0 6px 6px",
+                              "border": "var(--ha-card-border-width, 1px) solid var(--ha-card-border-color, var(--divider-color, #e0e0e0))",
+                              "height": "auto"
+                            },
+                            "cards": [
+                              {
+                                "type": "tile",
+                                "entity": "input_datetime.ls_house_cosy_start",
+                                "name": "Week",
+                                "tap_action": {
+                                  "action": "more-info"
+                                }
+                              },
+                              {
+                                "type": "tile",
+                                "entity": "input_datetime.ls_house_cosy_weekend",
+                                "name": "Fri/Sat",
+                                "tap_action": {
+                                  "action": "more-info"
+                                }
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "custom:vertical-stack-in-card",
+                    "cards": [
+                      {
+                        "type": "custom:vertical-stack-in-card",
+                        "styles": {
+                          "padding": "5px"
+                        },
+                        "cards": [
+                          {
+                            "type": "heading",
+                            "heading": "Night",
+                            "heading_style": "title",
+                            "icon": "mdi:weather-night"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "grid",
+                        "columns": 2,
+                        "square": false,
+                        "cards": [
+                          {
+                            "type": "tile",
+                            "entity": "light.ls_house_night",
+                            "name": "Night Light",
+                            "icon": "mdi:weather-night",
+                            "grid_options": {
+                              "columns": 12
+                            },
+                            "state_content": [
+                              "brightness",
+                              "color_temp_kelvin"
+                            ],
+                            "tap_action": {
+                              "action": "more-info"
+                            },
+                            "icon_tap_action": {
+                              "action": "more-info"
+                            }
+                          },
+                          {
+                            "type": "custom:mushroom-template-card",
+                            "primary": "Lamps…",
+                            "secondary": "{% set n = states.switch | selectattr('entity_id', 'match', 'switch\\\\.ls_lamp_.*_night_override$') | selectattr('state', 'eq', 'on') | list | count %}{{ (n ~ ' own light') if n else 'Per-lamp settings' }}",
+                            "icon": "mdi:lightbulb-group",
+                            "icon_color": "{{ 'amber' if states.switch | selectattr('entity_id', 'match', 'switch\\\\.ls_lamp_.*_night_override$') | selectattr('state', 'eq', 'on') | list | count else 'grey' }}",
+                            "color": "{{ 'amber' if states.switch | selectattr('entity_id', 'match', 'switch\\\\.ls_lamp_.*_night_override$') | selectattr('state', 'eq', 'on') | list | count else 'grey' }}",
+                            "tap_action": {
+                              "action": "navigate",
+                              "navigation_path": "#lamps-house-night"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "type": "custom:vertical-stack-in-card",
+                        "cards": [
+                          {
+                            "type": "tile",
+                            "entity": "input_number.ls_house_night_fade",
+                            "name": "Transition",
+                            "icon": "mdi:transition",
+                            "features": [
+                              {
+                                "type": "numeric-input",
+                                "style": "buttons"
+                              }
+                            ],
+                            "features_position": "inline"
+                          },
+                          {
+                            "type": "custom:vertical-stack-in-card",
+                            "styles": {
+                              "padding": "5px"
+                            },
+                            "cards": [
+                              {
+                                "type": "heading",
+                                "heading": "Start",
+                                "heading_style": "subtitle",
+                                "icon": "mdi:clock-start"
+                              }
+                            ]
+                          },
+                          {
+                            "type": "custom:vertical-stack-in-card",
+                            "horizontal": true,
+                            "styles": {
+                              "margin": "0 6px 6px",
+                              "border": "var(--ha-card-border-width, 1px) solid var(--ha-card-border-color, var(--divider-color, #e0e0e0))",
+                              "height": "auto"
+                            },
+                            "cards": [
+                              {
+                                "type": "tile",
+                                "entity": "input_datetime.ls_house_night_start",
+                                "name": "Week",
+                                "tap_action": {
+                                  "action": "more-info"
+                                }
+                              },
+                              {
+                                "type": "tile",
+                                "entity": "input_datetime.ls_house_night_weekend",
+                                "name": "Fri/Sat",
+                                "tap_action": {
+                                  "action": "more-info"
+                                }
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "custom:vertical-stack-in-card",
+                    "cards": [
+                      {
+                        "type": "custom:vertical-stack-in-card",
+                        "styles": {
+                          "padding": "5px"
+                        },
+                        "cards": [
+                          {
+                            "type": "heading",
+                            "heading": "Temporary Overrides",
+                            "heading_style": "title",
+                            "icon": "mdi:timer-cog-outline"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "heading",
+                        "heading": "When Overrides End",
+                        "heading_style": "subtitle",
+                        "icon": "mdi:timer-cog-outline"
+                      },
+                      {
+                        "type": "tile",
+                        "entity": "input_boolean.ls_ovr_after_on",
+                        "name": "After Duration",
+                        "tap_action": {
+                          "action": "toggle"
+                        },
+                        "icon_tap_action": {
+                          "action": "toggle"
+                        }
+                      },
+                      {
+                        "type": "conditional",
+                        "conditions": [
+                          {
+                            "condition": "state",
+                            "entity": "input_boolean.ls_ovr_after_on",
+                            "state": "on"
+                          }
+                        ],
+                        "card": {
+                          "type": "tile",
+                          "entity": "input_number.ls_ovr_after_min",
+                          "name": "Duration",
+                          "icon": "mdi:timer-outline",
+                          "features": [
+                            {
+                              "type": "numeric-input",
+                              "style": "buttons"
+                            }
+                          ],
+                          "features_position": "inline"
+                        }
+                      },
+                      {
+                        "type": "tile",
+                        "entity": "input_boolean.ls_ovr_at_on",
+                        "name": "At Time Of Day",
+                        "tap_action": {
+                          "action": "toggle"
+                        },
+                        "icon_tap_action": {
+                          "action": "toggle"
+                        }
+                      },
+                      {
+                        "type": "conditional",
+                        "conditions": [
+                          {
+                            "condition": "state",
+                            "entity": "input_boolean.ls_ovr_at_on",
+                            "state": "on"
+                          }
+                        ],
+                        "card": {
+                          "type": "tile",
+                          "entity": "input_datetime.ls_ovr_at",
+                          "name": "Time",
+                          "tap_action": {
+                            "action": "more-info"
+                          }
+                        }
+                      },
+                      {
+                        "type": "tile",
+                        "entity": "input_boolean.ls_ovr_next_block_on",
+                        "name": "At Next Block",
+                        "tap_action": {
+                          "action": "toggle"
+                        },
+                        "icon_tap_action": {
+                          "action": "toggle"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "custom:auto-entities",
+                "grid_options": {
+                  "columns": "full"
+                },
+                "card": {
+                  "type": "vertical-stack"
+                },
+                "card_param": "cards",
+                "show_empty": false,
+                "filter": {
+                  "template": "{%- set BI = {'day': 'mdi:white-balance-sunny', 'cosy': 'mdi:sofa', 'night': 'mdi:weather-night'} -%}\n{%- set BW = {'day': 'Sat/Sun', 'cosy': 'Fri/Sat', 'night': 'Fri/Sat'} -%}\n{%- set BOX = {'margin': '0 6px 6px', 'border': 'var(--ha-card-border-width, 1px) solid var(--ha-card-border-color, var(--divider-color, #e0e0e0))'} -%}\n{%- set lamps = ((label_entities('house_schedule') + label_entities('on_off') + ((label_devices('house_schedule') + label_devices('on_off')) | map('device_entities') | sum(start=[]))) | select('match', '(light|switch)\\.') | unique | list) -%}\n{%- macro lamps_of(scope, b) -%}\n  {%- set ns = namespace(l=[]) -%}\n  {%- for L in lamps if (scope == 'house' or area_id(L) == scope) and states['switch.ls_lamp_' ~ L.split('.')[1] ~ '_' ~ b ~ '_override'] is not none -%}\n    {%- set ns.l = ns.l + [L] -%}\n  {%- endfor -%}\n  {{- ns.l | sort | to_json -}}\n{%- endmacro -%}\n{%- macro button(scope, b) -%}\n  {%- set ls = lamps_of(scope, b) | from_json -%}\n  {%- set n = ls | map('regex_replace', '^(light|switch)\\.(.*)$', 'switch.ls_lamp_\\\\2_' ~ b ~ '_override') | select('is_state', 'on') | list | count -%}\n  {{- {'type': 'custom:mushroom-template-card', 'primary': 'Lamps…', 'secondary': ((n ~ ' of ' ~ (ls | count) ~ ' own light') if n else ((ls | count) ~ ' lamps')), 'icon': 'mdi:lightbulb-group', 'icon_color': ('amber' if n else 'grey'), 'color': ('amber' if n else 'grey'), 'tap_action': {'action': 'navigate', 'navigation_path': '#lamps-' ~ scope ~ '-' ~ b}} | to_json -}}\n{%- endmacro -%}\n{%- macro popup(scope, b) -%}\n  {%- set ls = lamps_of(scope, b) | from_json -%}\n  {%- set title = ('House' if scope == 'house' else area_name(scope)) ~ ' · ' ~ (b | capitalize) ~ ' Lamps' -%}\n  {%- set ns = namespace(c=[]) -%}\n  {%- for L in ls -%}\n    {%- set o = L.split('.')[1] -%}\n    {%- set sw = 'switch.ls_lamp_' ~ o ~ '_' ~ b ~ '_override' -%}\n    {%- set nm = ((area_name(area_id(L)) ~ ' · ') if scope == 'house' else '') ~ state_attr(L, 'friendly_name') -%}\n    {%- set ns.c = ns.c + [{'type': 'custom:vertical-stack-in-card', 'styles': BOX, 'cards': [\n      {'type': 'tile', 'entity': sw, 'name': nm, 'icon': 'mdi:lightbulb-outline', 'color': 'amber', 'hide_state': True, 'tap_action': {'action': 'toggle'}, 'icon_tap_action': {'action': 'toggle'}},\n      {'type': 'conditional', 'conditions': [{'condition': 'state', 'entity': sw, 'state': 'on'}], 'card': {'type': 'tile', 'entity': 'light.ls_lamp_' ~ o ~ '_' ~ b, 'name': (b | capitalize) ~ ' Light', 'icon': BI[b], 'state_content': ['brightness', 'color_temp_kelvin'], 'tap_action': {'action': 'more-info'}, 'icon_tap_action': {'action': 'more-info'}}}\n    ]}] -%}\n  {%- endfor -%}\n  {%- if not ls -%}{%- set ns.c = ns.c + [{'type': 'markdown', 'content': 'No lamps with per-lamp settings in this room yet.'}] -%}{%- endif -%}\n  {{- {'type': 'custom:bubble-card', 'card_type': 'pop-up', 'hash': '#lamps-' ~ scope ~ '-' ~ b, 'name': title, 'icon': BI[b], 'cards': ns.c} | to_json -}}\n{%- endmacro -%}\n{%- set out = namespace(p=[]) -%}{%- for b in ['day','cosy','night'] -%}{%- set out.p = out.p + [popup('house', b) | from_json] -%}{%- endfor -%}{{- out.p -}}"
+                }
+              }
+            ]
+          },
+          {
+            "type": "grid",
+            "cards": [
+              {
+                "type": "custom:auto-entities",
+                "grid_options": {
+                  "columns": "full"
+                },
+                "card": {
+                  "type": "vertical-stack"
+                },
+                "card_param": "cards",
+                "show_empty": false,
+                "filter": {
+                  "template": "{%- set BI = {'day': 'mdi:white-balance-sunny', 'cosy': 'mdi:sofa', 'night': 'mdi:weather-night'} -%}\n{%- set BW = {'day': 'Sat/Sun', 'cosy': 'Fri/Sat', 'night': 'Fri/Sat'} -%}\n{%- set BOX = {'margin': '0 6px 6px', 'border': 'var(--ha-card-border-width, 1px) solid var(--ha-card-border-color, var(--divider-color, #e0e0e0))'} -%}\n{%- set lamps = ((label_entities('house_schedule') + label_entities('on_off') + ((label_devices('house_schedule') + label_devices('on_off')) | map('device_entities') | sum(start=[]))) | select('match', '(light|switch)\\.') | unique | list) -%}\n{%- macro lamps_of(scope, b) -%}\n  {%- set ns = namespace(l=[]) -%}\n  {%- for L in lamps if (scope == 'house' or area_id(L) == scope) and states['switch.ls_lamp_' ~ L.split('.')[1] ~ '_' ~ b ~ '_override'] is not none -%}\n    {%- set ns.l = ns.l + [L] -%}\n  {%- endfor -%}\n  {{- ns.l | sort | to_json -}}\n{%- endmacro -%}\n{%- macro button(scope, b) -%}\n  {%- set ls = lamps_of(scope, b) | from_json -%}\n  {%- set n = ls | map('regex_replace', '^(light|switch)\\.(.*)$', 'switch.ls_lamp_\\\\2_' ~ b ~ '_override') | select('is_state', 'on') | list | count -%}\n  {{- {'type': 'custom:mushroom-template-card', 'primary': 'Lamps…', 'secondary': ((n ~ ' of ' ~ (ls | count) ~ ' own light') if n else ((ls | count) ~ ' lamps')), 'icon': 'mdi:lightbulb-group', 'icon_color': ('amber' if n else 'grey'), 'color': ('amber' if n else 'grey'), 'tap_action': {'action': 'navigate', 'navigation_path': '#lamps-' ~ scope ~ '-' ~ b}} | to_json -}}\n{%- endmacro -%}\n{%- macro popup(scope, b) -%}\n  {%- set ls = lamps_of(scope, b) | from_json -%}\n  {%- set title = ('House' if scope == 'house' else area_name(scope)) ~ ' · ' ~ (b | capitalize) ~ ' Lamps' -%}\n  {%- set ns = namespace(c=[]) -%}\n  {%- for L in ls -%}\n    {%- set o = L.split('.')[1] -%}\n    {%- set sw = 'switch.ls_lamp_' ~ o ~ '_' ~ b ~ '_override' -%}\n    {%- set nm = ((area_name(area_id(L)) ~ ' · ') if scope == 'house' else '') ~ state_attr(L, 'friendly_name') -%}\n    {%- set ns.c = ns.c + [{'type': 'custom:vertical-stack-in-card', 'styles': BOX, 'cards': [\n      {'type': 'tile', 'entity': sw, 'name': nm, 'icon': 'mdi:lightbulb-outline', 'color': 'amber', 'hide_state': True, 'tap_action': {'action': 'toggle'}, 'icon_tap_action': {'action': 'toggle'}},\n      {'type': 'conditional', 'conditions': [{'condition': 'state', 'entity': sw, 'state': 'on'}], 'card': {'type': 'tile', 'entity': 'light.ls_lamp_' ~ o ~ '_' ~ b, 'name': (b | capitalize) ~ ' Light', 'icon': BI[b], 'state_content': ['brightness', 'color_temp_kelvin'], 'tap_action': {'action': 'more-info'}, 'icon_tap_action': {'action': 'more-info'}}}\n    ]}] -%}\n  {%- endfor -%}\n  {%- if not ls -%}{%- set ns.c = ns.c + [{'type': 'markdown', 'content': 'No lamps with per-lamp settings in this room yet.'}] -%}{%- endif -%}\n  {{- {'type': 'custom:bubble-card', 'card_type': 'pop-up', 'hash': '#lamps-' ~ scope ~ '-' ~ b, 'name': title, 'icon': BI[b], 'cards': ns.c} | to_json -}}\n{%- endmacro -%}\n{%- set rooms_all = lamps | map('area_id') | select | unique | list -%}\n{%- set ro = namespace(l=[]) -%}\n{%- for f in floors() | sort -%}{%- set ro.l = ro.l + (floor_areas(f) | select('in', rooms_all) | sort | list) -%}{%- endfor -%}\n{%- set ro.l = ro.l + (rooms_all | reject('in', ro.l) | sort | list) -%}\n{%- set rooms = ro.l | select('in', states.input_boolean | map(attribute='object_id') | map('regex_replace', '^ls_(.*)_day_own_light$', '\\\\1') | list) | list -%}\n{%- set out = namespace(c=[], p=[]) -%}\n{%- for a in rooms[0::2] -%}\n  {%- set bc = namespace(c=[]) -%}\n  {%- for b in ['day', 'cosy', 'night'] -%}\n    {%- set ol = 'input_boolean.ls_' ~ a ~ '_' ~ b ~ '_own_light' -%}\n    {%- set ot = 'input_boolean.ls_' ~ a ~ '_' ~ b ~ '_own_timing' -%}\n    {%- set btn = button(a, b) | from_json -%}\n    {%- set bc.c = bc.c + [{'type': 'custom:vertical-stack-in-card', 'cards': [\n      {'type': 'custom:vertical-stack-in-card', 'styles': {'padding': '5px'}, 'cards': [{'type': 'heading', 'heading': b | capitalize, 'heading_style': 'title', 'icon': BI[b], 'entities': [\n        {'entity': ol, 'name': 'Override Light', 'icon': 'mdi:lightbulb-on-outline', 'show_icon': True, 'show_state': True, 'state_content': 'name', 'color': 'amber', 'tap_action': {'action': 'toggle'}},\n        {'entity': ot, 'name': 'Override Time', 'icon': 'mdi:clock-edit-outline', 'show_icon': True, 'show_state': True, 'state_content': 'name', 'color': 'amber', 'tap_action': {'action': 'toggle'}}]}]},\n      {'type': 'conditional', 'conditions': [{'condition': 'state', 'entity': ol, 'state': 'on'}], 'card': {'type': 'grid', 'columns': 2, 'square': False, 'cards': [\n        {'type': 'tile', 'entity': 'light.ls_' ~ a ~ '_' ~ b, 'name': (b | capitalize) ~ ' Light', 'icon': BI[b], 'state_content': ['brightness', 'color_temp_kelvin'], 'tap_action': {'action': 'more-info'}, 'icon_tap_action': {'action': 'more-info'}}, btn]}},\n      {'type': 'conditional', 'conditions': [{'condition': 'state', 'entity': ot, 'state': 'on'}], 'card': {'type': 'custom:vertical-stack-in-card', 'cards': [\n        {'type': 'tile', 'entity': 'input_number.ls_' ~ a ~ '_' ~ b ~ '_fade', 'name': 'Transition', 'icon': 'mdi:transition', 'features': [{'type': 'numeric-input', 'style': 'buttons'}], 'features_position': 'inline'},\n        {'type': 'custom:vertical-stack-in-card', 'styles': {'padding': '5px'}, 'cards': [{'type': 'heading', 'heading': 'Start', 'heading_style': 'subtitle', 'icon': 'mdi:clock-start'}]},\n        {'type': 'custom:vertical-stack-in-card', 'horizontal': True, 'styles': dict(BOX, height='auto'), 'cards': [\n          {'type': 'tile', 'entity': 'input_datetime.ls_' ~ a ~ '_' ~ b ~ '_start', 'name': 'Week', 'tap_action': {'action': 'more-info'}},\n          {'type': 'tile', 'entity': 'input_datetime.ls_' ~ a ~ '_' ~ b ~ '_weekend', 'name': BW[b], 'tap_action': {'action': 'more-info'}}]}]}}]}] -%}\n    {%- set out.p = out.p + [popup(a, b) | from_json] -%}\n  {%- endfor -%}\n  {%- set out.c = out.c + [{'type': 'custom:vertical-stack-in-card', 'title': area_name(a), 'styles': BOX, 'cards': bc.c}] -%}\n{%- endfor -%}\n{{- out.c + out.p -}}\n"
+                }
+              }
+            ]
+          },
+          {
+            "type": "grid",
+            "cards": [
+              {
+                "type": "custom:auto-entities",
+                "grid_options": {
+                  "columns": "full"
+                },
+                "card": {
+                  "type": "vertical-stack"
+                },
+                "card_param": "cards",
+                "show_empty": false,
+                "filter": {
+                  "template": "{%- set BI = {'day': 'mdi:white-balance-sunny', 'cosy': 'mdi:sofa', 'night': 'mdi:weather-night'} -%}\n{%- set BW = {'day': 'Sat/Sun', 'cosy': 'Fri/Sat', 'night': 'Fri/Sat'} -%}\n{%- set BOX = {'margin': '0 6px 6px', 'border': 'var(--ha-card-border-width, 1px) solid var(--ha-card-border-color, var(--divider-color, #e0e0e0))'} -%}\n{%- set lamps = ((label_entities('house_schedule') + label_entities('on_off') + ((label_devices('house_schedule') + label_devices('on_off')) | map('device_entities') | sum(start=[]))) | select('match', '(light|switch)\\.') | unique | list) -%}\n{%- macro lamps_of(scope, b) -%}\n  {%- set ns = namespace(l=[]) -%}\n  {%- for L in lamps if (scope == 'house' or area_id(L) == scope) and states['switch.ls_lamp_' ~ L.split('.')[1] ~ '_' ~ b ~ '_override'] is not none -%}\n    {%- set ns.l = ns.l + [L] -%}\n  {%- endfor -%}\n  {{- ns.l | sort | to_json -}}\n{%- endmacro -%}\n{%- macro button(scope, b) -%}\n  {%- set ls = lamps_of(scope, b) | from_json -%}\n  {%- set n = ls | map('regex_replace', '^(light|switch)\\.(.*)$', 'switch.ls_lamp_\\\\2_' ~ b ~ '_override') | select('is_state', 'on') | list | count -%}\n  {{- {'type': 'custom:mushroom-template-card', 'primary': 'Lamps…', 'secondary': ((n ~ ' of ' ~ (ls | count) ~ ' own light') if n else ((ls | count) ~ ' lamps')), 'icon': 'mdi:lightbulb-group', 'icon_color': ('amber' if n else 'grey'), 'color': ('amber' if n else 'grey'), 'tap_action': {'action': 'navigate', 'navigation_path': '#lamps-' ~ scope ~ '-' ~ b}} | to_json -}}\n{%- endmacro -%}\n{%- macro popup(scope, b) -%}\n  {%- set ls = lamps_of(scope, b) | from_json -%}\n  {%- set title = ('House' if scope == 'house' else area_name(scope)) ~ ' · ' ~ (b | capitalize) ~ ' Lamps' -%}\n  {%- set ns = namespace(c=[]) -%}\n  {%- for L in ls -%}\n    {%- set o = L.split('.')[1] -%}\n    {%- set sw = 'switch.ls_lamp_' ~ o ~ '_' ~ b ~ '_override' -%}\n    {%- set nm = ((area_name(area_id(L)) ~ ' · ') if scope == 'house' else '') ~ state_attr(L, 'friendly_name') -%}\n    {%- set ns.c = ns.c + [{'type': 'custom:vertical-stack-in-card', 'styles': BOX, 'cards': [\n      {'type': 'tile', 'entity': sw, 'name': nm, 'icon': 'mdi:lightbulb-outline', 'color': 'amber', 'hide_state': True, 'tap_action': {'action': 'toggle'}, 'icon_tap_action': {'action': 'toggle'}},\n      {'type': 'conditional', 'conditions': [{'condition': 'state', 'entity': sw, 'state': 'on'}], 'card': {'type': 'tile', 'entity': 'light.ls_lamp_' ~ o ~ '_' ~ b, 'name': (b | capitalize) ~ ' Light', 'icon': BI[b], 'state_content': ['brightness', 'color_temp_kelvin'], 'tap_action': {'action': 'more-info'}, 'icon_tap_action': {'action': 'more-info'}}}\n    ]}] -%}\n  {%- endfor -%}\n  {%- if not ls -%}{%- set ns.c = ns.c + [{'type': 'markdown', 'content': 'No lamps with per-lamp settings in this room yet.'}] -%}{%- endif -%}\n  {{- {'type': 'custom:bubble-card', 'card_type': 'pop-up', 'hash': '#lamps-' ~ scope ~ '-' ~ b, 'name': title, 'icon': BI[b], 'cards': ns.c} | to_json -}}\n{%- endmacro -%}\n{%- set rooms_all = lamps | map('area_id') | select | unique | list -%}\n{%- set ro = namespace(l=[]) -%}\n{%- for f in floors() | sort -%}{%- set ro.l = ro.l + (floor_areas(f) | select('in', rooms_all) | sort | list) -%}{%- endfor -%}\n{%- set ro.l = ro.l + (rooms_all | reject('in', ro.l) | sort | list) -%}\n{%- set rooms = ro.l | select('in', states.input_boolean | map(attribute='object_id') | map('regex_replace', '^ls_(.*)_day_own_light$', '\\\\1') | list) | list -%}\n{%- set out = namespace(c=[], p=[]) -%}\n{%- for a in rooms[1::2] -%}\n  {%- set bc = namespace(c=[]) -%}\n  {%- for b in ['day', 'cosy', 'night'] -%}\n    {%- set ol = 'input_boolean.ls_' ~ a ~ '_' ~ b ~ '_own_light' -%}\n    {%- set ot = 'input_boolean.ls_' ~ a ~ '_' ~ b ~ '_own_timing' -%}\n    {%- set btn = button(a, b) | from_json -%}\n    {%- set bc.c = bc.c + [{'type': 'custom:vertical-stack-in-card', 'cards': [\n      {'type': 'custom:vertical-stack-in-card', 'styles': {'padding': '5px'}, 'cards': [{'type': 'heading', 'heading': b | capitalize, 'heading_style': 'title', 'icon': BI[b], 'entities': [\n        {'entity': ol, 'name': 'Override Light', 'icon': 'mdi:lightbulb-on-outline', 'show_icon': True, 'show_state': True, 'state_content': 'name', 'color': 'amber', 'tap_action': {'action': 'toggle'}},\n        {'entity': ot, 'name': 'Override Time', 'icon': 'mdi:clock-edit-outline', 'show_icon': True, 'show_state': True, 'state_content': 'name', 'color': 'amber', 'tap_action': {'action': 'toggle'}}]}]},\n      {'type': 'conditional', 'conditions': [{'condition': 'state', 'entity': ol, 'state': 'on'}], 'card': {'type': 'grid', 'columns': 2, 'square': False, 'cards': [\n        {'type': 'tile', 'entity': 'light.ls_' ~ a ~ '_' ~ b, 'name': (b | capitalize) ~ ' Light', 'icon': BI[b], 'state_content': ['brightness', 'color_temp_kelvin'], 'tap_action': {'action': 'more-info'}, 'icon_tap_action': {'action': 'more-info'}}, btn]}},\n      {'type': 'conditional', 'conditions': [{'condition': 'state', 'entity': ot, 'state': 'on'}], 'card': {'type': 'custom:vertical-stack-in-card', 'cards': [\n        {'type': 'tile', 'entity': 'input_number.ls_' ~ a ~ '_' ~ b ~ '_fade', 'name': 'Transition', 'icon': 'mdi:transition', 'features': [{'type': 'numeric-input', 'style': 'buttons'}], 'features_position': 'inline'},\n        {'type': 'custom:vertical-stack-in-card', 'styles': {'padding': '5px'}, 'cards': [{'type': 'heading', 'heading': 'Start', 'heading_style': 'subtitle', 'icon': 'mdi:clock-start'}]},\n        {'type': 'custom:vertical-stack-in-card', 'horizontal': True, 'styles': dict(BOX, height='auto'), 'cards': [\n          {'type': 'tile', 'entity': 'input_datetime.ls_' ~ a ~ '_' ~ b ~ '_start', 'name': 'Week', 'tap_action': {'action': 'more-info'}},\n          {'type': 'tile', 'entity': 'input_datetime.ls_' ~ a ~ '_' ~ b ~ '_weekend', 'name': BW[b], 'tap_action': {'action': 'more-info'}}]}]}}]}] -%}\n    {%- set out.p = out.p + [popup(a, b) | from_json] -%}\n  {%- endfor -%}\n  {%- set out.c = out.c + [{'type': 'custom:vertical-stack-in-card', 'title': area_name(a), 'styles': BOX, 'cards': bc.c}] -%}\n{%- endfor -%}\n{{- out.c + out.p -}}\n"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "config_hash": "f8b26f2760d36d80",
+  "config_size_bytes": 24783,
+  "render_paths": [
+    {
+      "url_path": "lighting-schedule",
+      "view_index": 0,
+      "view_path": "schedule",
+      "title": "Schedule",
+      "render_path": "lighting-schedule/schedule",
+      "stable": true
+    }
+  ],
+  "hint": "Large config (24,783 bytes). Pass view_path=... to fetch a single view, or use ha_config_get_dashboard(entity_id=...) to find card positions, then ha_config_set_dashboard(python_transform=...) instead of full config replacement."
+}

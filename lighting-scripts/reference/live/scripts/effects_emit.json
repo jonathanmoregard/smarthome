@@ -1,0 +1,107 @@
+{
+  "success": true,
+  "action": "get",
+  "script_id": "effects_emit",
+  "config": {
+    "alias": "Effects · Immediate guarded output",
+    "mode": "queued",
+    "sequence": [
+      {
+        "variables": {
+          "completed": true,
+          "published_at": []
+        }
+      },
+      {
+        "repeat": {
+          "for_each": "{{ commands }}",
+          "sequence": [
+            {
+              "variables": {
+                "command": "{{ repeat.item }}",
+                "allowed": "{% set n=namespace(ok=revision==states.sensor.ls_overrides.last_updated.isoformat() and generation==state_attr('sensor.ls_effects_runtime','generation')) %}{% for L in command.owners %}{% if not is_state(L,'on') or (command.payload.get('state')!='OFF' and not (state_attr('sensor.ls_overrides','power') or {}).get(area_id(L),true)) %}{% set n.ok=false %}{% endif %}{% endfor %}{% for E in command.members %}{% if not is_state(E,'on') %}{% set n.ok=false %}{% endif %}{% endfor %}{{ n.ok }}"
+              }
+            },
+            {
+              "variables": {
+                "allowed": "\n{% set n=namespace(ok=allowed) %}\n{% if effect_targets|default({}) %}\n {% set current=state_attr('sensor.ls_effects_runtime','assignments') or {} %}\n {% for owner in command.owners %}\n  {% if owner not in effect_targets or current.get(owner)!=effect_targets.get(owner) %}{% set n.ok=false %}{% endif %}\n {% endfor %}\n{% endif %}\n{{ n.ok }}\n"
+              }
+            },
+            {
+              "if": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ allowed }}"
+                },
+                {
+                  "condition": "state",
+                  "entity_id": "binary_sensor.zigbee2mqtt_bridge_connection_state",
+                  "state": "on"
+                }
+              ],
+              "then": [
+                {
+                  "variables": {
+                    "published_at": "{{ published_at+[as_timestamp(now())] }}"
+                  }
+                },
+                {
+                  "action": "mqtt.publish",
+                  "data": {
+                    "topic": "{{ command.topic }}",
+                    "payload": "{{ command.payload|to_json }}",
+                    "qos": 0,
+                    "retain": false
+                  }
+                }
+              ],
+              "else": [
+                {
+                  "variables": {
+                    "completed": false
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "variables": {
+          "result": "{{ {'published_at':published_at,'completed':completed and revision==states.sensor.ls_overrides.last_updated.isoformat() and generation==state_attr('sensor.ls_effects_runtime','generation')} }}"
+        }
+      },
+      {
+        "stop": "Return result",
+        "response_variable": "result"
+      }
+    ],
+    "max": 50,
+    "fields": {
+      "commands": {
+        "selector": {
+          "object": {}
+        }
+      },
+      "revision": {
+        "selector": {
+          "object": {}
+        }
+      },
+      "generation": {
+        "selector": {
+          "object": {}
+        }
+      },
+      "effect_targets": {
+        "default": {},
+        "selector": {
+          "object": {}
+        },
+        "description": "Optional animation ownership snapshot; empty for ordinary output."
+      }
+    },
+    "description": "Serialize immediate current commands with per-command revision, generation, power, endpoint and bridge checks. Animation admission/pacing belongs to the effect manager; interactive and native-stop batches never sleep here."
+  },
+  "config_hash": "bfaaaa24bbfa9469"
+}

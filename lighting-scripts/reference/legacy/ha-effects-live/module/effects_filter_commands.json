@@ -1,0 +1,28 @@
+{
+  "alias": "Effects \u00b7 Filter ordinary writes",
+  "description": "",
+  "mode": "parallel",
+  "sequence": [
+    {
+      "action": "script.effects_catalog",
+      "response_variable": "catalog"
+    },
+    {
+      "variables": {
+        "result": "{% set active=(state_attr('sensor.effects_controller','assignments') or {}).keys()|list %}{% set out=namespace(cmds=[]) %}{% for c in commands %}{% set ns=namespace(ids=[]) %}{% for L in c.ids %}{% set members=catalog.groups.get(L,[L]) %}{% set ns.ids=ns.ids + ((members|reject('in',active)|list) if members|select('in',active)|list|count else [L]) %}{% endfor %}{% set ids=ns.ids|unique|list %}{% if ids %}{% set out.cmds=out.cmds+[dict(c,ids=ids)] %}{% endif %}{% endfor %}{{ {'commands':out.cmds} }}"
+      }
+    },
+    {
+      "stop": "Return result",
+      "response_variable": "result"
+    }
+  ],
+  "max": 50,
+  "fields": {
+    "commands": {
+      "selector": {
+        "object": {}
+      }
+    }
+  }
+}

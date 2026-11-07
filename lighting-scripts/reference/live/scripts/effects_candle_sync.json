@@ -1,0 +1,230 @@
+{
+  "success": true,
+  "action": "get",
+  "script_id": "effects_candle_sync",
+  "config": {
+    "alias": "Effects · Synchronize Shared Candle Group",
+    "description": "Single acknowledged membership writer. Pause broadcasts before changes, remove departures first, repair their latest state after removal. Timeouts keep the group paused and retry after 30 seconds.",
+    "mode": "single",
+    "max_exceeded": "silent",
+    "sequence": [
+      {
+        "condition": "template",
+        "value_template": "{{ as_timestamp(now()) >= (state_attr('sensor.ls_effects_runtime','candle_retry_at') or 0) }}"
+      },
+      {
+        "condition": "state",
+        "entity_id": "binary_sensor.zigbee2mqtt_bridge_connection_state",
+        "state": "on"
+      },
+      {
+        "action": "script.effects_catalog",
+        "response_variable": "catalog"
+      },
+      {
+        "action": "variable.update_sensor",
+        "target": {
+          "entity_id": "sensor.ls_effects_runtime"
+        },
+        "data": {
+          "value": "{{ states('sensor.ls_effects_runtime') }}",
+          "replace_attributes": false,
+          "attributes": "{{ {'candle_syncing':true} }}"
+        }
+      },
+      {
+        "repeat": {
+          "while": [
+            {
+              "condition": "template",
+              "value_template": "{{ repeat is not defined or repeat.index<100 }}"
+            },
+            {
+              "condition": "state",
+              "entity_id": "binary_sensor.zigbee2mqtt_bridge_connection_state",
+              "state": "on"
+            }
+          ],
+          "sequence": [
+            {
+              "action": "script.effects_candle_plan",
+              "data": {
+                "catalog": "{{ catalog }}"
+              },
+              "response_variable": "membership"
+            },
+            {
+              "if": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ membership.synchronized or (not membership.members and not membership.actual.get('members')) }}"
+                }
+              ],
+              "then": [
+                {
+                  "if": [
+                    {
+                      "condition": "template",
+                      "value_template": "{{ state_attr('sensor.ls_effects_runtime','candle_error') is not none }}"
+                    }
+                  ],
+                  "then": [
+                    {
+                      "action": "persistent_notification.dismiss",
+                      "data": {
+                        "notification_id": "lighting_candle_membership"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "action": "variable.update_sensor",
+                  "target": {
+                    "entity_id": "sensor.ls_effects_runtime"
+                  },
+                  "data": {
+                    "value": "{{ states('sensor.ls_effects_runtime') }}",
+                    "replace_attributes": false,
+                    "attributes": "{{ {'candle_syncing':false,'candle_retry_at':0,'candle_error':none} }}"
+                  }
+                },
+                {
+                  "stop": "Current membership reconciled"
+                }
+              ]
+            },
+            {
+              "variables": {
+                "operation": "{{ 'create' if not membership.actual.get('exists',false) else 'remove' if membership.remove else 'add' }}",
+                "member": "{{ (membership.remove[0] if membership.remove else membership.add[0] if membership.add else membership.members[0]) if membership.members or membership.remove else {} }}",
+                "token": "{{ 'candle:'~now().isoformat() }}",
+                "started": "{{ as_timestamp(now()) }}"
+              }
+            },
+            {
+              "variables": {
+                "request": "{{ {'friendly_name':'fx_candle_active','id':1100,'transaction':token} if operation=='create' else {'group':'fx_candle_active','device':member.ieee_address,'endpoint':member.endpoint,'skip_disable_reporting':true,'transaction':token} }}"
+              }
+            },
+            {
+              "action": "mqtt.publish",
+              "data": {
+                "topic": "{{ 'zigbee2mqtt/bridge/request/group/add' if operation=='create' else 'zigbee2mqtt/bridge/request/group/members/'~operation }}",
+                "payload": "{{ request|to_json }}",
+                "qos": 0,
+                "retain": false
+              }
+            },
+            {
+              "wait_template": "{{ (state_attr('sensor.ls_effects_runtime','candle_response') or {}).get('transaction')==token }}",
+              "timeout": {
+                "seconds": 10
+              },
+              "continue_on_timeout": true
+            },
+            {
+              "if": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ not wait.completed or (state_attr('sensor.ls_effects_runtime','candle_response') or {}).get('status')!='ok' }}"
+                }
+              ],
+              "then": [
+                {
+                  "action": "variable.update_sensor",
+                  "target": {
+                    "entity_id": "sensor.ls_effects_runtime"
+                  },
+                  "data": {
+                    "value": "{{ states('sensor.ls_effects_runtime') }}",
+                    "replace_attributes": false,
+                    "attributes": "{{ {'candle_syncing':true,'candle_retry_at':as_timestamp(now())+30,'candle_error':request} }}"
+                  }
+                },
+                {
+                  "action": "persistent_notification.create",
+                  "data": {
+                    "notification_id": "lighting_candle_membership",
+                    "title": "Candle Group Update Delayed",
+                    "message": "{{ 'Candle is paused while Zigbee membership is confirmed: '~request }}"
+                  }
+                },
+                {
+                  "stop": "Membership not confirmed; retain gate and retry later"
+                }
+              ]
+            },
+            {
+              "wait_template": "{% set g=state_attr('sensor.ls_effects_runtime','candle_group') or {} %}{{ g.get('observed_at',0)>=started and (g.get('exists',false) if operation=='create' else member not in g.get('members',[]) if operation=='remove' else member in g.get('members',[])) }}",
+              "timeout": {
+                "seconds": 10
+              },
+              "continue_on_timeout": true
+            },
+            {
+              "if": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ not wait.completed }}"
+                }
+              ],
+              "then": [
+                {
+                  "action": "variable.update_sensor",
+                  "target": {
+                    "entity_id": "sensor.ls_effects_runtime"
+                  },
+                  "data": {
+                    "value": "{{ states('sensor.ls_effects_runtime') }}",
+                    "replace_attributes": false,
+                    "attributes": "{{ {'candle_syncing':true,'candle_retry_at':as_timestamp(now())+30,'candle_error':request} }}"
+                  }
+                },
+                {
+                  "action": "persistent_notification.create",
+                  "data": {
+                    "notification_id": "lighting_candle_membership",
+                    "title": "Candle Group Update Delayed",
+                    "message": "{{ 'Candle is paused while Zigbee membership is confirmed: '~request }}"
+                  }
+                },
+                {
+                  "stop": "Membership not confirmed; retain gate and retry later"
+                }
+              ]
+            },
+            {
+              "if": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ operation=='remove' and member.ieee_address in membership.owners }}"
+                }
+              ],
+              "then": [
+                {
+                  "action": "script.ls_apply",
+                  "data": {
+                    "reason": "manual",
+                    "lights": "{{ [membership.owners[member.ieee_address]] }}"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "action": "variable.update_sensor",
+        "target": {
+          "entity_id": "sensor.ls_effects_runtime"
+        },
+        "data": {
+          "value": "{{ states('sensor.ls_effects_runtime') }}",
+          "replace_attributes": false,
+          "attributes": "{{ {'candle_syncing':true,'candle_retry_at':as_timestamp(now())+30,'candle_error':'Membership reconciliation interrupted'} }}"
+        }
+      }
+    ]
+  },
+  "config_hash": "8cb79c54bb0b8b6c"
+}

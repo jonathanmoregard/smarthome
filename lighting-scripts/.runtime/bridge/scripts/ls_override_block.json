@@ -1,0 +1,51 @@
+{
+  "alias": "Lighting schedule: override block",
+  "description": "Command-only TypeScript bridge. Dry-run/response queries use local RPC. ",
+  "mode": "queued",
+  "max": 10,
+  "icon": "mdi:gesture-tap",
+  "fields": {
+    "scope": {
+      "name": "Area",
+      "description": "house, or the area id of any room with scheduled lamps",
+      "required": true,
+      "selector": {
+        "text": {}
+      }
+    },
+    "block": {
+      "name": "Block",
+      "required": true,
+      "selector": {
+        "select": {
+          "options": [
+            "day",
+            "cosy",
+            "night"
+          ]
+        }
+      }
+    },
+    "via": {
+      "name": "Via",
+      "description": "app | remote | ...",
+      "default": "app",
+      "selector": {
+        "text": {}
+      }
+    }
+  },
+  "sequence": [
+    {
+      "condition": "template",
+      "value_template": "{{ not (dry_run | default(false)) }}"
+    },
+    {
+      "event": "smarthome_script",
+      "event_data": {
+        "script": "ls_override_block",
+        "args": "{% set n=namespace(args={}) %}{% if scope is defined %}{% set n.args=dict(n.args,scope=scope) %}{% endif %}{% if block is defined %}{% set n.args=dict(n.args,block=block) %}{% endif %}{% if via is defined %}{% set n.args=dict(n.args,via=via) %}{% endif %}{{ n.args }}"
+      }
+    }
+  ]
+}

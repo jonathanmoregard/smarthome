@@ -1,0 +1,154 @@
+{
+  "at": "2026-10-24 06:52:03 UTC",
+  "scripts": [
+    {
+      "id": "ls_base",
+      "exact": true,
+      "hash": "076eda85002c7026"
+    },
+    {
+      "id": "ls_plan",
+      "exact": true,
+      "hash": "837660ccd3e2e556"
+    },
+    {
+      "id": "ls_dispatch",
+      "exact": true,
+      "hash": "9e38ebe28c0e0f9b"
+    },
+    {
+      "id": "ls_apply",
+      "exact": true,
+      "hash": "287703deb421cf55"
+    },
+    {
+      "id": "ls_remote_command",
+      "exact": true,
+      "hash": "4147fa427c102472"
+    },
+    {
+      "id": "effects_set",
+      "exact": true,
+      "hash": "08fbce3407be7e76"
+    },
+    {
+      "id": "effects_emit",
+      "exact": true,
+      "hash": "50a315fbceacafa5"
+    },
+    {
+      "id": "effects_assign",
+      "exact": true,
+      "hash": "0f676981c3c0b776"
+    },
+    {
+      "id": "effects_frame_plan",
+      "exact": true,
+      "hash": "9ad0f2cb38507d95"
+    }
+  ],
+  "writer_exact": true,
+  "tests": {
+    "offline": 125,
+    "preset_decoder": 7,
+    "native_adapters": "PASS"
+  },
+  "ha_dry_commands": [
+    "up",
+    "down",
+    "left",
+    "right",
+    "toggle",
+    "reset"
+  ],
+  "warm_rgb_probe": true,
+  "remote_traces": [
+    {
+      "run_id": "819c1bb299c0999c2ef9815183040a4d",
+      "timestamp": {
+        "start": "2026-10-24T06:49:40.329979+00:00",
+        "finish": "2026-10-24T06:49:40.343561+00:00"
+      },
+      "state": "stopped",
+      "execution": "finished"
+    },
+    {
+      "run_id": "c03b4508486d7a2a9761c06905c28c35",
+      "timestamp": {
+        "start": "2026-10-24T06:49:40.288886+00:00",
+        "finish": "2026-10-24T06:49:40.303837+00:00"
+      },
+      "state": "stopped",
+      "execution": "finished"
+    },
+    {
+      "run_id": "fceabf36987aa26900fe5909e47d8032",
+      "timestamp": {
+        "start": "2026-10-24T06:49:40.195529+00:00",
+        "finish": "2026-10-24T06:49:40.257798+00:00"
+      },
+      "state": "stopped",
+      "execution": "finished"
+    },
+    {
+      "run_id": "e8a333ffa84ea0883a1d0c5ddd83ea7e",
+      "timestamp": {
+        "start": "2026-10-24T06:49:40.102375+00:00",
+        "finish": "2026-10-24T06:49:40.170097+00:00"
+      },
+      "state": "stopped",
+      "execution": "finished"
+    },
+    {
+      "run_id": "cc7c1e4dd1289a7391d67301a7e9fb6d",
+      "timestamp": {
+        "start": "2026-10-24T06:49:39.984007+00:00",
+        "finish": "2026-10-24T06:49:40.074037+00:00"
+      },
+      "state": "stopped",
+      "execution": "finished"
+    }
+  ],
+  "remotes": {
+    "data": {
+      "success": true,
+      "count": 5,
+      "states": {
+        "automation.lighting_jonathan_s_bedroom_remote_center": {
+          "state": "on"
+        },
+        "automation.lighting_jonathan_s_bedroom_remote_directions": {
+          "state": "on"
+        },
+        "automation.lighting_living_room_remote_center": {
+          "state": "on"
+        },
+        "automation.lighting_living_room_remote_directions": {
+          "state": "on"
+        },
+        "automation.lighting_bedroom_remote_preset_arrows": {
+          "state": "on"
+        }
+      }
+    },
+    "metadata": {
+      "home_assistant_timezone": "Europe/Stockholm",
+      "timestamp_format": "ISO 8601 (Europe/Stockholm)",
+      "note": "Per-record timestamp fields (last_changed, last_updated, last_reported, when, last_triggered) have been converted to Europe/Stockholm local time. Query-window boundary fields (period, start_time, end_time) remain in UTC."
+    }
+  },
+  "agent_hardware_test_commands": 0,
+  "gradient_cache": "No lookup table. Fast-path reuses owning source coordinate with expiry/timing guards; interpolation remains in output planning.",
+  "remaining": "Physical button-to-light latency awaits user feedback; center gesture retains400ms quiet window.",
+  "user_confirmation": {
+    "up_down_and_reset": "seems good",
+    "arrows_before_fix": "did nothing"
+  },
+  "arrow_followup": {
+    "root_cause": "Template condition returned room string instead of boolean; Home Assistant rejected it.",
+    "fix": "Explicit boolean test for nonempty room",
+    "evidence": "Actual HA condition old=false/new=true;7 offline replay tests fail before fix and pass after strict boolean semantics; installed config matches structurally.",
+    "physical_confirmation": "pending",
+    "physical_trace": "User-generated right press06:56:41UTC passed condition, called room command, selected Cosy; next06:56:46 selected Candle. Visual confirmation still not supplied."
+  }
+}

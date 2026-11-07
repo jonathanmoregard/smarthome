@@ -1,0 +1,39 @@
+{
+  "id": "effects_lifecycle",
+  "alias": "Effects \u00b7 Lifecycle",
+  "triggers": [
+    {
+      "trigger": "homeassistant",
+      "event": "start"
+    },
+    {
+      "trigger": "state",
+      "entity_id": "binary_sensor.zigbee2mqtt_bridge_connection_state",
+      "to": "on"
+    },
+    {
+      "trigger": "time_pattern",
+      "seconds": "/15"
+    }
+  ],
+  "conditions": [
+    {
+      "condition": "state",
+      "entity_id": "script.effects_engine",
+      "state": "off"
+    },
+    {
+      "condition": "template",
+      "value_template": "{{ (state_attr('sensor.ls_effects_runtime','assignments') or {})|count > 0 }}"
+    }
+  ],
+  "actions": [
+    {
+      "action": "script.ls_apply",
+      "data": {
+        "reason": "config"
+      }
+    }
+  ],
+  "mode": "restart"
+}

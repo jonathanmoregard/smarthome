@@ -1,0 +1,10 @@
+{% set n=namespace(records={}) %}
+{% for key,r in overrides|dictsort if r is mapping %}
+ {% set applies=(r.get('kind')=='block' and r.get('target')==room) or (r.get('kind')=='channels' and ((r.get('scope')=='room' and r.get('target')==room) or (r.get('scope')=='lamp' and r.get('target') in dependencies.lamps) or (r.get('scope')=='house' and not dependencies.private))) %}
+ {% set value=r.get('value') %}{% set period=value if r.get('kind')=='block' else value.get('period') if value is mapping else none %}
+ {% if applies and period in ['day','cosy','night'] %}
+  {% set stamp=value.get('period_updated',as_timestamp(r.get('when'),0)) if value is mapping else as_timestamp(r.get('when'),0) %}
+  {% set n.records=dict(n.records,**{key:[r.get('kind'),r.get('scope'),r.get('target'),period,stamp,dependencies.expiry=='on' and as_timestamp(r.get('when'),0)<=period_boundary]}) %}
+ {% endif %}
+{% endfor %}
+{{ n.records }}

@@ -1,0 +1,23 @@
+{
+  "id": "lighting_remote_0x385b44fffea4fc67_power_done",
+  "alias": "Lighting \u00b7 Bedroom Remote Power Quiet",
+  "mode": "queued",
+  "max": 50,
+  "triggers": [
+    {
+      "trigger": "event",
+      "event_type": "timer.finished",
+      "event_data": {
+        "entity_id": "timer.ls_bedroom_remote_power_quiet"
+      }
+    }
+  ],
+  "actions": [
+    {
+      "action": "script.ls_remote_gesture_bedroom",
+      "data": {
+        "command": "power_done"
+      }
+    }
+  ]
+}

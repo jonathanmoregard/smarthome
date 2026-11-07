@@ -1,0 +1,14 @@
+{# No clock/schedule expansion: only versions of the room's expiry dependencies. #}
+{% if command in ['up','down'] and is_state('input_boolean.ls_ovr_next_block_on','on') %}
+ {% set n=namespace(ids=['input_boolean.ls_ovr_next_block_on']) %}
+ {% for scope in ['house',room] %}
+  {% for block in ['day','cosy','night'] %}
+   {% set n.ids=n.ids+['input_boolean.ls_'~scope~'_'~block~'_own_timing','input_datetime.ls_'~scope~'_'~block~'_start','input_datetime.ls_'~scope~'_'~block~'_weekend','input_number.ls_'~scope~'_'~block~'_fade'] %}
+  {% endfor %}
+ {% endfor %}
+ {% set version=namespace(latest=0) %}
+ {% for entity in n.ids if states[entity] is not none %}
+  {% set version.latest=[version.latest,as_timestamp(states[entity].last_updated,0)]|max %}
+ {% endfor %}
+ {{ version.latest }}
+{% else %}{{ 0 }}{% endif %}

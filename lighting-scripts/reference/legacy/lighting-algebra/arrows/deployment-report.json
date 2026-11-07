@@ -1,0 +1,89 @@
+{
+  "deployed_at": 1792841268.848,
+  "scripts": [
+    "ls_remote_gesture_bedroom",
+    "ls_remote_gesture_living_room",
+    "ls_remote_plan"
+  ],
+  "readbacks": [
+    {
+      "status": "fulfilled",
+      "value": {
+        "script_id": "ls_remote_gesture_bedroom",
+        "exact": true
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "script_id": "ls_remote_gesture_living_room",
+        "exact": true
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "script_id": "ls_remote_plan",
+        "exact": true
+      }
+    }
+  ],
+  "tests": {
+    "dry": 33,
+    "parsed_templates": 117,
+    "native_duplicate_before": {
+      "shadow": {
+        "input_number.ls_bedroom_remote_preset": 4,
+        "input_number.ls_bedroom_remote_chord_step": 0,
+        "input_number.ls_bedroom_remote_power_count": 2,
+        "input_text.ls_bedroom_remote_power_token": "2026-10-24T13:30:00+02:00",
+        "timer.ls_bedroom_remote_chord": "idle"
+      },
+      "intents": [
+        "preset"
+      ]
+    },
+    "native_duplicate_after": {
+      "shadow": {
+        "input_number.ls_bedroom_remote_preset": 4,
+        "input_number.ls_bedroom_remote_chord_step": 2,
+        "input_number.ls_bedroom_remote_power_count": 2,
+        "input_text.ls_bedroom_remote_power_token": "2026-10-24T13:30:00+02:00",
+        "timer.ls_bedroom_remote_chord": "active"
+      },
+      "intents": []
+    },
+    "native_chord": [
+      "sara_toggle"
+    ],
+    "deployed_dry_left": {
+      "op": "set",
+      "records": [
+        {
+          "kind": "channels",
+          "key": "channels:dry-side-check",
+          "source": "dry-side-check",
+          "scope": "room",
+          "target": "bedroom",
+          "value": {
+            "selection": "Breathe",
+            "channels": {
+              "brightness": {
+                "kind": "effect",
+                "effect": "Breathe",
+                "instance": "dry-side-check:Breathe",
+                "updated": 1792841291.50152
+              }
+            }
+          }
+        }
+      ],
+      "via": "remote",
+      "input_revision": "2026-10-24T11:28:00.355373+00:00",
+      "received_at": 1792841291.50152,
+      "request_id": "dry-side-check:1792841291.50152"
+    }
+  },
+  "physical_test_commands": false,
+  "pending_design": "User reports configured Candle lamp in living room loses effect on room remote changes. Discuss separate effect ownership vs input values; no candle semantics changed in this deployment."
+}

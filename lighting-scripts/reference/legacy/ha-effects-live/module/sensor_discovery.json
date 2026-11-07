@@ -1,0 +1,10 @@
+{
+  "name": "Effects controller",
+  "unique_id": "effects_controller",
+  "default_entity_id": "sensor.effects_controller",
+  "state_topic": "house/v1/effects/controller",
+  "value_template": "{{ value_json.assignments|count }}",
+  "json_attributes_topic": "house/v1/effects/controller",
+  "icon": "mdi:creation",
+  "entity_category": "diagnostic"
+}

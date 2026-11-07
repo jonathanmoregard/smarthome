@@ -1,0 +1,78 @@
+{
+  "alias": "Effects \u00b7 Collect automatic multicast cohorts",
+  "description": "Read-only day/cosy/night and resolved-current cohort collector. Uses exact final constant payloads, unique physical endpoint identities, and current room power admission. Animated channels remain independent.",
+  "mode": "single",
+  "sequence": [
+    {
+      "action": "script.effects_catalog",
+      "response_variable": "catalog"
+    },
+    {
+      "variables": {
+        "rooms": "{{ (label_entities('house_schedule')+(label_devices('house_schedule')|map('device_entities')|sum(start=[])))|map('area_id')|select|unique|sort }}",
+        "snapshots": [],
+        "current_targets": "{{ state_attr('sensor.ls_effects_runtime','targets') or {} }}",
+        "power": "{{ state_attr('sensor.ls_overrides','power') or {} }}",
+        "lighting_endpoints": "{{ state_attr('sensor.ls_effects_runtime','auto_endpoints') or {} }}",
+        "existing_groups": "{% set n=namespace(groups=[]) %}{% for g in state_attr('sensor.ls_effects_runtime','auto_groups') or [] %}{% set n.groups=n.groups+[dict(g,verified=g.get('friendly_name','')!='fx_candle_active' and not g.get('friendly_name','').startswith('ls_auto_')) if g is mapping else g] %}{% endfor %}{{ n.groups }}",
+        "devices": "{% set n=namespace(devices={}) %}{% for entity in catalog.members.values()|sum(start=[])|unique|sort %}{% set n.devices=dict(n.devices,**{entity:device_attr(entity,'identifiers') or []}) %}{% endfor %}{{ n.devices }}"
+      }
+    },
+    {
+      "variables": {
+        "endpoints": "{# Only a unique MQTT device identity and one known lighting endpoint qualify. #}\n{% set n=namespace(candidates={},result={}) %}\n{% for entity,identifiers in devices|dictsort %}\n {% set d=namespace(ids=[]) %}\n {% for identifier in identifiers if identifier is sequence and identifier is not string and identifier|count==2 %}\n  {% if identifier[0]=='mqtt' and identifier[1] is string and identifier[1]|regex_match('^zigbee2mqtt_0x[0-9a-fA-F]{16}$') %}\n   {% set d.ids=d.ids+[identifier[1][12:]|lower] %}\n  {% endif %}\n {% endfor %}\n {% set ids=d.ids|unique|list %}\n {% set eps=lighting_endpoints.get(ids[0],[]) if ids|count==1 else [] %}\n {% if eps is sequence and eps is not string and eps|count==1 and eps[0] is integer and eps[0] is not boolean and 1<=eps[0]<=240 %}\n  {% set n.candidates=dict(n.candidates,**{entity:{'ieee_address':ids[0],'endpoint':eps[0]}}) %}\n {% endif %}\n{% endfor %}\n{% for entity,physical in n.candidates|dictsort %}\n {% if n.candidates.values()|select('eq',physical)|list|count==1 %}{% set n.result=dict(n.result,**{entity:physical}) %}{% endif %}\n{% endfor %}\n{{ n.result }}\n"
+      }
+    },
+    {
+      "repeat": {
+        "for_each": "{{ rooms }}",
+        "sequence": [
+          {
+            "variables": {
+              "room": "{{ repeat.item }}"
+            }
+          },
+          {
+            "repeat": {
+              "for_each": [
+                "day",
+                "cosy",
+                "night"
+              ],
+              "sequence": [
+                {
+                  "action": "script.ls_room_base",
+                  "data": {
+                    "room": "{{ room }}",
+                    "overrides": "{{ {'block:'~room:{'kind':'block','target':room,'value':repeat.item,'when':now().isoformat()}} }}",
+                    "reason": "remote"
+                  },
+                  "response_variable": "baseline"
+                },
+                {
+                  "variables": {
+                    "snapshots": "{{ snapshots+[{'room':room,'kind':'baseline','targets':baseline.targets}] }}"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "variables": {
+              "snapshots": "{{ snapshots+[{'room':room,'kind':'current','targets':current_targets,'power':power.get(room,true)}] }}"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "variables": {
+        "result": "{# Baselines prewarm memberships independently of physical power. Current\n   snapshots use the same admission and final payload as effects_frame_plan. #}\n{% set n=namespace(scenarios=[]) %}\n{% for snapshot in snapshots %}\n {% set s=namespace(buckets={}) %}\n {% for lamp,target in snapshot.targets|dictsort if lamp in catalog.members and target is mapping and target.get('area')==snapshot.room and target.get('on') is boolean %}\n  {% set current=snapshot.kind=='current' %}\n  {% set off=not target.on %}\n  {% set eligible=not current or (is_state(lamp,'on') and (off or snapshot.get('power',true))) %}\n  {% set brightness=target.get('brightness') %}{% set color=target.get('color') %}\n  {% if current and not off %}\n   {% set eligible=eligible and brightness is mapping and color is mapping and brightness.get('kind')=='constant' and color.get('kind')=='constant' %}\n   {% set brightness=brightness.get('value') if brightness is mapping else none %}\n   {% set color=color.get('value') if color is mapping else none %}\n  {% elif not off %}\n   {% set eligible=eligible and target.get('effect')=='Normal light' %}\n  {% endif %}\n  {% set manual=current and target.get('owners',{}) is mapping and target.get('owners',{}).values()|select('match','^channels:')|list|count>0 %}\n  {% set transition=0.2 if manual and not off else target.get('transition',3) %}\n  {% set eligible=eligible and transition is number and transition is not boolean and transition>=0 %}\n  {% set payload={'state':'OFF','transition':transition} if off else {} %}\n  {% if eligible and not off %}\n   {% set eligible=is_number(brightness) and brightness is not boolean and color is mapping %}\n   {% if eligible %}\n    {% set payload={'brightness':([1,[254,brightness|float]|min]|max)|round|int,'transition':transition} %}\n    {% if 'kelvin' in color %}\n     {% set eligible=color.kelvin is number and color.kelvin is not boolean and color.kelvin>0 %}\n     {% if eligible %}{% set payload=dict(payload,color_temp=(1000000/color.kelvin)|round|int) %}{% endif %}\n    {% else %}\n     {% set rgb=color.get('rgb') %}\n     {% set eligible=rgb is sequence and rgb is not string and rgb|count==3 %}\n     {% if eligible %}\n      {% set valid=namespace(ok=true) %}{% for channel in rgb %}{% if channel is not number or channel is boolean or not 0<=channel<=255 %}{% set valid.ok=false %}{% endif %}{% endfor %}\n      {% set eligible=valid.ok %}\n      {% if eligible %}{% set payload=dict(payload,color={'rgb':rgb|join(',')}) %}{% endif %}\n     {% endif %}\n    {% endif %}\n   {% endif %}\n  {% endif %}\n  {% if eligible %}\n   {% set key=payload|to_json(sort_keys=true) %}\n   {% for entity in catalog.members[lamp]|unique|sort if entity in endpoints and entity in catalog.topics and (not current or is_state(entity,'on')) %}\n    {% set physical=endpoints[entity] %}\n    {% set row={'entity':entity,'owner':lamp,'room':snapshot.room,'topic':catalog.topics[entity],'ieee_address':physical.ieee_address,'endpoint':physical.endpoint} %}\n    {% set s.buckets=dict(s.buckets,**{key:s.buckets.get(key,[])+[row]}) %}\n   {% endfor %}\n  {% endif %}\n {% endfor %}\n {% set c=namespace(cohorts=[]) %}\n {% for key,members in s.buckets|dictsort if members|count>=2 %}{% set c.cohorts=c.cohorts+[members|sort(attribute='entity')] %}{% endfor %}\n {% set n.scenarios=n.scenarios+[{'room':snapshot.room,'cohorts':c.cohorts}] %}\n{% endfor %}\n{{ {'scenarios':n.scenarios,'existing_groups':existing_groups} }}\n"
+      }
+    },
+    {
+      "stop": "Return compatible multicast cohorts",
+      "response_variable": "result"
+    }
+  ]
+}

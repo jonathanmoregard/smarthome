@@ -1,0 +1,35 @@
+{
+  "alias": "Effects: mirror native light controls",
+  "mode": "single",
+  "max_exceeded": "silent",
+  "description": "Command-only TypeScript bridge. Dry-run/response queries use local RPC. ",
+  "fields": {
+    "force": {
+      "description": "Republish retained UI state after startup",
+      "default": false,
+      "selector": {
+        "boolean": {}
+      }
+    },
+    "dry_run": {
+      "name": "Dry Run",
+      "default": false,
+      "selector": {
+        "boolean": {}
+      }
+    }
+  },
+  "sequence": [
+    {
+      "condition": "template",
+      "value_template": "{{ not (dry_run | default(false)) }}"
+    },
+    {
+      "event": "smarthome_script",
+      "event_data": {
+        "script": "effects_ui_sync",
+        "args": "{% set n=namespace(args={}) %}{% if force is defined %}{% set n.args=dict(n.args,force=force) %}{% endif %}{% if dry_run is defined %}{% set n.args=dict(n.args,dry_run=dry_run) %}{% endif %}{{ n.args }}"
+      }
+    }
+  ]
+}

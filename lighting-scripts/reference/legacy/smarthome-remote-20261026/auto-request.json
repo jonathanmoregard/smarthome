@@ -1,0 +1,1 @@
+{"alias":"Effects · Automatic Group Request","mode":"queued","sequence":[{"variables":{"result":{"ok":false}}},{"stop":"Return request result","response_variable":"result"}]}

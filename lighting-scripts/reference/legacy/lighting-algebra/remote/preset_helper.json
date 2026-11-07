@@ -1,0 +1,12 @@
+{
+  "input_number": {
+    "ls_bedroom_remote_preset": {
+      "name": "Bedroom Remote Preset Cursor",
+      "icon": "mdi:remote",
+      "min": 0,
+      "max": 4,
+      "step": 1,
+      "mode": "box"
+    }
+  }
+}

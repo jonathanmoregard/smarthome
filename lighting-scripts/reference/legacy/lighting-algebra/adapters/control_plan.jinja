@@ -1,0 +1,63 @@
+{% set n=namespace(valid=true,errors=[],events=[],commands=[],records=[]) %}
+{% set allowed=['power','brightness','rgb','temperature','effect'] %}
+{% if attribute not in allowed %}{% set n.errors=n.errors+['Unsupported control attribute.'] %}{% endif %}
+{% if attribute=='effect' and value not in ['Normal light']+catalog.effects.keys()|list %}{% set n.errors=n.errors+['Unknown effect.'] %}{% endif %}
+{% if attribute=='power' and value not in ['ON','OFF'] %}{% set n.errors=n.errors+['Power must be ON or OFF.'] %}{% endif %}
+{% if attribute=='brightness' and not (0 <= value|float(-1) <= 255) %}{% set n.errors=n.errors+['Brightness must be 0–255.'] %}{% endif %}
+{% if attribute=='temperature' and not (100 <= value|float(-1) <= 1000) %}{% set n.errors=n.errors+['Temperature must be 100–1000 mireds.'] %}{% endif %}
+{% set rgb=value.split(',') if value is string else value %}
+{% if attribute=='rgb' %}
+ {% if rgb is not sequence or rgb is string or rgb|count!=3 %}{% set n.errors=n.errors+['RGB needs three components.'] %}
+ {% else %}{% for v in rgb %}{% if not (0<=v|float(-1)<=255) %}{% set n.errors=n.errors+['RGB components must be 0–255.'] %}{% endif %}{% endfor %}{% endif %}
+{% endif %}
+{% if is_profile %}
+ {% if states[source.replace('light.','input_text.')] is none %}{% set n.errors=n.errors+['Unknown schedule profile.'] %}{% endif %}
+ {% if not n.errors %}
+  {% if attribute=='effect' %}{% set n.commands=[{'action':'script.ls_store','data':{'store':source.replace('light.','input_text.'),'effect':value},'target':{}}] %}
+  {% elif attribute=='power' and value=='OFF' %}{% set n.commands=[{'action':'light.turn_off','target':{'entity_id':source},'data':{}}] %}
+  {% else %}
+   {% set data={'brightness':value|int} if attribute=='brightness' else {'rgb_color':rgb|map('int')|list} if attribute=='rgb' else {'color_temp_kelvin':(1000000/(value|float))|round|int} if attribute=='temperature' else {} %}
+   {% set n.commands=[{'action':'light.turn_on','target':{'entity_id':source},'data':data}] %}
+  {% endif %}
+ {% endif %}
+{% else %}
+ {% if targets|count==0 or targets|reject('in',catalog.members)|list|count %}{% set n.errors=n.errors+['Unknown logical lamp or room.'] %}{% endif %}
+ {% set scope=namespace(items=[],areas=[]) %}
+ {% if source in catalog.groups %}
+  {% for area in targets|map('area_id')|select|unique|sort %}
+   {% set room_members=namespace(v=[]) %}{% for L in catalog.members if area_id(L)==area %}{% set room_members.v=room_members.v+[L] %}{% endfor %}
+   {% if room_members.v|reject('in',targets)|list|count==0 %}
+    {% set scope.items=scope.items+[{'scope':'room','target':area,'base':'room:'~area,'suffix':(':'~area if targets|map('area_id')|select|unique|list|count>1 else '')}] %}
+    {% set scope.areas=scope.areas+[area] %}
+   {% endif %}
+  {% endfor %}
+ {% endif %}
+ {% for L in targets if area_id(L) not in scope.areas %}{% set scope.items=scope.items+[{'scope':'lamp','target':L,'base':L,'suffix':(':'~L if targets|count>1 else '')}] %}{% endfor %}
+ {% if not n.errors and attribute=='power' %}
+  {% set power_areas=(targets|map('area_id')|select|unique|list) if value=='ON' else scope.areas %}
+  {% for area in power_areas %}{% set n.events=n.events+[{'op':'power','area':area,'on':value=='ON','via':'effects-house'}] %}{% endfor %}
+  {% set ids=namespace(v=targets) %}{% for L in (state_attr('sensor.ls_overrides','switch_ranges') or {}) if area_id(L) in scope.areas %}{% set ids.v=ids.v+[L] %}{% endfor %}
+  {% set n.commands=[{'action':('homeassistant.turn_on' if value=='ON' else 'homeassistant.turn_off'),'target':{'entity_id':ids.v|unique|list},'data':{}}] %}
+ {% elif not n.errors %}
+  {% for item in scope.items %}
+   {% set base=current.plan.base.get(item.base,{}) %}{% set resolved=current.plan.resolved.targets.get(item.base,{}) %}
+   {% if not base or not resolved %}{% set n.errors=n.errors+['Missing resolved lighting state for '~item.target] %}
+   {% else %}
+    {% set patch=namespace(channels={}) %}
+    {% if attribute=='effect' and value!='Normal light' %}
+     {% for channel in catalog.effects[value].channels %}{% set patch.channels=dict(patch.channels,**{channel:{'kind':'effect','effect':value,'instance':'ui:'~source~':'~value,'updated':stamp}}) %}{% endfor %}
+    {% elif attribute=='effect' %}
+     {% set underlying_color=base.color if resolved.color.get('policy')=='sara' else resolved.color.get('base',base.color) if resolved.color.kind=='effect' else resolved.color.value %}
+     {% set patch.channels={'brightness':{'kind':'constant','value':resolved.level,'updated':stamp},'color':{'kind':'constant','value':underlying_color,'updated':stamp}} %}
+    {% elif attribute=='brightness' %}{% set patch.channels={'brightness':{'kind':'constant','value':value|int,'updated':stamp}} %}
+    {% elif attribute=='rgb' %}{% set patch.channels={'color':{'kind':'constant','value':{'rgb':rgb|map('int')|list},'updated':stamp}} %}
+    {% elif attribute=='temperature' %}{% set patch.channels={'color':{'kind':'constant','value':{'kelvin':(1000000/(value|float))|round|int},'updated':stamp}} %}
+    {% endif %}
+    {% set body={'channels':patch.channels} %}{% if attribute=='effect' %}{% set body=dict(body,selection=value) %}{% endif %}
+    {% set n.records=n.records+[{'kind':'channels','key':'channels:ui:'~source~item.suffix,'source':'ui:'~source,'scope':item.scope,'target':item.target,'value':body}] %}
+   {% endif %}
+  {% endfor %}
+  {% if n.records and not n.errors %}{% set n.events=[{'op':'set','records':n.records,'via':'effects-house'}] %}{% endif %}
+ {% endif %}
+{% endif %}
+{{ {'valid':not n.errors,'errors':n.errors,'events':n.events if not n.errors else [],'commands':n.commands if not n.errors else [],'records':n.records if not n.errors else []} }}

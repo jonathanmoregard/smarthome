@@ -1,0 +1,97 @@
+{
+  "alias": "Switch Lamps \u00b7 Save Range",
+  "description": "Command-only TypeScript bridge. Dry-run/response queries use local RPC. ",
+  "icon": "mdi:lightbulb-cog-outline",
+  "mode": "queued",
+  "max": 20,
+  "fields": {
+    "entity": {
+      "name": "Lamp",
+      "required": true,
+      "description": "Choose the paired on/off lamp or smart plug.",
+      "selector": {
+        "entity": {
+          "filter": [
+            {
+              "domain": "switch"
+            },
+            {
+              "domain": "light"
+            }
+          ]
+        }
+      }
+    },
+    "profile": {
+      "name": "Brightness Range",
+      "required": true,
+      "default": "bright",
+      "selector": {
+        "select": {
+          "options": [
+            {
+              "value": "bright",
+              "label": "Bright Default"
+            },
+            {
+              "value": "cosy",
+              "label": "Cosy Default"
+            },
+            {
+              "value": "custom",
+              "label": "Own Range"
+            }
+          ],
+          "mode": "dropdown"
+        }
+      }
+    },
+    "minimum": {
+      "name": "Own Range \u00b7 From",
+      "description": "Used only with Own Range.",
+      "selector": {
+        "number": {
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "mode": "box",
+          "unit_of_measurement": "%"
+        }
+      }
+    },
+    "maximum": {
+      "name": "Own Range \u00b7 Through",
+      "description": "Used only with Own Range. Both ends are included.",
+      "selector": {
+        "number": {
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "mode": "box",
+          "unit_of_measurement": "%"
+        }
+      }
+    },
+    "dry_run": {
+      "name": "Dry Run",
+      "advanced": true,
+      "default": false,
+      "selector": {
+        "boolean": {}
+      }
+    }
+  },
+  "sequence": [
+    {
+      "condition": "template",
+      "value_template": "{{ not (dry_run | default(false)) }}"
+    },
+    {
+      "event": "smarthome_script",
+      "event_data": {
+        "script": "ls_range_save",
+        "args": "{% set n=namespace(args={}) %}{% if entity is defined %}{% set n.args=dict(n.args,entity=entity) %}{% endif %}{% if profile is defined %}{% set n.args=dict(n.args,profile=profile) %}{% endif %}{% if minimum is defined %}{% set n.args=dict(n.args,minimum=minimum) %}{% endif %}{% if maximum is defined %}{% set n.args=dict(n.args,maximum=maximum) %}{% endif %}{% if dry_run is defined %}{% set n.args=dict(n.args,dry_run=dry_run) %}{% endif %}{{ n.args }}"
+      }
+    }
+  ]
+}

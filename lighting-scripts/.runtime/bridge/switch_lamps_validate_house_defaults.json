@@ -1,0 +1,33 @@
+{
+  "id": "lighting_switch_range_defaults",
+  "alias": "Switch Lamps \u00b7 Validate House Defaults",
+  "description": "TypeScript trigger bridge. Publish complete valid intervals through the sole configuration writer. Invalid editing values leave the last valid defaults active. This automation never operates devices.",
+  "triggers": [
+    {
+      "trigger": "state",
+      "entity_id": [
+        "input_number.ls_range_bright_min",
+        "input_number.ls_range_bright_max",
+        "input_number.ls_range_cosy_min",
+        "input_number.ls_range_cosy_max"
+      ]
+    },
+    {
+      "trigger": "homeassistant",
+      "event": "start"
+    }
+  ],
+  "actions": [
+    {
+      "event": "smarthome_script",
+      "event_data": {
+        "script": "automation.switch_lamps_validate_house_defaults",
+        "args": {
+          "trigger": "{% set n=namespace(data={}) %}\n{% for key in ['id','platform','entity_id','topic','payload','payload_json'] %}\n {% if trigger[key] is defined %}{% set n.data=dict(n.data,**{key:trigger[key]}) %}{% endif %}\n{% endfor %}\n{% for key in ['to_state','from_state','event'] %}\n {% if trigger[key] is defined %}{% set value=trigger[key] %}\n  {% set n.data=dict(n.data,**{key:(value.as_dict() if value is not none else none)}) %}\n {% endif %}\n{% endfor %}\n{{ n.data | to_json | from_json }}"
+        }
+      }
+    }
+  ],
+  "mode": "queued",
+  "max": 10
+}

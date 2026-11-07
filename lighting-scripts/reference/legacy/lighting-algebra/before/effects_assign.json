@@ -1,0 +1,139 @@
+{
+  "success": true,
+  "action": "get",
+  "script_id": "effects_assign",
+  "config": {
+    "alias": "Effects · Assign ownership",
+    "description": "",
+    "mode": "queued",
+    "sequence": [
+      {
+        "variables": {
+          "rev": "{{ revision|default(states.sensor.ls_overrides.last_updated.isoformat()) }}",
+          "old": "{{ state_attr('sensor.effects_controller','assignments') or {} }}"
+        }
+      },
+      {
+        "if": [
+          {
+            "condition": "template",
+            "value_template": "{{ assignments != old or state_attr('sensor.effects_controller','revision') != rev }}"
+          }
+        ],
+        "then": [
+          {
+            "action": "script.turn_off",
+            "target": {
+              "entity_id": "script.effects_engine"
+            }
+          },
+          {
+            "action": "script.effects_catalog",
+            "response_variable": "catalog"
+          },
+          {
+            "repeat": {
+              "for_each": "{{ old.keys()|list }}",
+              "sequence": [
+                {
+                  "variables": {
+                    "owner": "{{ repeat.item }}"
+                  }
+                },
+                {
+                  "if": [
+                    {
+                      "condition": "template",
+                      "value_template": "{{ old[owner] != assignments.get(owner) and 'native' in catalog.effects.get(old[owner].effect,{}) and is_state(owner,'on') }}"
+                    }
+                  ],
+                  "then": [
+                    {
+                      "repeat": {
+                        "for_each": "{{ catalog.members.get(owner,[]) }}",
+                        "sequence": [
+                          {
+                            "action": "mqtt.publish",
+                            "data": {
+                              "topic": "{{ catalog.topics[repeat.item] }}",
+                              "payload": "{\"effect\":\"stop_colorloop\"}",
+                              "qos": 0,
+                              "retain": false
+                            }
+                          },
+                          {
+                            "delay": {
+                              "milliseconds": 100
+                            }
+                          },
+                          {
+                            "action": "mqtt.publish",
+                            "data": {
+                              "topic": "{{ catalog.topics[repeat.item] }}",
+                              "payload": "{\"effect\":\"stop_effect\"}",
+                              "qos": 0,
+                              "retain": false
+                            }
+                          },
+                          {
+                            "delay": {
+                              "milliseconds": 100
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "action": "mqtt.publish",
+            "data": {
+              "topic": "house/v1/effects/controller",
+              "payload": "{{ {'assignments':assignments,'revision':rev}|to_json }}",
+              "qos": 0,
+              "retain": true
+            }
+          },
+          {
+            "wait_template": "{{ state_attr('sensor.effects_controller','assignments') == assignments and state_attr('sensor.effects_controller','revision') == rev }}",
+            "timeout": 2,
+            "continue_on_timeout": false
+          }
+        ]
+      },
+      {
+        "if": [
+          {
+            "condition": "template",
+            "value_template": "{{ assignments|count > 0 and is_state('script.effects_engine','off') and rev == states.sensor.ls_overrides.last_updated.isoformat() }}"
+          }
+        ],
+        "then": [
+          {
+            "action": "script.turn_on",
+            "target": {
+              "entity_id": "script.effects_engine"
+            }
+          }
+        ]
+      }
+    ],
+    "max": 50,
+    "fields": {
+      "assignments": {
+        "selector": {
+          "object": {}
+        }
+      },
+      "revision": {
+        "selector": {
+          "object": {}
+        }
+      }
+    }
+  },
+  "config_hash": "30bf3f43a8376b45"
+}

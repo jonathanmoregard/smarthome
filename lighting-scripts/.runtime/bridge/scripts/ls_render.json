@@ -1,0 +1,20 @@
+{
+  "alias": "Lighting \u00b7 Render Latest Pending State",
+  "mode": "queued",
+  "sequence": [
+    {
+      "condition": "template",
+      "value_template": "{{ not (dry_run | default(false)) }}"
+    },
+    {
+      "event": "smarthome_script",
+      "event_data": {
+        "script": "ls_render",
+        "args": "{% set n=namespace(args={}) %}{{ n.args }}"
+      }
+    }
+  ],
+  "fields": {},
+  "max": 100,
+  "description": "Command-only TypeScript bridge. Dry-run/response queries use local RPC. "
+}

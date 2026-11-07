@@ -1,0 +1,93 @@
+{# One logical input stream per room; each source keeps a bounded snapshot.
+   The most recent snapshot includes preceding inputs from the room's other
+   remotes, so alternating devices cannot drop or apply a click twice. #}
+{% macro latest_remote_key(records,room) -%}
+ {% set pick=namespace(key='',stamp=-1) %}
+ {% for key,r in records|dictsort if r is mapping and r.get('scope')=='room' and r.get('target')==room and (r.get('kind')=='input' or (r.get('kind')=='channels' and r.get('via')=='remote')) %}
+  {% set stamp=as_timestamp(r.get('when'),0) %}
+  {% if stamp>=pick.stamp %}{% set pick.key=key %}{% set pick.stamp=stamp %}{% endif %}
+ {% endfor %}
+ {{- pick.key|to_json -}}
+{%- endmacro %}
+
+{% macro profile(entity) -%}
+{% set a=state_attr(entity,'brightness')|int(255) %}
+{{ {'brightness':a,'color':({'kelvin':state_attr(entity,'color_temp_kelvin')|int(3000)} if state_attr(entity,'color_mode')=='color_temp' else {'rgb':(state_attr(entity,'rgb_color') or [255,255,255])|list})}|to_json }}
+{%- endmacro %}
+{% set T=(as_datetime(test_now)|as_local) if test_now is defined and test_now else now() %}
+{% set n=namespace(targets={}) %}
+{% for L,p in plan.profiles.items() %}
+ {% set v=namespace(brightness=p.brightness,color={'kelvin':3000},on=p.on,day={},cosy={},transition=3) %}
+ {% for c in plan.cmds %}
+  {% set ids=['light.kitchen_pendant','light.kitchen_spots_1','light.kitchen_spots_2'] + (c.ids|reject('eq','light.kitchen_all')|list) if 'light.kitchen_all' in c.ids else c.ids %}
+  {% if L in ids %}
+   {% set v.transition=c.get('transition',3) %}
+   {% if c.kind in ['ct','rgb'] %}{% set v.brightness=c.brightness %}{% set v.color={'kelvin':c.kelvin} if c.kind=='ct' else {'rgb':c.rgb} %}
+   {% elif c.kind=='off' %}{% set v.on=false %}{% endif %}
+  {% endif %}
+ {% endfor %}
+ {% for block in ['day','cosy'] %}
+  {% set scope=p.area if p.area and is_state('input_boolean.ls_'~p.area~'_'~block~'_own_light','on') else 'house' %}
+  {% set own=(states('input_text.ls_lamp_'~L.split('.')[1]~'_'~block)|from_json({})).get('own',false) %}
+  {% set entity=('light.ls_lamp_'~L.split('.')[1]~'_'~block) if own else 'light.ls_'~scope~'_'~block %}
+  {% set pr=profile(entity)|from_json %}
+  {% if block=='day' %}{% set v.day=pr %}{% else %}{% set v.cosy=pr %}{% endif %}
+ {% endfor %}
+ {% set n.targets=dict(n.targets,**{L:dict(p,is_room=false,brightness=v.brightness,color=v.color,on=v.on,day=v.day,cosy=v.cosy,transition=v.transition,observed=profile(L)|from_json)}) %}
+{% endfor %}
+{% for area,S in plan.schedule_details.items() if area!='house' and (not room_only or area==room_only) %}
+ {% set expired=namespace(keys=[]) %}
+ {% if is_state('input_boolean.ls_ovr_next_block_on','on') %}
+  {% for key,r in overrides.items() if r is mapping %}
+   {% set applies=(r.get('scope')=='room' and r.target==area) or (r.get('scope')=='house' and area not in label_areas('private_room')) or (key=='mode:sara' and area not in label_areas('private_room')) or (r.kind=='block' and r.target==area) %}
+   {% if applies and as_timestamp(r.get('when'),0)<=S.last_fs %}{% set expired.keys=expired.keys+[key] %}{% endif %}
+  {% endfor %}
+ {% endif %}
+ {% set remote_input_key=latest_remote_key(overrides,area)|from_json %}
+ {% set period=namespace(value=S.cur or 'night',stamp=0,explicit=false) %}
+ {% for key,r in overrides|dictsort if r is mapping and key not in expired.keys %}
+  {% set value=r.get('value') %}
+  {% set matches=(r.kind=='block' and r.target==area) or (r.kind in ['channels','input'] and ((r.get('scope')=='room' and r.target==area) or (r.get('scope')=='house' and area not in label_areas('private_room')))) %}
+  {% set chosen=value if r.kind=='block' else value.get('period') if value is mapping else none %}
+  {% set stamp=value.get('period_updated',as_timestamp(r.get('when'),0)) if value is mapping else as_timestamp(r.get('when'),0) %}
+  {% if matches and (not (r.get('scope')=='room' and (r.get('kind')=='input' or (r.get('kind')=='channels' and r.get('via')=='remote'))) or key==remote_input_key) and chosen in ['day','cosy','night'] and stamp>=period.stamp %}{% set period.value=chosen %}{% set period.stamp=stamp %}{% set period.explicit=true %}{% endif %}
+ {% endfor %}
+ {% set st=namespace(fr=period.value,to=(S.nxt if S.fading and not period.explicit else period.value),p=(S.p if not period.explicit else 0),moving=S.fading and not period.explicit) %}
+ {# Preserve the schedule planner's wake interval and completed-wake Day hold. #}
+ {% if not period.explicit and has_value('input_datetime.ls_'~area~'_wake') %}
+  {% set wts=state_attr('input_datetime.ls_'~area~'_wake','timestamp')|float(0) %}
+  {% set duration=states('input_number.ls_'~area~'_wake_fade')|float(37.5)*60 %}
+  {% set elapsed=as_timestamp(T)-wts %}
+  {% if 0<=elapsed<duration and S.cur=='night' and S.cur_ts<=wts %}
+   {% set st.fr,st.to,st.p,st.moving='night','day',elapsed/duration,true %}
+  {% elif duration<=elapsed<86400 and 4<=(as_datetime(wts)|as_local).hour<11 and S.cur=='night' and S.cur_ts<=wts and (not S.fading or S.nxt=='day') %}
+   {% set st.fr,st.to,st.p,st.moving='day','day',0,false %}
+  {% endif %}
+ {% endif %}
+ {% set period.value=st.fr %}
+ {% set v=namespace(day={},cosy={},selected={},profiles={},effect='Normal light',on=true) %}
+ {% for block in ['day','cosy','night'] %}
+  {% set scope=area if is_state('input_boolean.ls_'~area~'_'~block~'_own_light','on') else 'house' %}
+  {% set pr=profile('light.ls_'~scope~'_'~block)|from_json %}
+  {% set entity='light.ls_'~scope~'_'~block %}
+  {% set v.profiles=dict(v.profiles,**{block:dict(pr,on=is_state(entity,'on'),rgb=(state_attr(entity,'rgb_color') or [255,255,255])|list)}) %}
+  {% if block=='day' %}{% set v.day=pr %}{% elif block=='cosy' %}{% set v.cosy=pr %}{% endif %}
+  {% if block==period.value %}{% set v.selected=pr %}{% set saved=states('input_text.ls_'~scope~'_'~block)|from_json({}) %}{% set v.effect=saved.get('effect','Normal light') %}{% set v.on=saved.get('on',true) %}{% endif %}
+ {% endfor %}
+ {% set A,B=v.profiles[st.fr],v.profiles[st.to] %}
+ {% if not st.moving or not A.on %}
+  {% set v.selected={'brightness':B.brightness,'color':B.color} %}{% set v.on=B.on %}
+ {% elif not B.on %}
+  {% set v.selected={'brightness':[1,(A.brightness*(1-st.p))|round|int]|max,'color':A.color} %}{% set v.on=A.on %}
+ {% else %}
+  {% set brightness=(A.brightness+(B.brightness-A.brightness)*st.p)|round|int %}
+  {% if 'kelvin' in A.color and 'kelvin' in B.color %}
+   {% set color={'kelvin':(A.color.kelvin+(B.color.kelvin-A.color.kelvin)*st.p)|round|int} %}
+  {% else %}
+   {% set color={'rgb':[(A.rgb[0]+(B.rgb[0]-A.rgb[0])*st.p)|round|int,(A.rgb[1]+(B.rgb[1]-A.rgb[1])*st.p)|round|int,(A.rgb[2]+(B.rgb[2]-A.rgb[2])*st.p)|round|int]} %}
+  {% endif %}
+  {% set v.selected={'brightness':brightness,'color':color} %}{% set v.on=true %}
+ {% endif %}
+ {% set n.targets=dict(n.targets,**{'room:'~area:dict(v.selected,area=area,is_room=true,period=period.value,effect=v.effect,on=v.on,day=v.day,cosy=v.cosy,ignore_overrides=expired.keys)}) %}
+{% endfor %}
+{{ {'targets':n.targets,'schedule':plan} }}

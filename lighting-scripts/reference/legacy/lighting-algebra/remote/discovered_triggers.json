@@ -1,0 +1,60 @@
+{
+  "success": true,
+  "ws_command": "device_automation/trigger/list",
+  "parameters": {
+    "device_id": "0752f2b4e9a0992ac8efc2af1f53c62a"
+  },
+  "result": [
+    {
+      "platform": "device",
+      "domain": "mqtt",
+      "device_id": "0752f2b4e9a0992ac8efc2af1f53c62a",
+      "type": "action",
+      "subtype": "brightness_step_up",
+      "metadata": {}
+    },
+    {
+      "platform": "device",
+      "domain": "mqtt",
+      "device_id": "0752f2b4e9a0992ac8efc2af1f53c62a",
+      "type": "action",
+      "subtype": "on",
+      "metadata": {}
+    },
+    {
+      "platform": "device",
+      "domain": "mqtt",
+      "device_id": "0752f2b4e9a0992ac8efc2af1f53c62a",
+      "type": "action",
+      "subtype": "brightness_step_down",
+      "metadata": {}
+    },
+    {
+      "platform": "device",
+      "domain": "mqtt",
+      "device_id": "0752f2b4e9a0992ac8efc2af1f53c62a",
+      "type": "action",
+      "subtype": "brightness_move_to_level",
+      "metadata": {}
+    },
+    {
+      "platform": "device",
+      "domain": "mqtt",
+      "device_id": "0752f2b4e9a0992ac8efc2af1f53c62a",
+      "type": "action",
+      "subtype": "color_temperature_move",
+      "metadata": {}
+    },
+    {
+      "type": "battery_level",
+      "platform": "device",
+      "device_id": "0752f2b4e9a0992ac8efc2af1f53c62a",
+      "entity_id": "906ffc71a6c43a3cad810a83d352fedf",
+      "domain": "sensor",
+      "metadata": {
+        "secondary": true
+      }
+    }
+  ],
+  "message": "Successfully executed WebSocket command 'device_automation/trigger/list'"
+}

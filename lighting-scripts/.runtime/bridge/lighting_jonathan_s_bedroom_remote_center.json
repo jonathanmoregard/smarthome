@@ -1,0 +1,31 @@
+{
+  "id": "lighting_remote_0x385b44fffea4fc67_center",
+  "alias": "Lighting \u00b7 Bedroom Remote Center",
+  "description": "TypeScript trigger bridge. Queue every raw POWER event into its quick state owner; no listener gaps or waits.",
+  "triggers": [
+    {
+      "trigger": "mqtt",
+      "topic": "zigbee2mqtt/0x385b44fffea4fc67/action",
+      "payload": "on"
+    },
+    {
+      "trigger": "mqtt",
+      "topic": "zigbee2mqtt/0x385b44fffea4fc67/action",
+      "payload": "off"
+    }
+  ],
+  "actions": [
+    {
+      "event": "smarthome_script",
+      "event_data": {
+        "script": "automation.lighting_jonathan_s_bedroom_remote_center",
+        "args": {
+          "trigger": "{% set n=namespace(data={}) %}\n{% for key in ['id','platform','entity_id','topic','payload','payload_json'] %}\n {% if trigger[key] is defined %}{% set n.data=dict(n.data,**{key:trigger[key]}) %}{% endif %}\n{% endfor %}\n{% for key in ['to_state','from_state','event'] %}\n {% if trigger[key] is defined %}{% set value=trigger[key] %}\n  {% set n.data=dict(n.data,**{key:(value.as_dict() if value is not none else none)}) %}\n {% endif %}\n{% endfor %}\n{{ n.data | to_json | from_json }}",
+          "room": "bedroom"
+        }
+      }
+    }
+  ],
+  "mode": "queued",
+  "max": 50
+}

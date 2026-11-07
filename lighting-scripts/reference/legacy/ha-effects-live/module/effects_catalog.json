@@ -1,0 +1,158 @@
+{
+  "alias": "Effects \u00b7 Catalogue",
+  "description": "Single registration point for effects and transport endpoints. Renderers return a payload; the central engine owns all sending and timing.",
+  "mode": "parallel",
+  "sequence": [
+    {
+      "variables": {
+        "result": {
+          "effects": {
+            "Candle": {
+              "renderer": "script.effect_candle_frame"
+            },
+            "Breathe": {
+              "native": "breathe"
+            },
+            "Colour loop": {
+              "native": "colorloop"
+            }
+          },
+          "members": {
+            "light.jonathan_bedroom_floor_lamp": [
+              "light.jonathan_bedroom_floor_lamp"
+            ],
+            "light.upper_hall_stair_lamp": [
+              "light.upper_hall_stair_lamp"
+            ],
+            "light.upper_hall_ceiling": [
+              "light.upper_hall_ceiling"
+            ],
+            "light.living_room_desk_ceiling": [
+              "light.living_room_desk_ceiling"
+            ],
+            "light.living_room_hall_ceiling": [
+              "light.living_room_hall_ceiling"
+            ],
+            "light.living_room_vicky_desk_lamp": [
+              "light.living_room_vicky_desk_lamp"
+            ],
+            "light.living_room_table_lamp": [
+              "light.living_room_table_lamp"
+            ],
+            "light.living_room_window_lamp": [
+              "light.living_room_window_lamp"
+            ],
+            "light.living_room_yellow_retro_lamp": [
+              "light.living_room_yellow_retro_lamp"
+            ],
+            "light.kitchen_pendant": [
+              "light.kitchen_pendant_bulb_1",
+              "light.kitchen_pendant_bulb_2",
+              "light.kitchen_pendant_bulb_3"
+            ],
+            "light.kitchen_spots_1": [
+              "light.kitchen_spots_1_bulb_1",
+              "light.kitchen_spots_1_bulb_2",
+              "light.kitchen_spots_1_bulb_3"
+            ],
+            "light.kitchen_spots_2": [
+              "light.kitchen_spots_2_bulb_1",
+              "light.kitchen_spots_2_bulb_2",
+              "light.kitchen_spots_2_bulb_3"
+            ],
+            "light.meditation_floor_lamp": [
+              "light.meditation_floor_lamp_bulb_1",
+              "light.meditation_floor_lamp_bulb_2"
+            ],
+            "light.jonathan_bedroom_ceiling": [
+              "light.jonathan_bedroom_ceiling"
+            ],
+            "light.meditation_ceiling": [
+              "light.meditation_ceiling"
+            ],
+            "light.living_room_sofa_table_ceiling": [
+              "light.living_room_sofa_table_ceiling"
+            ]
+          },
+          "groups": {
+            "light.home": [
+              "light.jonathan_bedroom_floor_lamp",
+              "light.upper_hall_stair_lamp",
+              "light.upper_hall_ceiling",
+              "light.living_room_desk_ceiling",
+              "light.living_room_hall_ceiling",
+              "light.living_room_vicky_desk_lamp",
+              "light.living_room_table_lamp",
+              "light.living_room_window_lamp",
+              "light.living_room_yellow_retro_lamp",
+              "light.kitchen_pendant",
+              "light.kitchen_spots_1",
+              "light.kitchen_spots_2",
+              "light.meditation_floor_lamp",
+              "light.jonathan_bedroom_ceiling",
+              "light.meditation_ceiling",
+              "light.living_room_sofa_table_ceiling"
+            ],
+            "light.kitchen_all": [
+              "light.kitchen_pendant",
+              "light.kitchen_spots_1",
+              "light.kitchen_spots_2"
+            ],
+            "light.living_room": [
+              "light.living_room_desk_ceiling",
+              "light.living_room_hall_ceiling",
+              "light.living_room_vicky_desk_lamp",
+              "light.living_room_table_lamp",
+              "light.living_room_window_lamp",
+              "light.living_room_yellow_retro_lamp",
+              "light.living_room_sofa_table_ceiling"
+            ],
+            "light.upper_hall": [
+              "light.upper_hall_stair_lamp",
+              "light.upper_hall_ceiling"
+            ],
+            "light.jonathan_bedroom": [
+              "light.jonathan_bedroom_floor_lamp",
+              "light.jonathan_bedroom_ceiling"
+            ],
+            "light.meditation_mys_all": [
+              "light.meditation_floor_lamp",
+              "light.meditation_ceiling"
+            ]
+          },
+          "topics": {
+            "light.kitchen_pendant_bulb_1": "zigbee2mqtt/0xa4c138e778a7b45f/set",
+            "light.kitchen_pendant_bulb_2": "zigbee2mqtt/0xa4c1389a579ab983/set",
+            "light.kitchen_pendant_bulb_3": "zigbee2mqtt/0xa4c1389f87b76e60/set",
+            "light.kitchen_spots_1_bulb_1": "zigbee2mqtt/0xa4c1381f885b082f/set",
+            "light.kitchen_spots_1_bulb_2": "zigbee2mqtt/0xa4c1387e4cfba78d/set",
+            "light.kitchen_spots_1_bulb_3": "zigbee2mqtt/0xa4c138a884038127/set",
+            "light.kitchen_spots_2_bulb_1": "zigbee2mqtt/0xa4c1386736786442/set",
+            "light.kitchen_spots_2_bulb_2": "zigbee2mqtt/0xa4c138a50ae5ba5a/set",
+            "light.kitchen_spots_2_bulb_3": "zigbee2mqtt/0xa4c1381a2f63601c/set",
+            "light.meditation_floor_lamp_bulb_1": "zigbee2mqtt/Mys golvlampa 1/set",
+            "light.meditation_floor_lamp_bulb_2": "zigbee2mqtt/Mys golvlampa 2/set",
+            "light.meditation_ceiling": "zigbee2mqtt/0xa4c138eec10a5f95/set",
+            "light.jonathan_bedroom_ceiling": "zigbee2mqtt/0xa4c1387f3e38e505/set",
+            "light.jonathan_bedroom_floor_lamp": "zigbee2mqtt/0xa4c13889ddf1c22e/set",
+            "light.living_room_table_lamp": "zigbee2mqtt/0xa4c138502d6c44cd/set",
+            "light.living_room_desk_ceiling": "zigbee2mqtt/0xa4c13836b344b302/set",
+            "light.living_room_hall_ceiling": "zigbee2mqtt/0xa4c13850c80ed98f/set",
+            "light.living_room_sofa_table_ceiling": "zigbee2mqtt/0xa4c138292a2d7f60/set",
+            "light.living_room_vicky_desk_lamp": "zigbee2mqtt/0x7cc6b6fffe3cef1c/set",
+            "light.living_room_window_lamp": "zigbee2mqtt/0xa4c13825783eff26/set",
+            "light.living_room_yellow_retro_lamp": "zigbee2mqtt/0xa4c1386c73f1db49/set",
+            "light.upper_hall_ceiling": "zigbee2mqtt/0xa4c138f013c2624e/set",
+            "light.upper_hall_stair_lamp": "zigbee2mqtt/0xa4c138b95e526424/set"
+          },
+          "budget": 10
+        }
+      }
+    },
+    {
+      "stop": "Return result",
+      "response_variable": "result"
+    }
+  ],
+  "max": 50
+}

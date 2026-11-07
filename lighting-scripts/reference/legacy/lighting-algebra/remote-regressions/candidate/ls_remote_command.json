@@ -1,0 +1,132 @@
+{
+  "alias": "Lighting \u00b7 Room Remote Input",
+  "mode": "queued",
+  "sequence": [
+    {
+      "if": [
+        {
+          "condition": "template",
+          "value_template": "{{ dry_run|default(false) }}"
+        }
+      ],
+      "then": [
+        {
+          "action": "script.ls_remote_plan",
+          "data": {
+            "source": "{{ source }}",
+            "area": "{{ area }}",
+            "command": "{{ command }}"
+          },
+          "response_variable": "result"
+        },
+        {
+          "stop": "Return result",
+          "response_variable": "result"
+        }
+      ]
+    },
+    {
+      "repeat": {
+        "sequence": [
+          {
+            "action": "script.ls_remote_plan",
+            "data": {
+              "source": "{{ source }}",
+              "area": "{{ area }}",
+              "command": "{{ command }}"
+            },
+            "response_variable": "result"
+          },
+          {
+            "if": [
+              {
+                "condition": "template",
+                "value_template": "{{ result.op=='noop' }}"
+              }
+            ],
+            "then": [
+              {
+                "variables": {
+                  "committed": {
+                    "accepted": true
+                  }
+                }
+              }
+            ],
+            "else": [
+              {
+                "action": "script.ls_commit",
+                "data": {
+                  "data": "{{ dict(result,expected_revision=result.input_revision,area=area,via='remote',source=source) }}"
+                },
+                "response_variable": "committed"
+              }
+            ]
+          }
+        ],
+        "until": [
+          {
+            "condition": "template",
+            "value_template": "{{ committed.accepted }}"
+          }
+        ]
+      }
+    },
+    {
+      "if": [
+        {
+          "condition": "template",
+          "value_template": "{{ result.op=='power' }}"
+        }
+      ],
+      "then": [
+        {
+          "action": "{{ \"homeassistant.turn_on\" if result.on else \"homeassistant.turn_off\" }}",
+          "target": {
+            "entity_id": "{{ result.targets }}"
+          }
+        },
+        {
+          "if": [
+            {
+              "condition": "template",
+              "value_template": "{{ result.on }}"
+            }
+          ],
+          "then": [
+            {
+              "action": "script.ls_apply",
+              "data": {
+                "reason": "lamp_on",
+                "lights": "{{ result.targets }}"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "fields": {
+    "source": {
+      "selector": {
+        "object": {}
+      }
+    },
+    "area": {
+      "selector": {
+        "object": {}
+      }
+    },
+    "command": {
+      "selector": {
+        "object": {}
+      }
+    },
+    "dry_run": {
+      "selector": {
+        "object": {}
+      }
+    }
+  },
+  "max": 100
+}

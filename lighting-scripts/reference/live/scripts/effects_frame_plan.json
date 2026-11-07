@@ -1,0 +1,151 @@
+{
+  "success": true,
+  "action": "get",
+  "script_id": "effects_frame_plan",
+  "config": {
+    "alias": "Effects · Compose lamp frames",
+    "mode": "parallel",
+    "sequence": [
+      {
+        "variables": {
+          "rows": [],
+          "frames": {}
+        }
+      },
+      {
+        "repeat": {
+          "for_each": "{{ targets.keys()|list }}",
+          "sequence": [
+            {
+              "variables": {
+                "lamp": "{{ repeat.item }}",
+                "target": "{{ targets[lamp] }}",
+                "payload": {},
+                "frames": {}
+              }
+            },
+            {
+              "repeat": {
+                "for_each": "{{ ['brightness'] if animation_tick|default(false) and target.color.kind=='effect' and target.color.effect=='Candle' else ['brightness','color'] }}",
+                "sequence": [
+                  {
+                    "variables": {
+                      "channel": "{{ repeat.item }}",
+                      "source": "{{ target[channel] }}",
+                      "value": "{{ source.get(\"value\") }}"
+                    }
+                  },
+                  {
+                    "if": [
+                      {
+                        "condition": "template",
+                        "value_template": "{{ source.kind=='effect' and source.effect in catalog.effects }}"
+                      }
+                    ],
+                    "then": [
+                      {
+                        "variables": {
+                          "frame_key": "{{ source.instance ~ \":\" ~ source.effect }}"
+                        }
+                      },
+                      {
+                        "if": [
+                          {
+                            "condition": "template",
+                            "value_template": "{{ frame_key not in frames }}"
+                          }
+                        ],
+                        "then": [
+                          {
+                            "action": "{{ catalog.effects[source.effect].renderer }}",
+                            "data": {
+                              "timestamp": "{{ timestamp }}",
+                              "brightness": "{{ source.intensity }}",
+                              "transition": 0.4,
+                              "phase": "{{ catalog.phases.get(lamp,lamp) }}"
+                            },
+                            "response_variable": "frame"
+                          },
+                          {
+                            "variables": {
+                              "frames": "{{ dict(frames,**{frame_key:frame}) }}"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "variables": {
+                          "value": "{{ frames[frame_key].brightness if channel=='brightness' else {'rgb':frames[frame_key].rgb} }}"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "variables": {
+                      "payload": "{{ dict(payload,brightness=([1,[254,value|float]|min]|max)|round|int) if channel=='brightness' else dict(payload,**({'color_temp':(1000000/value.kelvin)|round|int} if 'kelvin' in value else {'color':{'rgb':value.rgb|join(',')}})) }}"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "variables": {
+                "payload": "{% set manual=target.get('owners',{}).values()|select('match','^channels:')|list|count>0 %}{% set transition=(0.4 if target.brightness.kind=='effect' or target.color.kind=='effect' else 0.2 if manual else target.get('transition',3)) if target.on else target.get('transition',3) %}{% set transition=[transition,transition_cap]|min if transition_cap|default(none) is number and (transition_rooms|default(none) is not sequence or target.area in transition_rooms) else transition %}{{ dict(payload,transition=transition) if target.on else {'state':'OFF','transition':transition} }}",
+                "rows": "{% set n=namespace(rows=rows) %}{% if is_state(lamp,'on') %}{% for E in catalog.members.get(lamp,[]) if is_state(E,'on') %}{% set n.rows=n.rows+[{'entity':E,'owner':lamp,'topic':catalog.topics[E],'payload':payload}] %}{% endfor %}{% endif %}{{ n.rows }}"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "action": "script.effects_group_plan",
+        "data": {
+          "rows": "{{ rows }}",
+          "groups": "{{ catalog.multicast }}"
+        },
+        "response_variable": "result"
+      },
+      {
+        "stop": "Return result",
+        "response_variable": "result"
+      }
+    ],
+    "max": 50,
+    "fields": {
+      "targets": {
+        "selector": {
+          "object": {}
+        }
+      },
+      "catalog": {
+        "selector": {
+          "object": {}
+        }
+      },
+      "timestamp": {
+        "selector": {
+          "object": {}
+        }
+      },
+      "transition_cap": {
+        "selector": {
+          "object": {}
+        }
+      },
+      "transition_rooms": {
+        "selector": {
+          "object": {}
+        }
+      },
+      "animation_tick": {
+        "default": false,
+        "selector": {
+          "boolean": {}
+        },
+        "description": "Recurring animation admission; Candle's fixed color is only sent by full profile applications."
+      }
+    },
+    "description": "Compose current lamp channels; Candle uses a fixed warm color on profile application and brightness-only payloads on recurring animation ticks."
+  },
+  "config_hash": "e8f3fe56c7964886"
+}

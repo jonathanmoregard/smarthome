@@ -1,0 +1,35 @@
+{
+  "success": true,
+  "action": "get",
+  "automation_id": "automation.lighting_living_room_remote_directions",
+  "config": {
+    "id": "lighting_remote_0x385b44fffea50c99_directions",
+    "alias": "Lighting · Living Room Remote Directions",
+    "description": "Up/down pass through without a gesture wait; either cancels an incomplete arrow chord.",
+    "triggers": [
+      {
+        "trigger": "mqtt",
+        "topic": "zigbee2mqtt/0x385b44fffea50c99/action",
+        "payload": "brightness_step_up",
+        "id": "up"
+      },
+      {
+        "trigger": "mqtt",
+        "topic": "zigbee2mqtt/0x385b44fffea50c99/action",
+        "payload": "brightness_step_down",
+        "id": "down"
+      }
+    ],
+    "actions": [
+      {
+        "action": "script.ls_remote_gesture_living_room",
+        "data": {
+          "command": "{{ trigger.id }}"
+        }
+      }
+    ],
+    "mode": "queued",
+    "max": 50
+  },
+  "config_hash": "7e1c2a4c981cd205"
+}

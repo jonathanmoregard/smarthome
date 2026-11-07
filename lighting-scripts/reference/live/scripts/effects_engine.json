@@ -1,0 +1,113 @@
+{
+  "success": true,
+  "action": "get",
+  "script_id": "effects_engine",
+  "config": {
+    "alias": "Effects · Fair animation manager",
+    "mode": "single",
+    "sequence": [
+      {
+        "action": "script.effects_catalog",
+        "response_variable": "catalog"
+      },
+      {
+        "variables": {
+          "served": {},
+          "admission": 0
+        }
+      },
+      {
+        "repeat": {
+          "while": [
+            {
+              "condition": "template",
+              "value_template": "{{\n(state_attr('sensor.ls_effects_runtime','assignments') or {})|count>0\n}}"
+            },
+            {
+              "condition": "state",
+              "entity_id": "binary_sensor.zigbee2mqtt_bridge_connection_state",
+              "state": "on"
+            }
+          ],
+          "sequence": [
+            {
+              "delay": {
+                "milliseconds": 200
+              }
+            },
+            {
+              "if": [
+                {
+                  "condition": "template",
+                  "value_template": "{{\n(state_attr('sensor.ls_effects_runtime','assignments') or {})|count>0\n}}"
+                },
+                {
+                  "condition": "state",
+                  "entity_id": "binary_sensor.zigbee2mqtt_bridge_connection_state",
+                  "state": "on"
+                },
+                {
+                  "condition": "template",
+                  "value_template": "{{ state_attr('sensor.ls_effects_runtime','revision')==states.sensor.ls_overrides.last_updated.isoformat() }}"
+                }
+              ],
+              "then": [
+                {
+                  "variables": {
+                    "revision": "{{ state_attr('sensor.ls_effects_runtime','revision') }}",
+                    "generation": "{{ state_attr('sensor.ls_effects_runtime','generation') }}",
+                    "targets": "\n{% set n=namespace(targets={}) %}\n{% set power=state_attr('sensor.ls_overrides','power') or {} %}\n{% for lamp,target in (state_attr('sensor.ls_effects_runtime','assignments') or {}).items()\n   if lamp in catalog.members and is_state(lamp,'on') and target.on and power.get(area_id(lamp),true) %}\n {% set n.targets=dict(n.targets,**{lamp:target}) %}\n{% endfor %}{{ n.targets|to_json|from_json }}\n"
+                  }
+                },
+                {
+                  "action": "script.effects_frame_plan",
+                  "data": {
+                    "targets": "{{ targets }}",
+                    "catalog": "{{ catalog }}",
+                    "timestamp": "{{ as_timestamp(now()) }}",
+                    "animation_tick": true
+                  },
+                  "response_variable": "batch"
+                },
+                {
+                  "variables": {
+                    "chosen": "\n{% set n=namespace(command=none,age=none) %}\n{% for command in batch.commands|sort(attribute='topic') %}\n {% set age=namespace(value=-1) %}\n {% for member in command.members %}{% set age.value=[age.value,served.get(member,-1)]|max %}{% endfor %}\n {% if n.age is none or age.value<n.age %}{% set n.command=command %}{% set n.age=age.value %}{% endif %}\n{% endfor %}{{ n.command|to_json|from_json }}\n"
+                  }
+                },
+                {
+                  "if": [
+                    {
+                      "condition": "template",
+                      "value_template": "{{ chosen is mapping }}"
+                    }
+                  ],
+                  "then": [
+                    {
+                      "action": "script.effects_emit",
+                      "data": {
+                        "commands": "{{ [chosen] }}",
+                        "revision": "{{ revision }}",
+                        "generation": "{{ generation }}",
+                        "effect_targets": "{{ targets }}"
+                      },
+                      "response_variable": "emission"
+                    },
+                    {
+                      "variables": {
+                        "admission": "{{ admission+1 }}",
+                        "served": "\n{% set n=namespace(served=served) %}\n{% for member in chosen.members %}{% set n.served=dict(n.served,**{member:admission}) %}{% endfor %}\n{{ n.served }}\n"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "max_exceeded": "silent",
+    "description": "Animation-only 200 ms admissions. After each wait, snapshot current ownership and render fresh compatible groups; send at most one command, then discard the unsent frame. Least recently served physical members rotate fairly, with deterministic topic ties. No catch-up burst or sender-held sleep. Candle admissions omit the fixed color; full profile applications set it."
+  },
+  "config_hash": "21dd467c33d1ce4d"
+}

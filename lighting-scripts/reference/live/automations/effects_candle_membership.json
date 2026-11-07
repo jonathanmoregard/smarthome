@@ -1,0 +1,40 @@
+{
+  "success": true,
+  "action": "get",
+  "automation_id": "automation.effects_candle_membership",
+  "config": {
+    "id": "effects_candle_membership",
+    "alias": "Effects Candle Membership",
+    "triggers": [
+      {
+        "trigger": "state",
+        "entity_id": "sensor.ls_effects_runtime",
+        "attribute": "assignments"
+      },
+      {
+        "trigger": "state",
+        "entity_id": "binary_sensor.zigbee2mqtt_bridge_connection_state",
+        "to": "on"
+      },
+      {
+        "trigger": "homeassistant",
+        "event": "start"
+      },
+      {
+        "trigger": "time_pattern",
+        "seconds": "/15"
+      }
+    ],
+    "actions": [
+      {
+        "action": "script.turn_on",
+        "target": {
+          "entity_id": "script.effects_candle_sync"
+        }
+      }
+    ],
+    "mode": "single",
+    "max_exceeded": "silent"
+  },
+  "config_hash": "b0e8c7be35753650"
+}

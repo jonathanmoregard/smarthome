@@ -1,0 +1,38 @@
+{
+  "id": "effects_candle_membership",
+  "alias": "Effects Candle Membership",
+  "triggers": [
+    {
+      "trigger": "state",
+      "entity_id": "sensor.ls_effects_runtime",
+      "attribute": "assignments"
+    },
+    {
+      "trigger": "state",
+      "entity_id": "binary_sensor.zigbee2mqtt_bridge_connection_state",
+      "to": "on"
+    },
+    {
+      "trigger": "homeassistant",
+      "event": "start"
+    },
+    {
+      "trigger": "time_pattern",
+      "seconds": "/15"
+    }
+  ],
+  "actions": [
+    {
+      "event": "smarthome_script",
+      "event_data": {
+        "script": "automation.effects_candle_membership",
+        "args": {
+          "trigger": "{% set n=namespace(data={}) %}\n{% for key in ['id','platform','entity_id','topic','payload','payload_json'] %}\n {% if trigger[key] is defined %}{% set n.data=dict(n.data,**{key:trigger[key]}) %}{% endif %}\n{% endfor %}\n{% for key in ['to_state','from_state','event'] %}\n {% if trigger[key] is defined %}{% set value=trigger[key] %}\n  {% set n.data=dict(n.data,**{key:(value.as_dict() if value is not none else none)}) %}\n {% endif %}\n{% endfor %}\n{{ n.data | to_json | from_json }}"
+        }
+      }
+    }
+  ],
+  "mode": "single",
+  "max_exceeded": "silent",
+  "description": "TypeScript trigger bridge. "
+}

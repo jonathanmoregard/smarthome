@@ -1,0 +1,45 @@
+{
+  "success": true,
+  "action": "get",
+  "script_id": "effect_candle_frame",
+  "config": {
+    "alias": "Effects · Candle research renderer",
+    "description": "Pure Candle sample. Brightness flickers with one phase per logical lamp/cohort; color is the fixed warm endpoint. The frame planner includes color only when applying the effect, not on animation ticks. No device writes.",
+    "mode": "parallel",
+    "sequence": [
+      {
+        "variables": {
+          "result": "{% set frame = (timestamp|float / 0.15)|int %}\n{% set n=namespace(x=28 * 0.35**6) %}\n{% for i in range(6) %}\n  {% set seed = ((frame-i)|string ~ ':' ~ (phase|default('default')) ~ ':research-v2')|sha256 %}\n  {% set raw = 20 + (seed[:8]|int(base=16) % 17) %}\n  {% set n.x=n.x + 0.65 * 0.35**i * raw %}\n{% endfor %}\n{% set noise=states('input_number.candle_test_noise')|float(0.8) %}\n{% set ceiling=[1,[254,brightness|int(150)]|min]|max %}\n{% set floor=[1,(ceiling/4)|round|int]|max %}\n{% set level=[floor,[ceiling,(ceiling*(28+noise*(n.x-28))/36)|round|int]|min]|max %}\n{% set A=state_attr('light.candle_test_rgb_warm_end','rgb_color') or [255,126,0] %}\n{{ {'brightness':level,'rgb':A,'transition':transition|float(0.2)} }}"
+        }
+      },
+      {
+        "stop": "Return result",
+        "response_variable": "result"
+      }
+    ],
+    "max": 50,
+    "fields": {
+      "timestamp": {
+        "selector": {
+          "object": {}
+        }
+      },
+      "brightness": {
+        "selector": {
+          "object": {}
+        }
+      },
+      "transition": {
+        "selector": {
+          "object": {}
+        }
+      },
+      "phase": {
+        "selector": {
+          "text": {}
+        }
+      }
+    }
+  },
+  "config_hash": "2d4ca94c9c1bc40e"
+}

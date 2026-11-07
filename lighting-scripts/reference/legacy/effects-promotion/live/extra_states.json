@@ -1,0 +1,777 @@
+[
+  {
+    "entity_id": "switch.ls_lamp_jonathan_bedroom_floor_lamp_day_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp jonathan_bedroom_floor_lamp day override"
+    },
+    "last_changed": "2026-10-14T21:09:39.118721+02:00",
+    "last_reported": "2026-10-14T21:09:39.118721+02:00",
+    "last_updated": "2026-10-14T21:09:39.118721+02:00",
+    "context": {
+      "id": "01M4XX3YDEMP6ANMWHHJKBE5F4",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_upper_hall_stair_lamp_day_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp upper_hall_stair_lamp day override"
+    },
+    "last_changed": "2026-10-14T21:09:39.129334+02:00",
+    "last_reported": "2026-10-14T21:09:39.129334+02:00",
+    "last_updated": "2026-10-14T21:09:39.129334+02:00",
+    "context": {
+      "id": "01M4XX3YDSF3WXYJY6FT0B03D1",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_upper_hall_ceiling_day_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp upper_hall_ceiling day override"
+    },
+    "last_changed": "2026-10-14T21:09:39.140615+02:00",
+    "last_reported": "2026-10-14T21:09:39.140615+02:00",
+    "last_updated": "2026-10-14T21:09:39.140615+02:00",
+    "context": {
+      "id": "01M4XX3YE4YJBYNNHP045RRKGT",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_living_room_desk_ceiling_day_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp living_room_desk_ceiling day override"
+    },
+    "last_changed": "2026-10-14T21:09:39.151010+02:00",
+    "last_reported": "2026-10-14T21:09:39.151010+02:00",
+    "last_updated": "2026-10-14T21:09:39.151010+02:00",
+    "context": {
+      "id": "01M4XX3YEFH6SKK837KS683W1H",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_living_room_hall_ceiling_day_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp living_room_hall_ceiling day override"
+    },
+    "last_changed": "2026-10-14T21:09:39.161411+02:00",
+    "last_reported": "2026-10-14T21:09:39.161411+02:00",
+    "last_updated": "2026-10-14T21:09:39.161411+02:00",
+    "context": {
+      "id": "01M4XX3YESADMRCACA9EV69QJR",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_living_room_vicky_desk_lamp_day_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp living_room_vicky_desk_lamp day override"
+    },
+    "last_changed": "2026-10-14T21:09:39.172557+02:00",
+    "last_reported": "2026-10-14T21:09:39.172557+02:00",
+    "last_updated": "2026-10-14T21:09:39.172557+02:00",
+    "context": {
+      "id": "01M4XX3YF4R81PG1YQMRNJRFKX",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_living_room_table_lamp_day_override",
+    "state": "on",
+    "attributes": {
+      "friendly_name": "ls lamp living_room_table_lamp day override"
+    },
+    "last_changed": "2026-10-23T09:03:00.373006+02:00",
+    "last_reported": "2026-10-23T09:03:00.373006+02:00",
+    "last_updated": "2026-10-23T09:03:00.373006+02:00",
+    "context": {
+      "id": "01M5KS3WGB6X82H2VD4BB4AQWY",
+      "parent_id": null,
+      "user_id": "654b42eb65484c13a2e995db5c44f76b"
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_living_room_window_lamp_day_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp living_room_window_lamp day override"
+    },
+    "last_changed": "2026-10-14T21:09:39.194648+02:00",
+    "last_reported": "2026-10-14T21:09:39.194648+02:00",
+    "last_updated": "2026-10-14T21:09:39.194648+02:00",
+    "context": {
+      "id": "01M4XX3YFT32G1P5YPHER0VR8T",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_living_room_yellow_retro_lamp_day_override",
+    "state": "on",
+    "attributes": {
+      "friendly_name": "ls lamp living_room_yellow_retro_lamp day override"
+    },
+    "last_changed": "2026-10-23T16:19:47.948325+02:00",
+    "last_reported": "2026-10-23T16:19:47.948325+02:00",
+    "last_updated": "2026-10-23T16:19:47.948325+02:00",
+    "context": {
+      "id": "01M5MJ3NV08NBTR5FVZG39QSRV",
+      "parent_id": null,
+      "user_id": "654b42eb65484c13a2e995db5c44f76b"
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_kitchen_pendant_day_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp kitchen_pendant day override"
+    },
+    "last_changed": "2026-10-14T21:09:38.387522+02:00",
+    "last_reported": "2026-10-14T21:09:38.387522+02:00",
+    "last_updated": "2026-10-14T21:09:38.387522+02:00",
+    "context": {
+      "id": "01M4XX3XPKGMN2BM37STBFNQXE",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_kitchen_spots_1_day_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp kitchen_spots_1 day override"
+    },
+    "last_changed": "2026-10-14T21:09:39.215803+02:00",
+    "last_reported": "2026-10-14T21:09:39.215803+02:00",
+    "last_updated": "2026-10-14T21:09:39.215803+02:00",
+    "context": {
+      "id": "01M4XX3YGFCGM9E350GDQ8VPJR",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_kitchen_spots_2_day_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp kitchen_spots_2 day override"
+    },
+    "last_changed": "2026-10-14T21:55:36.131305+02:00",
+    "last_reported": "2026-10-14T21:55:36.131305+02:00",
+    "last_updated": "2026-10-14T21:55:36.131305+02:00",
+    "context": {
+      "id": "01M4XZR2SQFD936PNDANHDY907",
+      "parent_id": null,
+      "user_id": "5cd4e5c790ac427b99d2edc2045bc0b0"
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_meditation_floor_lamp_day_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp meditation_floor_lamp day override"
+    },
+    "last_changed": "2026-10-14T21:09:39.237425+02:00",
+    "last_reported": "2026-10-14T21:09:39.237425+02:00",
+    "last_updated": "2026-10-14T21:09:39.237425+02:00",
+    "context": {
+      "id": "01M4XX3YH5VCHT6FDN0Z7D8EE2",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_jonathan_bedroom_ceiling_day_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp jonathan_bedroom_ceiling day override"
+    },
+    "last_changed": "2026-10-14T21:09:39.108324+02:00",
+    "last_reported": "2026-10-14T21:09:39.108324+02:00",
+    "last_updated": "2026-10-14T21:09:39.108324+02:00",
+    "context": {
+      "id": "01M4XX3YD4WXS4NTNRZC5DAM9X",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_meditation_ceiling_day_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp meditation_ceiling day override"
+    },
+    "last_changed": "2026-10-23T15:13:20.819656+02:00",
+    "last_reported": "2026-10-23T15:13:20.819656+02:00",
+    "last_updated": "2026-10-23T15:13:20.819656+02:00",
+    "context": {
+      "id": "01M5MEA05F5SKERGCZ655TWQDD",
+      "parent_id": null,
+      "user_id": "5cd4e5c790ac427b99d2edc2045bc0b0"
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_living_room_sofa_table_ceiling_day_override",
+    "state": "on",
+    "attributes": {
+      "friendly_name": "ls lamp living_room_sofa_table_ceiling day override"
+    },
+    "last_changed": "2026-10-22T17:50:44.685873+02:00",
+    "last_reported": "2026-10-22T17:50:44.685873+02:00",
+    "last_updated": "2026-10-22T17:50:44.685873+02:00",
+    "context": {
+      "id": "01M5J4XFP8Q6S188HYJGY4ABE9",
+      "parent_id": null,
+      "user_id": "654b42eb65484c13a2e995db5c44f76b"
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_jonathan_bedroom_floor_lamp_cosy_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp jonathan_bedroom_floor_lamp cosy override"
+    },
+    "last_changed": "2026-10-14T21:09:39.122112+02:00",
+    "last_reported": "2026-10-14T21:09:39.122112+02:00",
+    "last_updated": "2026-10-14T21:09:39.122112+02:00",
+    "context": {
+      "id": "01M4XX3YDJJF5MPCNX97Y0XTQ4",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_upper_hall_stair_lamp_cosy_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp upper_hall_stair_lamp cosy override"
+    },
+    "last_changed": "2026-10-14T21:09:39.132893+02:00",
+    "last_reported": "2026-10-14T21:09:39.132893+02:00",
+    "last_updated": "2026-10-14T21:09:39.132893+02:00",
+    "context": {
+      "id": "01M4XX3YDWBZKC3CF7178GQQXG",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_upper_hall_ceiling_cosy_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp upper_hall_ceiling cosy override"
+    },
+    "last_changed": "2026-10-14T21:09:39.144167+02:00",
+    "last_reported": "2026-10-14T21:09:39.144167+02:00",
+    "last_updated": "2026-10-14T21:09:39.144167+02:00",
+    "context": {
+      "id": "01M4XX3YE8FAS9QY2PYXMHZ3FA",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_living_room_desk_ceiling_cosy_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp living_room_desk_ceiling cosy override"
+    },
+    "last_changed": "2026-10-14T21:09:39.154462+02:00",
+    "last_reported": "2026-10-14T21:09:39.154462+02:00",
+    "last_updated": "2026-10-14T21:09:39.154462+02:00",
+    "context": {
+      "id": "01M4XX3YEJ2XZSK0VENB25M2KJ",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_living_room_hall_ceiling_cosy_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp living_room_hall_ceiling cosy override"
+    },
+    "last_changed": "2026-10-14T21:09:39.165592+02:00",
+    "last_reported": "2026-10-14T21:09:39.165592+02:00",
+    "last_updated": "2026-10-14T21:09:39.165592+02:00",
+    "context": {
+      "id": "01M4XX3YEX1BS5Q5ZZMGWCY8YC",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_living_room_vicky_desk_lamp_cosy_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp living_room_vicky_desk_lamp cosy override"
+    },
+    "last_changed": "2026-10-14T21:09:39.176039+02:00",
+    "last_reported": "2026-10-14T21:09:39.176039+02:00",
+    "last_updated": "2026-10-14T21:09:39.176039+02:00",
+    "context": {
+      "id": "01M4XX3YF8V83FAP0KA4V7HQFZ",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_living_room_table_lamp_cosy_override",
+    "state": "on",
+    "attributes": {
+      "friendly_name": "ls lamp living_room_table_lamp cosy override"
+    },
+    "last_changed": "2026-10-22T17:50:08.610749+02:00",
+    "last_reported": "2026-10-22T17:50:08.610749+02:00",
+    "last_updated": "2026-10-22T17:50:08.610749+02:00",
+    "context": {
+      "id": "01M5J4WCEPDHF5KGGC6Y7AJG83",
+      "parent_id": null,
+      "user_id": "654b42eb65484c13a2e995db5c44f76b"
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_living_room_window_lamp_cosy_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp living_room_window_lamp cosy override"
+    },
+    "last_changed": "2026-10-14T21:09:39.198420+02:00",
+    "last_reported": "2026-10-14T21:09:39.198420+02:00",
+    "last_updated": "2026-10-14T21:09:39.198420+02:00",
+    "context": {
+      "id": "01M4XX3YFY3MAGZP2DVAN4VG5A",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_living_room_yellow_retro_lamp_cosy_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp living_room_yellow_retro_lamp cosy override"
+    },
+    "last_changed": "2026-10-14T21:09:39.208899+02:00",
+    "last_reported": "2026-10-14T21:09:39.208899+02:00",
+    "last_updated": "2026-10-14T21:09:39.208899+02:00",
+    "context": {
+      "id": "01M4XX3YG8VMKKKN02R284HGCE",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_kitchen_pendant_cosy_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp kitchen_pendant cosy override"
+    },
+    "last_changed": "2026-10-14T21:58:01.188750+02:00",
+    "last_reported": "2026-10-14T21:58:01.188750+02:00",
+    "last_updated": "2026-10-14T21:58:01.188750+02:00",
+    "context": {
+      "id": "01M4XZWGEXR2Q8AJDG6K1CWRHE",
+      "parent_id": null,
+      "user_id": "654b42eb65484c13a2e995db5c44f76b"
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_kitchen_spots_1_cosy_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp kitchen_spots_1 cosy override"
+    },
+    "last_changed": "2026-10-14T21:57:59.637544+02:00",
+    "last_reported": "2026-10-14T21:57:59.637544+02:00",
+    "last_updated": "2026-10-14T21:57:59.637544+02:00",
+    "context": {
+      "id": "01M4XZWEYBKF8S97X3FWVDNY33",
+      "parent_id": null,
+      "user_id": "654b42eb65484c13a2e995db5c44f76b"
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_kitchen_spots_2_cosy_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp kitchen_spots_2 cosy override"
+    },
+    "last_changed": "2026-10-14T21:57:58.162709+02:00",
+    "last_reported": "2026-10-14T21:57:58.162709+02:00",
+    "last_updated": "2026-10-14T21:57:58.162709+02:00",
+    "context": {
+      "id": "01M4XZWDG8436J39Z2NYN7099R",
+      "parent_id": null,
+      "user_id": "654b42eb65484c13a2e995db5c44f76b"
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_meditation_floor_lamp_cosy_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp meditation_floor_lamp cosy override"
+    },
+    "last_changed": "2026-10-14T21:09:39.240813+02:00",
+    "last_reported": "2026-10-14T21:09:39.240813+02:00",
+    "last_updated": "2026-10-14T21:09:39.240813+02:00",
+    "context": {
+      "id": "01M4XX3YH84QK65MEC8D1AQB3W",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_jonathan_bedroom_ceiling_cosy_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp jonathan_bedroom_ceiling cosy override"
+    },
+    "last_changed": "2026-10-14T21:09:39.111825+02:00",
+    "last_reported": "2026-10-14T21:09:39.111825+02:00",
+    "last_updated": "2026-10-14T21:09:39.111825+02:00",
+    "context": {
+      "id": "01M4XX3YD7G8CFM7CFX4ZBKVG9",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_meditation_ceiling_cosy_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp meditation_ceiling cosy override"
+    },
+    "last_changed": "2026-10-19T12:10:25.797829+02:00",
+    "last_reported": "2026-10-19T12:10:25.845518+02:00",
+    "last_updated": "2026-10-19T12:10:25.797829+02:00",
+    "context": {
+      "id": "01M59T86C5HTZS3VWHBG8YYX4W",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_living_room_sofa_table_ceiling_cosy_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp living_room_sofa_table_ceiling cosy override"
+    },
+    "last_changed": "2026-10-19T17:13:53.186474+02:00",
+    "last_reported": "2026-10-19T17:13:53.230164+02:00",
+    "last_updated": "2026-10-19T17:13:53.186474+02:00",
+    "context": {
+      "id": "01M5ABKV12ZM2EDMEFEAGQ77SH",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_jonathan_bedroom_floor_lamp_night_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp jonathan_bedroom_floor_lamp night override"
+    },
+    "last_changed": "2026-10-14T21:09:39.125685+02:00",
+    "last_reported": "2026-10-14T21:09:39.125685+02:00",
+    "last_updated": "2026-10-14T21:09:39.125685+02:00",
+    "context": {
+      "id": "01M4XX3YDNPZFMYMN72NM1HH5N",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_upper_hall_stair_lamp_night_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp upper_hall_stair_lamp night override"
+    },
+    "last_changed": "2026-10-14T21:09:39.137171+02:00",
+    "last_reported": "2026-10-14T21:09:39.137171+02:00",
+    "last_updated": "2026-10-14T21:09:39.137171+02:00",
+    "context": {
+      "id": "01M4XX3YE15SWCN9E4XC0ZG0W4",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_upper_hall_ceiling_night_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp upper_hall_ceiling night override"
+    },
+    "last_changed": "2026-10-14T21:09:39.147581+02:00",
+    "last_reported": "2026-10-14T21:09:39.147581+02:00",
+    "last_updated": "2026-10-14T21:09:39.147581+02:00",
+    "context": {
+      "id": "01M4XX3YEBSEX59C9S1ZHWCVX7",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_living_room_desk_ceiling_night_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp living_room_desk_ceiling night override"
+    },
+    "last_changed": "2026-10-14T21:09:39.157857+02:00",
+    "last_reported": "2026-10-14T21:09:39.157857+02:00",
+    "last_updated": "2026-10-14T21:09:39.157857+02:00",
+    "context": {
+      "id": "01M4XX3YENG9GPYHGAKZ894MRJ",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_living_room_hall_ceiling_night_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp living_room_hall_ceiling night override"
+    },
+    "last_changed": "2026-10-14T21:09:39.169075+02:00",
+    "last_reported": "2026-10-14T21:09:39.169075+02:00",
+    "last_updated": "2026-10-14T21:09:39.169075+02:00",
+    "context": {
+      "id": "01M4XX3YF1K0AHMCFJBA2ZZ1F3",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_living_room_vicky_desk_lamp_night_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp living_room_vicky_desk_lamp night override"
+    },
+    "last_changed": "2026-10-14T21:09:39.179394+02:00",
+    "last_reported": "2026-10-14T21:09:39.179394+02:00",
+    "last_updated": "2026-10-14T21:09:39.179394+02:00",
+    "context": {
+      "id": "01M4XX3YFBX5ZNK2MGWK42P9VP",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_living_room_table_lamp_night_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp living_room_table_lamp night override"
+    },
+    "last_changed": "2026-10-14T21:09:39.190442+02:00",
+    "last_reported": "2026-10-14T21:09:39.190442+02:00",
+    "last_updated": "2026-10-14T21:09:39.190442+02:00",
+    "context": {
+      "id": "01M4XX3YFPZR4XY6FWQ9XNCS72",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_living_room_window_lamp_night_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp living_room_window_lamp night override"
+    },
+    "last_changed": "2026-10-14T21:09:39.202079+02:00",
+    "last_reported": "2026-10-14T21:09:39.202079+02:00",
+    "last_updated": "2026-10-14T21:09:39.202079+02:00",
+    "context": {
+      "id": "01M4XX3YG27Q37GJJ7B9KZQVM2",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_living_room_yellow_retro_lamp_night_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp living_room_yellow_retro_lamp night override"
+    },
+    "last_changed": "2026-10-14T21:09:39.212426+02:00",
+    "last_reported": "2026-10-14T21:09:39.212426+02:00",
+    "last_updated": "2026-10-14T21:09:39.212426+02:00",
+    "context": {
+      "id": "01M4XX3YGCX990589V5MYCTGNW",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_kitchen_pendant_night_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp kitchen_pendant night override"
+    },
+    "last_changed": "2026-10-14T21:09:39.104004+02:00",
+    "last_reported": "2026-10-14T21:09:39.104004+02:00",
+    "last_updated": "2026-10-14T21:09:39.104004+02:00",
+    "context": {
+      "id": "01M4XX3YD0GD6AZX10HK5SPZ6B",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_kitchen_spots_1_night_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp kitchen_spots_1 night override"
+    },
+    "last_changed": "2026-10-14T21:09:39.223477+02:00",
+    "last_reported": "2026-10-14T21:09:39.223477+02:00",
+    "last_updated": "2026-10-14T21:09:39.223477+02:00",
+    "context": {
+      "id": "01M4XX3YGQ1MYM5X7VT84T5P10",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_kitchen_spots_2_night_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp kitchen_spots_2 night override"
+    },
+    "last_changed": "2026-10-14T21:09:39.234027+02:00",
+    "last_reported": "2026-10-14T21:09:39.234027+02:00",
+    "last_updated": "2026-10-14T21:09:39.234027+02:00",
+    "context": {
+      "id": "01M4XX3YH25CSD4SM23PH2F6DS",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_meditation_floor_lamp_night_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp meditation_floor_lamp night override"
+    },
+    "last_changed": "2026-10-14T21:09:39.244347+02:00",
+    "last_reported": "2026-10-14T21:09:39.244347+02:00",
+    "last_updated": "2026-10-14T21:09:39.244347+02:00",
+    "context": {
+      "id": "01M4XX3YHCS7BRK1N0KWPRW25T",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_jonathan_bedroom_ceiling_night_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp jonathan_bedroom_ceiling night override"
+    },
+    "last_changed": "2026-10-14T21:09:39.115334+02:00",
+    "last_reported": "2026-10-14T21:09:39.115334+02:00",
+    "last_updated": "2026-10-14T21:09:39.115334+02:00",
+    "context": {
+      "id": "01M4XX3YDB3FYQY0FYH6P99FTS",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_meditation_ceiling_night_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp meditation_ceiling night override"
+    },
+    "last_changed": "2026-10-19T12:10:28.610227+02:00",
+    "last_reported": "2026-10-19T12:10:28.658362+02:00",
+    "last_updated": "2026-10-19T12:10:28.610227+02:00",
+    "context": {
+      "id": "01M59T89422T81MTNYKSMBJ7Q1",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "switch.ls_lamp_living_room_sofa_table_ceiling_night_override",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "ls lamp living_room_sofa_table_ceiling night override"
+    },
+    "last_changed": "2026-10-19T17:13:53.448500+02:00",
+    "last_reported": "2026-10-19T17:13:53.490372+02:00",
+    "last_updated": "2026-10-19T17:13:53.448500+02:00",
+    "context": {
+      "id": "01M5ABKV9802DH3J1F5XFFVYNV",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "script.ls_override_block",
+    "state": "off",
+    "attributes": {
+      "last_triggered": "2026-10-20T22:25:05.572469+02:00",
+      "mode": "queued",
+      "current": 0,
+      "max": 10,
+      "icon": "mdi:gesture-tap",
+      "friendly_name": "Lighting schedule: override block"
+    },
+    "last_changed": "2026-10-20T22:25:05.652002+02:00",
+    "last_reported": "2026-10-20T22:25:05.652002+02:00",
+    "last_updated": "2026-10-20T22:25:05.652002+02:00",
+    "context": {
+      "id": "01M5DFTCS3TXK1HAHP9AEMQFGK",
+      "parent_id": null,
+      "user_id": "654b42eb65484c13a2e995db5c44f76b"
+    }
+  },
+  {
+    "entity_id": "switch.zigbee2mqtt_bridge_permit_join",
+    "state": "off",
+    "attributes": {
+      "icon": "mdi:human-greeting-proximity",
+      "friendly_name": "Zigbee2MQTT Bridge Permit join"
+    },
+    "last_changed": "2026-10-23T16:11:27.075589+02:00",
+    "last_reported": "2026-10-23T16:11:27.075589+02:00",
+    "last_updated": "2026-10-23T16:11:27.075589+02:00",
+    "context": {
+      "id": "01M5MHMCQ33HJ8SWDGEAVAJVV0",
+      "parent_id": null,
+      "user_id": null
+    }
+  },
+  {
+    "entity_id": "script.ls_clear_overrides",
+    "state": "off",
+    "attributes": {
+      "last_triggered": "2026-10-23T16:18:00.489406+02:00",
+      "mode": "single",
+      "current": 0,
+      "icon": "mdi:restore",
+      "friendly_name": "Lighting schedule: cancel all overrides"
+    },
+    "last_changed": "2026-10-23T16:18:00.489702+02:00",
+    "last_reported": "2026-10-23T16:18:00.489702+02:00",
+    "last_updated": "2026-10-23T16:18:00.489702+02:00",
+    "context": {
+      "id": "01M5MJ0CX9B801KYRXD4ZM4SHR",
+      "parent_id": null,
+      "user_id": "654b42eb65484c13a2e995db5c44f76b"
+    }
+  }
+]

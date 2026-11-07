@@ -1,0 +1,1209 @@
+{
+    "scripts": {
+        "ls_plan": {
+            "success": true,
+            "action": "get",
+            "script_id": "ls_plan",
+            "config": {
+                "alias": "Lighting \u00b7 Pure Plan",
+                "mode": "parallel",
+                "sequence": [
+                    {
+                        "variables": {
+                            "overrides": "{{ test_overrides if test_overrides|default(none) is mapping else state_attr('sensor.ls_overrides','overrides') or {} }}",
+                            "revision": "{{ states.sensor.ls_overrides.last_updated.isoformat() }}",
+                            "plan_order": "{{ as_timestamp(now()) }}"
+                        }
+                    },
+                    {
+                        "action": "script.ls_base",
+                        "data": {
+                            "overrides": "{{ overrides }}",
+                            "test_now": "{{ test_now|default(none) }}",
+                            "reason": "{{ reason|default('config') }}",
+                            "room_only": "{{ room|default('') }}"
+                        },
+                        "response_variable": "baseline"
+                    },
+                    {
+                        "action": "script.effects_catalog",
+                        "response_variable": "catalog"
+                    },
+                    {
+                        "variables": {
+                            "active": "{{ dict(overrides.items()|rejectattr(0,'in',baseline.schedule.stale_keys)|list) }}"
+                        }
+                    },
+                    {
+                        "action": "script.effects_resolve",
+                        "data": {
+                            "base": "{{ baseline.targets }}",
+                            "overrides": "{{ active }}",
+                            "catalog": "{{ catalog }}",
+                            "sara": "{{ 'mode:sara' in active }}",
+                            "private": "{{ label_areas('private_room') }}",
+                            "power": "{{ state_attr('sensor.ls_overrides','power') or {} }}",
+                            "warm_end": "{{ state_attr('light.candle_test_rgb_warm_end','rgb_color') or [255,126,0] }}"
+                        },
+                        "response_variable": "resolved"
+                    },
+                    {
+                        "action": "script.ls_switch_plan",
+                        "data": {
+                            "targets": "{{ resolved.targets }}",
+                            "ranges": "{{ state_attr('sensor.ls_overrides','switch_ranges') or {} }}",
+                            "defaults": "{{ state_attr('sensor.ls_overrides','range_defaults') or {'bright':[90,100],'cosy':[30,60]} }}"
+                        },
+                        "response_variable": "switch_plan"
+                    },
+                    {
+                        "variables": {
+                            "plan": "{% set wanted='on' if 'mode:sara' in active else 'off' %}{{ dict(baseline.schedule,base=baseline.targets,resolved=resolved,switches=switch_plan.switches,revision=revision,plan_order=plan_order,sara_mirror=(wanted if states('input_boolean.ls_sara_mode_mirror')!=wanted else none)) }}"
+                        }
+                    },
+                    {
+                        "variables": {
+                            "result": "{{ {'plan':plan} }}"
+                        }
+                    },
+                    {
+                        "stop": "Return result",
+                        "response_variable": "result"
+                    }
+                ],
+                "max": 50,
+                "fields": {
+                    "room": {
+                        "selector": {
+                            "object": {}
+                        }
+                    },
+                    "reason": {
+                        "selector": {
+                            "object": {}
+                        }
+                    },
+                    "test_now": {
+                        "selector": {
+                            "object": {}
+                        }
+                    },
+                    "test_overrides": {
+                        "selector": {
+                            "object": {}
+                        }
+                    }
+                }
+            },
+            "config_hash": "837660ccd3e2e556"
+        },
+        "ls_dispatch": {
+            "success": true,
+            "action": "get",
+            "script_id": "ls_dispatch",
+            "config": {
+                "alias": "Lighting \u00b7 Apply Changed Targets",
+                "mode": "queued",
+                "sequence": [
+                    {
+                        "variables": {
+                            "revision": "{{ plan.revision }}",
+                            "resolved": "{{ plan.resolved }}",
+                            "baseline": "{{ {'targets':plan.base} }}"
+                        }
+                    },
+                    {
+                        "condition": "template",
+                        "value_template": "{{ revision==states.sensor.ls_overrides.last_updated.isoformat() and plan.plan_order>=(state_attr('sensor.effects_controller','plan_order') or 0) }}"
+                    },
+                    {
+                        "action": "script.effects_catalog",
+                        "response_variable": "catalog"
+                    },
+                    {
+                        "variables": {
+                            "previous": "{% set applied=state_attr('sensor.effects_controller','applied') %}{{ (state_attr('sensor.effects_controller','targets') or {}) if applied is none else applied }}",
+                            "previous_effects": "{{ state_attr('sensor.effects_controller','assignments') or {} }}",
+                            "requested": "{{ (lights if lights is list else [lights]) if lights|default(none) else [] }}",
+                            "lamp_targets": "{% set n=namespace(t={}) %}{% for L,t in resolved.targets.items() if not t.is_room and (not requested or L in requested) %}{% set n.t=dict(n.t,**{L:t}) %}{% endfor %}{{ n.t }}"
+                        }
+                    },
+                    {
+                        "variables": {
+                            "ordinary": "{% set n=namespace(t={}) %}{% for L,t in lamp_targets.items() if (L not in resolved.assignments or not t.on) and is_state(L,'on') and baseline.targets[L].get('send',true) and (L in requested or L in previous_effects or t!=previous.get(L)) %}{% set n.t=dict(n.t,**{L:t}) %}{% endfor %}{{ n.t }}"
+                        }
+                    },
+                    {
+                        "action": "script.effects_assign",
+                        "data": {
+                            "targets": "{{ resolved.targets }}",
+                            "assignments": "{{ resolved.assignments }}",
+                            "revision": "{{ revision }}",
+                            "invalidate": "{{ ordinary.keys()|list }}",
+                            "plan_order": "{{ plan.plan_order }}"
+                        },
+                        "response_variable": "assigned"
+                    },
+                    {
+                        "action": "script.effects_frame_plan",
+                        "data": {
+                            "targets": "{{ ordinary }}",
+                            "catalog": "{{ catalog }}",
+                            "timestamp": "{{ as_timestamp(now()) }}"
+                        },
+                        "response_variable": "batch"
+                    },
+                    {
+                        "action": "script.effects_emit",
+                        "data": {
+                            "commands": "{{ batch.commands }}",
+                            "revision": "{{ revision }}",
+                            "generation": "{{ assigned.generation }}"
+                        },
+                        "response_variable": "emission"
+                    },
+                    {
+                        "condition": "template",
+                        "value_template": "{{ revision==states.sensor.ls_overrides.last_updated.isoformat() and assigned.generation==state_attr('sensor.effects_controller','generation') }}"
+                    },
+                    {
+                        "if": [
+                            {
+                                "condition": "template",
+                                "value_template": "{{ ordinary|count>0 and emission.completed }}"
+                            }
+                        ],
+                        "then": [
+                            {
+                                "action": "mqtt.publish",
+                                "data": {
+                                    "topic": "house/v1/effects/controller",
+                                    "qos": 0,
+                                    "retain": true,
+                                    "payload": "{% set prior=state_attr('sensor.effects_controller','applied') or {} %}{% set applied=dict(prior|to_json|from_json,**ordinary) %}{{ {'targets':resolved.targets,'assignments':resolved.assignments,'applied':applied,'revision':revision,'generation':assigned.generation,'plan_order':plan.plan_order}|to_json }}"
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "repeat": {
+                            "for_each": "{{ plan.switches.keys()|select('in',requested)|list if requested else plan.switches.keys()|list }}",
+                            "sequence": [
+                                {
+                                    "variables": {
+                                        "L": "{{ repeat.item }}",
+                                        "switch": "{{ plan.switches[L] }}"
+                                    }
+                                },
+                                {
+                                    "if": [
+                                        {
+                                            "condition": "template",
+                                            "value_template": "{{ revision==states.sensor.ls_overrides.last_updated.isoformat() and not is_state(L,'on' if switch.on else 'off') }}"
+                                        }
+                                    ],
+                                    "then": [
+                                        {
+                                            "action": "{{ \"homeassistant.turn_on\" if switch.on else \"homeassistant.turn_off\" }}",
+                                            "target": {
+                                                "entity_id": "{{ L }}"
+                                            }
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "condition": "template",
+                        "value_template": "{{ revision==states.sensor.ls_overrides.last_updated.isoformat() }}"
+                    },
+                    {
+                        "repeat": {
+                            "for_each": "{{ plan.mirror }}",
+                            "sequence": [
+                                {
+                                    "action": "input_select.select_option",
+                                    "target": {
+                                        "entity_id": "{{ repeat.item.entity }}"
+                                    },
+                                    "data": {
+                                        "option": "{{ repeat.item.option }}"
+                                    }
+                                }
+                            ]
+                        },
+                        "note": "Display only: mirror the effective block (override or schedule) into input_select.ls_<scope>_override so dashboards can highlight it. The engine never reads these selects."
+                    },
+                    {
+                        "alias": "Display only: mirror Sara Mode (override record mode:sara) into input_boolean.ls_sara_mode_mirror so /house-lights can highlight it. The engine never reads it.",
+                        "choose": [
+                            {
+                                "conditions": [
+                                    {
+                                        "condition": "template",
+                                        "value_template": "{{ plan.sara_mirror == 'on' }}"
+                                    }
+                                ],
+                                "sequence": [
+                                    {
+                                        "action": "input_boolean.turn_on",
+                                        "target": {
+                                            "entity_id": "input_boolean.ls_sara_mode_mirror"
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                "conditions": [
+                                    {
+                                        "condition": "template",
+                                        "value_template": "{{ plan.sara_mirror == 'off' }}"
+                                    }
+                                ],
+                                "sequence": [
+                                    {
+                                        "action": "input_boolean.turn_off",
+                                        "target": {
+                                            "entity_id": "input_boolean.ls_sara_mode_mirror"
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "if": [
+                            {
+                                "condition": "template",
+                                "value_template": "{{ plan.stale_keys | count > 0 }}"
+                            }
+                        ],
+                        "then": [
+                            {
+                                "event": "ls_override",
+                                "event_data": {
+                                    "op": "clear",
+                                    "keys": "{{ plan.stale_keys }}",
+                                    "via": "rule_next_block",
+                                    "expected_revision": "{{ revision }}"
+                                }
+                            }
+                        ],
+                        "note": "Next-block rule: overrides set before the scope's latest fade start fade out with the fade (see plan) and end once the new block is reached."
+                    }
+                ],
+                "max": 50,
+                "fields": {
+                    "plan": {
+                        "selector": {
+                            "object": {}
+                        }
+                    },
+                    "lights": {
+                        "selector": {
+                            "object": {}
+                        }
+                    }
+                }
+            },
+            "config_hash": "9e38ebe28c0e0f9b"
+        },
+        "ls_remote_command": {
+            "success": true,
+            "action": "get",
+            "script_id": "ls_remote_command",
+            "config": {
+                "alias": "Lighting \u00b7 Room remote command",
+                "mode": "queued",
+                "sequence": [
+                    {
+                        "variables": {
+                            "overrides": "{{ state_attr('sensor.ls_overrides','overrides') or {} }}",
+                            "stamp": "{{ as_timestamp(now()) }}",
+                            "room": "{{ area if area_entities(area) else '' }}",
+                            "catalog": {},
+                            "current": {
+                                "plan": {
+                                    "base": {},
+                                    "resolved": {
+                                        "targets": {}
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    {
+                        "variables": {
+                            "timing_revision": "{# No clock/schedule expansion: only versions of the room's expiry dependencies. #}\n{% if command in ['up','down'] and is_state('input_boolean.ls_ovr_next_block_on','on') %}\n {% set n=namespace(ids=['input_boolean.ls_ovr_next_block_on']) %}\n {% for scope in ['house',room] %}\n  {% for block in ['day','cosy','night'] %}\n   {% set n.ids=n.ids+['input_boolean.ls_'~scope~'_'~block~'_own_timing','input_datetime.ls_'~scope~'_'~block~'_start','input_datetime.ls_'~scope~'_'~block~'_weekend','input_number.ls_'~scope~'_'~block~'_fade'] %}\n  {% endfor %}\n {% endfor %}\n {% set version=namespace(latest=0) %}\n {% for entity in n.ids if states[entity] is not none %}\n  {% set version.latest=[version.latest,as_timestamp(states[entity].last_updated,0)]|max %}\n {% endfor %}\n {{ version.latest }}\n{% else %}{{ 0 }}{% endif %}\n",
+                            "request_id": "{{ source~':'~stamp }}"
+                        }
+                    },
+                    {
+                        "variables": {
+                            "result": "{# A scale owner already has its coordinate. Advance it without rendering any lights. #}\n{% set key='channels:'~source %}{% set record=overrides.get(key,{}) %}\n{% set value=record.get('value',{}) %}\n{% set brightness=value.get('channels',{}).get('brightness',{}) if value is mapping else {} %}\n{% set n=namespace(ok=command in ['up','down'] and record.get('scope')=='room' and record.get('target')==room and brightness.get('kind')=='scale' and brightness.get('position') is number,result=none) %}\n{% if n.ok and is_state('input_boolean.ls_ovr_next_block_on','on') %}\n {% set n.ok=value.get('remote_valid_until',0)>stamp and value.get('remote_timing_revision')==timing_revision %}\n{% endif %}\n{% if n.ok %}\n {% set own_stamp=brightness.get('updated',as_timestamp(record.get('when'),0)) %}\n {% for other,r in overrides.items() if other!=key and r is mapping %}\n  {% set applies=(r.get('scope')=='room' and r.get('target')==room) or (r.get('scope')=='house' and r.get('target')=='house' and room not in label_areas('private_room')) %}\n  {% set v=r.get('value',{}) %}\n  {% if applies and v is mapping and v.get('channels') is mapping and 'brightness' in v.channels %}\n   {% set candidate=v.channels.brightness %}\n   {% set updated=candidate.get('updated',as_timestamp(r.get('when'),0)) if candidate is mapping else as_timestamp(r.get('when'),0) %}\n   {# Conservative fallback for a newer claim, even if the resolver later rejects it. #}\n   {% if updated is not number or updated>=own_stamp %}{% set n.ok=false %}{% endif %}\n  {% endif %}\n {% endfor %}\n{% endif %}\n{% if n.ok %}\n {% set position=[-2,[2,brightness.position+(0.1 if command=='up' else -0.1)]|min]|max %}\n {% set claim={'kind':'scale','position':position,'updated':stamp} %}\n {% set n.result={'op':'set','records':[{'kind':'channels','key':key,'source':source,'scope':'room','target':room,'value':{'position':position,'channels':{'brightness':claim,'color':claim}}}],'via':'remote'} %}\n{% endif %}\n{{ n.result }}\n"
+                        }
+                    },
+                    {
+                        "if": [
+                            {
+                                "condition": "template",
+                                "value_template": "{{ result is not mapping }}"
+                            }
+                        ],
+                        "then": [
+                            {
+                                "if": [
+                                    {
+                                        "condition": "template",
+                                        "value_template": "{{ command not in ['toggle','reset'] }}"
+                                    }
+                                ],
+                                "then": [
+                                    {
+                                        "action": "script.ls_plan",
+                                        "data": {
+                                            "room": "{{ room }}",
+                                            "reason": "config"
+                                        },
+                                        "response_variable": "current"
+                                    }
+                                ]
+                            },
+                            {
+                                "if": [
+                                    {
+                                        "condition": "template",
+                                        "value_template": "{{ command in ['toggle','left','right'] }}"
+                                    }
+                                ],
+                                "then": [
+                                    {
+                                        "action": "script.effects_catalog",
+                                        "response_variable": "catalog"
+                                    }
+                                ]
+                            },
+                            {
+                                "variables": {
+                                    "result": "{% set key='channels:'~source %}{% set old=overrides.get(key,{}) %}{% set value=old.get('value',{}) %}\n{% set group=current.plan.resolved.targets.get('room:'~room,{}) %}\n{% set anchors=current.plan.base.get('room:'~room,{}) %}\n{% set n=namespace(result={'op':'noop'}) %}\n{% if room and (group or command in ['toggle','reset']) and command in ['up','down','left','right','toggle','reset'] %}\n {% if command=='toggle' %}\n  {% set ids=namespace(v=[]) %}\n  {% for L in catalog.members if area_id(L)==room %}{% set ids.v=ids.v+[L] %}{% endfor %}\n  {% for L in (state_attr('sensor.ls_overrides','switch_ranges') or {}) if area_id(L)==room %}{% set ids.v=ids.v+[L] %}{% endfor %}\n  {% set saved=(state_attr('sensor.ls_overrides','power') or {}).get(room) %}\n  {% set on=not saved if saved is boolean else not (ids.v|select('is_state','on')|list|count>0) %}\n  {% set n.result={'op':'power','area':room,'on':on,'targets':ids.v,'via':'remote'} %}\n {% elif command=='reset' %}{% set n.result={'op':'clear_room','area':room,'via':'remote'} %}\n {% else %}\n  {% set delta=anchors.day.brightness-anchors.cosy.brightness %}\n  {% set floor=[76.5,anchors.cosy.brightness]|min %}\n  {% set slope=[0,delta,(anchors.cosy.brightness-floor)/2]|max %}\n  {% if group.level>anchors.day.brightness and anchors.day.brightness<255 %}\n   {% set seed=1+(group.level-anchors.day.brightness)/(255-anchors.day.brightness) %}\n  {% elif group.level<anchors.cosy.brightness and slope>0 %}\n   {% set seed=[-2,(group.level-anchors.cosy.brightness)/slope]|max %}\n  {% else %}{% set seed=(group.level-anchors.cosy.brightness)/delta if delta>0 else 1 %}{% endif %}\n  {% set position=value.get('position',seed) if group.owners.get('brightness')==key else seed %}\n  {% set patch=namespace(v={},channels={}) %}\n  {% if command in ['up','down'] %}\n   {% set position=[-2,[2,position+(0.1 if command=='up' else -0.1)]|min]|max %}\n   {% set claim={'kind':'scale','position':position,'updated':stamp} %}\n   {% set brightness={'kind':'constant','value':group.level,'updated':stamp} if command=='down' and group.level<floor else claim %}\n   {% set patch.v={'position':position,'channels':{'brightness':brightness,'color':claim}} %}\n   {% set S=current.plan.get('schedule_details',{}).get(room,{}) %}\n   {% set patch.v=dict(patch.v,remote_valid_until=S.get('next_fs',0),remote_timing_revision=timing_revision|default(0)) %}\n  {% else %}\n   {% set choices=['day','cosy','Candle','Sara'] + (catalog.effects.keys()|reject('eq','Candle')|list) %}\n   {% set selected=value.get('selection',group.period) %}\n   {% set index=choices.index(selected) if selected in choices else 0 %}\n   {% set selected=choices[(index+(1 if command=='right' else -1)) % (choices|count)] %}\n   {% if selected=='Sara' %}\n    {% set n.result={'op':'set','records':[{'kind':'mode','target':'sara','value':'on'},{'kind':'channels','key':key,'source':source,'scope':'room','target':room,'value':{'selection':'Sara','channels':{}}}],'via':'remote'} %}\n   {% elif selected in ['day','cosy'] %}\n    {% set position=1 if selected=='day' else 0 %}{% set claim={'kind':'scale','position':position,'updated':stamp} %}\n    {% set patch.v={'selection':selected,'position':position,'period':selected,'period_updated':stamp,'channels':{'brightness':claim,'color':claim}} %}\n   {% else %}\n    {% for channel in catalog.effects[selected].channels %}{% set patch.channels=dict(patch.channels,**{channel:{'kind':'effect','effect':selected,'instance':source~':'~selected,'updated':stamp}}) %}{% endfor %}\n    {% set patch.v={'selection':selected,'channels':patch.channels} %}\n   {% endif %}\n  {% endif %}\n  {% if patch.v %}{% set n.result={'op':'set','records':[{'kind':'channels','key':key,'source':source,'scope':'room','target':room,'value':patch.v}],'via':'remote'} %}{% endif %}\n {% endif %}\n{% endif %}\n{{ n.result }}\n"
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "if": [
+                            {
+                                "condition": "template",
+                                "value_template": "{{ dry_run|default(false) }}"
+                            }
+                        ],
+                        "then": [
+                            {
+                                "stop": "Return result",
+                                "response_variable": "result"
+                            }
+                        ]
+                    },
+                    {
+                        "if": [
+                            {
+                                "condition": "template",
+                                "value_template": "{{ result.op=='power' }}"
+                            }
+                        ],
+                        "then": [
+                            {
+                                "event": "ls_override",
+                                "event_data": {
+                                    "op": "power",
+                                    "area": "{{ result.area }}",
+                                    "on": "{{ result.on }}",
+                                    "via": "remote",
+                                    "source": "{{ source }}",
+                                    "request_id": "{{ request_id }}"
+                                }
+                            },
+                            {
+                                "action": "{{ \"homeassistant.turn_on\" if result.on else \"homeassistant.turn_off\" }}",
+                                "target": {
+                                    "entity_id": "{{ result.targets }}"
+                                }
+                            }
+                        ],
+                        "else": [
+                            {
+                                "choose": [
+                                    {
+                                        "conditions": [
+                                            {
+                                                "condition": "template",
+                                                "value_template": "{{ result.op=='set' }}"
+                                            }
+                                        ],
+                                        "sequence": [
+                                            {
+                                                "event": "ls_override",
+                                                "event_data": {
+                                                    "op": "set",
+                                                    "records": "{{ result.records }}",
+                                                    "via": "remote",
+                                                    "source": "{{ source }}",
+                                                    "request_id": "{{ request_id }}"
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "conditions": [
+                                            {
+                                                "condition": "template",
+                                                "value_template": "{{ result.op=='clear_room' }}"
+                                            }
+                                        ],
+                                        "sequence": [
+                                            {
+                                                "event": "ls_override",
+                                                "event_data": {
+                                                    "op": "clear_room",
+                                                    "area": "{{ result.area }}",
+                                                    "via": "remote",
+                                                    "source": "{{ source }}",
+                                                    "request_id": "{{ request_id }}"
+                                                }
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "if": [
+                            {
+                                "condition": "template",
+                                "value_template": "{{ result.op!='noop' }}"
+                            }
+                        ],
+                        "then": [
+                            {
+                                "wait_template": "{{ (state_attr('sensor.ls_overrides','remote_ack') or {}).get(source)==request_id }}",
+                                "timeout": 2,
+                                "continue_on_timeout": false
+                            }
+                        ]
+                    }
+                ],
+                "max": 50,
+                "fields": {
+                    "source": {
+                        "selector": {
+                            "object": {}
+                        }
+                    },
+                    "area": {
+                        "selector": {
+                            "object": {}
+                        }
+                    },
+                    "command": {
+                        "selector": {
+                            "object": {}
+                        }
+                    },
+                    "dry_run": {
+                        "selector": {
+                            "object": {}
+                        }
+                    }
+                }
+            },
+            "config_hash": "4147fa427c102472"
+        },
+        "effects_assign": {
+            "success": true,
+            "action": "get",
+            "script_id": "effects_assign",
+            "config": {
+                "alias": "Effects \u00b7 Assign channel ownership",
+                "mode": "queued",
+                "sequence": [
+                    {
+                        "if": [
+                            {
+                                "condition": "template",
+                                "value_template": "{{ revision!=states.sensor.ls_overrides.last_updated.isoformat() }}"
+                            }
+                        ],
+                        "then": [
+                            {
+                                "variables": {
+                                    "result": "{{ {'generation':state_attr('sensor.effects_controller','generation')} }}"
+                                }
+                            },
+                            {
+                                "stop": "Return result",
+                                "response_variable": "result"
+                            }
+                        ]
+                    },
+                    {
+                        "variables": {
+                            "rev": "{{ revision }}",
+                            "old": "{{ state_attr('sensor.effects_controller','assignments') or {} }}",
+                            "old_targets": "{{ state_attr('sensor.effects_controller','targets') or {} }}",
+                            "changed": "{{ targets != (state_attr('sensor.effects_controller','targets') or {}) or revision != state_attr('sensor.effects_controller','revision') or invalidate|default([])|count>0 }}",
+                            "generation": "{{ state_attr('sensor.effects_controller','generation') }}",
+                            "plan_order": "{{ plan_order|default(state_attr('sensor.effects_controller','plan_order') or 0) }}"
+                        }
+                    },
+                    {
+                        "if": [
+                            {
+                                "condition": "template",
+                                "value_template": "{{ changed }}"
+                            }
+                        ],
+                        "then": [
+                            {
+                                "action": "script.turn_off",
+                                "target": {
+                                    "entity_id": "script.effects_engine"
+                                }
+                            },
+                            {
+                                "variables": {
+                                    "generation": "{{ now().isoformat() }}"
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "if": [
+                            {
+                                "condition": "template",
+                                "value_template": "{{ changed or plan_order>(state_attr('sensor.effects_controller','plan_order') or 0) }}"
+                            }
+                        ],
+                        "then": [
+                            {
+                                "action": "mqtt.publish",
+                                "data": {
+                                    "topic": "house/v1/effects/controller",
+                                    "qos": 0,
+                                    "retain": true,
+                                    "payload": "{% set applied=state_attr('sensor.effects_controller','applied') %}{% set applied=state_attr('sensor.effects_controller','targets') or {} if applied is none else applied %}{% set applied=dict(applied.items()|rejectattr(0,'in',invalidate|default([]))|list) %}{{ {'targets':targets,'assignments':assignments,'applied':applied|to_json|from_json,'revision':revision,'generation':generation,'plan_order':plan_order}|to_json }}"
+                                }
+                            },
+                            {
+                                "wait_template": "{{ state_attr('sensor.effects_controller','generation')==generation and state_attr('sensor.effects_controller','plan_order')==plan_order }}",
+                                "timeout": 3,
+                                "continue_on_timeout": false
+                            }
+                        ]
+                    },
+                    {
+                        "if": [
+                            {
+                                "condition": "template",
+                                "value_template": "{{ changed }}"
+                            }
+                        ],
+                        "then": [
+                            {
+                                "action": "script.effects_catalog",
+                                "response_variable": "catalog"
+                            },
+                            {
+                                "variables": {
+                                    "native_stops": "{% set n=namespace(commands=[]) %}\n{% for L,t in targets.items() if not t.is_room %}\n {% set stop=namespace(needed=old.get(L,{}).get('effect') in ['Breathe','Colour loop']) %}\n {% for channel in ['brightness','color'] %}\n  {% if t[channel].kind=='effect' and t.owners[channel].startswith('channels:native:') and t[channel].updated!=old_targets.get(L,{}).get(channel,{}).get('updated') %}{% set stop.needed=true %}{% endif %}\n {% endfor %}\n {% if stop.needed %}{% for E in catalog.members.get(L,[]) if is_state(E,'on') %}{% for effect in ['stop_colorloop','stop_effect'] %}\n  {% set n.commands=n.commands+[{'topic':catalog.topics[E],'payload':{'effect':effect},'members':[E],'owners':[L],'group':false}] %}\n {% endfor %}{% endfor %}{% endif %}\n{% endfor %}{{ n.commands }}"
+                                }
+                            },
+                            {
+                                "action": "script.effects_emit",
+                                "data": {
+                                    "commands": "{{ native_stops }}",
+                                    "revision": "{{ revision }}",
+                                    "generation": "{{ generation }}"
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "if": [
+                            {
+                                "condition": "template",
+                                "value_template": "{{ assignments|count>0 }}"
+                            }
+                        ],
+                        "then": [
+                            {
+                                "action": "script.turn_on",
+                                "target": {
+                                    "entity_id": "script.effects_engine"
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "variables": {
+                            "result": "{{ {'generation':state_attr('sensor.effects_controller','generation')} }}"
+                        }
+                    },
+                    {
+                        "stop": "Return result",
+                        "response_variable": "result"
+                    }
+                ],
+                "max": 50,
+                "fields": {
+                    "targets": {
+                        "selector": {
+                            "object": {}
+                        }
+                    },
+                    "assignments": {
+                        "selector": {
+                            "object": {}
+                        }
+                    },
+                    "revision": {
+                        "selector": {
+                            "object": {}
+                        }
+                    },
+                    "invalidate": {
+                        "selector": {
+                            "object": {}
+                        }
+                    },
+                    "plan_order": {
+                        "selector": {
+                            "object": {}
+                        }
+                    }
+                }
+            },
+            "config_hash": "0f676981c3c0b776"
+        },
+        "effects_resolve": {
+            "success": true,
+            "action": "get",
+            "script_id": "effects_resolve",
+            "config": {
+                "alias": "Effects \u00b7 Resolve channel ownership",
+                "description": "Pure per-channel resolver. Latest field timestamp wins across applicable scopes, lexical record-key breaks ties. Effective period is supplied upstream. Keeps lamp ontology, intensity, legacy holds, Sara policy and power distinct. No state reads or external actions.",
+                "mode": "parallel",
+                "max": 50,
+                "fields": {
+                    "base": {
+                        "selector": {
+                            "object": {}
+                        },
+                        "required": true
+                    },
+                    "overrides": {
+                        "selector": {
+                            "object": {}
+                        },
+                        "default": {}
+                    },
+                    "catalog": {
+                        "selector": {
+                            "object": {}
+                        },
+                        "required": true
+                    },
+                    "sara": {
+                        "selector": {
+                            "object": {}
+                        },
+                        "default": false
+                    },
+                    "private": {
+                        "selector": {
+                            "object": {}
+                        },
+                        "default": []
+                    },
+                    "power": {
+                        "selector": {
+                            "object": {}
+                        },
+                        "default": {}
+                    },
+                    "warm_end": {
+                        "selector": {
+                            "object": {}
+                        },
+                        "default": [
+                            255,
+                            126,
+                            0
+                        ]
+                    }
+                },
+                "sequence": [
+                    {
+                        "variables": {
+                            "result": "{# Shared build-time source embedded into the two pure HA script templates. #}\n{% macro color_json(color) -%}\n  {{- ({'kelvin':color.kelvin} if 'kelvin' in color else {'rgb':color.rgb|list})|to_json -}}\n{%- endmacro %}\n\n{% macro rgb_value(color) -%}\n  {%- if 'rgb' in color -%}\n    {{- color.rgb|list|to_json -}}\n  {%- else -%}\n    {%- set t = color.kelvin / 100 -%}\n    {%- set r = 255 if t <= 66 else 329.698727446 * ((t-60) ** -0.1332047592) -%}\n    {%- set g = 99.4708025861 * (t|log) - 161.1195681661 if t <= 66 else 288.1221695283 * ((t-60) ** -0.0755148492) -%}\n    {%- set b = 255 if t >= 66 else 0 if t <= 19 else 138.5177312231 * ((t-10)|log) - 305.0447927307 -%}\n    {{- [[0,[255,r]|min]|max|round|int, [0,[255,g]|min]|max|round|int, [0,[255,b]|min]|max|round|int]|to_json -}}\n  {%- endif -%}\n{%- endmacro %}\n\n{% macro mix_color(a, b, amount) -%}\n  {%- if amount <= 0 -%}{{- color_json(a) -}}\n  {%- elif amount >= 1 -%}{{- color_json(b) -}}\n  {%- elif 'kelvin' in a and 'kelvin' in b -%}\n    {{- {'kelvin': a.kelvin + (b.kelvin-a.kelvin)*amount}|to_json -}}\n  {%- else -%}\n    {%- set left=rgb_value(a)|from_json -%}\n    {%- set right=rgb_value(b)|from_json -%}\n    {{- {'rgb': [(left[0]+(right[0]-left[0])*amount)|round|int, (left[1]+(right[1]-left[1])*amount)|round|int, (left[2]+(right[2]-left[2])*amount)|round|int]}|to_json -}}\n  {%- endif -%}\n{%- endmacro %}\n\n{% macro scale_value(day, cosy, position, warm_end) -%}\n  {%- set p = [-2,[2,position]|min]|max -%}\n  {%- if p == 0 -%}\n    {%- set brightness=cosy.brightness -%}{%- set color=cosy.color -%}\n  {%- elif p == 1 -%}\n    {%- set brightness=day.brightness -%}{%- set color=day.color -%}\n  {%- elif p > 1 -%}\n    {%- set brightness=day.brightness+(255-day.brightness)*(p-1) -%}\n    {%- set color=mix_color(day.color, {'kelvin':6500}, p-1)|from_json -%}\n  {%- elif p > 0 -%}\n    {%- set brightness=cosy.brightness+(day.brightness-cosy.brightness)*p -%}\n    {%- set color=mix_color(cosy.color,day.color,p)|from_json -%}\n  {%- else -%}\n    {# Preserve configured anchors below the normal floor; moving down must never brighten them. #}\n    {%- set floor=[76.5,cosy.brightness]|min -%}\n    {%- set slope=[0,day.brightness-cosy.brightness,(cosy.brightness-floor)/2]|max -%}\n    {%- set brightness=[floor,cosy.brightness+p*slope]|max -%}\n    {%- if p <= -1 -%}\n      {%- set color=mix_color({'rgb':[255,134,7]}, {'rgb':warm_end}, -p-1)|from_json -%}\n    {%- elif 'kelvin' in cosy.color and cosy.color.kelvin >= 1950 -%}\n      {%- set color={'kelvin':cosy.color.kelvin+(1950-cosy.color.kelvin)*(-p)} -%}\n    {%- else -%}\n      {%- set color=mix_color(cosy.color, {'rgb':[255,134,7]}, -p)|from_json -%}\n    {%- endif -%}\n  {%- endif -%}\n  {{- {'brightness':[0,[255,brightness]|min]|max, 'color':color_json(color)|from_json, 'position':p}|to_json -}}\n{%- endmacro %}\n\n{# No time, state, service or event access. Only record timestamps are interpreted. #}\n{% macro valid_color(c) -%}\n  {%- set v=namespace(ok=false) -%}\n  {%- if c is mapping -%}\n    {%- if 'kelvin' in c and 'rgb' not in c and c.kelvin is number and c.kelvin is not boolean and c.kelvin >= 1000 and c.kelvin <= 10000 -%}\n      {%- set v.ok=true -%}\n    {%- elif 'rgb' in c and 'kelvin' not in c and c.rgb is sequence and c.rgb is not string and c.rgb is not mapping and c.rgb|count == 3 -%}\n      {%- set v.ok=true -%}\n      {%- for component in c.rgb -%}\n        {%- if component is not number or component is boolean or component < 0 or component > 255 or component != component -%}{%- set v.ok=false -%}{%- endif -%}\n      {%- endfor -%}\n    {%- endif -%}\n  {%- endif -%}\n  {{- v.ok|to_json -}}\n{%- endmacro %}\n\n{% macro effect_channels(name) -%}\n  {%- set d=catalog.effects.get(name,{}) if name is string else {} -%}\n  {%- set channels=d.get('channels',[]) if d is mapping else [] -%}\n  {%- set v=namespace(ok=channels is sequence and channels is not string and channels is not mapping and channels|count > 0) -%}\n  {%- if v.ok -%}\n    {%- for channel in channels -%}{%- if channel not in ['brightness','color'] -%}{%- set v.ok=false -%}{%- endif -%}{%- endfor -%}\n  {%- endif -%}\n  {{- (channels|list if v.ok else [])|to_json -}}\n{%- endmacro %}\n\n{% set out=namespace(targets={}, assignments={}) %}\n{% for target,item in base|dictsort %}\n  {% set area=item.area %}\n  {% set is_room=item.get('is_room',false) %}\n  {% set ignored=item.get('ignore_overrides',[]) %}\n  {% set ignored=ignored if ignored is sequence and ignored is not string and ignored is not mapping else [] %}\n  {% set observed=item.get('observed',{}) %}\n  {% set observed=observed if observed is mapping else {} %}\n  {% set n=namespace(candidates={'brightness':[],'color':[]},sources={},owners={},underlying={}) %}\n  {% for key,record in overrides|dictsort if record is mapping and key not in ignored %}\n    {% set value=record.get('value') %}\n    {% set scope=record.get('scope','lamp' if record.get('kind') == 'light' else '') %}\n    {% set applies=(scope == 'house' and record.get('target') == 'house' and area not in private) or (scope == 'room' and record.get('target') == area) or (scope == 'lamp' and not is_room and record.get('target') == target) %}\n    {% if applies %}\n      {% set stamp=as_timestamp(record.get('when'),0)|float(0) %}\n      {% set patch={} %}\n      {% if record.get('kind') == 'channels' and value is mapping and value.get('channels') is mapping %}\n        {% set patch=value.channels %}\n      {% elif record.get('kind') == 'light' %}\n        {% if value is none %}\n          {% set patch={'brightness':{'kind':'constant','value':observed.get('brightness',item.brightness)},'color':{'kind':'constant','value':observed.get('color',item.color)}} %}\n        {% elif value is mapping %}\n          {% set ef=value.get('effect') %}\n          {% set declared=effect_channels(ef)|from_json %}\n          {% if ef is not none and ef != 'Normal light' %}\n            {% set legacy=namespace(p={}) %}\n            {% for channel in declared %}\n              {% set source={'kind':'effect','effect':ef,'instance':key} %}\n              {% if 'brightness' in value %}{% set source=dict(source,intensity=value.brightness) %}{% endif %}\n              {% set legacy.p=dict(legacy.p,**{channel:source}) %}\n            {% endfor %}\n            {% if declared|count == 0 %}\n              {% set legacy.p={'brightness':{'kind':'constant','value':item.brightness},'color':{'kind':'constant','value':item.color}} %}\n            {% elif 'brightness' in value and 'brightness' not in declared %}\n              {% set legacy.p=dict(legacy.p,brightness={'kind':'constant','value':value.brightness}) %}\n            {% endif %}\n            {% set patch=legacy.p %}\n          {% elif ef == 'Normal light' %}\n            {% set patch={'brightness':{'kind':'constant','value':value.get('brightness',observed.get('brightness',item.brightness))},'color':{'kind':'constant','value':observed.get('color',item.color)}} %}\n          {% elif 'brightness' in value %}\n            {% set patch={'brightness':{'kind':'constant','value':value.brightness}} %}\n          {% endif %}\n        {% endif %}\n      {% endif %}\n      {% for channel in ['brightness','color'] if channel in patch %}\n        {% set source=patch[channel] %}\n        {% set update=source.get('updated',stamp) if source is mapping else stamp %}\n        {% set update=update if update is number and update is not boolean and update > -1e20 and update < 1e20 else stamp %}\n        {% set entries=[{'key':key,'updated':update,'source':source,'baseline_only':false}] %}\n        {# Replacing a stable source record must retain the constant/scale that fed its effect.\n           Its original timestamp competes with other baseline values; selecting an effect\n           does not make the carried input newer than unrelated manual settings. #}\n        {% if source is mapping and source.get('kind') == 'effect' and channel in effect_channels(source.get('effect'))|from_json and source.get('instance') is string and source.instance|length > 0 %}\n          {% set carried=namespace(source=source.get('underlying')) %}\n          {% for depth in range(8) %}\n            {% if carried.source is mapping and carried.source.get('kind') == 'effect' %}\n              {% set carried.source=carried.source.get('underlying') %}\n            {% endif %}\n          {% endfor %}\n          {% if carried.source is mapping and carried.source.get('kind') in ['constant','scale'] %}\n            {% set carried_stamp=carried.source.get('updated') %}\n            {% if carried_stamp is number and carried_stamp is not boolean and carried_stamp > -1e20 and carried_stamp <= update %}\n              {% set entries=entries+[{'key':key,'updated':carried_stamp,'source':carried.source,'baseline_only':true}] %}\n            {% endif %}\n          {% endif %}\n        {% endif %}\n        {% set n.candidates=dict(n.candidates,**{channel:n.candidates[channel]+entries}) %}\n      {% endfor %}\n    {% endif %}\n  {% endfor %}\n  {% set baseline_effect=item.get('effect','Normal light') %}\n  {% set declared=effect_channels(baseline_effect)|from_json %}\n  {% set enabled=item.get('effect_channels',declared) %}\n  {% set enabled=enabled if enabled is sequence and enabled is not string and enabled is not mapping else [] %}\n  {% for channel in ['brightness','color'] %}\n    {% set initial= color_json(item[channel])|from_json if channel=='color' else item[channel] %}\n    {% set c=namespace(underlying=initial,source={'kind':'constant','value':initial,'updated':-1},owner='base') %}\n    {% if channel in declared and channel in enabled %}\n      {% set c.source={'kind':'effect','effect':baseline_effect,'instance':item.get('effect_instance','base:' ~ target ~ ':' ~ baseline_effect),'updated':-1} %}\n      {% set c.owner='base:' ~ baseline_effect %}\n    {% endif %}\n    {% for candidate in n.candidates[channel]|sort(attribute='key')|sort(attribute='updated') %}\n      {% set source=candidate.source %}\n      {% set check=namespace(valid=false,value=initial,selected={}) %}\n      {% if source is mapping %}\n        {% if source.get('kind') == 'constant' %}\n          {% set v=source.get('value') %}\n          {% set check.valid=(v is number and v is not boolean and v >= 0 and v <= 255) if channel == 'brightness' else valid_color(v)|from_json %}\n          {% if check.valid %}{% set check.value=color_json(v)|from_json if channel=='color' else v %}{% endif %}\n        {% elif source.get('kind') == 'scale' %}\n          {% set p=source.get('position') %}\n          {% if p is number and p is not boolean and p > -1e20 and p < 1e20 and item.get('day') is mapping and item.get('cosy') is mapping %}\n            {% set scaled=scale_value(item.day,item.cosy,p,warm_end)|from_json %}\n            {% set check.valid=true %}{% set check.value=scaled[channel] %}\n            {% set check.selected={'origin':'scale','position':scaled.position} %}\n          {% endif %}\n        {% elif source.get('kind') == 'effect' and channel in effect_channels(source.get('effect'))|from_json and source.get('instance') is string and source.instance|length > 0 %}\n          {% set check.valid=true %}\n          {% set check.selected={'kind':'effect','effect':source.effect,'instance':source.instance,'updated':candidate.updated} %}\n          {% if channel == 'brightness' and source.get('intensity') is number and source.intensity is not boolean and source.intensity >= 0 and source.intensity <= 255 %}\n            {% set c.underlying=source.intensity %}\n          {% endif %}\n        {% endif %}\n      {% endif %}\n      {% if candidate.baseline_only %}\n        {% if check.valid %}{% set c.underlying=check.value %}{% endif %}\n      {% elif check.valid and check.selected.get('kind') == 'effect' %}\n        {% set c.source=check.selected %}\n      {% else %}\n        {% set c.underlying=check.value if check.valid else initial %}\n        {% set c.source=dict({'kind':'constant','value':c.underlying,'updated':candidate.updated},**check.selected) %}\n        {% if not check.valid %}{% set c.source=dict(c.source,origin='invalid_source') %}{% endif %}\n      {% endif %}\n      {% if not candidate.baseline_only %}{% set c.owner=candidate.key %}{% endif %}\n    {% endfor %}\n    {% set n.sources=dict(n.sources,**{channel:c.source}) %}\n    {% set n.owners=dict(n.owners,**{channel:c.owner}) %}\n    {% set n.underlying=dict(n.underlying,**{channel:c.underlying}) %}\n  {% endfor %}\n  {% for channel in ['brightness','color'] if n.sources[channel].kind == 'effect' %}\n    {% set n.sources=dict(n.sources,**{channel:dict(n.sources[channel],base=n.underlying[channel],intensity=n.underlying.brightness)}) %}\n  {% endfor %}\n  {% if sara and 'mode:sara' not in ignored and area not in private and item.period != 'night' %}\n    {% set n.sources=dict(n.sources,color={'kind':'constant','value':{'rgb':[255,105,180]},'updated':0,'policy':'sara'}) %}\n    {% set n.owners=dict(n.owners,color='mode:sara') %}\n  {% endif %}\n  {% set resolved=dict(n.sources,period=item.period,on=item.get('on',true) and power.get(area,true),area=area,is_room=is_room,level=n.underlying.brightness,owners=n.owners,transition=item.get('transition',3)) %}\n  {% set out.targets=dict(out.targets,**{target:resolved}) %}\n  {% if not is_room and (resolved.brightness.kind == 'effect' or resolved.color.kind == 'effect') %}\n    {% set out.assignments=dict(out.assignments,**{target:resolved}) %}\n  {% endif %}\n{% endfor %}\n{{ {'targets':out.targets,'assignments':out.assignments} }}\n"
+                        }
+                    },
+                    {
+                        "stop": "Return pure result",
+                        "response_variable": "result"
+                    }
+                ]
+            },
+            "config_hash": "76c55c4ab8b54d1b"
+        },
+        "effects_scale": {
+            "success": true,
+            "action": "get",
+            "script_id": "effects_scale",
+            "config": {
+                "alias": "Effects \u00b7 Resolve manual scale",
+                "description": "Pure manual adjustment around room/lamp Cosy=0 and Day=1 anchors. Preserves schedule anchors, bounds position to [-2,2], warms through 1950 K into RGB, and uses available upper brightness headroom.",
+                "mode": "parallel",
+                "max": 50,
+                "fields": {
+                    "day": {
+                        "selector": {
+                            "object": {}
+                        },
+                        "required": true
+                    },
+                    "cosy": {
+                        "selector": {
+                            "object": {}
+                        },
+                        "required": true
+                    },
+                    "position": {
+                        "selector": {
+                            "object": {}
+                        },
+                        "required": true
+                    },
+                    "warm_end": {
+                        "selector": {
+                            "object": {}
+                        },
+                        "default": [
+                            255,
+                            126,
+                            0
+                        ]
+                    }
+                },
+                "sequence": [
+                    {
+                        "variables": {
+                            "result": "{# Shared build-time source embedded into the two pure HA script templates. #}\n{% macro color_json(color) -%}\n  {{- ({'kelvin':color.kelvin} if 'kelvin' in color else {'rgb':color.rgb|list})|to_json -}}\n{%- endmacro %}\n\n{% macro rgb_value(color) -%}\n  {%- if 'rgb' in color -%}\n    {{- color.rgb|list|to_json -}}\n  {%- else -%}\n    {%- set t = color.kelvin / 100 -%}\n    {%- set r = 255 if t <= 66 else 329.698727446 * ((t-60) ** -0.1332047592) -%}\n    {%- set g = 99.4708025861 * (t|log) - 161.1195681661 if t <= 66 else 288.1221695283 * ((t-60) ** -0.0755148492) -%}\n    {%- set b = 255 if t >= 66 else 0 if t <= 19 else 138.5177312231 * ((t-10)|log) - 305.0447927307 -%}\n    {{- [[0,[255,r]|min]|max|round|int, [0,[255,g]|min]|max|round|int, [0,[255,b]|min]|max|round|int]|to_json -}}\n  {%- endif -%}\n{%- endmacro %}\n\n{% macro mix_color(a, b, amount) -%}\n  {%- if amount <= 0 -%}{{- color_json(a) -}}\n  {%- elif amount >= 1 -%}{{- color_json(b) -}}\n  {%- elif 'kelvin' in a and 'kelvin' in b -%}\n    {{- {'kelvin': a.kelvin + (b.kelvin-a.kelvin)*amount}|to_json -}}\n  {%- else -%}\n    {%- set left=rgb_value(a)|from_json -%}\n    {%- set right=rgb_value(b)|from_json -%}\n    {{- {'rgb': [(left[0]+(right[0]-left[0])*amount)|round|int, (left[1]+(right[1]-left[1])*amount)|round|int, (left[2]+(right[2]-left[2])*amount)|round|int]}|to_json -}}\n  {%- endif -%}\n{%- endmacro %}\n\n{% macro scale_value(day, cosy, position, warm_end) -%}\n  {%- set p = [-2,[2,position]|min]|max -%}\n  {%- if p == 0 -%}\n    {%- set brightness=cosy.brightness -%}{%- set color=cosy.color -%}\n  {%- elif p == 1 -%}\n    {%- set brightness=day.brightness -%}{%- set color=day.color -%}\n  {%- elif p > 1 -%}\n    {%- set brightness=day.brightness+(255-day.brightness)*(p-1) -%}\n    {%- set color=mix_color(day.color, {'kelvin':6500}, p-1)|from_json -%}\n  {%- elif p > 0 -%}\n    {%- set brightness=cosy.brightness+(day.brightness-cosy.brightness)*p -%}\n    {%- set color=mix_color(cosy.color,day.color,p)|from_json -%}\n  {%- else -%}\n    {# Preserve configured anchors below the normal floor; moving down must never brighten them. #}\n    {%- set floor=[76.5,cosy.brightness]|min -%}\n    {%- set slope=[0,day.brightness-cosy.brightness,(cosy.brightness-floor)/2]|max -%}\n    {%- set brightness=[floor,cosy.brightness+p*slope]|max -%}\n    {%- if p <= -1 -%}\n      {%- set color=mix_color({'rgb':[255,134,7]}, {'rgb':warm_end}, -p-1)|from_json -%}\n    {%- elif 'kelvin' in cosy.color and cosy.color.kelvin >= 1950 -%}\n      {%- set color={'kelvin':cosy.color.kelvin+(1950-cosy.color.kelvin)*(-p)} -%}\n    {%- else -%}\n      {%- set color=mix_color(cosy.color, {'rgb':[255,134,7]}, -p)|from_json -%}\n    {%- endif -%}\n  {%- endif -%}\n  {{- {'brightness':[0,[255,brightness]|min]|max, 'color':color_json(color)|from_json, 'position':p}|to_json -}}\n{%- endmacro %}\n\n{{ scale_value(day,cosy,position,warm_end)|from_json }}"
+                        }
+                    },
+                    {
+                        "stop": "Return pure result",
+                        "response_variable": "result"
+                    }
+                ]
+            },
+            "config_hash": "52f3d3417a5f78b3"
+        }
+    },
+    "automations": {
+        "automation.lighting_jonathan_s_bedroom_remote_center": {
+            "success": true,
+            "action": "get",
+            "automation_id": "automation.lighting_jonathan_s_bedroom_remote_center",
+            "config": {
+                "id": "lighting_remote_0x385b44fffea4fc67_center",
+                "alias": "Lighting \u00b7 Jonathan's Bedroom Remote Center",
+                "description": "Verified Innr RC250 on/off actions. One press toggles after a 400ms quiet interval; three or more presses reset room overrides once. Two presses do nothing. Single mode consumes the whole burst without intermediate power toggles. Area is looked up when dispatching.",
+                "triggers": [
+                    {
+                        "trigger": "mqtt",
+                        "topic": "zigbee2mqtt/0x385b44fffea4fc67/action",
+                        "payload": "on"
+                    },
+                    {
+                        "trigger": "mqtt",
+                        "topic": "zigbee2mqtt/0x385b44fffea4fc67/action",
+                        "payload": "off"
+                    }
+                ],
+                "actions": [
+                    {
+                        "variables": {
+                            "clicks": 1
+                        }
+                    },
+                    {
+                        "repeat": {
+                            "sequence": [
+                                {
+                                    "wait_for_trigger": [
+                                        {
+                                            "trigger": "mqtt",
+                                            "topic": "zigbee2mqtt/0x385b44fffea4fc67/action",
+                                            "payload": "on"
+                                        },
+                                        {
+                                            "trigger": "mqtt",
+                                            "topic": "zigbee2mqtt/0x385b44fffea4fc67/action",
+                                            "payload": "off"
+                                        }
+                                    ],
+                                    "timeout": {
+                                        "milliseconds": 400
+                                    },
+                                    "continue_on_timeout": true
+                                },
+                                {
+                                    "if": [
+                                        {
+                                            "condition": "template",
+                                            "value_template": "{{ wait.completed }}"
+                                        }
+                                    ],
+                                    "then": [
+                                        {
+                                            "variables": {
+                                                "clicks": "{{ [3, clicks + 1]|min }}"
+                                            }
+                                        }
+                                    ]
+                                }
+                            ],
+                            "until": [
+                                {
+                                    "condition": "template",
+                                    "value_template": "{{ not wait.completed }}"
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "choose": [
+                            {
+                                "conditions": [
+                                    {
+                                        "condition": "template",
+                                        "value_template": "{{ clicks == 1 }}"
+                                    }
+                                ],
+                                "sequence": [
+                                    {
+                                        "action": "script.ls_remote_command",
+                                        "data": {
+                                            "source": "0x385b44fffea4fc67",
+                                            "area": "{{ area_id(\"0e973e9202acb5ace9a8e6a8b336891d\") }}",
+                                            "command": "toggle",
+                                            "dry_run": false
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                "conditions": [
+                                    {
+                                        "condition": "template",
+                                        "value_template": "{{ clicks >= 3 }}"
+                                    }
+                                ],
+                                "sequence": [
+                                    {
+                                        "action": "script.ls_remote_command",
+                                        "data": {
+                                            "source": "0x385b44fffea4fc67",
+                                            "area": "{{ area_id(\"0e973e9202acb5ace9a8e6a8b336891d\") }}",
+                                            "command": "reset",
+                                            "dry_run": false
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ],
+                "mode": "single",
+                "max_exceeded": "silent"
+            },
+            "config_hash": "f5f09e3795dd90ed"
+        },
+        "automation.lighting_jonathan_s_bedroom_remote_directions": {
+            "success": true,
+            "action": "get",
+            "automation_id": "automation.lighting_jonathan_s_bedroom_remote_directions",
+            "config": {
+                "id": "lighting_remote_0x385b44fffea4fc67_directions",
+                "alias": "Lighting \u00b7 Jonathan's Bedroom Remote Directions",
+                "description": "Verified Innr RC250 brightness-step actions map to room up/down. Separate queued adapter remains responsive while the center gesture waits. Scene arrows await a verified hardware mapping.",
+                "triggers": [
+                    {
+                        "trigger": "mqtt",
+                        "topic": "zigbee2mqtt/0x385b44fffea4fc67/action",
+                        "payload": "brightness_step_up",
+                        "id": "up"
+                    },
+                    {
+                        "trigger": "mqtt",
+                        "topic": "zigbee2mqtt/0x385b44fffea4fc67/action",
+                        "payload": "brightness_step_down",
+                        "id": "down"
+                    }
+                ],
+                "actions": [
+                    {
+                        "action": "script.ls_remote_command",
+                        "data": {
+                            "source": "0x385b44fffea4fc67",
+                            "area": "{{ area_id(\"0e973e9202acb5ace9a8e6a8b336891d\") }}",
+                            "command": "{{ trigger.id }}",
+                            "dry_run": false
+                        }
+                    }
+                ],
+                "mode": "queued",
+                "max": 30
+            },
+            "config_hash": "94e7c22d8b95ae41"
+        },
+        "automation.lighting_living_room_remote_center": {
+            "success": true,
+            "action": "get",
+            "automation_id": "automation.lighting_living_room_remote_center",
+            "config": {
+                "id": "lighting_remote_0x385b44fffea50c99_center",
+                "alias": "Lighting \u00b7 Living Room Remote Center",
+                "description": "Verified Innr RC250 on/off actions. One press toggles after a 400ms quiet interval; three or more presses reset room overrides once. Two presses do nothing. Single mode consumes the whole burst without intermediate power toggles. Area is looked up when dispatching.",
+                "triggers": [
+                    {
+                        "trigger": "mqtt",
+                        "topic": "zigbee2mqtt/0x385b44fffea50c99/action",
+                        "payload": "on"
+                    },
+                    {
+                        "trigger": "mqtt",
+                        "topic": "zigbee2mqtt/0x385b44fffea50c99/action",
+                        "payload": "off"
+                    }
+                ],
+                "actions": [
+                    {
+                        "variables": {
+                            "clicks": 1
+                        }
+                    },
+                    {
+                        "repeat": {
+                            "sequence": [
+                                {
+                                    "wait_for_trigger": [
+                                        {
+                                            "trigger": "mqtt",
+                                            "topic": "zigbee2mqtt/0x385b44fffea50c99/action",
+                                            "payload": "on"
+                                        },
+                                        {
+                                            "trigger": "mqtt",
+                                            "topic": "zigbee2mqtt/0x385b44fffea50c99/action",
+                                            "payload": "off"
+                                        }
+                                    ],
+                                    "timeout": {
+                                        "milliseconds": 400
+                                    },
+                                    "continue_on_timeout": true
+                                },
+                                {
+                                    "if": [
+                                        {
+                                            "condition": "template",
+                                            "value_template": "{{ wait.completed }}"
+                                        }
+                                    ],
+                                    "then": [
+                                        {
+                                            "variables": {
+                                                "clicks": "{{ [3, clicks + 1]|min }}"
+                                            }
+                                        }
+                                    ]
+                                }
+                            ],
+                            "until": [
+                                {
+                                    "condition": "template",
+                                    "value_template": "{{ not wait.completed }}"
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "choose": [
+                            {
+                                "conditions": [
+                                    {
+                                        "condition": "template",
+                                        "value_template": "{{ clicks == 1 }}"
+                                    }
+                                ],
+                                "sequence": [
+                                    {
+                                        "action": "script.ls_remote_command",
+                                        "data": {
+                                            "source": "0x385b44fffea50c99",
+                                            "area": "{{ area_id(\"0752f2b4e9a0992ac8efc2af1f53c62a\") }}",
+                                            "command": "toggle",
+                                            "dry_run": false
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                "conditions": [
+                                    {
+                                        "condition": "template",
+                                        "value_template": "{{ clicks >= 3 }}"
+                                    }
+                                ],
+                                "sequence": [
+                                    {
+                                        "action": "script.ls_remote_command",
+                                        "data": {
+                                            "source": "0x385b44fffea50c99",
+                                            "area": "{{ area_id(\"0752f2b4e9a0992ac8efc2af1f53c62a\") }}",
+                                            "command": "reset",
+                                            "dry_run": false
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ],
+                "mode": "single",
+                "max_exceeded": "silent"
+            },
+            "config_hash": "4f418086ae807145"
+        },
+        "automation.lighting_living_room_remote_directions": {
+            "success": true,
+            "action": "get",
+            "automation_id": "automation.lighting_living_room_remote_directions",
+            "config": {
+                "id": "lighting_remote_0x385b44fffea50c99_directions",
+                "alias": "Lighting \u00b7 Living Room Remote Directions",
+                "description": "Verified Innr RC250 brightness-step actions map to room up/down. Separate queued adapter remains responsive while the center gesture waits. Scene arrows await a verified hardware mapping.",
+                "triggers": [
+                    {
+                        "trigger": "mqtt",
+                        "topic": "zigbee2mqtt/0x385b44fffea50c99/action",
+                        "payload": "brightness_step_up",
+                        "id": "up"
+                    },
+                    {
+                        "trigger": "mqtt",
+                        "topic": "zigbee2mqtt/0x385b44fffea50c99/action",
+                        "payload": "brightness_step_down",
+                        "id": "down"
+                    }
+                ],
+                "actions": [
+                    {
+                        "action": "script.ls_remote_command",
+                        "data": {
+                            "source": "0x385b44fffea50c99",
+                            "area": "{{ area_id(\"0752f2b4e9a0992ac8efc2af1f53c62a\") }}",
+                            "command": "{{ trigger.id }}",
+                            "dry_run": false
+                        }
+                    }
+                ],
+                "mode": "queued",
+                "max": 30
+            },
+            "config_hash": "7e1b54a796045642"
+        },
+        "automation.lighting_bedroom_remote_preset_arrows": {
+            "success": true,
+            "action": "get",
+            "automation_id": "automation.lighting_bedroom_remote_preset_arrows",
+            "config": {
+                "id": "lighting_remote_0x385b44fffea4fc67_presets",
+                "alias": "Lighting \u00b7 Bedroom Remote Preset Arrows",
+                "description": "Decode observed RC250 preset changes using the persistent hardware cursor. Modulo-five adjacent transitions identify left/right, including wrap. Ignore paired brightness actions and duplicates; resynchronize ambiguous jumps without guessing. Cursor updates precede room commands and survive lighting override resets.",
+                "triggers": [
+                    {
+                        "trigger": "mqtt",
+                        "topic": "zigbee2mqtt/0x385b44fffea4fc67"
+                    }
+                ],
+                "actions": [
+                    {
+                        "variables": {
+                            "payload": "{{ trigger.payload_json|default({}) }}",
+                            "presets": [
+                                200,
+                                285,
+                                370,
+                                454,
+                                588
+                            ]
+                        }
+                    },
+                    {
+                        "condition": "template",
+                        "value_template": "{{ payload is mapping and payload.get('action')=='color_temperature_move' and payload.get('action_color_temperature') is number and payload.get('action_color_temperature') is not boolean and payload.get('action_color_temperature') in presets }}"
+                    },
+                    {
+                        "variables": {
+                            "index": "{{ presets.index(payload.action_color_temperature) }}",
+                            "previous": "{{ states('input_number.ls_bedroom_remote_preset')|float(-1) }}"
+                        }
+                    },
+                    {
+                        "condition": "template",
+                        "value_template": "{{ index!=previous }}"
+                    },
+                    {
+                        "variables": {
+                            "delta": "{{ (index-previous|int)%5 if previous in [0,1,2,3,4] else -1 }}"
+                        }
+                    },
+                    {
+                        "action": "input_number.set_value",
+                        "target": {
+                            "entity_id": "input_number.ls_bedroom_remote_preset"
+                        },
+                        "data": {
+                            "value": "{{ index }}"
+                        }
+                    },
+                    {
+                        "variables": {
+                            "room": "{{ area_id('0e973e9202acb5ace9a8e6a8b336891d') }}"
+                        }
+                    },
+                    {
+                        "condition": "template",
+                        "value_template": "{{ delta in [1,4] and room is string and room|length>0 }}"
+                    },
+                    {
+                        "action": "script.ls_remote_command",
+                        "data": {
+                            "source": "0x385b44fffea4fc67",
+                            "area": "{{ room }}",
+                            "command": "{{ 'right' if delta==1 else 'left' }}",
+                            "dry_run": false
+                        }
+                    }
+                ],
+                "mode": "queued",
+                "max": 50
+            },
+            "config_hash": "6787100bfcee42a5"
+        }
+    }
+}

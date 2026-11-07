@@ -1,0 +1,1567 @@
+{
+  "success": true,
+  "action": "get",
+  "url_path": "house-lights",
+  "config": {
+    "views": [
+      {
+        "title": "Rooms",
+        "path": "lights",
+        "type": "sections",
+        "max_columns": 2,
+        "sections": [
+          {
+            "type": "grid",
+            "cards": [
+              {
+                "type": "markdown",
+                "text_only": true,
+                "content": "Choose **Effect** inside a light to set a temporary override. **Cancel All Overrides** returns lights to their current schedule."
+              },
+              {
+                "type": "heading",
+                "heading": "Light Blocks",
+                "icon": "mdi:home-clock-outline"
+              },
+              {
+                "type": "heading",
+                "heading": "Common Areas",
+                "heading_style": "subtitle",
+                "icon": "mdi:home-group",
+                "entities": [
+                  {
+                    "type": "button",
+                    "icon": "mdi:white-balance-sunny",
+                    "text": "Day",
+                    "tap_action": {
+                      "action": "perform-action",
+                      "perform_action": "script.ls_override_block",
+                      "data": {
+                        "scope": "house",
+                        "block": "day"
+                      }
+                    },
+                    "color": "amber",
+                    "visibility": [
+                      {
+                        "condition": "state",
+                        "entity": "input_select.ls_house_override",
+                        "state": "Day"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "button",
+                    "icon": "mdi:white-balance-sunny",
+                    "text": "Day",
+                    "tap_action": {
+                      "action": "perform-action",
+                      "perform_action": "script.ls_override_block",
+                      "data": {
+                        "scope": "house",
+                        "block": "day"
+                      }
+                    },
+                    "visibility": [
+                      {
+                        "condition": "state",
+                        "entity": "input_select.ls_house_override",
+                        "state_not": "Day"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "button",
+                    "icon": "mdi:sofa",
+                    "text": "Cosy",
+                    "tap_action": {
+                      "action": "perform-action",
+                      "perform_action": "script.ls_override_block",
+                      "data": {
+                        "scope": "house",
+                        "block": "cosy"
+                      }
+                    },
+                    "color": "amber",
+                    "visibility": [
+                      {
+                        "condition": "state",
+                        "entity": "input_select.ls_house_override",
+                        "state": "Cosy"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "button",
+                    "icon": "mdi:sofa",
+                    "text": "Cosy",
+                    "tap_action": {
+                      "action": "perform-action",
+                      "perform_action": "script.ls_override_block",
+                      "data": {
+                        "scope": "house",
+                        "block": "cosy"
+                      }
+                    },
+                    "visibility": [
+                      {
+                        "condition": "state",
+                        "entity": "input_select.ls_house_override",
+                        "state_not": "Cosy"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "button",
+                    "icon": "mdi:weather-night",
+                    "text": "Night",
+                    "tap_action": {
+                      "action": "perform-action",
+                      "perform_action": "script.ls_override_block",
+                      "data": {
+                        "scope": "house",
+                        "block": "night"
+                      }
+                    },
+                    "color": "amber",
+                    "visibility": [
+                      {
+                        "condition": "state",
+                        "entity": "input_select.ls_house_override",
+                        "state": "Night"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "button",
+                    "icon": "mdi:weather-night",
+                    "text": "Night",
+                    "tap_action": {
+                      "action": "perform-action",
+                      "perform_action": "script.ls_override_block",
+                      "data": {
+                        "scope": "house",
+                        "block": "night"
+                      }
+                    },
+                    "visibility": [
+                      {
+                        "condition": "state",
+                        "entity": "input_select.ls_house_override",
+                        "state_not": "Night"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "heading",
+                "heading": "Kitchen",
+                "heading_style": "subtitle",
+                "icon": "mdi:silverware-fork-knife",
+                "entities": [
+                  {
+                    "type": "button",
+                    "icon": "mdi:white-balance-sunny",
+                    "text": "Day",
+                    "tap_action": {
+                      "action": "perform-action",
+                      "perform_action": "script.ls_override_block",
+                      "data": {
+                        "scope": "kitchen",
+                        "block": "day"
+                      }
+                    },
+                    "color": "amber",
+                    "visibility": [
+                      {
+                        "condition": "state",
+                        "entity": "input_select.ls_kitchen_override",
+                        "state": "Day"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "button",
+                    "icon": "mdi:white-balance-sunny",
+                    "text": "Day",
+                    "tap_action": {
+                      "action": "perform-action",
+                      "perform_action": "script.ls_override_block",
+                      "data": {
+                        "scope": "kitchen",
+                        "block": "day"
+                      }
+                    },
+                    "visibility": [
+                      {
+                        "condition": "state",
+                        "entity": "input_select.ls_kitchen_override",
+                        "state_not": "Day"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "button",
+                    "icon": "mdi:sofa",
+                    "text": "Cosy",
+                    "tap_action": {
+                      "action": "perform-action",
+                      "perform_action": "script.ls_override_block",
+                      "data": {
+                        "scope": "kitchen",
+                        "block": "cosy"
+                      }
+                    },
+                    "color": "amber",
+                    "visibility": [
+                      {
+                        "condition": "state",
+                        "entity": "input_select.ls_kitchen_override",
+                        "state": "Cosy"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "button",
+                    "icon": "mdi:sofa",
+                    "text": "Cosy",
+                    "tap_action": {
+                      "action": "perform-action",
+                      "perform_action": "script.ls_override_block",
+                      "data": {
+                        "scope": "kitchen",
+                        "block": "cosy"
+                      }
+                    },
+                    "visibility": [
+                      {
+                        "condition": "state",
+                        "entity": "input_select.ls_kitchen_override",
+                        "state_not": "Cosy"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "button",
+                    "icon": "mdi:weather-night",
+                    "text": "Night",
+                    "tap_action": {
+                      "action": "perform-action",
+                      "perform_action": "script.ls_override_block",
+                      "data": {
+                        "scope": "kitchen",
+                        "block": "night"
+                      }
+                    },
+                    "color": "amber",
+                    "visibility": [
+                      {
+                        "condition": "state",
+                        "entity": "input_select.ls_kitchen_override",
+                        "state": "Night"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "button",
+                    "icon": "mdi:weather-night",
+                    "text": "Night",
+                    "tap_action": {
+                      "action": "perform-action",
+                      "perform_action": "script.ls_override_block",
+                      "data": {
+                        "scope": "kitchen",
+                        "block": "night"
+                      }
+                    },
+                    "visibility": [
+                      {
+                        "condition": "state",
+                        "entity": "input_select.ls_kitchen_override",
+                        "state_not": "Night"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "heading",
+                "heading": "Living Room",
+                "heading_style": "subtitle",
+                "icon": "mdi:sofa",
+                "entities": [
+                  {
+                    "type": "button",
+                    "icon": "mdi:white-balance-sunny",
+                    "text": "Day",
+                    "tap_action": {
+                      "action": "perform-action",
+                      "perform_action": "script.ls_override_block",
+                      "data": {
+                        "scope": "living_room",
+                        "block": "day"
+                      }
+                    },
+                    "color": "amber",
+                    "visibility": [
+                      {
+                        "condition": "state",
+                        "entity": "input_select.ls_living_room_override",
+                        "state": "Day"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "button",
+                    "icon": "mdi:white-balance-sunny",
+                    "text": "Day",
+                    "tap_action": {
+                      "action": "perform-action",
+                      "perform_action": "script.ls_override_block",
+                      "data": {
+                        "scope": "living_room",
+                        "block": "day"
+                      }
+                    },
+                    "visibility": [
+                      {
+                        "condition": "state",
+                        "entity": "input_select.ls_living_room_override",
+                        "state_not": "Day"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "button",
+                    "icon": "mdi:sofa",
+                    "text": "Cosy",
+                    "tap_action": {
+                      "action": "perform-action",
+                      "perform_action": "script.ls_override_block",
+                      "data": {
+                        "scope": "living_room",
+                        "block": "cosy"
+                      }
+                    },
+                    "color": "amber",
+                    "visibility": [
+                      {
+                        "condition": "state",
+                        "entity": "input_select.ls_living_room_override",
+                        "state": "Cosy"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "button",
+                    "icon": "mdi:sofa",
+                    "text": "Cosy",
+                    "tap_action": {
+                      "action": "perform-action",
+                      "perform_action": "script.ls_override_block",
+                      "data": {
+                        "scope": "living_room",
+                        "block": "cosy"
+                      }
+                    },
+                    "visibility": [
+                      {
+                        "condition": "state",
+                        "entity": "input_select.ls_living_room_override",
+                        "state_not": "Cosy"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "button",
+                    "icon": "mdi:weather-night",
+                    "text": "Night",
+                    "tap_action": {
+                      "action": "perform-action",
+                      "perform_action": "script.ls_override_block",
+                      "data": {
+                        "scope": "living_room",
+                        "block": "night"
+                      }
+                    },
+                    "color": "amber",
+                    "visibility": [
+                      {
+                        "condition": "state",
+                        "entity": "input_select.ls_living_room_override",
+                        "state": "Night"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "button",
+                    "icon": "mdi:weather-night",
+                    "text": "Night",
+                    "tap_action": {
+                      "action": "perform-action",
+                      "perform_action": "script.ls_override_block",
+                      "data": {
+                        "scope": "living_room",
+                        "block": "night"
+                      }
+                    },
+                    "visibility": [
+                      {
+                        "condition": "state",
+                        "entity": "input_select.ls_living_room_override",
+                        "state_not": "Night"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "heading",
+                "heading": "Upper Hall",
+                "heading_style": "subtitle",
+                "icon": "mdi:stairs",
+                "entities": [
+                  {
+                    "type": "button",
+                    "icon": "mdi:white-balance-sunny",
+                    "text": "Day",
+                    "tap_action": {
+                      "action": "perform-action",
+                      "perform_action": "script.ls_override_block",
+                      "data": {
+                        "scope": "hall_overvaning",
+                        "block": "day"
+                      }
+                    },
+                    "color": "amber",
+                    "visibility": [
+                      {
+                        "condition": "state",
+                        "entity": "input_select.ls_hall_overvaning_override",
+                        "state": "Day"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "button",
+                    "icon": "mdi:white-balance-sunny",
+                    "text": "Day",
+                    "tap_action": {
+                      "action": "perform-action",
+                      "perform_action": "script.ls_override_block",
+                      "data": {
+                        "scope": "hall_overvaning",
+                        "block": "day"
+                      }
+                    },
+                    "visibility": [
+                      {
+                        "condition": "state",
+                        "entity": "input_select.ls_hall_overvaning_override",
+                        "state_not": "Day"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "button",
+                    "icon": "mdi:sofa",
+                    "text": "Cosy",
+                    "tap_action": {
+                      "action": "perform-action",
+                      "perform_action": "script.ls_override_block",
+                      "data": {
+                        "scope": "hall_overvaning",
+                        "block": "cosy"
+                      }
+                    },
+                    "color": "amber",
+                    "visibility": [
+                      {
+                        "condition": "state",
+                        "entity": "input_select.ls_hall_overvaning_override",
+                        "state": "Cosy"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "button",
+                    "icon": "mdi:sofa",
+                    "text": "Cosy",
+                    "tap_action": {
+                      "action": "perform-action",
+                      "perform_action": "script.ls_override_block",
+                      "data": {
+                        "scope": "hall_overvaning",
+                        "block": "cosy"
+                      }
+                    },
+                    "visibility": [
+                      {
+                        "condition": "state",
+                        "entity": "input_select.ls_hall_overvaning_override",
+                        "state_not": "Cosy"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "button",
+                    "icon": "mdi:weather-night",
+                    "text": "Night",
+                    "tap_action": {
+                      "action": "perform-action",
+                      "perform_action": "script.ls_override_block",
+                      "data": {
+                        "scope": "hall_overvaning",
+                        "block": "night"
+                      }
+                    },
+                    "color": "amber",
+                    "visibility": [
+                      {
+                        "condition": "state",
+                        "entity": "input_select.ls_hall_overvaning_override",
+                        "state": "Night"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "button",
+                    "icon": "mdi:weather-night",
+                    "text": "Night",
+                    "tap_action": {
+                      "action": "perform-action",
+                      "perform_action": "script.ls_override_block",
+                      "data": {
+                        "scope": "hall_overvaning",
+                        "block": "night"
+                      }
+                    },
+                    "visibility": [
+                      {
+                        "condition": "state",
+                        "entity": "input_select.ls_hall_overvaning_override",
+                        "state_not": "Night"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "heading",
+                "heading": "Meditation/Mys",
+                "heading_style": "subtitle",
+                "icon": "mdi:meditation",
+                "entities": [
+                  {
+                    "type": "button",
+                    "icon": "mdi:white-balance-sunny",
+                    "text": "Day",
+                    "tap_action": {
+                      "action": "perform-action",
+                      "perform_action": "script.ls_override_block",
+                      "data": {
+                        "scope": "meditation_mys",
+                        "block": "day"
+                      }
+                    },
+                    "color": "amber",
+                    "visibility": [
+                      {
+                        "condition": "state",
+                        "entity": "input_select.ls_meditation_mys_override",
+                        "state": "Day"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "button",
+                    "icon": "mdi:white-balance-sunny",
+                    "text": "Day",
+                    "tap_action": {
+                      "action": "perform-action",
+                      "perform_action": "script.ls_override_block",
+                      "data": {
+                        "scope": "meditation_mys",
+                        "block": "day"
+                      }
+                    },
+                    "visibility": [
+                      {
+                        "condition": "state",
+                        "entity": "input_select.ls_meditation_mys_override",
+                        "state_not": "Day"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "button",
+                    "icon": "mdi:sofa",
+                    "text": "Cosy",
+                    "tap_action": {
+                      "action": "perform-action",
+                      "perform_action": "script.ls_override_block",
+                      "data": {
+                        "scope": "meditation_mys",
+                        "block": "cosy"
+                      }
+                    },
+                    "color": "amber",
+                    "visibility": [
+                      {
+                        "condition": "state",
+                        "entity": "input_select.ls_meditation_mys_override",
+                        "state": "Cosy"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "button",
+                    "icon": "mdi:sofa",
+                    "text": "Cosy",
+                    "tap_action": {
+                      "action": "perform-action",
+                      "perform_action": "script.ls_override_block",
+                      "data": {
+                        "scope": "meditation_mys",
+                        "block": "cosy"
+                      }
+                    },
+                    "visibility": [
+                      {
+                        "condition": "state",
+                        "entity": "input_select.ls_meditation_mys_override",
+                        "state_not": "Cosy"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "button",
+                    "icon": "mdi:weather-night",
+                    "text": "Night",
+                    "tap_action": {
+                      "action": "perform-action",
+                      "perform_action": "script.ls_override_block",
+                      "data": {
+                        "scope": "meditation_mys",
+                        "block": "night"
+                      }
+                    },
+                    "color": "amber",
+                    "visibility": [
+                      {
+                        "condition": "state",
+                        "entity": "input_select.ls_meditation_mys_override",
+                        "state": "Night"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "button",
+                    "icon": "mdi:weather-night",
+                    "text": "Night",
+                    "tap_action": {
+                      "action": "perform-action",
+                      "perform_action": "script.ls_override_block",
+                      "data": {
+                        "scope": "meditation_mys",
+                        "block": "night"
+                      }
+                    },
+                    "visibility": [
+                      {
+                        "condition": "state",
+                        "entity": "input_select.ls_meditation_mys_override",
+                        "state_not": "Night"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "heading",
+                "heading": "Jonathan's Bedroom",
+                "heading_style": "subtitle",
+                "icon": "mdi:bed",
+                "entities": [
+                  {
+                    "type": "button",
+                    "icon": "mdi:white-balance-sunny",
+                    "text": "Day",
+                    "tap_action": {
+                      "action": "perform-action",
+                      "perform_action": "script.ls_override_block",
+                      "data": {
+                        "scope": "bedroom",
+                        "block": "day"
+                      }
+                    },
+                    "color": "amber",
+                    "visibility": [
+                      {
+                        "condition": "state",
+                        "entity": "input_select.ls_bedroom_override",
+                        "state": "Day"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "button",
+                    "icon": "mdi:white-balance-sunny",
+                    "text": "Day",
+                    "tap_action": {
+                      "action": "perform-action",
+                      "perform_action": "script.ls_override_block",
+                      "data": {
+                        "scope": "bedroom",
+                        "block": "day"
+                      }
+                    },
+                    "visibility": [
+                      {
+                        "condition": "state",
+                        "entity": "input_select.ls_bedroom_override",
+                        "state_not": "Day"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "button",
+                    "icon": "mdi:sofa",
+                    "text": "Cosy",
+                    "tap_action": {
+                      "action": "perform-action",
+                      "perform_action": "script.ls_override_block",
+                      "data": {
+                        "scope": "bedroom",
+                        "block": "cosy"
+                      }
+                    },
+                    "color": "amber",
+                    "visibility": [
+                      {
+                        "condition": "state",
+                        "entity": "input_select.ls_bedroom_override",
+                        "state": "Cosy"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "button",
+                    "icon": "mdi:sofa",
+                    "text": "Cosy",
+                    "tap_action": {
+                      "action": "perform-action",
+                      "perform_action": "script.ls_override_block",
+                      "data": {
+                        "scope": "bedroom",
+                        "block": "cosy"
+                      }
+                    },
+                    "visibility": [
+                      {
+                        "condition": "state",
+                        "entity": "input_select.ls_bedroom_override",
+                        "state_not": "Cosy"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "button",
+                    "icon": "mdi:weather-night",
+                    "text": "Night",
+                    "tap_action": {
+                      "action": "perform-action",
+                      "perform_action": "script.ls_override_block",
+                      "data": {
+                        "scope": "bedroom",
+                        "block": "night"
+                      }
+                    },
+                    "color": "amber",
+                    "visibility": [
+                      {
+                        "condition": "state",
+                        "entity": "input_select.ls_bedroom_override",
+                        "state": "Night"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "button",
+                    "icon": "mdi:weather-night",
+                    "text": "Night",
+                    "tap_action": {
+                      "action": "perform-action",
+                      "perform_action": "script.ls_override_block",
+                      "data": {
+                        "scope": "bedroom",
+                        "block": "night"
+                      }
+                    },
+                    "visibility": [
+                      {
+                        "condition": "state",
+                        "entity": "input_select.ls_bedroom_override",
+                        "state_not": "Night"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "tile",
+                "entity": "light.ep_home",
+                "name": "All Lamps",
+                "grid_options": {
+                  "columns": 12
+                },
+                "state_content": [
+                  "effect",
+                  "brightness",
+                  "color_temp_kelvin"
+                ],
+                "tap_action": {
+                  "action": "more-info"
+                },
+                "icon_tap_action": {
+                  "action": "more-info"
+                }
+              },
+              {
+                "type": "tile",
+                "entity": "switch.zigbee2mqtt_bridge_permit_join",
+                "name": "Pair New Device",
+                "icon": "mdi:link-variant-plus",
+                "color": "blue",
+                "grid_options": {
+                  "columns": "full"
+                },
+                "features": [
+                  {
+                    "type": "toggle"
+                  }
+                ],
+                "features_position": "inline",
+                "tap_action": {
+                  "action": "toggle"
+                },
+                "icon_tap_action": {
+                  "action": "toggle"
+                }
+              },
+              {
+                "type": "tile",
+                "entity": "script.ls_clear_overrides",
+                "name": "Cancel All Overrides",
+                "icon": "mdi:restore",
+                "color": "red",
+                "state_content": "last_triggered",
+                "grid_options": {
+                  "columns": "full"
+                },
+                "tap_action": {
+                  "action": "perform-action",
+                  "perform_action": "script.ls_clear_overrides",
+                  "confirmation": {
+                    "text": "Cancel all overrides? Block choices, lamps set by hand and Sara Mode all end, and every lamp goes back to its scheduled block."
+                  }
+                },
+                "icon_tap_action": {
+                  "action": "perform-action",
+                  "perform_action": "script.ls_clear_overrides",
+                  "confirmation": {
+                    "text": "Cancel all overrides? Block choices, lamps set by hand and Sara Mode all end, and every lamp goes back to its scheduled block."
+                  }
+                },
+                "hold_action": {
+                  "action": "none"
+                }
+              },
+              {
+                "type": "tile",
+                "entity": "input_boolean.ls_sara_mode_mirror",
+                "name": "Sara Mode",
+                "icon": "mdi:heart",
+                "color": "pink",
+                "grid_options": {
+                  "columns": "full"
+                },
+                "features": [
+                  {
+                    "type": "toggle"
+                  }
+                ],
+                "features_position": "inline",
+                "tap_action": {
+                  "action": "toggle"
+                },
+                "icon_tap_action": {
+                  "action": "toggle"
+                }
+              }
+            ]
+          },
+          {
+            "type": "grid",
+            "cards": [
+              {
+                "type": "heading",
+                "heading": "Rooms",
+                "icon": "mdi:floor-plan"
+              },
+              {
+                "type": "tile",
+                "entity": "light.effect_preview_house_kitchen_native",
+                "name": "Kitchen",
+                "features": [
+                  {
+                    "type": "light-brightness"
+                  },
+                  {
+                    "type": "light-color-temp"
+                  }
+                ],
+                "grid_options": {
+                  "columns": 6
+                },
+                "tap_action": {
+                  "action": "more-info"
+                },
+                "icon_tap_action": {
+                  "action": "more-info"
+                },
+                "state_content": [
+                  "effect",
+                  "brightness",
+                  "color_temp_kelvin"
+                ]
+              },
+              {
+                "type": "tile",
+                "entity": "light.ep_living_room",
+                "name": "Living Room",
+                "features": [
+                  {
+                    "type": "light-brightness"
+                  },
+                  {
+                    "type": "light-color-temp"
+                  }
+                ],
+                "grid_options": {
+                  "columns": 6
+                },
+                "tap_action": {
+                  "action": "more-info"
+                },
+                "icon_tap_action": {
+                  "action": "more-info"
+                },
+                "state_content": [
+                  "effect",
+                  "brightness",
+                  "color_temp_kelvin"
+                ]
+              },
+              {
+                "type": "tile",
+                "entity": "light.ep_upper_hall",
+                "name": "Upper Hall",
+                "features": [
+                  {
+                    "type": "light-brightness"
+                  },
+                  {
+                    "type": "light-color-temp"
+                  }
+                ],
+                "grid_options": {
+                  "columns": 6
+                },
+                "tap_action": {
+                  "action": "more-info"
+                },
+                "icon_tap_action": {
+                  "action": "more-info"
+                },
+                "state_content": [
+                  "effect",
+                  "brightness",
+                  "color_temp_kelvin"
+                ]
+              },
+              {
+                "type": "tile",
+                "entity": "light.ep_jonathan_bedroom",
+                "name": "Jonathan's Bedroom",
+                "features": [
+                  {
+                    "type": "light-brightness"
+                  },
+                  {
+                    "type": "light-color-temp"
+                  }
+                ],
+                "grid_options": {
+                  "columns": 6
+                },
+                "tap_action": {
+                  "action": "more-info"
+                },
+                "icon_tap_action": {
+                  "action": "more-info"
+                },
+                "state_content": [
+                  "effect",
+                  "brightness",
+                  "color_temp_kelvin"
+                ]
+              },
+              {
+                "type": "tile",
+                "entity": "light.ep_meditation_mys_all",
+                "name": "Meditation/Mys",
+                "icon": "mdi:meditation",
+                "features": [
+                  {
+                    "type": "light-brightness"
+                  },
+                  {
+                    "type": "light-color-temp"
+                  }
+                ],
+                "grid_options": {
+                  "columns": 6
+                },
+                "tap_action": {
+                  "action": "more-info"
+                },
+                "icon_tap_action": {
+                  "action": "more-info"
+                },
+                "state_content": [
+                  "effect",
+                  "brightness",
+                  "color_temp_kelvin"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Lamps",
+        "path": "lamps",
+        "type": "sections",
+        "max_columns": 2,
+        "sections": [
+          {
+            "type": "grid",
+            "cards": [
+              {
+                "type": "heading",
+                "heading": "Jonathan's Bedroom",
+                "icon": "mdi:lightbulb-group-outline"
+              },
+              {
+                "type": "tile",
+                "entity": "light.ep_jonathan_bedroom_floor_lamp",
+                "name": "Golvlampa",
+                "tap_action": {
+                  "action": "more-info"
+                },
+                "icon_tap_action": {
+                  "action": "more-info"
+                },
+                "state_content": [
+                  "effect",
+                  "brightness",
+                  "color_temp_kelvin"
+                ],
+                "features": [
+                  {
+                    "type": "light-brightness"
+                  },
+                  {
+                    "type": "light-color-temp"
+                  }
+                ],
+                "grid_options": {
+                  "columns": 6
+                }
+              },
+              {
+                "type": "tile",
+                "entity": "light.ep_jonathan_bedroom_ceiling",
+                "name": "Jonathans Taklampa",
+                "tap_action": {
+                  "action": "more-info"
+                },
+                "icon_tap_action": {
+                  "action": "more-info"
+                },
+                "state_content": [
+                  "effect",
+                  "brightness",
+                  "color_temp_kelvin"
+                ],
+                "features": [
+                  {
+                    "type": "light-brightness"
+                  },
+                  {
+                    "type": "light-color-temp"
+                  }
+                ],
+                "grid_options": {
+                  "columns": 6
+                }
+              }
+            ]
+          },
+          {
+            "type": "grid",
+            "cards": [
+              {
+                "type": "heading",
+                "heading": "Upper Hall",
+                "icon": "mdi:lightbulb-group-outline"
+              },
+              {
+                "type": "tile",
+                "entity": "light.ep_upper_hall_stair_lamp",
+                "name": "Trapplampa",
+                "tap_action": {
+                  "action": "more-info"
+                },
+                "icon_tap_action": {
+                  "action": "more-info"
+                },
+                "state_content": [
+                  "effect",
+                  "brightness",
+                  "color_temp_kelvin"
+                ],
+                "features": [
+                  {
+                    "type": "light-brightness"
+                  },
+                  {
+                    "type": "light-color-temp"
+                  }
+                ],
+                "grid_options": {
+                  "columns": 6
+                }
+              },
+              {
+                "type": "tile",
+                "entity": "light.ep_upper_hall_ceiling",
+                "name": "Taklampa",
+                "tap_action": {
+                  "action": "more-info"
+                },
+                "icon_tap_action": {
+                  "action": "more-info"
+                },
+                "state_content": [
+                  "effect",
+                  "brightness",
+                  "color_temp_kelvin"
+                ],
+                "features": [
+                  {
+                    "type": "light-brightness"
+                  },
+                  {
+                    "type": "light-color-temp"
+                  }
+                ],
+                "grid_options": {
+                  "columns": 6
+                }
+              }
+            ]
+          },
+          {
+            "type": "grid",
+            "cards": [
+              {
+                "type": "heading",
+                "heading": "Living Room",
+                "icon": "mdi:lightbulb-group-outline"
+              },
+              {
+                "type": "tile",
+                "entity": "light.ep_living_room_desk_ceiling",
+                "name": "Taklampa Arbetsbord",
+                "tap_action": {
+                  "action": "more-info"
+                },
+                "icon_tap_action": {
+                  "action": "more-info"
+                },
+                "state_content": [
+                  "effect",
+                  "brightness",
+                  "color_temp_kelvin"
+                ],
+                "features": [
+                  {
+                    "type": "light-brightness"
+                  },
+                  {
+                    "type": "light-color-temp"
+                  }
+                ],
+                "grid_options": {
+                  "columns": 6
+                }
+              },
+              {
+                "type": "tile",
+                "entity": "light.ep_living_room_hall_ceiling",
+                "name": "Taklampa hall",
+                "tap_action": {
+                  "action": "more-info"
+                },
+                "icon_tap_action": {
+                  "action": "more-info"
+                },
+                "state_content": [
+                  "effect",
+                  "brightness",
+                  "color_temp_kelvin"
+                ],
+                "features": [
+                  {
+                    "type": "light-brightness"
+                  },
+                  {
+                    "type": "light-color-temp"
+                  }
+                ],
+                "grid_options": {
+                  "columns": 6
+                }
+              },
+              {
+                "type": "tile",
+                "entity": "light.ep_living_room_vicky_desk_lamp",
+                "name": "vickys skrivbordslampa",
+                "tap_action": {
+                  "action": "more-info"
+                },
+                "icon_tap_action": {
+                  "action": "more-info"
+                },
+                "state_content": [
+                  "effect",
+                  "brightness",
+                  "color_temp_kelvin"
+                ],
+                "features": [
+                  {
+                    "type": "light-brightness"
+                  },
+                  {
+                    "type": "light-color-temp"
+                  }
+                ],
+                "grid_options": {
+                  "columns": 6
+                }
+              },
+              {
+                "type": "tile",
+                "entity": "light.ep_living_room_table_lamp",
+                "name": "Vardagsrum bordlampa",
+                "tap_action": {
+                  "action": "more-info"
+                },
+                "icon_tap_action": {
+                  "action": "more-info"
+                },
+                "state_content": [
+                  "effect",
+                  "brightness",
+                  "color_temp_kelvin"
+                ],
+                "features": [
+                  {
+                    "type": "light-brightness"
+                  },
+                  {
+                    "type": "light-color-temp"
+                  }
+                ],
+                "grid_options": {
+                  "columns": 6
+                }
+              },
+              {
+                "type": "tile",
+                "entity": "light.ep_living_room_window_lamp",
+                "name": "Livingroom window lamp",
+                "tap_action": {
+                  "action": "more-info"
+                },
+                "icon_tap_action": {
+                  "action": "more-info"
+                },
+                "state_content": [
+                  "effect",
+                  "brightness",
+                  "color_temp_kelvin"
+                ],
+                "features": [
+                  {
+                    "type": "light-brightness"
+                  },
+                  {
+                    "type": "light-color-temp"
+                  }
+                ],
+                "grid_options": {
+                  "columns": 6
+                }
+              },
+              {
+                "type": "tile",
+                "entity": "light.ep_living_room_yellow_retro_lamp",
+                "name": "Gul retrolampa",
+                "tap_action": {
+                  "action": "more-info"
+                },
+                "icon_tap_action": {
+                  "action": "more-info"
+                },
+                "state_content": [
+                  "effect",
+                  "brightness",
+                  "color_temp_kelvin"
+                ],
+                "features": [
+                  {
+                    "type": "light-brightness"
+                  },
+                  {
+                    "type": "light-color-temp"
+                  }
+                ],
+                "grid_options": {
+                  "columns": 6
+                }
+              },
+              {
+                "type": "tile",
+                "entity": "light.ep_living_room_sofa_table_ceiling",
+                "name": "Taklampa Soffbord",
+                "tap_action": {
+                  "action": "more-info"
+                },
+                "icon_tap_action": {
+                  "action": "more-info"
+                },
+                "state_content": [
+                  "effect",
+                  "brightness",
+                  "color_temp_kelvin"
+                ],
+                "features": [
+                  {
+                    "type": "light-brightness"
+                  },
+                  {
+                    "type": "light-color-temp"
+                  }
+                ],
+                "grid_options": {
+                  "columns": 6
+                }
+              }
+            ]
+          },
+          {
+            "type": "grid",
+            "cards": [
+              {
+                "type": "heading",
+                "heading": "Kitchen",
+                "icon": "mdi:lightbulb-group-outline"
+              },
+              {
+                "type": "tile",
+                "entity": "light.ep_kitchen_pendant",
+                "name": "Kökslampa",
+                "tap_action": {
+                  "action": "more-info"
+                },
+                "icon_tap_action": {
+                  "action": "more-info"
+                },
+                "state_content": [
+                  "effect",
+                  "brightness",
+                  "color_temp_kelvin"
+                ],
+                "features": [
+                  {
+                    "type": "light-brightness"
+                  },
+                  {
+                    "type": "light-color-temp"
+                  }
+                ],
+                "grid_options": {
+                  "columns": 6
+                }
+              },
+              {
+                "type": "tile",
+                "entity": "light.ep_kitchen_spots_1",
+                "name": "Köksspot 1",
+                "tap_action": {
+                  "action": "more-info"
+                },
+                "icon_tap_action": {
+                  "action": "more-info"
+                },
+                "state_content": [
+                  "effect",
+                  "brightness",
+                  "color_temp_kelvin"
+                ],
+                "features": [
+                  {
+                    "type": "light-brightness"
+                  },
+                  {
+                    "type": "light-color-temp"
+                  }
+                ],
+                "grid_options": {
+                  "columns": 6
+                }
+              },
+              {
+                "type": "tile",
+                "entity": "light.ep_kitchen_spots_2",
+                "name": "Köksspot 2",
+                "tap_action": {
+                  "action": "more-info"
+                },
+                "icon_tap_action": {
+                  "action": "more-info"
+                },
+                "state_content": [
+                  "effect",
+                  "brightness",
+                  "color_temp_kelvin"
+                ],
+                "features": [
+                  {
+                    "type": "light-brightness"
+                  },
+                  {
+                    "type": "light-color-temp"
+                  }
+                ],
+                "grid_options": {
+                  "columns": 6
+                }
+              }
+            ]
+          },
+          {
+            "type": "grid",
+            "cards": [
+              {
+                "type": "heading",
+                "heading": "Meditation/Mys",
+                "icon": "mdi:lightbulb-group-outline"
+              },
+              {
+                "type": "tile",
+                "entity": "light.ep_meditation_floor_lamp",
+                "name": "Mys golvlampa",
+                "tap_action": {
+                  "action": "more-info"
+                },
+                "icon_tap_action": {
+                  "action": "more-info"
+                },
+                "state_content": [
+                  "effect",
+                  "brightness",
+                  "color_temp_kelvin"
+                ],
+                "features": [
+                  {
+                    "type": "light-brightness"
+                  },
+                  {
+                    "type": "light-color-temp"
+                  }
+                ],
+                "grid_options": {
+                  "columns": 6
+                }
+              },
+              {
+                "type": "tile",
+                "entity": "light.ep_meditation_ceiling",
+                "name": "Mys taklampa",
+                "tap_action": {
+                  "action": "more-info"
+                },
+                "icon_tap_action": {
+                  "action": "more-info"
+                },
+                "state_content": [
+                  "effect",
+                  "brightness",
+                  "color_temp_kelvin"
+                ],
+                "features": [
+                  {
+                    "type": "light-brightness"
+                  },
+                  {
+                    "type": "light-color-temp"
+                  }
+                ],
+                "grid_options": {
+                  "columns": 6
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "title": "House"
+  },
+  "config_hash": "9fe673ac2e32debf",
+  "config_size_bytes": 22220,
+  "render_paths": [
+    {
+      "url_path": "house-lights",
+      "view_index": 0,
+      "view_path": "lights",
+      "title": "Rooms",
+      "render_path": "house-lights/lights",
+      "stable": true
+    },
+    {
+      "url_path": "house-lights",
+      "view_index": 1,
+      "view_path": "lamps",
+      "title": "Lamps",
+      "render_path": "house-lights/lamps",
+      "stable": true
+    }
+  ],
+  "hint": "Large config (22,220 bytes). Pass view_path=... to fetch a single view, or use ha_config_get_dashboard(entity_id=...) to find card positions, then ha_config_set_dashboard(python_transform=...) instead of full config replacement."
+}

@@ -1,0 +1,44 @@
+{
+  "success": true,
+  "action": "get",
+  "script_id": "effect_breathe_frame",
+  "config": {
+    "alias": "Effects · Breathe frame",
+    "mode": "parallel",
+    "sequence": [
+      {
+        "variables": {
+          "result": "{% set q=((timestamp|float % 6)/3) %}{% set x=q if q<=1 else 2-q %}{{ {'brightness':([1,brightness|float*(0.35+0.65*x)]|max)|round|int,'transition':transition|default(0.4)|float} }}"
+        }
+      },
+      {
+        "stop": "Return result",
+        "response_variable": "result"
+      }
+    ],
+    "max": 50,
+    "fields": {
+      "timestamp": {
+        "selector": {
+          "object": {}
+        }
+      },
+      "brightness": {
+        "selector": {
+          "object": {}
+        }
+      },
+      "transition": {
+        "selector": {
+          "object": {}
+        }
+      },
+      "phase": {
+        "selector": {
+          "object": {}
+        }
+      }
+    }
+  },
+  "config_hash": "369a158d708723b5"
+}

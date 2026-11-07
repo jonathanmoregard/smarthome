@@ -1,0 +1,23 @@
+[
+  {
+    "op": "add",
+    "path": "/views/1/sections/5",
+    "value": {
+      "type": "grid",
+      "cards": [
+        {
+          "type": "custom:auto-entities",
+          "card": {
+            "type": "custom:vertical-stack-in-card",
+            "title": "Switch Lamps"
+          },
+          "card_param": "cards",
+          "show_empty": false,
+          "filter": {
+            "template": "{% set ranges = state_attr('sensor.ls_overrides', 'switch_ranges') or {} %}\n{% set ns = namespace(cards=[]) %}\n{% for entity, rule in ranges|dictsort if states[entity] is not none %}\n  {% set ns.cards = ns.cards + [{'type': 'tile', 'entity': entity, 'name': (area_name(entity) or 'Home') ~ ' \u00b7 ' ~ entity_name(entity), 'icon': 'mdi:power-socket-eu', 'tap_action': {'action': 'toggle'}, 'icon_tap_action': {'action': 'toggle'}, 'hold_action': {'action': 'none'}}] %}\n{% endfor %}\n{{ ns.cards }}"
+          }
+        }
+      ]
+    }
+  }
+]

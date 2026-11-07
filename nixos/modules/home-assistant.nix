@@ -3,6 +3,12 @@
 let
   stateDir = "/var/lib/hass";
 
+  # Household phones reach Home Assistant over the wired LAN on plain HTTP
+  # when this names an interface, so an unreachable tailnet no longer means an
+  # unreachable house. Tailscale Serve keeps carrying TLS from outside.
+  lanInterface = config.homeServer.homeAssistantLanInterface;
+  lanEnabled = lanInterface != null;
+
   # Wraps a group of cards in one framed card; the lighting-schedule
   # dashboard uses it to box each room. Not in nixpkgs; the release is a
   # single plain JS file, so there is nothing to build.
@@ -84,10 +90,16 @@ in
       # NixOS module defaults time_zone to time.timeZone; null drops it.
       homeassistant.time_zone = null;
 
-      # Loopback only: the sole way in is Tailscale Serve below, which
-      # terminates TLS. Plain HTTP is never reachable from the tailnet.
+      # Without a LAN interface this is loopback only, and the sole way in is
+      # Tailscale Serve below, which terminates TLS. With one, Home Assistant
+      # also binds every address, and the firewall below is what keeps plain
+      # HTTP on the wired LAN and off the tailnet. Binding every address
+      # rather than the lease keeps a DHCP renewal from breaking startup.
+      # `trusted_proxies` stays loopback-only: LAN clients connect directly,
+      # so no LAN address may forge an X-Forwarded-For.
       http = {
-        server_host = [ "127.0.0.1" "::1" ];
+        server_host =
+          if lanEnabled then [ "0.0.0.0" "::" ] else [ "127.0.0.1" "::1" ];
         server_port = 8123;
         use_x_forwarded_for = true;
         trusted_proxies = [ "127.0.0.1" "::1" ];
@@ -109,10 +121,23 @@ in
       ];
 
   # HTTPS for the web UI over the tailnet, with a certificate Tailscale issues
-  # for `<node>.<tailnet>.ts.net`. Serve listens on tailscale0:443 only; the
-  # host firewall opens 443 there and nothing else is added for HA. Needs
-  # "HTTPS Certificates" enabled once in the Tailscale admin console.
-  networking.firewall.interfaces.tailscale0.allowedTCPPorts = [ 443 ];
+  # for `<node>.<tailnet>.ts.net`. Serve listens on tailscale0:443 only. Port
+  # 8123 is opened on the wired LAN alone, so plain HTTP never reaches the
+  # tailnet. Needs "HTTPS Certificates" enabled once in the Tailscale admin
+  # console.
+  networking.firewall.interfaces = lib.mkMerge [
+    { tailscale0.allowedTCPPorts = [ 443 ]; }
+    (lib.mkIf lanEnabled { ${lanInterface}.allowedTCPPorts = [ 8123 ]; })
+  ];
+
+  assertions = [
+    {
+      assertion = !lanEnabled || lanInterface != "tailscale0";
+      message =
+        "homeServer.homeAssistantLanInterface must name a wired LAN interface;"
+        + " tailscale0 is served over TLS by Tailscale Serve.";
+    }
+  ];
 
   systemd.services.tailscale-serve-home-assistant = lib.mkIf config.services.tailscale.enable {
     description = "Serve Home Assistant over HTTPS on the tailnet";

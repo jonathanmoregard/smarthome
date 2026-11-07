@@ -1,0 +1,327 @@
+{
+  "success": true,
+  "ws_command": "mqtt/device/debug_info",
+  "parameters": {
+    "device_id": "0752f2b4e9a0992ac8efc2af1f53c62a"
+  },
+  "result": {
+    "entities": [
+      {
+        "entity_id": "sensor.0x385b44fffea50c99_battery",
+        "subscriptions": [
+          {
+            "topic": "zigbee2mqtt/bridge/state",
+            "messages": [
+              {
+                "payload": "{\"state\":\"online\"}",
+                "qos": 0,
+                "retain": true,
+                "time": "2026-10-23T18:06:29.533273+00:00",
+                "topic": "zigbee2mqtt/bridge/state"
+              }
+            ]
+          },
+          {
+            "topic": "zigbee2mqtt/0x385b44fffea50c99/availability",
+            "messages": [
+              {
+                "payload": "{\"state\":\"online\"}",
+                "qos": 0,
+                "retain": true,
+                "time": "2026-10-23T18:06:29.534206+00:00",
+                "topic": "zigbee2mqtt/0x385b44fffea50c99/availability"
+              }
+            ]
+          },
+          {
+            "topic": "zigbee2mqtt/0x385b44fffea50c99",
+            "messages": [
+              {
+                "payload": "{\"battery\":100,\"linkquality\":148}",
+                "qos": 0,
+                "retain": false,
+                "time": "2026-10-23T18:06:38.482682+00:00",
+                "topic": "zigbee2mqtt/0x385b44fffea50c99"
+              },
+              {
+                "payload": "{\"battery\":100,\"linkquality\":148}",
+                "qos": 0,
+                "retain": false,
+                "time": "2026-10-23T18:07:06.210476+00:00",
+                "topic": "zigbee2mqtt/0x385b44fffea50c99"
+              },
+              {
+                "payload": "{\"battery\":100,\"linkquality\":132}",
+                "qos": 0,
+                "retain": false,
+                "time": "2026-10-23T18:08:28.534084+00:00",
+                "topic": "zigbee2mqtt/0x385b44fffea50c99"
+              },
+              {
+                "payload": "{\"battery\":100,\"linkquality\":140}",
+                "qos": 0,
+                "retain": false,
+                "time": "2026-10-23T18:09:17.343037+00:00",
+                "topic": "zigbee2mqtt/0x385b44fffea50c99"
+              },
+              {
+                "payload": "{\"action\":\"brightness_step_up\",\"action_step_size\":51,\"action_transition_time\":0.3,\"battery\":100,\"linkquality\":140}",
+                "qos": 0,
+                "retain": false,
+                "time": "2026-10-23T18:10:39.012147+00:00",
+                "topic": "zigbee2mqtt/0x385b44fffea50c99"
+              },
+              {
+                "payload": "{\"action\":\"on\",\"battery\":100,\"linkquality\":140}",
+                "qos": 0,
+                "retain": false,
+                "time": "2026-10-23T18:13:57.682642+00:00",
+                "topic": "zigbee2mqtt/0x385b44fffea50c99"
+              },
+              {
+                "payload": "{\"action\":\"brightness_step_down\",\"action_step_size\":51,\"action_transition_time\":0.3,\"battery\":100,\"linkquality\":104}",
+                "qos": 0,
+                "retain": false,
+                "time": "2026-10-23T18:16:32.840599+00:00",
+                "topic": "zigbee2mqtt/0x385b44fffea50c99"
+              },
+              {
+                "payload": "{\"action\":\"brightness_move_to_level\",\"action_level\":2,\"action_transition_time\":0.3,\"battery\":100,\"linkquality\":92}",
+                "qos": 0,
+                "retain": false,
+                "time": "2026-10-23T18:16:43.635541+00:00",
+                "topic": "zigbee2mqtt/0x385b44fffea50c99"
+              },
+              {
+                "payload": "{\"action\":\"color_temperature_move\",\"action_color_temperature\":588,\"action_transition_time\":3,\"battery\":100,\"linkquality\":108}",
+                "qos": 0,
+                "retain": false,
+                "time": "2026-10-23T18:16:43.641972+00:00",
+                "topic": "zigbee2mqtt/0x385b44fffea50c99"
+              },
+              {
+                "payload": "{\"battery\":100,\"linkquality\":160}",
+                "qos": 0,
+                "retain": false,
+                "time": "2026-10-23T19:08:37.652359+00:00",
+                "topic": "zigbee2mqtt/0x385b44fffea50c99"
+              }
+            ]
+          }
+        ],
+        "discovery_data": {
+          "topic": "homeassistant/sensor/0x385b44fffea50c99/battery/config",
+          "payload": {
+            "availability": [
+              {
+                "topic": "zigbee2mqtt/bridge/state",
+                "value_template": "{{ value_json.state }}"
+              },
+              {
+                "topic": "zigbee2mqtt/0x385b44fffea50c99/availability",
+                "value_template": "{{ value_json.state }}"
+              }
+            ],
+            "availability_mode": "all",
+            "default_entity_id": "sensor.0x385b44fffea50c99_battery",
+            "device": {
+              "hw_version": 1,
+              "identifiers": [
+                "zigbee2mqtt_0x385b44fffea50c99"
+              ],
+              "manufacturer": "Innr",
+              "model": "Remote control",
+              "model_id": "RC 250",
+              "sw_version": "2.01.08",
+              "via_device": "zigbee2mqtt_bridge_0xc02cedfffe0752e2",
+              "name": "0x385b44fffea50c99"
+            },
+            "device_class": "battery",
+            "enabled_by_default": true,
+            "entity_category": "diagnostic",
+            "object_id": "0x385b44fffea50c99_battery",
+            "origin": {
+              "sw_version": "2.13.0",
+              "name": "Zigbee2MQTT",
+              "support_url": "https://www.zigbee2mqtt.io"
+            },
+            "state_class": "measurement",
+            "state_topic": "zigbee2mqtt/0x385b44fffea50c99",
+            "unique_id": "0x385b44fffea50c99_battery_zigbee2mqtt",
+            "unit_of_measurement": "%",
+            "value_template": "{{ value_json[\"battery\"] }}"
+          }
+        },
+        "transmitted": []
+      }
+    ],
+    "triggers": [
+      {
+        "discovery_data": {
+          "topic": "homeassistant/device_automation/0x385b44fffea50c99/action_brightness_step_up/config",
+          "payload": {
+            "automation_type": "trigger",
+            "device": {
+              "hw_version": 1,
+              "identifiers": [
+                "zigbee2mqtt_0x385b44fffea50c99"
+              ],
+              "manufacturer": "Innr",
+              "model": "Remote control",
+              "model_id": "RC 250",
+              "sw_version": "2.01.08",
+              "via_device": "zigbee2mqtt_bridge_0xc02cedfffe0752e2",
+              "name": "0x385b44fffea50c99"
+            },
+            "origin": {
+              "sw_version": "2.13.0",
+              "name": "Zigbee2MQTT",
+              "support_url": "https://www.zigbee2mqtt.io"
+            },
+            "payload": "brightness_step_up",
+            "subtype": "brightness_step_up",
+            "topic": "zigbee2mqtt/0x385b44fffea50c99/action",
+            "type": "action"
+          }
+        },
+        "trigger_key": [
+          "device_automation",
+          "0x385b44fffea50c99 action_brightness_step_up"
+        ]
+      },
+      {
+        "discovery_data": {
+          "topic": "homeassistant/device_automation/0x385b44fffea50c99/action_on/config",
+          "payload": {
+            "automation_type": "trigger",
+            "device": {
+              "hw_version": 1,
+              "identifiers": [
+                "zigbee2mqtt_0x385b44fffea50c99"
+              ],
+              "manufacturer": "Innr",
+              "model": "Remote control",
+              "model_id": "RC 250",
+              "sw_version": "2.01.08",
+              "via_device": "zigbee2mqtt_bridge_0xc02cedfffe0752e2",
+              "name": "0x385b44fffea50c99"
+            },
+            "origin": {
+              "sw_version": "2.13.0",
+              "name": "Zigbee2MQTT",
+              "support_url": "https://www.zigbee2mqtt.io"
+            },
+            "payload": "on",
+            "subtype": "on",
+            "topic": "zigbee2mqtt/0x385b44fffea50c99/action",
+            "type": "action"
+          }
+        },
+        "trigger_key": [
+          "device_automation",
+          "0x385b44fffea50c99 action_on"
+        ]
+      },
+      {
+        "discovery_data": {
+          "topic": "homeassistant/device_automation/0x385b44fffea50c99/action_brightness_step_down/config",
+          "payload": {
+            "automation_type": "trigger",
+            "device": {
+              "hw_version": 1,
+              "identifiers": [
+                "zigbee2mqtt_0x385b44fffea50c99"
+              ],
+              "manufacturer": "Innr",
+              "model": "Remote control",
+              "model_id": "RC 250",
+              "sw_version": "2.01.08",
+              "via_device": "zigbee2mqtt_bridge_0xc02cedfffe0752e2",
+              "name": "0x385b44fffea50c99"
+            },
+            "origin": {
+              "sw_version": "2.13.0",
+              "name": "Zigbee2MQTT",
+              "support_url": "https://www.zigbee2mqtt.io"
+            },
+            "payload": "brightness_step_down",
+            "subtype": "brightness_step_down",
+            "topic": "zigbee2mqtt/0x385b44fffea50c99/action",
+            "type": "action"
+          }
+        },
+        "trigger_key": [
+          "device_automation",
+          "0x385b44fffea50c99 action_brightness_step_down"
+        ]
+      },
+      {
+        "discovery_data": {
+          "topic": "homeassistant/device_automation/0x385b44fffea50c99/action_brightness_move_to_level/config",
+          "payload": {
+            "automation_type": "trigger",
+            "device": {
+              "hw_version": 1,
+              "identifiers": [
+                "zigbee2mqtt_0x385b44fffea50c99"
+              ],
+              "manufacturer": "Innr",
+              "model": "Remote control",
+              "model_id": "RC 250",
+              "sw_version": "2.01.08",
+              "via_device": "zigbee2mqtt_bridge_0xc02cedfffe0752e2",
+              "name": "0x385b44fffea50c99"
+            },
+            "origin": {
+              "sw_version": "2.13.0",
+              "name": "Zigbee2MQTT",
+              "support_url": "https://www.zigbee2mqtt.io"
+            },
+            "payload": "brightness_move_to_level",
+            "subtype": "brightness_move_to_level",
+            "topic": "zigbee2mqtt/0x385b44fffea50c99/action",
+            "type": "action"
+          }
+        },
+        "trigger_key": [
+          "device_automation",
+          "0x385b44fffea50c99 action_brightness_move_to_level"
+        ]
+      },
+      {
+        "discovery_data": {
+          "topic": "homeassistant/device_automation/0x385b44fffea50c99/action_color_temperature_move/config",
+          "payload": {
+            "automation_type": "trigger",
+            "device": {
+              "hw_version": 1,
+              "identifiers": [
+                "zigbee2mqtt_0x385b44fffea50c99"
+              ],
+              "manufacturer": "Innr",
+              "model": "Remote control",
+              "model_id": "RC 250",
+              "sw_version": "2.01.08",
+              "via_device": "zigbee2mqtt_bridge_0xc02cedfffe0752e2",
+              "name": "0x385b44fffea50c99"
+            },
+            "origin": {
+              "sw_version": "2.13.0",
+              "name": "Zigbee2MQTT",
+              "support_url": "https://www.zigbee2mqtt.io"
+            },
+            "payload": "color_temperature_move",
+            "subtype": "color_temperature_move",
+            "topic": "zigbee2mqtt/0x385b44fffea50c99/action",
+            "type": "action"
+          }
+        },
+        "trigger_key": [
+          "device_automation",
+          "0x385b44fffea50c99 action_color_temperature_move"
+        ]
+      }
+    ]
+  },
+  "message": "Successfully executed WebSocket command 'mqtt/device/debug_info'"
+}

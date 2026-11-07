@@ -1,0 +1,560 @@
+{
+  "measurement": "Offline actual-script CPU; not physical press-to-bulb latency",
+  "expiry_enabled": true,
+  "versions": {
+    "baseline": {
+      "path": "/tmp/lighting-algebra/input-processors/candidate",
+      "sha256": "6639afa603fb7c58f943ad8750fb185ab94e8c70ae799be0dafd3f04a574375c"
+    },
+    "candidate": {
+      "path": "/tmp/lighting-algebra/remote-regressions/candidate",
+      "sha256": "1ffc48751ce51fba387b9ff22adcfa81a1a4ed334088644388906c18bb6f38b1"
+    }
+  },
+  "scenarios": {
+    "normal_room": {
+      "baseline": {
+        "first_input_after_house_seed": {
+          "wall_ms": 872.14,
+          "cpu_ms": 861.471,
+          "input_work": {
+            "scripts": {
+              "ls_remote_command": 1,
+              "ls_remote_plan": 1,
+              "ls_room_plan": 1,
+              "ls_room_base": 1,
+              "effects_gradient_plan": 1,
+              "effects_resolve": 1,
+              "ls_switch_plan": 1,
+              "ls_commit": 1
+            },
+            "service_calls": 9,
+            "captured_zigbee_messages": 0,
+            "blocking_steps": 0
+          },
+          "render": {
+            "wall_ms": 529.868,
+            "cpu_ms": 524.097,
+            "work": {
+              "scripts": {
+                "ls_render": 1,
+                "ls_room_plan": 1,
+                "ls_room_base": 1,
+                "effects_gradient_plan": 1,
+                "effects_resolve": 1,
+                "ls_switch_plan": 1,
+                "ls_dispatch": 1,
+                "effects_catalog": 2,
+                "effects_assign": 1,
+                "effects_emit": 2,
+                "effects_frame_plan": 1,
+                "effects_group_plan": 1
+              },
+              "service_calls": 25,
+              "captured_zigbee_messages": 7,
+              "blocking_steps": 0
+            }
+          }
+        },
+        "warm_input_burst": {
+          "wall": {
+            "n": 10,
+            "median_ms": 2.203,
+            "p95_ms": 2.756,
+            "max_ms": 2.756
+          },
+          "cpu": {
+            "n": 10,
+            "median_ms": 2.195,
+            "p95_ms": 2.727,
+            "max_ms": 2.727
+          },
+          "work": {
+            "scripts": {
+              "ls_remote_command": 10,
+              "ls_remote_plan": 10,
+              "ls_commit": 10
+            },
+            "service_calls": 40,
+            "captured_zigbee_messages": 0,
+            "blocking_steps": 0
+          }
+        },
+        "coalesced_burst_drain": {
+          "wall_ms": 70.59,
+          "cpu_ms": 70.268,
+          "work": {
+            "scripts": {
+              "ls_render": 10,
+              "ls_room_plan": 1,
+              "effects_resolve": 1,
+              "ls_switch_plan": 1,
+              "ls_dispatch": 1,
+              "effects_catalog": 2,
+              "effects_assign": 1,
+              "effects_emit": 2,
+              "effects_frame_plan": 1,
+              "effects_group_plan": 1
+            },
+            "service_calls": 22,
+            "captured_zigbee_messages": 7,
+            "blocking_steps": 0
+          }
+        },
+        "interactive": {
+          "input_wall": {
+            "n": 10,
+            "median_ms": 4.865,
+            "p95_ms": 6.246,
+            "max_ms": 6.246
+          },
+          "input_cpu": {
+            "n": 10,
+            "median_ms": 4.825,
+            "p95_ms": 5.212,
+            "max_ms": 5.212
+          },
+          "render_wall": {
+            "n": 10,
+            "median_ms": 148.196,
+            "p95_ms": 196.573,
+            "max_ms": 196.573
+          },
+          "render_cpu": {
+            "n": 10,
+            "median_ms": 146.706,
+            "p95_ms": 186.494,
+            "max_ms": 186.494
+          },
+          "work": {
+            "scripts": {
+              "ls_remote_command": 10,
+              "ls_remote_plan": 10,
+              "ls_commit": 10,
+              "ls_render": 10,
+              "ls_room_plan": 10,
+              "effects_resolve": 10,
+              "ls_switch_plan": 10,
+              "ls_dispatch": 10,
+              "effects_catalog": 20,
+              "effects_assign": 10,
+              "effects_emit": 20,
+              "effects_frame_plan": 10,
+              "effects_group_plan": 10
+            },
+            "service_calls": 260,
+            "captured_zigbee_messages": 70,
+            "blocking_steps": 0
+          }
+        }
+      },
+      "candidate": {
+        "first_input_after_house_seed": {
+          "wall_ms": 380.321,
+          "cpu_ms": 374.188,
+          "input_work": {
+            "scripts": {
+              "ls_remote_command": 1,
+              "ls_remote_plan": 1,
+              "ls_room_plan": 1,
+              "ls_room_base": 1,
+              "effects_gradient_plan": 1,
+              "effects_resolve": 1,
+              "ls_switch_plan": 1,
+              "ls_commit": 1
+            },
+            "service_calls": 9,
+            "captured_zigbee_messages": 0,
+            "blocking_steps": 0
+          },
+          "render": {
+            "wall_ms": 119.174,
+            "cpu_ms": 118.408,
+            "work": {
+              "scripts": {
+                "ls_render": 1,
+                "ls_room_plan": 1,
+                "ls_room_base": 1,
+                "effects_gradient_plan": 1,
+                "effects_resolve": 1,
+                "ls_switch_plan": 1,
+                "ls_dispatch": 1,
+                "effects_catalog": 2,
+                "effects_assign": 1,
+                "effects_emit": 2,
+                "effects_frame_plan": 1,
+                "effects_group_plan": 1
+              },
+              "service_calls": 25,
+              "captured_zigbee_messages": 7,
+              "blocking_steps": 0
+            }
+          }
+        },
+        "warm_input_burst": {
+          "wall": {
+            "n": 10,
+            "median_ms": 2.258,
+            "p95_ms": 2.588,
+            "max_ms": 2.588
+          },
+          "cpu": {
+            "n": 10,
+            "median_ms": 2.252,
+            "p95_ms": 2.581,
+            "max_ms": 2.581
+          },
+          "work": {
+            "scripts": {
+              "ls_remote_command": 10,
+              "ls_remote_plan": 10,
+              "ls_commit": 10
+            },
+            "service_calls": 40,
+            "captured_zigbee_messages": 0,
+            "blocking_steps": 0
+          }
+        },
+        "coalesced_burst_drain": {
+          "wall_ms": 76.797,
+          "cpu_ms": 76.273,
+          "work": {
+            "scripts": {
+              "ls_render": 10,
+              "ls_room_plan": 1,
+              "effects_resolve": 1,
+              "ls_switch_plan": 1,
+              "ls_dispatch": 1,
+              "effects_catalog": 2,
+              "effects_assign": 1,
+              "effects_emit": 2,
+              "effects_frame_plan": 1,
+              "effects_group_plan": 1
+            },
+            "service_calls": 22,
+            "captured_zigbee_messages": 7,
+            "blocking_steps": 0
+          }
+        },
+        "interactive": {
+          "input_wall": {
+            "n": 10,
+            "median_ms": 4.414,
+            "p95_ms": 5.632,
+            "max_ms": 5.632
+          },
+          "input_cpu": {
+            "n": 10,
+            "median_ms": 4.388,
+            "p95_ms": 5.603,
+            "max_ms": 5.603
+          },
+          "render_wall": {
+            "n": 10,
+            "median_ms": 151.154,
+            "p95_ms": 225.053,
+            "max_ms": 225.053
+          },
+          "render_cpu": {
+            "n": 10,
+            "median_ms": 149.982,
+            "p95_ms": 223.728,
+            "max_ms": 223.728
+          },
+          "work": {
+            "scripts": {
+              "ls_remote_command": 10,
+              "ls_remote_plan": 10,
+              "ls_commit": 10,
+              "ls_render": 10,
+              "ls_room_plan": 10,
+              "effects_resolve": 10,
+              "ls_switch_plan": 10,
+              "ls_dispatch": 10,
+              "effects_catalog": 20,
+              "effects_assign": 10,
+              "effects_emit": 20,
+              "effects_frame_plan": 10,
+              "effects_group_plan": 10
+            },
+            "service_calls": 260,
+            "captured_zigbee_messages": 70,
+            "blocking_steps": 0
+          }
+        }
+      }
+    },
+    "one_configured_candle": {
+      "baseline": {
+        "first_input_after_house_seed": {
+          "wall_ms": 565.419,
+          "cpu_ms": 546.079,
+          "input_work": {
+            "scripts": {
+              "ls_remote_command": 1,
+              "ls_remote_plan": 1,
+              "ls_room_plan": 1,
+              "ls_room_base": 1,
+              "effects_gradient_plan": 1,
+              "effects_resolve": 1,
+              "ls_switch_plan": 1,
+              "ls_commit": 1
+            },
+            "service_calls": 9,
+            "captured_zigbee_messages": 0,
+            "blocking_steps": 0
+          },
+          "render": {
+            "wall_ms": 362.546,
+            "cpu_ms": 351.415,
+            "work": {
+              "scripts": {
+                "ls_render": 1,
+                "ls_room_plan": 1,
+                "ls_room_base": 1,
+                "effects_gradient_plan": 1,
+                "effects_resolve": 1,
+                "ls_switch_plan": 1,
+                "ls_dispatch": 1,
+                "effects_catalog": 2,
+                "effects_assign": 1,
+                "effects_emit": 2,
+                "effects_frame_plan": 1,
+                "effects_group_plan": 1
+              },
+              "service_calls": 24,
+              "captured_zigbee_messages": 6,
+              "blocking_steps": 0
+            }
+          }
+        },
+        "warm_input_burst": {
+          "wall": {
+            "n": 10,
+            "median_ms": 4.301,
+            "p95_ms": 5.212,
+            "max_ms": 5.212
+          },
+          "cpu": {
+            "n": 10,
+            "median_ms": 4.277,
+            "p95_ms": 5.197,
+            "max_ms": 5.197
+          },
+          "work": {
+            "scripts": {
+              "ls_remote_command": 10,
+              "ls_remote_plan": 10,
+              "ls_commit": 10
+            },
+            "service_calls": 40,
+            "captured_zigbee_messages": 0,
+            "blocking_steps": 0
+          }
+        },
+        "coalesced_burst_drain": {
+          "wall_ms": 209.156,
+          "cpu_ms": 199.433,
+          "work": {
+            "scripts": {
+              "ls_render": 10,
+              "ls_room_plan": 1,
+              "effects_resolve": 1,
+              "ls_switch_plan": 1,
+              "ls_dispatch": 1,
+              "effects_catalog": 2,
+              "effects_assign": 1,
+              "effects_emit": 2,
+              "effects_frame_plan": 1,
+              "effects_group_plan": 1
+            },
+            "service_calls": 21,
+            "captured_zigbee_messages": 6,
+            "blocking_steps": 0
+          }
+        },
+        "interactive": {
+          "input_wall": {
+            "n": 10,
+            "median_ms": 4.96,
+            "p95_ms": 6.03,
+            "max_ms": 6.03
+          },
+          "input_cpu": {
+            "n": 10,
+            "median_ms": 4.941,
+            "p95_ms": 6.0,
+            "max_ms": 6.0
+          },
+          "render_wall": {
+            "n": 10,
+            "median_ms": 184.99,
+            "p95_ms": 270.647,
+            "max_ms": 270.647
+          },
+          "render_cpu": {
+            "n": 10,
+            "median_ms": 182.394,
+            "p95_ms": 254.396,
+            "max_ms": 254.396
+          },
+          "work": {
+            "scripts": {
+              "ls_remote_command": 10,
+              "ls_remote_plan": 10,
+              "ls_commit": 10,
+              "ls_render": 10,
+              "ls_room_plan": 10,
+              "effects_resolve": 10,
+              "ls_switch_plan": 10,
+              "ls_dispatch": 10,
+              "effects_catalog": 20,
+              "effects_assign": 10,
+              "effects_emit": 20,
+              "effects_frame_plan": 10,
+              "effects_group_plan": 10
+            },
+            "service_calls": 250,
+            "captured_zigbee_messages": 60,
+            "blocking_steps": 0
+          }
+        }
+      },
+      "candidate": {
+        "first_input_after_house_seed": {
+          "wall_ms": 558.86,
+          "cpu_ms": 533.615,
+          "input_work": {
+            "scripts": {
+              "ls_remote_command": 1,
+              "ls_remote_plan": 1,
+              "ls_room_plan": 1,
+              "ls_room_base": 1,
+              "effects_gradient_plan": 1,
+              "effects_resolve": 1,
+              "ls_switch_plan": 1,
+              "ls_commit": 1
+            },
+            "service_calls": 9,
+            "captured_zigbee_messages": 0,
+            "blocking_steps": 0
+          },
+          "render": {
+            "wall_ms": 280.626,
+            "cpu_ms": 273.083,
+            "work": {
+              "scripts": {
+                "ls_render": 1,
+                "ls_room_plan": 1,
+                "ls_room_base": 1,
+                "effects_gradient_plan": 1,
+                "effects_resolve": 1,
+                "ls_switch_plan": 1,
+                "ls_dispatch": 1,
+                "effects_catalog": 2,
+                "effects_assign": 1,
+                "effects_emit": 2,
+                "effects_frame_plan": 1,
+                "effects_group_plan": 1
+              },
+              "service_calls": 24,
+              "captured_zigbee_messages": 6,
+              "blocking_steps": 0
+            }
+          }
+        },
+        "warm_input_burst": {
+          "wall": {
+            "n": 10,
+            "median_ms": 4.234,
+            "p95_ms": 5.429,
+            "max_ms": 5.429
+          },
+          "cpu": {
+            "n": 10,
+            "median_ms": 4.205,
+            "p95_ms": 5.384,
+            "max_ms": 5.384
+          },
+          "work": {
+            "scripts": {
+              "ls_remote_command": 10,
+              "ls_remote_plan": 10,
+              "ls_commit": 10
+            },
+            "service_calls": 40,
+            "captured_zigbee_messages": 0,
+            "blocking_steps": 0
+          }
+        },
+        "coalesced_burst_drain": {
+          "wall_ms": 193.251,
+          "cpu_ms": 184.622,
+          "work": {
+            "scripts": {
+              "ls_render": 10,
+              "ls_room_plan": 1,
+              "effects_resolve": 1,
+              "ls_switch_plan": 1,
+              "ls_dispatch": 1,
+              "effects_catalog": 2,
+              "effects_assign": 1,
+              "effects_emit": 2,
+              "effects_frame_plan": 1,
+              "effects_group_plan": 1
+            },
+            "service_calls": 21,
+            "captured_zigbee_messages": 6,
+            "blocking_steps": 0
+          }
+        },
+        "interactive": {
+          "input_wall": {
+            "n": 10,
+            "median_ms": 4.877,
+            "p95_ms": 11.053,
+            "max_ms": 11.053
+          },
+          "input_cpu": {
+            "n": 10,
+            "median_ms": 4.857,
+            "p95_ms": 8.54,
+            "max_ms": 8.54
+          },
+          "render_wall": {
+            "n": 10,
+            "median_ms": 177.397,
+            "p95_ms": 338.729,
+            "max_ms": 338.729
+          },
+          "render_cpu": {
+            "n": 10,
+            "median_ms": 175.903,
+            "p95_ms": 335.836,
+            "max_ms": 335.836
+          },
+          "work": {
+            "scripts": {
+              "ls_remote_command": 10,
+              "ls_remote_plan": 10,
+              "ls_commit": 10,
+              "ls_render": 10,
+              "ls_room_plan": 10,
+              "effects_resolve": 10,
+              "ls_switch_plan": 10,
+              "ls_dispatch": 10,
+              "effects_catalog": 20,
+              "effects_assign": 10,
+              "effects_emit": 20,
+              "effects_frame_plan": 10,
+              "effects_group_plan": 10
+            },
+            "service_calls": 250,
+            "captured_zigbee_messages": 60,
+            "blocking_steps": 0
+          }
+        }
+      }
+    }
+  }
+}

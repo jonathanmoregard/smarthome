@@ -1,0 +1,190 @@
+{
+  "scripts": [
+    {
+      "entity_id": "script.ls_remote_gesture_bedroom",
+      "file": "ls_remote_gesture_bedroom.json"
+    },
+    {
+      "entity_id": "script.ls_remote_power_quiet_bedroom",
+      "file": "ls_remote_power_quiet_bedroom.json"
+    },
+    {
+      "entity_id": "script.ls_remote_gesture_living_room",
+      "file": "ls_remote_gesture_living_room.json"
+    },
+    {
+      "entity_id": "script.ls_remote_power_quiet_living_room",
+      "file": "ls_remote_power_quiet_living_room.json"
+    }
+  ],
+  "automations": [
+    {
+      "automation_id": "lighting_remote_0x385b44fffea4fc67_center",
+      "file": "gesture_center_bedroom.json",
+      "install": "replace existing by stable id; create only if absent"
+    },
+    {
+      "automation_id": "lighting_remote_0x385b44fffea4fc67_directions",
+      "file": "gesture_directions_bedroom.json",
+      "install": "replace existing by stable id; create only if absent"
+    },
+    {
+      "automation_id": "lighting_remote_0x385b44fffea4fc67_presets",
+      "file": "gesture_presets_bedroom.json",
+      "install": "replace existing by stable id; create only if absent"
+    },
+    {
+      "automation_id": "lighting_remote_0x385b44fffea50c99_center",
+      "file": "gesture_center_living_room.json",
+      "install": "replace existing by stable id; create only if absent"
+    },
+    {
+      "automation_id": "lighting_remote_0x385b44fffea50c99_directions",
+      "file": "gesture_directions_living_room.json",
+      "install": "replace existing by stable id; create only if absent"
+    },
+    {
+      "automation_id": "lighting_remote_0x385b44fffea50c99_presets",
+      "file": "gesture_presets_living_room.json",
+      "install": "replace existing by stable id; create only if absent"
+    }
+  ],
+  "helpers": [
+    {
+      "entity_id": "input_number.ls_bedroom_remote_chord_step",
+      "create_if_missing": {
+        "action": "create",
+        "helper_type": "input_number",
+        "name": "ls_bedroom_remote_chord_step",
+        "min_value": -1,
+        "max_value": 4,
+        "step": 1,
+        "mode": "box",
+        "icon": "mdi:gesture-tap"
+      },
+      "name_after_create": "Bedroom Remote Chord Step"
+    },
+    {
+      "entity_id": "input_number.ls_bedroom_remote_preset",
+      "create_if_missing": {
+        "action": "create",
+        "helper_type": "input_number",
+        "name": "ls_bedroom_remote_preset",
+        "min_value": 0,
+        "max_value": 4,
+        "step": 1,
+        "mode": "box",
+        "icon": "mdi:remote"
+      },
+      "name_after_create": "Bedroom Remote Preset Cursor",
+      "existing": "Preserve existing helper and cursor; do not reseed."
+    },
+    {
+      "entity_id": "input_number.ls_bedroom_remote_power_count",
+      "create_if_missing": {
+        "action": "create",
+        "helper_type": "input_number",
+        "name": "ls_bedroom_remote_power_count",
+        "min_value": 0,
+        "max_value": 3,
+        "step": 1,
+        "mode": "box",
+        "initial": 0
+      },
+      "name_after_create": "Bedroom Remote Power Count"
+    },
+    {
+      "entity_id": "input_number.ls_living_room_remote_chord_step",
+      "create_if_missing": {
+        "action": "create",
+        "helper_type": "input_number",
+        "name": "ls_living_room_remote_chord_step",
+        "min_value": -1,
+        "max_value": 4,
+        "step": 1,
+        "mode": "box",
+        "icon": "mdi:gesture-tap"
+      },
+      "name_after_create": "Living Room Remote Chord Step"
+    },
+    {
+      "entity_id": "input_number.ls_living_room_remote_preset",
+      "create_if_missing": {
+        "action": "create",
+        "helper_type": "input_number",
+        "name": "ls_living_room_remote_preset",
+        "min_value": -1,
+        "max_value": 4,
+        "step": 1,
+        "mode": "box",
+        "icon": "mdi:remote"
+      },
+      "name_after_create": "Living Room Remote Preset Cursor",
+      "seed_after_create_before_preset_automation": -1
+    },
+    {
+      "entity_id": "input_number.ls_living_room_remote_power_count",
+      "create_if_missing": {
+        "action": "create",
+        "helper_type": "input_number",
+        "name": "ls_living_room_remote_power_count",
+        "min_value": 0,
+        "max_value": 3,
+        "step": 1,
+        "mode": "box",
+        "initial": 0
+      },
+      "name_after_create": "Living Room Remote Power Count"
+    },
+    {
+      "entity_id": "timer.ls_bedroom_remote_chord",
+      "create_if_missing": {
+        "action": "create",
+        "helper_type": "timer",
+        "name": "ls_bedroom_remote_chord",
+        "duration": "00:00:03",
+        "restore": false
+      },
+      "name_after_create": "Bedroom Remote Chord"
+    },
+    {
+      "entity_id": "timer.ls_living_room_remote_chord",
+      "create_if_missing": {
+        "action": "create",
+        "helper_type": "timer",
+        "name": "ls_living_room_remote_chord",
+        "duration": "00:00:03",
+        "restore": false
+      },
+      "name_after_create": "Living Room Remote Chord"
+    },
+    {
+      "entity_id": "input_text.ls_bedroom_remote_power_token",
+      "create_if_missing": {
+        "action": "create",
+        "helper_type": "input_text",
+        "name": "ls_bedroom_remote_power_token",
+        "max_value": 255,
+        "initial": ""
+      },
+      "name_after_create": "Bedroom Remote Power Token"
+    },
+    {
+      "entity_id": "input_text.ls_living_room_remote_power_token",
+      "create_if_missing": {
+        "action": "create",
+        "helper_type": "input_text",
+        "name": "ls_living_room_remote_power_token",
+        "max_value": 255,
+        "initial": ""
+      },
+      "name_after_create": "Living Room Remote Power Token"
+    }
+  ],
+  "notes": [
+    "Create missing helpers, install scripts, then replace adapters by stable automation id; never install duplicates.",
+    "create_if_missing uses the object id as the name to allocate the exact referenced entity id; optionally rename its display name after creation.",
+    "Parent script.ls_remote_command must accept sara_toggle as a global policy toggle preserving room power/channel records.",
+    "No initial value on preset helpers: restoration is intentional. New living cursor is explicitly seeded -1; existing bedroom cursor is not touched."
+  ]
+}

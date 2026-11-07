@@ -1,0 +1,28 @@
+{# Pure Normal Light processor. The adapter stores ticks; only this processor knows
+   how ticks map to the Day/Cosy gradient. Animation processors default to no-op. #}
+{% macro normal_position(input, item, level) -%}
+ {% set d=item.day.brightness-item.cosy.brightness %}
+ {% set floor=[76.5,item.cosy.brightness]|min %}
+ {% set slope=[0,d,(item.cosy.brightness-floor)/2]|max %}
+ {% if input.get('anchor')=='day' %}{% set seed=1 %}
+ {% elif input.get('anchor')=='cosy' %}{% set seed=0 %}
+ {% elif input.get('legacy_position') is number %}{% set seed=input.legacy_position %}
+ {% elif level>item.day.brightness and item.day.brightness<255 %}{% set seed=1+(level-item.day.brightness)/(255-item.day.brightness) %}
+ {% elif level<item.cosy.brightness and slope>0 %}{% set seed=[-2,(level-item.cosy.brightness)/slope]|max %}
+ {% else %}{% set seed=(level-item.cosy.brightness)/d if d>0 else 1 %}{% endif %}
+ {{- ([input.lower,[input.upper,seed*10+input.steps]|min]|max/10)|to_json -}}
+{%- endmacro %}
+
+{% macro input_claims(value,key,stamp) -%}
+ {% set n=namespace(claims=[]) %}
+ {% if value.get('selection') not in ['day','cosy',none] and value.get('legacy_channels') is not mapping %}
+  {% if value.get('selection_input') is mapping %}
+   {% set n.claims=n.claims+[{'kind':'input','input':value.selection_input,'updated':value.selection_input.get('updated',stamp)}] %}
+  {% endif %}
+  {% set n.claims=n.claims+[{'kind':'effect','effect':value.selection,'instance':value.get('selection_instance',key~':'~value.selection),'updated':value.get('selection_updated',stamp)}] %}
+ {% endif %}
+ {% if value.get('adjustment') is mapping %}
+  {% set n.claims=n.claims+[{'kind':'input','input':value.adjustment,'updated':value.adjustment.get('updated',stamp)}] %}
+ {% endif %}
+ {{- n.claims|to_json -}}
+{%- endmacro %}

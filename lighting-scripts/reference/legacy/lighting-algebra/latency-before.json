@@ -1,0 +1,1179 @@
+{
+  "ls_base": {
+    "success": true,
+    "action": "get",
+    "script_id": "ls_base",
+    "config": {
+      "alias": "Lighting · Scheduled base",
+      "mode": "parallel",
+      "sequence": [
+        {
+          "variables": {
+            "reason": "{{ reason|default('config') }}",
+            "force_all": true,
+            "test_overrides": "{{ overrides }}",
+            "plan": "{%- set T = (as_datetime(test_now) | as_local) if (test_now is defined and test_now) else now() -%}\n{%- set why = reason | default('tick') -%}\n{%- set ovr = test_overrides if (test_overrides is defined and test_overrides is mapping) else state_attr('sensor.ls_overrides', 'overrides') -%}\n{%- set ovr = ovr if ovr is mapping else {} -%}\n{%- set sara = false -%}\n{%- set pink = [255, 105, 180] -%}\n{%- set rooms = (label_entities('house_schedule') + label_entities('on_off') + (state_attr('sensor.ls_overrides','switch_ranges') or {}).keys()|list + ((label_devices('house_schedule') + label_devices('on_off')) | map('device_entities') | sum(start=[]))) | map('area_id') | select | unique | sort | list -%}\n{%- set blocks = ['day', 'cosy', 'night'] -%}\n{%- set private = label_areas('private_room') -%}\n{%- set midnight = T.replace(hour=0, minute=0, second=0, microsecond=0) -%}\n{%- set ns = namespace(sched={}) -%}\n{%- for sc in ['house'] + rooms -%}\n  {%- set t = namespace(cur=none, cur_ts=0, nxt=none, nxt_ts=0, nxt_f=0, last_fs=0) -%}\n  {%- for off in [-2, -1, 0, 1] -%}\n    {%- set eve = midnight + timedelta(days=off) -%}\n    {%- set wk = eve.weekday() in [4, 5] -%}\n    {%- for b in blocks -%}\n      {%- set src = sc if (sc == 'house' or is_state('input_boolean.ls_' ~ sc ~ '_' ~ b ~ '_own_timing', 'on')) else 'house' -%}\n      {%- set dayb = b == 'day' -%}\n      {%- set wkb = ((eve + timedelta(days=1)).weekday() in [5, 6]) if dayb else wk -%}\n      {%- set st = states('input_datetime.ls_' ~ src ~ '_' ~ b ~ ('_weekend' if wkb else '_start')) -%}\n      {%- if st | regex_match('^\\d\\d:\\d\\d') -%}\n        {%- set h = st[0:2] | int -%}\n        {%- set i = eve.replace(hour=h, minute=st[3:5] | int) + timedelta(days=(1 if (dayb or h < 12) else 0)) -%}\n        {%- set its = as_timestamp(i) -%}\n        {%- set f = states('input_number.ls_' ~ src ~ '_' ~ b ~ '_fade') | float(20) * 60 -%}\n        {%- if its <= as_timestamp(T) and its > t.cur_ts -%}{%- set t.cur, t.cur_ts = b, its -%}{%- endif -%}\n        {%- if its > as_timestamp(T) and (t.nxt is none or its < t.nxt_ts) -%}{%- set t.nxt, t.nxt_ts, t.nxt_f = b, its, f -%}{%- endif -%}\n        {%- if its - f <= as_timestamp(T) and its - f > t.last_fs -%}{%- set t.last_fs = its - f -%}{%- endif -%}\n      {%- endif -%}\n    {%- endfor -%}\n  {%- endfor -%}\n  {%- set left = t.nxt_ts - as_timestamp(T) -%}\n  {%- set fading = t.nxt is not none and t.nxt_f > 0 and left < t.nxt_f and t.nxt != t.cur -%}\n  {%- set ns.sched = dict(ns.sched, **{sc: {'cur': t.cur, 'nxt': t.nxt, 'fading': fading, 'p': ((1 - left / t.nxt_f) if fading else 0), 'edge': (as_timestamp(T) - t.cur_ts) < 90, 'last_fs': t.last_fs, 'left': left, 'cur_ts': t.cur_ts}}) -%}\n{%- endfor -%}\n{%- set dimmables = (label_entities('house_schedule') + (label_devices('house_schedule') | map('device_entities') | sum(start=[]))) | select('match', 'light\\.') | unique | list -%}\n{%- set plugs = (label_entities('on_off') + (label_devices('on_off') | map('device_entities') | sum(start=[]))) | select('match', '(light|switch)\\.') | unique | list -%}\n{%- set only = (lights if lights is list else [lights]) if (lights is defined and lights) else [] -%}\n{%- set out = namespace(cmds={}, dbg=[], profiles={}) -%}\n{%- for L in (dimmables + plugs) if (not only or L in only) -%}\n  {%- set is_plug = L in plugs -%}\n  {%- set a = area_id(L) -%}\n  {%- set room = a if a in rooms else none -%}\n  {%- set ts = room or 'house' -%}\n  {%- set lsc = room or 'house' -%}\n  {%- set S = ns.sched[ts] -%}\n  {%- set st = namespace(fr=S.cur, to=(S.nxt if S.fading else S.cur), p=S.p, moving=S.fading, edge=S.edge, src='schedule') -%}\n  {%- set pick = namespace(rec=ovr.get('block:' ~ ts),stamp=as_timestamp(ovr.get('block:' ~ ts,{}).get('when'),0)) -%}\n{%- for key,r in ovr|dictsort if r is mapping and r.get('kind')=='channels' and r.get('value') is mapping -%}\n {%- set matches=(r.get('scope')=='lamp' and r.target==L) or (r.get('scope')=='room' and r.target==ts) or (r.get('scope')=='house' and a not in private) -%}\n {%- set period=r.value.get('period') -%}{%- set stamp=r.value.get('period_updated',as_timestamp(r.get('when'),0))|float -%}\n {%- if matches and period in blocks and stamp>=pick.stamp and not (is_state('input_boolean.ls_ovr_next_block_on','on') and as_timestamp(r.when,0)<=S.last_fs) -%}{%- set pick.rec={'value':period,'when':r.when} -%}{%- set pick.stamp=stamp -%}{%- endif -%}\n{%- endfor -%}{%- set orec=pick.rec -%}\n{%- if orec is mapping and is_state('input_boolean.ls_ovr_next_block_on','on') and not S.fading and as_timestamp(orec.when,0)<=S.last_fs -%}{%- set orec=none -%}{%- endif -%}\n  {%- set ov = (orec.value | string | lower) if orec is mapping else '' -%}\n  {%- set expired=namespace(keys=[],rec=none) -%}\n{%- if is_state('input_boolean.ls_ovr_next_block_on','on') -%}\n {%- for key,r in ovr|dictsort if r is mapping -%}\n  {%- set applies=(r.kind=='light' and r.target==L) or (r.kind=='channels' and ((r.get('scope')=='lamp' and r.target==L) or (r.get('scope')=='room' and r.target==ts) or (r.get('scope')=='house' and a not in private))) or (key=='mode:sara' and a not in private) -%}\n  {%- if applies and as_timestamp(r.get('when'),0)<=S.last_fs -%}{%- set expired.keys=expired.keys+[key] -%}{%- set expired.rec={'when':r.when,'value':none} -%}{%- endif -%}\n {%- endfor -%}\n{%- endif -%}{%- set lrec=expired.rec if S.fading else none -%}\n  {%- set effect_record = lrec if (lrec is mapping and lrec.value is mapping and 'effect' in lrec.value and not (S.fading and as_timestamp(lrec.when,0) <= S.last_fs)) else none -%}\n  {%- if effect_record is mapping -%}{%- set lrec = none -%}{%- endif -%}\n  {%- set srec = ovr.get('mode:sara') if (sara and a not in private) else none -%}\n  {%- set lamp_sara = sara and not (S.fading and srec is mapping and as_timestamp(srec.when, 0) <= S.last_fs) -%}\n  {%- set fo_p = [1, (60 if why == 'tick' else 3) / ([S.left, 1] | max)] | min -%}\n  {%- if lrec is mapping and not (S.fading and as_timestamp(lrec.when, 0) <= S.last_fs) -%}\n    {%- set st.src = 'held' -%}\n  {%- elif lrec is mapping or (orec is mapping and S.fading and as_timestamp(orec.when, 0) <= S.last_fs) -%}\n    {%- set st.fr, st.to, st.p, st.moving, st.edge, st.src = 'lamp', S.nxt, fo_p, true, false, 'fadeout' -%}\n  {%- elif ov in blocks -%}\n    {%- set st.fr, st.to, st.p, st.moving, st.src = ov, ov, 0, false, 'override' -%}\n  {%- elif sara and a not in private and not lamp_sara -%}\n    {%- set st.fr, st.to, st.p, st.moving, st.edge, st.src = 'lamp', S.nxt, fo_p, true, false, 'fadeout' -%}\n  {%- elif room and has_value('input_datetime.ls_' ~ room ~ '_wake') -%}\n    {%- set wts = state_attr('input_datetime.ls_' ~ room ~ '_wake', 'timestamp') | float(0) -%}\n    {%- set D = states('input_number.ls_' ~ room ~ '_wake_fade') | float(37.5) * 60 -%}\n    {%- set e = as_timestamp(T) - wts -%}\n    {%- if 0 <= e < D and S.cur == 'night' and S.cur_ts <= wts -%}\n      {%- set st.fr, st.to, st.p, st.moving, st.src = 'night', 'day', e / D, true, 'wake' -%}\n    {%- elif D <= e < 86400 and 4 <= (as_datetime(wts) | as_local).hour < 11 and S.cur == 'night' and S.cur_ts <= wts and (not S.fading or S.nxt == 'day') -%}\n      {%- set st.fr, st.to, st.p, st.moving, st.edge, st.src = 'day', 'day', 0, false, (e - D) < 90, 'wake' -%}\n    {%- endif -%}\n  {%- endif -%}\n  {%- set send_now = true -%}\n  {%- set obj = L.split('.')[1] -%}\n  {%- if not is_plug -%}\n    {%- set eb = st.to if st.fr == 'lamp' else st.fr -%}\n    {%- set esc = room if (room and is_state('input_boolean.ls_' ~ room ~ '_' ~ eb ~ '_own_light','on')) else 'house' -%}\n    {%- set lp = states('input_text.ls_lamp_' ~ obj ~ '_' ~ eb)|from_json(default={}) -%}\n    {%- set pr = lp if lp.get('own',false) else states('input_text.ls_' ~ esc ~ '_' ~ eb)|from_json(default={}) -%}\n    {%- set effect = pr.get('effect','Normal light') if st.src != 'held' else 'Normal light' -%}\n    {%- set bright = pr.get('b',255)|int -%}\n    {%- if effect_record is mapping -%}\n      {%- set effect = effect_record.value.effect -%}\n      {%- set bright = effect_record.value.get('brightness',bright)|int -%}\n    {%- endif -%}\n    {%- if lamp_sara and a not in private -%}{%- set effect='Normal light' -%}{%- endif -%}\n    {%- set out.profiles=dict(out.profiles,**{L:{'effect':effect,'brightness':bright,'on':pr.get('on',true),'period':eb,'area':a,'effect_channels':pr.get('effect_channels',['brightness','color']),'send':(why!='tick' or st.moving or st.edge),'ignore_overrides':expired.keys}}) -%}\n  {%- endif -%}\n\n  {%- if is_plug -%}\n    {%- set blk = st.to if (not st.moving or st.p >= 1) else st.fr -%}\n    {%- set lsc = room if (room and is_state('input_boolean.ls_' ~ room ~ '_' ~ blk ~ '_own_light', 'on')) else 'house' -%}\n    {%- set lj = states('input_text.ls_lamp_' ~ obj ~ '_' ~ blk) | from_json(default={}) -%}\n    {%- set src = ['input_boolean.ls_' ~ lsc ~ '_' ~ blk ~ '_on_off', 'input_boolean.ls_house_' ~ blk ~ '_on_off'] | select('has_value') | first | default(none) -%}\n    {%- set want = (lj.get('on', false) | bool) if lj.get('own', false) else (is_state(src, 'on') if src else none) -%}\n    {%- if send_now and want is not none and not st.moving -%}\n      {%- set svc = 'homeassistant.turn_on' if want else 'homeassistant.turn_off' -%}\n      {%- if not is_state(L, 'on' if svc.endswith('on') else 'off') -%}\n        {%- set key = svc -%}\n        {%- set out.cmds = dict(out.cmds, **{key: {'kind': 'switch', 'service': svc, 'ids': out.cmds.get(key, {}).get('ids', []) + [L]}}) -%}\n      {%- endif -%}\n    {%- endif -%}\n  {%- elif (is_state(L, 'on') or (force_all | default(false))) and send_now -%}\n    {%- set v = namespace(f=none, t=none) -%}\n    {%- for which in ['f', 't'] -%}\n      {%- set blk = st.fr if which == 'f' else st.to -%}\n      {%- set lsc = room if (room and is_state('input_boolean.ls_' ~ room ~ '_' ~ blk ~ '_own_light', 'on')) else 'house' -%}\n      {%- set own = (states('input_text.ls_lamp_' ~ obj ~ '_' ~ blk) | from_json(default={})).get('own', false) -%}\n      {%- set src = L if blk == 'lamp' else (((['light.ls_lamp_' ~ obj ~ '_' ~ blk] if own else []) + ['light.ls_' ~ lsc ~ '_' ~ blk, 'light.ls_house_' ~ blk]) | select('has_value') | first) -%}\n      {%- set s = states[src] -%}\n      {%- set d = {'on': s.state == 'on', 'b': s.attributes.brightness | int(255), 'ct': s.attributes.color_mode == 'color_temp', 'k': s.attributes.color_temp_kelvin | int(3000), 'rgb': (s.attributes.rgb_color or [255, 255, 255]) | list} -%}\n      {%- if lamp_sara and blk in ['day', 'cosy'] and a not in private -%}{%- set d = dict(d, ct=false, rgb=pink) -%}{%- endif -%}\n      {%- if which == 'f' -%}{%- set v.f = d -%}{%- else -%}{%- set v.t = d -%}{%- endif -%}\n    {%- endfor -%}\n    {%- set A, B, p = v.f, v.t, st.p -%}\n    {%- if not st.moving or not A.on -%}\n      {%- set tgt = B -%}\n    {%- elif not B.on -%}\n      {%- set tgt = dict(A, b=[1, (A.b * (1 - p)) | round | int] | max) -%}\n    {%- else -%}\n      {%- set b = (A.b + (B.b - A.b) * p) | round | int -%}\n      {%- if A.ct and B.ct -%}\n        {%- set tgt = {'on': true, 'b': b, 'ct': true, 'k': (A.k + (B.k - A.k) * p) | round | int} -%}\n      {%- else -%}\n        {%- set tgt = {'on': true, 'b': b, 'ct': false, 'rgb': [(A.rgb[0] + (B.rgb[0] - A.rgb[0]) * p) | round | int, (A.rgb[1] + (B.rgb[1] - A.rgb[1]) * p) | round | int, (A.rgb[2] + (B.rgb[2] - A.rgb[2]) * p) | round | int]} -%}\n      {%- endif -%}\n    {%- endif -%}\n    {%- if effect_record is not mapping -%}{%- set out.profiles=dict(out.profiles,**{L:dict(out.profiles[L],brightness=tgt.b|default(1),on=tgt.on)}) -%}{%- endif -%}\n    {%- set tr = 60 if (st.moving and why == 'tick') else 3 -%}\n    {%- if not tgt.on -%}\n      {%- set key = 'off|' ~ tr -%}\n      {%- set c = {'kind': 'off', 'transition': tr} -%}\n    {%- elif tgt.ct -%}\n      {%- set key = 'ct|' ~ tgt.b ~ '|' ~ tgt.k ~ '|' ~ tr -%}\n      {%- set c = {'kind': 'ct', 'brightness': [tgt.b, 1] | max, 'kelvin': tgt.k, 'transition': tr} -%}\n    {%- else -%}\n      {%- set key = 'rgb|' ~ tgt.b ~ '|' ~ tgt.rgb | join(',') ~ '|' ~ tr -%}\n      {%- set c = {'kind': 'rgb', 'brightness': [tgt.b, 1] | max, 'rgb': tgt.rgb, 'transition': tr} -%}\n    {%- endif -%}\n    {%- set out.cmds = dict(out.cmds, **{key: dict(c, ids=out.cmds.get(key, {}).get('ids', []) + [L])}) -%}\n  {%- endif -%}\n  {%- set out.dbg = out.dbg + [L ~ ' ' ~ ts ~ '/' ~ lsc ~ ' ' ~ st.src ~ ' ' ~ st.fr ~ '>' ~ st.to ~ ' p=' ~ (st.p | round(2)) ~ ' send=' ~ send_now] -%}\n{%- endfor -%}\n{%- set parts = ['light.kitchen_pendant', 'light.kitchen_spots_1', 'light.kitchen_spots_2'] -%}\n{%- set res = namespace(list=[]) -%}\n{%- for c in out.cmds.values() -%}\n  {%- if parts | reject('in', c.ids) | list | count == 0 -%}\n    {%- set c = dict(c, ids=['light.kitchen_all'] + (c.ids | reject('in', parts) | list)) -%}\n  {%- endif -%}\n  {%- set res.list = res.list + [c] -%}\n{%- endfor -%}\n{%- set skeys = namespace(list=[]) -%}\n{%- if is_state('input_boolean.ls_ovr_next_block_on', 'on') -%}\n  {%- for k, r in ovr.items() if r is mapping -%}\n    {%- set a = (area_id(r.target) if r.kind == 'light' or r.get('scope')=='lamp' else r.target) -%}\n    {%- set sc = a if a in rooms else 'house' -%}\n    {%- set expired_all=namespace(yes=true) -%}\n{%- set scopes=(rooms|reject('in',private)|list) if r.get('scope')=='house' or k=='mode:sara' else [sc] -%}\n{%- for scope in scopes -%}{%- if as_timestamp(r.when,0)>ns.sched[scope].last_fs or ns.sched[scope].fading -%}{%- set expired_all.yes=false -%}{%- endif -%}{%- endfor -%}\n{%- if scopes and expired_all.yes -%}{%- set skeys.list=skeys.list+[k] -%}{%- endif -%}\n  {%- endfor -%}\n{%- endif -%}\n{%- set mir = namespace(list=[], sched={}) -%}\n{%- for sc in ['house'] + rooms -%}\n  {%- set orec = ovr.get('block:' ~ sc) -%}\n  {%- set ov = (orec.value | string | lower) if orec is mapping else '' -%}\n  {%- set eff = ov if (ov in blocks and ('block:' ~ sc) not in skeys.list) else (ns.sched[sc].cur or 'night') -%}\n  {%- set mir.sched = dict(mir.sched, **{sc: ns.sched[sc].cur}) -%}\n  {%- set ent = 'input_select.ls_' ~ sc ~ '_override' -%}\n  {%- if states[ent] is not none and states(ent) != (eff | capitalize) -%}{%- set mir.list = mir.list + [{'entity': ent, 'option': eff | capitalize}] -%}{%- endif -%}\n{%- endfor -%}\n{%- set sara_on = sara and 'mode:sara' not in skeys.list -%}\n{%- set sara_mir = ('on' if sara_on else 'off') if (states['input_boolean.ls_sara_mode_mirror'] is not none and states('input_boolean.ls_sara_mode_mirror') != ('on' if sara_on else 'off')) else none -%}\n{{ dict({'cmds': res.list, 'profiles':out.profiles, 'revision':states.sensor.ls_overrides.last_updated.isoformat(), 'stale_keys': skeys.list, 'sched': mir.sched, 'schedule_details':ns.sched, 'mirror': mir.list, 'sara_mirror': sara_mir}, **({'dbg': out.dbg} if (debug is defined and debug) else {})) }}"
+          }
+        },
+        {
+          "variables": {
+            "result": "{% macro profile(entity) -%}\n{% set a=state_attr(entity,'brightness')|int(255) %}\n{{ {'brightness':a,'color':({'kelvin':state_attr(entity,'color_temp_kelvin')|int(3000)} if state_attr(entity,'color_mode')=='color_temp' else {'rgb':(state_attr(entity,'rgb_color') or [255,255,255])|list})}|to_json }}\n{%- endmacro %}\n{% set n=namespace(targets={}) %}\n{% for L,p in plan.profiles.items() %}\n {% set v=namespace(brightness=p.brightness,color={'kelvin':3000},on=p.on,day={},cosy={},transition=3) %}\n {% for c in plan.cmds %}\n  {% set ids=['light.kitchen_pendant','light.kitchen_spots_1','light.kitchen_spots_2'] + (c.ids|reject('eq','light.kitchen_all')|list) if 'light.kitchen_all' in c.ids else c.ids %}\n  {% if L in ids %}\n   {% set v.transition=c.get('transition',3) %}\n   {% if c.kind in ['ct','rgb'] %}{% set v.brightness=c.brightness %}{% set v.color={'kelvin':c.kelvin} if c.kind=='ct' else {'rgb':c.rgb} %}\n   {% elif c.kind=='off' %}{% set v.on=false %}{% endif %}\n  {% endif %}\n {% endfor %}\n {% for block in ['day','cosy'] %}\n  {% set scope=p.area if p.area and is_state('input_boolean.ls_'~p.area~'_'~block~'_own_light','on') else 'house' %}\n  {% set own=(states('input_text.ls_lamp_'~L.split('.')[1]~'_'~block)|from_json({})).get('own',false) %}\n  {% set entity=('light.ls_lamp_'~L.split('.')[1]~'_'~block) if own else 'light.ls_'~scope~'_'~block %}\n  {% set pr=profile(entity)|from_json %}\n  {% if block=='day' %}{% set v.day=pr %}{% else %}{% set v.cosy=pr %}{% endif %}\n {% endfor %}\n {% set n.targets=dict(n.targets,**{L:dict(p,is_room=false,brightness=v.brightness,color=v.color,on=v.on,day=v.day,cosy=v.cosy,transition=v.transition,observed=profile(L)|from_json)}) %}\n{% endfor %}\n{% for area,S in plan.schedule_details.items() if area!='house' %}\n {% set expired=namespace(keys=[]) %}\n {% if is_state('input_boolean.ls_ovr_next_block_on','on') %}\n  {% for key,r in overrides.items() if r is mapping %}\n   {% set applies=(r.get('scope')=='room' and r.target==area) or (r.get('scope')=='house' and area not in label_areas('private_room')) or (key=='mode:sara' and area not in label_areas('private_room')) or (r.kind=='block' and r.target==area) %}\n   {% if applies and as_timestamp(r.get('when'),0)<=S.last_fs %}{% set expired.keys=expired.keys+[key] %}{% endif %}\n  {% endfor %}\n {% endif %}\n {% set period=namespace(value=S.cur or 'night',stamp=0) %}\n {% for key,r in overrides|dictsort if r is mapping and key not in expired.keys %}\n  {% set value=r.get('value') %}\n  {% set matches=(r.kind=='block' and r.target==area) or (r.kind=='channels' and ((r.get('scope')=='room' and r.target==area) or (r.get('scope')=='house' and area not in label_areas('private_room')))) %}\n  {% set chosen=value if r.kind=='block' else value.get('period') if value is mapping else none %}\n  {% set stamp=value.get('period_updated',as_timestamp(r.get('when'),0)) if value is mapping else as_timestamp(r.get('when'),0) %}\n  {% if matches and chosen in ['day','cosy','night'] and stamp>=period.stamp %}{% set period.value=chosen %}{% set period.stamp=stamp %}{% endif %}\n {% endfor %}\n {% set v=namespace(day={},cosy={},selected={},effect='Normal light',on=true) %}\n {% for block in ['day','cosy','night'] %}\n  {% set scope=area if is_state('input_boolean.ls_'~area~'_'~block~'_own_light','on') else 'house' %}\n  {% set pr=profile('light.ls_'~scope~'_'~block)|from_json %}\n  {% if block=='day' %}{% set v.day=pr %}{% elif block=='cosy' %}{% set v.cosy=pr %}{% endif %}\n  {% if block==period.value %}{% set v.selected=pr %}{% set saved=states('input_text.ls_'~scope~'_'~block)|from_json({}) %}{% set v.effect=saved.get('effect','Normal light') %}{% set v.on=saved.get('on',true) %}{% endif %}\n {% endfor %}\n {% if S.fading and period.stamp==0 %}\n  {% set sc=area if is_state('input_boolean.ls_'~area~'_'~S.nxt~'_own_light','on') else 'house' %}\n  {% set next=profile('light.ls_'~sc~'_'~S.nxt)|from_json %}\n  {% set v.selected=dict(v.selected,brightness=(v.selected.brightness+(next.brightness-v.selected.brightness)*S.p)|round|int) %}\n {% endif %}\n {% set n.targets=dict(n.targets,**{'room:'~area:dict(v.selected,area=area,is_room=true,period=period.value,effect=v.effect,on=v.on,day=v.day,cosy=v.cosy,ignore_overrides=expired.keys)}) %}\n{% endfor %}\n{{ {'targets':n.targets,'schedule':plan} }}\n"
+          }
+        },
+        {
+          "stop": "Return result",
+          "response_variable": "result"
+        }
+      ],
+      "max": 50,
+      "fields": {
+        "overrides": {
+          "selector": {
+            "object": {}
+          }
+        },
+        "test_now": {
+          "selector": {
+            "object": {}
+          }
+        },
+        "reason": {
+          "selector": {
+            "object": {}
+          }
+        }
+      }
+    },
+    "config_hash": "d5028df1ce9efe6f"
+  },
+  "ls_apply": {
+    "success": true,
+    "action": "get",
+    "script_id": "ls_apply",
+    "config": {
+      "alias": "Lighting schedule: apply",
+      "description": "Resolve scheduled base, source-keyed channel ownership and switch ranges. Synthetic inputs are accepted only with dry_run; that path has no state writes or hardware output.",
+      "mode": "queued",
+      "max": 30,
+      "icon": "mdi:home-lightbulb-outline",
+      "fields": {
+        "lights": {
+          "name": "Lights",
+          "description": "Only these lamps (default: all scheduled lamps).",
+          "selector": {
+            "entity": {
+              "multiple": true
+            }
+          }
+        },
+        "reason": {
+          "name": "Reason",
+          "description": "tick | lamp_on | config | start | manual",
+          "default": "manual",
+          "selector": {
+            "select": {
+              "options": [
+                "tick",
+                "lamp_on",
+                "config",
+                "start",
+                "manual"
+              ]
+            }
+          }
+        },
+        "dry_run": {
+          "name": "Dry run",
+          "description": "Return the plan, change nothing.",
+          "default": false,
+          "selector": {
+            "boolean": {}
+          }
+        },
+        "test_now": {
+          "name": "Test time",
+          "description": "Dry-run only: pretend it is this ISO time.",
+          "selector": {
+            "text": {}
+          }
+        },
+        "debug": {
+          "name": "Debug",
+          "default": false,
+          "selector": {
+            "boolean": {}
+          }
+        },
+        "force_all": {
+          "name": "Include lamps that are off",
+          "description": "Dry-run only.",
+          "default": false,
+          "selector": {
+            "boolean": {}
+          }
+        },
+        "test_overrides": {
+          "name": "Test overrides",
+          "description": "Dry-run only: use this override record instead of sensor.ls_overrides.",
+          "selector": {
+            "object": {}
+          }
+        }
+      },
+      "sequence": [
+        {
+          "condition": "template",
+          "value_template": "{{ dry_run|default(false) or ((test_now is not defined or not test_now) and test_overrides is not defined and not (force_all|default(false))) }}"
+        },
+        {
+          "variables": {
+            "overrides": "{{ test_overrides if dry_run|default(false) and test_overrides is defined else state_attr('sensor.ls_overrides','overrides') or {} }}",
+            "revision": "{{ states.sensor.ls_overrides.last_updated.isoformat() }}"
+          }
+        },
+        {
+          "action": "script.ls_base",
+          "data": {
+            "overrides": "{{ overrides }}",
+            "test_now": "{{ test_now|default(none) }}",
+            "reason": "{{ reason|default('config') }}"
+          },
+          "response_variable": "baseline"
+        },
+        {
+          "action": "script.effects_catalog",
+          "response_variable": "catalog"
+        },
+        {
+          "variables": {
+            "active": "{{ dict(overrides.items()|rejectattr(0,'in',baseline.schedule.stale_keys)|list) }}"
+          }
+        },
+        {
+          "action": "script.effects_resolve",
+          "data": {
+            "base": "{{ baseline.targets }}",
+            "overrides": "{{ active }}",
+            "catalog": "{{ catalog }}",
+            "sara": "{{ 'mode:sara' in active }}",
+            "private": "{{ label_areas('private_room') }}",
+            "power": "{{ state_attr('sensor.ls_overrides','power') or {} }}",
+            "warm_end": "{{ state_attr('light.candle_test_rgb_warm_end','rgb_color') or [255,126,0] }}"
+          },
+          "response_variable": "resolved"
+        },
+        {
+          "action": "script.ls_switch_plan",
+          "data": {
+            "targets": "{{ resolved.targets }}",
+            "ranges": "{{ state_attr('sensor.ls_overrides','switch_ranges') or {} }}",
+            "defaults": "{{ state_attr('sensor.ls_overrides','range_defaults') or {'bright':[90,100],'cosy':[30,60]} }}"
+          },
+          "response_variable": "switch_plan"
+        },
+        {
+          "variables": {
+            "plan": "{% set wanted='on' if 'mode:sara' in active else 'off' %}{{ dict(baseline.schedule,base=baseline.targets,resolved=resolved,switches=switch_plan.switches,revision=revision,sara_mirror=(wanted if states('input_boolean.ls_sara_mode_mirror')!=wanted else none)) }}"
+          }
+        },
+        {
+          "if": [
+            {
+              "condition": "template",
+              "value_template": "{{ dry_run|default(false) }}"
+            }
+          ],
+          "then": [
+            {
+              "variables": {
+                "result": "{{ {'plan':plan} }}"
+              }
+            },
+            {
+              "stop": "Return result",
+              "response_variable": "result"
+            }
+          ]
+        },
+        {
+          "condition": "template",
+          "value_template": "{{ revision==states.sensor.ls_overrides.last_updated.isoformat() }}"
+        },
+        {
+          "variables": {
+            "requested": "{{ (lights if lights is list else [lights]) if lights|default(none) else [] }}",
+            "lamp_targets": "{% set n=namespace(t={}) %}{% for L,t in resolved.targets.items() if not t.is_room and (not requested or L in requested) %}{% set n.t=dict(n.t,**{L:t}) %}{% endfor %}{{ n.t }}"
+          }
+        },
+        {
+          "action": "script.effects_assign",
+          "data": {
+            "targets": "{{ resolved.targets }}",
+            "assignments": "{{ resolved.assignments }}",
+            "revision": "{{ revision }}"
+          },
+          "response_variable": "assigned"
+        },
+        {
+          "variables": {
+            "ordinary": "{% set n=namespace(t={}) %}{% for L,t in lamp_targets.items() if (L not in resolved.assignments or not t.on) and is_state(L,'on') and baseline.targets[L].get('send',true) %}{% set n.t=dict(n.t,**{L:t}) %}{% endfor %}{{ n.t }}"
+          }
+        },
+        {
+          "action": "script.effects_frame_plan",
+          "data": {
+            "targets": "{{ ordinary }}",
+            "catalog": "{{ catalog }}",
+            "timestamp": "{{ as_timestamp(now()) }}"
+          },
+          "response_variable": "batch"
+        },
+        {
+          "action": "script.effects_emit",
+          "data": {
+            "commands": "{{ batch.commands }}",
+            "revision": "{{ revision }}",
+            "generation": "{{ assigned.generation }}"
+          }
+        },
+        {
+          "repeat": {
+            "for_each": "{{ plan.switches.keys()|select('in',requested)|list if requested else plan.switches.keys()|list }}",
+            "sequence": [
+              {
+                "variables": {
+                  "L": "{{ repeat.item }}",
+                  "switch": "{{ plan.switches[L] }}"
+                }
+              },
+              {
+                "if": [
+                  {
+                    "condition": "template",
+                    "value_template": "{{ revision==states.sensor.ls_overrides.last_updated.isoformat() and not is_state(L,'on' if switch.on else 'off') }}"
+                  }
+                ],
+                "then": [
+                  {
+                    "action": "{{ \"homeassistant.turn_on\" if switch.on else \"homeassistant.turn_off\" }}",
+                    "target": {
+                      "entity_id": "{{ L }}"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "repeat": {
+            "for_each": "{{ plan.mirror }}",
+            "sequence": [
+              {
+                "action": "input_select.select_option",
+                "target": {
+                  "entity_id": "{{ repeat.item.entity }}"
+                },
+                "data": {
+                  "option": "{{ repeat.item.option }}"
+                }
+              }
+            ]
+          },
+          "note": "Display only: mirror the effective block (override or schedule) into input_select.ls_<scope>_override so dashboards can highlight it. The engine never reads these selects."
+        },
+        {
+          "alias": "Display only: mirror Sara Mode (override record mode:sara) into input_boolean.ls_sara_mode_mirror so /house-lights can highlight it. The engine never reads it.",
+          "choose": [
+            {
+              "conditions": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ plan.sara_mirror == 'on' }}"
+                }
+              ],
+              "sequence": [
+                {
+                  "action": "input_boolean.turn_on",
+                  "target": {
+                    "entity_id": "input_boolean.ls_sara_mode_mirror"
+                  }
+                }
+              ]
+            },
+            {
+              "conditions": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ plan.sara_mirror == 'off' }}"
+                }
+              ],
+              "sequence": [
+                {
+                  "action": "input_boolean.turn_off",
+                  "target": {
+                    "entity_id": "input_boolean.ls_sara_mode_mirror"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "if": [
+            {
+              "condition": "template",
+              "value_template": "{{ plan.stale_keys | count > 0 }}"
+            }
+          ],
+          "then": [
+            {
+              "event": "ls_override",
+              "event_data": {
+                "op": "clear",
+                "keys": "{{ plan.stale_keys }}",
+                "via": "rule_next_block"
+              }
+            }
+          ],
+          "note": "Next-block rule: overrides set before the scope's latest fade start fade out with the fade (see plan) and end once the new block is reached."
+        }
+      ]
+    },
+    "config_hash": "708de6fab944f7ac"
+  },
+  "ls_remote_command": {
+    "success": true,
+    "action": "get",
+    "script_id": "ls_remote_command",
+    "config": {
+      "alias": "Lighting · Room remote command",
+      "mode": "queued",
+      "sequence": [
+        {
+          "action": "script.effects_catalog",
+          "response_variable": "catalog"
+        },
+        {
+          "variables": {
+            "overrides": "{{ state_attr('sensor.ls_overrides','overrides') or {} }}",
+            "stamp": "{{ as_timestamp(now()) }}",
+            "room": "{{ area }}"
+          }
+        },
+        {
+          "action": "script.ls_apply",
+          "data": {
+            "dry_run": true,
+            "reason": "config"
+          },
+          "response_variable": "current"
+        },
+        {
+          "variables": {
+            "result": "{% set key='channels:'~source %}{% set old=overrides.get(key,{}) %}{% set value=old.get('value',{}) %}\n{% set group=current.plan.resolved.targets.get('room:'~room,{}) %}\n{% set anchors=current.plan.base.get('room:'~room,{}) %}\n{% set n=namespace(result={'op':'noop'}) %}\n{% if room and group and command in ['up','down','left','right','toggle','reset'] %}\n {% if command=='toggle' %}\n  {% set ids=namespace(v=[]) %}\n  {% for L in catalog.members if area_id(L)==room %}{% set ids.v=ids.v+[L] %}{% endfor %}\n  {% for L in (state_attr('sensor.ls_overrides','switch_ranges') or {}) if area_id(L)==room %}{% set ids.v=ids.v+[L] %}{% endfor %}\n  {% set saved=(state_attr('sensor.ls_overrides','power') or {}).get(room) %}\n  {% set on=not saved if saved is boolean else not (ids.v|select('is_state','on')|list|count>0) %}\n  {% set n.result={'op':'power','area':room,'on':on,'targets':ids.v,'via':'remote'} %}\n {% elif command=='reset' %}{% set n.result={'op':'clear_room','area':room,'via':'remote'} %}\n {% else %}\n  {% set delta=anchors.day.brightness-anchors.cosy.brightness %}\n  {% set floor=[76.5,anchors.cosy.brightness]|min %}\n  {% set slope=[0,delta,(anchors.cosy.brightness-floor)/2]|max %}\n  {% if group.level>anchors.day.brightness and anchors.day.brightness<255 %}\n   {% set seed=1+(group.level-anchors.day.brightness)/(255-anchors.day.brightness) %}\n  {% elif group.level<anchors.cosy.brightness and slope>0 %}\n   {% set seed=[-2,(group.level-anchors.cosy.brightness)/slope]|max %}\n  {% else %}{% set seed=(group.level-anchors.cosy.brightness)/delta if delta>0 else 1 %}{% endif %}\n  {% set position=value.get('position',seed) if group.owners.get('brightness')==key else seed %}\n  {% set patch=namespace(v={},channels={}) %}\n  {% if command in ['up','down'] %}\n   {% set position=[-2,[2,position+(0.1 if command=='up' else -0.1)]|min]|max %}\n   {% set claim={'kind':'scale','position':position,'updated':stamp} %}\n   {% set brightness={'kind':'constant','value':group.level,'updated':stamp} if command=='down' and group.level<floor else claim %}\n   {% set patch.v={'position':position,'channels':{'brightness':brightness,'color':claim}} %}\n  {% else %}\n   {% set choices=['day','cosy','Candle','Sara'] + (catalog.effects.keys()|reject('eq','Candle')|list) %}\n   {% set selected=value.get('selection',group.period) %}\n   {% set index=choices.index(selected) if selected in choices else 0 %}\n   {% set selected=choices[(index+(1 if command=='right' else -1)) % (choices|count)] %}\n   {% if selected=='Sara' %}\n    {% set n.result={'op':'set','records':[{'kind':'mode','target':'sara','value':'on'},{'kind':'channels','key':key,'source':source,'scope':'room','target':room,'value':{'selection':'Sara','channels':{}}}],'via':'remote'} %}\n   {% elif selected in ['day','cosy'] %}\n    {% set position=1 if selected=='day' else 0 %}{% set claim={'kind':'scale','position':position,'updated':stamp} %}\n    {% set patch.v={'selection':selected,'position':position,'period':selected,'period_updated':stamp,'channels':{'brightness':claim,'color':claim}} %}\n   {% else %}\n    {% for channel in catalog.effects[selected].channels %}{% set patch.channels=dict(patch.channels,**{channel:{'kind':'effect','effect':selected,'instance':source~':'~selected,'updated':stamp}}) %}{% endfor %}\n    {% set patch.v={'selection':selected,'channels':patch.channels} %}\n   {% endif %}\n  {% endif %}\n  {% if patch.v %}{% set n.result={'op':'set','records':[{'kind':'channels','key':key,'source':source,'scope':'room','target':room,'value':patch.v}],'via':'remote'} %}{% endif %}\n {% endif %}\n{% endif %}\n{{ n.result }}\n"
+          }
+        },
+        {
+          "if": [
+            {
+              "condition": "template",
+              "value_template": "{{ dry_run|default(false) }}"
+            }
+          ],
+          "then": [
+            {
+              "stop": "Return result",
+              "response_variable": "result"
+            }
+          ]
+        },
+        {
+          "if": [
+            {
+              "condition": "template",
+              "value_template": "{{ result.op=='power' }}"
+            }
+          ],
+          "then": [
+            {
+              "event": "ls_override",
+              "event_data": {
+                "op": "power",
+                "area": "{{ result.area }}",
+                "on": "{{ result.on }}",
+                "via": "remote"
+              }
+            },
+            {
+              "action": "{{ \"homeassistant.turn_on\" if result.on else \"homeassistant.turn_off\" }}",
+              "target": {
+                "entity_id": "{{ result.targets }}"
+              }
+            }
+          ],
+          "else": [
+            {
+              "choose": [
+                {
+                  "conditions": [
+                    {
+                      "condition": "template",
+                      "value_template": "{{ result.op=='set' }}"
+                    }
+                  ],
+                  "sequence": [
+                    {
+                      "event": "ls_override",
+                      "event_data": {
+                        "op": "set",
+                        "records": "{{ result.records }}",
+                        "via": "remote"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "conditions": [
+                    {
+                      "condition": "template",
+                      "value_template": "{{ result.op=='clear_room' }}"
+                    }
+                  ],
+                  "sequence": [
+                    {
+                      "event": "ls_override",
+                      "event_data": {
+                        "op": "clear_room",
+                        "area": "{{ result.area }}",
+                        "via": "remote"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "max": 50,
+      "fields": {
+        "source": {
+          "selector": {
+            "object": {}
+          }
+        },
+        "area": {
+          "selector": {
+            "object": {}
+          }
+        },
+        "command": {
+          "selector": {
+            "object": {}
+          }
+        },
+        "dry_run": {
+          "selector": {
+            "object": {}
+          }
+        }
+      }
+    },
+    "config_hash": "42716b4688bf9556"
+  },
+  "effects_set": {
+    "success": true,
+    "action": "get",
+    "script_id": "effects_set",
+    "config": {
+      "alias": "Effects · Native Control Adapter",
+      "description": "One stable override per control source and scope. Updates only supplied channels; effects claim their declared channels. Group activations share an effect instance. Room power is persistent state, never an override. Dry run returns proposed events/commands without changing state.",
+      "mode": "queued",
+      "max": 50,
+      "fields": {
+        "source": {
+          "selector": {
+            "object": {}
+          }
+        },
+        "attribute": {
+          "selector": {
+            "object": {}
+          }
+        },
+        "value": {
+          "selector": {
+            "object": {}
+          }
+        },
+        "dry_run": {
+          "name": "Dry Run",
+          "default": false,
+          "selector": {
+            "boolean": {}
+          }
+        }
+      },
+      "sequence": [
+        {
+          "action": "script.effects_catalog",
+          "response_variable": "catalog"
+        },
+        {
+          "variables": {
+            "is_profile": "{{ source.startswith('light.ls_') }}",
+            "targets": "{{ catalog.groups.get(source,[source]) }}",
+            "stamp": "{{ as_timestamp(now()) }}",
+            "current": {
+              "plan": {
+                "base": {},
+                "resolved": {
+                  "targets": {}
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": [
+            {
+              "condition": "template",
+              "value_template": "{{ not is_profile and attribute!='power' }}"
+            }
+          ],
+          "then": [
+            {
+              "action": "script.ls_apply",
+              "data": {
+                "dry_run": true,
+                "reason": "config"
+              },
+              "response_variable": "current"
+            }
+          ]
+        },
+        {
+          "variables": {
+            "result": "{% set n=namespace(valid=true,errors=[],events=[],commands=[],records=[]) %}\n{% set allowed=['power','brightness','rgb','temperature','effect'] %}\n{% if attribute not in allowed %}{% set n.errors=n.errors+['Unsupported control attribute.'] %}{% endif %}\n{% if attribute=='effect' and value not in ['Normal light']+catalog.effects.keys()|list %}{% set n.errors=n.errors+['Unknown effect.'] %}{% endif %}\n{% if attribute=='power' and value not in ['ON','OFF'] %}{% set n.errors=n.errors+['Power must be ON or OFF.'] %}{% endif %}\n{% if attribute=='brightness' and not (0 <= value|float(-1) <= 255) %}{% set n.errors=n.errors+['Brightness must be 0–255.'] %}{% endif %}\n{% if attribute=='temperature' and not (100 <= value|float(-1) <= 1000) %}{% set n.errors=n.errors+['Temperature must be 100–1000 mireds.'] %}{% endif %}\n{% set rgb=value.split(',') if value is string else value %}\n{% if attribute=='rgb' %}\n {% if rgb is not sequence or rgb is string or rgb|count!=3 %}{% set n.errors=n.errors+['RGB needs three components.'] %}\n {% else %}{% for v in rgb %}{% if not (0<=v|float(-1)<=255) %}{% set n.errors=n.errors+['RGB components must be 0–255.'] %}{% endif %}{% endfor %}{% endif %}\n{% endif %}\n{% if is_profile %}\n {% if states[source.replace('light.','input_text.')] is none %}{% set n.errors=n.errors+['Unknown schedule profile.'] %}{% endif %}\n {% if not n.errors %}\n  {% if attribute=='effect' %}{% set n.commands=[{'action':'script.ls_store','data':{'store':source.replace('light.','input_text.'),'effect':value},'target':{}}] %}\n  {% elif attribute=='power' and value=='OFF' %}{% set n.commands=[{'action':'light.turn_off','target':{'entity_id':source},'data':{}}] %}\n  {% else %}\n   {% set data={'brightness':value|int} if attribute=='brightness' else {'rgb_color':rgb|map('int')|list} if attribute=='rgb' else {'color_temp_kelvin':(1000000/(value|float))|round|int} if attribute=='temperature' else {} %}\n   {% set n.commands=[{'action':'light.turn_on','target':{'entity_id':source},'data':data}] %}\n  {% endif %}\n {% endif %}\n{% else %}\n {% if targets|count==0 or targets|reject('in',catalog.members)|list|count %}{% set n.errors=n.errors+['Unknown logical lamp or room.'] %}{% endif %}\n {% set scope=namespace(items=[],areas=[]) %}\n {% if source in catalog.groups %}\n  {% for area in targets|map('area_id')|select|unique|sort %}\n   {% set room_members=namespace(v=[]) %}{% for L in catalog.members if area_id(L)==area %}{% set room_members.v=room_members.v+[L] %}{% endfor %}\n   {% if room_members.v|reject('in',targets)|list|count==0 %}\n    {% set scope.items=scope.items+[{'scope':'room','target':area,'base':'room:'~area,'suffix':(':'~area if targets|map('area_id')|select|unique|list|count>1 else '')}] %}\n    {% set scope.areas=scope.areas+[area] %}\n   {% endif %}\n  {% endfor %}\n {% endif %}\n {% for L in targets if area_id(L) not in scope.areas %}{% set scope.items=scope.items+[{'scope':'lamp','target':L,'base':L,'suffix':(':'~L if targets|count>1 else '')}] %}{% endfor %}\n {% if not n.errors and attribute=='power' %}\n  {% set power_areas=(targets|map('area_id')|select|unique|list) if value=='ON' else scope.areas %}\n  {% for area in power_areas %}{% set n.events=n.events+[{'op':'power','area':area,'on':value=='ON','via':'effects-house'}] %}{% endfor %}\n  {% set ids=namespace(v=targets) %}{% for L in (state_attr('sensor.ls_overrides','switch_ranges') or {}) if area_id(L) in scope.areas %}{% set ids.v=ids.v+[L] %}{% endfor %}\n  {% set n.commands=[{'action':('homeassistant.turn_on' if value=='ON' else 'homeassistant.turn_off'),'target':{'entity_id':ids.v|unique|list},'data':{}}] %}\n {% elif not n.errors %}\n  {% for item in scope.items %}\n   {% set base=current.plan.base.get(item.base,{}) %}{% set resolved=current.plan.resolved.targets.get(item.base,{}) %}\n   {% if not base or not resolved %}{% set n.errors=n.errors+['Missing resolved lighting state for '~item.target] %}\n   {% else %}\n    {% set patch=namespace(channels={}) %}\n    {% if attribute=='effect' and value!='Normal light' %}\n     {% for channel in catalog.effects[value].channels %}{% set patch.channels=dict(patch.channels,**{channel:{'kind':'effect','effect':value,'instance':'ui:'~source~':'~value,'updated':stamp}}) %}{% endfor %}\n    {% elif attribute=='effect' %}\n     {% set underlying_color=base.color if resolved.color.get('policy')=='sara' else resolved.color.get('base',base.color) if resolved.color.kind=='effect' else resolved.color.value %}\n     {% set patch.channels={'brightness':{'kind':'constant','value':resolved.level,'updated':stamp},'color':{'kind':'constant','value':underlying_color,'updated':stamp}} %}\n    {% elif attribute=='brightness' %}{% set patch.channels={'brightness':{'kind':'constant','value':value|int,'updated':stamp}} %}\n    {% elif attribute=='rgb' %}{% set patch.channels={'color':{'kind':'constant','value':{'rgb':rgb|map('int')|list},'updated':stamp}} %}\n    {% elif attribute=='temperature' %}{% set patch.channels={'color':{'kind':'constant','value':{'kelvin':(1000000/(value|float))|round|int},'updated':stamp}} %}\n    {% endif %}\n    {% set body={'channels':patch.channels} %}{% if attribute=='effect' %}{% set body=dict(body,selection=value) %}{% endif %}\n    {% set n.records=n.records+[{'kind':'channels','key':'channels:ui:'~source~item.suffix,'source':'ui:'~source,'scope':item.scope,'target':item.target,'value':body}] %}\n   {% endif %}\n  {% endfor %}\n  {% if n.records and not n.errors %}{% set n.events=[{'op':'set','records':n.records,'via':'effects-house'}] %}{% endif %}\n {% endif %}\n{% endif %}\n{{ {'valid':not n.errors,'errors':n.errors,'events':n.events if not n.errors else [],'commands':n.commands if not n.errors else [],'records':n.records if not n.errors else []} }}\n"
+          }
+        },
+        {
+          "if": [
+            {
+              "condition": "template",
+              "value_template": "{{ dry_run|default(false) }}"
+            }
+          ],
+          "then": [
+            {
+              "stop": "Return proposed control",
+              "response_variable": "result"
+            }
+          ]
+        },
+        {
+          "if": [
+            {
+              "condition": "template",
+              "value_template": "{{ not result.valid }}"
+            }
+          ],
+          "then": [
+            {
+              "stop": "{{ result.errors|join(' ') }}",
+              "error": true
+            }
+          ]
+        },
+        {
+          "repeat": {
+            "for_each": "{{ result.events }}",
+            "sequence": [
+              {
+                "choose": [
+                  {
+                    "conditions": [
+                      {
+                        "condition": "template",
+                        "value_template": "{{ repeat.item.op=='power' }}"
+                      }
+                    ],
+                    "sequence": [
+                      {
+                        "event": "ls_override",
+                        "event_data": {
+                          "op": "power",
+                          "area": "{{ repeat.item.area }}",
+                          "on": "{{ repeat.item.on }}",
+                          "via": "effects-house"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "conditions": [
+                      {
+                        "condition": "template",
+                        "value_template": "{{ repeat.item.op=='set' }}"
+                      }
+                    ],
+                    "sequence": [
+                      {
+                        "event": "ls_override",
+                        "event_data": {
+                          "op": "set",
+                          "records": "{{ repeat.item.records }}",
+                          "via": "effects-house"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "repeat": {
+            "for_each": "{{ result.commands }}",
+            "sequence": [
+              {
+                "choose": [
+                  {
+                    "conditions": [
+                      {
+                        "condition": "template",
+                        "value_template": "{{ repeat.item.action=='script.ls_store' }}"
+                      }
+                    ],
+                    "sequence": [
+                      {
+                        "action": "script.ls_store",
+                        "data": {
+                          "store": "{{ repeat.item.data.store }}",
+                          "effect": "{{ repeat.item.data.effect }}"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "conditions": [
+                      {
+                        "condition": "template",
+                        "value_template": "{{ repeat.item.action=='light.turn_on' }}"
+                      }
+                    ],
+                    "sequence": [
+                      {
+                        "choose": [
+                          {
+                            "conditions": [
+                              {
+                                "condition": "template",
+                                "value_template": "{{ 'brightness' in repeat.item.data }}"
+                              }
+                            ],
+                            "sequence": [
+                              {
+                                "action": "light.turn_on",
+                                "target": {
+                                  "entity_id": "{{ repeat.item.target.entity_id }}"
+                                },
+                                "data": {
+                                  "brightness": "{{ repeat.item.data.brightness }}"
+                                }
+                              }
+                            ]
+                          },
+                          {
+                            "conditions": [
+                              {
+                                "condition": "template",
+                                "value_template": "{{ 'rgb_color' in repeat.item.data }}"
+                              }
+                            ],
+                            "sequence": [
+                              {
+                                "action": "light.turn_on",
+                                "target": {
+                                  "entity_id": "{{ repeat.item.target.entity_id }}"
+                                },
+                                "data": {
+                                  "rgb_color": "{{ repeat.item.data.rgb_color }}"
+                                }
+                              }
+                            ]
+                          },
+                          {
+                            "conditions": [
+                              {
+                                "condition": "template",
+                                "value_template": "{{ 'color_temp_kelvin' in repeat.item.data }}"
+                              }
+                            ],
+                            "sequence": [
+                              {
+                                "action": "light.turn_on",
+                                "target": {
+                                  "entity_id": "{{ repeat.item.target.entity_id }}"
+                                },
+                                "data": {
+                                  "color_temp_kelvin": "{{ repeat.item.data.color_temp_kelvin }}"
+                                }
+                              }
+                            ]
+                          }
+                        ],
+                        "default": [
+                          {
+                            "action": "light.turn_on",
+                            "target": {
+                              "entity_id": "{{ repeat.item.target.entity_id }}"
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "conditions": [
+                      {
+                        "condition": "template",
+                        "value_template": "{{ repeat.item.action=='light.turn_off' }}"
+                      }
+                    ],
+                    "sequence": [
+                      {
+                        "action": "light.turn_off",
+                        "target": {
+                          "entity_id": "{{ repeat.item.target.entity_id }}"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "conditions": [
+                      {
+                        "condition": "template",
+                        "value_template": "{{ repeat.item.action=='homeassistant.turn_on' }}"
+                      }
+                    ],
+                    "sequence": [
+                      {
+                        "action": "homeassistant.turn_on",
+                        "target": {
+                          "entity_id": "{{ repeat.item.target.entity_id }}"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "conditions": [
+                      {
+                        "condition": "template",
+                        "value_template": "{{ repeat.item.action=='homeassistant.turn_off' }}"
+                      }
+                    ],
+                    "sequence": [
+                      {
+                        "action": "homeassistant.turn_off",
+                        "target": {
+                          "entity_id": "{{ repeat.item.target.entity_id }}"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "stop": "Return proposed control",
+          "response_variable": "result"
+        }
+      ]
+    },
+    "config_hash": "e9c12b668dee2673"
+  },
+  "effects_emit": {
+    "success": true,
+    "action": "get",
+    "script_id": "effects_emit",
+    "config": {
+      "alias": "Effects · Paced output",
+      "mode": "queued",
+      "sequence": [
+        {
+          "repeat": {
+            "for_each": "{{ commands }}",
+            "sequence": [
+              {
+                "variables": {
+                  "command": "{{ repeat.item }}",
+                  "allowed": "{% set n=namespace(ok=revision==states.sensor.ls_overrides.last_updated.isoformat() and generation==state_attr('sensor.effects_controller','generation')) %}{% for L in command.owners %}{% if not is_state(L,'on') or (command.payload.get('state')!='OFF' and not (state_attr('sensor.ls_overrides','power') or {}).get(area_id(L),true)) %}{% set n.ok=false %}{% endif %}{% endfor %}{% for E in command.members %}{% if not is_state(E,'on') %}{% set n.ok=false %}{% endif %}{% endfor %}{{ n.ok }}"
+                }
+              },
+              {
+                "if": [
+                  {
+                    "condition": "template",
+                    "value_template": "{{ allowed }}"
+                  },
+                  {
+                    "condition": "state",
+                    "entity_id": "binary_sensor.zigbee2mqtt_bridge_connection_state",
+                    "state": "on"
+                  }
+                ],
+                "then": [
+                  {
+                    "action": "mqtt.publish",
+                    "data": {
+                      "topic": "{{ command.topic }}",
+                      "payload": "{{ command.payload|to_json }}",
+                      "qos": 0,
+                      "retain": false
+                    }
+                  },
+                  {
+                    "delay": {
+                      "milliseconds": 200
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "max": 50,
+      "fields": {
+        "commands": {
+          "selector": {
+            "object": {}
+          }
+        },
+        "revision": {
+          "selector": {
+            "object": {}
+          }
+        },
+        "generation": {
+          "selector": {
+            "object": {}
+          }
+        }
+      }
+    },
+    "config_hash": "ecb9c12db8a6bb00"
+  },
+  "effects_assign": {
+    "success": true,
+    "action": "get",
+    "script_id": "effects_assign",
+    "config": {
+      "alias": "Effects · Assign channel ownership",
+      "mode": "queued",
+      "sequence": [
+        {
+          "if": [
+            {
+              "condition": "template",
+              "value_template": "{{ revision!=states.sensor.ls_overrides.last_updated.isoformat() }}"
+            }
+          ],
+          "then": [
+            {
+              "variables": {
+                "result": "{{ {'generation':state_attr('sensor.effects_controller','generation')} }}"
+              }
+            },
+            {
+              "stop": "Return result",
+              "response_variable": "result"
+            }
+          ]
+        },
+        {
+          "variables": {
+            "rev": "{{ revision }}",
+            "old": "{{ state_attr('sensor.effects_controller','assignments') or {} }}",
+            "old_targets": "{{ state_attr('sensor.effects_controller','targets') or {} }}",
+            "changed": "{{ targets != (state_attr('sensor.effects_controller','targets') or {}) or revision != state_attr('sensor.effects_controller','revision') }}"
+          }
+        },
+        {
+          "if": [
+            {
+              "condition": "template",
+              "value_template": "{{ changed }}"
+            }
+          ],
+          "then": [
+            {
+              "action": "script.turn_off",
+              "target": {
+                "entity_id": "script.effects_engine"
+              }
+            },
+            {
+              "variables": {
+                "generation": "{{ now().isoformat() }}"
+              }
+            },
+            {
+              "action": "mqtt.publish",
+              "data": {
+                "topic": "house/v1/effects/controller",
+                "qos": 0,
+                "retain": true,
+                "payload": "{{ {'targets':targets,'assignments':assignments,'revision':revision,'generation':generation}|to_json }}"
+              }
+            },
+            {
+              "wait_template": "{{ state_attr('sensor.effects_controller','generation')==generation }}",
+              "timeout": 3,
+              "continue_on_timeout": false
+            },
+            {
+              "action": "script.effects_catalog",
+              "response_variable": "catalog"
+            },
+            {
+              "variables": {
+                "native_stops": "{% set n=namespace(commands=[]) %}\n{% for L,t in targets.items() if not t.is_room %}\n {% set stop=namespace(needed=old.get(L,{}).get('effect') in ['Breathe','Colour loop']) %}\n {% for channel in ['brightness','color'] %}\n  {% if t[channel].kind=='effect' and t.owners[channel].startswith('channels:native:') and t[channel].updated!=old_targets.get(L,{}).get(channel,{}).get('updated') %}{% set stop.needed=true %}{% endif %}\n {% endfor %}\n {% if stop.needed %}{% for E in catalog.members.get(L,[]) if is_state(E,'on') %}{% for effect in ['stop_colorloop','stop_effect'] %}\n  {% set n.commands=n.commands+[{'topic':catalog.topics[E],'payload':{'effect':effect},'members':[E],'owners':[L],'group':false}] %}\n {% endfor %}{% endfor %}{% endif %}\n{% endfor %}{{ n.commands }}"
+              }
+            },
+            {
+              "action": "script.effects_emit",
+              "data": {
+                "commands": "{{ native_stops }}",
+                "revision": "{{ revision }}",
+                "generation": "{{ generation }}"
+              }
+            }
+          ]
+        },
+        {
+          "if": [
+            {
+              "condition": "template",
+              "value_template": "{{ assignments|count>0 }}"
+            }
+          ],
+          "then": [
+            {
+              "action": "script.turn_on",
+              "target": {
+                "entity_id": "script.effects_engine"
+              }
+            }
+          ]
+        },
+        {
+          "variables": {
+            "result": "{{ {'generation':state_attr('sensor.effects_controller','generation')} }}"
+          }
+        },
+        {
+          "stop": "Return result",
+          "response_variable": "result"
+        }
+      ],
+      "max": 50,
+      "fields": {
+        "targets": {
+          "selector": {
+            "object": {}
+          }
+        },
+        "assignments": {
+          "selector": {
+            "object": {}
+          }
+        },
+        "revision": {
+          "selector": {
+            "object": {}
+          }
+        }
+      }
+    },
+    "config_hash": "2a7e34b8930abf74"
+  },
+  "effects_frame_plan": {
+    "success": true,
+    "action": "get",
+    "script_id": "effects_frame_plan",
+    "config": {
+      "alias": "Effects · Compose lamp frames",
+      "mode": "parallel",
+      "sequence": [
+        {
+          "variables": {
+            "rows": [],
+            "frames": {}
+          }
+        },
+        {
+          "repeat": {
+            "for_each": "{{ targets.keys()|list }}",
+            "sequence": [
+              {
+                "variables": {
+                  "lamp": "{{ repeat.item }}",
+                  "target": "{{ targets[lamp] }}",
+                  "payload": {},
+                  "frames": {}
+                }
+              },
+              {
+                "repeat": {
+                  "for_each": [
+                    "brightness",
+                    "color"
+                  ],
+                  "sequence": [
+                    {
+                      "variables": {
+                        "channel": "{{ repeat.item }}",
+                        "source": "{{ target[channel] }}",
+                        "value": "{{ source.get(\"value\") }}"
+                      }
+                    },
+                    {
+                      "if": [
+                        {
+                          "condition": "template",
+                          "value_template": "{{ source.kind=='effect' and source.effect in catalog.effects }}"
+                        }
+                      ],
+                      "then": [
+                        {
+                          "variables": {
+                            "frame_key": "{{ source.instance ~ \":\" ~ source.effect }}"
+                          }
+                        },
+                        {
+                          "if": [
+                            {
+                              "condition": "template",
+                              "value_template": "{{ frame_key not in frames }}"
+                            }
+                          ],
+                          "then": [
+                            {
+                              "action": "{{ catalog.effects[source.effect].renderer }}",
+                              "data": {
+                                "timestamp": "{{ timestamp }}",
+                                "brightness": "{{ source.intensity }}",
+                                "transition": 0.4,
+                                "phase": "{{ catalog.phases.get(lamp,lamp) }}"
+                              },
+                              "response_variable": "frame"
+                            },
+                            {
+                              "variables": {
+                                "frames": "{{ dict(frames,**{frame_key:frame}) }}"
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "variables": {
+                            "value": "{{ frames[frame_key].brightness if channel=='brightness' else {'rgb':frames[frame_key].rgb} }}"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "variables": {
+                        "payload": "{{ dict(payload,brightness=([1,[254,value|float]|min]|max)|round|int) if channel=='brightness' else dict(payload,**({'color_temp':(1000000/value.kelvin)|round|int} if 'kelvin' in value else {'color':{'rgb':value.rgb|join(',')}})) }}"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "variables": {
+                  "payload": "{{ dict(payload,transition=(0.4 if target.brightness.kind=='effect' or target.color.kind=='effect' else target.get('transition',3))) if target.on else {'state':'OFF','transition':target.get('transition',3)} }}",
+                  "rows": "{% set n=namespace(rows=rows) %}{% if is_state(lamp,'on') %}{% for E in catalog.members.get(lamp,[]) if is_state(E,'on') %}{% set n.rows=n.rows+[{'entity':E,'owner':lamp,'topic':catalog.topics[E],'payload':payload}] %}{% endfor %}{% endif %}{{ n.rows }}"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "action": "script.effects_group_plan",
+          "data": {
+            "rows": "{{ rows }}",
+            "groups": "{{ catalog.multicast }}"
+          },
+          "response_variable": "result"
+        },
+        {
+          "stop": "Return result",
+          "response_variable": "result"
+        }
+      ],
+      "max": 50,
+      "fields": {
+        "targets": {
+          "selector": {
+            "object": {}
+          }
+        },
+        "catalog": {
+          "selector": {
+            "object": {}
+          }
+        },
+        "timestamp": {
+          "selector": {
+            "object": {}
+          }
+        }
+      }
+    },
+    "config_hash": "f825917e4044d374"
+  },
+  "writer": {
+    "success": true,
+    "action": "get",
+    "automation_id": "automation.lighting_schedule_override_store_writer",
+    "config": {
+      "id": "1791982416967",
+      "alias": "Lighting schedule: override store writer",
+      "description": "Single queued writer. Source-keyed channel records merge per channel; no cross-scope deletion. Persistent power and range configuration are separate from expiring overrides.",
+      "triggers": [
+        {
+          "trigger": "event",
+          "event_type": "ls_override"
+        }
+      ],
+      "actions": [
+        {
+          "variables": {
+            "result": "{% set d=trigger.event.data %}{% set op=d.get('op','set') %}\n{% set prev=state_attr('sensor.ls_overrides','overrides') or {} %}\n{% set n=namespace(o=prev,attributes={}) %}\n{% if op=='clear_all' %}{% set n.o={} %}\n{% elif op=='clear' %}{% set n.o=dict(prev.items()|rejectattr(0,'in',d.get('keys',[]))|list) %}\n{% elif op=='clear_room' %}\n {% set keep=namespace(o={}) %}\n {% for key,r in prev.items() %}\n  {% set matches=(r.get('scope')=='room' and r.target==d.area) or (r.get('scope')=='lamp' and area_id(r.target)==d.area) or (r.kind=='light' and area_id(r.target)==d.area) or (r.kind=='block' and r.target==d.area) %}\n  {% if not matches %}{% set keep.o=dict(keep.o,**{key:r}) %}{% endif %}\n {% endfor %}{% set n.o=keep.o %}\n{% elif op=='set' %}\n {% for r in d.get('records',[]) if r is mapping %}\n  {% set key=r.get('key',r.kind~':'~r.get('source',r.target)) %}\n  {% set old=n.o.get(key,{}) %}{% set value=r.get('value') %}\n  {% if r.kind=='channels' and value is mapping %}\n   {% set before=old.get('value',{}) %}{% set before=before if before is mapping else {} %}\n   {% set merged=namespace(channels=before.get('channels',{})) %}\n   {% for channel,claim in value.get('channels',{}).items() %}\n    {% set previous=merged.channels.get(channel,{}) %}\n    {% if claim.get('kind')=='effect' and 'underlying' not in claim %}\n     {% set underlying=previous if previous.get('kind') in ['constant','scale'] else previous.get('underlying') %}\n     {% if underlying is mapping %}{% set claim=dict(claim,underlying=underlying) %}{% endif %}\n    {% endif %}\n    {% set merged.channels=dict(merged.channels,**{channel:claim}) %}\n   {% endfor %}\n   {% set channels=merged.channels %}\n   {% set value=dict(before,**value) %}{% set value=dict(value,channels=channels) %}\n  {% endif %}\n  {% set record=dict(r,value=value,when=now().isoformat(),created=old.get('created',old.get('when',now().isoformat())),who=d.get('who') or trigger.event.context.user_id,via=d.get('via')) %}\n  {% set n.o=dict(n.o,**{key:record}) %}\n {% endfor %}\n{% elif op=='power' %}\n {% set n.attributes={'power':dict(state_attr('sensor.ls_overrides','power') or {},**{d.area:d.on|bool})} %}\n{% elif op=='range_set' %}\n {% set valid=d.get('profile') in ['bright','cosy'] or (d.get('profile')=='custom' and d.get('min') is number and d.get('max') is number and 0<=d.min<=d.max<=100) %}\n {% if valid %}{% set rule={'profile':d.profile} if d.profile!='custom' else {'profile':'custom','min':d.min,'max':d.max} %}{% set n.attributes={'switch_ranges':dict(state_attr('sensor.ls_overrides','switch_ranges') or {},**{d.entity:rule})} %}{% endif %}\n{% elif op=='range_defaults' %}\n {% set ranges=d.get('ranges',{}) %}\n {% if ranges.get('bright') is sequence and ranges.get('cosy') is sequence and ranges.bright|count==2 and ranges.cosy|count==2 and 0<=ranges.bright[0]<=ranges.bright[1]<=100 and 0<=ranges.cosy[0]<=ranges.cosy[1]<=100 %}{% set n.attributes={'range_defaults':ranges} %}{% endif %}\n{% endif %}\n{{ dict(n.attributes,overrides=n.o) }}\n"
+          }
+        },
+        {
+          "action": "variable.update_sensor",
+          "target": {
+            "entity_id": "sensor.ls_overrides"
+          },
+          "data": {
+            "value": "{{ now().isoformat() }}",
+            "attributes": "{{ result }}",
+            "replace_attributes": false
+          }
+        }
+      ],
+      "mode": "queued",
+      "max": 50
+    },
+    "config_hash": "c3de6386161577a6"
+  }
+}

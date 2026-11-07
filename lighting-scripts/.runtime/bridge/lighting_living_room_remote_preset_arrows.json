@@ -1,0 +1,25 @@
+{
+  "id": "lighting_remote_0x385b44fffea50c99_presets",
+  "alias": "Lighting \u00b7 Living Room Remote Preset Arrows",
+  "description": "TypeScript trigger bridge. Modulo-five preset decoder with both wraps. Full JSON color_temperature_move is the canonical arrow event; brightness_move_to_level is ignored as its companion. The gesture owner resynchronizes the cursor on raw power. Unknown preset input cancels any pending secret chord.",
+  "triggers": [
+    {
+      "trigger": "mqtt",
+      "topic": "zigbee2mqtt/0x385b44fffea50c99"
+    }
+  ],
+  "actions": [
+    {
+      "event": "smarthome_script",
+      "event_data": {
+        "script": "automation.lighting_living_room_remote_preset_arrows",
+        "args": {
+          "trigger": "{% set n=namespace(data={}) %}\n{% for key in ['id','platform','entity_id','topic','payload','payload_json'] %}\n {% if trigger[key] is defined %}{% set n.data=dict(n.data,**{key:trigger[key]}) %}{% endif %}\n{% endfor %}\n{% for key in ['to_state','from_state','event'] %}\n {% if trigger[key] is defined %}{% set value=trigger[key] %}\n  {% set n.data=dict(n.data,**{key:(value.as_dict() if value is not none else none)}) %}\n {% endif %}\n{% endfor %}\n{{ n.data | to_json | from_json }}",
+          "room": "living_room"
+        }
+      }
+    }
+  ],
+  "mode": "queued",
+  "max": 50
+}

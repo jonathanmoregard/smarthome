@@ -1,0 +1,73 @@
+{
+  "id": "lighting_remote_0x385b44fffea4fc67_presets",
+  "alias": "Lighting \u00b7 Bedroom Remote Preset Arrows",
+  "description": "Decode observed RC250 preset changes using the persistent hardware cursor. Modulo-five adjacent transitions identify left/right, including wrap. Ignore paired brightness actions and duplicates; resynchronize ambiguous jumps without guessing. Cursor updates precede room commands and survive lighting override resets.",
+  "mode": "queued",
+  "max": 50,
+  "triggers": [
+    {
+      "trigger": "mqtt",
+      "topic": "zigbee2mqtt/0x385b44fffea4fc67"
+    }
+  ],
+  "actions": [
+    {
+      "variables": {
+        "payload": "{{ trigger.payload_json|default({}) }}",
+        "presets": [
+          200,
+          285,
+          370,
+          454,
+          588
+        ]
+      }
+    },
+    {
+      "condition": "template",
+      "value_template": "{{ payload is mapping and payload.get('action')=='color_temperature_move' and payload.get('action_color_temperature') is number and payload.get('action_color_temperature') is not boolean and payload.get('action_color_temperature') in presets }}"
+    },
+    {
+      "variables": {
+        "index": "{{ presets.index(payload.action_color_temperature) }}",
+        "previous": "{{ states('input_number.ls_bedroom_remote_preset')|float(-1) }}"
+      }
+    },
+    {
+      "condition": "template",
+      "value_template": "{{ index!=previous }}"
+    },
+    {
+      "variables": {
+        "delta": "{{ (index-previous|int)%5 if previous in [0,1,2,3,4] else -1 }}"
+      }
+    },
+    {
+      "action": "input_number.set_value",
+      "target": {
+        "entity_id": "input_number.ls_bedroom_remote_preset"
+      },
+      "data": {
+        "value": "{{ index }}"
+      }
+    },
+    {
+      "variables": {
+        "room": "{{ area_id('0e973e9202acb5ace9a8e6a8b336891d') }}"
+      }
+    },
+    {
+      "condition": "template",
+      "value_template": "{{ delta in [1,4] and room is string and room|length>0 }}"
+    },
+    {
+      "action": "script.ls_remote_command",
+      "data": {
+        "source": "0x385b44fffea4fc67",
+        "area": "{{ room }}",
+        "command": "{{ 'right' if delta==1 else 'left' }}",
+        "dry_run": false
+      }
+    }
+  ]
+}

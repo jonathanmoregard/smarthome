@@ -1,0 +1,603 @@
+{
+  "success": true,
+  "action": "get",
+  "script_id": "candle_test_run",
+  "config": {
+    "alias": "Candle test · Run",
+    "description": "Research uses only RGB, interpolating the adjustable dim and bright endpoint colours with brightness. Default dim RGB (255,126,0), bright RGB (255,139,22), inspired by roughly 1800–2000 K candlelight; not a calibrated Kelvin setting. Selfmade stays the fixed-temperature backup. Test range repeats bright 5 s, one smooth RGB/brightness fade 10 s, dim 5 s, off 5 s until Stop. No flicker/noise in Test range. RGB endpoints refresh each cycle; normal Research reads them live. Existing ownership, planned-off handling and restoration apply.",
+    "mode": "single",
+    "max_exceeded": "silent",
+    "trace": {
+      "stored_traces": 2
+    },
+    "sequence": [
+      {
+        "variables": {
+          "lamps": {
+            "Mysrum · Taklampa": {
+              "entity": "light.meditation_ceiling",
+              "topic": "zigbee2mqtt/0xa4c138eec10a5f95/set"
+            },
+            "Sovrum · Taklampa": {
+              "entity": "light.jonathan_bedroom_ceiling",
+              "topic": "zigbee2mqtt/0xa4c1387f3e38e505/set"
+            },
+            "Sovrum · Golvlampa": {
+              "entity": "light.jonathan_bedroom_floor_lamp",
+              "topic": "zigbee2mqtt/0xa4c13889ddf1c22e/set"
+            },
+            "Vardagsrum · Bordslampa": {
+              "entity": "light.living_room_table_lamp",
+              "topic": "zigbee2mqtt/0xa4c138502d6c44cd/set"
+            },
+            "Vardagsrum · Taklampa arbetsbord": {
+              "entity": "light.living_room_desk_ceiling",
+              "topic": "zigbee2mqtt/0xa4c13836b344b302/set"
+            },
+            "Vardagsrum · Taklampa hall": {
+              "entity": "light.living_room_hall_ceiling",
+              "topic": "zigbee2mqtt/0xa4c13850c80ed98f/set"
+            },
+            "Vardagsrum · Taklampa soffbord": {
+              "entity": "light.living_room_sofa_table_ceiling",
+              "topic": "zigbee2mqtt/0xa4c138292a2d7f60/set"
+            },
+            "Vardagsrum · Vickys skrivbordslampa": {
+              "entity": "light.living_room_vicky_desk_lamp",
+              "topic": "zigbee2mqtt/0x7cc6b6fffe3cef1c/set"
+            },
+            "Vardagsrum · Fönsterlampa": {
+              "entity": "light.living_room_window_lamp",
+              "topic": "zigbee2mqtt/0xa4c13825783eff26/set"
+            },
+            "Vardagsrum · Gul retrolampa": {
+              "entity": "light.living_room_yellow_retro_lamp",
+              "topic": "zigbee2mqtt/0xa4c1386c73f1db49/set"
+            }
+          },
+          "selected": "{{ states('input_select.candle_test_lamp') }}",
+          "chosen": "{{ lamps.get(selected, {}) }}",
+          "lamp": "{{ chosen.get('entity','') }}",
+          "topic": "{{ chosen.get('topic','') }}",
+          "preset": "{{ states('input_select.candle_test_preset') }}",
+          "period_min": "{{ states('input_number.candle_test_cycle_min')|float(3.3) }}",
+          "period_max": "{{ states('input_number.candle_test_cycle_max')|float(4.3) }}",
+          "range_test": "{{ range_test | default(false) | bool }}",
+          "problem": "{% if is_state('script.candle_test_restore','on') or is_state('script.candle_test_stop','on') or states('input_text.candle_test_session')|from_json(default={}) %}Previous test is still returning control. Try again in a moment.\n{% elif not is_state('automation.candle_test_lifecycle','on') %}Test recovery is unavailable.\n{% elif not is_state('binary_sensor.zigbee2mqtt_bridge_connection_state','on') %}Zigbee bridge is offline.\n{% elif ['script.mys_candle_selfmade','script.mys_candle_trial_20261023','script.mys_candle_report_trial','script.bedroom_candle_report_trial','script.candle_report_rooms_60s'] | select('is_state','on') | list | count > 0 %}Stop the other candle experiment first.\n{% elif range_test and preset != 'Research' %}Select Research for the range sweep.\n{% elif preset == 'Research' and ((state_attr(lamp,'supported_color_modes') or []) | select('in',['xy','hs','rgb','rgbw','rgbww']) | list | count == 0) %}Research needs a colour-capable lamp. Choose another lamp or Selfmade.\n{% elif not is_state(lamp,'on') %}Turn the selected lamp on before starting.\n{% elif not is_state_attr(lamp,'color_mode','color_temp') %}Set the selected lamp to white light before starting.\n{% elif preset == 'Selfmade' and period_min|float > period_max|float %}Minimum cycle must be at most maximum cycle.\n{% else %}{% endif %}"
+        }
+      },
+      {
+        "if": [
+          {
+            "condition": "template",
+            "value_template": "{{ problem | trim != '' }}"
+          }
+        ],
+        "then": [
+          {
+            "action": "input_text.set_value",
+            "target": {
+              "entity_id": "input_text.candle_test_status"
+            },
+            "data": {
+              "value": "{{ problem | trim }}"
+            }
+          },
+          {
+            "stop": "Test could not start"
+          }
+        ]
+      },
+      {
+        "variables": {
+          "old": "{{ (state_attr('sensor.ls_overrides','overrides') or {}).get('light:' ~ lamp,{}) }}",
+          "owned": "{{ not old }}",
+          "prior_when": "{{ old.get('when','') }}",
+          "token": "{{ (as_timestamp(now()) * 1000) | int | string }}",
+          "ceiling": "{{ (states('input_number.candle_test_peak')|float(32)*254/100)|round|int }}",
+          "floor": "{{ [3, (ceiling|float / 4)|round|int] | max }}",
+          "noise_scale": "{{ states('input_number.candle_test_noise')|float(1) }}",
+          "kelvin": "{{ [state_attr(lamp,'min_color_temp_kelvin')|int(1800), [state_attr(lamp,'max_color_temp_kelvin')|int(4000), states('input_number.candle_test_warmth')|int(2000)] | min] | max }}",
+          "seconds": "{{ 10 if range_test else [10, [120, states('input_number.candle_test_duration')|int(60)] | min] | max }}",
+          "session": "{{ {'e':lamp,'t':token,'o':owned,'p':prior_when,'b':state_attr(lamp,'brightness')|int(128),'r':range_test,'f':false,'k':state_attr(lamp,'color_temp_kelvin')|int(3000)} }}",
+          "effect_low": "{{ [floor|int, [ceiling|int, (ceiling|float * (28 - 8*noise_scale|float)/36)|round|int] | min] | max }}",
+          "effect_high": "{{ [effect_low|int, [ceiling|int, (ceiling|float * (28 + 8*noise_scale|float)/36)|round|int] | min] | max }}",
+          "start_mix": "{{ 0 if range_test else 0.5 }}",
+          "start_rgb": "{% set A = state_attr('light.candle_test_rgb_crossover','rgb_color') or [255,139,22] %}{% set B = state_attr('light.candle_test_rgb_warm_end','rgb_color') or [255,126,0] %}{{ [(A[0]+(B[0]-A[0])*start_mix|float)|round|int,(A[1]+(B[1]-A[1])*start_mix|float)|round|int,(A[2]+(B[2]-A[2])*start_mix|float)|round|int] }}"
+        }
+      },
+      {
+        "action": "input_text.set_value",
+        "target": {
+          "entity_id": "input_text.candle_test_session"
+        },
+        "data": {
+          "value": "{{ session | to_json }}"
+        }
+      },
+      {
+        "action": "input_text.set_value",
+        "target": {
+          "entity_id": "input_text.candle_test_status"
+        },
+        "data": {
+          "value": "{{ ('Starting range sweep · ' if range_test else 'Starting · ' ~ preset ~ ' · ') ~ selected }}"
+        }
+      },
+      {
+        "if": [
+          {
+            "condition": "template",
+            "value_template": "{{ owned }}"
+          }
+        ],
+        "then": [
+          {
+            "event": "ls_override",
+            "event_data": {
+              "op": "set",
+              "via": "candle-test",
+              "records": "{{ [{'kind':'light','target':lamp,'value':token}] }}"
+            }
+          },
+          {
+            "wait_template": "{% set r = (state_attr('sensor.ls_overrides','overrides') or {}).get('light:' ~ lamp, {}) %}{{ (r.get('via') == 'candle-test' and r.get('value') == token) if owned else (r.get('when', '') == prior_when) }}",
+            "timeout": {
+              "seconds": 3
+            },
+            "continue_on_timeout": false
+          }
+        ]
+      },
+      {
+        "condition": "template",
+        "value_template": "{% set r = (state_attr('sensor.ls_overrides','overrides') or {}).get('light:' ~ lamp, {}) %}{{ (r.get('via') == 'candle-test' and r.get('value') == token) if owned else (r.get('when', '') == prior_when) }}"
+      },
+      {
+        "alias": "Range test: native fade only, no flicker loop",
+        "if": [
+          {
+            "condition": "template",
+            "value_template": "{{ range_test }}"
+          }
+        ],
+        "then": [
+          {
+            "repeat": {
+              "while": [
+                {
+                  "condition": "template",
+                  "value_template": "{% set r = (state_attr('sensor.ls_overrides','overrides') or {}).get('light:' ~ lamp, {}) %}{% set live = states('input_text.candle_test_session')|from_json(default={}) %}{{ is_state('binary_sensor.zigbee2mqtt_bridge_connection_state','on') and live.get('t') == token and ((r.get('via') == 'candle-test' and r.get('value') == token) if owned else (r.get('when', '') == prior_when)) and (is_state(lamp,'on') or (is_state(lamp,'off') and live.get('r',false) and live.get('f',false))) }}"
+                }
+              ],
+              "sequence": [
+                {
+                  "variables": {
+                    "range_bright": "{{ state_attr('light.candle_test_rgb_crossover','rgb_color') or [255,139,22] }}",
+                    "range_dim": "{{ state_attr('light.candle_test_rgb_warm_end','rgb_color') or [255,126,0] }}"
+                  }
+                },
+                {
+                  "condition": "template",
+                  "value_template": "{% set r = (state_attr('sensor.ls_overrides','overrides') or {}).get('light:' ~ lamp, {}) %}{% set live = states('input_text.candle_test_session')|from_json(default={}) %}{{ is_state('binary_sensor.zigbee2mqtt_bridge_connection_state','on') and live.get('t') == token and ((r.get('via') == 'candle-test' and r.get('value') == token) if owned else (r.get('when', '') == prior_when)) and (is_state(lamp,'on') or (is_state(lamp,'off') and live.get('r',false) and live.get('f',false))) }}"
+                },
+                {
+                  "action": "mqtt.publish",
+                  "data": {
+                    "topic": "{{ topic }}",
+                    "payload": "{{ {'state':'ON','brightness':effect_high|int,'color':{'r':range_bright[0],'g':range_bright[1],'b':range_bright[2]},'transition':0} | to_json }}",
+                    "qos": 0,
+                    "retain": false
+                  }
+                },
+                {
+                  "wait_template": "{% set r = (state_attr('sensor.ls_overrides','overrides') or {}).get('light:' ~ lamp, {}) %}{% set live = states('input_text.candle_test_session')|from_json(default={}) %}{{ is_state(lamp,'on') or not (is_state('binary_sensor.zigbee2mqtt_bridge_connection_state','on') and live.get('t') == token and ((r.get('via') == 'candle-test' and r.get('value') == token) if owned else (r.get('when', '') == prior_when))) }}",
+                  "timeout": {
+                    "seconds": 3
+                  },
+                  "continue_on_timeout": false
+                },
+                {
+                  "condition": "template",
+                  "value_template": "{% set r = (state_attr('sensor.ls_overrides','overrides') or {}).get('light:' ~ lamp, {}) %}{% set live = states('input_text.candle_test_session')|from_json(default={}) %}{{ is_state('binary_sensor.zigbee2mqtt_bridge_connection_state','on') and live.get('t') == token and ((r.get('via') == 'candle-test' and r.get('value') == token) if owned else (r.get('when', '') == prior_when)) and is_state(lamp,'on') }}"
+                },
+                {
+                  "action": "input_text.set_value",
+                  "target": {
+                    "entity_id": "input_text.candle_test_session"
+                  },
+                  "data": {
+                    "value": "{{ dict(session,f=false) | to_json }}"
+                  }
+                },
+                {
+                  "action": "timer.start",
+                  "target": {
+                    "entity_id": "timer.candle_test_remaining"
+                  },
+                  "data": {
+                    "duration": 25
+                  }
+                },
+                {
+                  "action": "input_text.set_value",
+                  "target": {
+                    "entity_id": "input_text.candle_test_status"
+                  },
+                  "data": {
+                    "value": "{{ 'Range loop · maximum · 5 s · ' ~ selected }}"
+                  }
+                },
+                {
+                  "wait_template": "{% set r = (state_attr('sensor.ls_overrides','overrides') or {}).get('light:' ~ lamp, {}) %}{% set live = states('input_text.candle_test_session')|from_json(default={}) %}{{ not (is_state('binary_sensor.zigbee2mqtt_bridge_connection_state','on') and live.get('t') == token and ((r.get('via') == 'candle-test' and r.get('value') == token) if owned else (r.get('when', '') == prior_when)) and is_state(lamp,'on')) }}",
+                  "timeout": {
+                    "seconds": 5
+                  },
+                  "continue_on_timeout": true
+                },
+                {
+                  "condition": "template",
+                  "value_template": "{% set r = (state_attr('sensor.ls_overrides','overrides') or {}).get('light:' ~ lamp, {}) %}{% set live = states('input_text.candle_test_session')|from_json(default={}) %}{{ is_state('binary_sensor.zigbee2mqtt_bridge_connection_state','on') and live.get('t') == token and ((r.get('via') == 'candle-test' and r.get('value') == token) if owned else (r.get('when', '') == prior_when)) and is_state(lamp,'on') }}"
+                },
+                {
+                  "action": "input_text.set_value",
+                  "target": {
+                    "entity_id": "input_text.candle_test_status"
+                  },
+                  "data": {
+                    "value": "{{ 'Range loop · fade · 10 s · ' ~ selected }}"
+                  }
+                },
+                {
+                  "action": "mqtt.publish",
+                  "data": {
+                    "topic": "{{ topic }}",
+                    "payload": "{{ {'brightness':effect_low|int,'color':{'r':range_dim[0],'g':range_dim[1],'b':range_dim[2]},'transition':10} | to_json }}",
+                    "qos": 0,
+                    "retain": false
+                  }
+                },
+                {
+                  "wait_template": "{% set r = (state_attr('sensor.ls_overrides','overrides') or {}).get('light:' ~ lamp, {}) %}{% set live = states('input_text.candle_test_session')|from_json(default={}) %}{{ not (is_state('binary_sensor.zigbee2mqtt_bridge_connection_state','on') and live.get('t') == token and ((r.get('via') == 'candle-test' and r.get('value') == token) if owned else (r.get('when', '') == prior_when)) and is_state(lamp,'on')) }}",
+                  "timeout": {
+                    "seconds": 10
+                  },
+                  "continue_on_timeout": true
+                },
+                {
+                  "condition": "template",
+                  "value_template": "{% set r = (state_attr('sensor.ls_overrides','overrides') or {}).get('light:' ~ lamp, {}) %}{% set live = states('input_text.candle_test_session')|from_json(default={}) %}{{ is_state('binary_sensor.zigbee2mqtt_bridge_connection_state','on') and live.get('t') == token and ((r.get('via') == 'candle-test' and r.get('value') == token) if owned else (r.get('when', '') == prior_when)) and is_state(lamp,'on') }}"
+                },
+                {
+                  "action": "input_text.set_value",
+                  "target": {
+                    "entity_id": "input_text.candle_test_status"
+                  },
+                  "data": {
+                    "value": "{{ 'Range loop · minimum · 5 s · ' ~ selected }}"
+                  }
+                },
+                {
+                  "wait_template": "{% set r = (state_attr('sensor.ls_overrides','overrides') or {}).get('light:' ~ lamp, {}) %}{% set live = states('input_text.candle_test_session')|from_json(default={}) %}{{ not (is_state('binary_sensor.zigbee2mqtt_bridge_connection_state','on') and live.get('t') == token and ((r.get('via') == 'candle-test' and r.get('value') == token) if owned else (r.get('when', '') == prior_when)) and is_state(lamp,'on')) }}",
+                  "timeout": {
+                    "seconds": 5
+                  },
+                  "continue_on_timeout": true
+                },
+                {
+                  "condition": "template",
+                  "value_template": "{% set r = (state_attr('sensor.ls_overrides','overrides') or {}).get('light:' ~ lamp, {}) %}{% set live = states('input_text.candle_test_session')|from_json(default={}) %}{{ is_state('binary_sensor.zigbee2mqtt_bridge_connection_state','on') and live.get('t') == token and ((r.get('via') == 'candle-test' and r.get('value') == token) if owned else (r.get('when', '') == prior_when)) and is_state(lamp,'on') }}"
+                },
+                {
+                  "action": "input_text.set_value",
+                  "target": {
+                    "entity_id": "input_text.candle_test_session"
+                  },
+                  "data": {
+                    "value": "{{ dict(session,f=true) | to_json }}"
+                  }
+                },
+                {
+                  "condition": "template",
+                  "value_template": "{% set r = (state_attr('sensor.ls_overrides','overrides') or {}).get('light:' ~ lamp, {}) %}{% set live = states('input_text.candle_test_session')|from_json(default={}) %}{{ is_state('binary_sensor.zigbee2mqtt_bridge_connection_state','on') and live.get('t') == token and ((r.get('via') == 'candle-test' and r.get('value') == token) if owned else (r.get('when', '') == prior_when)) and is_state(lamp,'on') }}"
+                },
+                {
+                  "action": "mqtt.publish",
+                  "data": {
+                    "topic": "{{ topic }}",
+                    "payload": "{\"state\":\"OFF\",\"transition\":0}",
+                    "qos": 0,
+                    "retain": false
+                  }
+                },
+                {
+                  "wait_template": "{% set r = (state_attr('sensor.ls_overrides','overrides') or {}).get('light:' ~ lamp, {}) %}{% set live = states('input_text.candle_test_session')|from_json(default={}) %}{{ is_state(lamp,'off') or not (is_state('binary_sensor.zigbee2mqtt_bridge_connection_state','on') and live.get('t') == token and ((r.get('via') == 'candle-test' and r.get('value') == token) if owned else (r.get('when', '') == prior_when))) }}",
+                  "timeout": {
+                    "seconds": 3
+                  },
+                  "continue_on_timeout": false
+                },
+                {
+                  "condition": "template",
+                  "value_template": "{% set r = (state_attr('sensor.ls_overrides','overrides') or {}).get('light:' ~ lamp, {}) %}{% set live = states('input_text.candle_test_session')|from_json(default={}) %}{{ is_state('binary_sensor.zigbee2mqtt_bridge_connection_state','on') and live.get('t') == token and ((r.get('via') == 'candle-test' and r.get('value') == token) if owned else (r.get('when', '') == prior_when)) and is_state(lamp,'off') and live.get('r',false) and live.get('f',false) }}"
+                },
+                {
+                  "action": "input_text.set_value",
+                  "target": {
+                    "entity_id": "input_text.candle_test_status"
+                  },
+                  "data": {
+                    "value": "{{ 'Range loop · off · 5 s · ' ~ selected }}"
+                  }
+                },
+                {
+                  "wait_template": "{% set r = (state_attr('sensor.ls_overrides','overrides') or {}).get('light:' ~ lamp, {}) %}{% set live = states('input_text.candle_test_session')|from_json(default={}) %}{{ not (is_state('binary_sensor.zigbee2mqtt_bridge_connection_state','on') and live.get('t') == token and ((r.get('via') == 'candle-test' and r.get('value') == token) if owned else (r.get('when', '') == prior_when)) and is_state(lamp,'off') and live.get('r',false) and live.get('f',false)) }}",
+                  "timeout": {
+                    "seconds": 5
+                  },
+                  "continue_on_timeout": true
+                },
+                {
+                  "condition": "template",
+                  "value_template": "{% set r = (state_attr('sensor.ls_overrides','overrides') or {}).get('light:' ~ lamp, {}) %}{% set live = states('input_text.candle_test_session')|from_json(default={}) %}{{ is_state('binary_sensor.zigbee2mqtt_bridge_connection_state','on') and live.get('t') == token and ((r.get('via') == 'candle-test' and r.get('value') == token) if owned else (r.get('when', '') == prior_when)) and is_state(lamp,'off') and live.get('r',false) and live.get('f',false) }}"
+                }
+              ]
+            }
+          }
+        ],
+        "else": [
+          {
+            "action": "mqtt.publish",
+            "data": {
+              "topic": "{{ topic }}",
+              "payload": "{{ ({'color':{'r':start_rgb[0],'g':start_rgb[1],'b':start_rgb[2]},'transition':0.2} if preset == 'Research' else {'color_temp':(1000000/kelvin|float)|round|int,'transition':0.2}) | to_json }}",
+              "qos": 0,
+              "retain": false
+            }
+          },
+          {
+            "wait_template": "{{ (state_attr(lamp,'color_mode') in ['xy','hs','rgb','rgbw','rgbww']) if preset == 'Research' else (is_state_attr(lamp,'color_mode','color_temp') and (state_attr(lamp,'color_temp_kelvin')|float(0) - kelvin|float)|abs < 50) }}",
+            "timeout": {
+              "seconds": 3
+            },
+            "continue_on_timeout": false
+          },
+          {
+            "action": "timer.start",
+            "target": {
+              "entity_id": "timer.candle_test_remaining"
+            },
+            "data": {
+              "duration": "{{ seconds }}"
+            }
+          },
+          {
+            "action": "input_text.set_value",
+            "target": {
+              "entity_id": "input_text.candle_test_status"
+            },
+            "data": {
+              "value": "{{ ('Range sweep · 10 s · ' if range_test else 'Running · ' ~ preset ~ ' · ') ~ selected }}"
+            }
+          },
+          {
+            "variables": {
+              "started_ts": "{{ as_timestamp(now()) }}",
+              "end_ts": "{{ started_ts|float + seconds|int }}",
+              "previous": -1,
+              "frames": 0,
+              "cycle_low": 6,
+              "wave": [
+                1,
+                1,
+                0.9,
+                0.7,
+                0.4,
+                0,
+                0.4,
+                0.7,
+                0.9,
+                1
+              ],
+              "cycle_period_s": "{{ (range((period_min|float * 100)|round|int, ([period_min|float,period_max|float]|max * 100)|round|int + 1) | random) / 100 }}",
+              "cycle_start_s": 0,
+              "cycle_number": 0,
+              "fall_share": "{{ (range(47,54)|random)/100 }}",
+              "x": 28,
+              "level": 0,
+              "transition": 0.1,
+              "interval_ms": 125,
+              "wave_value": 1,
+              "color_next_ts": "{{ started_ts|float + (0.5 if range_test else 1) }}",
+              "range_done": false,
+              "range_phase": 1,
+              "color_last_key": "{{ ('rgb:' ~ (start_rgb | to_json)) if preset == 'Research' else ('ct:' ~ ((1000000/kelvin|float)|round|int)) }}"
+            }
+          },
+          {
+            "repeat": {
+              "while": [
+                {
+                  "condition": "state",
+                  "entity_id": "binary_sensor.zigbee2mqtt_bridge_connection_state",
+                  "state": "on"
+                },
+                {
+                  "condition": "template",
+                  "value_template": "{{ is_state(lamp,'on') and as_timestamp(now()) < end_ts|float and ((state_attr(lamp,'color_temp_kelvin')|float(0)-kelvin|float)|abs < 50 if preset == 'Selfmade' else state_attr(lamp,'color_mode') in ['xy','hs','rgb','rgbw','rgbww']) }}"
+                },
+                {
+                  "condition": "template",
+                  "value_template": "{% set r = (state_attr('sensor.ls_overrides','overrides') or {}).get('light:' ~ lamp, {}) %}{{ (r.get('via') == 'candle-test' and r.get('value') == token) if owned else (r.get('when', '') == prior_when) }}"
+                }
+              ],
+              "sequence": [
+                {
+                  "choose": [
+                    {
+                      "conditions": [
+                        {
+                          "condition": "template",
+                          "value_template": "{{ range_test }}"
+                        }
+                      ],
+                      "sequence": [
+                        {
+                          "variables": {
+                            "range_phase": "{{ [0,[1,1-(as_timestamp(now())-started_ts|float)/10]|min]|max }}"
+                          }
+                        },
+                        {
+                          "variables": {
+                            "level": "{{ (effect_low|float + (effect_high|float-effect_low|float)*range_phase|float)|round|int }}",
+                            "interval_ms": 200,
+                            "transition": 0.2
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "conditions": [
+                        {
+                          "condition": "template",
+                          "value_template": "{{ preset == 'Selfmade' }}"
+                        }
+                      ],
+                      "sequence": [
+                        {
+                          "variables": {
+                            "elapsed_s": "{{ [0, as_timestamp(now()) - started_ts|float] | max }}",
+                            "new_cycle": "{{ elapsed_s|float >= cycle_start_s|float + cycle_period_s|float }}",
+                            "cycle_start_s": "{{ elapsed_s|float if new_cycle else cycle_start_s|float }}",
+                            "cycle_period_s": "{{ (range((period_min|float * 100)|round|int, (period_max|float * 100)|round|int + 1) | random) / 100 if new_cycle else cycle_period_s|float }}",
+                            "fall_share": "{{ (range(47, 54) | random) / 100 if new_cycle else fall_share|float }}",
+                            "cycle_number": "{{ cycle_number|int + (1 if new_cycle else 0) }}",
+                            "cycle_position": "{{ [0, [1, (elapsed_s|float - cycle_start_s|float) / cycle_period_s|float] | min] | max }}",
+                            "cycle_phase": "{{ 5 * cycle_position|float / fall_share|float if cycle_position|float <= fall_share|float else 5 + 5 * (cycle_position|float - fall_share|float) / (1 - fall_share|float) }}",
+                            "cycle_low": "{{ (range(5, 8) | random) if new_cycle or frames|int == 0 else cycle_low }}",
+                            "wave_value": "{% set i = cycle_phase|int % 10 %}{% set f = cycle_phase|float - cycle_phase|int %}{{ wave[i]|float + f * (wave[(i + 1) % 10]|float - wave[i]|float) }}",
+                            "sample": "{{ cycle_low|float + (15 - cycle_low|float) * wave_value|float }}",
+                            "flicker_sample": "{{ [15, range(4, 28) | random] | min }}"
+                          }
+                        },
+                        {
+                          "variables": {
+                            "baseline_level": "{{ [floor|int, (ceiling|float * sample|float / 15) | round(0) | int] | max }}",
+                            "noise_strength": "{{ noise_scale|float * (0.01 + 0.07 * (wave_value|float) ** 2) }}",
+                            "level": "{{ [floor|int, (baseline_level|float * (1 - noise_strength|float * (1 - flicker_sample|float / 15))) | round(0) | int] | max }}"
+                          }
+                        },
+                        {
+                          "variables": {
+                            "interval_ms": 125,
+                            "transition": 0.1
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "default": [
+                    {
+                      "variables": {
+                        "interval_ms": "{{ [100,200] | random }}",
+                        "raw": "{{ range(20,37) | random }}"
+                      }
+                    },
+                    {
+                      "variables": {
+                        "x": "{{ 0.35*x|float + 0.65*raw|float }}",
+                        "transition": "{{ interval_ms|float/1000 }}"
+                      }
+                    },
+                    {
+                      "variables": {
+                        "level": "{{ [floor|int, [ceiling|int, (ceiling|float * (28 + noise_scale|float*(x|float-28))/36)|round|int] | min] | max }}"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "variables": {
+                    "color_due": "{{ preset == 'Research' and (as_timestamp(now()) >= color_next_ts|float or (range_test and range_phase|float <= 0)) }}",
+                    "color_phase": "{{ range_phase|float if range_test else ([0,[1,(level|float-effect_low|float)/(effect_high|float-effect_low|float)]|min]|max if effect_high|float > effect_low|float else 0.5) }}",
+                    "rgb_mix": "{{ 1-color_phase|float }}",
+                    "color_rgb": "{% set A = state_attr('light.candle_test_rgb_crossover','rgb_color') or [255,139,22] %}{% set B = state_attr('light.candle_test_rgb_warm_end','rgb_color') or [255,126,0] %}{{ [(A[0]+(B[0]-A[0])*rgb_mix|float)|round|int,(A[1]+(B[1]-A[1])*rgb_mix|float)|round|int,(A[2]+(B[2]-A[2])*rgb_mix|float)|round|int] }}",
+                    "color_key": "{{ 'rgb:' ~ (color_rgb|to_json) }}"
+                  }
+                },
+                {
+                  "choose": [
+                    {
+                      "conditions": [
+                        {
+                          "condition": "template",
+                          "value_template": "{{ color_due and color_key != color_last_key }}"
+                        }
+                      ],
+                      "sequence": [
+                        {
+                          "action": "mqtt.publish",
+                          "data": {
+                            "topic": "{{ topic }}",
+                            "payload": "{{ {'color':{'r':color_rgb[0],'g':color_rgb[1],'b':color_rgb[2]},'transition':0.2} | to_json }}",
+                            "qos": 0,
+                            "retain": false
+                          }
+                        },
+                        {
+                          "variables": {
+                            "color_last_key": "{{ color_key }}",
+                            "interval_ms": 200
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "default": [
+                    {
+                      "if": [
+                        {
+                          "condition": "template",
+                          "value_template": "{{ level|int != previous|int or preset == 'Research' }}"
+                        }
+                      ],
+                      "then": [
+                        {
+                          "action": "mqtt.publish",
+                          "data": {
+                            "topic": "{{ topic }}",
+                            "payload": "{{ {'brightness':level|int,'transition':transition|float} | to_json }}",
+                            "qos": 0,
+                            "retain": false
+                          }
+                        },
+                        {
+                          "variables": {
+                            "previous": "{{ level|int }}"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "variables": {
+                    "frames": "{{ frames|int+1 }}",
+                    "color_next_ts": "{{ as_timestamp(now()) + (0.5 if range_test else 1) if color_due else color_next_ts|float }}",
+                    "range_done": "{{ range_test and range_phase|float <= 0 and previous|int == effect_low|int and color_last_key == color_key }}"
+                  }
+                },
+                {
+                  "delay": {
+                    "milliseconds": "{{ interval_ms|int }}"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "config_hash": "fc3a01d35a0f2e9f"
+}

@@ -1,0 +1,82 @@
+{% macro color_from(data,L) -%}
+ {% set color=namespace(v={}) %}
+ {% if 'color_temp_kelvin' in data or 'kelvin' in data %}{% set color.v={'kelvin':data.get('color_temp_kelvin',data.get('kelvin'))} %}
+ {% elif 'rgb_color' in data %}{% set color.v={'rgb':data.rgb_color|list} %}
+ {% elif 'hs_color' in data %}
+  {% set h=(data.hs_color[0]%360)/60 %}{% set c=data.hs_color[1]/100 %}{% set x=c*(1-(h%2-1)|abs) %}{% set m=1-c %}
+  {% set triplet=[c,x,0] if h<1 else [x,c,0] if h<2 else [0,c,x] if h<3 else [0,x,c] if h<4 else [x,0,c] if h<5 else [c,0,x] %}
+  {% set color.v={'rgb':[((triplet[0]+m)*255)|round|int,((triplet[1]+m)*255)|round|int,((triplet[2]+m)*255)|round|int]} %}
+ {% elif 'xy_color' in data %}
+  {% set x=data.xy_color[0] %}{% set y=data.xy_color[1] %}
+  {% if y>0 %}
+   {% set X=x/y %}{% set Z=(1-x-y)/y %}
+   {% set linear=[X*1.656492-0.354851-Z*0.255038,-X*0.707196+1.655397+Z*0.036152,X*0.051713-0.121364+Z*1.011530] %}
+   {% set gamma=namespace(v=[]) %}{% for v in linear %}{% set gamma.v=gamma.v+[[0,12.92*v if v<=0.0031308 else (1.055*v**(1/2.4)-0.055)]|max] %}{% endfor %}
+   {% set peak=[1,gamma.v|max]|max %}{% set color.v={'rgb':[(gamma.v[0]/peak*255)|round|int,(gamma.v[1]/peak*255)|round|int,(gamma.v[2]/peak*255)|round|int]} %}
+  {% else %}{% set color.v={'rgb':[0,0,0]} %}{% endif %}
+ {% elif 'rgbw_color' in data or 'rgbww_color' in data %}
+  {% set channels=data.get('rgbw_color',data.get('rgbww_color')) %}
+  {% if channels|count==4 %}{% set white=[channels[3],channels[3],channels[3]] %}
+  {% else %}
+   {% set cold=rgb_value({'kelvin':state_attr(L,'max_color_temp_kelvin')|int(6500)})|from_json %}{% set warm=rgb_value({'kelvin':state_attr(L,'min_color_temp_kelvin')|int(2000)})|from_json %}
+   {% set white=[(cold[0]*channels[3]+warm[0]*channels[4])/255,(cold[1]*channels[3]+warm[1]*channels[4])/255,(cold[2]*channels[3]+warm[2]*channels[4])/255] %}
+  {% endif %}
+  {% set mixed=[channels[0]+white[0],channels[1]+white[1],channels[2]+white[2]] %}{% set peak=[1,mixed|max]|max %}{% set brightness=channels|max %}
+  {% set color.v={'rgb':[(mixed[0]/peak*brightness)|round|int,(mixed[1]/peak*brightness)|round|int,(mixed[2]/peak*brightness)|round|int]} %}
+ {% elif 'color_name' in data %}
+  {% set name=data.color_name|lower|replace(' ','') %}{% if name in color_names %}{% set color.v={'rgb':color_names[name]} %}{% endif %}
+ {% elif 'white' in data %}{% set color.v={'rgb':[255,255,255]} %}
+ {% endif %}
+ {{ color.v|to_json }}
+{%- endmacro %}
+{% set e=sd.get('entity_id',[]) %}{% set e=e.split(',') if e is string else e|list %}
+{% set areas=sd.get('area_id',[]) %}{% set areas=[areas] if areas is string else areas|list %}
+{% set devices=sd.get('device_id',[]) %}{% set devices=[devices] if devices is string else devices|list %}
+{% set labels=sd.get('label_id',[]) %}{% set labels=[labels] if labels is string else labels|list %}
+{% set requested=namespace(ids=e) %}
+{% for area in areas %}{% set requested.ids=requested.ids+area_entities(area) %}{% endfor %}
+{% for device in devices %}{% set requested.ids=requested.ids+device_entities(device) %}{% endfor %}
+{% for label in labels %}{% set requested.ids=requested.ids+label_entities(label) %}{% endfor %}
+{% set expanded=namespace(ids=requested.ids) %}
+{% for source in requested.ids %}{% set expanded.ids=expanded.ids+catalog.groups.get(source,[]) %}{% endfor %}
+{% set expanded.ids=expanded.ids+(expand(requested.ids)|map(attribute='entity_id')|list) %}
+{% set selected=namespace(lamps=[],room_scopes=areas,items=[]) %}
+{% for L,members in catalog.members.items() if L in expanded.ids or members|select('in',expanded.ids)|list|count>0 %}{% set selected.lamps=selected.lamps+[L] %}{% endfor %}
+{% for source in requested.ids if source in catalog.groups %}
+ {% for area in catalog.groups[source]|map('area_id')|select|unique %}
+  {% set all=namespace(v=[]) %}{% for L in catalog.members if area_id(L)==area %}{% set all.v=all.v+[L] %}{% endfor %}
+  {% if all.v|reject('in',catalog.groups[source])|list|count==0 %}{% set selected.room_scopes=selected.room_scopes+[area] %}{% endif %}
+ {% endfor %}
+{% endfor %}
+{% for area in selected.room_scopes|unique|sort if current.plan.base.get('room:'~area) %}{% set selected.items=selected.items+[{'scope':'room','target':area,'base':'room:'~area}] %}{% endfor %}
+{% for L in selected.lamps if area_id(L) not in selected.room_scopes %}{% set selected.items=selected.items+[{'scope':'lamp','target':L,'base':L}] %}{% endfor %}
+{% set n=namespace(records=[],power=[]) %}
+{% for area in selected.lamps|map('area_id')|select|unique|sort %}{% set n.power=n.power+[{'op':'power','area':area,'on':true,'via':'app'}] %}{% endfor %}
+{% for item in selected.items %}
+ {% set base=current.plan.base.get(item.base,{}) %}{% set resolved=current.plan.resolved.targets.get(item.base,{}) %}
+ {% if base and resolved %}
+  {% set patch=namespace(channels={},brightness=none) %}
+  {% if 'brightness' in sd %}{% set patch.brightness=sd.brightness %}
+  {% elif 'brightness_pct' in sd %}{% set patch.brightness=sd.brightness_pct*255/100 %}
+  {% elif 'brightness_step' in sd %}{% set patch.brightness=resolved.level+sd.brightness_step %}
+  {% elif 'brightness_step_pct' in sd %}{% set patch.brightness=resolved.level+sd.brightness_step_pct*255/100 %}
+  {% elif 'white' in sd %}{% set patch.brightness=sd.white %}{% endif %}
+  {% if patch.brightness is number %}{% set patch.brightness=[0,[255,patch.brightness]|min]|max %}{% set patch.channels={'brightness':{'kind':'constant','value':patch.brightness,'updated':stamp}} %}{% endif %}
+  {% set color=color_from(sd,item.target)|from_json %}{% if color %}{% set patch.channels=dict(patch.channels,color={'kind':'constant','value':color,'updated':stamp}) %}{% endif %}
+  {% if 'effect' in sd %}
+   {% set effect=namespace(name=none) %}{% for name in catalog.effects if name|lower==sd.effect|lower or (name=='Colour loop' and sd.effect|lower=='colorloop') %}{% set effect.name=name %}{% endfor %}
+   {% if effect.name %}
+    {% for channel in catalog.effects[effect.name].channels %}
+     {% set claim={'kind':'effect','effect':effect.name,'instance':'native:'~((requested.ids+areas+devices+labels)|sort|join('|'))~':'~effect.name,'updated':stamp} %}
+     {% if patch.brightness is number %}{% set claim=dict(claim,intensity=patch.brightness) %}{% endif %}
+     {% set patch.channels=dict(patch.channels,**{channel:claim}) %}
+    {% endfor %}
+   {% elif sd.effect|lower in ['none','normal light','off'] %}
+    {% set underlying=base.color if resolved.color.get('policy')=='sara' else resolved.color.get('base',base.color) if resolved.color.kind=='effect' else resolved.color.value %}
+    {% set patch.channels=dict({'brightness':{'kind':'constant','value':resolved.level,'updated':stamp},'color':{'kind':'constant','value':underlying,'updated':stamp}},**patch.channels) %}
+   {% endif %}
+  {% endif %}
+  {% if patch.channels %}{% set n.records=n.records+[{'kind':'channels','key':'channels:native:'~item.base,'source':'native:'~item.base,'scope':item.scope,'target':item.target,'value':{'channels':patch.channels}}] %}{% endif %}
+ {% endif %}
+{% endfor %}
+{{ {'records':n.records,'power':n.power} }}

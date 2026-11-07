@@ -1,0 +1,162 @@
+{
+  "native_input_before_review": true,
+  "native_mixed_processor_before_review": true,
+  "native_migration_adapter": true,
+  "native_migration": {
+    "targets": {
+      "room:living_room": {
+        "brightness": {
+          "kind": "effect",
+          "effect": "Candle",
+          "instance": "native-migration:Candle",
+          "updated": 200,
+          "base": 198,
+          "intensity": 198
+        },
+        "color": {
+          "kind": "effect",
+          "effect": "Candle",
+          "instance": "native-migration:Candle",
+          "updated": 200,
+          "base": {
+            "kelvin": 3640
+          },
+          "intensity": 198
+        },
+        "period": "cosy",
+        "on": true,
+        "area": "living_room",
+        "is_room": true,
+        "level": 198,
+        "owners": {
+          "brightness": "channels:native-migration",
+          "color": "channels:native-migration"
+        },
+        "transition": 3
+      },
+      "light.fake_candle": {
+        "brightness": {
+          "kind": "effect",
+          "effect": "Candle",
+          "instance": "native-migration:Candle",
+          "updated": 200,
+          "base": 198,
+          "intensity": 198
+        },
+        "color": {
+          "kind": "effect",
+          "effect": "Candle",
+          "instance": "native-migration:Candle",
+          "updated": 200,
+          "base": {
+            "kelvin": 3640
+          },
+          "intensity": 198
+        },
+        "period": "cosy",
+        "on": true,
+        "area": "living_room",
+        "is_room": false,
+        "level": 198,
+        "owners": {
+          "brightness": "channels:native-migration",
+          "color": "channels:native-migration"
+        },
+        "transition": 3
+      },
+      "light.fake_normal": {
+        "brightness": {
+          "kind": "effect",
+          "effect": "Candle",
+          "instance": "native-migration:Candle",
+          "updated": 200,
+          "base": 198,
+          "intensity": 198
+        },
+        "color": {
+          "kind": "effect",
+          "effect": "Candle",
+          "instance": "native-migration:Candle",
+          "updated": 200,
+          "base": {
+            "kelvin": 3640
+          },
+          "intensity": 198
+        },
+        "period": "cosy",
+        "on": true,
+        "area": "living_room",
+        "is_room": false,
+        "level": 198,
+        "owners": {
+          "brightness": "channels:native-migration",
+          "color": "channels:native-migration"
+        },
+        "transition": 3
+      }
+    },
+    "assignments": {
+      "light.fake_candle": {
+        "brightness": {
+          "kind": "effect",
+          "effect": "Candle",
+          "instance": "native-migration:Candle",
+          "updated": 200,
+          "base": 198,
+          "intensity": 198
+        },
+        "color": {
+          "kind": "effect",
+          "effect": "Candle",
+          "instance": "native-migration:Candle",
+          "updated": 200,
+          "base": {
+            "kelvin": 3640
+          },
+          "intensity": 198
+        },
+        "period": "cosy",
+        "on": true,
+        "area": "living_room",
+        "is_room": false,
+        "level": 198,
+        "owners": {
+          "brightness": "channels:native-migration",
+          "color": "channels:native-migration"
+        },
+        "transition": 3
+      },
+      "light.fake_normal": {
+        "brightness": {
+          "kind": "effect",
+          "effect": "Candle",
+          "instance": "native-migration:Candle",
+          "updated": 200,
+          "base": 198,
+          "intensity": 198
+        },
+        "color": {
+          "kind": "effect",
+          "effect": "Candle",
+          "instance": "native-migration:Candle",
+          "updated": 200,
+          "base": {
+            "kelvin": 3640
+          },
+          "intensity": 198
+        },
+        "period": "cosy",
+        "on": true,
+        "area": "living_room",
+        "is_room": false,
+        "level": 198,
+        "owners": {
+          "brightness": "channels:native-migration",
+          "color": "channels:native-migration"
+        },
+        "transition": 3
+      }
+    }
+  },
+  "physical_test_calls": 0
+}

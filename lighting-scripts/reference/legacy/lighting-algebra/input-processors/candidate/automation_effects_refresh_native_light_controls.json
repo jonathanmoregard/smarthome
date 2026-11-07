@@ -1,0 +1,110 @@
+{
+  "id": "effects_ui_refresh",
+  "alias": "Effects: refresh native light controls",
+  "triggers": [
+    {
+      "trigger": "time_pattern",
+      "seconds": "/5",
+      "id": "periodic"
+    },
+    {
+      "trigger": "homeassistant",
+      "event": "start",
+      "id": "start"
+    },
+    {
+      "trigger": "state",
+      "entity_id": "sensor.ls_effects_runtime",
+      "attribute": "assignments",
+      "id": "assignments"
+    },
+    {
+      "trigger": "state",
+      "entity_id": "sensor.ls_overrides",
+      "attribute": "overrides",
+      "id": "overrides"
+    },
+    {
+      "trigger": "state",
+      "entity_id": [
+        "input_text.ls_house_day",
+        "input_text.ls_house_cosy",
+        "input_text.ls_house_night",
+        "input_text.ls_lamp_jonathan_bedroom_ceiling_day",
+        "input_text.ls_lamp_jonathan_bedroom_floor_lamp_day",
+        "input_text.ls_lamp_kitchen_pendant_day",
+        "input_text.ls_lamp_kitchen_spots_1_day",
+        "input_text.ls_lamp_kitchen_spots_2_day",
+        "input_text.ls_lamp_living_room_desk_ceiling_day",
+        "input_text.ls_lamp_living_room_hall_ceiling_day",
+        "input_text.ls_lamp_living_room_sofa_table_ceiling_day",
+        "input_text.ls_lamp_living_room_table_lamp_day",
+        "input_text.ls_lamp_living_room_vicky_desk_lamp_day",
+        "input_text.ls_lamp_living_room_window_lamp_day",
+        "input_text.ls_lamp_living_room_yellow_retro_lamp_day",
+        "input_text.ls_lamp_meditation_ceiling_day",
+        "input_text.ls_lamp_meditation_floor_lamp_day",
+        "input_text.ls_lamp_upper_hall_ceiling_day",
+        "input_text.ls_lamp_upper_hall_stair_lamp_day",
+        "input_text.ls_lamp_jonathan_bedroom_ceiling_cosy",
+        "input_text.ls_lamp_jonathan_bedroom_floor_lamp_cosy",
+        "input_text.ls_lamp_kitchen_pendant_cosy",
+        "input_text.ls_lamp_kitchen_spots_1_cosy",
+        "input_text.ls_lamp_kitchen_spots_2_cosy",
+        "input_text.ls_lamp_living_room_desk_ceiling_cosy",
+        "input_text.ls_lamp_living_room_hall_ceiling_cosy",
+        "input_text.ls_lamp_living_room_sofa_table_ceiling_cosy",
+        "input_text.ls_lamp_living_room_table_lamp_cosy",
+        "input_text.ls_lamp_living_room_vicky_desk_lamp_cosy",
+        "input_text.ls_lamp_living_room_window_lamp_cosy",
+        "input_text.ls_lamp_living_room_yellow_retro_lamp_cosy",
+        "input_text.ls_lamp_meditation_ceiling_cosy",
+        "input_text.ls_lamp_meditation_floor_lamp_cosy",
+        "input_text.ls_lamp_upper_hall_ceiling_cosy",
+        "input_text.ls_lamp_upper_hall_stair_lamp_cosy",
+        "input_text.ls_lamp_jonathan_bedroom_ceiling_night",
+        "input_text.ls_lamp_jonathan_bedroom_floor_lamp_night",
+        "input_text.ls_lamp_kitchen_pendant_night",
+        "input_text.ls_lamp_kitchen_spots_1_night",
+        "input_text.ls_lamp_kitchen_spots_2_night",
+        "input_text.ls_lamp_living_room_desk_ceiling_night",
+        "input_text.ls_lamp_living_room_hall_ceiling_night",
+        "input_text.ls_lamp_living_room_sofa_table_ceiling_night",
+        "input_text.ls_lamp_living_room_table_lamp_night",
+        "input_text.ls_lamp_living_room_vicky_desk_lamp_night",
+        "input_text.ls_lamp_living_room_window_lamp_night",
+        "input_text.ls_lamp_living_room_yellow_retro_lamp_night",
+        "input_text.ls_lamp_meditation_ceiling_night",
+        "input_text.ls_lamp_meditation_floor_lamp_night",
+        "input_text.ls_lamp_upper_hall_ceiling_night",
+        "input_text.ls_lamp_upper_hall_stair_lamp_night",
+        "input_text.ls_kitchen_day",
+        "input_text.ls_kitchen_cosy",
+        "input_text.ls_kitchen_night",
+        "input_text.ls_meditation_mys_day",
+        "input_text.ls_meditation_mys_cosy",
+        "input_text.ls_meditation_mys_night",
+        "input_text.ls_hall_overvaning_day",
+        "input_text.ls_hall_overvaning_cosy",
+        "input_text.ls_hall_overvaning_night",
+        "input_text.ls_living_room_day",
+        "input_text.ls_living_room_cosy",
+        "input_text.ls_living_room_night",
+        "input_text.ls_bedroom_day",
+        "input_text.ls_bedroom_cosy",
+        "input_text.ls_bedroom_night"
+      ],
+      "id": "profiles"
+    }
+  ],
+  "actions": [
+    {
+      "action": "script.effects_ui_sync",
+      "data": {
+        "force": "{{ trigger.id == 'start' }}"
+      }
+    }
+  ],
+  "mode": "single",
+  "max_exceeded": "silent"
+}

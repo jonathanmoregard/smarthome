@@ -1,0 +1,225 @@
+{
+  "alias": "Lighting \u00b7 Room remote command",
+  "mode": "queued",
+  "sequence": [
+    {
+      "variables": {
+        "overrides": "{{ state_attr('sensor.ls_overrides','overrides') or {} }}",
+        "stamp": "{{ as_timestamp(now()) }}",
+        "room": "{{ area if area_entities(area) else '' }}",
+        "catalog": {},
+        "current": {
+          "plan": {
+            "base": {},
+            "resolved": {
+              "targets": {}
+            }
+          }
+        }
+      }
+    },
+    {
+      "variables": {
+        "timing_revision": "{# No clock/schedule expansion: only versions of the room's expiry dependencies. #}\n{% if command in ['up','down'] and is_state('input_boolean.ls_ovr_next_block_on','on') %}\n {% set n=namespace(ids=['input_boolean.ls_ovr_next_block_on']) %}\n {% for scope in ['house',room] %}\n  {% for block in ['day','cosy','night'] %}\n   {% set n.ids=n.ids+['input_boolean.ls_'~scope~'_'~block~'_own_timing','input_datetime.ls_'~scope~'_'~block~'_start','input_datetime.ls_'~scope~'_'~block~'_weekend','input_number.ls_'~scope~'_'~block~'_fade'] %}\n  {% endfor %}\n {% endfor %}\n {% set version=namespace(latest=0) %}\n {% for entity in n.ids if states[entity] is not none %}\n  {% set version.latest=[version.latest,as_timestamp(states[entity].last_updated,0)]|max %}\n {% endfor %}\n {{ version.latest }}\n{% else %}{{ 0 }}{% endif %}\n",
+        "request_id": "{{ source~':'~stamp }}"
+      }
+    },
+    {
+      "variables": {
+        "result": "{# A scale owner already has its coordinate. Advance it without rendering any lights. #}\n{% set key='channels:'~source %}{% set record=overrides.get(key,{}) %}\n{% set value=record.get('value',{}) %}\n{% set brightness=value.get('channels',{}).get('brightness',{}) if value is mapping else {} %}\n{% set n=namespace(ok=command in ['up','down'] and record.get('scope')=='room' and record.get('target')==room and brightness.get('kind')=='scale' and brightness.get('position') is number,result=none) %}\n{% if n.ok and is_state('input_boolean.ls_ovr_next_block_on','on') %}\n {% set n.ok=value.get('remote_valid_until',0)>stamp and value.get('remote_timing_revision')==timing_revision %}\n{% endif %}\n{% if n.ok %}\n {% set own_stamp=brightness.get('updated',as_timestamp(record.get('when'),0)) %}\n {% for other,r in overrides.items() if other!=key and r is mapping %}\n  {% set applies=(r.get('scope')=='room' and r.get('target')==room) or (r.get('scope')=='house' and r.get('target')=='house' and room not in label_areas('private_room')) %}\n  {% set v=r.get('value',{}) %}\n  {% if applies and v is mapping and v.get('channels') is mapping and 'brightness' in v.channels %}\n   {% set candidate=v.channels.brightness %}\n   {% set updated=candidate.get('updated',as_timestamp(r.get('when'),0)) if candidate is mapping else as_timestamp(r.get('when'),0) %}\n   {# Conservative fallback for a newer claim, even if the resolver later rejects it. #}\n   {% if updated is not number or updated>=own_stamp %}{% set n.ok=false %}{% endif %}\n  {% endif %}\n {% endfor %}\n{% endif %}\n{% if n.ok %}\n {% set position=[-2,[2,brightness.position+(0.1 if command=='up' else -0.1)]|min]|max %}\n {% set claim={'kind':'scale','position':position,'updated':stamp} %}\n {% set n.result={'op':'set','records':[{'kind':'channels','key':key,'source':source,'scope':'room','target':room,'value':{'position':position,'channels':{'brightness':claim,'color':claim}}}],'via':'remote'} %}\n{% endif %}\n{{ n.result }}\n"
+      }
+    },
+    {
+      "if": [
+        {
+          "condition": "template",
+          "value_template": "{{ result is not mapping }}"
+        }
+      ],
+      "then": [
+        {
+          "if": [
+            {
+              "condition": "template",
+              "value_template": "{{ command not in ['toggle','reset','sara_toggle'] }}"
+            }
+          ],
+          "then": [
+            {
+              "action": "script.ls_plan",
+              "data": {
+                "room": "{{ room }}",
+                "reason": "config"
+              },
+              "response_variable": "current"
+            }
+          ]
+        },
+        {
+          "if": [
+            {
+              "condition": "template",
+              "value_template": "{{ command in ['toggle','left','right'] }}"
+            }
+          ],
+          "then": [
+            {
+              "action": "script.effects_catalog",
+              "response_variable": "catalog"
+            }
+          ]
+        },
+        {
+          "variables": {
+            "result": "{% set key='channels:'~source %}{% set old=overrides.get(key,{}) %}{% set value=old.get('value',{}) %}\n{% set group=current.plan.resolved.targets.get('room:'~room,{}) %}\n{% set anchors=current.plan.base.get('room:'~room,{}) %}\n{% set n=namespace(result={'op':'noop'}) %}\n{% if room and (group or command in ['toggle','reset','sara_toggle']) and command in ['up','down','left','right','toggle','reset','sara_toggle'] %}\n {% if command=='sara_toggle' %}\n  {% set n.result={'op':'clear','keys':['mode:sara'],'via':'remote'} if 'mode:sara' in overrides else {'op':'set','records':[{'kind':'mode','target':'sara','value':'on'}],'via':'remote'} %}\n {% elif command=='toggle' %}\n  {% set ids=namespace(v=[]) %}\n  {% for L in catalog.members if area_id(L)==room %}{% set ids.v=ids.v+[L] %}{% endfor %}\n  {% for L in (state_attr('sensor.ls_overrides','switch_ranges') or {}) if area_id(L)==room %}{% set ids.v=ids.v+[L] %}{% endfor %}\n  {% set saved=(state_attr('sensor.ls_overrides','power') or {}).get(room) %}\n  {% set on=not saved if saved is boolean else not (ids.v|select('is_state','on')|list|count>0) %}\n  {% set n.result={'op':'power','area':room,'on':on,'targets':ids.v,'via':'remote'} %}\n {% elif command=='reset' %}{% set n.result={'op':'clear_room','area':room,'via':'remote'} %}\n {% else %}\n  {% set delta=anchors.day.brightness-anchors.cosy.brightness %}\n  {% set floor=[76.5,anchors.cosy.brightness]|min %}\n  {% set slope=[0,delta,(anchors.cosy.brightness-floor)/2]|max %}\n  {% if group.level>anchors.day.brightness and anchors.day.brightness<255 %}\n   {% set seed=1+(group.level-anchors.day.brightness)/(255-anchors.day.brightness) %}\n  {% elif group.level<anchors.cosy.brightness and slope>0 %}\n   {% set seed=[-2,(group.level-anchors.cosy.brightness)/slope]|max %}\n  {% else %}{% set seed=(group.level-anchors.cosy.brightness)/delta if delta>0 else 1 %}{% endif %}\n  {% set position=value.get('position',seed) if group.owners.get('brightness')==key else seed %}\n  {% set patch=namespace(v={},channels={}) %}\n  {% if command in ['up','down'] %}\n   {% set position=[-2,[2,position+(0.1 if command=='up' else -0.1)]|min]|max %}\n   {% set claim={'kind':'scale','position':position,'updated':stamp} %}\n   {% set brightness={'kind':'constant','value':group.level,'updated':stamp} if command=='down' and group.level<floor else claim %}\n   {% set patch.v={'position':position,'channels':{'brightness':brightness,'color':claim}} %}\n   {% set S=current.plan.get('schedule_details',{}).get(room,{}) %}\n   {% set patch.v=dict(patch.v,remote_valid_until=S.get('next_fs',0),remote_timing_revision=timing_revision|default(0)) %}\n  {% else %}\n   {% set choices=['day','cosy','Candle'] + (catalog.effects.keys()|reject('eq','Candle')|list) %}\n   {% set selected=value.get('selection',group.period) %}\n   {% set index=choices.index(selected) if selected in choices else 0 %}\n   {% set selected=choices[(index+(1 if command=='right' else -1)) % (choices|count)] %}\n   {% if selected in ['day','cosy'] %}\n    {% set position=1 if selected=='day' else 0 %}{% set claim={'kind':'scale','position':position,'updated':stamp} %}\n    {% set patch.v={'selection':selected,'position':position,'period':selected,'period_updated':stamp,'channels':{'brightness':claim,'color':claim}} %}\n   {% else %}\n    {% for channel in catalog.effects[selected].channels %}{% set patch.channels=dict(patch.channels,**{channel:{'kind':'effect','effect':selected,'instance':source~':'~selected,'updated':stamp}}) %}{% endfor %}\n    {% set patch.v={'selection':selected,'channels':patch.channels} %}\n   {% endif %}\n  {% endif %}\n  {% if patch.v %}{% set n.result={'op':'set','records':[{'kind':'channels','key':key,'source':source,'scope':'room','target':room,'value':patch.v}],'via':'remote'} %}{% endif %}\n {% endif %}\n{% endif %}\n{{ n.result }}\n"
+          }
+        }
+      ]
+    },
+    {
+      "if": [
+        {
+          "condition": "template",
+          "value_template": "{{ dry_run|default(false) }}"
+        }
+      ],
+      "then": [
+        {
+          "stop": "Return result",
+          "response_variable": "result"
+        }
+      ]
+    },
+    {
+      "if": [
+        {
+          "condition": "template",
+          "value_template": "{{ result.op=='power' }}"
+        }
+      ],
+      "then": [
+        {
+          "event": "ls_override",
+          "event_data": {
+            "op": "power",
+            "area": "{{ result.area }}",
+            "on": "{{ result.on }}",
+            "via": "remote",
+            "source": "{{ source }}",
+            "request_id": "{{ request_id }}"
+          }
+        },
+        {
+          "action": "{{ \"homeassistant.turn_on\" if result.on else \"homeassistant.turn_off\" }}",
+          "target": {
+            "entity_id": "{{ result.targets }}"
+          }
+        }
+      ],
+      "else": [
+        {
+          "choose": [
+            {
+              "conditions": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ result.op=='set' }}"
+                }
+              ],
+              "sequence": [
+                {
+                  "event": "ls_override",
+                  "event_data": {
+                    "op": "set",
+                    "records": "{{ result.records }}",
+                    "via": "remote",
+                    "source": "{{ source }}",
+                    "request_id": "{{ request_id }}"
+                  }
+                }
+              ]
+            },
+            {
+              "conditions": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ result.op=='clear' }}"
+                }
+              ],
+              "sequence": [
+                {
+                  "event": "ls_override",
+                  "event_data": {
+                    "op": "clear",
+                    "keys": "{{ result['keys'] }}",
+                    "via": "remote",
+                    "source": "{{ source }}",
+                    "request_id": "{{ request_id }}"
+                  }
+                }
+              ]
+            },
+            {
+              "conditions": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ result.op=='clear_room' }}"
+                }
+              ],
+              "sequence": [
+                {
+                  "event": "ls_override",
+                  "event_data": {
+                    "op": "clear_room",
+                    "area": "{{ result.area }}",
+                    "via": "remote",
+                    "source": "{{ source }}",
+                    "request_id": "{{ request_id }}"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "if": [
+        {
+          "condition": "template",
+          "value_template": "{{ result.op!='noop' }}"
+        }
+      ],
+      "then": [
+        {
+          "wait_template": "{{ (state_attr('sensor.ls_overrides','remote_ack') or {}).get(source)==request_id }}",
+          "timeout": 2,
+          "continue_on_timeout": false
+        }
+      ]
+    }
+  ],
+  "max": 50,
+  "fields": {
+    "source": {
+      "selector": {
+        "object": {}
+      }
+    },
+    "area": {
+      "selector": {
+        "object": {}
+      }
+    },
+    "command": {
+      "selector": {
+        "object": {}
+      }
+    },
+    "dry_run": {
+      "selector": {
+        "object": {}
+      }
+    }
+  }
+}

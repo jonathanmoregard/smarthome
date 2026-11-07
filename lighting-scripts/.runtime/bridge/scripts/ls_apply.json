@@ -1,0 +1,84 @@
+{
+  "alias": "Lighting schedule: apply",
+  "description": "Command-only TypeScript bridge. Dry-run/response queries use local RPC. ",
+  "mode": "parallel",
+  "max": 30,
+  "icon": "mdi:home-lightbulb-outline",
+  "fields": {
+    "lights": {
+      "name": "Lights",
+      "description": "Only these lamps (default: all scheduled lamps).",
+      "selector": {
+        "entity": {
+          "multiple": true
+        }
+      }
+    },
+    "reason": {
+      "name": "Reason",
+      "description": "tick | lamp_on | config | start | manual",
+      "default": "manual",
+      "selector": {
+        "select": {
+          "options": [
+            "tick",
+            "lamp_on",
+            "config",
+            "start",
+            "manual"
+          ]
+        }
+      }
+    },
+    "dry_run": {
+      "name": "Dry run",
+      "description": "Return the plan, change nothing.",
+      "default": false,
+      "selector": {
+        "boolean": {}
+      }
+    },
+    "test_now": {
+      "name": "Test time",
+      "description": "Dry-run only: pretend it is this ISO time.",
+      "selector": {
+        "text": {}
+      }
+    },
+    "debug": {
+      "name": "Debug",
+      "default": false,
+      "selector": {
+        "boolean": {}
+      }
+    },
+    "force_all": {
+      "name": "Include lamps that are off",
+      "description": "Dry-run only.",
+      "default": false,
+      "selector": {
+        "boolean": {}
+      }
+    },
+    "test_overrides": {
+      "name": "Test overrides",
+      "description": "Dry-run only: use this override record instead of sensor.ls_overrides.",
+      "selector": {
+        "object": {}
+      }
+    }
+  },
+  "sequence": [
+    {
+      "condition": "template",
+      "value_template": "{{ not (dry_run | default(false)) }}"
+    },
+    {
+      "event": "smarthome_script",
+      "event_data": {
+        "script": "ls_apply",
+        "args": "{% set n=namespace(args={}) %}{% if lights is defined %}{% set n.args=dict(n.args,lights=lights) %}{% endif %}{% if reason is defined %}{% set n.args=dict(n.args,reason=reason) %}{% endif %}{% if dry_run is defined %}{% set n.args=dict(n.args,dry_run=dry_run) %}{% endif %}{% if test_now is defined %}{% set n.args=dict(n.args,test_now=test_now) %}{% endif %}{% if debug is defined %}{% set n.args=dict(n.args,debug=debug) %}{% endif %}{% if force_all is defined %}{% set n.args=dict(n.args,force_all=force_all) %}{% endif %}{% if test_overrides is defined %}{% set n.args=dict(n.args,test_overrides=test_overrides) %}{% endif %}{{ n.args }}"
+      }
+    }
+  ]
+}

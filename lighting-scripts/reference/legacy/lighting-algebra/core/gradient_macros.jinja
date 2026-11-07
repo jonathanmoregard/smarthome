@@ -1,0 +1,96 @@
+{# Compile only on anchor changes. Sampling retains the original arithmetic order. #}
+{% macro gradient_signature(day,cosy,warm_end) -%}
+ {{- [1,day.brightness,color_json(day.color)|from_json,cosy.brightness,color_json(cosy.color)|from_json,warm_end|list]|to_json -}}
+{%- endmacro %}
+
+{% macro gradient_color(left,right) -%}
+ {%- set a=color_json(left)|from_json -%}{%- set b=color_json(right)|from_json -%}
+ {%- if 'kelvin' in a and 'kelvin' in b -%}
+  {{- {'left':a,'right':b,'kind':'kelvin','start':a.kelvin,'delta':b.kelvin-a.kelvin}|to_json -}}
+ {%- else -%}
+  {%- set x=rgb_value(a)|from_json -%}{%- set y=rgb_value(b)|from_json -%}
+  {{- {'left':a,'right':b,'kind':'rgb','start':x,'delta':[y[0]-x[0],y[1]-x[1],y[2]-x[2]]}|to_json -}}
+ {%- endif -%}
+{%- endmacro %}
+
+{% macro gradient_compile(day,cosy,warm_end) -%}
+ {%- set floor=[76.5,cosy.brightness]|min -%}
+ {%- set crossover={'rgb':[255,134,7]} -%}
+ {%- set lower={'kelvin':1950} if 'kelvin' in cosy.color and cosy.color.kelvin>=1950 else crossover -%}
+ {{- {'version':1,
+       'day':{'brightness':day.brightness,'color':color_json(day.color)|from_json},
+       'cosy':{'brightness':cosy.brightness,'color':color_json(cosy.color)|from_json},
+       'brightness':{'floor':floor,'lower':[0,day.brightness-cosy.brightness,(cosy.brightness-floor)/2]|max,'middle':day.brightness-cosy.brightness,'upper':255-day.brightness},
+       'colors':{'lower':gradient_color(cosy.color,lower)|from_json,'middle':gradient_color(cosy.color,day.color)|from_json,'upper':gradient_color(day.color,{'kelvin':6500})|from_json,'tail':gradient_color(crossover,{'rgb':warm_end})|from_json}}|to_json -}}
+{%- endmacro %}
+
+{% macro gradient_color_valid(color) -%}
+ {%- set n=namespace(ok=color is mapping) -%}
+ {%- if n.ok -%}
+  {%- if 'kelvin' in color and 'rgb' not in color -%}
+   {%- set n.ok=color.kelvin is number and color.kelvin is not boolean and 0<color.kelvin<1e20 -%}
+  {%- elif 'rgb' in color and 'kelvin' not in color and color.rgb is sequence and color.rgb is not string and color.rgb is not mapping and color.rgb|count==3 -%}
+   {%- for v in color.rgb -%}{%- if v is not number or v is boolean or not (0<=v<=255) -%}{%- set n.ok=false -%}{%- endif -%}{%- endfor -%}
+  {%- else -%}{%- set n.ok=false -%}{%- endif -%}
+ {%- endif -%}
+ {{- n.ok|to_json -}}
+{%- endmacro %}
+
+{% macro gradient_valid(entry,signature) -%}
+ {# Cache is our own compiled data: validate version, anchor identity and complete shape.
+    Never recompute Kelvin conversions to validate a cache hit. #}
+ {%- set n=namespace(ok=entry is mapping) -%}
+ {%- if n.ok -%}{%- set n.ok=entry.get('signature')==signature and entry.get('curve') is mapping -%}{%- endif -%}
+ {%- if n.ok -%}
+  {%- set c=entry.curve -%}
+  {%- set n.ok=c.get('version')==1 and c.get('day') is mapping and c.get('cosy') is mapping and c.get('brightness') is mapping and c.get('colors') is mapping -%}
+  {%- if n.ok -%}
+   {%- set n.ok=c.day.get('brightness')==signature[1] and c.day.get('color')==signature[2] and c.cosy.get('brightness')==signature[3] and c.cosy.get('color')==signature[4] -%}
+   {%- for name in ['floor','lower','middle','upper'] -%}
+    {%- set v=c.brightness.get(name) -%}{%- if v is not number or v is boolean or not (-1e20<v<1e20) -%}{%- set n.ok=false -%}{%- endif -%}
+   {%- endfor -%}
+   {%- for name in ['lower','middle','upper','tail'] -%}
+    {%- set piece=c.colors.get(name) -%}
+    {%- if piece is not mapping -%}{%- set n.ok=false -%}
+    {%- else -%}
+     {%- if not (gradient_color_valid(piece.get('left'))|from_json) or not (gradient_color_valid(piece.get('right'))|from_json) -%}{%- set n.ok=false -%}{%- endif -%}
+     {%- if piece.get('kind')=='kelvin' -%}
+      {%- for field in ['start','delta'] -%}{%- set v=piece.get(field) -%}{%- if v is not number or v is boolean or not (-1e20<v<1e20) -%}{%- set n.ok=false -%}{%- endif -%}{%- endfor -%}
+     {%- elif piece.get('kind')=='rgb' -%}
+      {%- for field in ['start','delta'] -%}
+       {%- set values=piece.get(field) -%}
+       {%- if values is not sequence or values is string or values is mapping or values|count!=3 -%}{%- set n.ok=false -%}
+       {%- else -%}{%- for v in values -%}{%- if v is not number or v is boolean or not (-1e20<v<1e20) -%}{%- set n.ok=false -%}{%- endif -%}{%- endfor -%}{%- endif -%}
+      {%- endfor -%}
+     {%- else -%}{%- set n.ok=false -%}{%- endif -%}
+    {%- endif -%}
+   {%- endfor -%}
+  {%- endif -%}
+ {%- endif -%}
+ {{- n.ok|to_json -}}
+{%- endmacro %}
+
+{% macro gradient_color_sample(piece,amount) -%}
+ {%- if amount<=0 -%}{{- piece.left|to_json -}}
+ {%- elif amount>=1 -%}{{- piece.right|to_json -}}
+ {%- elif piece.kind=='kelvin' -%}{{- {'kelvin':piece.start+piece.delta*amount}|to_json -}}
+ {%- else -%}{{- {'rgb':[(piece.start[0]+piece.delta[0]*amount)|round|int,(piece.start[1]+piece.delta[1]*amount)|round|int,(piece.start[2]+piece.delta[2]*amount)|round|int]}|to_json -}}
+ {%- endif -%}
+{%- endmacro %}
+
+{% macro gradient_sample(curve,position) -%}
+ {%- set p=[-2,[2,position]|min]|max -%}
+ {%- if p==0 -%}{%- set brightness=curve.cosy.brightness -%}{%- set color=curve.cosy.color -%}
+ {%- elif p==1 -%}{%- set brightness=curve.day.brightness -%}{%- set color=curve.day.color -%}
+ {%- elif p>1 -%}
+  {%- set brightness=curve.day.brightness+curve.brightness.upper*(p-1) -%}
+  {%- set color=gradient_color_sample(curve.colors.upper,p-1)|from_json -%}
+ {%- elif p>0 -%}
+  {%- set brightness=curve.cosy.brightness+curve.brightness.middle*p -%}
+  {%- set color=gradient_color_sample(curve.colors.middle,p)|from_json -%}
+ {%- else -%}
+  {%- set brightness=[curve.brightness.floor,curve.cosy.brightness+p*curve.brightness.lower]|max -%}
+  {%- set color=gradient_color_sample(curve.colors.tail,-p-1)|from_json if p<=-1 else gradient_color_sample(curve.colors.lower,-p)|from_json -%}
+ {%- endif -%}
+ {{- {'brightness':[0,[255,brightness]|min]|max,'color':color,'position':p}|to_json -}}
+{%- endmacro %}

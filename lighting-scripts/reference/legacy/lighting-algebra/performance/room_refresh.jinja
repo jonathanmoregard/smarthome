@@ -1,0 +1,35 @@
+{% set S=baseline.schedule.schedule_details.get(room,{}) %}
+{% set n=namespace(targets={},stale=[]) %}
+{% for L,t in baseline.targets.items() %}
+ {% set ignored=namespace(keys=[]) %}
+ {% if dependencies.expiry=='on' %}
+  {% for key,r in overrides.items() if r is mapping %}
+   {% set applies=(r.get('scope')=='room' and r.get('target')==room) or (r.get('scope')=='house' and not dependencies.private) or (key=='mode:sara' and not dependencies.private) or (r.get('kind')=='block' and r.get('target')==room) or (not t.is_room and ((r.get('scope')=='lamp' and r.get('target')==L) or (r.get('kind')=='light' and r.get('target')==L))) %}
+   {% if applies and as_timestamp(r.get('when'),0)<=S.get('last_fs',0) %}{% set ignored.keys=ignored.keys+[key] %}{% endif %}
+  {% endfor %}
+ {% endif %}
+ {% set item=dict(t,ignore_overrides=ignored.keys) %}
+ {% if not t.is_room %}
+  {% set color={'kelvin':state_attr(L,'color_temp_kelvin')|int(3000)} if state_attr(L,'color_mode')=='color_temp' else {'rgb':(state_attr(L,'rgb_color') or [255,255,255])|list} %}
+  {% set item=dict(item,observed={'brightness':state_attr(L,'brightness')|int(255),'color':color}) %}
+ {% endif %}
+ {% set n.targets=dict(n.targets,**{L:item}) %}
+{% endfor %}
+{% if dependencies.expiry=='on' and not S.get('fading',false) %}
+ {% for key,r in overrides.items() if r is mapping %}
+  {% set local=(r.get('scope')=='room' and r.get('target')==room) or ((r.get('scope')=='lamp' or r.get('kind')=='light') and r.get('target') in dependencies.lamps) or (r.get('kind')=='block' and r.get('target')==room) %}
+  {% if local and as_timestamp(r.get('when'),0)<=S.get('last_fs',0) %}{% set n.stale=n.stale+[key] %}{% endif %}
+ {% endfor %}
+{% endif %}
+{% set block=overrides.get('block:'~room,{}) %}
+{% set selected=block.get('value') if block is mapping else none %}
+{% set effective=selected if selected in ['day','cosy','night'] and 'block:'~room not in n.stale else S.get('cur') or 'night' %}
+{% set entity='input_select.ls_'~room~'_override' %}
+{% set mirrors=[{'entity':entity,'option':effective|capitalize}] if states[entity] is not none and states(entity)!=effective|capitalize else [] %}
+{% set details=namespace(v={room:S}) %}
+{% if cache_hit %}
+ {% set details.v={room:dict(S,left=cache.valid_from+S.left-at,edge=(at-S.cur_ts)<90)} %}
+{% endif %}
+{% set profiles=namespace(v={}) %}
+{% for L,p in baseline.schedule.profiles.items() %}{% set profiles.v=dict(profiles.v,**{L:dict(p,ignore_overrides=n.targets[L].ignore_overrides)}) %}{% endfor %}
+{{ {'targets':n.targets,'schedule':dict(baseline.schedule,profiles=profiles.v,sched={room:S.get('cur')},schedule_details=details.v,stale_keys=n.stale,mirror=mirrors)}|to_json|from_json }}

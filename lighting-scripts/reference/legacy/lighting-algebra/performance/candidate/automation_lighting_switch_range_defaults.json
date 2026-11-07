@@ -1,0 +1,41 @@
+{
+  "id": "lighting_switch_range_defaults",
+  "alias": "Switch Lamps \u00b7 Validate House Defaults",
+  "description": "Publish complete valid intervals through the sole configuration writer. Invalid editing values leave the last valid defaults active. This automation never operates devices.",
+  "mode": "queued",
+  "max": 10,
+  "triggers": [
+    {
+      "trigger": "state",
+      "entity_id": [
+        "input_number.ls_range_bright_min",
+        "input_number.ls_range_bright_max",
+        "input_number.ls_range_cosy_min",
+        "input_number.ls_range_cosy_max"
+      ]
+    },
+    {
+      "trigger": "homeassistant",
+      "event": "start"
+    }
+  ],
+  "actions": [
+    {
+      "variables": {
+        "requested": "{{ {'bright':[states('input_number.ls_range_bright_min')|float(-1),states('input_number.ls_range_bright_max')|float(-1)],'cosy':[states('input_number.ls_range_cosy_min')|float(-1),states('input_number.ls_range_cosy_max')|float(-1)]} }}"
+      }
+    },
+    {
+      "condition": "template",
+      "value_template": "{{ 0 <= requested.bright[0] <= requested.bright[1] <= 100 and 0 <= requested.cosy[0] <= requested.cosy[1] <= 100 }}"
+    },
+    {
+      "event": "ls_override",
+      "event_data": {
+        "op": "range_defaults",
+        "ranges": "{{ requested }}",
+        "via": "schedule-ui"
+      }
+    }
+  ]
+}

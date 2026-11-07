@@ -1,0 +1,106 @@
+{
+  "alias": "Lighting schedule: apply",
+  "description": "Plan independently of output. Dry runs return immediately; live plans enter the version-checked dispatcher, which sends only changed lamps. Remote/UI reads use the pure planner directly.",
+  "mode": "parallel",
+  "max": 30,
+  "icon": "mdi:home-lightbulb-outline",
+  "fields": {
+    "lights": {
+      "name": "Lights",
+      "description": "Only these lamps (default: all scheduled lamps).",
+      "selector": {
+        "entity": {
+          "multiple": true
+        }
+      }
+    },
+    "reason": {
+      "name": "Reason",
+      "description": "tick | lamp_on | config | start | manual",
+      "default": "manual",
+      "selector": {
+        "select": {
+          "options": [
+            "tick",
+            "lamp_on",
+            "config",
+            "start",
+            "manual"
+          ]
+        }
+      }
+    },
+    "dry_run": {
+      "name": "Dry run",
+      "description": "Return the plan, change nothing.",
+      "default": false,
+      "selector": {
+        "boolean": {}
+      }
+    },
+    "test_now": {
+      "name": "Test time",
+      "description": "Dry-run only: pretend it is this ISO time.",
+      "selector": {
+        "text": {}
+      }
+    },
+    "debug": {
+      "name": "Debug",
+      "default": false,
+      "selector": {
+        "boolean": {}
+      }
+    },
+    "force_all": {
+      "name": "Include lamps that are off",
+      "description": "Dry-run only.",
+      "default": false,
+      "selector": {
+        "boolean": {}
+      }
+    },
+    "test_overrides": {
+      "name": "Test overrides",
+      "description": "Dry-run only: use this override record instead of sensor.ls_overrides.",
+      "selector": {
+        "object": {}
+      }
+    }
+  },
+  "sequence": [
+    {
+      "condition": "template",
+      "value_template": "{{ dry_run|default(false) or ((test_now is not defined or not test_now) and test_overrides is not defined and not (force_all|default(false))) }}"
+    },
+    {
+      "if": [
+        {
+          "condition": "template",
+          "value_template": "{{ dry_run|default(false) }}"
+        }
+      ],
+      "then": [
+        {
+          "action": "script.ls_plan",
+          "data": {
+            "reason": "{{ reason|default('config') }}",
+            "test_now": "{{ test_now|default(none) }}",
+            "test_overrides": "{{ test_overrides|default(none) }}"
+          },
+          "response_variable": "result"
+        },
+        {
+          "stop": "Return result",
+          "response_variable": "result"
+        }
+      ]
+    },
+    {
+      "action": "script.ls_commit",
+      "data": {
+        "data": "{{ {'op':'render_request','via':'render_request','reason':reason|default('config'),'lights':lights|default([])} }}"
+      }
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "alias": "Effects \u00b7 Refresh effect catalogue in controls",
+  "description": "Command-only TypeScript bridge. Dry-run/response queries use local RPC. ",
+  "mode": "single",
+  "max_exceeded": "silent",
+  "sequence": [
+    {
+      "condition": "template",
+      "value_template": "{{ not (dry_run | default(false)) }}"
+    },
+    {
+      "event": "smarthome_script",
+      "event_data": {
+        "script": "effects_ui_catalog",
+        "args": "{% set n=namespace(args={}) %}{{ n.args }}"
+      }
+    }
+  ]
+}

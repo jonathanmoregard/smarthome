@@ -1,0 +1,27 @@
+{
+  "success": true,
+  "action": "get",
+  "automation_id": "automation.lighting_schedule_override_store_writer",
+  "config": {
+    "id": "1791982416967",
+    "alias": "Lighting schedule: override store writer",
+    "description": "Event adapter. All mutation/CAS checks and render scheduling belong to the synchronous queued ls_commit script.",
+    "triggers": [
+      {
+        "trigger": "event",
+        "event_type": "ls_override"
+      }
+    ],
+    "actions": [
+      {
+        "action": "script.ls_commit",
+        "data": {
+          "data": "{{ dict(trigger.event.data,who=trigger.event.data.get(\"who\") or trigger.event.context.user_id) }}"
+        }
+      }
+    ],
+    "mode": "queued",
+    "max": 50
+  },
+  "config_hash": "071a14b46fae9dd0"
+}

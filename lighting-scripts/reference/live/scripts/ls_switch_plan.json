@@ -1,0 +1,39 @@
+{
+  "success": true,
+  "action": "get",
+  "script_id": "ls_switch_plan",
+  "config": {
+    "alias": "Lighting · Switch range plan",
+    "mode": "parallel",
+    "sequence": [
+      {
+        "variables": {
+          "result": "{% set n=namespace(switches={}) %}\n{% for L,rule in ranges.items() %}\n {% set room=area_id(L) %}{% set group=targets.get('room:'~room,{}) if room else {} %}\n {% set interval=[rule.get('min'),rule.get('max')] if rule.get('profile')=='custom' else defaults.get(rule.get('profile'),[]) %}\n {% set valid=interval|count==2 and interval[0] is number and interval[1] is number and 0<=interval[0]<=interval[1]<=100 %}\n {% if valid and group %}\n  {% set b=group.level*100/255 %}\n  {% set on=group.on and interval[0]<=b<=interval[1] %}\n  {% set n.switches=dict(n.switches,**{L:{'on':on,'room':room,'brightness':b,'range':interval}}) %}\n {% endif %}\n{% endfor %}\n{{ {'switches':n.switches} }}\n"
+        }
+      },
+      {
+        "stop": "Return result",
+        "response_variable": "result"
+      }
+    ],
+    "max": 50,
+    "fields": {
+      "targets": {
+        "selector": {
+          "object": {}
+        }
+      },
+      "ranges": {
+        "selector": {
+          "object": {}
+        }
+      },
+      "defaults": {
+        "selector": {
+          "object": {}
+        }
+      }
+    }
+  },
+  "config_hash": "3a1c602e7024d287"
+}

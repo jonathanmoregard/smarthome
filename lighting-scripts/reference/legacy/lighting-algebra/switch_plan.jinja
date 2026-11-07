@@ -1,0 +1,12 @@
+{% set n=namespace(switches={}) %}
+{% for L,rule in ranges.items() %}
+ {% set room=area_id(L) %}{% set group=targets.get('room:'~room,{}) if room else {} %}
+ {% set interval=[rule.get('min'),rule.get('max')] if rule.get('profile')=='custom' else defaults.get(rule.get('profile'),[]) %}
+ {% set valid=interval|count==2 and interval[0] is number and interval[1] is number and 0<=interval[0]<=interval[1]<=100 %}
+ {% if valid and group %}
+  {% set b=group.level*100/255 %}
+  {% set on=group.on and interval[0]<=b<=interval[1] %}
+  {% set n.switches=dict(n.switches,**{L:{'on':on,'room':room,'brightness':b,'range':interval}}) %}
+ {% endif %}
+{% endfor %}
+{{ {'switches':n.switches} }}

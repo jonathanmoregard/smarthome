@@ -1,0 +1,135 @@
+{
+  "title": "Switch Lamps",
+  "path": "switch-lamps",
+  "icon": "mdi:power-socket-eu",
+  "type": "sections",
+  "max_columns": 2,
+  "sections": [
+    {
+      "type": "grid",
+      "cards": [
+        {
+          "type": "heading",
+          "heading": "House Defaults",
+          "icon": "mdi:home-outline"
+        },
+        {
+          "type": "custom:vertical-stack-in-card",
+          "styles": {
+            "margin": "0 6px 6px",
+            "border": "var(--ha-card-border-width, 1px) solid var(--ha-card-border-color, var(--divider-color, #e0e0e0))"
+          },
+          "cards": [
+            {
+              "type": "heading",
+              "heading": "Bright Lamps",
+              "heading_style": "subtitle",
+              "icon": "mdi:white-balance-sunny"
+            },
+            {
+              "type": "entities",
+              "show_header_toggle": false,
+              "entities": [
+                {
+                  "entity": "input_number.ls_range_bright_min",
+                  "name": "From",
+                  "icon": "mdi:arrow-collapse-down"
+                },
+                {
+                  "entity": "input_number.ls_range_bright_max",
+                  "name": "Through",
+                  "icon": "mdi:arrow-collapse-up"
+                }
+              ]
+            },
+            {
+              "type": "markdown",
+              "text_only": true,
+              "content": "{% set active = (state_attr('sensor.ls_overrides', 'range_defaults') or {}).get('bright', [90, 100]) %}{% set lo = states('input_number.ls_range_bright_min')|float(-1) %}{% set hi = states('input_number.ls_range_bright_max')|float(-1) %}{% if not (0 <= lo <= hi <= 100) %}From must not exceed Through. {% endif %}Active: {{ active[0]|int }}–{{ active[1]|int }}%."
+            }
+          ]
+        },
+        {
+          "type": "custom:vertical-stack-in-card",
+          "styles": {
+            "margin": "0 6px 6px",
+            "border": "var(--ha-card-border-width, 1px) solid var(--ha-card-border-color, var(--divider-color, #e0e0e0))"
+          },
+          "cards": [
+            {
+              "type": "heading",
+              "heading": "Cosy Lamps",
+              "heading_style": "subtitle",
+              "icon": "mdi:sofa"
+            },
+            {
+              "type": "entities",
+              "show_header_toggle": false,
+              "entities": [
+                {
+                  "entity": "input_number.ls_range_cosy_min",
+                  "name": "From",
+                  "icon": "mdi:arrow-collapse-down"
+                },
+                {
+                  "entity": "input_number.ls_range_cosy_max",
+                  "name": "Through",
+                  "icon": "mdi:arrow-collapse-up"
+                }
+              ]
+            },
+            {
+              "type": "markdown",
+              "text_only": true,
+              "content": "{% set active = (state_attr('sensor.ls_overrides', 'range_defaults') or {}).get('cosy', [30, 60]) %}{% set lo = states('input_number.ls_range_cosy_min')|float(-1) %}{% set hi = states('input_number.ls_range_cosy_max')|float(-1) %}{% if not (0 <= lo <= hi <= 100) %}From must not exceed Through. {% endif %}Active: {{ active[0]|int }}–{{ active[1]|int }}%."
+            }
+          ]
+        },
+        {
+          "type": "markdown",
+          "text_only": true,
+          "content": "Lamps turn on within their room’s brightness range. Both ends are included."
+        }
+      ]
+    },
+    {
+      "type": "grid",
+      "cards": [
+        {
+          "type": "heading",
+          "heading": "Lamp Ranges",
+          "icon": "mdi:lightbulb-group-outline"
+        },
+        {
+          "type": "tile",
+          "entity": "script.ls_range_save",
+          "name": "Configure Lamp…",
+          "icon": "mdi:lightbulb-cog-outline",
+          "hide_state": true,
+          "tap_action": {
+            "action": "more-info"
+          },
+          "icon_tap_action": {
+            "action": "more-info"
+          }
+        },
+        {
+          "type": "markdown",
+          "text_only": true,
+          "content": "{% set ranges = state_attr('sensor.ls_overrides', 'switch_ranges') or {} %}{% if not ranges %}No switch lamps configured yet. Pair a lamp, assign its room, then choose **Configure Lamp**.{% else %}Choose **Configure Lamp** to change a lamp’s range. Lamps using a default follow changes to House Defaults.{% endif %}"
+        },
+        {
+          "type": "custom:auto-entities",
+          "card": {
+            "type": "vertical-stack"
+          },
+          "card_param": "cards",
+          "show_empty": false,
+          "filter": {
+            "template": "{% set ranges = state_attr('sensor.ls_overrides', 'switch_ranges') or {} %}\n{% set ns = namespace(cards=[]) %}\n{% for entity, rule in ranges|dictsort if states[entity] is not none %}\n  {% set profile = rule.get('profile', 'bright') %}\n  {% set own = profile == 'custom' %}\n  {% set pair = (state_attr('sensor.ls_overrides', 'range_defaults') or {}).get(profile, [90,100] if profile == 'bright' else [30,60]) %}\n  {% set minimum = rule.get('min', 0) if own else pair[0] %}\n  {% set maximum = rule.get('max', 100) if own else pair[1] %}\n  {% set label = 'Own Range' if own else ('Bright Default' if profile == 'bright' else 'Cosy Default') %}\n  {% set title = entity_name(entity) %}\n  {% set room = area_name(entity) or 'No Room Assigned' %}\n  {% set ns.cards = ns.cards + [{'type': 'custom:mushroom-template-card', 'entity': entity, 'primary': title, 'secondary': room ~ ' · ' ~ label ~ ' · ' ~ minimum ~ '–' ~ maximum ~ '%', 'icon': 'mdi:power-socket-eu', 'tap_action': {'action': 'none'}, 'hold_action': {'action': 'none'}}] %}\n{% endfor %}\n{{ ns.cards }}"
+          }
+        }
+      ]
+    }
+  ]
+}

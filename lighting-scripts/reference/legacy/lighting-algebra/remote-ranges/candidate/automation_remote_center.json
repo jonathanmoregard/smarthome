@@ -1,0 +1,113 @@
+{
+  "id": "lighting_remote_0x385b44fffea50c99_center",
+  "alias": "Lighting \u00b7 Living Room Remote Center",
+  "description": "Verified Innr RC250 on/off actions. One press toggles after a 400ms quiet interval; three or more presses reset room overrides once. Two presses do nothing. Single mode consumes the whole burst without intermediate power toggles. Area is looked up when dispatching.",
+  "mode": "single",
+  "max_exceeded": "silent",
+  "triggers": [
+    {
+      "trigger": "mqtt",
+      "topic": "zigbee2mqtt/0x385b44fffea50c99/action",
+      "payload": "on"
+    },
+    {
+      "trigger": "mqtt",
+      "topic": "zigbee2mqtt/0x385b44fffea50c99/action",
+      "payload": "off"
+    }
+  ],
+  "actions": [
+    {
+      "variables": {
+        "clicks": 1
+      }
+    },
+    {
+      "repeat": {
+        "sequence": [
+          {
+            "wait_for_trigger": [
+              {
+                "trigger": "mqtt",
+                "topic": "zigbee2mqtt/0x385b44fffea50c99/action",
+                "payload": "on"
+              },
+              {
+                "trigger": "mqtt",
+                "topic": "zigbee2mqtt/0x385b44fffea50c99/action",
+                "payload": "off"
+              }
+            ],
+            "timeout": {
+              "milliseconds": 400
+            },
+            "continue_on_timeout": true
+          },
+          {
+            "if": [
+              {
+                "condition": "template",
+                "value_template": "{{ wait.completed }}"
+              }
+            ],
+            "then": [
+              {
+                "variables": {
+                  "clicks": "{{ [3, clicks + 1]|min }}"
+                }
+              }
+            ]
+          }
+        ],
+        "until": [
+          {
+            "condition": "template",
+            "value_template": "{{ not wait.completed }}"
+          }
+        ]
+      }
+    },
+    {
+      "choose": [
+        {
+          "conditions": [
+            {
+              "condition": "template",
+              "value_template": "{{ clicks == 1 }}"
+            }
+          ],
+          "sequence": [
+            {
+              "action": "script.ls_remote_command",
+              "data": {
+                "source": "0x385b44fffea50c99",
+                "area": "{{ area_id(\"0752f2b4e9a0992ac8efc2af1f53c62a\") }}",
+                "command": "toggle",
+                "dry_run": false
+              }
+            }
+          ]
+        },
+        {
+          "conditions": [
+            {
+              "condition": "template",
+              "value_template": "{{ clicks >= 3 }}"
+            }
+          ],
+          "sequence": [
+            {
+              "action": "script.ls_remote_command",
+              "data": {
+                "source": "0x385b44fffea50c99",
+                "area": "{{ area_id(\"0752f2b4e9a0992ac8efc2af1f53c62a\") }}",
+                "command": "reset",
+                "dry_run": false
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

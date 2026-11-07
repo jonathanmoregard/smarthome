@@ -1,0 +1,345 @@
+{
+  "results": [
+    {
+      "module": "lighting-algebra/core/test_core.py",
+      "exit_code": 0,
+      "classification": "historical-behavior",
+      "runs": {
+        "reference": {
+          "exit_code": 1,
+          "outcome": {
+            "tests": 23,
+            "failures": [
+              {
+                "id": "parity_original.ResolverTests.test_baseline_channel_restriction_and_legacy_hold",
+                "error": "AssertionError: 'constant' != 'effect'"
+              },
+              {
+                "id": "parity_original.ResolverTests.test_carried_input_uses_original_stamp_against_other_sources",
+                "error": "AssertionError: 'constant' != 'effect'"
+              },
+              {
+                "id": "parity_original.ResolverTests.test_invalid_or_future_carried_input_does_not_replace_valid_baseline",
+                "error": "AssertionError: 'constant' != 'effect'"
+              },
+              {
+                "id": "parity_original.ResolverTests.test_legacy_effect_brightness_initializes_without_stealing_channel",
+                "error": "AssertionError: 'constant' != 'effect'"
+              },
+              {
+                "id": "parity_original.ResolverTests.test_power_and_period_are_external_inputs_not_override_channels",
+                "error": "AssertionError: 'constant' != 'effect'"
+              },
+              {
+                "id": "parity_original.ResolverTests.test_repeated_effect_replacement_retains_carried_value_without_claiming_channel",
+                "error": "AssertionError: 'constant' != 'effect'"
+              },
+              {
+                "id": "parity_original.ResolverTests.test_sara_only_common_non_night_and_preserves_flicker",
+                "error": "AssertionError: 'constant' != 'effect'"
+              }
+            ],
+            "errors": [
+              {
+                "id": "parity_original.ResolverTests.test_effect_intensity_uses_underlying_constant_and_then_newer_constant_wins",
+                "error": "KeyError: 'base'"
+              },
+              {
+                "id": "parity_original.ResolverTests.test_invalid_sources_fail_to_base_not_older_effect",
+                "error": "KeyError: 'origin'"
+              },
+              {
+                "id": "parity_original.ResolverTests.test_partial_effect_handoff_preserves_other_channel",
+                "error": "KeyError: 'lamp_a'"
+              },
+              {
+                "id": "parity_original.ResolverTests.test_stable_record_scale_to_effect_preserves_each_lamp_anchor",
+                "error": "KeyError: 'base'"
+              }
+            ],
+            "skipped": []
+          }
+        },
+        "typescript": {
+          "exit_code": 1,
+          "outcome": {
+            "tests": 23,
+            "failures": [
+              {
+                "id": "parity_original.ResolverTests.test_baseline_channel_restriction_and_legacy_hold",
+                "error": "AssertionError: 'constant' != 'effect'"
+              },
+              {
+                "id": "parity_original.ResolverTests.test_carried_input_uses_original_stamp_against_other_sources",
+                "error": "AssertionError: 'constant' != 'effect'"
+              },
+              {
+                "id": "parity_original.ResolverTests.test_invalid_or_future_carried_input_does_not_replace_valid_baseline",
+                "error": "AssertionError: 'constant' != 'effect'"
+              },
+              {
+                "id": "parity_original.ResolverTests.test_legacy_effect_brightness_initializes_without_stealing_channel",
+                "error": "AssertionError: 'constant' != 'effect'"
+              },
+              {
+                "id": "parity_original.ResolverTests.test_power_and_period_are_external_inputs_not_override_channels",
+                "error": "AssertionError: 'constant' != 'effect'"
+              },
+              {
+                "id": "parity_original.ResolverTests.test_repeated_effect_replacement_retains_carried_value_without_claiming_channel",
+                "error": "AssertionError: 'constant' != 'effect'"
+              },
+              {
+                "id": "parity_original.ResolverTests.test_sara_only_common_non_night_and_preserves_flicker",
+                "error": "AssertionError: 'constant' != 'effect'"
+              }
+            ],
+            "errors": [
+              {
+                "id": "parity_original.ResolverTests.test_effect_intensity_uses_underlying_constant_and_then_newer_constant_wins",
+                "error": "KeyError: 'base'"
+              },
+              {
+                "id": "parity_original.ResolverTests.test_invalid_sources_fail_to_base_not_older_effect",
+                "error": "KeyError: 'origin'"
+              },
+              {
+                "id": "parity_original.ResolverTests.test_partial_effect_handoff_preserves_other_channel",
+                "error": "KeyError: 'lamp_a'"
+              },
+              {
+                "id": "parity_original.ResolverTests.test_stable_record_scale_to_effect_preserves_each_lamp_anchor",
+                "error": "KeyError: 'base'"
+              }
+            ],
+            "skipped": []
+          }
+        }
+      },
+      "typescript_execution": {
+        "backend": "typescript",
+        "original": "lighting-algebra/core/test_core.py",
+        "requests": 648,
+        "entrypoints": [
+          "effects_resolve",
+          "effects_scale"
+        ],
+        "differential_comparisons": 648,
+        "path_rewrites": 30
+      }
+    },
+    {
+      "module": "lighting-algebra/grouping/test_grouping.py",
+      "exit_code": 0,
+      "classification": "historical-behavior",
+      "runs": {
+        "reference": {
+          "exit_code": 1,
+          "outcome": {
+            "tests": 12,
+            "failures": [
+              {
+                "id": "parity_original.PlannerTests.test_proposed_groups_preserve_complete_lamps",
+                "error": "AssertionError: True is not False"
+              }
+            ],
+            "errors": [],
+            "skipped": []
+          }
+        },
+        "typescript": {
+          "exit_code": 1,
+          "outcome": {
+            "tests": 12,
+            "failures": [
+              {
+                "id": "parity_original.PlannerTests.test_proposed_groups_preserve_complete_lamps",
+                "error": "AssertionError: True is not False"
+              }
+            ],
+            "errors": [],
+            "skipped": []
+          }
+        }
+      },
+      "typescript_execution": {
+        "backend": "typescript",
+        "original": "lighting-algebra/grouping/test_grouping.py",
+        "requests": 2019,
+        "entrypoints": [
+          "effects_group_plan"
+        ],
+        "differential_comparisons": 2019,
+        "path_rewrites": 30
+      }
+    },
+    {
+      "module": "smarthome-remote-20261026/test_gestures.py",
+      "exit_code": 0,
+      "classification": "current-native-regression",
+      "runs": {
+        "reference": {
+          "exit_code": 0,
+          "outcome": {
+            "checks": 33,
+            "exit_code": 0
+          }
+        },
+        "typescript": {
+          "exit_code": 0,
+          "outcome": {
+            "checks": 33,
+            "exit_code": 0
+          }
+        }
+      },
+      "typescript_execution": {
+        "backend": "typescript",
+        "original": "smarthome-remote-20261026/test_gestures.py",
+        "requests": 144,
+        "entrypoints": [
+          "ls_remote_gesture_bedroom",
+          "ls_remote_gesture_kitchen",
+          "ls_remote_gesture_living_room"
+        ],
+        "differential_comparisons": 33,
+        "path_rewrites": 30
+      }
+    }
+  ],
+  "selected_modules": 3,
+  "inventoried_modules": 42,
+  "not_selected": [
+    "effects-promotion/tests/test_logic.py",
+    "lighting-algebra/adapters/test_adapters.py",
+    "lighting-algebra/input-processors/tests/test_input_edges.py",
+    "lighting-algebra/input-processors/tests/test_input_processors.py",
+    "lighting-algebra/input-processors/tests/test_input_review.py",
+    "lighting-algebra/remote/gesture_test.py",
+    "lighting-algebra/remote/preset_test.py",
+    "lighting-algebra/remote/test_remote.py",
+    "lighting-algebra/remote-ranges/test_period_stream.py",
+    "lighting-algebra/remote-ranges/test_preset_roundtrip.py",
+    "lighting-algebra/remote-ranges/test_remote_ranges.py",
+    "lighting-algebra/remote-regressions/test_first_arrow.py",
+    "lighting-algebra/remote-regressions/test_pending_input.py",
+    "lighting-algebra/sara-window/test_sara_window.py",
+    "lighting-algebra/tests/test_cache_integration.py",
+    "lighting-algebra/tests/test_core.py",
+    "lighting-algebra/tests/test_dispatch.py",
+    "lighting-algebra/tests/test_effect_pacing.py",
+    "lighting-algebra/tests/test_final_regressions.py",
+    "lighting-algebra/tests/test_gesture_integration.py",
+    "lighting-algebra/tests/test_gesture_native_conditions.py",
+    "lighting-algebra/tests/test_gradient_cache.py",
+    "lighting-algebra/tests/test_harness.py",
+    "lighting-algebra/tests/test_integration.py",
+    "lighting-algebra/tests/test_native_controls.py",
+    "lighting-algebra/tests/test_performance_pipeline.py",
+    "lighting-algebra/tests/test_remote_cycle.py",
+    "lighting-algebra/tests/test_remote_fast.py",
+    "lighting-algebra/tests/test_remote_gestures.py",
+    "lighting-algebra/tests/test_remote_store.py",
+    "lighting-algebra/tests/test_remote_transition.py",
+    "lighting-algebra/tests/test_room_cache.py",
+    "lighting-algebra/tests/test_room_wake_baseline.py",
+    "lighting-algebra/tests/test_state_sequences.py",
+    "lighting-algebra/tests/test_transport.py",
+    "smarthome-remote-20261026/test_auto_requests.py",
+    "smarthome-remote-20261026/test_auto_transport.py",
+    "smarthome-remote-20261026/test_autogroup_collector.py",
+    "smarthome-remote-20261026/test_autogroup_planner.py"
+  ],
+  "gate": "identical outcomes including baseline failures; value differential for pure templates and native gestures",
+  "test_sha256": {
+    "effects-promotion/tests/test_logic.py": "c450f563cee46b64e303a7537312a1f5b674bbdbb22dd5df5d601d9eef44cff4",
+    "lighting-algebra/adapters/test_adapters.py": "bd4462b4272a974425faa5a6984e97dd63b59203e9ea39ad842049a7041a5acc",
+    "lighting-algebra/core/test_core.py": "38063cd70741905947bccf3c16f883afab6c4fca6482a0980bd9db0a833ae890",
+    "lighting-algebra/grouping/test_grouping.py": "7d54b4c05a07aac76e68f909d8cf28cd12b47043b7db8cb5cfe96623fcfa5a50",
+    "lighting-algebra/input-processors/tests/test_input_edges.py": "d4407213e02f098559d822ba86315081a2eac43d39eb9a0d40fa03372f7db64a",
+    "lighting-algebra/input-processors/tests/test_input_processors.py": "4bf00d69b7c8d4a852fa75a3155d8d0fa8554bd42d77221bbc8c496e571f4645",
+    "lighting-algebra/input-processors/tests/test_input_review.py": "8f65de019a9a8d85496be11198acceb5f146292d2c15b92e3bc9e4271e7bfdf0",
+    "lighting-algebra/remote/gesture_test.py": "9c328f29da1930ccd9d766e79ad8c94ed9cbdbb5a3a75b901238c38b8534640c",
+    "lighting-algebra/remote/preset_test.py": "f3e56c1d62c14b409aeed64388704486bf655ddd7ee98c3f38c01d3d5608d13f",
+    "lighting-algebra/remote/test_remote.py": "48effde6164fe930a81b148dc639cf6632139d09fad04b203e6e10b66f7dff3a",
+    "lighting-algebra/remote-ranges/test_period_stream.py": "27a3e47bd64c5e4767ebcb31b9978e93ba4c2cdbe725c0cb6be03c2c0fbd8bee",
+    "lighting-algebra/remote-ranges/test_preset_roundtrip.py": "807fd0639ba29cd25831c74737e1a21d84d091ad91d863174e40c96c53e5d3aa",
+    "lighting-algebra/remote-ranges/test_remote_ranges.py": "430b917cdf0053cc469b3e376b763c212dae9e6eb7446ef76805d67d891eddf4",
+    "lighting-algebra/remote-regressions/test_first_arrow.py": "18aad096285fd02abea105c8aa2706a5136554e1b8bf2bbf816a830f36316626",
+    "lighting-algebra/remote-regressions/test_pending_input.py": "9364d6129797f47df1b4978b16ade750b1f6ea0e63abccc458f9a5922dfb58ae",
+    "lighting-algebra/sara-window/test_sara_window.py": "cccac4baf03aa69ff27055896429d88061a5c3d278429e685b0f0d2eceb80273",
+    "lighting-algebra/tests/test_cache_integration.py": "98be24d09d73ba89ee9c07e6a23e5b9a8dfbe46700960028fca12e80e3ed7c94",
+    "lighting-algebra/tests/test_core.py": "29d3fea52668d961d072913f12e19ece589fe000524252ae01c1a6f923753dea",
+    "lighting-algebra/tests/test_dispatch.py": "ab30ee73c1e06b83bf60338167bf99ce1c06569cd240d32293cf0ab6591afc38",
+    "lighting-algebra/tests/test_effect_pacing.py": "859ebe29123e53e62615500164f1ba1fea9e9b716bfea51305ad2494a7e74b49",
+    "lighting-algebra/tests/test_final_regressions.py": "797733f718f540041a53f62db24a6f8d7bdc8f4763ab95b9e68d2669de6fe8a5",
+    "lighting-algebra/tests/test_gesture_integration.py": "afeff9b944689aef0f7a4688aa0950b91c9e73b29fd6369b10df6be71d70a013",
+    "lighting-algebra/tests/test_gesture_native_conditions.py": "fa1f538ecae4fe9d87472c6abccae0a9503aade56aaf174c7b4af234041f8d4c",
+    "lighting-algebra/tests/test_gradient_cache.py": "c08935b91ef0c3f482d89e48789eae1af0a849dc672732428f5427df75bd1386",
+    "lighting-algebra/tests/test_harness.py": "01c8aa053fda68ea2a428eb1a6cccd3450025cb6640c0aaf50ec68e51b602612",
+    "lighting-algebra/tests/test_integration.py": "257afc30090253a8773f3c4706978f47c62c2d8441caeba989adfc4aa2f9bf03",
+    "lighting-algebra/tests/test_native_controls.py": "5b9c937b9cb606f32b7d3db2a5e41ea3a73da879157613ab60e04acc52075bb0",
+    "lighting-algebra/tests/test_performance_pipeline.py": "a2daecf19a5f4bfe8bae6cf516be2bfe78f50a1ee65cf597f452d0dea90e918e",
+    "lighting-algebra/tests/test_remote_cycle.py": "abce6d745244d58fa725de8cd4603ad15b6c51c39b6ee16da23a8e2a24046510",
+    "lighting-algebra/tests/test_remote_fast.py": "b4981af4456462db7cf28965da285afa4a512d5957d1d3c8859a20d570cf7712",
+    "lighting-algebra/tests/test_remote_gestures.py": "b0346eaa5f418bf654b1d423e610dd0f4bb3b2b0e26d1b989ddf19d966542d22",
+    "lighting-algebra/tests/test_remote_store.py": "8c1733ac90a86bd1a909de47224c96411b9978b7ab77d7b5fad83f0d9344e41b",
+    "lighting-algebra/tests/test_remote_transition.py": "df140eb470b9d3caec2c25ca199b7721be42ad2acc0e2945b8d2508f4ba65d73",
+    "lighting-algebra/tests/test_room_cache.py": "f7b41f35c99cf732a6298e2eadcb2053b023805e101f9eda39fe16ea685e9605",
+    "lighting-algebra/tests/test_room_wake_baseline.py": "e6d52a16800314e12103314ff5126ebe6bbba60953723b4be0bbb6083e497c6c",
+    "lighting-algebra/tests/test_state_sequences.py": "0d965ab4b3d5897dadb34cdc58cd733e688425fcb105ebe5f86a349eb2c67066",
+    "lighting-algebra/tests/test_transport.py": "2075c58221dccd792c2972867bbd4360faa6b7b035d7921c34941b404c29a159",
+    "smarthome-remote-20261026/test_auto_requests.py": "18b6454ff7177501a5d20c4019157f56acceb3ced1b26a36d3120e102f77ba03",
+    "smarthome-remote-20261026/test_auto_transport.py": "f6726ad59ff9f4ec93d71d80f89eafdc1cd1d06fdcce149461bd12c2e49d2584",
+    "smarthome-remote-20261026/test_autogroup_collector.py": "7befe34737f4d0ef942622ecd220fc5c76acb904ac3e3afc9074beaa83171557",
+    "smarthome-remote-20261026/test_autogroup_planner.py": "9bb0ca627bd96772fcfc7fa49aa59fae87d2ed99d6a85e5afd2edcca19f579f2",
+    "smarthome-remote-20261026/test_gestures.py": "1156ef42991c1737de4a8712acec050662e6ddce6a137203791dceefe5e32bd3"
+  },
+  "live_script_sha256": {
+    "effect_breathe_frame.json": "ebdd38e374a01865eebd6208f394c6d142604b8a73c71de9332cc60e96b5810f",
+    "effect_candle_frame.json": "4c869c556a689db11531b28910e6b0777dfbb2f3429dec4fd41c614274c3f0cc",
+    "effect_colour_loop_frame.json": "3dd1ca5810eeb2807d47108b02fb9863edea646c7b59eb423806a876109acc3d",
+    "effects_assign.json": "136694907e659404c6ca531e44ba379b562e958f399a3d721106917821fc0f04",
+    "effects_candle_plan.json": "02775e8efd941ac664b98332f356842ac6e34e7a3340e68037e73c6dc4c2cce5",
+    "effects_candle_sync.json": "f7a2a02975ccf362f22979595908170e3c836ba7b112f33d1f403feea8a76f87",
+    "effects_catalog.json": "62e21d9156f3d7197942816abd6e84f7fb47a4a69d310f9ed20b413b9fb95fe5",
+    "effects_emit.json": "369d18f59f27c1bd65542a69a5f401d02a0f40b3b94ea3533d27e75e92ea33a0",
+    "effects_engine.json": "eb003b9e1b3ec0927e9b740f57461e2095b55d36727eb6140dc4b1fc2e90f477",
+    "effects_filter_commands.json": "3647d581507f2cb52a32063c6cf0b81f0e0a3377e3a45bb8b1596823915f7506",
+    "effects_frame_plan.json": "160c6f8d650dad5ce1759b29c225cf3885a37e9f79b6f29c0308d7c010ae1a65",
+    "effects_gradient_plan.json": "9b593ebdf7037b799d2e3a4fb154a31d6ef6fe6f8fe8b00dbd2d385cc8d89388",
+    "effects_group_plan.json": "655e17ad9f1e93d50ab3e42aee3c98ff6fe22e89190eb3e4f06d9c69121a0248",
+    "effects_native_plan.json": "e771191d89e52690eccd8f40501a8f47fc66f6476b5ee921bc01fa929a5cba02",
+    "effects_release.json": "89d96306599ba8cbe2534cd727e6ad359950599c7b6eea3981a74bbaf393dcf2",
+    "effects_resolve.json": "6947df61c16b49fde9f491a68f6dcd0a670ea0448b048544d23cfcb83979f386",
+    "effects_route.json": "3eed561292ac37837d6e0dca6c5999cf8221e419d8d9e5a6e1fa94667a795651",
+    "effects_scale.json": "9601e446dace9b494090dabc692bf08709daba24475687ddc8c8bbe439d1aa70",
+    "effects_set.json": "97ef8554be643cd9192acbdc5dee576ab67e9140ea8a74ecfe8d3f971081fdb3",
+    "effects_ui_catalog.json": "5c4ee87709b1c96cfd71dd9c8501b52c36f9324e45e32a058b31caf356dc3520",
+    "effects_ui_sync.json": "a68b2333d9efdde7e23034eb1a614621c3f862ee46d2a2ff1a677b31930569d9",
+    "house_apply_mode.json": "70a2269b55f7ea8a162f6a37cd6a73350dd5dcdc6d994e249188b4cbdc855f03",
+    "house_sunrise.json": "e623cecab3d6fe5f025a034c26d03e270c3717989b6e213bd00e2c8cae95f983",
+    "ls_apply.json": "27082fee8549b0967ae961c957c256a87ed6b2a90e163edbaa6609e07ee3c023",
+    "ls_base.json": "a849d68528f9e196e6e98a793e175fdc3ff83d619a657cd5574ae4b4a4c47b6b",
+    "ls_clear_overrides.json": "f35c0d6df72364b086d16b3ee21c1da70dbcbee3680e9bbd0ca011792aaff896",
+    "ls_commit.json": "7c7ae52aca6cdab384df12a7042e4a564e74cc32227bcc9e597e0be59522ec24",
+    "ls_dispatch.json": "2521d62afc341cd1320fe29fb7fb13455471a35f5833dec1bd9f65056a427124",
+    "ls_override_block.json": "c5d39f6c8f7a50b691d484526ddfd21b992fa3fee0ae17fea7f982632c02e3ba",
+    "ls_plan.json": "3968c7cc393a5e95c1ff8dce566efbef4305b6c897f9e3ce4a3fbe13405b18ff",
+    "ls_range_save.json": "8af35a8f7d2307c07131b9917914df6c57ea753fbeca359bbdf2827ce11f8f1a",
+    "ls_remote_command.json": "d46a940c755ab5aad4e8b2b9ba5efc631be8047fae8260a0a6c8700238eb73da",
+    "ls_remote_gesture_bedroom.json": "1d410e2d487cce208d1f22be2affca6e38ce328c9c1c58fb03c49abeeb5b116d",
+    "ls_remote_gesture_kitchen.json": "80a1c551aadbe40268d939c8029e593875e872049796ae0c51c534c886a0ebb0",
+    "ls_remote_gesture_living_room.json": "bc8e3cef3da205e10d3bae82c0b9cc0444280f57de814b7fccb69d16e2ff47b6",
+    "ls_remote_plan.json": "10a638ceefec15c96b3cf7a0ef0cbebb18beef2b1e7f49b7122a5bc8c8ab1101",
+    "ls_remote_power_quiet_bedroom.json": "93d4e242386a7898e2cecddb772a82c181e841dbae92eb5b1c6523d837db1c12",
+    "ls_remote_power_quiet_kitchen.json": "5b3c36ae31b7aec5ed5a78b774f9a9dd4fd8b6a9d40031ca03134e3b8b1e99e5",
+    "ls_remote_power_quiet_living_room.json": "b39eb640cd822c1e826ea50d20c403705fead34032bc5cf88249bee915f25ef4",
+    "ls_render.json": "c108409719e04061569448b77a1b463a0469aa47e78cac9ccbf778d738505304",
+    "ls_room_base.json": "293e82132d2ee7dc7f581540cdb223eb9fe331aac4191f1685c736743e76d487",
+    "ls_room_plan.json": "135b09cddc47678f4f60632e01575bd9b59a3a2d68203532240e44b0bb742e43",
+    "ls_sara_mode.json": "7ada4ed7d2fa3d2ae9ae58535a26f7664fde91fa8d9be58de7c05c6b72de12d6",
+    "ls_store.json": "7cfccb21155f9765ac2fade423aefdf4dad504e2b0107fd7d768e27b00bb9214",
+    "ls_switch_plan.json": "331059fe589923b6605518cdbf309e14c81ab92ea2d95031a7e8e12bc1516a8e"
+  }
+}

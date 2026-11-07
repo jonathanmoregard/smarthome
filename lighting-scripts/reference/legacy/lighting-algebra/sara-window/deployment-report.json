@@ -1,0 +1,33 @@
+{
+  "started_at": "2026-10-24T16:41:36.172Z",
+  "tests": 16,
+  "dry": true,
+  "window_ms": 600,
+  "changes": [
+    {
+      "id": "ls_remote_power_quiet_bedroom",
+      "config_hash": "272e2be9c6e34f67",
+      "exact_readback": true
+    },
+    {
+      "id": "ls_remote_power_quiet_living_room",
+      "config_hash": "eefececcf95dfa64",
+      "exact_readback": true
+    },
+    {
+      "id": "ls_remote_gesture_bedroom",
+      "config_hash": "24ce17f826718fdb",
+      "exact_readback": true
+    },
+    {
+      "id": "ls_remote_gesture_living_room",
+      "config_hash": "4b3b0b2781f4fe74",
+      "exact_readback": true
+    }
+  ],
+  "finished_at": "2026-10-24T16:41:56.382Z",
+  "state_preserved": true,
+  "sara_on": false,
+  "new_errors": [],
+  "status": "deployed_and_verified"
+}

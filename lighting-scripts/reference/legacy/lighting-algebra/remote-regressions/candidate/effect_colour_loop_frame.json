@@ -1,0 +1,38 @@
+{
+  "alias": "Effects \u00b7 Colour loop frame",
+  "mode": "parallel",
+  "sequence": [
+    {
+      "variables": {
+        "result": "{% set h=(timestamp|float % 30)/5 %}{% set i=h|int %}{% set x=(255*(h-i))|round|int %}{% set rgb=[[255,x,0],[255-x,255,0],[0,255,x],[0,255-x,255],[x,0,255],[255,0,255-x]][i] %}{{ {'rgb':rgb,'transition':transition|default(0.4)|float} }}"
+      }
+    },
+    {
+      "stop": "Return result",
+      "response_variable": "result"
+    }
+  ],
+  "max": 50,
+  "fields": {
+    "timestamp": {
+      "selector": {
+        "object": {}
+      }
+    },
+    "brightness": {
+      "selector": {
+        "object": {}
+      }
+    },
+    "transition": {
+      "selector": {
+        "object": {}
+      }
+    },
+    "phase": {
+      "selector": {
+        "object": {}
+      }
+    }
+  }
+}

@@ -1,0 +1,96 @@
+{
+  "success": true,
+  "action": "get",
+  "script_id": "ls_commit",
+  "config": {
+    "alias": "Lighting · Commit Input",
+    "mode": "queued",
+    "sequence": [
+      {
+        "variables": {
+          "accepted": "{{ data.get('expected_revision') in [none,states.sensor.ls_overrides.last_updated.isoformat()] }}"
+        }
+      },
+      {
+        "if": [
+          {
+            "condition": "template",
+            "value_template": "{{ not accepted }}"
+          }
+        ],
+        "then": [
+          {
+            "variables": {
+              "result": {
+                "accepted": false
+              }
+            }
+          },
+          {
+            "stop": "Return result",
+            "response_variable": "result"
+          }
+        ]
+      },
+      {
+        "variables": {
+          "before": "{{ state_attr('sensor.ls_overrides','overrides') or {} }}",
+          "stamp": "{{ now().isoformat() }}",
+          "trigger": "{{ {'event':{'data':data,'context':{'user_id':data.get('who')}}} }}"
+        }
+      },
+      {
+        "variables": {
+          "attributes": "{% set d=trigger.event.data %}{% set op=d.get('op','set') %}\n{% set prev=state_attr('sensor.ls_overrides','overrides') or {} %}\n{% set n=namespace(o=prev,attributes={}) %}\n{% if op=='clear_all' %}{% set n.o={} %}\n{% elif op=='clear' %}{% set n.o=dict(prev.items()|rejectattr(0,'in',d.get('keys',[]))|list) %}\n{% elif op=='clear_room' %}\n {% set keep=namespace(o={}) %}\n {% for key,r in prev.items() %}\n  {% set matches=(r.get('scope')=='room' and r.target==d.area) or (r.get('scope')=='lamp' and area_id(r.target)==d.area) or (r.kind=='light' and area_id(r.target)==d.area) or (r.kind=='block' and r.target==d.area) %}\n  {% if not matches %}{% set keep.o=dict(keep.o,**{key:r}) %}{% endif %}\n {% endfor %}{% set n.o=keep.o %}\n{% elif op=='set' %}\n {% for r in d.get('records',[]) if r is mapping %}\n  {% set key=r.get('key',r.kind~':'~r.get('source',r.target)) %}\n  {% set old=n.o.get(key,{}) %}{% set value=r.get('value') %}\n  {% if r.kind=='channels' and value is mapping %}\n   {% set before=old.get('value',{}) %}{% set before=before if before is mapping else {} %}\n   {% set merged=namespace(channels=before.get('channels',{})) %}\n   {% for channel,claim in value.get('channels',{}).items() %}\n    {% set previous=merged.channels.get(channel,{}) %}\n    {% if claim.get('kind')=='effect' and 'underlying' not in claim %}\n     {% set underlying=previous if previous.get('kind') in ['constant','scale'] else previous.get('underlying') %}\n     {% if underlying is mapping %}{% set claim=dict(claim,underlying=underlying) %}{% endif %}\n    {% endif %}\n    {% set merged.channels=dict(merged.channels,**{channel:claim}) %}\n   {% endfor %}\n   {% set channels=merged.channels %}\n   {% set value=dict(before,**value) %}{% set value=dict(value,channels=channels) %}\n  {% endif %}\n  {% set record=dict(r,value=value,when=now().isoformat(),created=old.get('created',old.get('when',now().isoformat())),who=d.get('who') or trigger.event.context.user_id,via=d.get('via')) %}\n  {% set n.o=dict(n.o,**{key:record}) %}\n {% endfor %}\n{% elif op=='power' %}\n {% set n.attributes={'power':dict(state_attr('sensor.ls_overrides','power') or {},**{d.area:d.on|bool})} %}\n{% elif op=='range_set' %}\n {% set valid=d.get('profile') in ['bright','cosy'] or (d.get('profile')=='custom' and d.get('min') is number and d.get('max') is number and 0<=d.min<=d.max<=100) %}\n {% if valid %}{% set rule={'profile':d.profile} if d.profile!='custom' else {'profile':'custom','min':d.min,'max':d.max} %}{% set n.attributes={'switch_ranges':dict(state_attr('sensor.ls_overrides','switch_ranges') or {},**{d.entity:rule})} %}{% endif %}\n{% elif op=='range_defaults' %}\n {% set ranges=d.get('ranges',{}) %}\n {% if ranges.get('bright') is sequence and ranges.get('cosy') is sequence and ranges.bright|count==2 and ranges.cosy|count==2 and 0<=ranges.bright[0]<=ranges.bright[1]<=100 and 0<=ranges.cosy[0]<=ranges.cosy[1]<=100 %}{% set n.attributes={'range_defaults':ranges} %}{% endif %}\n{% endif %}\n{% if d.get('via')=='remote' and d.get('source') and d.get('request_id') %}\n {% set n.attributes=dict(n.attributes,remote_ack=dict(state_attr('sensor.ls_overrides','remote_ack') or {},**{d.source:d.request_id})) %}\n{% endif %}\n{{ dict(n.attributes,overrides=n.o,last_via=d.get('via')) }}\n"
+        }
+      },
+      {
+        "variables": {
+          "pending": "{{ state_attr('sensor.ls_overrides','pending_rooms') or {} }}",
+          "affected": "{% set n=namespace(rooms=[]) %}\n{% if data.get('area') %}{% set n.rooms=n.rooms+[data.area] %}{% endif %}\n{% for record in data.get('records',[]) %}\n {% set previous=before.get(record.get('key',record.kind~':'~record.get('source',record.target)),{}) %}\n {% for item in [previous,record] if item.get('scope')=='room' %}{% set n.rooms=n.rooms+[item.target] %}{% endfor %}\n{% endfor %}{{ n.rooms|unique|list }}",
+          "full": "{{ data.get('via')!='remote' or data.get('op')=='render_request' or data.get('op')=='clear' or data.get('op')=='clear_all' or data.get('records',[])|selectattr('kind','eq','mode')|list|count>0 }}"
+        }
+      },
+      {
+        "variables": {
+          "attributes": "{% set n=namespace(pending=pending) %}\n{% for room in affected %}{% set n.pending=dict(n.pending,**{room:stamp}) %}{% endfor %}\n{% set p={'pending_rooms':n.pending,'last_request':stamp,'received_at':data.get('received_at',as_timestamp(now()))} %}\n{% if full %}\n {% set old=state_attr('sensor.ls_overrides','full_version') %}\n {% set unhandled=old!=(state_attr('sensor.ls_effects_runtime','handled_full') or none) %}\n {% set previous_lights=(state_attr('sensor.ls_overrides','full_lights') or []) if unhandled else [] %}\n {% set previous_reason=state_attr('sensor.ls_overrides','full_reason') if unhandled else none %}\n {% set reason=data.get('reason','remote' if data.get('via')=='remote' else 'config') %}\n {% set reason='config' if reason=='tick' and previous_reason and previous_reason!='tick' else reason %}\n {% set p=dict(p,full_version=stamp,full_reason=reason,full_lights=(previous_lights+data.get('lights',[]))|unique|list) %}\n{% endif %}{{ dict(attributes,**p) }}"
+        }
+      },
+      {
+        "action": "variable.update_sensor",
+        "target": {
+          "entity_id": "sensor.ls_overrides"
+        },
+        "data": {
+          "value": "{{ stamp }}",
+          "attributes": "{{ attributes }}",
+          "replace_attributes": false
+        }
+      },
+      {
+        "action": "script.turn_on",
+        "target": {
+          "entity_id": "script.ls_render"
+        }
+      },
+      {
+        "variables": {
+          "result": "{{ {'accepted':true,'revision':states.sensor.ls_overrides.last_updated.isoformat(),'committed_at':as_timestamp(now())} }}"
+        }
+      },
+      {
+        "stop": "Return result",
+        "response_variable": "result"
+      }
+    ],
+    "fields": {
+      "data": {
+        "selector": {
+          "object": {}
+        }
+      }
+    },
+    "max": 100
+  },
+  "config_hash": "66dc06a4fcfd647e"
+}

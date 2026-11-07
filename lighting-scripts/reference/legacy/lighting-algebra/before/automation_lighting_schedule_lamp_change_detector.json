@@ -1,0 +1,55 @@
+{
+  "success": true,
+  "action": "get",
+  "automation_id": "automation.lighting_schedule_lamp_change_detector",
+  "config": {
+    "id": "1791977337255",
+    "alias": "Lighting schedule: lamp change detector",
+    "description": "When a person adjusts a scheduled lamp's brightness or colour (app, dashboard, voice), records a lamp hold in sensor.ls_overrides so the engine leaves that lamp alone until a clearing rule ends the hold. Turning a lamp off, on or toggling it does NOT end its hold: the hold resumes when the lamp is switched back on. Holds end only through the end-override rules. Ignores calls with no user behind them (the engine, wake light, other automations). Also ignores light calls made inside a running script (same context as the script run), e.g. a person starting script.ls_apply by hand. Matching is per bulb, so a change through any grouping (e.g. light.kitchen_all, a single bulb, an area) holds every scheduled lamp it touches.",
+    "triggers": [
+      {
+        "trigger": "event",
+        "event_type": "call_service",
+        "event_data": {
+          "domain": "light"
+        }
+      }
+    ],
+    "conditions": [
+      {
+        "condition": "template",
+        "value_template": "{{ trigger.event.context.user_id is not none and trigger.event.data.service == 'turn_on' and trigger.event.context.id not in (states.script | selectattr('state', 'eq', 'on') | map(attribute='context') | map(attribute='id') | list) }}"
+      }
+    ],
+    "actions": [
+      {
+        "variables": {
+          "sd": "{{ trigger.event.data.service_data | default({}) }}",
+          "scheduled": "{{ (label_entities('house_schedule') + (label_devices('house_schedule') | map('device_entities') | sum(start=[]))) | select('match', 'light\\\\.') | unique | list }}",
+          "ids": "{%- set e = sd.get('entity_id', []) -%}\n{%- set e = ([e] if e is string else (e | list)) -%}\n{%- set a = sd.get('area_id', []) -%}\n{%- set a = ([a] if a is string else (a | list)) -%}\n{%- set ns = namespace(l=e) -%}\n{%- for x in a -%}{%- set ns.l = ns.l + (area_entities(x) | select('match', 'light\\.') | list) -%}{%- endfor -%}\n{#- Match at bulb level: break the changed entities and each scheduled lamp down to bulbs (HA groups via expand, Zigbee2MQTT groups via group_entities); a scheduled lamp sharing any bulb with the change gets the hold. -#}\n{%- set b = namespace(l=[]) -%}\n{%- for x in ns.l + (expand(ns.l) | map(attribute='entity_id') | list) -%}{%- set b.l = b.l + [x] + (state_attr(x, 'group_entities') or []) | list -%}{%- endfor -%}\n{%- set out = namespace(r=[]) -%}\n{%- for s in scheduled -%}{%- if ([s] + (state_attr(s, 'group_entities') or []) | list) | select('in', b.l) | list | count > 0 -%}{%- set out.r = out.r + [s] -%}{%- endif -%}{%- endfor -%}\n{{ out.r }}",
+          "adjusts": "{{ sd.keys() | select('in', ['brightness', 'brightness_pct', 'brightness_step', 'brightness_step_pct', 'color_temp_kelvin', 'kelvin', 'rgb_color', 'rgbw_color', 'rgbww_color', 'hs_color', 'xy_color', 'color_name', 'white', 'effect']) | list | count > 0 }}"
+        }
+      },
+      {
+        "condition": "template",
+        "value_template": "{{ ids | count > 0 }}"
+      },
+      {
+        "condition": "template",
+        "value_template": "{{ adjusts }}"
+      },
+      {
+        "event": "ls_override",
+        "event_data": {
+          "op": "set",
+          "via": "app",
+          "who": "{{ trigger.event.context.user_id }}",
+          "records": "{%- set ns = namespace(r=[]) -%}{%- for i in ids -%}{%- set ns.r = ns.r + [{'kind': 'light', 'target': i, 'value': none}] -%}{%- endfor -%}{{ ns.r }}"
+        }
+      }
+    ],
+    "mode": "queued",
+    "max": 20
+  },
+  "config_hash": "052ca83b67a2705b"
+}

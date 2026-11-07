@@ -1,0 +1,134 @@
+{
+  "alias": "Switch Lamps · Save Range",
+  "description": "Validate a physical on/off lamp and save its brightness-range binding. Range configuration is separate from temporary overrides. Dry run returns validation without writing any state or sending any event.",
+  "icon": "mdi:lightbulb-cog-outline",
+  "mode": "queued",
+  "max": 20,
+  "fields": {
+    "entity": {
+      "name": "Lamp",
+      "required": true,
+      "description": "Choose the paired on/off lamp or smart plug.",
+      "selector": {
+        "entity": {
+          "filter": [
+            {
+              "domain": "switch"
+            },
+            {
+              "domain": "light"
+            }
+          ]
+        }
+      }
+    },
+    "profile": {
+      "name": "Brightness Range",
+      "required": true,
+      "default": "bright",
+      "selector": {
+        "select": {
+          "options": [
+            {
+              "value": "bright",
+              "label": "Bright Default"
+            },
+            {
+              "value": "cosy",
+              "label": "Cosy Default"
+            },
+            {
+              "value": "custom",
+              "label": "Own Range"
+            }
+          ],
+          "mode": "dropdown"
+        }
+      }
+    },
+    "minimum": {
+      "name": "Own Range · From",
+      "description": "Used only with Own Range.",
+      "selector": {
+        "number": {
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "mode": "box",
+          "unit_of_measurement": "%"
+        }
+      }
+    },
+    "maximum": {
+      "name": "Own Range · Through",
+      "description": "Used only with Own Range. Both ends are included.",
+      "selector": {
+        "number": {
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "mode": "box",
+          "unit_of_measurement": "%"
+        }
+      }
+    },
+    "dry_run": {
+      "name": "Dry Run",
+      "advanced": true,
+      "default": false,
+      "selector": {
+        "boolean": {}
+      }
+    }
+  },
+  "sequence": [
+    {
+      "variables": {
+        "result": "{% set e = entity | default('') %}\n{% set p = profile | default('bright') %}\n{% set saved = (state_attr('sensor.ls_overrides', 'switch_ranges') or {}).get(e, {}) %}\n{% set lo = minimum if minimum is defined and minimum is not none else saved.get('min') %}\n{% set hi = maximum if maximum is defined and maximum is not none else saved.get('max') %}\n{% set ns = namespace(errors=[], config={'profile':p}) %}\n{% set domain = e.split('.')[0] if e is string else '' %}\n{% set blocked = e.startswith(('switch.ls_', 'switch.ep_', 'light.ls_', 'light.ep_')) or 'permit_join' in e if e is string else true %}\n{% if domain not in ['switch','light'] or states[e] is none or device_id(e) is none or blocked %}\n  {% set ns.errors = ns.errors + ['Choose a physical on/off lamp or smart plug.'] %}\n{% elif domain == 'light' and (state_attr(e, 'supported_color_modes') or []) != ['onoff'] %}\n  {% set ns.errors = ns.errors + ['Choose an on/off lamp; dimmable lamps use the normal lighting settings.'] %}\n{% endif %}\n{% if domain in ['switch','light'] and states[e] is not none and area_id(e) is none %}\n  {% set ns.errors = ns.errors + ['Assign this lamp to a room before configuring its range.'] %}\n{% endif %}\n{% if p not in ['bright','cosy','custom'] %}\n  {% set ns.errors = ns.errors + ['Choose Bright Default, Cosy Default, or Own Range.'] %}\n{% elif p == 'custom' %}\n  {% if lo is not number or hi is not number or lo is boolean or hi is boolean or not (0 <= lo <= hi <= 100) %}\n    {% set ns.errors = ns.errors + ['Enter both ends of Own Range: 0–100%, with From no higher than Through.'] %}\n  {% else %}\n    {% set ns.config = dict(ns.config, min=lo, max=hi) %}\n  {% endif %}\n{% endif %}\n{{ {'valid':ns.errors|count == 0, 'errors':ns.errors, 'entity':e, 'config':ns.config} }}"
+      }
+    },
+    {
+      "if": [
+        {
+          "condition": "template",
+          "value_template": "{{ dry_run | default(false) }}"
+        }
+      ],
+      "then": [
+        {
+          "stop": "Return range validation without changes",
+          "response_variable": "result"
+        }
+      ]
+    },
+    {
+      "if": [
+        {
+          "condition": "template",
+          "value_template": "{{ not result.valid }}"
+        }
+      ],
+      "then": [
+        {
+          "stop": "{{ result.errors | join(' ') }}",
+          "error": true
+        }
+      ]
+    },
+    {
+      "event": "ls_override",
+      "event_data": {
+        "op": "range_set",
+        "entity": "{{ result.entity }}",
+        "profile": "{{ result.config.profile }}",
+        "min": "{{ result.config.get('min') }}",
+        "max": "{{ result.config.get('max') }}",
+        "via": "schedule-ui"
+      }
+    },
+    {
+      "stop": "Range saved",
+      "response_variable": "result"
+    }
+  ]
+}

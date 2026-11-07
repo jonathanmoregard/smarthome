@@ -1,0 +1,31 @@
+{
+  "historical:lamp_a": {
+    "kind": "effect",
+    "effect": "Candle",
+    "instance": "shared",
+    "updated": 1,
+    "base": 110,
+    "intensity": 110
+  },
+  "historical:light.living_room_yellow_retro_lamp": {
+    "kind": "effect",
+    "effect": "Candle",
+    "instance": "shared",
+    "updated": 1,
+    "base": 110,
+    "intensity": 110
+  },
+  "live:lamp_a": {
+    "kind": "constant",
+    "value": 110,
+    "updated": -1
+  },
+  "live:light.living_room_yellow_retro_lamp": {
+    "kind": "effect",
+    "effect": "Candle",
+    "instance": "shared",
+    "updated": 1,
+    "base": 110,
+    "intensity": 110
+  }
+}

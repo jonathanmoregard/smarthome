@@ -1,0 +1,114 @@
+{# Pure membership planning. The collector supplies exact-compatible cohorts;
+   this planner never changes light values or assumes device group capacity. #}
+{% set n=namespace(errors=[],entities={},physical={},topics={},owners={},wanted={},slots=[],external=[],names=[],ids=[],rooms=[],groups=[],reused=[]) %}
+{% if scenarios is not sequence or scenarios is string or scenarios is mapping or existing_groups is not sequence or existing_groups is string or existing_groups is mapping %}
+ {% set n.errors=n.errors+['invalid_top_level_lists'] %}
+{% else %}
+ {% for scenario in scenarios %}
+  {% if scenario is not mapping or scenario.get('room') is not string or not (scenario.room is match('^[a-z0-9_]+$')) or scenario.get('cohorts') is not sequence or scenario.cohorts is string or scenario.cohorts is mapping %}
+   {% set n.errors=n.errors+['invalid_scenario'] %}
+  {% else %}
+   {% set room=scenario.room %}{% set n.rooms=n.rooms+[room] %}{% set partition=namespace(keys=[]) %}
+   {% for cohort in scenario.cohorts %}
+    {% set c=namespace(rows={}) %}
+    {% if cohort is not sequence or cohort is string or cohort is mapping %}
+     {% set n.errors=n.errors+['invalid_cohort'] %}
+    {% else %}
+     {% for row in cohort %}
+      {% if row is not mapping or row.get('entity') is not string or not row.entity.startswith('light.') or row.get('owner') is not string or not row.owner.startswith('light.') or row.get('topic') is not string or not row.topic.startswith('zigbee2mqtt/') or not row.topic.endswith('/set') or row.get('ieee_address') is not string or not (row.ieee_address is match('^0x[0-9a-f]{16}$')) or row.get('endpoint') is not integer or row.endpoint is boolean or not 1<=row.endpoint<=240 %}
+       {% set n.errors=n.errors+['invalid_endpoint'] %}
+      {% else %}
+       {% set key=row.ieee_address~'/'~row.endpoint %}
+       {% set clean={'entity':row.entity,'owner':row.owner,'topic':row.topic,'ieee_address':row.ieee_address,'endpoint':row.endpoint} %}
+       {% set identity=dict(clean,room=room) %}
+       {% if row.get('room',room)!=room %}{% set n.errors=n.errors+['wrong_endpoint_room'] %}{% endif %}
+       {% if (row.entity in n.entities and n.entities[row.entity]!=identity) or (key in n.physical and n.physical[key]!=identity) or (row.topic in n.topics and n.topics[row.topic]!=identity) or (row.owner in n.owners and n.owners[row.owner]!=room) %}
+        {% set n.errors=n.errors+['conflicting_endpoint_mapping'] %}
+       {% endif %}
+       {% set n.entities=dict(n.entities,**{row.entity:identity}) %}
+       {% set n.physical=dict(n.physical,**{key:identity}) %}
+       {% set n.topics=dict(n.topics,**{row.topic:identity}) %}
+       {% set n.owners=dict(n.owners,**{row.owner:room}) %}
+       {% set c.rows=dict(c.rows,**{key:clean}) %}
+      {% endif %}
+     {% endfor %}
+     {% for key in c.rows %}
+      {% if key in partition.keys %}{% set n.errors=n.errors+['overlapping_scenario_cohorts'] %}{% endif %}
+     {% endfor %}
+     {% set partition.keys=partition.keys+(c.rows.keys()|list) %}
+     {% if c.rows|count>1 %}
+      {% set keys=c.rows.keys()|sort %}{% set key=room~'|'~keys|join(',') %}
+      {% set n.wanted=dict(n.wanted,**{key:{'key':key,'room':room,'physical':keys,'members':c.rows|dictsort|map(attribute=1)|list}}) %}
+     {% endif %}
+    {% endif %}
+   {% endfor %}
+  {% endif %}
+ {% endfor %}
+ {% for group in existing_groups %}
+  {% if group is not mapping or group.get('friendly_name') is not string or not group.friendly_name or group.get('id') is not integer or group.id is boolean or group.id<=0 or group.get('members') is not sequence or group.members is string or group.members is mapping %}
+   {% set n.errors=n.errors+['invalid_existing_group'] %}
+  {% else %}
+   {% set name=group.friendly_name %}{% set g=namespace(keys=[]) %}
+   {% if name in n.names or group.id in n.ids %}{% set n.errors=n.errors+['ambiguous_existing_group'] %}{% endif %}
+   {% set n.names=n.names+[name] %}{% set n.ids=n.ids+[group.id] %}
+   {% for m in group.members %}
+    {% if m is not mapping or m.get('ieee_address') is not string or not (m.ieee_address is match('^0x[0-9a-f]{16}$')) or m.get('endpoint') is not integer or m.endpoint is boolean or not 1<=m.endpoint<=240 %}
+     {% set n.errors=n.errors+['invalid_existing_member'] %}
+    {% else %}
+     {% set key=m.ieee_address~'/'~m.endpoint %}
+     {% if key in g.keys %}{% set n.errors=n.errors+['duplicate_existing_member'] %}{% endif %}
+     {% set g.keys=g.keys+[key] %}
+    {% endif %}
+   {% endfor %}
+   {% if name.startswith('ls_auto_') %}
+    {% if not (name is match('^ls_auto_[a-z0-9_]+_[1-9][0-9]*$')) %}
+     {% set n.errors=n.errors+['invalid_managed_slot_name'] %}
+    {% else %}
+     {% set parts=name[8:].rsplit('_',1) %}
+     {% set n.slots=n.slots+[{'name':name,'room':parts[0],'slot':parts[1]|int,'id':group.id,'physical':g.keys|sort}] %}
+     {% set n.rooms=n.rooms+[parts[0]] %}
+    {% endif %}
+   {% elif group.get('verified') is sameas true %}
+    {% set n.external=n.external+[{'name':name,'id':group.id,'physical':g.keys|sort}] %}
+   {% endif %}
+  {% endif %}
+ {% endfor %}
+{% endif %}
+{% if not n.errors %}
+ {% for room in n.rooms|unique|sort %}
+  {% set r=namespace(wanted=[],used=[],assigned=[],groups=[]) %}
+  {% set slots=n.slots|selectattr('room','eq',room)|sort(attribute='slot')|list %}
+  {% for key,w in n.wanted|dictsort if w.room==room %}
+   {% set matches=n.external|selectattr('physical','eq',w.physical)|sort(attribute='name')|list %}
+   {% if matches %}
+    {% set n.reused=n.reused+[{'room':room,'name':matches[0].name,'members':w.members|map(attribute='entity')|list}] %}
+   {% else %}{% set r.wanted=r.wanted+[w] %}{% endif %}
+  {% endfor %}
+  {# Reserve every existing exact match before assigning any unmatched cohort. #}
+  {% for w in r.wanted %}
+   {% set matches=slots|rejectattr('slot','in',r.used)|selectattr('physical','eq',w.physical)|list %}
+   {% if matches %}
+    {% set slot=matches[0] %}
+    {% set r.groups=r.groups+[{'name':slot.name,'room':room,'slot':slot.slot,'id':slot.id,'members':w.members}] %}
+    {% set r.used=r.used+[slot.slot] %}{% set r.assigned=r.assigned+[w.key] %}
+   {% endif %}
+  {% endfor %}
+  {% for w in r.wanted if w.key not in r.assigned %}
+   {% set free=slots|rejectattr('slot','in',r.used)|list %}
+   {% if free %}{% set slot=free[0] %}
+   {% else %}
+    {% set number=namespace(value=0) %}
+    {% set occupied=(slots|map(attribute='slot')|list)+r.used %}
+    {% for i in range(1,slots|count+r.wanted|count+2) if number.value==0 and i not in occupied %}{% set number.value=i %}{% endfor %}
+    {% set slot={'name':'ls_auto_'~room~'_'~number.value,'room':room,'slot':number.value,'id':none} %}
+   {% endif %}
+   {% set r.groups=r.groups+[{'name':slot.name,'room':room,'slot':slot.slot,'id':slot.id,'members':w.members}] %}
+   {% set r.used=r.used+[slot.slot] %}
+  {% endfor %}
+  {% for slot in slots if slot.slot not in r.used %}
+   {% set r.groups=r.groups+[{'name':slot.name,'room':room,'slot':slot.slot,'id':slot.id,'members':[]}] %}
+  {% endfor %}
+  {% set n.groups=n.groups+(r.groups|sort(attribute='slot')|list) %}
+ {% endfor %}
+{% endif %}
+{{ {'valid':not n.errors,'groups':n.groups if not n.errors else [],'errors':n.errors|unique|sort,'reused_external':n.reused if not n.errors else []} }}

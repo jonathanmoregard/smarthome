@@ -1,0 +1,52 @@
+{# Pure transport planning. Inputs are already power/ownership-filtered rows.
+   A group is usable only after its COMPLETE actual membership is verified. #}
+{% set n = namespace(rows={}, blocked=[], errors=[], candidates=[], used=[], commands=[]) %}
+{% for row in rows %}
+  {% if row is mapping and row.get('entity') is string and row.get('owner') is string and row.get('topic') is string and row.get('payload') is mapping and row.payload|count > 0 and row.topic.startswith('zigbee2mqtt/') and row.topic.endswith('/set') %}
+    {% set e = row.entity %}
+    {% if e not in n.blocked %}
+      {% if e not in n.rows %}
+        {% set n.rows = dict(n.rows, **{e: row}) %}
+      {% elif n.rows[e].owner != row.owner or n.rows[e].topic != row.topic or n.rows[e].payload != row.payload %}
+        {% set n.blocked = n.blocked + [e] %}
+        {% set n.rows = dict(n.rows.items() | rejectattr(0, 'eq', e)) %}
+        {% set n.errors = n.errors + [{'entity': e, 'reason': 'conflicting_endpoint_rows'}] %}
+      {% endif %}
+    {% endif %}
+  {% else %}
+    {% set n.errors = n.errors + [{'reason': 'invalid_endpoint_row', 'index': loop.index0}] %}
+  {% endif %}
+{% endfor %}
+{% for group in groups %}
+  {% if group is mapping and group.get('verified') is sameas true and group.get('topic') is string and group.topic.startswith('zigbee2mqtt/') and group.topic.endswith('/set') and group.get('members') is sequence and group.members is not string and group.members is not mapping and group.members|count > 1 %}
+    {% set check = namespace(valid=true) %}
+    {% for e in group.members %}{% if e is not string %}{% set check.valid=false %}{% endif %}{% endfor %}
+    {% if check.valid and group.members|unique|list|count == group.members|count %}
+      {% set n.candidates = n.candidates + [dict(group, size=group.members|count)] %}
+    {% endif %}
+  {% endif %}
+{% endfor %}
+{% for group in n.candidates|sort(attribute='topic')|sort(attribute='size', reverse=true) %}
+  {% set check = namespace(valid=true, payload=none, owners=[]) %}
+  {% for other in n.candidates if other.topic == group.topic %}
+    {% if other.members|sort != group.members|sort %}{% set check.valid=false %}{% endif %}
+  {% endfor %}
+  {% for e in group.members %}
+    {% if e in n.used or e not in n.rows %}
+      {% set check.valid=false %}
+    {% else %}
+      {% set row=n.rows[e] %}
+      {% if check.payload is none %}{% set check.payload=row.payload %}
+      {% elif check.payload != row.payload %}{% set check.valid=false %}{% endif %}
+      {% set check.owners=check.owners+[row.owner] %}
+    {% endif %}
+  {% endfor %}
+  {% if check.valid %}
+    {% set n.commands=n.commands+[{'topic':group.topic, 'payload':check.payload, 'members':group.members|sort, 'owners':check.owners|unique|sort, 'group':group.get('id',group.topic)}] %}
+    {% set n.used=n.used+group.members %}
+  {% endif %}
+{% endfor %}
+{% for e, row in n.rows|dictsort if e not in n.used %}
+  {% set n.commands=n.commands+[{'topic':row.topic, 'payload':row.payload, 'members':[e], 'owners':[row.owner], 'group':none}] %}
+{% endfor %}
+{{ {'commands':n.commands, 'rejected':n.errors, 'input_count':rows|count, 'endpoint_count':n.rows|count, 'command_count':n.commands|count} }}

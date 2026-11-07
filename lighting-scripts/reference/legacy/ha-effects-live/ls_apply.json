@@ -1,0 +1,376 @@
+{
+  "success": true,
+  "action": "get",
+  "script_id": "ls_apply",
+  "config": {
+    "alias": "Lighting schedule: apply",
+    "description": "The lighting engine. Computes every scheduled lamp's target from the clock and the ls_* helpers (block start times incl. weekend times: Day uses its weekend time on Sat/Sun mornings, Cosy/Night on Fri/Sat evenings and the night after, fade minutes, per-block own timing/light toggles input_boolean.ls_<room>_<block>_own_timing|_own_light (off = that block uses the House value), block virtual lights light.ls_<scope>_<block>, per-lamp block lights light.ls_lamp_<lamp>_<block>, used only while their store input_text.ls_lamp_<lamp>_<block> has own=true (switch.ls_lamp_<lamp>_<block>_override); for plug lamps own=true makes the store's on decide (they win over room and House), wake, and the override store sensor.ls_overrides: block:<area> forces a block, light:<entity> holds a lamp as set by hand, mode:sara = Sara Mode: in common areas (every lamp whose area lacks the label Private Room) Day and Cosy colours become pink [255, 105, 180] at unchanged brightness, Night untouched, fades blend to/from pink) and sends it. Dimmable lamps (label house_schedule) are only adjusted while on; plug lamps (label on_off) are switched at block starts. reason=tick only sends to lamps that are fading or just reached a block. Fades end at the block start and are sent as 60 s steps. dry_run returns the plan instead of acting. Every change outside a running fade (setting changes, overrides, lamp switch-on, block edges) is a 3 s linear transition. Non-tick runs resend their commands once after 3 s (settle pass) to repair Zigbee commands dropped in a burst. Rooms are not configured anywhere: every area holding a scheduled lamp is a room scope; its per-room helpers (ls_<area>_*) are optional and fall back to House when missing. Next-block rule (input_boolean.ls_ovr_next_block_on): an override (lamp hold, block override, Sara Mode) set before its scope's fade start is not cut at the fade start; during the fade the lamp moves from its current (overridden) state to the next block (each step covers step/time-left of the remaining distance, so the fade is linear from where the override left it), and the record is cleared once the block is reached. Post-wake Day hold applies only while the Night block the wake interrupted is still current (Night started before the wake), so a new evening Night block is never turned into Day. The wake fade (Night to Day after the alarm) runs only while the room is still in the Night block that began before the wake, so an alarm after the room has reached Day changes nothing.",
+    "mode": "queued",
+    "max": 30,
+    "icon": "mdi:home-lightbulb-outline",
+    "fields": {
+      "lights": {
+        "name": "Lights",
+        "description": "Only these lamps (default: all scheduled lamps).",
+        "selector": {
+          "entity": {
+            "multiple": true
+          }
+        }
+      },
+      "reason": {
+        "name": "Reason",
+        "description": "tick | lamp_on | config | start | manual",
+        "default": "manual",
+        "selector": {
+          "select": {
+            "options": [
+              "tick",
+              "lamp_on",
+              "config",
+              "start",
+              "manual"
+            ]
+          }
+        }
+      },
+      "dry_run": {
+        "name": "Dry run",
+        "description": "Return the plan, change nothing.",
+        "default": false,
+        "selector": {
+          "boolean": {}
+        }
+      },
+      "test_now": {
+        "name": "Test time",
+        "description": "Dry-run only: pretend it is this ISO time.",
+        "selector": {
+          "text": {}
+        }
+      },
+      "debug": {
+        "name": "Debug",
+        "default": false,
+        "selector": {
+          "boolean": {}
+        }
+      },
+      "force_all": {
+        "name": "Include lamps that are off",
+        "description": "Dry-run only.",
+        "default": false,
+        "selector": {
+          "boolean": {}
+        }
+      },
+      "test_overrides": {
+        "name": "Test overrides",
+        "description": "Dry-run only: use this override record instead of sensor.ls_overrides.",
+        "selector": {
+          "object": {}
+        }
+      }
+    },
+    "sequence": [
+      {
+        "variables": {
+          "plan": "{%- set T = (as_datetime(test_now) | as_local) if (test_now is defined and test_now) else now() -%}\n{%- set why = reason | default('tick') -%}\n{%- set ovr = test_overrides if (test_overrides is defined and test_overrides is mapping) else state_attr('sensor.ls_overrides', 'overrides') -%}\n{%- set ovr = ovr if ovr is mapping else {} -%}\n{%- set sara = 'mode:sara' in ovr -%}\n{%- set pink = [255, 105, 180] -%}\n{%- set rooms = (label_entities('house_schedule') + label_entities('on_off') + ((label_devices('house_schedule') + label_devices('on_off')) | map('device_entities') | sum(start=[]))) | map('area_id') | select | unique | sort | list -%}\n{%- set blocks = ['day', 'cosy', 'night'] -%}\n{%- set private = label_areas('private_room') -%}\n{%- set midnight = T.replace(hour=0, minute=0, second=0, microsecond=0) -%}\n{%- set ns = namespace(sched={}) -%}\n{%- for sc in ['house'] + rooms -%}\n  {%- set t = namespace(cur=none, cur_ts=0, nxt=none, nxt_ts=0, nxt_f=0, last_fs=0) -%}\n  {%- for off in [-2, -1, 0, 1] -%}\n    {%- set eve = midnight + timedelta(days=off) -%}\n    {%- set wk = eve.weekday() in [4, 5] -%}\n    {%- for b in blocks -%}\n      {%- set src = sc if (sc == 'house' or is_state('input_boolean.ls_' ~ sc ~ '_' ~ b ~ '_own_timing', 'on')) else 'house' -%}\n      {%- set dayb = b == 'day' -%}\n      {%- set wkb = ((eve + timedelta(days=1)).weekday() in [5, 6]) if dayb else wk -%}\n      {%- set st = states('input_datetime.ls_' ~ src ~ '_' ~ b ~ ('_weekend' if wkb else '_start')) -%}\n      {%- if st | regex_match('^\\d\\d:\\d\\d') -%}\n        {%- set h = st[0:2] | int -%}\n        {%- set i = eve.replace(hour=h, minute=st[3:5] | int) + timedelta(days=(1 if (dayb or h < 12) else 0)) -%}\n        {%- set its = as_timestamp(i) -%}\n        {%- set f = states('input_number.ls_' ~ src ~ '_' ~ b ~ '_fade') | float(20) * 60 -%}\n        {%- if its <= as_timestamp(T) and its > t.cur_ts -%}{%- set t.cur, t.cur_ts = b, its -%}{%- endif -%}\n        {%- if its > as_timestamp(T) and (t.nxt is none or its < t.nxt_ts) -%}{%- set t.nxt, t.nxt_ts, t.nxt_f = b, its, f -%}{%- endif -%}\n        {%- if its - f <= as_timestamp(T) and its - f > t.last_fs -%}{%- set t.last_fs = its - f -%}{%- endif -%}\n      {%- endif -%}\n    {%- endfor -%}\n  {%- endfor -%}\n  {%- set left = t.nxt_ts - as_timestamp(T) -%}\n  {%- set fading = t.nxt is not none and t.nxt_f > 0 and left < t.nxt_f and t.nxt != t.cur -%}\n  {%- set ns.sched = dict(ns.sched, **{sc: {'cur': t.cur, 'nxt': t.nxt, 'fading': fading, 'p': ((1 - left / t.nxt_f) if fading else 0), 'edge': (as_timestamp(T) - t.cur_ts) < 90, 'last_fs': t.last_fs, 'left': left, 'cur_ts': t.cur_ts}}) -%}\n{%- endfor -%}\n{%- set dimmables = (label_entities('house_schedule') + (label_devices('house_schedule') | map('device_entities') | sum(start=[]))) | select('match', 'light\\.') | unique | list -%}\n{%- set plugs = (label_entities('on_off') + (label_devices('on_off') | map('device_entities') | sum(start=[]))) | select('match', '(light|switch)\\.') | unique | list -%}\n{%- set only = (lights if lights is list else [lights]) if (lights is defined and lights) else [] -%}\n{%- set out = namespace(cmds={}, dbg=[]) -%}\n{%- for L in (dimmables + plugs) if (not only or L in only) -%}\n  {%- set is_plug = L in plugs -%}\n  {%- set a = area_id(L) -%}\n  {%- set room = a if a in rooms else none -%}\n  {%- set ts = room or 'house' -%}\n  {%- set lsc = room or 'house' -%}\n  {%- set S = ns.sched[ts] -%}\n  {%- set st = namespace(fr=S.cur, to=(S.nxt if S.fading else S.cur), p=S.p, moving=S.fading, edge=S.edge, src='schedule') -%}\n  {%- set orec = ovr.get('block:' ~ ts) -%}\n  {%- set ov = (orec.value | string | lower) if orec is mapping else '' -%}\n  {%- set lrec = ovr.get('light:' ~ L) -%}\n  {%- set srec = ovr.get('mode:sara') if (sara and a not in private) else none -%}\n  {%- set lamp_sara = sara and not (S.fading and srec is mapping and as_timestamp(srec.when, 0) <= S.last_fs) -%}\n  {%- set fo_p = [1, (60 if why == 'tick' else 3) / ([S.left, 1] | max)] | min -%}\n  {%- if lrec is mapping and not (S.fading and as_timestamp(lrec.when, 0) <= S.last_fs) -%}\n    {%- set st.src = 'held' -%}\n  {%- elif lrec is mapping or (orec is mapping and S.fading and as_timestamp(orec.when, 0) <= S.last_fs) -%}\n    {%- set st.fr, st.to, st.p, st.moving, st.edge, st.src = 'lamp', S.nxt, fo_p, true, false, 'fadeout' -%}\n  {%- elif ov in blocks -%}\n    {%- set st.fr, st.to, st.p, st.moving, st.src = ov, ov, 0, false, 'override' -%}\n  {%- elif sara and a not in private and not lamp_sara -%}\n    {%- set st.fr, st.to, st.p, st.moving, st.edge, st.src = 'lamp', S.nxt, fo_p, true, false, 'fadeout' -%}\n  {%- elif room and has_value('input_datetime.ls_' ~ room ~ '_wake') -%}\n    {%- set wts = state_attr('input_datetime.ls_' ~ room ~ '_wake', 'timestamp') | float(0) -%}\n    {%- set D = states('input_number.ls_' ~ room ~ '_wake_fade') | float(37.5) * 60 -%}\n    {%- set e = as_timestamp(T) - wts -%}\n    {%- if 0 <= e < D and S.cur == 'night' and S.cur_ts <= wts -%}\n      {%- set st.fr, st.to, st.p, st.moving, st.src = 'night', 'day', e / D, true, 'wake' -%}\n    {%- elif D <= e < 86400 and 4 <= (as_datetime(wts) | as_local).hour < 11 and S.cur == 'night' and S.cur_ts <= wts and (not S.fading or S.nxt == 'day') -%}\n      {%- set st.fr, st.to, st.p, st.moving, st.edge, st.src = 'day', 'day', 0, false, (e - D) < 90, 'wake' -%}\n    {%- endif -%}\n  {%- endif -%}\n  {%- set send_now = st.src != 'held' and (why != 'tick' or st.moving or st.edge) -%}\n  {%- set obj = L.split('.')[1] -%}\n  {%- if is_plug -%}\n    {%- set blk = st.to if (not st.moving or st.p >= 1) else st.fr -%}\n    {%- set lsc = room if (room and is_state('input_boolean.ls_' ~ room ~ '_' ~ blk ~ '_own_light', 'on')) else 'house' -%}\n    {%- set lj = states('input_text.ls_lamp_' ~ obj ~ '_' ~ blk) | from_json(default={}) -%}\n    {%- set src = ['input_boolean.ls_' ~ lsc ~ '_' ~ blk ~ '_on_off', 'input_boolean.ls_house_' ~ blk ~ '_on_off'] | select('has_value') | first | default(none) -%}\n    {%- set want = (lj.get('on', false) | bool) if lj.get('own', false) else (is_state(src, 'on') if src else none) -%}\n    {%- if send_now and want is not none and not st.moving -%}\n      {%- set svc = 'homeassistant.turn_on' if want else 'homeassistant.turn_off' -%}\n      {%- if not is_state(L, 'on' if svc.endswith('on') else 'off') -%}\n        {%- set key = svc -%}\n        {%- set out.cmds = dict(out.cmds, **{key: {'kind': 'switch', 'service': svc, 'ids': out.cmds.get(key, {}).get('ids', []) + [L]}}) -%}\n      {%- endif -%}\n    {%- endif -%}\n  {%- elif (is_state(L, 'on') or (force_all | default(false))) and send_now -%}\n    {%- set v = namespace(f=none, t=none) -%}\n    {%- for which in ['f', 't'] -%}\n      {%- set blk = st.fr if which == 'f' else st.to -%}\n      {%- set lsc = room if (room and is_state('input_boolean.ls_' ~ room ~ '_' ~ blk ~ '_own_light', 'on')) else 'house' -%}\n      {%- set own = (states('input_text.ls_lamp_' ~ obj ~ '_' ~ blk) | from_json(default={})).get('own', false) -%}\n      {%- set src = L if blk == 'lamp' else (((['light.ls_lamp_' ~ obj ~ '_' ~ blk] if own else []) + ['light.ls_' ~ lsc ~ '_' ~ blk, 'light.ls_house_' ~ blk]) | select('has_value') | first) -%}\n      {%- set s = states[src] -%}\n      {%- set d = {'on': s.state == 'on', 'b': s.attributes.brightness | int(255), 'ct': s.attributes.color_mode == 'color_temp', 'k': s.attributes.color_temp_kelvin | int(3000), 'rgb': (s.attributes.rgb_color or [255, 255, 255]) | list} -%}\n      {%- if lamp_sara and blk in ['day', 'cosy'] and a not in private -%}{%- set d = dict(d, ct=false, rgb=pink) -%}{%- endif -%}\n      {%- if which == 'f' -%}{%- set v.f = d -%}{%- else -%}{%- set v.t = d -%}{%- endif -%}\n    {%- endfor -%}\n    {%- set A, B, p = v.f, v.t, st.p -%}\n    {%- if not st.moving or not A.on -%}\n      {%- set tgt = B -%}\n    {%- elif not B.on -%}\n      {%- set tgt = dict(A, b=[1, (A.b * (1 - p)) | round | int] | max) -%}\n    {%- else -%}\n      {%- set b = (A.b + (B.b - A.b) * p) | round | int -%}\n      {%- if A.ct and B.ct -%}\n        {%- set tgt = {'on': true, 'b': b, 'ct': true, 'k': (A.k + (B.k - A.k) * p) | round | int} -%}\n      {%- else -%}\n        {%- set tgt = {'on': true, 'b': b, 'ct': false, 'rgb': [(A.rgb[0] + (B.rgb[0] - A.rgb[0]) * p) | round | int, (A.rgb[1] + (B.rgb[1] - A.rgb[1]) * p) | round | int, (A.rgb[2] + (B.rgb[2] - A.rgb[2]) * p) | round | int]} -%}\n      {%- endif -%}\n    {%- endif -%}\n    {%- set tr = 60 if (st.moving and why == 'tick') else 3 -%}\n    {%- if not tgt.on -%}\n      {%- set key = 'off|' ~ tr -%}\n      {%- set c = {'kind': 'off', 'transition': tr} -%}\n    {%- elif tgt.ct -%}\n      {%- set key = 'ct|' ~ tgt.b ~ '|' ~ tgt.k ~ '|' ~ tr -%}\n      {%- set c = {'kind': 'ct', 'brightness': [tgt.b, 1] | max, 'kelvin': tgt.k, 'transition': tr} -%}\n    {%- else -%}\n      {%- set key = 'rgb|' ~ tgt.b ~ '|' ~ tgt.rgb | join(',') ~ '|' ~ tr -%}\n      {%- set c = {'kind': 'rgb', 'brightness': [tgt.b, 1] | max, 'rgb': tgt.rgb, 'transition': tr} -%}\n    {%- endif -%}\n    {%- set out.cmds = dict(out.cmds, **{key: dict(c, ids=out.cmds.get(key, {}).get('ids', []) + [L])}) -%}\n  {%- endif -%}\n  {%- set out.dbg = out.dbg + [L ~ ' ' ~ ts ~ '/' ~ lsc ~ ' ' ~ st.src ~ ' ' ~ st.fr ~ '>' ~ st.to ~ ' p=' ~ (st.p | round(2)) ~ ' send=' ~ send_now] -%}\n{%- endfor -%}\n{%- set parts = ['light.kitchen_pendant', 'light.kitchen_spots_1', 'light.kitchen_spots_2'] -%}\n{%- set res = namespace(list=[]) -%}\n{%- for c in out.cmds.values() -%}\n  {%- if parts | reject('in', c.ids) | list | count == 0 -%}\n    {%- set c = dict(c, ids=['light.kitchen_all'] + (c.ids | reject('in', parts) | list)) -%}\n  {%- endif -%}\n  {%- set res.list = res.list + [c] -%}\n{%- endfor -%}\n{%- set skeys = namespace(list=[]) -%}\n{%- if is_state('input_boolean.ls_ovr_next_block_on', 'on') -%}\n  {%- for k, r in ovr.items() if r is mapping -%}\n    {%- set a = (area_id(r.target) if r.kind == 'light' else r.target) -%}\n    {%- set sc = a if a in rooms else 'house' -%}\n    {%- if as_timestamp(r.when, 0) <= ns.sched[sc].last_fs and not ns.sched[sc].fading -%}{%- set skeys.list = skeys.list + [k] -%}{%- endif -%}\n  {%- endfor -%}\n{%- endif -%}\n{%- set mir = namespace(list=[], sched={}) -%}\n{%- for sc in ['house'] + rooms -%}\n  {%- set orec = ovr.get('block:' ~ sc) -%}\n  {%- set ov = (orec.value | string | lower) if orec is mapping else '' -%}\n  {%- set eff = ov if (ov in blocks and ('block:' ~ sc) not in skeys.list) else (ns.sched[sc].cur or 'night') -%}\n  {%- set mir.sched = dict(mir.sched, **{sc: ns.sched[sc].cur}) -%}\n  {%- set ent = 'input_select.ls_' ~ sc ~ '_override' -%}\n  {%- if states[ent] is not none and states(ent) != (eff | capitalize) -%}{%- set mir.list = mir.list + [{'entity': ent, 'option': eff | capitalize}] -%}{%- endif -%}\n{%- endfor -%}\n{%- set sara_on = sara and 'mode:sara' not in skeys.list -%}\n{%- set sara_mir = ('on' if sara_on else 'off') if (states['input_boolean.ls_sara_mode_mirror'] is not none and states('input_boolean.ls_sara_mode_mirror') != ('on' if sara_on else 'off')) else none -%}\n{{ dict({'cmds': res.list, 'stale_keys': skeys.list, 'sched': mir.sched, 'mirror': mir.list, 'sara_mirror': sara_mir}, **({'dbg': out.dbg} if (debug is defined and debug) else {})) }}"
+        }
+      },
+      {
+        "if": [
+          {
+            "condition": "template",
+            "value_template": "{{ dry_run | default(false) }}"
+          }
+        ],
+        "then": [
+          {
+            "variables": {
+              "result": "{{ {'plan': plan} }}"
+            }
+          },
+          {
+            "stop": "dry run",
+            "response_variable": "result"
+          }
+        ]
+      },
+      {
+        "repeat": {
+          "for_each": "{{ plan.cmds }}",
+          "sequence": [
+            {
+              "choose": [
+                {
+                  "conditions": [
+                    {
+                      "condition": "template",
+                      "value_template": "{{ repeat.item.kind == 'ct' }}"
+                    }
+                  ],
+                  "sequence": [
+                    {
+                      "action": "light.turn_on",
+                      "target": {
+                        "entity_id": "{{ repeat.item.ids }}"
+                      },
+                      "data": {
+                        "brightness": "{{ repeat.item.brightness }}",
+                        "color_temp_kelvin": "{{ repeat.item.kelvin }}",
+                        "transition": "{{ repeat.item.transition }}"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "conditions": [
+                    {
+                      "condition": "template",
+                      "value_template": "{{ repeat.item.kind == 'rgb' }}"
+                    }
+                  ],
+                  "sequence": [
+                    {
+                      "action": "light.turn_on",
+                      "target": {
+                        "entity_id": "{{ repeat.item.ids }}"
+                      },
+                      "data": {
+                        "brightness": "{{ repeat.item.brightness }}",
+                        "rgb_color": "{{ repeat.item.rgb }}",
+                        "transition": "{{ repeat.item.transition }}"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "conditions": [
+                    {
+                      "condition": "template",
+                      "value_template": "{{ repeat.item.kind == 'off' }}"
+                    }
+                  ],
+                  "sequence": [
+                    {
+                      "action": "light.turn_off",
+                      "target": {
+                        "entity_id": "{{ repeat.item.ids }}"
+                      },
+                      "data": {
+                        "transition": "{{ repeat.item.transition }}"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "conditions": [
+                    {
+                      "condition": "template",
+                      "value_template": "{{ repeat.item.kind == 'switch' }}"
+                    }
+                  ],
+                  "sequence": [
+                    {
+                      "action": "{{ repeat.item.service }}",
+                      "target": {
+                        "entity_id": "{{ repeat.item.ids }}"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "repeat": {
+          "for_each": "{{ plan.mirror }}",
+          "sequence": [
+            {
+              "action": "input_select.select_option",
+              "target": {
+                "entity_id": "{{ repeat.item.entity }}"
+              },
+              "data": {
+                "option": "{{ repeat.item.option }}"
+              }
+            }
+          ]
+        },
+        "note": "Display only: mirror the effective block (override or schedule) into input_select.ls_<scope>_override so dashboards can highlight it. The engine never reads these selects."
+      },
+      {
+        "alias": "Display only: mirror Sara Mode (override record mode:sara) into input_boolean.ls_sara_mode_mirror so /house-lights can highlight it. The engine never reads it.",
+        "choose": [
+          {
+            "conditions": [
+              {
+                "condition": "template",
+                "value_template": "{{ plan.sara_mirror == 'on' }}"
+              }
+            ],
+            "sequence": [
+              {
+                "action": "input_boolean.turn_on",
+                "target": {
+                  "entity_id": "input_boolean.ls_sara_mode_mirror"
+                }
+              }
+            ]
+          },
+          {
+            "conditions": [
+              {
+                "condition": "template",
+                "value_template": "{{ plan.sara_mirror == 'off' }}"
+              }
+            ],
+            "sequence": [
+              {
+                "action": "input_boolean.turn_off",
+                "target": {
+                  "entity_id": "input_boolean.ls_sara_mode_mirror"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "if": [
+          {
+            "condition": "template",
+            "value_template": "{{ plan.stale_keys | count > 0 }}"
+          }
+        ],
+        "then": [
+          {
+            "event": "ls_override",
+            "event_data": {
+              "op": "clear",
+              "keys": "{{ plan.stale_keys }}",
+              "via": "rule_next_block"
+            }
+          }
+        ],
+        "note": "Next-block rule: overrides set before the scope's latest fade start fade out with the fade (see plan) and end once the new block is reached."
+      },
+      {
+        "alias": "Settle pass: Zigbee does not acknowledge commands and can drop one in a burst of instant changes, leaving a lamp on the old colour while HA shows the new one. Resend the same commands once after 3 s (not on minute ticks). Colour resends go only to lamps still on, so a lamp someone switched off during those 3 s stays off.",
+        "if": [
+          {
+            "condition": "template",
+            "value_template": "{{ (reason | default('tick')) != 'tick' and plan.cmds | count > 0 }}"
+          }
+        ],
+        "then": [
+          {
+            "delay": {
+              "seconds": 3
+            }
+          },
+          {
+            "repeat": {
+              "for_each": "{{ plan.cmds }}",
+              "sequence": [
+                {
+                  "choose": [
+                    {
+                      "conditions": [
+                        {
+                          "condition": "template",
+                          "value_template": "{{ repeat.item.kind == 'ct' }}"
+                        },
+                        {
+                          "condition": "template",
+                          "value_template": "{{ repeat.item.ids | select('is_state', 'on') | list | count > 0 }}"
+                        }
+                      ],
+                      "sequence": [
+                        {
+                          "action": "light.turn_on",
+                          "target": {
+                            "entity_id": "{{ repeat.item.ids | select('is_state', 'on') | list }}"
+                          },
+                          "data": {
+                            "brightness": "{{ repeat.item.brightness }}",
+                            "color_temp_kelvin": "{{ repeat.item.kelvin }}",
+                            "transition": "{{ repeat.item.transition }}"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "conditions": [
+                        {
+                          "condition": "template",
+                          "value_template": "{{ repeat.item.kind == 'rgb' }}"
+                        },
+                        {
+                          "condition": "template",
+                          "value_template": "{{ repeat.item.ids | select('is_state', 'on') | list | count > 0 }}"
+                        }
+                      ],
+                      "sequence": [
+                        {
+                          "action": "light.turn_on",
+                          "target": {
+                            "entity_id": "{{ repeat.item.ids | select('is_state', 'on') | list }}"
+                          },
+                          "data": {
+                            "brightness": "{{ repeat.item.brightness }}",
+                            "rgb_color": "{{ repeat.item.rgb }}",
+                            "transition": "{{ repeat.item.transition }}"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "conditions": [
+                        {
+                          "condition": "template",
+                          "value_template": "{{ repeat.item.kind == 'off' }}"
+                        }
+                      ],
+                      "sequence": [
+                        {
+                          "action": "light.turn_off",
+                          "target": {
+                            "entity_id": "{{ repeat.item.ids }}"
+                          },
+                          "data": {
+                            "transition": "{{ repeat.item.transition }}"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "conditions": [
+                        {
+                          "condition": "template",
+                          "value_template": "{{ repeat.item.kind == 'switch' }}"
+                        }
+                      ],
+                      "sequence": [
+                        {
+                          "action": "{{ repeat.item.service }}",
+                          "target": {
+                            "entity_id": "{{ repeat.item.ids }}"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "config_hash": "6c769ef98bce058b"
+}

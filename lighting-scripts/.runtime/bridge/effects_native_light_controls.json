@@ -1,0 +1,122 @@
+{
+  "id": "effects_ui_commands",
+  "alias": "Effects: native light controls",
+  "description": "TypeScript trigger bridge. One command adapter. State topics are separate and never execute controls.",
+  "triggers": [
+    {
+      "trigger": "mqtt",
+      "topic": "house/v1/effect_preview/+/set/+"
+    }
+  ],
+  "conditions": [
+    {
+      "condition": "template",
+      "value_template": "{{ trigger.topic.split('/')[3] in sources and trigger.topic.split('/')[-1] in ['power','brightness','rgb','temperature','effect'] }}"
+    }
+  ],
+  "actions": [
+    {
+      "event": "smarthome_script",
+      "event_data": {
+        "script": "automation.effects_native_light_controls",
+        "args": {
+          "trigger": "{% set n=namespace(data={}) %}\n{% for key in ['id','platform','entity_id','topic','payload','payload_json'] %}\n {% if trigger[key] is defined %}{% set n.data=dict(n.data,**{key:trigger[key]}) %}{% endif %}\n{% endfor %}\n{% for key in ['to_state','from_state','event'] %}\n {% if trigger[key] is defined %}{% set value=trigger[key] %}\n  {% set n.data=dict(n.data,**{key:(value.as_dict() if value is not none else none)}) %}\n {% endif %}\n{% endfor %}\n{{ n.data | to_json | from_json }}"
+        }
+      }
+    }
+  ],
+  "mode": "queued",
+  "max": 100,
+  "variables": {
+    "sources": {
+      "ep_ls_house_day": "light.ls_house_day",
+      "ep_ls_house_cosy": "light.ls_house_cosy",
+      "ep_ls_house_night": "light.ls_house_night",
+      "ep_ls_lamp_jonathan_bedroom_ceiling_day": "light.ls_lamp_jonathan_bedroom_ceiling_day",
+      "ep_ls_lamp_jonathan_bedroom_floor_lamp_day": "light.ls_lamp_jonathan_bedroom_floor_lamp_day",
+      "ep_ls_lamp_kitchen_pendant_day": "light.ls_lamp_kitchen_pendant_day",
+      "ep_ls_lamp_kitchen_spots_1_day": "light.ls_lamp_kitchen_spots_1_day",
+      "ep_ls_lamp_kitchen_spots_2_day": "light.ls_lamp_kitchen_spots_2_day",
+      "ep_ls_lamp_living_room_desk_ceiling_day": "light.ls_lamp_living_room_desk_ceiling_day",
+      "ep_ls_lamp_living_room_hall_ceiling_day": "light.ls_lamp_living_room_hall_ceiling_day",
+      "ep_ls_lamp_living_room_sofa_table_ceiling_day": "light.ls_lamp_living_room_sofa_table_ceiling_day",
+      "ep_ls_lamp_living_room_table_lamp_day": "light.ls_lamp_living_room_table_lamp_day",
+      "ep_ls_lamp_living_room_vicky_desk_lamp_day": "light.ls_lamp_living_room_vicky_desk_lamp_day",
+      "ep_ls_lamp_living_room_window_lamp_day": "light.ls_lamp_living_room_window_lamp_day",
+      "ep_ls_lamp_living_room_yellow_retro_lamp_day": "light.ls_lamp_living_room_yellow_retro_lamp_day",
+      "ep_ls_lamp_meditation_ceiling_day": "light.ls_lamp_meditation_ceiling_day",
+      "ep_ls_lamp_meditation_floor_lamp_day": "light.ls_lamp_meditation_floor_lamp_day",
+      "ep_ls_lamp_upper_hall_ceiling_day": "light.ls_lamp_upper_hall_ceiling_day",
+      "ep_ls_lamp_upper_hall_stair_lamp_day": "light.ls_lamp_upper_hall_stair_lamp_day",
+      "ep_ls_lamp_jonathan_bedroom_ceiling_cosy": "light.ls_lamp_jonathan_bedroom_ceiling_cosy",
+      "ep_ls_lamp_jonathan_bedroom_floor_lamp_cosy": "light.ls_lamp_jonathan_bedroom_floor_lamp_cosy",
+      "ep_ls_lamp_kitchen_pendant_cosy": "light.ls_lamp_kitchen_pendant_cosy",
+      "ep_ls_lamp_kitchen_spots_1_cosy": "light.ls_lamp_kitchen_spots_1_cosy",
+      "ep_ls_lamp_kitchen_spots_2_cosy": "light.ls_lamp_kitchen_spots_2_cosy",
+      "ep_ls_lamp_living_room_desk_ceiling_cosy": "light.ls_lamp_living_room_desk_ceiling_cosy",
+      "ep_ls_lamp_living_room_hall_ceiling_cosy": "light.ls_lamp_living_room_hall_ceiling_cosy",
+      "ep_ls_lamp_living_room_sofa_table_ceiling_cosy": "light.ls_lamp_living_room_sofa_table_ceiling_cosy",
+      "ep_ls_lamp_living_room_table_lamp_cosy": "light.ls_lamp_living_room_table_lamp_cosy",
+      "ep_ls_lamp_living_room_vicky_desk_lamp_cosy": "light.ls_lamp_living_room_vicky_desk_lamp_cosy",
+      "ep_ls_lamp_living_room_window_lamp_cosy": "light.ls_lamp_living_room_window_lamp_cosy",
+      "ep_ls_lamp_living_room_yellow_retro_lamp_cosy": "light.ls_lamp_living_room_yellow_retro_lamp_cosy",
+      "ep_ls_lamp_meditation_ceiling_cosy": "light.ls_lamp_meditation_ceiling_cosy",
+      "ep_ls_lamp_meditation_floor_lamp_cosy": "light.ls_lamp_meditation_floor_lamp_cosy",
+      "ep_ls_lamp_upper_hall_ceiling_cosy": "light.ls_lamp_upper_hall_ceiling_cosy",
+      "ep_ls_lamp_upper_hall_stair_lamp_cosy": "light.ls_lamp_upper_hall_stair_lamp_cosy",
+      "ep_ls_lamp_jonathan_bedroom_ceiling_night": "light.ls_lamp_jonathan_bedroom_ceiling_night",
+      "ep_ls_lamp_jonathan_bedroom_floor_lamp_night": "light.ls_lamp_jonathan_bedroom_floor_lamp_night",
+      "ep_ls_lamp_kitchen_pendant_night": "light.ls_lamp_kitchen_pendant_night",
+      "ep_ls_lamp_kitchen_spots_1_night": "light.ls_lamp_kitchen_spots_1_night",
+      "ep_ls_lamp_kitchen_spots_2_night": "light.ls_lamp_kitchen_spots_2_night",
+      "ep_ls_lamp_living_room_desk_ceiling_night": "light.ls_lamp_living_room_desk_ceiling_night",
+      "ep_ls_lamp_living_room_hall_ceiling_night": "light.ls_lamp_living_room_hall_ceiling_night",
+      "ep_ls_lamp_living_room_sofa_table_ceiling_night": "light.ls_lamp_living_room_sofa_table_ceiling_night",
+      "ep_ls_lamp_living_room_table_lamp_night": "light.ls_lamp_living_room_table_lamp_night",
+      "ep_ls_lamp_living_room_vicky_desk_lamp_night": "light.ls_lamp_living_room_vicky_desk_lamp_night",
+      "ep_ls_lamp_living_room_window_lamp_night": "light.ls_lamp_living_room_window_lamp_night",
+      "ep_ls_lamp_living_room_yellow_retro_lamp_night": "light.ls_lamp_living_room_yellow_retro_lamp_night",
+      "ep_ls_lamp_meditation_ceiling_night": "light.ls_lamp_meditation_ceiling_night",
+      "ep_ls_lamp_meditation_floor_lamp_night": "light.ls_lamp_meditation_floor_lamp_night",
+      "ep_ls_lamp_upper_hall_ceiling_night": "light.ls_lamp_upper_hall_ceiling_night",
+      "ep_ls_lamp_upper_hall_stair_lamp_night": "light.ls_lamp_upper_hall_stair_lamp_night",
+      "ep_ls_kitchen_day": "light.ls_kitchen_day",
+      "ep_ls_kitchen_cosy": "light.ls_kitchen_cosy",
+      "ep_ls_kitchen_night": "light.ls_kitchen_night",
+      "ep_ls_meditation_mys_day": "light.ls_meditation_mys_day",
+      "ep_ls_meditation_mys_cosy": "light.ls_meditation_mys_cosy",
+      "ep_ls_meditation_mys_night": "light.ls_meditation_mys_night",
+      "ep_ls_hall_overvaning_day": "light.ls_hall_overvaning_day",
+      "ep_ls_hall_overvaning_cosy": "light.ls_hall_overvaning_cosy",
+      "ep_ls_hall_overvaning_night": "light.ls_hall_overvaning_night",
+      "ep_ls_living_room_day": "light.ls_living_room_day",
+      "ep_ls_living_room_cosy": "light.ls_living_room_cosy",
+      "ep_ls_living_room_night": "light.ls_living_room_night",
+      "ep_ls_bedroom_day": "light.ls_bedroom_day",
+      "ep_ls_bedroom_cosy": "light.ls_bedroom_cosy",
+      "ep_ls_bedroom_night": "light.ls_bedroom_night",
+      "ep_home": "light.home",
+      "effect_preview_house_kitchen_native": "light.kitchen_all",
+      "ep_living_room": "light.living_room",
+      "ep_upper_hall": "light.upper_hall",
+      "ep_jonathan_bedroom": "light.jonathan_bedroom",
+      "ep_meditation_mys_all": "light.meditation_mys_all",
+      "ep_jonathan_bedroom_floor_lamp": "light.jonathan_bedroom_floor_lamp",
+      "ep_upper_hall_stair_lamp": "light.upper_hall_stair_lamp",
+      "ep_upper_hall_ceiling": "light.upper_hall_ceiling",
+      "ep_living_room_desk_ceiling": "light.living_room_desk_ceiling",
+      "ep_living_room_hall_ceiling": "light.living_room_hall_ceiling",
+      "ep_living_room_vicky_desk_lamp": "light.living_room_vicky_desk_lamp",
+      "ep_living_room_table_lamp": "light.living_room_table_lamp",
+      "ep_living_room_window_lamp": "light.living_room_window_lamp",
+      "ep_living_room_yellow_retro_lamp": "light.living_room_yellow_retro_lamp",
+      "ep_kitchen_pendant": "light.kitchen_pendant",
+      "ep_kitchen_spots_1": "light.kitchen_spots_1",
+      "ep_kitchen_spots_2": "light.kitchen_spots_2",
+      "ep_meditation_floor_lamp": "light.meditation_floor_lamp",
+      "ep_jonathan_bedroom_ceiling": "light.jonathan_bedroom_ceiling",
+      "ep_meditation_ceiling": "light.meditation_ceiling",
+      "ep_living_room_sofa_table_ceiling": "light.living_room_sofa_table_ceiling"
+    }
+  }
+}

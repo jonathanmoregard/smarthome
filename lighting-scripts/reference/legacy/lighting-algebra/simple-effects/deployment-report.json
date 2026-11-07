@@ -1,0 +1,73 @@
+{
+  "deployed_at": 1792841902.028,
+  "remote_cycle": [
+    "day",
+    "cosy",
+    "Candle"
+  ],
+  "ui_effects": [
+    "Normal Light",
+    "Candle"
+  ],
+  "readbacks": [
+    {
+      "status": "fulfilled",
+      "value": {
+        "script_id": "effects_set",
+        "exact": true
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "script_id": "effects_ui_sync",
+        "exact": true
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "script_id": "effects_ui_catalog",
+        "exact": true
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "script_id": "ls_remote_plan",
+        "exact": true
+      }
+    }
+  ],
+  "live_menu_check": {
+    "checked": 88,
+    "mismatches": [],
+    "current_labels": [
+      "Normal Light",
+      "Candle",
+      null
+    ]
+  },
+  "live_dry_controls": [
+    {
+      "status": "fulfilled",
+      "value": {
+        "source": "light.living_room_table_lamp",
+        "success": true,
+        "valid": true,
+        "errors": []
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "source": "light.ls_house_day",
+        "success": true,
+        "valid": true,
+        "errors": []
+      }
+    }
+  ],
+  "offline_tests_passed": 17,
+  "physical_test_commands": false
+}

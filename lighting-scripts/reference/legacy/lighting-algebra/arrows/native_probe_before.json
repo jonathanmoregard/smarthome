@@ -1,0 +1,521 @@
+{
+  "alias": "Lighting \u00b7 Pure Arrow Replay before",
+  "mode": "parallel",
+  "fields": {
+    "command": {
+      "selector": {
+        "object": {}
+      }
+    },
+    "payload": {
+      "selector": {
+        "object": {}
+      }
+    },
+    "token": {
+      "selector": {
+        "object": {}
+      }
+    },
+    "shadow": {
+      "selector": {
+        "object": {}
+      }
+    },
+    "probe_now": {
+      "selector": {
+        "object": {}
+      }
+    }
+  },
+  "sequence": [
+    {
+      "variables": {
+        "intents": []
+      }
+    },
+    {
+      "condition": "template",
+      "value_template": "{{ command in ['power','power_done','preset','cancel','left','right','up','down'] }}"
+    },
+    {
+      "variables": {
+        "step": "{{ shadow.get('input_number.ls_bedroom_remote_chord_step','')|int(0) }}",
+        "active": "{{ (shadow.get('timer.ls_bedroom_remote_chord')=='active') }}",
+        "clicks": "{{ shadow.get('input_number.ls_bedroom_remote_power_count','')|int(0) }}",
+        "stored_token": "{{ shadow.get('input_text.ls_bedroom_remote_power_token','') if (shadow.get('input_text.ls_bedroom_remote_power_token','')!='') else '' }}"
+      }
+    },
+    {
+      "variables": {
+        "quiet_active": "{{ clicks>0 and stored_token|length>0 and as_timestamp(stored_token,0)+0.4>as_timestamp(probe_now) }}"
+      }
+    },
+    {
+      "choose": [
+        {
+          "conditions": [
+            {
+              "condition": "template",
+              "value_template": "{{ command=='power_done' }}"
+            }
+          ],
+          "sequence": [
+            {
+              "condition": "template",
+              "value_template": "{{ token|length>0 and token==stored_token and clicks>0 }}"
+            },
+            {
+              "variables": {
+                "shadow": "{{ dict(shadow, **{'input_number.ls_bedroom_remote_power_count': 0}) }}"
+              }
+            },
+            {
+              "variables": {
+                "shadow": "{{ dict(shadow, **{'input_text.ls_bedroom_remote_power_token': \"\"}) }}"
+              }
+            },
+            {
+              "if": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ clicks==1 or clicks>=3 }}"
+                }
+              ],
+              "then": [
+                {
+                  "variables": {
+                    "shadow": "{{ dict(shadow, **{'input_number.ls_bedroom_remote_chord_step': 0}) }}"
+                  }
+                },
+                {
+                  "variables": {
+                    "shadow": "{{ dict(shadow, **{'timer.ls_bedroom_remote_chord': 'idle'}) }}"
+                  }
+                },
+                {
+                  "variables": {
+                    "room": "{{ area_id('0e973e9202acb5ace9a8e6a8b336891d') }}"
+                  }
+                },
+                {
+                  "if": [
+                    {
+                      "condition": "template",
+                      "value_template": "{{ room is string and room|length>0 }}"
+                    }
+                  ],
+                  "then": [
+                    {
+                      "variables": {
+                        "intents": "{{ intents + ['toggle' if clicks==1 else 'reset'] }}"
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "variables": {
+                "probe_result": "{{ {'shadow':shadow,'intents':intents} }}"
+              }
+            },
+            {
+              "stop": "Completed quiet power burst",
+              "response_variable": "probe_result"
+            }
+          ]
+        },
+        {
+          "conditions": [
+            {
+              "condition": "template",
+              "value_template": "{{ command=='power' }}"
+            }
+          ],
+          "sequence": [
+            {
+              "if": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ clicks>0 and not quiet_active }}"
+                }
+              ],
+              "then": [
+                {
+                  "variables": {
+                    "shadow": "{{ dict(shadow, **{'input_number.ls_bedroom_remote_power_count': 0}) }}"
+                  }
+                },
+                {
+                  "variables": {
+                    "shadow": "{{ dict(shadow, **{'input_text.ls_bedroom_remote_power_token': \"\"}) }}"
+                  }
+                },
+                {
+                  "if": [
+                    {
+                      "condition": "template",
+                      "value_template": "{{ clicks==1 or clicks>=3 }}"
+                    }
+                  ],
+                  "then": [
+                    {
+                      "variables": {
+                        "shadow": "{{ dict(shadow, **{'input_number.ls_bedroom_remote_chord_step': 0}) }}"
+                      }
+                    },
+                    {
+                      "variables": {
+                        "shadow": "{{ dict(shadow, **{'timer.ls_bedroom_remote_chord': 'idle'}) }}"
+                      }
+                    },
+                    {
+                      "variables": {
+                        "room": "{{ area_id('0e973e9202acb5ace9a8e6a8b336891d') }}"
+                      }
+                    },
+                    {
+                      "if": [
+                        {
+                          "condition": "template",
+                          "value_template": "{{ room is string and room|length>0 }}"
+                        }
+                      ],
+                      "then": [
+                        {
+                          "variables": {
+                            "intents": "{{ intents + ['toggle' if clicks==1 else 'reset'] }}"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "variables": {
+                "clicks": "{{ [3,clicks+1]|min if quiet_active else 1 }}"
+              }
+            },
+            {
+              "variables": {
+                "shadow": "{{ dict(shadow, **{'input_number.ls_bedroom_remote_power_count': clicks}) }}"
+              }
+            },
+            {
+              "choose": [
+                {
+                  "conditions": [
+                    {
+                      "condition": "template",
+                      "value_template": "{{ clicks==1 }}"
+                    }
+                  ],
+                  "sequence": [
+                    {
+                      "variables": {
+                        "shadow": "{{ dict(shadow, **{'input_number.ls_bedroom_remote_chord_step': -1}) }}"
+                      }
+                    },
+                    {
+                      "variables": {
+                        "shadow": "{{ dict(shadow, **{'timer.ls_bedroom_remote_chord': 'active'}) }}"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "conditions": [
+                    {
+                      "condition": "template",
+                      "value_template": "{{ clicks==2 }}"
+                    }
+                  ],
+                  "sequence": [
+                    {
+                      "variables": {
+                        "shadow": "{{ dict(shadow, **{'input_number.ls_bedroom_remote_preset': 0}) }}"
+                      }
+                    },
+                    {
+                      "if": [
+                        {
+                          "condition": "template",
+                          "value_template": "{{ active and step==-1 }}"
+                        }
+                      ],
+                      "then": [
+                        {
+                          "variables": {
+                            "shadow": "{{ dict(shadow, **{'input_number.ls_bedroom_remote_chord_step': 1}) }}"
+                          }
+                        },
+                        {
+                          "variables": {
+                            "shadow": "{{ dict(shadow, **{'timer.ls_bedroom_remote_chord': 'active'}) }}"
+                          }
+                        }
+                      ],
+                      "else": [
+                        {
+                          "variables": {
+                            "shadow": "{{ dict(shadow, **{'input_number.ls_bedroom_remote_chord_step': 0}) }}"
+                          }
+                        },
+                        {
+                          "variables": {
+                            "shadow": "{{ dict(shadow, **{'timer.ls_bedroom_remote_chord': 'idle'}) }}"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "default": [
+                {
+                  "variables": {
+                    "shadow": "{{ dict(shadow, **{'input_number.ls_bedroom_remote_chord_step': 0}) }}"
+                  }
+                },
+                {
+                  "variables": {
+                    "shadow": "{{ dict(shadow, **{'timer.ls_bedroom_remote_chord': 'idle'}) }}"
+                  }
+                }
+              ]
+            },
+            {
+              "variables": {
+                "fresh_token": "{{ probe_now }}"
+              }
+            },
+            {
+              "variables": {
+                "shadow": "{{ dict(shadow, **{'input_text.ls_bedroom_remote_power_token': fresh_token}) }}"
+              }
+            },
+            {
+              "variables": {
+                "quiet_started": true
+              }
+            },
+            {
+              "variables": {
+                "probe_result": "{{ {'shadow':shadow,'intents':intents} }}"
+              }
+            },
+            {
+              "stop": "Raw power recorded without waiting",
+              "response_variable": "probe_result"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "if": [
+        {
+          "condition": "template",
+          "value_template": "{{ command=='preset' }}"
+        }
+      ],
+      "then": [
+        {
+          "condition": "template",
+          "value_template": "{{ payload is mapping and payload.get('action') in ['color_temperature_move','brightness_move_to_level'] }}"
+        },
+        {
+          "variables": {
+            "presets": "{{ [200,285,370,454,588] if payload.action=='color_temperature_move' else [254,229,178,76,2] }}",
+            "preset": "{{ payload.get('action_color_temperature') if payload.action=='color_temperature_move' else payload.get('action_level') }}",
+            "previous": "{{ shadow.get('input_number.ls_bedroom_remote_preset','')|float(-1) }}"
+          }
+        },
+        {
+          "if": [
+            {
+              "condition": "template",
+              "value_template": "{{ preset is not number or preset is boolean or preset not in presets }}"
+            }
+          ],
+          "then": [
+            {
+              "variables": {
+                "shadow": "{{ dict(shadow, **{'input_number.ls_bedroom_remote_chord_step': 0}) }}"
+              }
+            },
+            {
+              "variables": {
+                "shadow": "{{ dict(shadow, **{'timer.ls_bedroom_remote_chord': 'idle'}) }}"
+              }
+            },
+            {
+              "variables": {
+                "probe_result": "{{ {'shadow':shadow,'intents':intents} }}"
+              }
+            },
+            {
+              "stop": "Unknown preset cancels chord",
+              "response_variable": "probe_result"
+            }
+          ]
+        },
+        {
+          "variables": {
+            "index": "{{ presets.index(preset) }}"
+          }
+        },
+        {
+          "condition": "template",
+          "value_template": "{{ index!=previous }}"
+        },
+        {
+          "variables": {
+            "delta": "{{ (index-previous|int)%5 if previous in [0,1,2,3,4] else -1 }}"
+          }
+        },
+        {
+          "variables": {
+            "shadow": "{{ dict(shadow, **{'input_number.ls_bedroom_remote_preset': index}) }}"
+          }
+        },
+        {
+          "variables": {
+            "command": "{{ 'right' if delta==1 else 'left' if delta==4 else 'cancel' }}"
+          }
+        }
+      ]
+    },
+    {
+      "choose": [
+        {
+          "conditions": [
+            {
+              "condition": "template",
+              "value_template": "{{ active and step in [1,2,3,4] and command==['left','right','left','right'][step-1] }}"
+            }
+          ],
+          "sequence": [
+            {
+              "if": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ step==4 }}"
+                }
+              ],
+              "then": [
+                {
+                  "variables": {
+                    "shadow": "{{ dict(shadow, **{'input_number.ls_bedroom_remote_chord_step': 0}) }}"
+                  }
+                },
+                {
+                  "variables": {
+                    "shadow": "{{ dict(shadow, **{'timer.ls_bedroom_remote_chord': 'idle'}) }}"
+                  }
+                },
+                {
+                  "variables": {
+                    "room": "{{ area_id('0e973e9202acb5ace9a8e6a8b336891d') }}"
+                  }
+                },
+                {
+                  "if": [
+                    {
+                      "condition": "template",
+                      "value_template": "{{ room is string and room|length>0 }}"
+                    }
+                  ],
+                  "then": [
+                    {
+                      "variables": {
+                        "intents": "{{ intents + [\"sara_toggle\"] }}"
+                      }
+                    }
+                  ]
+                }
+              ],
+              "else": [
+                {
+                  "variables": {
+                    "shadow": "{{ dict(shadow, **{'input_number.ls_bedroom_remote_chord_step': step+1}) }}"
+                  }
+                },
+                {
+                  "variables": {
+                    "shadow": "{{ dict(shadow, **{'timer.ls_bedroom_remote_chord': 'active'}) }}"
+                  }
+                }
+              ]
+            },
+            {
+              "variables": {
+                "probe_result": "{{ {'shadow':shadow,'intents':intents} }}"
+              }
+            },
+            {
+              "stop": "Matched chord input consumed",
+              "response_variable": "probe_result"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "if": [
+        {
+          "condition": "template",
+          "value_template": "{{ step!=0 or active }}"
+        }
+      ],
+      "then": [
+        {
+          "variables": {
+            "shadow": "{{ dict(shadow, **{'input_number.ls_bedroom_remote_chord_step': 0}) }}"
+          }
+        },
+        {
+          "variables": {
+            "shadow": "{{ dict(shadow, **{'timer.ls_bedroom_remote_chord': 'idle'}) }}"
+          }
+        }
+      ]
+    },
+    {
+      "condition": "template",
+      "value_template": "{{ command!='cancel' }}"
+    },
+    {
+      "variables": {
+        "room": "{{ area_id('0e973e9202acb5ace9a8e6a8b336891d') }}"
+      }
+    },
+    {
+      "if": [
+        {
+          "condition": "template",
+          "value_template": "{{ room is string and room|length>0 }}"
+        }
+      ],
+      "then": [
+        {
+          "variables": {
+            "intents": "{{ intents + [command] }}"
+          }
+        }
+      ]
+    },
+    {
+      "variables": {
+        "probe_result": "{{ {'shadow':shadow,'intents':intents} }}"
+      }
+    },
+    {
+      "stop": "Return probe result",
+      "response_variable": "probe_result"
+    }
+  ]
+}

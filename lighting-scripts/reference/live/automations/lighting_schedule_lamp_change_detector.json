@@ -1,0 +1,88 @@
+{
+  "success": true,
+  "action": "get",
+  "automation_id": "automation.lighting_schedule_lamp_change_detector",
+  "config": {
+    "id": "1791977337255",
+    "alias": "Lighting schedule: lamp change detector",
+    "description": "Capture only brightness/colour/effect channels explicitly changed by a user. Explicit user ON opens the affected room power gate without operating other lamps. Existing logical lamp membership is preserved. Automation and running-script contexts are ignored. Power-only calls create no override.",
+    "triggers": [
+      {
+        "trigger": "event",
+        "event_type": "call_service",
+        "event_data": {
+          "domain": "light"
+        }
+      }
+    ],
+    "conditions": [
+      {
+        "condition": "template",
+        "value_template": "{{ trigger.event.context.user_id is not none and trigger.event.data.service == 'turn_on' and trigger.event.context.id not in (states.script | selectattr('state', 'eq', 'on') | map(attribute='context') | map(attribute='id') | list) }}"
+      }
+    ],
+    "actions": [
+      {
+        "variables": {
+          "sd": "{{ trigger.event.data.service_data | default({}) }}",
+          "stamp": "{{ as_timestamp(now()) }}"
+        }
+      },
+      {
+        "action": "script.effects_catalog",
+        "response_variable": "catalog"
+      },
+      {
+        "action": "script.ls_apply",
+        "data": {
+          "dry_run": true,
+          "reason": "config"
+        },
+        "response_variable": "current"
+      },
+      {
+        "action": "script.effects_native_plan",
+        "data": {
+          "sd": "{{ sd }}",
+          "catalog": "{{ catalog }}",
+          "current": "{{ current }}",
+          "stamp": "{{ stamp }}"
+        },
+        "response_variable": "capture"
+      },
+      {
+        "repeat": {
+          "for_each": "{{ capture.power }}",
+          "sequence": [
+            {
+              "event": "ls_override",
+              "event_data": {
+                "op": "power",
+                "area": "{{ repeat.item.area }}",
+                "on": true,
+                "via": "app",
+                "who": "{{ trigger.event.context.user_id }}"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "condition": "template",
+        "value_template": "{{ capture.records|count>0 }}"
+      },
+      {
+        "event": "ls_override",
+        "event_data": {
+          "op": "set",
+          "records": "{{ capture.records }}",
+          "via": "app",
+          "who": "{{ trigger.event.context.user_id }}"
+        }
+      }
+    ],
+    "mode": "queued",
+    "max": 20
+  },
+  "config_hash": "be754271f408f1b3"
+}

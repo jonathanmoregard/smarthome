@@ -1,0 +1,89 @@
+{
+  "deployed_at": 1792846652.462735,
+  "scripts": {
+    "ls_base": {
+      "config_hash": "f28b589a0ca3f98c",
+      "exact_match": true
+    },
+    "ls_room_base": {
+      "config_hash": "4d7183edd2a5d752",
+      "exact_match": true
+    },
+    "ls_room_plan": {
+      "config_hash": "d7556d6547288963",
+      "exact_match": true
+    },
+    "effects_catalog": {
+      "config_hash": "005aa0d6a6a1b3df",
+      "exact_match": true
+    },
+    "effects_resolve": {
+      "config_hash": "79112047f78b52b8",
+      "exact_match": true
+    },
+    "ls_remote_plan": {
+      "config_hash": "e43cfa8986d829d3",
+      "exact_match": true
+    }
+  },
+  "tests": {
+    "integrated": 208,
+    "result": "passed",
+    "log": "gate-post-review.txt",
+    "new_input_and_migration_tests": 23,
+    "native_template_checks": "passed",
+    "physical_test_calls": 0
+  },
+  "performance": {
+    "artifact": "benchmark-delivery.json",
+    "expiry_enabled": true,
+    "normal_input_median_cpu_ms": {
+      "before": 5.191,
+      "after": 5.723
+    },
+    "candle_room_input_median_cpu_ms": {
+      "before": 5.855,
+      "after": 6.815
+    },
+    "warm_input_room_or_gradient_plans": 0,
+    "coalesced_burst_room_resolutions": 1,
+    "measurement": "Offline actual-script CPU; not Zigbee or bulb latency"
+  },
+  "review": {
+    "calls": 2,
+    "findings": 3,
+    "reproduced": 3,
+    "fixed": 3,
+    "followup": "No new material findings",
+    "generic_gate": "not applicable: runtime artifacts are not a Git repository; exit 2"
+  },
+  "native_dry_runs": {
+    "bedroom": true,
+    "living_room": true,
+    "stored_state_unchanged": true,
+    "catalog_service": true,
+    "ui_sync": true
+  },
+  "production": {
+    "mqtt_bridge": "on",
+    "effect_runner": "on",
+    "last_production_plan": 1792846800.363204,
+    "last_latency": {
+      "request_id": "2026-10-24T15:00:00.350340+02:00",
+      "received_at": 1792846800.35182,
+      "started_at": 1792846800.355644,
+      "planned_at": 1792846800.71286,
+      "published_at": [],
+      "completed_at": 1792846800.830947,
+      "rooms": [],
+      "full": true
+    },
+    "override_count": 0
+  },
+  "reload_observation": "Transient catalogue-service-not-found errors occurred during HA script reload. Catalogue service and UI dry sync subsequently succeeded; later scheduled production plans succeeded and no new errors followed.",
+  "typescript_research": {
+    "status": "blocked by research scanner infrastructure HTTP 404",
+    "artifact": "typescript-survey.md",
+    "runtime_migration_performed": false
+  }
+}

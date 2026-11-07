@@ -1,0 +1,32 @@
+{
+  "id": "lighting_remote_0x385b44fffea50c99_directions",
+  "alias": "Lighting \u00b7 Living Room Remote Directions",
+  "description": "Verified Innr RC250 brightness-step actions map to room up/down. Separate queued adapter remains responsive while the center gesture waits. Scene arrows await a verified hardware mapping.",
+  "mode": "queued",
+  "max": 30,
+  "triggers": [
+    {
+      "trigger": "mqtt",
+      "topic": "zigbee2mqtt/0x385b44fffea50c99/action",
+      "payload": "brightness_step_up",
+      "id": "up"
+    },
+    {
+      "trigger": "mqtt",
+      "topic": "zigbee2mqtt/0x385b44fffea50c99/action",
+      "payload": "brightness_step_down",
+      "id": "down"
+    }
+  ],
+  "actions": [
+    {
+      "action": "script.ls_remote_command",
+      "data": {
+        "source": "0x385b44fffea50c99",
+        "area": "{{ area_id(\"0752f2b4e9a0992ac8efc2af1f53c62a\") }}",
+        "command": "{{ trigger.id }}",
+        "dry_run": false
+      }
+    }
+  ]
+}

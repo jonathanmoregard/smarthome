@@ -1,0 +1,906 @@
+{
+  "status": "selected_scope_compatible",
+  "clean_original_assertion_tests": 244,
+  "baseline_defects_not_counted_as_passes": [
+    {
+      "module": "lighting-algebra/core/test_core.py",
+      "test": "parity_original.ResolverTests.test_baseline_channel_restriction_and_legacy_hold"
+    },
+    {
+      "module": "lighting-algebra/core/test_core.py",
+      "test": "parity_original.ResolverTests.test_carried_input_uses_original_stamp_against_other_sources"
+    },
+    {
+      "module": "lighting-algebra/core/test_core.py",
+      "test": "parity_original.ResolverTests.test_effect_intensity_uses_underlying_constant_and_then_newer_constant_wins"
+    },
+    {
+      "module": "lighting-algebra/core/test_core.py",
+      "test": "parity_original.ResolverTests.test_invalid_or_future_carried_input_does_not_replace_valid_baseline"
+    },
+    {
+      "module": "lighting-algebra/core/test_core.py",
+      "test": "parity_original.ResolverTests.test_invalid_sources_fail_to_base_not_older_effect"
+    },
+    {
+      "module": "lighting-algebra/core/test_core.py",
+      "test": "parity_original.ResolverTests.test_legacy_effect_brightness_initializes_without_stealing_channel"
+    },
+    {
+      "module": "lighting-algebra/core/test_core.py",
+      "test": "parity_original.ResolverTests.test_partial_effect_handoff_preserves_other_channel"
+    },
+    {
+      "module": "lighting-algebra/core/test_core.py",
+      "test": "parity_original.ResolverTests.test_power_and_period_are_external_inputs_not_override_channels"
+    },
+    {
+      "module": "lighting-algebra/core/test_core.py",
+      "test": "parity_original.ResolverTests.test_repeated_effect_replacement_retains_carried_value_without_claiming_channel"
+    },
+    {
+      "module": "lighting-algebra/core/test_core.py",
+      "test": "parity_original.ResolverTests.test_sara_only_common_non_night_and_preserves_flicker"
+    },
+    {
+      "module": "lighting-algebra/core/test_core.py",
+      "test": "parity_original.ResolverTests.test_stable_record_scale_to_effect_preserves_each_lamp_anchor"
+    },
+    {
+      "module": "lighting-algebra/grouping/test_grouping.py",
+      "test": "parity_original.PlannerTests.test_proposed_groups_preserve_complete_lamps"
+    },
+    {
+      "module": "lighting-algebra/input-processors/tests/test_input_edges.py",
+      "test": "parity_original.InputEdgeTests.test_candle_selection_keeps_adjusted_underlying_intensity"
+    },
+    {
+      "module": "lighting-algebra/input-processors/tests/test_input_edges.py",
+      "test": "parity_original.InputEdgeTests.test_existing_remote_coordinate_migrates_without_jump_or_losing_candle"
+    },
+    {
+      "module": "lighting-algebra/input-processors/tests/test_input_processors.py",
+      "test": "parity_original.InputProcessorTests.test_adjustment_does_not_stop_or_reassign_running_candle"
+    },
+    {
+      "module": "lighting-algebra/input-processors/tests/test_input_processors.py",
+      "test": "parity_original.InputProcessorTests.test_burst_render_coalesces_and_preserves_other_room_targets"
+    },
+    {
+      "module": "lighting-algebra/input-processors/tests/test_input_processors.py",
+      "test": "parity_original.InputProcessorTests.test_configured_candle_ignores_adjustment_and_normal_presets"
+    },
+    {
+      "module": "lighting-algebra/input-processors/tests/test_input_processors.py",
+      "test": "parity_original.InputProcessorTests.test_explicit_normal_light_ui_can_exit_configured_candle"
+    },
+    {
+      "module": "lighting-algebra/input-processors/tests/test_input_processors.py",
+      "test": "parity_original.InputProcessorTests.test_explicit_per_channel_ui_claims_keep_their_independent_meaning"
+    },
+    {
+      "module": "lighting-algebra/input-processors/tests/test_input_processors.py",
+      "test": "parity_original.InputProcessorTests.test_room_selected_candle_ignores_adjustment_but_can_leave_by_preset"
+    },
+    {
+      "module": "lighting-algebra/input-processors/tests/test_input_processors.py",
+      "test": "parity_original.InputProcessorTests.test_schedule_expiry_removes_input_without_disabling_configured_candle"
+    },
+    {
+      "module": "lighting-algebra/remote-ranges/test_preset_roundtrip.py",
+      "test": "parity_original.PresetRoundTripTests.test_candle_roundtrip_preserves_baseline_after_ignored_adjustments"
+    },
+    {
+      "module": "lighting-algebra/remote-ranges/test_preset_roundtrip.py",
+      "test": "parity_original.PresetRoundTripTests.test_configured_candle_stays_unchanged_through_adjusted_roundtrip"
+    },
+    {
+      "module": "lighting-algebra/remote-ranges/test_remote_ranges.py",
+      "test": "parity_original.RemoteRangeTests.test_candle_keeps_ownership_and_ignores_bounded_remote_input"
+    },
+    {
+      "module": "lighting-algebra/remote-regressions/test_pending_input.py",
+      "test": "parity_original.PendingInputTests.test_click_during_pending_tick_also_reaches_output"
+    },
+    {
+      "module": "lighting-algebra/remote-regressions/test_pending_input.py",
+      "test": "parity_original.PendingInputTests.test_coalesced_remote_output_keeps_short_transition_and_room_scope"
+    },
+    {
+      "module": "lighting-algebra/remote-regressions/test_pending_input.py",
+      "test": "parity_original.PendingInputTests.test_tick_cannot_acknowledge_cosy_without_sending_it"
+    },
+    {
+      "module": "lighting-algebra/remote-regressions/test_pending_input.py",
+      "test": "parity_original.PendingInputTests.test_tick_cannot_drop_day_output_when_leaving_candle"
+    },
+    {
+      "module": "lighting-algebra/remote-regressions/test_pending_input.py",
+      "test": "parity_original.PendingInputTests.test_tick_cannot_drop_reset_output"
+    },
+    {
+      "module": "lighting-algebra/tests/test_core.py",
+      "test": "parity_original.CoreTests.test_carried_old_baseline_does_not_mask_newer_other_source"
+    },
+    {
+      "module": "lighting-algebra/tests/test_core.py",
+      "test": "parity_original.CoreTests.test_independent_latest_channels_and_revealed_previous_owner"
+    },
+    {
+      "module": "lighting-algebra/tests/test_core.py",
+      "test": "parity_original.CoreTests.test_shared_instance_identity_survives_per_lamp_resolution"
+    },
+    {
+      "module": "lighting-algebra/tests/test_core.py",
+      "test": "parity_original.CoreTests.test_stable_remote_scale_to_effect_keeps_each_lamps_underlying_level"
+    },
+    {
+      "module": "lighting-algebra/tests/test_dispatch.py",
+      "test": "parity_original.DispatchTests.test_cancelled_batch_keeps_unapplied_targets_and_same_plan_retries"
+    },
+    {
+      "module": "lighting-algebra/tests/test_dispatch.py",
+      "test": "parity_original.DispatchTests.test_effect_release_resends_prior_constant_before_becoming_silent"
+    },
+    {
+      "module": "lighting-algebra/tests/test_final_regressions.py",
+      "test": "parity_original.FinalRegressionTests.test_legacy_native_cleanup_precedes_software_runner_start"
+    },
+    {
+      "module": "lighting-algebra/tests/test_final_regressions.py",
+      "test": "parity_original.FinalRegressionTests.test_requested_lamp_filters_dispatch_without_losing_other_effects_or_rooms"
+    },
+    {
+      "module": "lighting-algebra/tests/test_native_controls.py",
+      "test": "parity_original.NativeControlTests.test_room_effect_preserves_individual_lamp_schedule_baselines"
+    },
+    {
+      "module": "lighting-algebra/tests/test_native_controls.py",
+      "test": "parity_original.NativeControlTests.test_ui_effect_retains_same_control_sources_selected_brightness"
+    },
+    {
+      "module": "lighting-algebra/tests/test_remote_cycle.py",
+      "test": "parity_original.RemoteCycleTests.test_sara_toggle_retains_candle_brightness_and_non_night_common_area_guard"
+    },
+    {
+      "module": "lighting-algebra/tests/test_remote_transition.py",
+      "test": "parity_original.RemoteTransitionTests.test_cap_preserves_existing_short_effect_transition"
+    },
+    {
+      "module": "lighting-algebra/tests/test_state_sequences.py",
+      "test": "parity_original.StateSequenceTests.test_base_rgb_and_effect_channels_accept_state_sequences"
+    }
+  ],
+  "modules": [
+    {
+      "module": "lighting-algebra/core/test_core.py",
+      "equivalent": true,
+      "clean_assertion_tests": 12,
+      "baseline_defect_tests": 11,
+      "execution": {
+        "backend": "typescript",
+        "original": "lighting-algebra/core/test_core.py",
+        "requests": 648,
+        "entrypoints": [
+          "effects_resolve",
+          "effects_scale"
+        ],
+        "differential_comparisons": 648,
+        "historical_fixtures": [],
+        "literal_dependencies": [],
+        "path_rewrites": 30
+      }
+    },
+    {
+      "module": "lighting-algebra/grouping/test_grouping.py",
+      "equivalent": true,
+      "clean_assertion_tests": 11,
+      "baseline_defect_tests": 1,
+      "execution": {
+        "backend": "typescript",
+        "original": "lighting-algebra/grouping/test_grouping.py",
+        "requests": 2019,
+        "entrypoints": [
+          "effects_group_plan"
+        ],
+        "differential_comparisons": 2019,
+        "historical_fixtures": [],
+        "literal_dependencies": [],
+        "path_rewrites": 30
+      }
+    },
+    {
+      "module": "lighting-algebra/input-processors/tests/test_input_edges.py",
+      "equivalent": true,
+      "clean_assertion_tests": 1,
+      "baseline_defect_tests": 2,
+      "execution": {
+        "backend": "typescript",
+        "original": "lighting-algebra/input-processors/tests/test_input_edges.py",
+        "requests": 13,
+        "entrypoints": [
+          "ls_commit",
+          "ls_plan",
+          "ls_remote_command"
+        ],
+        "differential_comparisons": 0,
+        "historical_fixtures": [],
+        "literal_dependencies": [],
+        "path_rewrites": 30
+      }
+    },
+    {
+      "module": "lighting-algebra/input-processors/tests/test_input_processors.py",
+      "equivalent": true,
+      "clean_assertion_tests": 8,
+      "baseline_defect_tests": 7,
+      "execution": {
+        "backend": "typescript",
+        "original": "lighting-algebra/input-processors/tests/test_input_processors.py",
+        "requests": 762,
+        "entrypoints": [
+          "effects_scale",
+          "effects_set",
+          "ls_apply",
+          "ls_commit",
+          "ls_plan",
+          "ls_remote_command",
+          "ls_render",
+          "ls_room_plan"
+        ],
+        "differential_comparisons": 0,
+        "historical_fixtures": [],
+        "literal_dependencies": [],
+        "path_rewrites": 30
+      }
+    },
+    {
+      "module": "lighting-algebra/remote/preset_test.py",
+      "equivalent": true,
+      "clean_assertion_tests": 7,
+      "baseline_defect_tests": 0,
+      "execution": {
+        "backend": "typescript",
+        "original": "lighting-algebra/remote/preset_test.py",
+        "requests": 43,
+        "entrypoints": [
+          "automation.remote_preset",
+          "ls_commit"
+        ],
+        "differential_comparisons": 0,
+        "historical_fixtures": [],
+        "literal_dependencies": [],
+        "path_rewrites": 30
+      }
+    },
+    {
+      "module": "lighting-algebra/remote-ranges/test_period_stream.py",
+      "equivalent": true,
+      "clean_assertion_tests": 3,
+      "baseline_defect_tests": 0,
+      "execution": {
+        "backend": "typescript",
+        "original": "lighting-algebra/remote-ranges/test_period_stream.py",
+        "requests": 20,
+        "entrypoints": [
+          "ls_plan",
+          "ls_remote_command",
+          "ls_room_plan"
+        ],
+        "differential_comparisons": 0,
+        "historical_fixtures": [],
+        "literal_dependencies": [],
+        "path_rewrites": 30
+      }
+    },
+    {
+      "module": "lighting-algebra/remote-ranges/test_preset_roundtrip.py",
+      "equivalent": true,
+      "clean_assertion_tests": 5,
+      "baseline_defect_tests": 2,
+      "execution": {
+        "backend": "typescript",
+        "original": "lighting-algebra/remote-ranges/test_preset_roundtrip.py",
+        "requests": 162,
+        "entrypoints": [
+          "effects_set",
+          "ls_commit",
+          "ls_plan",
+          "ls_remote_command"
+        ],
+        "differential_comparisons": 0,
+        "historical_fixtures": [],
+        "literal_dependencies": [],
+        "path_rewrites": 30
+      }
+    },
+    {
+      "module": "lighting-algebra/remote-ranges/test_remote_ranges.py",
+      "equivalent": true,
+      "clean_assertion_tests": 7,
+      "baseline_defect_tests": 1,
+      "execution": {
+        "backend": "typescript",
+        "original": "lighting-algebra/remote-ranges/test_remote_ranges.py",
+        "requests": 465,
+        "entrypoints": [
+          "ls_commit",
+          "ls_plan",
+          "ls_remote_command",
+          "ls_room_plan"
+        ],
+        "differential_comparisons": 0,
+        "historical_fixtures": [],
+        "literal_dependencies": [],
+        "path_rewrites": 30
+      }
+    },
+    {
+      "module": "lighting-algebra/remote-regressions/test_first_arrow.py",
+      "equivalent": true,
+      "clean_assertion_tests": 5,
+      "baseline_defect_tests": 0,
+      "execution": {
+        "backend": "typescript",
+        "original": "lighting-algebra/remote-regressions/test_first_arrow.py",
+        "requests": 57,
+        "entrypoints": [
+          "automation.lighting_bedroom_remote_preset_arrows",
+          "automation.lighting_jonathan_s_bedroom_remote_center",
+          "automation.lighting_living_room_remote_center",
+          "automation.lighting_living_room_remote_preset_arrows",
+          "ls_remote_gesture",
+          "ls_remote_power_quiet_bedroom",
+          "ls_remote_power_quiet_living_room"
+        ],
+        "differential_comparisons": 0,
+        "historical_fixtures": [],
+        "literal_dependencies": [],
+        "path_rewrites": 30
+      }
+    },
+    {
+      "module": "lighting-algebra/remote-regressions/test_pending_input.py",
+      "equivalent": true,
+      "clean_assertion_tests": 1,
+      "baseline_defect_tests": 5,
+      "execution": {
+        "backend": "typescript",
+        "original": "lighting-algebra/remote-regressions/test_pending_input.py",
+        "requests": 41,
+        "entrypoints": [
+          "effects_catalog",
+          "ls_apply",
+          "ls_remote_command",
+          "ls_render"
+        ],
+        "differential_comparisons": 0,
+        "historical_fixtures": [],
+        "literal_dependencies": [],
+        "path_rewrites": 30
+      }
+    },
+    {
+      "module": "lighting-algebra/sara-window/test_sara_window.py",
+      "equivalent": true,
+      "clean_assertion_tests": 7,
+      "baseline_defect_tests": 0,
+      "execution": {
+        "backend": "typescript",
+        "original": "lighting-algebra/sara-window/test_sara_window.py",
+        "requests": 423,
+        "entrypoints": [
+          "automation.lighting_bedroom_remote_preset_arrows",
+          "automation.lighting_jonathan_s_bedroom_remote_center",
+          "automation.lighting_jonathan_s_bedroom_remote_directions",
+          "automation.lighting_living_room_remote_center",
+          "automation.lighting_living_room_remote_preset_arrows",
+          "ls_commit",
+          "ls_remote_command",
+          "ls_remote_gesture",
+          "ls_remote_gesture_bedroom",
+          "ls_remote_power_quiet_bedroom",
+          "ls_remote_power_quiet_living_room"
+        ],
+        "differential_comparisons": 0,
+        "historical_fixtures": [],
+        "literal_dependencies": [],
+        "path_rewrites": 30
+      }
+    },
+    {
+      "module": "lighting-algebra/tests/test_cache_integration.py",
+      "equivalent": true,
+      "clean_assertion_tests": 4,
+      "baseline_defect_tests": 0,
+      "execution": {
+        "backend": "typescript",
+        "original": "lighting-algebra/tests/test_cache_integration.py",
+        "requests": 35,
+        "entrypoints": [
+          "effects_catalog",
+          "effects_resolve",
+          "ls_apply",
+          "ls_commit",
+          "ls_plan",
+          "ls_remote_command",
+          "ls_render",
+          "ls_room_plan"
+        ],
+        "differential_comparisons": 0,
+        "historical_fixtures": [],
+        "literal_dependencies": [],
+        "path_rewrites": 30
+      }
+    },
+    {
+      "module": "lighting-algebra/tests/test_core.py",
+      "equivalent": true,
+      "clean_assertion_tests": 20,
+      "baseline_defect_tests": 4,
+      "execution": {
+        "backend": "typescript",
+        "original": "lighting-algebra/tests/test_core.py",
+        "requests": 3832,
+        "entrypoints": [
+          "effects_resolve",
+          "effects_scale"
+        ],
+        "differential_comparisons": 0,
+        "historical_fixtures": [],
+        "literal_dependencies": [],
+        "path_rewrites": 30
+      }
+    },
+    {
+      "module": "lighting-algebra/tests/test_dispatch.py",
+      "equivalent": true,
+      "clean_assertion_tests": 11,
+      "baseline_defect_tests": 2,
+      "execution": {
+        "backend": "typescript",
+        "original": "lighting-algebra/tests/test_dispatch.py",
+        "requests": 90,
+        "entrypoints": [
+          "effects_catalog",
+          "effects_set",
+          "ls_apply",
+          "ls_commit",
+          "ls_dispatch",
+          "ls_plan",
+          "ls_remote_command",
+          "ls_render"
+        ],
+        "differential_comparisons": 0,
+        "historical_fixtures": [],
+        "literal_dependencies": [],
+        "path_rewrites": 30
+      }
+    },
+    {
+      "module": "lighting-algebra/tests/test_effect_pacing.py",
+      "equivalent": true,
+      "clean_assertion_tests": 16,
+      "baseline_defect_tests": 0,
+      "execution": {
+        "backend": "typescript",
+        "original": "lighting-algebra/tests/test_effect_pacing.py",
+        "requests": 117,
+        "entrypoints": [
+          "effects_catalog",
+          "effects_emit",
+          "effects_engine",
+          "effects_engine_tick",
+          "effects_frame_plan"
+        ],
+        "differential_comparisons": 0,
+        "historical_fixtures": [],
+        "literal_dependencies": [],
+        "path_rewrites": 30
+      }
+    },
+    {
+      "module": "lighting-algebra/tests/test_final_regressions.py",
+      "equivalent": true,
+      "clean_assertion_tests": 8,
+      "baseline_defect_tests": 2,
+      "execution": {
+        "backend": "typescript",
+        "original": "lighting-algebra/tests/test_final_regressions.py",
+        "requests": 117,
+        "entrypoints": [
+          "automation.lighting_schedule_lamp_change_detector",
+          "effects_assign",
+          "effects_catalog",
+          "effects_set",
+          "effects_ui_sync",
+          "ls_apply",
+          "ls_commit",
+          "ls_remote_command",
+          "ls_render"
+        ],
+        "differential_comparisons": 0,
+        "historical_fixtures": [],
+        "literal_dependencies": [],
+        "path_rewrites": 30
+      }
+    },
+    {
+      "module": "lighting-algebra/tests/test_integration.py",
+      "equivalent": true,
+      "clean_assertion_tests": 20,
+      "baseline_defect_tests": 0,
+      "execution": {
+        "backend": "typescript",
+        "original": "lighting-algebra/tests/test_integration.py",
+        "requests": 82,
+        "entrypoints": [
+          "effects_catalog",
+          "ls_apply",
+          "ls_remote_command",
+          "ls_render",
+          "ls_switch_plan"
+        ],
+        "differential_comparisons": 0,
+        "historical_fixtures": [],
+        "literal_dependencies": [],
+        "path_rewrites": 30
+      }
+    },
+    {
+      "module": "lighting-algebra/tests/test_native_controls.py",
+      "equivalent": true,
+      "clean_assertion_tests": 9,
+      "baseline_defect_tests": 2,
+      "execution": {
+        "backend": "typescript",
+        "original": "lighting-algebra/tests/test_native_controls.py",
+        "requests": 49,
+        "entrypoints": [
+          "automation.lighting_schedule_lamp_change_detector",
+          "effects_set",
+          "ls_apply",
+          "ls_commit"
+        ],
+        "differential_comparisons": 0,
+        "historical_fixtures": [],
+        "literal_dependencies": [],
+        "path_rewrites": 30
+      }
+    },
+    {
+      "module": "lighting-algebra/tests/test_performance_pipeline.py",
+      "equivalent": true,
+      "clean_assertion_tests": 15,
+      "baseline_defect_tests": 0,
+      "execution": {
+        "backend": "typescript",
+        "original": "lighting-algebra/tests/test_performance_pipeline.py",
+        "requests": 166,
+        "entrypoints": [
+          "automation.lighting_recover_pending_output",
+          "ls_apply",
+          "ls_commit",
+          "ls_plan",
+          "ls_remote_command",
+          "ls_render"
+        ],
+        "differential_comparisons": 0,
+        "historical_fixtures": [],
+        "literal_dependencies": [],
+        "path_rewrites": 30
+      }
+    },
+    {
+      "module": "lighting-algebra/tests/test_remote_cycle.py",
+      "equivalent": true,
+      "clean_assertion_tests": 5,
+      "baseline_defect_tests": 1,
+      "execution": {
+        "backend": "typescript",
+        "original": "lighting-algebra/tests/test_remote_cycle.py",
+        "requests": 48,
+        "entrypoints": [
+          "effects_set",
+          "ls_commit",
+          "ls_plan",
+          "ls_remote_command"
+        ],
+        "differential_comparisons": 0,
+        "historical_fixtures": [],
+        "literal_dependencies": [],
+        "path_rewrites": 30
+      }
+    },
+    {
+      "module": "lighting-algebra/tests/test_remote_transition.py",
+      "equivalent": true,
+      "clean_assertion_tests": 3,
+      "baseline_defect_tests": 1,
+      "execution": {
+        "backend": "typescript",
+        "original": "lighting-algebra/tests/test_remote_transition.py",
+        "requests": 22,
+        "entrypoints": [
+          "automation.lighting_schedule_engine",
+          "effects_catalog",
+          "effects_frame_plan",
+          "effects_set",
+          "ls_apply",
+          "ls_commit",
+          "ls_plan",
+          "ls_remote_command",
+          "ls_render"
+        ],
+        "differential_comparisons": 0,
+        "historical_fixtures": [],
+        "literal_dependencies": [],
+        "path_rewrites": 30
+      }
+    },
+    {
+      "module": "lighting-algebra/tests/test_room_cache.py",
+      "equivalent": true,
+      "clean_assertion_tests": 12,
+      "baseline_defect_tests": 0,
+      "execution": {
+        "backend": "typescript",
+        "original": "lighting-algebra/tests/test_room_cache.py",
+        "requests": 297,
+        "entrypoints": [
+          "effects_catalog",
+          "ls_base",
+          "ls_room_plan"
+        ],
+        "differential_comparisons": 0,
+        "historical_fixtures": [],
+        "literal_dependencies": [],
+        "path_rewrites": 30
+      }
+    },
+    {
+      "module": "lighting-algebra/tests/test_room_wake_baseline.py",
+      "equivalent": true,
+      "clean_assertion_tests": 5,
+      "baseline_defect_tests": 0,
+      "execution": {
+        "backend": "typescript",
+        "original": "lighting-algebra/tests/test_room_wake_baseline.py",
+        "requests": 18,
+        "entrypoints": [
+          "ls_base"
+        ],
+        "differential_comparisons": 0,
+        "historical_fixtures": [],
+        "literal_dependencies": [],
+        "path_rewrites": 30
+      }
+    },
+    {
+      "module": "lighting-algebra/tests/test_state_sequences.py",
+      "equivalent": true,
+      "clean_assertion_tests": 2,
+      "baseline_defect_tests": 1,
+      "execution": {
+        "backend": "typescript",
+        "original": "lighting-algebra/tests/test_state_sequences.py",
+        "requests": 11,
+        "entrypoints": [
+          "effects_resolve",
+          "effects_scale"
+        ],
+        "differential_comparisons": 0,
+        "historical_fixtures": [],
+        "literal_dependencies": [],
+        "path_rewrites": 30
+      }
+    },
+    {
+      "module": "lighting-algebra/tests/test_transport.py",
+      "equivalent": true,
+      "clean_assertion_tests": 14,
+      "baseline_defect_tests": 0,
+      "execution": {
+        "backend": "typescript",
+        "original": "lighting-algebra/tests/test_transport.py",
+        "requests": 97,
+        "entrypoints": [
+          "effects_catalog",
+          "effects_emit",
+          "effects_engine",
+          "effects_engine_tick",
+          "effects_frame_plan"
+        ],
+        "differential_comparisons": 0,
+        "historical_fixtures": [],
+        "literal_dependencies": [],
+        "path_rewrites": 30
+      }
+    },
+    {
+      "module": "smarthome-remote-20261026/test_gestures.py",
+      "equivalent": true,
+      "clean_assertion_tests": 33,
+      "baseline_defect_tests": 0,
+      "execution": {
+        "backend": "typescript",
+        "original": "smarthome-remote-20261026/test_gestures.py",
+        "requests": 144,
+        "entrypoints": [
+          "ls_remote_gesture_bedroom",
+          "ls_remote_gesture_kitchen",
+          "ls_remote_gesture_living_room"
+        ],
+        "differential_comparisons": 33,
+        "historical_fixtures": [],
+        "literal_dependencies": [],
+        "path_rewrites": 30
+      }
+    }
+  ],
+  "supplements": [
+    {
+      "script": "native_gradient.py",
+      "exit_code": 0,
+      "evidence": {
+        "native_ha_frozen_reference_samples": 7059,
+        "profiles": 181,
+        "typescript_scale_matches": true,
+        "typescript_compiled_gradient_matches": true
+      }
+    },
+    {
+      "script": "native_resolution.py",
+      "exit_code": 0,
+      "evidence": {
+        "native_ha_live_resolution_cases": 240,
+        "typescript_matches": true
+      }
+    },
+    {
+      "script": "native_controls.py",
+      "exit_code": 0,
+      "evidence": {
+        "native_ha_live_native_plan_cases": 197,
+        "native_ha_live_ui_plan_cases": 182,
+        "typescript_matches": true
+      }
+    },
+    {
+      "script": "native_drift.py",
+      "exit_code": 0,
+      "evidence": {
+        "historical:lamp_a": {
+          "kind": "effect",
+          "effect": "Candle",
+          "instance": "shared",
+          "updated": 1,
+          "base": 110,
+          "intensity": 110
+        },
+        "historical:light.living_room_yellow_retro_lamp": {
+          "kind": "effect",
+          "effect": "Candle",
+          "instance": "shared",
+          "updated": 1,
+          "base": 110,
+          "intensity": 110
+        },
+        "live:lamp_a": {
+          "kind": "constant",
+          "value": 110,
+          "updated": -1
+        },
+        "live:light.living_room_yellow_retro_lamp": {
+          "kind": "effect",
+          "effect": "Candle",
+          "instance": "shared",
+          "updated": 1,
+          "base": 110,
+          "intensity": 110
+        }
+      }
+    },
+    {
+      "script": "native_bridges.py",
+      "exit_code": 0,
+      "evidence": {
+        "native_ha_bridge_field_cases": 72,
+        "state_context_serialization": true,
+        "dry_run_guard": true
+      }
+    },
+    {
+      "script": "../runtime/automations-native.py",
+      "exit_code": 0,
+      "evidence": {
+        "native_automation_comparisons": 38,
+        "failures": 0
+      }
+    },
+    {
+      "script": "../runtime/grouping-native-schedule.py",
+      "exit_code": 0,
+      "evidence": {
+        "native_full_schedule_comparisons": 40,
+        "failures": 0
+      }
+    },
+    {
+      "script": "../runtime/grouping-native-ui.py",
+      "exit_code": 0,
+      "evidence": {
+        "native_ui_and_range_comparisons": 26,
+        "failures": 0
+      }
+    }
+  ],
+  "bridge_test_exit_code": 0,
+  "omitted_modules": [
+    {
+      "module": "effects-promotion/tests/test_logic.py",
+      "reason": "Older standalone simulator entrypoint has no migrated adapter yet."
+    },
+    {
+      "module": "lighting-algebra/adapters/test_adapters.py",
+      "reason": "Module-level assertions have no supported per-test outcome adapter yet."
+    },
+    {
+      "module": "lighting-algebra/input-processors/tests/test_input_review.py",
+      "reason": "Historical two-version upgrade tests require the separately reported frozen-prefix fixture seam."
+    },
+    {
+      "module": "lighting-algebra/remote/gesture_test.py",
+      "reason": "Replay asserts the gesture script is mode 'restart' with a leading 400 ms delay step; the captured revision does not match, failing 19 of 20 reference tests on the precondition. One genuine behavioral difference ([] != ['left']) is hidden behind it."
+    },
+    {
+      "module": "lighting-algebra/remote/test_remote.py",
+      "reason": "GestureSim.drive asserts CENTER['mode'] == 'single'; the captured lighting_jonathan_s_bedroom_remote_center runs mode 'queued', so all 11 reference tests fail on that precondition. The TypeScript run differs on one test only because module_seams substitutes a harness-authored drive loop that never evaluates the precondition."
+    },
+    {
+      "module": "lighting-algebra/tests/test_gesture_integration.py",
+      "reason": "IntegratedReplay carries the same stale mode 'restart'/400 ms gesture-script precondition; all 5 reference failures are that assert, not lighting behavior."
+    },
+    {
+      "module": "lighting-algebra/tests/test_gesture_native_conditions.py",
+      "reason": "Subclasses IntegratedReplay and inherits the same stale gesture-script precondition; both reference failures are that assert. The inventory additionally classifies this module by filename alone, which overstates its coupling to the reference interpreter."
+    },
+    {
+      "module": "lighting-algebra/tests/test_gradient_cache.py",
+      "reason": "Jinja macro/instrumentation assertions; native_gradient.py independently compares 7059 public-function samples."
+    },
+    {
+      "module": "lighting-algebra/tests/test_harness.py",
+      "reason": "Tests the original interpreter itself, not the migrated domain."
+    },
+    {
+      "module": "lighting-algebra/tests/test_remote_fast.py",
+      "reason": "input-processors/run_gate.py and remote-ranges/run_gate.py explicitly replace old scale-claim assertions with input invariants."
+    },
+    {
+      "module": "lighting-algebra/tests/test_remote_gestures.py",
+      "reason": "The replay's external-action allowlist raises ('Unknown external action blocked', 'input_number.set_value') for all 8 reference failures; the captured revision reaches a service the preserved harness predates."
+    },
+    {
+      "module": "lighting-algebra/tests/test_remote_store.py",
+      "reason": "input-processors/run_gate.py and remote-ranges/run_gate.py explicitly replace old scale-claim assertions with input invariants."
+    },
+    {
+      "module": "smarthome-remote-20261026/test_auto_requests.py",
+      "reason": "Automatic group provisioning is an unfinished candidate, not deployed behavior."
+    },
+    {
+      "module": "smarthome-remote-20261026/test_auto_transport.py",
+      "reason": "Automatic group provisioning is an unfinished candidate, not deployed behavior."
+    },
+    {
+      "module": "smarthome-remote-20261026/test_autogroup_collector.py",
+      "reason": "Automatic group provisioning is an unfinished candidate, not deployed behavior."
+    },
+    {
+      "module": "smarthome-remote-20261026/test_autogroup_planner.py",
+      "reason": "Automatic group provisioning is an unfinished candidate, not deployed behavior."
+    }
+  ],
+  "complete_legacy_coverage": false
+}

@@ -1,0 +1,41 @@
+{
+  "alias": "Lighting \u00b7 Room Remote Input",
+  "mode": "queued",
+  "sequence": [
+    {
+      "condition": "template",
+      "value_template": "{{ not (dry_run | default(false)) }}"
+    },
+    {
+      "event": "smarthome_script",
+      "event_data": {
+        "script": "ls_remote_command",
+        "args": "{% set n=namespace(args={}) %}{% if source is defined %}{% set n.args=dict(n.args,source=source) %}{% endif %}{% if area is defined %}{% set n.args=dict(n.args,area=area) %}{% endif %}{% if command is defined %}{% set n.args=dict(n.args,command=command) %}{% endif %}{% if dry_run is defined %}{% set n.args=dict(n.args,dry_run=dry_run) %}{% endif %}{{ n.args }}"
+      }
+    }
+  ],
+  "fields": {
+    "source": {
+      "selector": {
+        "object": {}
+      }
+    },
+    "area": {
+      "selector": {
+        "object": {}
+      }
+    },
+    "command": {
+      "selector": {
+        "object": {}
+      }
+    },
+    "dry_run": {
+      "selector": {
+        "object": {}
+      }
+    }
+  },
+  "max": 100,
+  "description": "Command-only TypeScript bridge. Dry-run/response queries use local RPC. "
+}

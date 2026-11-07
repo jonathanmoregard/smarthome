@@ -1,0 +1,155 @@
+{%- set T = (as_datetime(test_now) | as_local) if (test_now is defined and test_now) else now() -%}
+{%- set why = reason | default('tick') -%}
+{%- set ovr = test_overrides if (test_overrides is defined and test_overrides is mapping) else state_attr('sensor.ls_overrides', 'overrides') -%}
+{%- set ovr = ovr if ovr is mapping else {} -%}
+{%- set sara = 'mode:sara' in ovr -%}
+{%- set pink = [255, 105, 180] -%}
+{%- set rooms = (label_entities('house_schedule') + label_entities('on_off') + ((label_devices('house_schedule') + label_devices('on_off')) | map('device_entities') | sum(start=[]))) | map('area_id') | select | unique | sort | list -%}
+{%- set blocks = ['day', 'cosy', 'night'] -%}
+{%- set private = label_areas('private_room') -%}
+{%- set midnight = T.replace(hour=0, minute=0, second=0, microsecond=0) -%}
+{%- set ns = namespace(sched={}) -%}
+{%- for sc in ['house'] + rooms -%}
+  {%- set t = namespace(cur=none, cur_ts=0, nxt=none, nxt_ts=0, nxt_f=0, last_fs=0) -%}
+  {%- for off in [-2, -1, 0, 1] -%}
+    {%- set eve = midnight + timedelta(days=off) -%}
+    {%- set wk = eve.weekday() in [4, 5] -%}
+    {%- for b in blocks -%}
+      {%- set src = sc if (sc == 'house' or is_state('input_boolean.ls_' ~ sc ~ '_' ~ b ~ '_own_timing', 'on')) else 'house' -%}
+      {%- set dayb = b == 'day' -%}
+      {%- set wkb = ((eve + timedelta(days=1)).weekday() in [5, 6]) if dayb else wk -%}
+      {%- set st = states('input_datetime.ls_' ~ src ~ '_' ~ b ~ ('_weekend' if wkb else '_start')) -%}
+      {%- if st | regex_match('^\d\d:\d\d') -%}
+        {%- set h = st[0:2] | int -%}
+        {%- set i = eve.replace(hour=h, minute=st[3:5] | int) + timedelta(days=(1 if (dayb or h < 12) else 0)) -%}
+        {%- set its = as_timestamp(i) -%}
+        {%- set f = states('input_number.ls_' ~ src ~ '_' ~ b ~ '_fade') | float(20) * 60 -%}
+        {%- if its <= as_timestamp(T) and its > t.cur_ts -%}{%- set t.cur, t.cur_ts = b, its -%}{%- endif -%}
+        {%- if its > as_timestamp(T) and (t.nxt is none or its < t.nxt_ts) -%}{%- set t.nxt, t.nxt_ts, t.nxt_f = b, its, f -%}{%- endif -%}
+        {%- if its - f <= as_timestamp(T) and its - f > t.last_fs -%}{%- set t.last_fs = its - f -%}{%- endif -%}
+      {%- endif -%}
+    {%- endfor -%}
+  {%- endfor -%}
+  {%- set left = t.nxt_ts - as_timestamp(T) -%}
+  {%- set fading = t.nxt is not none and t.nxt_f > 0 and left < t.nxt_f and t.nxt != t.cur -%}
+  {%- set ns.sched = dict(ns.sched, **{sc: {'cur': t.cur, 'nxt': t.nxt, 'fading': fading, 'p': ((1 - left / t.nxt_f) if fading else 0), 'edge': (as_timestamp(T) - t.cur_ts) < 90, 'last_fs': t.last_fs, 'left': left, 'cur_ts': t.cur_ts}}) -%}
+{%- endfor -%}
+{%- set dimmables = (label_entities('house_schedule') + (label_devices('house_schedule') | map('device_entities') | sum(start=[]))) | select('match', 'light\.') | unique | list -%}
+{%- set plugs = (label_entities('on_off') + (label_devices('on_off') | map('device_entities') | sum(start=[]))) | select('match', '(light|switch)\.') | unique | list -%}
+{%- set only = (lights if lights is list else [lights]) if (lights is defined and lights) else [] -%}
+{%- set out = namespace(cmds={}, dbg=[]) -%}
+{%- for L in (dimmables + plugs) if (not only or L in only) -%}
+  {%- set is_plug = L in plugs -%}
+  {%- set a = area_id(L) -%}
+  {%- set room = a if a in rooms else none -%}
+  {%- set ts = room or 'house' -%}
+  {%- set lsc = room or 'house' -%}
+  {%- set S = ns.sched[ts] -%}
+  {%- set st = namespace(fr=S.cur, to=(S.nxt if S.fading else S.cur), p=S.p, moving=S.fading, edge=S.edge, src='schedule') -%}
+  {%- set orec = ovr.get('block:' ~ ts) -%}
+  {%- set ov = (orec.value | string | lower) if orec is mapping else '' -%}
+  {%- set lrec = ovr.get('light:' ~ L) -%}
+  {%- set srec = ovr.get('mode:sara') if (sara and a not in private) else none -%}
+  {%- set lamp_sara = sara and not (S.fading and srec is mapping and as_timestamp(srec.when, 0) <= S.last_fs) -%}
+  {%- set fo_p = [1, (60 if why == 'tick' else 3) / ([S.left, 1] | max)] | min -%}
+  {%- if lrec is mapping and not (S.fading and as_timestamp(lrec.when, 0) <= S.last_fs) -%}
+    {%- set st.src = 'held' -%}
+  {%- elif lrec is mapping or (orec is mapping and S.fading and as_timestamp(orec.when, 0) <= S.last_fs) -%}
+    {%- set st.fr, st.to, st.p, st.moving, st.edge, st.src = 'lamp', S.nxt, fo_p, true, false, 'fadeout' -%}
+  {%- elif ov in blocks -%}
+    {%- set st.fr, st.to, st.p, st.moving, st.src = ov, ov, 0, false, 'override' -%}
+  {%- elif sara and a not in private and not lamp_sara -%}
+    {%- set st.fr, st.to, st.p, st.moving, st.edge, st.src = 'lamp', S.nxt, fo_p, true, false, 'fadeout' -%}
+  {%- elif room and has_value('input_datetime.ls_' ~ room ~ '_wake') -%}
+    {%- set wts = state_attr('input_datetime.ls_' ~ room ~ '_wake', 'timestamp') | float(0) -%}
+    {%- set D = states('input_number.ls_' ~ room ~ '_wake_fade') | float(37.5) * 60 -%}
+    {%- set e = as_timestamp(T) - wts -%}
+    {%- if 0 <= e < D and S.cur == 'night' and S.cur_ts <= wts -%}
+      {%- set st.fr, st.to, st.p, st.moving, st.src = 'night', 'day', e / D, true, 'wake' -%}
+    {%- elif D <= e < 86400 and 4 <= (as_datetime(wts) | as_local).hour < 11 and S.cur == 'night' and S.cur_ts <= wts and (not S.fading or S.nxt == 'day') -%}
+      {%- set st.fr, st.to, st.p, st.moving, st.edge, st.src = 'day', 'day', 0, false, (e - D) < 90, 'wake' -%}
+    {%- endif -%}
+  {%- endif -%}
+  {%- set send_now = st.src != 'held' and (why != 'tick' or st.moving or st.edge) -%}
+  {%- set obj = L.split('.')[1] -%}
+  {%- if is_plug -%}
+    {%- set blk = st.to if (not st.moving or st.p >= 1) else st.fr -%}
+    {%- set lsc = room if (room and is_state('input_boolean.ls_' ~ room ~ '_' ~ blk ~ '_own_light', 'on')) else 'house' -%}
+    {%- set lj = states('input_text.ls_lamp_' ~ obj ~ '_' ~ blk) | from_json(default={}) -%}
+    {%- set src = ['input_boolean.ls_' ~ lsc ~ '_' ~ blk ~ '_on_off', 'input_boolean.ls_house_' ~ blk ~ '_on_off'] | select('has_value') | first | default(none) -%}
+    {%- set want = (lj.get('on', false) | bool) if lj.get('own', false) else (is_state(src, 'on') if src else none) -%}
+    {%- if send_now and want is not none and not st.moving -%}
+      {%- set svc = 'homeassistant.turn_on' if want else 'homeassistant.turn_off' -%}
+      {%- if not is_state(L, 'on' if svc.endswith('on') else 'off') -%}
+        {%- set key = svc -%}
+        {%- set out.cmds = dict(out.cmds, **{key: {'kind': 'switch', 'service': svc, 'ids': out.cmds.get(key, {}).get('ids', []) + [L]}}) -%}
+      {%- endif -%}
+    {%- endif -%}
+  {%- elif (is_state(L, 'on') or (force_all | default(false))) and send_now -%}
+    {%- set v = namespace(f=none, t=none) -%}
+    {%- for which in ['f', 't'] -%}
+      {%- set blk = st.fr if which == 'f' else st.to -%}
+      {%- set lsc = room if (room and is_state('input_boolean.ls_' ~ room ~ '_' ~ blk ~ '_own_light', 'on')) else 'house' -%}
+      {%- set own = (states('input_text.ls_lamp_' ~ obj ~ '_' ~ blk) | from_json(default={})).get('own', false) -%}
+      {%- set src = L if blk == 'lamp' else (((['light.ls_lamp_' ~ obj ~ '_' ~ blk] if own else []) + ['light.ls_' ~ lsc ~ '_' ~ blk, 'light.ls_house_' ~ blk]) | select('has_value') | first) -%}
+      {%- set s = states[src] -%}
+      {%- set d = {'on': s.state == 'on', 'b': s.attributes.brightness | int(255), 'ct': s.attributes.color_mode == 'color_temp', 'k': s.attributes.color_temp_kelvin | int(3000), 'rgb': (s.attributes.rgb_color or [255, 255, 255]) | list} -%}
+      {%- if lamp_sara and blk in ['day', 'cosy'] and a not in private -%}{%- set d = dict(d, ct=false, rgb=pink) -%}{%- endif -%}
+      {%- if which == 'f' -%}{%- set v.f = d -%}{%- else -%}{%- set v.t = d -%}{%- endif -%}
+    {%- endfor -%}
+    {%- set A, B, p = v.f, v.t, st.p -%}
+    {%- if not st.moving or not A.on -%}
+      {%- set tgt = B -%}
+    {%- elif not B.on -%}
+      {%- set tgt = dict(A, b=[1, (A.b * (1 - p)) | round | int] | max) -%}
+    {%- else -%}
+      {%- set b = (A.b + (B.b - A.b) * p) | round | int -%}
+      {%- if A.ct and B.ct -%}
+        {%- set tgt = {'on': true, 'b': b, 'ct': true, 'k': (A.k + (B.k - A.k) * p) | round | int} -%}
+      {%- else -%}
+        {%- set tgt = {'on': true, 'b': b, 'ct': false, 'rgb': [(A.rgb[0] + (B.rgb[0] - A.rgb[0]) * p) | round | int, (A.rgb[1] + (B.rgb[1] - A.rgb[1]) * p) | round | int, (A.rgb[2] + (B.rgb[2] - A.rgb[2]) * p) | round | int]} -%}
+      {%- endif -%}
+    {%- endif -%}
+    {%- set tr = 60 if (st.moving and why == 'tick') else 3 -%}
+    {%- if not tgt.on -%}
+      {%- set key = 'off|' ~ tr -%}
+      {%- set c = {'kind': 'off', 'transition': tr} -%}
+    {%- elif tgt.ct -%}
+      {%- set key = 'ct|' ~ tgt.b ~ '|' ~ tgt.k ~ '|' ~ tr -%}
+      {%- set c = {'kind': 'ct', 'brightness': [tgt.b, 1] | max, 'kelvin': tgt.k, 'transition': tr} -%}
+    {%- else -%}
+      {%- set key = 'rgb|' ~ tgt.b ~ '|' ~ tgt.rgb | join(',') ~ '|' ~ tr -%}
+      {%- set c = {'kind': 'rgb', 'brightness': [tgt.b, 1] | max, 'rgb': tgt.rgb, 'transition': tr} -%}
+    {%- endif -%}
+    {%- set out.cmds = dict(out.cmds, **{key: dict(c, ids=out.cmds.get(key, {}).get('ids', []) + [L])}) -%}
+  {%- endif -%}
+  {%- set out.dbg = out.dbg + [L ~ ' ' ~ ts ~ '/' ~ lsc ~ ' ' ~ st.src ~ ' ' ~ st.fr ~ '>' ~ st.to ~ ' p=' ~ (st.p | round(2)) ~ ' send=' ~ send_now] -%}
+{%- endfor -%}
+{%- set parts = ['light.kitchen_pendant', 'light.kitchen_spots_1', 'light.kitchen_spots_2'] -%}
+{%- set res = namespace(list=[]) -%}
+{%- for c in out.cmds.values() -%}
+  {%- if parts | reject('in', c.ids) | list | count == 0 -%}
+    {%- set c = dict(c, ids=['light.kitchen_all'] + (c.ids | reject('in', parts) | list)) -%}
+  {%- endif -%}
+  {%- set res.list = res.list + [c] -%}
+{%- endfor -%}
+{%- set skeys = namespace(list=[]) -%}
+{%- if is_state('input_boolean.ls_ovr_next_block_on', 'on') -%}
+  {%- for k, r in ovr.items() if r is mapping -%}
+    {%- set a = (area_id(r.target) if r.kind == 'light' else r.target) -%}
+    {%- set sc = a if a in rooms else 'house' -%}
+    {%- if as_timestamp(r.when, 0) <= ns.sched[sc].last_fs and not ns.sched[sc].fading -%}{%- set skeys.list = skeys.list + [k] -%}{%- endif -%}
+  {%- endfor -%}
+{%- endif -%}
+{%- set mir = namespace(list=[], sched={}) -%}
+{%- for sc in ['house'] + rooms -%}
+  {%- set orec = ovr.get('block:' ~ sc) -%}
+  {%- set ov = (orec.value | string | lower) if orec is mapping else '' -%}
+  {%- set eff = ov if (ov in blocks and ('block:' ~ sc) not in skeys.list) else (ns.sched[sc].cur or 'night') -%}
+  {%- set mir.sched = dict(mir.sched, **{sc: ns.sched[sc].cur}) -%}
+  {%- set ent = 'input_select.ls_' ~ sc ~ '_override' -%}
+  {%- if states[ent] is not none and states(ent) != (eff | capitalize) -%}{%- set mir.list = mir.list + [{'entity': ent, 'option': eff | capitalize}] -%}{%- endif -%}
+{%- endfor -%}
+{%- set sara_on = sara and 'mode:sara' not in skeys.list -%}
+{%- set sara_mir = ('on' if sara_on else 'off') if (states['input_boolean.ls_sara_mode_mirror'] is not none and states('input_boolean.ls_sara_mode_mirror') != ('on' if sara_on else 'off')) else none -%}
+{{ dict({'cmds': res.list, 'stale_keys': skeys.list, 'sched': mir.sched, 'mirror': mir.list, 'sara_mirror': sara_mir}, **({'dbg': out.dbg} if (debug is defined and debug) else {})) }}

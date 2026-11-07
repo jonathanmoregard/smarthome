@@ -1,0 +1,11 @@
+{# One logical input stream per room; each source keeps a bounded snapshot.
+   The most recent snapshot includes preceding inputs from the room's other
+   remotes, so alternating devices cannot drop or apply a click twice. #}
+{% macro latest_remote_key(records,room) -%}
+ {% set pick=namespace(key='',stamp=-1) %}
+ {% for key,r in records|dictsort if r is mapping and r.get('scope')=='room' and r.get('target')==room and (r.get('kind')=='input' or (r.get('kind')=='channels' and r.get('via')=='remote')) %}
+  {% set stamp=as_timestamp(r.get('when'),0) %}
+  {% if stamp>=pick.stamp %}{% set pick.key=key %}{% set pick.stamp=stamp %}{% endif %}
+ {% endfor %}
+ {{- pick.key|to_json -}}
+{%- endmacro %}

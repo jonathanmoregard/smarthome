@@ -1,0 +1,102 @@
+{
+  "alias": "Lighting \u00b7 Pure Plan",
+  "mode": "parallel",
+  "sequence": [
+    {
+      "variables": {
+        "overrides": "{{ test_overrides if test_overrides|default(none) is mapping else state_attr('sensor.ls_overrides','overrides') or {} }}",
+        "revision": "{{ states.sensor.ls_overrides.last_updated.isoformat() }}",
+        "plan_order": "{{ as_timestamp(now()) }}"
+      }
+    },
+    {
+      "action": "script.ls_base",
+      "data": {
+        "overrides": "{{ overrides }}",
+        "test_now": "{{ test_now|default(none) }}",
+        "reason": "{{ reason|default('config') }}",
+        "room_only": "{{ room|default('') }}"
+      },
+      "response_variable": "baseline"
+    },
+    {
+      "action": "script.effects_catalog",
+      "response_variable": "catalog"
+    },
+    {
+      "variables": {
+        "active": "{{ dict(overrides.items()|rejectattr(0,'in',baseline.schedule.stale_keys)|list) }}",
+        "warm_end": "{{ state_attr('light.candle_test_rgb_warm_end','rgb_color') or [255,126,0] }}"
+      }
+    },
+    {
+      "action": "script.effects_gradient_plan",
+      "data": {
+        "base": "{{ baseline.targets }}",
+        "warm_end": "{{ warm_end }}",
+        "cached": "{{ state_attr('sensor.effects_controller','gradients') or {} }}"
+      },
+      "response_variable": "compiled"
+    },
+    {
+      "action": "script.effects_resolve",
+      "data": {
+        "base": "{{ baseline.targets }}",
+        "overrides": "{{ active }}",
+        "catalog": "{{ catalog }}",
+        "sara": "{{ 'mode:sara' in active }}",
+        "private": "{{ label_areas('private_room') }}",
+        "power": "{{ state_attr('sensor.ls_overrides','power') or {} }}",
+        "warm_end": "{{ warm_end }}",
+        "gradients": "{{ compiled.gradients }}"
+      },
+      "response_variable": "resolved"
+    },
+    {
+      "action": "script.ls_switch_plan",
+      "data": {
+        "targets": "{{ resolved.targets }}",
+        "ranges": "{{ state_attr('sensor.ls_overrides','switch_ranges') or {} }}",
+        "defaults": "{{ state_attr('sensor.ls_overrides','range_defaults') or {'bright':[90,100],'cosy':[30,60]} }}"
+      },
+      "response_variable": "switch_plan"
+    },
+    {
+      "variables": {
+        "plan": "{% set wanted='on' if 'mode:sara' in active else 'off' %}{{ dict(baseline.schedule,base=baseline.targets,resolved=resolved,gradients=compiled.gradients,switches=switch_plan.switches,revision=revision,plan_order=plan_order,remote=(reason|default('config')=='remote'),sara_mirror=(wanted if states('input_boolean.ls_sara_mode_mirror')!=wanted else none)) }}"
+      }
+    },
+    {
+      "variables": {
+        "result": "{{ {'plan':plan} }}"
+      }
+    },
+    {
+      "stop": "Return result",
+      "response_variable": "result"
+    }
+  ],
+  "max": 50,
+  "fields": {
+    "room": {
+      "selector": {
+        "object": {}
+      }
+    },
+    "reason": {
+      "selector": {
+        "object": {}
+      }
+    },
+    "test_now": {
+      "selector": {
+        "object": {}
+      }
+    },
+    "test_overrides": {
+      "selector": {
+        "object": {}
+      }
+    }
+  }
+}

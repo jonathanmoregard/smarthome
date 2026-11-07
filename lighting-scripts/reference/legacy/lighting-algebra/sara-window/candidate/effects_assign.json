@@ -1,0 +1,167 @@
+{
+  "alias": "Effects \u00b7 Assign channel ownership",
+  "mode": "queued",
+  "sequence": [
+    {
+      "if": [
+        {
+          "condition": "template",
+          "value_template": "{{ revision!=states.sensor.ls_overrides.last_updated.isoformat() }}"
+        }
+      ],
+      "then": [
+        {
+          "variables": {
+            "result": "{{ {'generation':state_attr('sensor.ls_effects_runtime','generation')} }}"
+          }
+        },
+        {
+          "stop": "Return result",
+          "response_variable": "result"
+        }
+      ]
+    },
+    {
+      "variables": {
+        "rev": "{{ revision }}",
+        "old": "{{ state_attr('sensor.ls_effects_runtime','assignments') or {} }}",
+        "old_targets": "{{ state_attr('sensor.ls_effects_runtime','targets') or {} }}",
+        "changed": "{{ targets != (state_attr('sensor.ls_effects_runtime','targets') or {}) or revision != state_attr('sensor.ls_effects_runtime','revision') or invalidate|default([])|count>0 }}",
+        "generation": "{{ state_attr('sensor.ls_effects_runtime','generation') }}",
+        "plan_order": "{{ plan_order|default(state_attr('sensor.ls_effects_runtime','plan_order') or 0) }}"
+      }
+    },
+    {
+      "if": [
+        {
+          "condition": "template",
+          "value_template": "{{ changed }}"
+        }
+      ],
+      "then": [
+        {
+          "if": [
+            {
+              "condition": "template",
+              "value_template": "{{ assignments|count==0 }}"
+            }
+          ],
+          "then": [
+            {
+              "action": "script.turn_off",
+              "target": {
+                "entity_id": "script.effects_engine"
+              }
+            }
+          ]
+        },
+        {
+          "variables": {
+            "generation": "{{ now().isoformat() }}"
+          }
+        }
+      ]
+    },
+    {
+      "if": [
+        {
+          "condition": "template",
+          "value_template": "{{ changed or plan_order>(state_attr('sensor.ls_effects_runtime','plan_order') or 0) }}"
+        }
+      ],
+      "then": [
+        {
+          "action": "variable.update_sensor",
+          "target": {
+            "entity_id": "sensor.ls_effects_runtime"
+          },
+          "data": {
+            "value": "{{ generation }}",
+            "replace_attributes": false,
+            "attributes": "\n{% set applied=state_attr('sensor.ls_effects_runtime','applied') %}\n{% set applied=state_attr('sensor.ls_effects_runtime','targets') or {} if applied is none else applied %}\n{% set applied=dict(applied.items()|rejectattr(0,'in',invalidate|default([]))|list) %}\n{{ {'targets':targets,'assignments':assignments,'applied':applied,'revision':revision,'generation':generation,'plan_order':plan_order}|to_json|from_json }}"
+          }
+        }
+      ]
+    },
+    {
+      "if": [
+        {
+          "condition": "template",
+          "value_template": "{{ changed }}"
+        }
+      ],
+      "then": [
+        {
+          "action": "script.effects_catalog",
+          "response_variable": "catalog"
+        },
+        {
+          "variables": {
+            "native_stops": "{% set n=namespace(commands=[]) %}\n{% for L,t in targets.items() if not t.is_room %}\n {% set stop=namespace(needed=old.get(L,{}).get('effect') in ['Breathe','Colour loop']) %}\n {% for channel in ['brightness','color'] %}\n  {% if t[channel].kind=='effect' and t.owners[channel].startswith('channels:native:') and t[channel].updated!=old_targets.get(L,{}).get(channel,{}).get('updated') %}{% set stop.needed=true %}{% endif %}\n {% endfor %}\n {% if stop.needed %}{% for E in catalog.members.get(L,[]) if is_state(E,'on') %}{% for effect in ['stop_colorloop','stop_effect'] %}\n  {% set n.commands=n.commands+[{'topic':catalog.topics[E],'payload':{'effect':effect},'members':[E],'owners':[L],'group':false}] %}\n {% endfor %}{% endfor %}{% endif %}\n{% endfor %}{{ n.commands }}"
+          }
+        },
+        {
+          "action": "script.effects_emit",
+          "data": {
+            "commands": "{{ native_stops }}",
+            "revision": "{{ revision }}",
+            "generation": "{{ generation }}"
+          }
+        }
+      ]
+    },
+    {
+      "if": [
+        {
+          "condition": "template",
+          "value_template": "{{ assignments|count>0 }}"
+        }
+      ],
+      "then": [
+        {
+          "action": "script.turn_on",
+          "target": {
+            "entity_id": "script.effects_engine"
+          }
+        }
+      ]
+    },
+    {
+      "variables": {
+        "result": "{{ {'generation':state_attr('sensor.ls_effects_runtime','generation')} }}"
+      }
+    },
+    {
+      "stop": "Return result",
+      "response_variable": "result"
+    }
+  ],
+  "max": 50,
+  "fields": {
+    "targets": {
+      "selector": {
+        "object": {}
+      }
+    },
+    "assignments": {
+      "selector": {
+        "object": {}
+      }
+    },
+    "revision": {
+      "selector": {
+        "object": {}
+      }
+    },
+    "invalidate": {
+      "selector": {
+        "object": {}
+      }
+    },
+    "plan_order": {
+      "selector": {
+        "object": {}
+      }
+    }
+  }
+}

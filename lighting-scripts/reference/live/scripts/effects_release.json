@@ -1,0 +1,32 @@
+{
+  "success": true,
+  "action": "get",
+  "script_id": "effects_release",
+  "config": {
+    "alias": "Effects · Release targets",
+    "description": "",
+    "mode": "queued",
+    "sequence": [
+      {
+        "variables": {
+          "assignments": "{% set n=namespace(a={}) %}{% for L,a in (state_attr('sensor.effects_controller','assignments') or {}).items() if L not in targets %}{% set n.a=dict(n.a,**{L:a}) %}{% endfor %}{{ n.a }}"
+        }
+      },
+      {
+        "action": "script.effects_assign",
+        "data": {
+          "assignments": "{{ assignments }}"
+        }
+      }
+    ],
+    "max": 50,
+    "fields": {
+      "targets": {
+        "selector": {
+          "object": {}
+        }
+      }
+    }
+  },
+  "config_hash": "a13b81bcea953b45"
+}

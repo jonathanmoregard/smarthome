@@ -1,0 +1,599 @@
+{
+  "success": true,
+  "action": "get",
+  "script_id": "effects_catalog",
+  "config": {
+    "alias": "Effects · Catalogue",
+    "description": "Single registration point for effects and transport endpoints. Renderers return a payload; the central engine owns all sending and timing.",
+    "mode": "parallel",
+    "sequence": [
+      {
+        "variables": {
+          "result": {
+            "effects": {
+              "Candle": {
+                "renderer": "script.effect_candle_frame",
+                "channels": [
+                  "brightness",
+                  "color"
+                ]
+              },
+              "Breathe": {
+                "renderer": "script.effect_breathe_frame",
+                "channels": [
+                  "brightness"
+                ]
+              },
+              "Colour loop": {
+                "renderer": "script.effect_colour_loop_frame",
+                "channels": [
+                  "color"
+                ]
+              }
+            },
+            "members": {
+              "light.jonathan_bedroom_floor_lamp": [
+                "light.jonathan_bedroom_floor_lamp"
+              ],
+              "light.upper_hall_stair_lamp": [
+                "light.upper_hall_stair_lamp"
+              ],
+              "light.upper_hall_ceiling": [
+                "light.upper_hall_ceiling"
+              ],
+              "light.living_room_desk_ceiling": [
+                "light.living_room_desk_ceiling"
+              ],
+              "light.living_room_hall_ceiling": [
+                "light.living_room_hall_ceiling"
+              ],
+              "light.living_room_vicky_desk_lamp": [
+                "light.living_room_vicky_desk_lamp"
+              ],
+              "light.living_room_table_lamp": [
+                "light.living_room_table_lamp"
+              ],
+              "light.living_room_window_lamp": [
+                "light.living_room_window_lamp"
+              ],
+              "light.living_room_yellow_retro_lamp": [
+                "light.living_room_yellow_retro_lamp"
+              ],
+              "light.kitchen_pendant": [
+                "light.kitchen_pendant_bulb_1",
+                "light.kitchen_pendant_bulb_2",
+                "light.kitchen_pendant_bulb_3"
+              ],
+              "light.kitchen_spots_1": [
+                "light.kitchen_spots_1_bulb_1",
+                "light.kitchen_spots_1_bulb_2",
+                "light.kitchen_spots_1_bulb_3"
+              ],
+              "light.kitchen_spots_2": [
+                "light.kitchen_spots_2_bulb_1",
+                "light.kitchen_spots_2_bulb_2",
+                "light.kitchen_spots_2_bulb_3"
+              ],
+              "light.meditation_floor_lamp": [
+                "light.meditation_floor_lamp_bulb_1",
+                "light.meditation_floor_lamp_bulb_2"
+              ],
+              "light.jonathan_bedroom_ceiling": [
+                "light.jonathan_bedroom_ceiling"
+              ],
+              "light.meditation_ceiling": [
+                "light.meditation_ceiling"
+              ],
+              "light.living_room_sofa_table_ceiling": [
+                "light.living_room_sofa_table_ceiling"
+              ]
+            },
+            "groups": {
+              "light.home": [
+                "light.jonathan_bedroom_floor_lamp",
+                "light.upper_hall_stair_lamp",
+                "light.upper_hall_ceiling",
+                "light.living_room_desk_ceiling",
+                "light.living_room_hall_ceiling",
+                "light.living_room_vicky_desk_lamp",
+                "light.living_room_table_lamp",
+                "light.living_room_window_lamp",
+                "light.living_room_yellow_retro_lamp",
+                "light.kitchen_pendant",
+                "light.kitchen_spots_1",
+                "light.kitchen_spots_2",
+                "light.meditation_floor_lamp",
+                "light.jonathan_bedroom_ceiling",
+                "light.meditation_ceiling",
+                "light.living_room_sofa_table_ceiling"
+              ],
+              "light.kitchen_all": [
+                "light.kitchen_pendant",
+                "light.kitchen_spots_1",
+                "light.kitchen_spots_2"
+              ],
+              "light.living_room": [
+                "light.living_room_desk_ceiling",
+                "light.living_room_hall_ceiling",
+                "light.living_room_vicky_desk_lamp",
+                "light.living_room_table_lamp",
+                "light.living_room_window_lamp",
+                "light.living_room_yellow_retro_lamp",
+                "light.living_room_sofa_table_ceiling"
+              ],
+              "light.upper_hall": [
+                "light.upper_hall_stair_lamp",
+                "light.upper_hall_ceiling"
+              ],
+              "light.jonathan_bedroom": [
+                "light.jonathan_bedroom_floor_lamp",
+                "light.jonathan_bedroom_ceiling"
+              ],
+              "light.meditation_mys_all": [
+                "light.meditation_floor_lamp",
+                "light.meditation_ceiling"
+              ]
+            },
+            "topics": {
+              "light.kitchen_pendant_bulb_1": "zigbee2mqtt/0xa4c138e778a7b45f/set",
+              "light.kitchen_pendant_bulb_2": "zigbee2mqtt/0xa4c1389a579ab983/set",
+              "light.kitchen_pendant_bulb_3": "zigbee2mqtt/0xa4c1389f87b76e60/set",
+              "light.kitchen_spots_1_bulb_1": "zigbee2mqtt/0xa4c1381f885b082f/set",
+              "light.kitchen_spots_1_bulb_2": "zigbee2mqtt/0xa4c1387e4cfba78d/set",
+              "light.kitchen_spots_1_bulb_3": "zigbee2mqtt/0xa4c138a884038127/set",
+              "light.kitchen_spots_2_bulb_1": "zigbee2mqtt/0xa4c1386736786442/set",
+              "light.kitchen_spots_2_bulb_2": "zigbee2mqtt/0xa4c138a50ae5ba5a/set",
+              "light.kitchen_spots_2_bulb_3": "zigbee2mqtt/0xa4c1381a2f63601c/set",
+              "light.meditation_floor_lamp_bulb_1": "zigbee2mqtt/Mys golvlampa 1/set",
+              "light.meditation_floor_lamp_bulb_2": "zigbee2mqtt/Mys golvlampa 2/set",
+              "light.meditation_ceiling": "zigbee2mqtt/0xa4c138eec10a5f95/set",
+              "light.jonathan_bedroom_ceiling": "zigbee2mqtt/0xa4c1387f3e38e505/set",
+              "light.jonathan_bedroom_floor_lamp": "zigbee2mqtt/0xa4c13889ddf1c22e/set",
+              "light.living_room_table_lamp": "zigbee2mqtt/0xa4c138502d6c44cd/set",
+              "light.living_room_desk_ceiling": "zigbee2mqtt/0xa4c13836b344b302/set",
+              "light.living_room_hall_ceiling": "zigbee2mqtt/0xa4c13850c80ed98f/set",
+              "light.living_room_sofa_table_ceiling": "zigbee2mqtt/0xa4c138292a2d7f60/set",
+              "light.living_room_vicky_desk_lamp": "zigbee2mqtt/0x7cc6b6fffe3cef1c/set",
+              "light.living_room_window_lamp": "zigbee2mqtt/0xa4c13825783eff26/set",
+              "light.living_room_yellow_retro_lamp": "zigbee2mqtt/0xa4c1386c73f1db49/set",
+              "light.upper_hall_ceiling": "zigbee2mqtt/0xa4c138f013c2624e/set",
+              "light.upper_hall_stair_lamp": "zigbee2mqtt/0xa4c138b95e526424/set"
+            },
+            "budget": 5,
+            "multicast": [
+              {
+                "id": "fx_candle_cross_a",
+                "topic": "zigbee2mqtt/fx_candle_cross_a/set",
+                "lamps": [
+                  "light.living_room_hall_ceiling",
+                  "light.living_room_window_lamp",
+                  "light.meditation_floor_lamp",
+                  "light.kitchen_pendant"
+                ],
+                "members": [
+                  "light.kitchen_pendant_bulb_1",
+                  "light.kitchen_pendant_bulb_2",
+                  "light.kitchen_pendant_bulb_3",
+                  "light.living_room_hall_ceiling",
+                  "light.living_room_window_lamp",
+                  "light.meditation_floor_lamp_bulb_1",
+                  "light.meditation_floor_lamp_bulb_2"
+                ],
+                "verified": true,
+                "member_topics": {
+                  "light.kitchen_pendant_bulb_1": "zigbee2mqtt/0xa4c138e778a7b45f/set",
+                  "light.kitchen_pendant_bulb_2": "zigbee2mqtt/0xa4c1389a579ab983/set",
+                  "light.kitchen_pendant_bulb_3": "zigbee2mqtt/0xa4c1389f87b76e60/set",
+                  "light.living_room_hall_ceiling": "zigbee2mqtt/0xa4c13850c80ed98f/set",
+                  "light.living_room_window_lamp": "zigbee2mqtt/0xa4c13825783eff26/set",
+                  "light.meditation_floor_lamp_bulb_1": "zigbee2mqtt/Mys golvlampa 1/set",
+                  "light.meditation_floor_lamp_bulb_2": "zigbee2mqtt/Mys golvlampa 2/set"
+                },
+                "phase_cohort": "fx_candle_cross_a",
+                "devices": [
+                  "0xa4c138e778a7b45f",
+                  "0xa4c1389a579ab983",
+                  "0xa4c1389f87b76e60",
+                  "0xa4c13850c80ed98f",
+                  "0xa4c13825783eff26",
+                  "Mys golvlampa 1",
+                  "Mys golvlampa 2"
+                ],
+                "desired_members": [
+                  "light.kitchen_pendant_bulb_1",
+                  "light.kitchen_pendant_bulb_2",
+                  "light.kitchen_pendant_bulb_3",
+                  "light.living_room_hall_ceiling",
+                  "light.living_room_window_lamp",
+                  "light.meditation_floor_lamp_bulb_1",
+                  "light.meditation_floor_lamp_bulb_2"
+                ],
+                "pending_members": [],
+                "zigbee_id": 1001
+              },
+              {
+                "id": "fx_candle_cross_b",
+                "topic": "zigbee2mqtt/fx_candle_cross_b/set",
+                "lamps": [
+                  "light.living_room_desk_ceiling",
+                  "light.living_room_sofa_table_ceiling",
+                  "light.meditation_ceiling",
+                  "light.kitchen_spots_1"
+                ],
+                "members": [
+                  "light.kitchen_spots_1_bulb_1",
+                  "light.kitchen_spots_1_bulb_2",
+                  "light.kitchen_spots_1_bulb_3",
+                  "light.living_room_desk_ceiling",
+                  "light.living_room_sofa_table_ceiling"
+                ],
+                "verified": true,
+                "member_topics": {
+                  "light.kitchen_spots_1_bulb_1": "zigbee2mqtt/0xa4c1381f885b082f/set",
+                  "light.kitchen_spots_1_bulb_2": "zigbee2mqtt/0xa4c1387e4cfba78d/set",
+                  "light.kitchen_spots_1_bulb_3": "zigbee2mqtt/0xa4c138a884038127/set",
+                  "light.living_room_desk_ceiling": "zigbee2mqtt/0xa4c13836b344b302/set",
+                  "light.living_room_sofa_table_ceiling": "zigbee2mqtt/0xa4c138292a2d7f60/set",
+                  "light.meditation_ceiling": "zigbee2mqtt/0xa4c138eec10a5f95/set"
+                },
+                "phase_cohort": "fx_candle_cross_b",
+                "devices": [
+                  "0xa4c1381f885b082f",
+                  "0xa4c1387e4cfba78d",
+                  "0xa4c138a884038127",
+                  "0xa4c13836b344b302",
+                  "0xa4c138292a2d7f60",
+                  "0xa4c138eec10a5f95"
+                ],
+                "desired_members": [
+                  "light.kitchen_spots_1_bulb_1",
+                  "light.kitchen_spots_1_bulb_2",
+                  "light.kitchen_spots_1_bulb_3",
+                  "light.living_room_desk_ceiling",
+                  "light.living_room_sofa_table_ceiling",
+                  "light.meditation_ceiling"
+                ],
+                "pending_members": [
+                  "light.meditation_ceiling"
+                ],
+                "zigbee_id": 1002
+              },
+              {
+                "id": "fx_candle_cross_c",
+                "topic": "zigbee2mqtt/fx_candle_cross_c/set",
+                "lamps": [
+                  "light.living_room_yellow_retro_lamp",
+                  "light.kitchen_spots_2",
+                  "light.upper_hall_stair_lamp"
+                ],
+                "members": [
+                  "light.kitchen_spots_2_bulb_1",
+                  "light.kitchen_spots_2_bulb_2",
+                  "light.kitchen_spots_2_bulb_3",
+                  "light.living_room_yellow_retro_lamp"
+                ],
+                "verified": true,
+                "member_topics": {
+                  "light.kitchen_spots_2_bulb_1": "zigbee2mqtt/0xa4c1386736786442/set",
+                  "light.kitchen_spots_2_bulb_2": "zigbee2mqtt/0xa4c138a50ae5ba5a/set",
+                  "light.kitchen_spots_2_bulb_3": "zigbee2mqtt/0xa4c1381a2f63601c/set",
+                  "light.living_room_yellow_retro_lamp": "zigbee2mqtt/0xa4c1386c73f1db49/set",
+                  "light.upper_hall_stair_lamp": "zigbee2mqtt/0xa4c138b95e526424/set"
+                },
+                "phase_cohort": "fx_candle_cross_c",
+                "devices": [
+                  "0xa4c1386736786442",
+                  "0xa4c138a50ae5ba5a",
+                  "0xa4c1381a2f63601c",
+                  "0xa4c1386c73f1db49",
+                  "0xa4c138b95e526424"
+                ],
+                "desired_members": [
+                  "light.kitchen_spots_2_bulb_1",
+                  "light.kitchen_spots_2_bulb_2",
+                  "light.kitchen_spots_2_bulb_3",
+                  "light.living_room_yellow_retro_lamp",
+                  "light.upper_hall_stair_lamp"
+                ],
+                "pending_members": [
+                  "light.upper_hall_stair_lamp"
+                ],
+                "zigbee_id": 1003
+              },
+              {
+                "id": "fx_candle_cross_d",
+                "topic": "zigbee2mqtt/fx_candle_cross_d/set",
+                "lamps": [
+                  "light.living_room_vicky_desk_lamp",
+                  "light.upper_hall_ceiling"
+                ],
+                "members": [
+                  "light.living_room_vicky_desk_lamp"
+                ],
+                "verified": true,
+                "member_topics": {
+                  "light.living_room_vicky_desk_lamp": "zigbee2mqtt/0x7cc6b6fffe3cef1c/set",
+                  "light.upper_hall_ceiling": "zigbee2mqtt/0xa4c138f013c2624e/set"
+                },
+                "phase_cohort": "fx_candle_cross_d",
+                "devices": [
+                  "0x7cc6b6fffe3cef1c",
+                  "0xa4c138f013c2624e"
+                ],
+                "desired_members": [
+                  "light.living_room_vicky_desk_lamp",
+                  "light.upper_hall_ceiling"
+                ],
+                "pending_members": [
+                  "light.upper_hall_ceiling"
+                ],
+                "zigbee_id": 1004
+              },
+              {
+                "id": "fx_lamp_kitchen_pendant",
+                "topic": "zigbee2mqtt/kitchen/pendant/set",
+                "lamps": [
+                  "light.kitchen_pendant"
+                ],
+                "members": [
+                  "light.kitchen_pendant_bulb_1",
+                  "light.kitchen_pendant_bulb_2",
+                  "light.kitchen_pendant_bulb_3"
+                ],
+                "verified": true,
+                "member_topics": {
+                  "light.kitchen_pendant_bulb_1": "zigbee2mqtt/0xa4c138e778a7b45f/set",
+                  "light.kitchen_pendant_bulb_2": "zigbee2mqtt/0xa4c1389a579ab983/set",
+                  "light.kitchen_pendant_bulb_3": "zigbee2mqtt/0xa4c1389f87b76e60/set"
+                },
+                "phase_cohort": "fx_candle_cross_a",
+                "devices": [
+                  "0xa4c138e778a7b45f",
+                  "0xa4c1389a579ab983",
+                  "0xa4c1389f87b76e60"
+                ],
+                "zigbee_id": 1
+              },
+              {
+                "id": "fx_lamp_kitchen_spots_1",
+                "topic": "zigbee2mqtt/kitchen/spots-1/set",
+                "lamps": [
+                  "light.kitchen_spots_1"
+                ],
+                "members": [
+                  "light.kitchen_spots_1_bulb_1",
+                  "light.kitchen_spots_1_bulb_2",
+                  "light.kitchen_spots_1_bulb_3"
+                ],
+                "verified": true,
+                "member_topics": {
+                  "light.kitchen_spots_1_bulb_1": "zigbee2mqtt/0xa4c1381f885b082f/set",
+                  "light.kitchen_spots_1_bulb_2": "zigbee2mqtt/0xa4c1387e4cfba78d/set",
+                  "light.kitchen_spots_1_bulb_3": "zigbee2mqtt/0xa4c138a884038127/set"
+                },
+                "phase_cohort": "fx_candle_cross_b",
+                "devices": [
+                  "0xa4c1381f885b082f",
+                  "0xa4c1387e4cfba78d",
+                  "0xa4c138a884038127"
+                ],
+                "zigbee_id": 2
+              },
+              {
+                "id": "fx_lamp_kitchen_spots_2",
+                "topic": "zigbee2mqtt/kitchen/spots-2/set",
+                "lamps": [
+                  "light.kitchen_spots_2"
+                ],
+                "members": [
+                  "light.kitchen_spots_2_bulb_1",
+                  "light.kitchen_spots_2_bulb_2",
+                  "light.kitchen_spots_2_bulb_3"
+                ],
+                "verified": true,
+                "member_topics": {
+                  "light.kitchen_spots_2_bulb_1": "zigbee2mqtt/0xa4c1386736786442/set",
+                  "light.kitchen_spots_2_bulb_2": "zigbee2mqtt/0xa4c138a50ae5ba5a/set",
+                  "light.kitchen_spots_2_bulb_3": "zigbee2mqtt/0xa4c1381a2f63601c/set"
+                },
+                "phase_cohort": "fx_candle_cross_c",
+                "devices": [
+                  "0xa4c1386736786442",
+                  "0xa4c138a50ae5ba5a",
+                  "0xa4c1381a2f63601c"
+                ],
+                "zigbee_id": 3
+              },
+              {
+                "id": "fx_lamp_meditation_floor_lamp",
+                "topic": "zigbee2mqtt/Mys golvlampa/set",
+                "lamps": [
+                  "light.meditation_floor_lamp"
+                ],
+                "members": [
+                  "light.meditation_floor_lamp_bulb_1",
+                  "light.meditation_floor_lamp_bulb_2"
+                ],
+                "verified": true,
+                "member_topics": {
+                  "light.meditation_floor_lamp_bulb_1": "zigbee2mqtt/Mys golvlampa 1/set",
+                  "light.meditation_floor_lamp_bulb_2": "zigbee2mqtt/Mys golvlampa 2/set"
+                },
+                "phase_cohort": "fx_candle_cross_a",
+                "devices": [
+                  "Mys golvlampa 1",
+                  "Mys golvlampa 2"
+                ],
+                "zigbee_id": 5
+              },
+              {
+                "id": "room_kitchen",
+                "topic": "zigbee2mqtt/kitchen/all/set",
+                "lamps": [
+                  "light.kitchen_pendant",
+                  "light.kitchen_spots_1",
+                  "light.kitchen_spots_2"
+                ],
+                "members": [
+                  "light.kitchen_pendant_bulb_1",
+                  "light.kitchen_pendant_bulb_2",
+                  "light.kitchen_pendant_bulb_3",
+                  "light.kitchen_spots_1_bulb_1",
+                  "light.kitchen_spots_1_bulb_2",
+                  "light.kitchen_spots_1_bulb_3",
+                  "light.kitchen_spots_2_bulb_1",
+                  "light.kitchen_spots_2_bulb_2",
+                  "light.kitchen_spots_2_bulb_3"
+                ],
+                "verified": true,
+                "member_topics": {
+                  "light.kitchen_pendant_bulb_1": "zigbee2mqtt/0xa4c138e778a7b45f/set",
+                  "light.kitchen_pendant_bulb_2": "zigbee2mqtt/0xa4c1389a579ab983/set",
+                  "light.kitchen_pendant_bulb_3": "zigbee2mqtt/0xa4c1389f87b76e60/set",
+                  "light.kitchen_spots_1_bulb_1": "zigbee2mqtt/0xa4c1381f885b082f/set",
+                  "light.kitchen_spots_1_bulb_2": "zigbee2mqtt/0xa4c1387e4cfba78d/set",
+                  "light.kitchen_spots_1_bulb_3": "zigbee2mqtt/0xa4c138a884038127/set",
+                  "light.kitchen_spots_2_bulb_1": "zigbee2mqtt/0xa4c1386736786442/set",
+                  "light.kitchen_spots_2_bulb_2": "zigbee2mqtt/0xa4c138a50ae5ba5a/set",
+                  "light.kitchen_spots_2_bulb_3": "zigbee2mqtt/0xa4c1381a2f63601c/set"
+                },
+                "devices": [
+                  "0xa4c138e778a7b45f",
+                  "0xa4c1389a579ab983",
+                  "0xa4c1389f87b76e60",
+                  "0xa4c1381f885b082f",
+                  "0xa4c1387e4cfba78d",
+                  "0xa4c138a884038127",
+                  "0xa4c1386736786442",
+                  "0xa4c138a50ae5ba5a",
+                  "0xa4c1381a2f63601c"
+                ],
+                "zigbee_id": 4
+              },
+              {
+                "id": "room_bedroom",
+                "topic": "zigbee2mqtt/ls_room_bedroom/set",
+                "lamps": [
+                  "light.jonathan_bedroom_floor_lamp",
+                  "light.jonathan_bedroom_ceiling"
+                ],
+                "members": [
+                  "light.jonathan_bedroom_ceiling",
+                  "light.jonathan_bedroom_floor_lamp"
+                ],
+                "verified": true,
+                "member_topics": {
+                  "light.jonathan_bedroom_floor_lamp": "zigbee2mqtt/0xa4c13889ddf1c22e/set",
+                  "light.jonathan_bedroom_ceiling": "zigbee2mqtt/0xa4c1387f3e38e505/set"
+                },
+                "devices": [
+                  "0xa4c13889ddf1c22e",
+                  "0xa4c1387f3e38e505"
+                ],
+                "zigbee_id": 2001
+              },
+              {
+                "id": "room_living_room",
+                "topic": "zigbee2mqtt/ls_room_living_room/set",
+                "lamps": [
+                  "light.living_room_desk_ceiling",
+                  "light.living_room_hall_ceiling",
+                  "light.living_room_vicky_desk_lamp",
+                  "light.living_room_table_lamp",
+                  "light.living_room_window_lamp",
+                  "light.living_room_yellow_retro_lamp",
+                  "light.living_room_sofa_table_ceiling"
+                ],
+                "members": [
+                  "light.living_room_desk_ceiling",
+                  "light.living_room_hall_ceiling",
+                  "light.living_room_sofa_table_ceiling",
+                  "light.living_room_table_lamp",
+                  "light.living_room_vicky_desk_lamp",
+                  "light.living_room_window_lamp",
+                  "light.living_room_yellow_retro_lamp"
+                ],
+                "verified": true,
+                "member_topics": {
+                  "light.living_room_desk_ceiling": "zigbee2mqtt/0xa4c13836b344b302/set",
+                  "light.living_room_hall_ceiling": "zigbee2mqtt/0xa4c13850c80ed98f/set",
+                  "light.living_room_vicky_desk_lamp": "zigbee2mqtt/0x7cc6b6fffe3cef1c/set",
+                  "light.living_room_table_lamp": "zigbee2mqtt/0xa4c138502d6c44cd/set",
+                  "light.living_room_window_lamp": "zigbee2mqtt/0xa4c13825783eff26/set",
+                  "light.living_room_yellow_retro_lamp": "zigbee2mqtt/0xa4c1386c73f1db49/set",
+                  "light.living_room_sofa_table_ceiling": "zigbee2mqtt/0xa4c138292a2d7f60/set"
+                },
+                "devices": [
+                  "0xa4c13836b344b302",
+                  "0xa4c13850c80ed98f",
+                  "0x7cc6b6fffe3cef1c",
+                  "0xa4c138502d6c44cd",
+                  "0xa4c13825783eff26",
+                  "0xa4c1386c73f1db49",
+                  "0xa4c138292a2d7f60"
+                ],
+                "zigbee_id": 2002
+              }
+            ],
+            "phases": {
+              "light.jonathan_bedroom_floor_lamp": "light.jonathan_bedroom_floor_lamp",
+              "light.upper_hall_stair_lamp": "fx_candle_cross_c",
+              "light.upper_hall_ceiling": "fx_candle_cross_d",
+              "light.living_room_desk_ceiling": "fx_candle_cross_b",
+              "light.living_room_hall_ceiling": "fx_candle_cross_a",
+              "light.living_room_vicky_desk_lamp": "fx_candle_cross_d",
+              "light.living_room_table_lamp": "light.living_room_table_lamp",
+              "light.living_room_window_lamp": "fx_candle_cross_a",
+              "light.living_room_yellow_retro_lamp": "fx_candle_cross_c",
+              "light.kitchen_pendant": "fx_candle_cross_a",
+              "light.kitchen_spots_1": "fx_candle_cross_b",
+              "light.kitchen_spots_2": "fx_candle_cross_c",
+              "light.meditation_floor_lamp": "fx_candle_cross_a",
+              "light.jonathan_bedroom_ceiling": "light.jonathan_bedroom_ceiling",
+              "light.meditation_ceiling": "fx_candle_cross_b",
+              "light.living_room_sofa_table_ceiling": "fx_candle_cross_b"
+            },
+            "processors": {
+              "Normal light": {
+                "channels": [
+                  "brightness",
+                  "color"
+                ],
+                "remote_adjustment": "gradient",
+                "animated": false
+              },
+              "Candle": {
+                "channels": [
+                  "brightness",
+                  "color"
+                ],
+                "remote_adjustment": "ignore",
+                "animated": true
+              },
+              "Breathe": {
+                "channels": [
+                  "brightness"
+                ],
+                "remote_adjustment": "ignore",
+                "animated": true
+              },
+              "Colour loop": {
+                "channels": [
+                  "color"
+                ],
+                "remote_adjustment": "ignore",
+                "animated": true
+              }
+            }
+          }
+        }
+      },
+      {
+        "stop": "Return result",
+        "response_variable": "result"
+      }
+    ],
+    "max": 50
+  },
+  "config_hash": "c69661c8a2b9d60b"
+}

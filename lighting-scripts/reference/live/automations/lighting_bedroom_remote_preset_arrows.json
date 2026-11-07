@@ -1,0 +1,28 @@
+{
+  "success": true,
+  "action": "get",
+  "automation_id": "automation.lighting_bedroom_remote_preset_arrows",
+  "config": {
+    "id": "lighting_remote_0x385b44fffea4fc67_presets",
+    "alias": "Lighting · Bedroom Remote Preset Arrows",
+    "description": "Modulo-five preset decoder with both wraps. Full JSON color_temperature_move is the canonical arrow event; brightness_move_to_level is ignored as its companion. The gesture owner resynchronizes the cursor on raw power. Unknown preset input cancels any pending secret chord.",
+    "triggers": [
+      {
+        "trigger": "mqtt",
+        "topic": "zigbee2mqtt/0x385b44fffea4fc67"
+      }
+    ],
+    "actions": [
+      {
+        "action": "script.ls_remote_gesture_bedroom",
+        "data": {
+          "command": "preset",
+          "payload": "{{ trigger.payload_json|default({}) }}"
+        }
+      }
+    ],
+    "mode": "queued",
+    "max": 50
+  },
+  "config_hash": "e6d79bdf6c1de62b"
+}

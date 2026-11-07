@@ -1,0 +1,24 @@
+{% set n=namespace(ok=allowed,expected=[]) %}
+{% if command.get('group') %}
+ {% set groups=state_attr('sensor.ls_effects_runtime','auto_groups') or [] %}
+ {% set matches=groups|selectattr('friendly_name','eq',command.group)|list %}
+ {% set endpoints=state_attr('sensor.ls_effects_runtime','auto_endpoints') or {} %}
+ {% set bridge=states.binary_sensor.zigbee2mqtt_bridge_connection_state %}
+ {% set listener=states.automation.effects_auto_group_state %}
+ {% set epoch=[as_timestamp(bridge.last_changed if bridge is not none else none,0),as_timestamp(listener.last_changed if listener is not none else none,0)]|max %}
+ {% if not is_state('automation.effects_auto_group_state','on') or epoch<=0 or (state_attr('sensor.ls_effects_runtime','auto_groups_observed_at') or 0)<epoch or (state_attr('sensor.ls_effects_runtime','auto_devices_observed_at') or 0)<epoch or (command.group.startswith('ls_auto_') and state_attr('sensor.ls_effects_runtime','auto_syncing')) %}{% set n.ok=false %}{% endif %}
+ {% for E in command.members %}
+  {% for domain,identifier in device_attr(E,'identifiers') or [] if domain=='mqtt' and identifier.startswith('zigbee2mqtt_0x') %}
+   {% set ieee=identifier[12:] %}{% set eps=endpoints.get(ieee,[]) %}
+   {% if eps|count==1 %}{% set n.expected=n.expected+[{'ieee_address':ieee,'endpoint':eps[0]}] %}{% endif %}
+  {% endfor %}
+ {% endfor %}
+ {% set expected=n.expected|sort(attribute='endpoint')|sort(attribute='ieee_address') %}
+ {% set snapshot=command.get('physical_members',[])|sort(attribute='endpoint')|sort(attribute='ieee_address') %}
+ {% if matches|count!=1 or not snapshot or n.expected|count!=command.members|count or expected!=snapshot %}
+  {% set n.ok=false %}
+ {% elif matches[0].members|sort(attribute='endpoint')|sort(attribute='ieee_address')!=snapshot %}
+  {% set n.ok=false %}
+ {% endif %}
+{% endif %}
+{{ n.ok }}

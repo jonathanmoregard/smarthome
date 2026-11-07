@@ -1,0 +1,36 @@
+[
+  {
+    "condition": "template",
+    "value_template": "{{ dry_run|default(false) or ((test_now is not defined or not test_now) and test_overrides is not defined and not (force_all|default(false))) }}"
+  },
+  {
+    "action": "script.ls_plan",
+    "data": {
+      "reason": "{{ reason|default('config') }}",
+      "test_now": "{{ test_now|default(none) }}",
+      "test_overrides": "{{ test_overrides|default(none) }}"
+    },
+    "response_variable": "result"
+  },
+  {
+    "if": [
+      {
+        "condition": "template",
+        "value_template": "{{ dry_run|default(false) }}"
+      }
+    ],
+    "then": [
+      {
+        "stop": "Return result",
+        "response_variable": "result"
+      }
+    ]
+  },
+  {
+    "action": "script.ls_dispatch",
+    "data": {
+      "plan": "{{ result.plan }}",
+      "lights": "{{ lights|default([]) }}"
+    }
+  }
+]

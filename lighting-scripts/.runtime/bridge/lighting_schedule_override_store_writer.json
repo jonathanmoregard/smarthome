@@ -1,0 +1,24 @@
+{
+  "id": "1791982416967",
+  "alias": "Lighting schedule: override store writer",
+  "description": "TypeScript trigger bridge. Event adapter. All mutation/CAS checks and render scheduling belong to the synchronous queued ls_commit script.",
+  "triggers": [
+    {
+      "trigger": "event",
+      "event_type": "ls_override"
+    }
+  ],
+  "actions": [
+    {
+      "event": "smarthome_script",
+      "event_data": {
+        "script": "automation.lighting_schedule_override_store_writer",
+        "args": {
+          "trigger": "{% set n=namespace(data={}) %}\n{% for key in ['id','platform','entity_id','topic','payload','payload_json'] %}\n {% if trigger[key] is defined %}{% set n.data=dict(n.data,**{key:trigger[key]}) %}{% endif %}\n{% endfor %}\n{% for key in ['to_state','from_state','event'] %}\n {% if trigger[key] is defined %}{% set value=trigger[key] %}\n  {% set n.data=dict(n.data,**{key:(value.as_dict() if value is not none else none)}) %}\n {% endif %}\n{% endfor %}\n{{ n.data | to_json | from_json }}"
+        }
+      }
+    }
+  ],
+  "mode": "queued",
+  "max": 50
+}

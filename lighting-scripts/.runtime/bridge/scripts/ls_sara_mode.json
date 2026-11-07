@@ -1,0 +1,30 @@
+{
+  "alias": "Lighting schedule: Sara Mode",
+  "description": "Command-only TypeScript bridge. Dry-run/response queries use local RPC. ",
+  "mode": "queued",
+  "max": 10,
+  "icon": "mdi:heart",
+  "fields": {
+    "via": {
+      "name": "Via",
+      "description": "app | remote | ...",
+      "default": "app",
+      "selector": {
+        "text": {}
+      }
+    }
+  },
+  "sequence": [
+    {
+      "condition": "template",
+      "value_template": "{{ not (dry_run | default(false)) }}"
+    },
+    {
+      "event": "smarthome_script",
+      "event_data": {
+        "script": "ls_sara_mode",
+        "args": "{% set n=namespace(args={}) %}{% if via is defined %}{% set n.args=dict(n.args,via=via) %}{% endif %}{{ n.args }}"
+      }
+    }
+  ]
+}

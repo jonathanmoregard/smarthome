@@ -1,0 +1,227 @@
+{# No time, state, service or event access. Only record timestamps are interpreted. #}
+{% macro valid_color(c) -%}
+  {%- set v=namespace(ok=false) -%}
+  {%- if c is mapping -%}
+    {%- if 'kelvin' in c and 'rgb' not in c and c.kelvin is number and c.kelvin is not boolean and c.kelvin >= 1000 and c.kelvin <= 10000 -%}
+      {%- set v.ok=true -%}
+    {%- elif 'rgb' in c and 'kelvin' not in c and c.rgb is sequence and c.rgb is not string and c.rgb is not mapping and c.rgb|count == 3 -%}
+      {%- set v.ok=true -%}
+      {%- for component in c.rgb -%}
+        {%- if component is not number or component is boolean or component < 0 or component > 255 or component != component -%}{%- set v.ok=false -%}{%- endif -%}
+      {%- endfor -%}
+    {%- endif -%}
+  {%- endif -%}
+  {{- v.ok|to_json -}}
+{%- endmacro %}
+
+{% macro effect_channels(name) -%}
+  {%- set d=catalog.effects.get(name,{}) if name is string else {} -%}
+  {%- set channels=d.get('channels',[]) if d is mapping else [] -%}
+  {%- set v=namespace(ok=channels is sequence and channels is not string and channels is not mapping and channels|count > 0) -%}
+  {%- if v.ok -%}
+    {%- for channel in channels -%}{%- if channel not in ['brightness','color'] -%}{%- set v.ok=false -%}{%- endif -%}{%- endfor -%}
+  {%- endif -%}
+  {{- (channels|list if v.ok else [])|to_json -}}
+{%- endmacro %}
+
+
+{% set out=namespace(targets={},assignments={},inputs={},streams={},order=[]) %}
+{% for target,item in base|dictsort if item.get('is_room',false) %}{% set out.order=out.order+[target] %}{% endfor %}
+{% for target,item in base|dictsort if not item.get('is_room',false) %}{% set out.order=out.order+[target] %}{% endfor %}
+{% for target in out.order %}{% set item=base[target] %}
+
+  
+{% set area=item.area %}
+{% if area not in out.streams %}{% set out.streams=dict(out.streams,**{area:latest_remote_key(overrides,area)|from_json}) %}{% endif %}
+
+  {% set is_room=item.get('is_room',false) %}
+  {% set ignored=item.get('ignore_overrides',[]) %}
+  {% set ignored=ignored if ignored is sequence and ignored is not string and ignored is not mapping else [] %}
+  {% set observed=item.get('observed',{}) %}
+  {% set observed=observed if observed is mapping else {} %}
+  {% set n=namespace(candidates={'brightness':[],'color':[]},sources={},owners={},underlying={}) %}
+  {% set gradient=namespace(checked=false,curve=none,samples={}) %}
+  {% for key,record in overrides|dictsort if record is mapping and key not in ignored %}
+    {% set value=record.get('value') %}
+    {% set scope=record.get('scope','lamp' if record.get('kind') == 'light' else '') %}
+    {% set applies=(scope == 'house' and record.get('target') == 'house' and area not in private) or (scope == 'room' and record.get('target') == area) or (scope == 'lamp' and not is_room and record.get('target') == target) %}
+    
+{% if record.get('scope')=='room' and (record.get('kind')=='input' or (record.get('kind')=='channels' and record.get('via')=='remote')) and key!=out.streams.get(area) %}{% set applies=false %}{% endif %}
+{% if applies %}
+
+      {% set stamp=as_timestamp(record.get('when'),0)|float(0) %}
+      {% set patch={} %}
+      
+{% if record.get('kind') == 'input' and value is mapping %}
+ {% set patch=value.get('legacy_channels',{}) %}
+ {% for claim in input_claims(value,key,stamp)|from_json %}
+  {% for channel in ['brightness','color'] if claim.kind=='input' or channel in effect_channels(claim.get('effect'))|from_json %}
+   {% set n.candidates=dict(n.candidates,**{channel:n.candidates[channel]+[{'key':key,'updated':claim.updated,'source':claim,'baseline_only':false}]}) %}
+  {% endfor %}
+ {% endfor %}
+{% elif record.get('kind') == 'channels' and value is mapping and value.get('channels') is mapping %}
+
+        {% set patch=value.channels %}
+      {% elif record.get('kind') == 'light' %}
+        {% if value is none %}
+          {% set patch={'brightness':{'kind':'constant','value':observed.get('brightness',item.brightness)},'color':{'kind':'constant','value':observed.get('color',item.color)}} %}
+        {% elif value is mapping %}
+          {% set ef=value.get('effect') %}
+          {% set declared=effect_channels(ef)|from_json %}
+          {% if ef is not none and ef != 'Normal light' %}
+            {% set legacy=namespace(p={}) %}
+            {% for channel in declared %}
+              {% set source={'kind':'effect','effect':ef,'instance':key} %}
+              {% if 'brightness' in value %}{% set source=dict(source,intensity=value.brightness) %}{% endif %}
+              {% set legacy.p=dict(legacy.p,**{channel:source}) %}
+            {% endfor %}
+            {% if declared|count == 0 %}
+              {% set legacy.p={'brightness':{'kind':'constant','value':item.brightness},'color':{'kind':'constant','value':item.color}} %}
+            {% elif 'brightness' in value and 'brightness' not in declared %}
+              {% set legacy.p=dict(legacy.p,brightness={'kind':'constant','value':value.brightness}) %}
+            {% endif %}
+            {% set patch=legacy.p %}
+          {% elif ef == 'Normal light' %}
+            {% set patch={'brightness':{'kind':'constant','value':value.get('brightness',observed.get('brightness',item.brightness))},'color':{'kind':'constant','value':observed.get('color',item.color)}} %}
+          {% elif 'brightness' in value %}
+            {% set patch={'brightness':{'kind':'constant','value':value.brightness}} %}
+          {% endif %}
+        {% endif %}
+      {% endif %}
+      {% for channel in ['brightness','color'] if channel in patch %}
+        
+{% set source=patch[channel] %}
+{# Read compatibility for remote records written before this deployment. #}
+{% if record.get('via')=='remote' and source is mapping and source.get('kind')=='scale' %}
+ {% set source={'kind':'input','input':{'steps':0,'lower':-20,'upper':20,'legacy_position':source.position},'updated':source.get('updated',stamp)} %}
+{% endif %}
+
+        {% set update=source.get('updated',stamp) if source is mapping else stamp %}
+        {% set update=update if update is number and update is not boolean and update > -1e20 and update < 1e20 else stamp %}
+        {% set entries=[{'key':key,'updated':update,'source':source,'baseline_only':false}] %}
+        {# Replacing a stable source record must retain the constant/scale that fed its effect.
+           Its original timestamp competes with other baseline values; selecting an effect
+           does not make the carried input newer than unrelated manual settings. #}
+        {% if source is mapping and source.get('kind') == 'effect' and channel in effect_channels(source.get('effect'))|from_json and source.get('instance') is string and source.instance|length > 0 %}
+          {% set carried=namespace(source=source.get('underlying')) %}
+          {% for depth in range(8) %}
+            {% if carried.source is mapping and carried.source.get('kind') == 'effect' %}
+              {% set carried.source=carried.source.get('underlying') %}
+            {% endif %}
+          {% endfor %}
+          {% if carried.source is mapping and carried.source.get('kind') in ['constant','scale'] %}
+            {% set carried_stamp=carried.source.get('updated') %}
+            {% if carried_stamp is number and carried_stamp is not boolean and carried_stamp > -1e20 and carried_stamp <= update %}
+              {% set entries=entries+[{'key':key,'updated':carried_stamp,'source':carried.source,'baseline_only':true}] %}
+            {% endif %}
+          {% endif %}
+        {% endif %}
+        {% set n.candidates=dict(n.candidates,**{channel:n.candidates[channel]+entries}) %}
+      {% endfor %}
+    {% endif %}
+  {% endfor %}
+  {% set baseline_effect=item.get('effect','Normal light') %}
+  {% set declared=effect_channels(baseline_effect)|from_json %}
+  {% set enabled=item.get('effect_channels',declared) %}
+  {% set enabled=enabled if enabled is sequence and enabled is not string and enabled is not mapping else [] %}
+  {% for channel in ['brightness','color'] %}
+    {% set initial= color_json(item[channel])|from_json if channel=='color' else item[channel] %}
+    {% set c=namespace(underlying=initial,source={'kind':'constant','value':initial,'updated':-1},owner='base') %}
+    {% if channel in declared and channel in enabled %}
+      {% set c.source={'kind':'effect','effect':baseline_effect,'instance':item.get('effect_instance','base:' ~ target ~ ':' ~ baseline_effect),'updated':-1} %}
+      {% set c.owner='base:' ~ baseline_effect %}
+    {% endif %}
+    {% for candidate in n.candidates[channel]|sort(attribute='key')|sort(attribute='updated') %}
+      {% set source=candidate.source %}
+      {% set check=namespace(valid=false,ignore=false,value=initial,selected={}) %}
+      {% if source is mapping %}
+        {% if source.get('kind') == 'constant' %}
+          {% set v=source.get('value') %}
+          {% set check.valid=(v is number and v is not boolean and v >= 0 and v <= 255) if channel == 'brightness' else valid_color(v)|from_json %}
+          {% if check.valid %}{% set check.value=color_json(v)|from_json if channel=='color' else v %}{% endif %}
+        
+{% elif source.get('kind') in ['scale','input'] %}
+          {% set p=source.get('position') %}
+          {% if source.kind=='input' %}
+           {% set input=source.get('input',{}) %}
+           {% set valid=namespace(ok=input is mapping and item.get('day') is mapping and item.get('cosy') is mapping) %}
+           {% for field in ['steps','lower','upper'] %}
+            {% set v=input.get(field) if input is mapping else none %}
+            {% if v is not number or v is boolean or v!=v or v < -40 or v > 40 %}{% set valid.ok=false %}{% endif %}
+           {% endfor %}
+           {% if valid.ok and -20<=input.lower<=input.upper<=20 %}
+            {% set ref=candidate.key~':'~candidate.updated %}
+            {% set position=out.inputs.get(ref) %}
+            {% if position is none %}
+             {% set level=c.underlying if channel=='brightness' else n.underlying.get('brightness',item.brightness) %}
+             {% set position={'position':normal_position(input,item,level)|from_json,'level':level} %}
+             {% if is_room %}{% set out.inputs=dict(out.inputs,**{ref:position}) %}{% endif %}
+            {% endif %}
+            {% set p=position.position %}
+            {% set processor=c.source.effect if c.source.kind=='effect' else 'Normal light' %}
+            {% set strategy=catalog.get('processors',{}).get(processor,{}).get('remote_adjustment','gradient' if processor=='Normal light' else 'ignore') %}
+            {% set check.ignore=strategy!='gradient' %}
+           {% else %}{% set check.ignore=true %}{% endif %}
+          {% endif %}
+
+          {% if not check.ignore and p is number and p is not boolean and p > -1e20 and p < 1e20 and item.get('day') is mapping and item.get('cosy') is mapping %}
+            {% if not gradient.checked %}
+              {% set cached=(gradients|default({})).get(target) if gradients|default({}) is mapping else none %}
+              {% set signature=gradient_signature(item.day,item.cosy,warm_end)|from_json %}
+              {% if gradient_valid(cached,signature)|from_json %}{% set gradient.curve=cached.curve %}{% endif %}
+              {% set gradient.checked=true %}
+            {% endif %}
+            {% set coordinate=[-2,[2,p]|min]|max %}
+            {% if coordinate not in gradient.samples %}
+              {% set sample=gradient_sample(gradient.curve,coordinate)|from_json if gradient.curve is not none else scale_value(item.day,item.cosy,coordinate,warm_end)|from_json %}
+              {% set gradient.samples=dict(gradient.samples.items()|list+[(coordinate,sample)]) %}
+            {% endif %}
+            {% set scaled=gradient.samples[coordinate] %}
+            
+{% set check.valid=true %}{% set check.value=scaled[channel] %}
+            {# A down input must never brighten a below-floor Night baseline. #}
+            {% if source.kind=='input' and channel=='brightness' and input.get('last')=='down' and not input.get('has_up',false) and position.level<[76.5,item.cosy.brightness]|min and input.get('anchor','current')=='current' and input.steps<=0 %}
+             {% set check.value=[c.underlying,check.value]|min %}
+            {% endif %}
+
+            {% set check.selected={'origin':'scale','position':scaled.position} %}
+          {% endif %}
+        {% elif source.get('kind') == 'effect' and channel in effect_channels(source.get('effect'))|from_json and source.get('instance') is string and source.instance|length > 0 %}
+          {% set check.valid=true %}
+          {% set check.selected={'kind':'effect','effect':source.effect,'instance':source.instance,'updated':candidate.updated} %}
+          {% if channel == 'brightness' and source.get('intensity') is number and source.intensity is not boolean and source.intensity >= 0 and source.intensity <= 255 %}
+            {% set c.underlying=source.intensity %}
+          {% endif %}
+        {% endif %}
+      {% endif %}
+      {% if not check.ignore %}
+      {% if candidate.baseline_only %}
+        {% if check.valid %}{% set c.underlying=check.value %}{% endif %}
+      {% elif check.valid and check.selected.get('kind') == 'effect' %}
+        {% set c.source=check.selected %}
+      {% else %}
+        {% set c.underlying=check.value if check.valid else initial %}
+        {% set c.source=dict({'kind':'constant','value':c.underlying,'updated':candidate.updated},**check.selected) %}
+        {% if not check.valid %}{% set c.source=dict(c.source,origin='invalid_source') %}{% endif %}
+      {% endif %}
+      {% if not candidate.baseline_only %}{% set c.owner=candidate.key %}{% endif %}
+      {% endif %}
+    {% endfor %}
+    {% set n.sources=dict(n.sources,**{channel:c.source}) %}
+    {% set n.owners=dict(n.owners,**{channel:c.owner}) %}
+    {% set n.underlying=dict(n.underlying,**{channel:c.underlying}) %}
+  {% endfor %}
+  {% for channel in ['brightness','color'] if n.sources[channel].kind == 'effect' %}
+    {% set n.sources=dict(n.sources,**{channel:dict(n.sources[channel],base=n.underlying[channel],intensity=n.underlying.brightness)}) %}
+  {% endfor %}
+  {% if sara and 'mode:sara' not in ignored and area not in private and item.period != 'night' %}
+    {% set n.sources=dict(n.sources,color={'kind':'constant','value':{'rgb':[255,105,180]},'updated':0,'policy':'sara'}) %}
+    {% set n.owners=dict(n.owners,color='mode:sara') %}
+  {% endif %}
+  {% set resolved=dict(n.sources,period=item.period,on=item.get('on',true) and power.get(area,true),area=area,is_room=is_room,level=n.underlying.brightness,owners=n.owners,transition=item.get('transition',3)) %}
+  {% set out.targets=dict(out.targets,**{target:resolved}) %}
+  {% if not is_room and (resolved.brightness.kind == 'effect' or resolved.color.kind == 'effect') %}
+    {% set out.assignments=dict(out.assignments,**{target:resolved}) %}
+  {% endif %}
+{% endfor %}
+{{ {'targets':out.targets,'assignments':out.assignments} }}

@@ -1,0 +1,180 @@
+{
+  "success": true,
+  "action": "get",
+  "script_id": "ls_render",
+  "config": {
+    "alias": "Lighting · Render Latest Pending State",
+    "mode": "queued",
+    "sequence": [
+      {
+        "variables": {
+          "started_at": "{{ as_timestamp(now()) }}",
+          "revision": "{{ states.sensor.ls_overrides.last_updated.isoformat() }}",
+          "received_at": "{{ state_attr('sensor.ls_overrides','received_at') }}",
+          "request_id": "{{ state_attr('sensor.ls_overrides','last_request') }}",
+          "pending": "{{ state_attr('sensor.ls_overrides','pending_rooms') or {} }}",
+          "handled": "{{ state_attr('sensor.ls_effects_runtime','handled_rooms') or {} }}",
+          "full_version": "{{ state_attr('sensor.ls_overrides','full_version') }}",
+          "full": "{{ full_version and full_version!=state_attr('sensor.ls_effects_runtime','handled_full') }}"
+        }
+      },
+      {
+        "variables": {
+          "rooms": "{% set n=namespace(rooms=[]) %}{% for room,version in pending.items() if version!=handled.get(room) %}{% set n.rooms=n.rooms+[room] %}{% endfor %}{{ n.rooms }}"
+        }
+      },
+      {
+        "condition": "template",
+        "value_template": "{{ full or rooms|count>0 }}"
+      },
+      {
+        "choose": [
+          {
+            "conditions": [
+              {
+                "condition": "template",
+                "value_template": "{{ full }}"
+              }
+            ],
+            "sequence": [
+              {
+                "action": "script.ls_plan",
+                "data": {
+                  "reason": "{{ state_attr('sensor.ls_overrides','full_reason') or 'config' }}"
+                },
+                "response_variable": "planned"
+              },
+              {
+                "variables": {
+                  "plan": "{{ dict(planned.plan,remote_rooms=rooms) }}",
+                  "lights": "{{ state_attr('sensor.ls_overrides','full_lights') or [] }}"
+                }
+              },
+              {
+                "variables": {
+                  "cache_updates": "{% set n=namespace(updates={}) %}\n{% for room in plan.base.values()|map(attribute='area')|unique|list if room %}\n {% set old=state_attr('sensor.ls_cache_'~room,'cache') or {} %}{% set g=namespace(values={}) %}\n {% for key,t in plan.base.items() if t.area==room and key in plan.gradients %}{% set g.values=dict(g.values,**{key:plan.gradients[key]}) %}{% endfor %}\n {% if g.values!=old.get('gradients') %}{% set n.updates=dict(n.updates,**{room:dict(old,gradients=g.values)}) %}{% endif %}\n{% endfor %}{{ n.updates }}"
+                }
+              }
+            ]
+          }
+        ],
+        "default": [
+          {
+            "variables": {
+              "merged_targets": "{{ state_attr('sensor.ls_effects_runtime','targets') or {} }}",
+              "merged_assignments": "{{ state_attr('sensor.ls_effects_runtime','assignments') or {} }}",
+              "bases": {},
+              "switches": {},
+              "mirrors": [],
+              "stale": [],
+              "cache_updates": {},
+              "lights": []
+            }
+          },
+          {
+            "repeat": {
+              "for_each": "{{ rooms }}",
+              "sequence": [
+                {
+                  "variables": {
+                    "room": "{{ repeat.item }}"
+                  }
+                },
+                {
+                  "action": "script.ls_room_plan",
+                  "data": {
+                    "room": "{{ room }}",
+                    "overrides": "{{ state_attr('sensor.ls_overrides','overrides') or {} }}",
+                    "cache": "{{ state_attr('sensor.ls_cache_'~room,'cache') or {} }}",
+                    "reason": "remote"
+                  },
+                  "response_variable": "planned"
+                },
+                {
+                  "variables": {
+                    "merged_targets": "{% set keep=namespace(t={}) %}{% for key,t in merged_targets.items() if t.area!=room %}{% set keep.t=dict(keep.t,**{key:t}) %}{% endfor %}{{ dict(keep.t,**planned.plan.resolved.targets) }}",
+                    "merged_assignments": "{% set keep=namespace(t={}) %}{% for key,t in merged_assignments.items() if t.area!=room %}{% set keep.t=dict(keep.t,**{key:t}) %}{% endfor %}{{ dict(keep.t,**planned.plan.resolved.assignments) }}",
+                    "bases": "{{ dict(bases,**planned.plan.base) }}",
+                    "switches": "{{ dict(switches,**planned.plan.switches) }}",
+                    "mirrors": "{{ mirrors+planned.plan.mirror }}",
+                    "stale": "{{ (stale+planned.plan.stale_keys)|unique|list }}",
+                    "cache_updates": "{{ dict(cache_updates,**{room:planned.cache_update}) if planned.cache_update is mapping else cache_updates }}"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "variables": {
+              "plan": "{{ {'base':bases,'resolved':{'targets':merged_targets,'assignments':merged_assignments},'switches':switches,'mirror':mirrors,'stale_keys':stale,'revision':revision,'plan_order':started_at,'remote':false,'remote_rooms':rooms,'sara_mirror':planned.plan.sara_mirror} }}"
+            }
+          }
+        ]
+      },
+      {
+        "condition": "template",
+        "value_template": "{{ revision==states.sensor.ls_overrides.last_updated.isoformat() }}"
+      },
+      {
+        "repeat": {
+          "for_each": "{{ (cache_updates|default({})).items()|list }}",
+          "sequence": [
+            {
+              "if": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ has_value('sensor.ls_cache_'~repeat.item[0]) }}"
+                }
+              ],
+              "then": [
+                {
+                  "action": "variable.update_sensor",
+                  "target": {
+                    "entity_id": "{{ 'sensor.ls_cache_'~repeat.item[0] }}"
+                  },
+                  "data": {
+                    "value": "{{ now().isoformat() }}",
+                    "attributes": "{{ {'cache':repeat.item[1]} }}",
+                    "replace_attributes": false
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "variables": {
+          "plan": "{% set selected=plan.base.keys()|list %}{{ dict(plan,output_targets=selected) if not full else plan }}",
+          "planned_at": "{{ as_timestamp(now()) }}"
+        }
+      },
+      {
+        "action": "script.ls_dispatch",
+        "data": {
+          "plan": "{{ plan }}",
+          "lights": "{{ lights }}"
+        },
+        "response_variable": "emission"
+      },
+      {
+        "condition": "template",
+        "value_template": "{{ emission is mapping and emission.get('completed',false) and revision==states.sensor.ls_overrides.last_updated.isoformat() }}"
+      },
+      {
+        "action": "variable.update_sensor",
+        "target": {
+          "entity_id": "sensor.ls_effects_runtime"
+        },
+        "data": {
+          "value": "{{ now().isoformat() }}",
+          "replace_attributes": false,
+          "attributes": "{{ {'handled_rooms':pending,'handled_full':full_version if full else state_attr('sensor.ls_effects_runtime','handled_full'),'last_latency':{'request_id':request_id,'received_at':received_at,'started_at':started_at,'planned_at':planned_at,'published_at':emission.get('published_at',[]),'completed_at':as_timestamp(now()),'rooms':rooms,'full':full|bool}} }}"
+        }
+      }
+    ],
+    "fields": {},
+    "max": 100
+  },
+  "config_hash": "2278f4c421989126"
+}

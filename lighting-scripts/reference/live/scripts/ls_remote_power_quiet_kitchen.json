@@ -1,0 +1,37 @@
+{
+  "success": true,
+  "action": "get",
+  "script_id": "ls_remote_power_quiet_kitchen",
+  "config": {
+    "alias": "Lighting · Kitchen Remote Power Quiet",
+    "description": "Restartable exact subsecond debounce. Carries its token back asynchronously; actor ignores superseded completions.",
+    "mode": "restart",
+    "fields": {
+      "token": {
+        "selector": {
+          "text": {}
+        }
+      }
+    },
+    "sequence": [
+      {
+        "delay": {
+          "milliseconds": 600
+        }
+      },
+      {
+        "action": "script.turn_on",
+        "target": {
+          "entity_id": "script.ls_remote_gesture_kitchen"
+        },
+        "data": {
+          "variables": {
+            "command": "power_done",
+            "token": "{{ token }}"
+          }
+        }
+      }
+    ]
+  },
+  "config_hash": "2fe5bcc13c9bd800"
+}

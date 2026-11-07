@@ -1,0 +1,62 @@
+{
+  "success": true,
+  "device": {
+    "device_id": "0752f2b4e9a0992ac8efc2af1f53c62a",
+    "name": "0x385b44fffea50c99",
+    "manufacturer": "Innr",
+    "model": "Remote control",
+    "sw_version": "2.01.08",
+    "area_id": "living_room",
+    "integration_type": "zigbee2mqtt",
+    "integration_sources": [
+      "mqtt"
+    ],
+    "via_device_id": "2af00131220c4e4778322d4a92402d2e",
+    "ieee_address": "0x385b44fffea50c99",
+    "friendly_name": "0x385b44fffea50c99",
+    "mqtt_topic_hint": "zigbee2mqtt/0x385b44fffea50c99/...",
+    "entities": [
+      {
+        "entity_id": "sensor.0x385b44fffea50c99_battery",
+        "name": "Battery",
+        "platform": "mqtt"
+      },
+      {
+        "entity_id": "sensor.0x385b44fffea50c99_linkquality",
+        "name": "Linkquality",
+        "platform": "mqtt"
+      }
+    ],
+    "name_by_user": null,
+    "default_name": "0x385b44fffea50c99",
+    "hw_version": "1",
+    "serial_number": null,
+    "disabled_by": null,
+    "labels": [],
+    "config_entries": [
+      "01M4TD458NE384PDMBNMK1XEGG"
+    ],
+    "connections": [],
+    "identifiers": [
+      [
+        "mqtt",
+        "zigbee2mqtt_0x385b44fffea50c99"
+      ]
+    ]
+  },
+  "entities": [
+    {
+      "entity_id": "sensor.0x385b44fffea50c99_battery",
+      "name": "Battery",
+      "platform": "mqtt"
+    },
+    {
+      "entity_id": "sensor.0x385b44fffea50c99_linkquality",
+      "name": "Linkquality",
+      "platform": "mqtt"
+    }
+  ],
+  "entity_count": 2,
+  "queried_by": "device_id",
+  "queried_entity_id": null
+}

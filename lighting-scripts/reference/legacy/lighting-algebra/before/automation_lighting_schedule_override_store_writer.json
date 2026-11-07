@@ -1,0 +1,39 @@
+{
+  "success": true,
+  "action": "get",
+  "automation_id": "automation.lighting_schedule_override_store_writer",
+  "config": {
+    "id": "1791982416967",
+    "alias": "Lighting schedule: override store writer",
+    "description": "Only writer of sensor.ls_overrides (Variables+History). Scripts, automations, dashboards and remotes fire an `ls_override` event: {op: set, records: [{kind, target, value}], via?, who?} | {op: clear, keys: [...], via?} | {op: clear_all, via?}. Records are keyed '<kind>:<target>' (block:<area>, light:<entity>) with when/who/via; who defaults to the user behind the event. Queued, so writes never interleave. Newest wins: setting block:<area> drops older lamp holds (light:*) in that area (lamps outside the room scopes count as house); setting a mode (Sara Mode, common areas only) drops every lamp hold outside areas labelled Private Room. A newer lamp hold still beats an older block for that one lamp.",
+    "triggers": [
+      {
+        "trigger": "event",
+        "event_type": "ls_override"
+      }
+    ],
+    "actions": [
+      {
+        "variables": {
+          "new": "{%- set prev = state_attr('sensor.ls_overrides', 'overrides') -%}\n{%- set d = trigger.event.data -%}\n{%- set op = d.get('op', 'set') -%}\n{%- set rooms = (label_entities('house_schedule') + label_entities('on_off') + ((label_devices('house_schedule') + label_devices('on_off')) | map('device_entities') | sum(start=[]))) | map('area_id') | select | unique | list -%}\n{%- set ns = namespace(o=(prev if prev is mapping else {})) -%}\n{%- if op == 'clear_all' -%}\n  {%- set ns.o = {} -%}\n{%- elif op == 'clear' -%}\n  {%- set ns.o = dict(ns.o.items() | rejectattr(0, 'in', d.get('keys', [])) | list) -%}\n{%- elif op == 'set' -%}\n  {%- set who = d.get('who') or trigger.event.context.user_id -%}\n  {%- for r in d.get('records', []) -%}\n    {%- if r.kind in ['block', 'mode'] -%}\n      {%- set drop = namespace(k=[]) -%}\n      {%- for k, v in ns.o.items() if k.startswith('light:') and v is mapping -%}\n        {%- set la = area_id(v.target) -%}\n        {%- set lsc = la if la in rooms else 'house' -%}\n        {%- if (r.kind == 'mode' and la not in label_areas('private_room')) or lsc == r.target -%}{%- set drop.k = drop.k + [k] -%}{%- endif -%}\n      {%- endfor -%}\n      {%- set ns.o = dict(ns.o.items() | rejectattr(0, 'in', drop.k) | list) -%}\n    {%- endif -%}\n    {%- set ns.o = dict(ns.o, **{r.kind ~ ':' ~ r.target: {'kind': r.kind, 'target': r.target, 'value': r.get('value'), 'when': now().isoformat(), 'who': who, 'via': d.get('via')}}) -%}\n  {%- endfor -%}\n{%- endif -%}\n{{ ns.o }}"
+        }
+      },
+      {
+        "action": "variable.update_sensor",
+        "target": {
+          "entity_id": "sensor.ls_overrides"
+        },
+        "data": {
+          "value": "{{ now().isoformat() }}",
+          "attributes": {
+            "overrides": "{{ new }}"
+          },
+          "replace_attributes": false
+        }
+      }
+    ],
+    "mode": "queued",
+    "max": 50
+  },
+  "config_hash": "52e54dae8bf26845"
+}

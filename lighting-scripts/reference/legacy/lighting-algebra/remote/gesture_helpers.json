@@ -1,0 +1,76 @@
+{
+  "input_number": {
+    "ls_bedroom_remote_chord_step": {
+      "name": "Bedroom Remote Chord Step",
+      "min": -1,
+      "max": 4,
+      "step": 1,
+      "mode": "box",
+      "icon": "mdi:gesture-tap"
+    },
+    "ls_bedroom_remote_preset": {
+      "name": "Bedroom Remote Preset Cursor",
+      "min": 0,
+      "max": 4,
+      "step": 1,
+      "mode": "box",
+      "icon": "mdi:remote"
+    },
+    "ls_bedroom_remote_power_count": {
+      "name": "Bedroom Remote Power Count",
+      "min": 0,
+      "max": 3,
+      "step": 1,
+      "mode": "box",
+      "initial": 0
+    },
+    "ls_living_room_remote_chord_step": {
+      "name": "Living Room Remote Chord Step",
+      "min": -1,
+      "max": 4,
+      "step": 1,
+      "mode": "box",
+      "icon": "mdi:gesture-tap"
+    },
+    "ls_living_room_remote_preset": {
+      "name": "Living Room Remote Preset Cursor",
+      "min": -1,
+      "max": 4,
+      "step": 1,
+      "mode": "box",
+      "icon": "mdi:remote"
+    },
+    "ls_living_room_remote_power_count": {
+      "name": "Living Room Remote Power Count",
+      "min": 0,
+      "max": 3,
+      "step": 1,
+      "mode": "box",
+      "initial": 0
+    }
+  },
+  "timer": {
+    "ls_bedroom_remote_chord": {
+      "name": "Bedroom Remote Chord",
+      "duration": "00:00:03",
+      "restore": false
+    },
+    "ls_living_room_remote_chord": {
+      "name": "Living Room Remote Chord",
+      "duration": "00:00:03",
+      "restore": false
+    }
+  },
+  "input_text": {
+    "ls_bedroom_remote_power_token": {
+      "name": "Bedroom Remote Power Token",
+      "max": 255,
+      "initial": ""
+    },
+    "ls_living_room_remote_power_token": {
+      "name": "Living Room Remote Power Token",
+      "max": 255,
+      "initial": ""
+    }
+  }
+}

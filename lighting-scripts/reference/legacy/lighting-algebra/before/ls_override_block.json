@@ -1,0 +1,98 @@
+{
+  "success": true,
+  "action": "get",
+  "script_id": "ls_override_block",
+  "config": {
+    "alias": "Lighting schedule: override block",
+    "description": "Dashboard chips (and later room remotes) call this to force a block in an area. Records the override in sensor.ls_overrides with who/when/via. Choosing the block the schedule already has right now ends the override instead. House (Common Areas) also applies to every room scope whose area lacks the label Private Room.",
+    "mode": "queued",
+    "max": 10,
+    "icon": "mdi:gesture-tap",
+    "fields": {
+      "scope": {
+        "name": "Area",
+        "description": "house, or the area id of any room with scheduled lamps",
+        "required": true,
+        "selector": {
+          "text": {}
+        }
+      },
+      "block": {
+        "name": "Block",
+        "required": true,
+        "selector": {
+          "select": {
+            "options": [
+              "day",
+              "cosy",
+              "night"
+            ]
+          }
+        }
+      },
+      "via": {
+        "name": "Via",
+        "description": "app | remote | ...",
+        "default": "app",
+        "selector": {
+          "text": {}
+        }
+      }
+    },
+    "sequence": [
+      {
+        "action": "script.ls_apply",
+        "data": {
+          "dry_run": true
+        },
+        "response_variable": "now_plan"
+      },
+      {
+        "variables": {
+          "b": "{{ block | lower }}",
+          "targets": "{{ [scope] + (((label_entities('house_schedule') + label_entities('on_off') + ((label_devices('house_schedule') + label_devices('on_off')) | map('device_entities') | sum(start=[]))) | map('area_id') | select | unique | reject('in', label_areas('private_room')) | list) if scope == 'house' else []) }}",
+          "sched": "{{ now_plan.plan.sched }}",
+          "set_recs": "{%- set ns = namespace(r=[]) -%}{%- for t in targets if sched.get(t) != b -%}{%- set ns.r = ns.r + [{'kind': 'block', 'target': t, 'value': b}] -%}{%- endfor -%}{{ ns.r }}",
+          "clear_keys": "{%- set ns = namespace(k=[]) -%}{%- for t in targets if sched.get(t) == b -%}{%- set ns.k = ns.k + ['block:' ~ t] -%}{%- endfor -%}{{ ns.k }}"
+        }
+      },
+      {
+        "if": [
+          {
+            "condition": "template",
+            "value_template": "{{ set_recs | count > 0 }}"
+          }
+        ],
+        "then": [
+          {
+            "event": "ls_override",
+            "event_data": {
+              "op": "set",
+              "records": "{{ set_recs }}",
+              "via": "{{ via | default('app') }}"
+            }
+          }
+        ]
+      },
+      {
+        "if": [
+          {
+            "condition": "template",
+            "value_template": "{{ clear_keys | count > 0 }}"
+          }
+        ],
+        "then": [
+          {
+            "event": "ls_override",
+            "event_data": {
+              "op": "clear",
+              "keys": "{{ clear_keys }}",
+              "via": "{{ via | default('app') }}"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "config_hash": "afd826ed7e3f8f4c"
+}

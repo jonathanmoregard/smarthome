@@ -1,0 +1,196 @@
+{
+    "date": "2026-10-24",
+    "installedConfigs": [
+        {
+            "name": "ls_base",
+            "success": true,
+            "match": true,
+            "hash": "d5028df1ce9efe6f"
+        },
+        {
+            "name": "automation_lighting_schedule_override_store_writer",
+            "success": true,
+            "match": true,
+            "hash": "c3de6386161577a6"
+        },
+        {
+            "name": "effects_catalog",
+            "success": true,
+            "match": true,
+            "hash": "07a614778d017bb8"
+        },
+        {
+            "name": "effect_candle_frame",
+            "success": true,
+            "match": true,
+            "hash": "b9fd4680ac1a61a9"
+        },
+        {
+            "name": "effect_breathe_frame",
+            "success": true,
+            "match": true,
+            "hash": "369a158d708723b5"
+        },
+        {
+            "name": "effect_colour_loop_frame",
+            "success": true,
+            "match": true,
+            "hash": "075e078c211fbc1e"
+        },
+        {
+            "name": "effects_frame_plan",
+            "success": true,
+            "match": true,
+            "hash": "f825917e4044d374"
+        },
+        {
+            "name": "effects_emit",
+            "success": true,
+            "match": true,
+            "hash": "ecb9c12db8a6bb00"
+        },
+        {
+            "name": "effects_assign",
+            "success": true,
+            "match": true,
+            "hash": "2a7e34b8930abf74"
+        },
+        {
+            "name": "effects_engine",
+            "success": true,
+            "match": true,
+            "hash": "affed8139afc2a0e"
+        },
+        {
+            "name": "effects_group_plan",
+            "success": true,
+            "match": true,
+            "hash": "66dd5e711443c235"
+        },
+        {
+            "name": "effects_resolve",
+            "success": true,
+            "match": true,
+            "hash": "6263dae49d7266a1"
+        },
+        {
+            "name": "ls_remote_command",
+            "success": true,
+            "match": true,
+            "hash": "42716b4688bf9556"
+        },
+        {
+            "name": "ls_switch_plan",
+            "success": true,
+            "match": true,
+            "hash": "3a1c602e7024d287"
+        },
+        {
+            "name": "ls_apply",
+            "success": true,
+            "match": true,
+            "hash": "708de6fab944f7ac"
+        },
+        {
+            "name": "ls_store",
+            "success": true,
+            "match": true,
+            "hash": "0594539c4f153df2"
+        },
+        {
+            "name": "effects_scale",
+            "success": true,
+            "match": true,
+            "hash": "ffe8b46956e06786"
+        },
+        {
+            "name": "effects_set",
+            "success": true,
+            "match": true,
+            "hash": "e9c12b668dee2673"
+        },
+        {
+            "name": "effects_native_plan",
+            "success": true,
+            "match": true,
+            "hash": "e8a4a5c0e6a0d384"
+        },
+        {
+            "name": "automation_lighting_schedule_lamp_change_detector",
+            "success": true,
+            "match": true,
+            "hash": "be754271f408f1b3"
+        },
+        {
+            "name": "ls_range_save",
+            "success": true,
+            "match": true,
+            "hash": "009cddc1caa8a1aa"
+        },
+        {
+            "name": "automation_lighting_switch_range_defaults",
+            "success": true,
+            "match": true,
+            "hash": "05795c7cae04a0a4"
+        },
+        {
+            "name": "automation_remote_center",
+            "success": true,
+            "match": true,
+            "hash": "4f418086ae807145"
+        },
+        {
+            "name": "automation_remote_directions",
+            "success": true,
+            "match": true,
+            "hash": "7e1b54a796045642"
+        },
+        {
+            "name": "automation_lighting_schedule_engine",
+            "success": true,
+            "match": true,
+            "hash": "b93cd43c28941e24"
+        },
+        {
+            "name": "effects_ui_sync",
+            "success": true,
+            "match": true,
+            "hash": "79aa45d8bbf929a2"
+        }
+    ],
+    "integratedTests": {
+        "count": 94,
+        "seconds": 89.11,
+        "result": "PASS",
+        "afterSchemaFix": true
+    },
+    "nativeDryChecks": [
+        "Day",
+        "Cosy",
+        "Night",
+        "Sara + Candle",
+        "six logical remote commands",
+        "UI effect/power/RGB",
+        "frame plan",
+        "UI sync"
+    ],
+    "physicalBulbsChecked": 23,
+    "physicalStateChanges": 0,
+    "restoredAutomations": [
+        "automation.lighting_schedule_engine",
+        "automation.effects_lifecycle",
+        "automation.effects_native_light_controls",
+        "automation.effects_refresh_native_light_controls",
+        "automation.lighting_schedule_lamp_change_detector",
+        "automation.lighting_schedule_end_overrides",
+        "automation.lighting_schedule_override_store_writer",
+        "automation.switch_lamps_validate_house_defaults",
+        "automation.lighting_living_room_remote_center",
+        "automation.lighting_living_room_remote_directions"
+    ],
+    "limitations": [
+        "Physical RC250 left/right mapping awaits verified button capture",
+        "Three offline lamps pending group membership",
+        "Native dashboard screenshot unavailable"
+    ]
+}

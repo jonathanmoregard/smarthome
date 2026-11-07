@@ -1,0 +1,284 @@
+{
+  "house": {
+    "success": true,
+    "entry_id": "01M4WPT9WS1Z2A66N02GM7HBCT",
+    "entry": {
+      "created_at": 1791964817.305787,
+      "entry_id": "01M4WPT9WS1Z2A66N02GM7HBCT",
+      "domain": "template",
+      "modified_at": 1791965162.296152,
+      "title": "ls house day",
+      "source": "user",
+      "state": "loaded",
+      "supports_options": true,
+      "supports_remove_device": false,
+      "supports_unload": true,
+      "supports_reconfigure": false,
+      "supported_subentry_types": {},
+      "pref_disable_new_entities": false,
+      "pref_disable_polling": false,
+      "disabled_by": null,
+      "reason": null,
+      "error_reason_translation_key": null,
+      "error_reason_translation_placeholders": null,
+      "num_subentries": 0,
+      "options": {
+        "state": "{{ (states('input_text.ls_house_day') | from_json(default={})).get('on', false) }}",
+        "turn_on": [
+          {
+            "action": "script.ls_store",
+            "data": {
+              "brightness": "{{ brightness | default(none) }}",
+              "hs": "{{ hs | default(none) }}",
+              "kelvin": "{{ color_temp_kelvin | default(none) }}",
+              "mireds": "{{ color_temp | default(none) }}",
+              "on": true,
+              "store": "input_text.ls_house_day"
+            }
+          }
+        ],
+        "turn_off": [
+          {
+            "action": "script.ls_store",
+            "data": {
+              "on": false,
+              "store": "input_text.ls_house_day"
+            }
+          }
+        ],
+        "level": "{{ (states('input_text.ls_house_day') | from_json(default={})).get('b', 255) }}",
+        "set_level": [
+          {
+            "action": "script.ls_store",
+            "data": {
+              "brightness": "{{ brightness | default(none) }}",
+              "hs": "{{ hs | default(none) }}",
+              "kelvin": "{{ color_temp_kelvin | default(none) }}",
+              "mireds": "{{ color_temp | default(none) }}",
+              "on": true,
+              "store": "input_text.ls_house_day"
+            }
+          }
+        ],
+        "hs": "{% set c = states('input_text.ls_house_day') | from_json(default={}) %}{{ (c.get('h', 0), c.get('s', 0)) if c.get('m') == 'hs' else none }}",
+        "set_hs": [
+          {
+            "action": "script.ls_store",
+            "data": {
+              "brightness": "{{ brightness | default(none) }}",
+              "hs": "{{ hs | default(none) }}",
+              "kelvin": "{{ color_temp_kelvin | default(none) }}",
+              "mireds": "{{ color_temp | default(none) }}",
+              "on": true,
+              "store": "input_text.ls_house_day"
+            }
+          }
+        ],
+        "temperature": "{% set c = states('input_text.ls_house_day') | from_json(default={}) %}{{ (1000000 / c.get('k', 3500)) | round(0) | int if c.get('m', 'ct') == 'ct' else none }}",
+        "set_temperature": [
+          {
+            "action": "script.ls_store",
+            "data": {
+              "brightness": "{{ brightness | default(none) }}",
+              "hs": "{{ hs | default(none) }}",
+              "kelvin": "{{ color_temp_kelvin | default(none) }}",
+              "mireds": "{{ color_temp | default(none) }}",
+              "on": true,
+              "store": "input_text.ls_house_day"
+            }
+          }
+        ]
+      }
+    },
+    "log_level": "WARNING",
+    "log_level_raw": 30
+  },
+  "area": {
+    "success": true,
+    "entry_id": "01M4WQ6H5YQC0EFMRXFKSF4Q42",
+    "entry": {
+      "created_at": 1791965217.982799,
+      "entry_id": "01M4WQ6H5YQC0EFMRXFKSF4Q42",
+      "domain": "template",
+      "modified_at": 1791965217.982808,
+      "title": "ls living_room day",
+      "source": "user",
+      "state": "loaded",
+      "supports_options": true,
+      "supports_remove_device": false,
+      "supports_unload": true,
+      "supports_reconfigure": false,
+      "supported_subentry_types": {},
+      "pref_disable_new_entities": false,
+      "pref_disable_polling": false,
+      "disabled_by": null,
+      "reason": null,
+      "error_reason_translation_key": null,
+      "error_reason_translation_placeholders": null,
+      "num_subentries": 0,
+      "options": {
+        "state": "{{ (states('input_text.ls_living_room_day') | from_json(default={})).get('on', false) }}",
+        "turn_on": [
+          {
+            "action": "script.ls_store",
+            "data": {
+              "brightness": "{{ brightness | default(none) }}",
+              "hs": "{{ hs | default(none) }}",
+              "kelvin": "{{ color_temp_kelvin | default(none) }}",
+              "mireds": "{{ color_temp | default(none) }}",
+              "on": true,
+              "store": "input_text.ls_living_room_day"
+            }
+          }
+        ],
+        "turn_off": [
+          {
+            "action": "script.ls_store",
+            "data": {
+              "on": false,
+              "store": "input_text.ls_living_room_day"
+            }
+          }
+        ],
+        "level": "{{ (states('input_text.ls_living_room_day') | from_json(default={})).get('b', 255) }}",
+        "set_level": [
+          {
+            "action": "script.ls_store",
+            "data": {
+              "brightness": "{{ brightness | default(none) }}",
+              "hs": "{{ hs | default(none) }}",
+              "kelvin": "{{ color_temp_kelvin | default(none) }}",
+              "mireds": "{{ color_temp | default(none) }}",
+              "on": true,
+              "store": "input_text.ls_living_room_day"
+            }
+          }
+        ],
+        "hs": "{% set c = states('input_text.ls_living_room_day') | from_json(default={}) %}{{ (c.get('h', 0), c.get('s', 0)) if c.get('m') == 'hs' else none }}",
+        "set_hs": [
+          {
+            "action": "script.ls_store",
+            "data": {
+              "brightness": "{{ brightness | default(none) }}",
+              "hs": "{{ hs | default(none) }}",
+              "kelvin": "{{ color_temp_kelvin | default(none) }}",
+              "mireds": "{{ color_temp | default(none) }}",
+              "on": true,
+              "store": "input_text.ls_living_room_day"
+            }
+          }
+        ],
+        "temperature": "{% set c = states('input_text.ls_living_room_day') | from_json(default={}) %}{{ (1000000 / c.get('k', 3500)) | round(0) | int if c.get('m', 'ct') == 'ct' else none }}",
+        "set_temperature": [
+          {
+            "action": "script.ls_store",
+            "data": {
+              "brightness": "{{ brightness | default(none) }}",
+              "hs": "{{ hs | default(none) }}",
+              "kelvin": "{{ color_temp_kelvin | default(none) }}",
+              "mireds": "{{ color_temp | default(none) }}",
+              "on": true,
+              "store": "input_text.ls_living_room_day"
+            }
+          }
+        ]
+      }
+    },
+    "log_level": "WARNING",
+    "log_level_raw": 30
+  },
+  "lamp": {
+    "success": true,
+    "entry_id": "01M4XFE2PH7RDGQCCHA0255V4Z",
+    "entry": {
+      "created_at": 1791990631.122051,
+      "entry_id": "01M4XFE2PH7RDGQCCHA0255V4Z",
+      "domain": "template",
+      "modified_at": 1791990631.122059,
+      "title": "ls lamp living_room_yellow_retro_lamp day",
+      "source": "user",
+      "state": "loaded",
+      "supports_options": true,
+      "supports_remove_device": false,
+      "supports_unload": true,
+      "supports_reconfigure": false,
+      "supported_subentry_types": {},
+      "pref_disable_new_entities": false,
+      "pref_disable_polling": false,
+      "disabled_by": null,
+      "reason": null,
+      "error_reason_translation_key": null,
+      "error_reason_translation_placeholders": null,
+      "num_subentries": 0,
+      "options": {
+        "state": "{{ (states('input_text.ls_lamp_living_room_yellow_retro_lamp_day') | from_json(default={})).get('on', false) }}",
+        "turn_on": [
+          {
+            "action": "script.ls_store",
+            "data": {
+              "brightness": "{{ brightness | default(none) }}",
+              "hs": "{{ hs | default(none) }}",
+              "kelvin": "{{ color_temp_kelvin | default(none) }}",
+              "mireds": "{{ color_temp | default(none) }}",
+              "on": true,
+              "store": "input_text.ls_lamp_living_room_yellow_retro_lamp_day"
+            }
+          }
+        ],
+        "turn_off": [
+          {
+            "action": "script.ls_store",
+            "data": {
+              "on": false,
+              "store": "input_text.ls_lamp_living_room_yellow_retro_lamp_day"
+            }
+          }
+        ],
+        "level": "{{ (states('input_text.ls_lamp_living_room_yellow_retro_lamp_day') | from_json(default={})).get('b', 255) }}",
+        "set_level": [
+          {
+            "action": "script.ls_store",
+            "data": {
+              "brightness": "{{ brightness | default(none) }}",
+              "hs": "{{ hs | default(none) }}",
+              "kelvin": "{{ color_temp_kelvin | default(none) }}",
+              "mireds": "{{ color_temp | default(none) }}",
+              "on": true,
+              "store": "input_text.ls_lamp_living_room_yellow_retro_lamp_day"
+            }
+          }
+        ],
+        "hs": "{% set c = states('input_text.ls_lamp_living_room_yellow_retro_lamp_day') | from_json(default={}) %}{{ (c.get('h', 0), c.get('s', 0)) if c.get('m') == 'hs' else none }}",
+        "set_hs": [
+          {
+            "action": "script.ls_store",
+            "data": {
+              "brightness": "{{ brightness | default(none) }}",
+              "hs": "{{ hs | default(none) }}",
+              "kelvin": "{{ color_temp_kelvin | default(none) }}",
+              "mireds": "{{ color_temp | default(none) }}",
+              "on": true,
+              "store": "input_text.ls_lamp_living_room_yellow_retro_lamp_day"
+            }
+          }
+        ],
+        "temperature": "{% set c = states('input_text.ls_lamp_living_room_yellow_retro_lamp_day') | from_json(default={}) %}{{ (1000000 / c.get('k', 3500)) | round(0) | int if c.get('m', 'ct') == 'ct' else none }}",
+        "set_temperature": [
+          {
+            "action": "script.ls_store",
+            "data": {
+              "brightness": "{{ brightness | default(none) }}",
+              "hs": "{{ hs | default(none) }}",
+              "kelvin": "{{ color_temp_kelvin | default(none) }}",
+              "mireds": "{{ color_temp | default(none) }}",
+              "on": true,
+              "store": "input_text.ls_lamp_living_room_yellow_retro_lamp_day"
+            }
+          }
+        ]
+      }
+    },
+    "log_level": "WARNING",
+    "log_level_raw": 30
+  }
+}

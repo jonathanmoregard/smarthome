@@ -1,0 +1,12 @@
+{% set n=namespace(gradients={}) %}
+{% set cache=cached if cached is mapping else {} %}
+{% for target,item in base.items() if item is mapping and item.get('day') is mapping and item.get('cosy') is mapping %}
+ {% set signature=gradient_signature(item.day,item.cosy,warm_end)|from_json %}
+ {% set entry=cache.get(target) %}
+ {% if not (gradient_valid(entry,signature)|from_json) %}
+  {% set entry={'signature':signature,'curve':gradient_compile(item.day,item.cosy,warm_end)|from_json} %}
+ {% endif %}
+ {% set n.gradients=dict(n.gradients,**{target:entry}) %}
+{% endfor %}
+{# Cached entries may be HA read-only wrappers; normalize once at the boundary. #}
+{{ {'gradients':n.gradients}|to_json|from_json }}

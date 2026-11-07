@@ -1,0 +1,43 @@
+{# Use complete observed memberships; a remembered desired list is never proof. #}
+{% set endpoints=state_attr('sensor.ls_effects_runtime','auto_endpoints') or {} %}
+{% set groups=state_attr('sensor.ls_effects_runtime','auto_groups') or [] %}
+{% set syncing=state_attr('sensor.ls_effects_runtime','auto_syncing') or false %}
+{% set bridge=states.binary_sensor.zigbee2mqtt_bridge_connection_state %}
+{% set listener=states.automation.effects_auto_group_state %}
+{% set epoch=[as_timestamp(bridge.last_changed if bridge is not none else none,0),as_timestamp(listener.last_changed if listener is not none else none,0)]|max %}
+{% set fresh=is_state('binary_sensor.zigbee2mqtt_bridge_connection_state','on') and is_state('automation.effects_auto_group_state','on') and (state_attr('sensor.ls_effects_runtime','auto_groups_observed_at') or 0)>=epoch and (state_attr('sensor.ls_effects_runtime','auto_devices_observed_at') or 0)>=epoch and epoch>0 %}
+{% set n=namespace(mapping={},blocked=[],groups=[]) %}
+{% if fresh %}
+ {% for lamp,members in result.members.items() %}
+  {% for E in members if E in result.topics %}
+   {% for domain,identifier in device_attr(E,'identifiers') or [] if domain=='mqtt' and identifier.startswith('zigbee2mqtt_0x') %}
+    {% set ieee=identifier[12:] %}{% set eps=endpoints.get(ieee,[]) %}
+    {% if eps|count==1 %}
+     {% set key=ieee~'/'~eps[0] %}{% set row={'entity':E,'owner':lamp,'topic':result.topics[E]} %}
+     {% if key in n.mapping and n.mapping[key]!=row %}{% set n.blocked=n.blocked+[key] %}{% endif %}
+     {% set n.mapping=dict(n.mapping,**{key:row}) %}
+    {% endif %}
+   {% endfor %}
+  {% endfor %}
+ {% endfor %}
+ {% for g in groups if g.friendly_name!='fx_candle_active' and g.members|count>1 %}
+  {% set managed=g.friendly_name.startswith('ls_auto_') %}
+  {% set check=namespace(ok=not(managed and syncing),entities=[],owners=[],physical=[],topics={}) %}
+  {% for m in g.members %}
+   {% set key=m.ieee_address~'/'~m.endpoint %}
+   {% if key not in n.mapping or key in n.blocked or m in check.physical %}
+    {% set check.ok=false %}
+   {% else %}
+    {% set row=n.mapping[key] %}
+    {% if managed and area_id(row.owner)!=g.friendly_name[8:].rsplit('_',1)[0] %}{% set check.ok=false %}{% endif %}
+    {% set check.entities=check.entities+[row.entity] %}{% set check.owners=check.owners+[row.owner] %}
+    {% set check.physical=check.physical+[{'ieee_address':m.ieee_address,'endpoint':m.endpoint}] %}
+    {% set check.topics=dict(check.topics,**{row.entity:row.topic}) %}
+   {% endif %}
+  {% endfor %}
+  {% if check.ok and check.entities|unique|list|count==g.members|count %}
+   {% set n.groups=n.groups+[{'id':g.friendly_name,'topic':'zigbee2mqtt/'~g.friendly_name~'/set','members':check.entities|sort,'lamps':check.owners|unique|sort,'member_topics':check.topics,'verified':true,'managed':managed,'physical_members':check.physical|sort(attribute='endpoint')|sort(attribute='ieee_address'),'zigbee_id':g.id}] %}
+  {% endif %}
+ {% endfor %}
+{% endif %}
+{{ dict(result,multicast=n.groups) }}

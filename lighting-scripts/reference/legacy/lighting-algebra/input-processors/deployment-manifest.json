@@ -1,0 +1,26 @@
+{
+  "ls_base": {
+    "bytes": 22319,
+    "sha256": "e75523bd30dec0206933833e985b9d7e986279aaa6903acc6e32c48f4b2c429a"
+  },
+  "effects_catalog": {
+    "bytes": 19785,
+    "sha256": "8e86119ffcdfe2c067ed94dded6e31bc6c36e0201cec5b47dc7dbfad24be0614"
+  },
+  "effects_resolve": {
+    "bytes": 27908,
+    "sha256": "db40d17c79beda1feb909302d6cb7c68540e162e1ffad905bf519b5c661062ef"
+  },
+  "ls_room_base": {
+    "bytes": 22557,
+    "sha256": "d4cbfe0d6f2c6bfdb221099a7376fd10ae316321f04dba786c66d976a963acda"
+  },
+  "ls_room_plan": {
+    "bytes": 35408,
+    "sha256": "7395c3acb016c97148b669c30bd032c78f245a05749f87a98d8d897f3edc3937"
+  },
+  "ls_remote_plan": {
+    "bytes": 30618,
+    "sha256": "4939f066ba7c7b3d005b55947ebf45e8c728fd8aa8ccf060bb5135822f737b95"
+  }
+}

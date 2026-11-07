@@ -1,0 +1,149 @@
+{
+  "success": true,
+  "action": "get",
+  "automation_id": "automation.house_lamps_follow_mode",
+  "config": {
+    "id": "1791919638348",
+    "alias": "House lamps follow mode",
+    "description": "A House schedule lamp switched on jumps straight to its room's block (kitchen lamps: see Kitchen lamps follow mode). Changing House mode by hand (dashboard) also sets Downstairs and Bedroom mode and applies to every lamp that is on within 2 s; changing Downstairs or Bedroom mode by hand applies to those rooms only. Each room's next scheduled block takes over again.",
+    "triggers": [
+      {
+        "trigger": "light.turned_on",
+        "target": {
+          "label_id": "house_schedule"
+        },
+        "id": "lamp_on"
+      },
+      {
+        "trigger": "state",
+        "entity_id": "input_select.house_mode",
+        "id": "manual",
+        "note": "Schedule-driven changes are filtered out below; the schedules apply their own glide."
+      },
+      {
+        "trigger": "state",
+        "entity_id": "input_select.bedroom_mode",
+        "id": "bedroom_manual"
+      },
+      {
+        "trigger": "state",
+        "entity_id": "input_select.downstairs_mode",
+        "id": "downstairs_manual"
+      }
+    ],
+    "actions": [
+      {
+        "choose": [
+          {
+            "conditions": [
+              {
+                "condition": "trigger",
+                "id": "lamp_on"
+              },
+              {
+                "condition": "template",
+                "value_template": "{{ trigger.entity_id not in area_entities('kitchen') }}",
+                "note": "Kitchen fixtures switch on together; a debounced automation sends them one group command."
+              }
+            ],
+            "sequence": [
+              {
+                "action": "script.house_apply_mode",
+                "data": {
+                  "lights": "{{ [trigger.entity_id] }}",
+                  "transition": 0
+                },
+                "note": "The script skips a lamp in a running sunrise, so the fade continues."
+              }
+            ]
+          },
+          {
+            "conditions": [
+              {
+                "condition": "trigger",
+                "id": "manual"
+              },
+              {
+                "condition": "template",
+                "value_template": "{{ trigger.to_state.context.user_id is not none }}",
+                "note": "A person's change carries a user_id. Automatic changes have none, and a schedule's change can have no parent either."
+              }
+            ],
+            "sequence": [
+              {
+                "action": "input_select.select_option",
+                "target": {
+                  "entity_id": "input_select.downstairs_mode"
+                },
+                "data": {
+                  "option": "{{ trigger.to_state.state }}"
+                }
+              },
+              {
+                "action": "input_select.select_option",
+                "target": {
+                  "entity_id": "input_select.bedroom_mode"
+                },
+                "data": {
+                  "option": "{{ trigger.to_state.state }}"
+                }
+              },
+              {
+                "action": "script.house_apply_mode",
+                "data": {
+                  "scope": "all",
+                  "transition": 2
+                }
+              }
+            ]
+          },
+          {
+            "conditions": [
+              {
+                "condition": "trigger",
+                "id": "bedroom_manual"
+              },
+              {
+                "condition": "template",
+                "value_template": "{{ trigger.to_state.context.user_id is not none }}"
+              }
+            ],
+            "sequence": [
+              {
+                "action": "script.house_apply_mode",
+                "data": {
+                  "scope": "bedroom",
+                  "transition": 2
+                }
+              }
+            ]
+          },
+          {
+            "conditions": [
+              {
+                "condition": "trigger",
+                "id": "downstairs_manual"
+              },
+              {
+                "condition": "template",
+                "value_template": "{{ trigger.to_state.context.user_id is not none }}"
+              }
+            ],
+            "sequence": [
+              {
+                "action": "script.house_apply_mode",
+                "data": {
+                  "scope": "downstairs",
+                  "transition": 2
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "mode": "parallel",
+    "max": 20
+  },
+  "config_hash": "aed3fd7f72f9ec2f"
+}

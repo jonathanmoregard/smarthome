@@ -1,0 +1,87 @@
+{
+  "alias": "Effects \u00b7 Paced output",
+  "mode": "queued",
+  "sequence": [
+    {
+      "variables": {
+        "completed": true
+      }
+    },
+    {
+      "repeat": {
+        "for_each": "{{ commands }}",
+        "sequence": [
+          {
+            "variables": {
+              "command": "{{ repeat.item }}",
+              "allowed": "{% set n=namespace(ok=revision==states.sensor.ls_overrides.last_updated.isoformat() and generation==state_attr('sensor.effects_controller','generation')) %}{% for L in command.owners %}{% if not is_state(L,'on') or (command.payload.get('state')!='OFF' and not (state_attr('sensor.ls_overrides','power') or {}).get(area_id(L),true)) %}{% set n.ok=false %}{% endif %}{% endfor %}{% for E in command.members %}{% if not is_state(E,'on') %}{% set n.ok=false %}{% endif %}{% endfor %}{{ n.ok }}"
+            }
+          },
+          {
+            "if": [
+              {
+                "condition": "template",
+                "value_template": "{{ allowed }}"
+              },
+              {
+                "condition": "state",
+                "entity_id": "binary_sensor.zigbee2mqtt_bridge_connection_state",
+                "state": "on"
+              }
+            ],
+            "then": [
+              {
+                "action": "mqtt.publish",
+                "data": {
+                  "topic": "{{ command.topic }}",
+                  "payload": "{{ command.payload|to_json }}",
+                  "qos": 0,
+                  "retain": false
+                }
+              },
+              {
+                "delay": {
+                  "milliseconds": 200
+                }
+              }
+            ],
+            "else": [
+              {
+                "variables": {
+                  "completed": false
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "variables": {
+        "result": "{{ {'completed':completed and revision==states.sensor.ls_overrides.last_updated.isoformat() and generation==state_attr('sensor.effects_controller','generation')} }}"
+      }
+    },
+    {
+      "stop": "Return result",
+      "response_variable": "result"
+    }
+  ],
+  "max": 50,
+  "fields": {
+    "commands": {
+      "selector": {
+        "object": {}
+      }
+    },
+    "revision": {
+      "selector": {
+        "object": {}
+      }
+    },
+    "generation": {
+      "selector": {
+        "object": {}
+      }
+    }
+  }
+}

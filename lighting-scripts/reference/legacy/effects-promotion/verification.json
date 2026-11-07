@@ -1,0 +1,32 @@
+{
+  "deployed": {
+    "house": {
+      "url": "house-lights/lights",
+      "hash": "9fe673ac2e32debf"
+    },
+    "schedule": {
+      "url": "lighting-schedule/schedule",
+      "hash": "45d68c5ffc715810"
+    }
+  },
+  "checks": {
+    "offline_logic_scenarios": 26,
+    "dashboard_checks": 11,
+    "ha_markdown_evaluations": 3,
+    "profile_controls_available": 66,
+    "command_routes": 88,
+    "popup_targets": 18,
+    "all_lamps_members": 16
+  },
+  "review": {
+    "successful_independent_reviews": 1,
+    "material_findings": 0,
+    "unavailable_advisor_dispatches": 1
+  },
+  "physical_test_commands": 0,
+  "limits": [
+    "Synchronous isolated interpreter; async HA delivery/network/bulb rendering not exercised",
+    "Dashboard screenshot beta disabled; no rendered screenshot verification"
+  ],
+  "schedule_diagnosis": "Connected baseline masked by existing temporary House Normal light overrides; these overrides were preserved and are now explained on Schedule."
+}

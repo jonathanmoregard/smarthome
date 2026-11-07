@@ -1,0 +1,33 @@
+{
+  "success": true,
+  "action": "get",
+  "automation_id": "automation.lighting_jonathan_s_bedroom_remote_center",
+  "config": {
+    "id": "lighting_remote_0x385b44fffea4fc67_center",
+    "alias": "Lighting · Bedroom Remote Center",
+    "description": "Queue every raw POWER event into its quick state owner; no listener gaps or waits.",
+    "triggers": [
+      {
+        "trigger": "mqtt",
+        "topic": "zigbee2mqtt/0x385b44fffea4fc67/action",
+        "payload": "on"
+      },
+      {
+        "trigger": "mqtt",
+        "topic": "zigbee2mqtt/0x385b44fffea4fc67/action",
+        "payload": "off"
+      }
+    ],
+    "actions": [
+      {
+        "action": "script.ls_remote_gesture_bedroom",
+        "data": {
+          "command": "power"
+        }
+      }
+    ],
+    "mode": "queued",
+    "max": 50
+  },
+  "config_hash": "97df22517c753c04"
+}

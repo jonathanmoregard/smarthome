@@ -1,0 +1,232 @@
+[
+  {
+    "friendly_name": "kitchen/pendant",
+    "id": 1,
+    "members": [
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c138e778a7b45f"
+      },
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c1389a579ab983"
+      },
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c1389f87b76e60"
+      }
+    ],
+    "scenes": []
+  },
+  {
+    "friendly_name": "kitchen/spots-1",
+    "id": 2,
+    "members": [
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c1381f885b082f"
+      },
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c1387e4cfba78d"
+      },
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c138a884038127"
+      }
+    ],
+    "scenes": []
+  },
+  {
+    "friendly_name": "kitchen/spots-2",
+    "id": 3,
+    "members": [
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c1386736786442"
+      },
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c138a50ae5ba5a"
+      },
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c1381a2f63601c"
+      }
+    ],
+    "scenes": []
+  },
+  {
+    "friendly_name": "kitchen/all",
+    "id": 4,
+    "members": [
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c138e778a7b45f"
+      },
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c1389a579ab983"
+      },
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c1389f87b76e60"
+      },
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c1381f885b082f"
+      },
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c1387e4cfba78d"
+      },
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c138a884038127"
+      },
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c1386736786442"
+      },
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c138a50ae5ba5a"
+      },
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c1381a2f63601c"
+      }
+    ],
+    "scenes": []
+  },
+  {
+    "friendly_name": "Mys golvlampa",
+    "id": 5,
+    "members": [
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c138b1f2401a46"
+      },
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c138af806e6d70"
+      }
+    ],
+    "scenes": []
+  },
+  {
+    "friendly_name": "Mysrum",
+    "id": 6,
+    "members": [
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c138eec10a5f95"
+      },
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c138b1f2401a46"
+      },
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c138af806e6d70"
+      }
+    ],
+    "scenes": []
+  },
+  {
+    "friendly_name": "fx_candle_cross_a",
+    "id": 1001,
+    "members": [
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c138e778a7b45f"
+      },
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c1389a579ab983"
+      },
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c1389f87b76e60"
+      },
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c13850c80ed98f"
+      },
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c13825783eff26"
+      },
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c138b1f2401a46"
+      },
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c138af806e6d70"
+      }
+    ],
+    "scenes": []
+  },
+  {
+    "friendly_name": "fx_candle_cross_b",
+    "id": 1002,
+    "members": [
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c1381f885b082f"
+      },
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c1387e4cfba78d"
+      },
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c138a884038127"
+      },
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c13836b344b302"
+      },
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c138292a2d7f60"
+      }
+    ],
+    "scenes": []
+  },
+  {
+    "friendly_name": "fx_candle_cross_c",
+    "id": 1003,
+    "members": [
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c1386736786442"
+      },
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c138a50ae5ba5a"
+      },
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c1381a2f63601c"
+      },
+      {
+        "endpoint": 1,
+        "ieee_address": "0xa4c1386c73f1db49"
+      }
+    ],
+    "scenes": []
+  },
+  {
+    "friendly_name": "fx_candle_cross_d",
+    "id": 1004,
+    "members": [
+      {
+        "endpoint": 1,
+        "ieee_address": "0x7cc6b6fffe3cef1c"
+      }
+    ],
+    "scenes": []
+  }
+]

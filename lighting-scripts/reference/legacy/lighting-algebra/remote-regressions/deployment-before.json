@@ -1,0 +1,1578 @@
+{
+  "created_at": "2026-10-24 14:05:50 UTC",
+  "scripts": {
+    "ls_dispatch": {
+      "success": true,
+      "action": "get",
+      "script_id": "ls_dispatch",
+      "config": {
+        "alias": "Lighting · Apply Changed Targets",
+        "mode": "queued",
+        "sequence": [
+          {
+            "variables": {
+              "revision": "{{ plan.revision }}",
+              "resolved": "{{ plan.resolved }}",
+              "baseline": "{{ {'targets':plan.base} }}"
+            }
+          },
+          {
+            "condition": "template",
+            "value_template": "{{ revision==states.sensor.ls_overrides.last_updated.isoformat() and plan.plan_order>=(state_attr('sensor.ls_effects_runtime','plan_order') or 0) }}"
+          },
+          {
+            "action": "script.effects_catalog",
+            "response_variable": "catalog"
+          },
+          {
+            "variables": {
+              "previous": "{% set applied=state_attr('sensor.ls_effects_runtime','applied') %}{{ (state_attr('sensor.ls_effects_runtime','targets') or {}) if applied is none else applied }}",
+              "previous_effects": "{{ state_attr('sensor.ls_effects_runtime','assignments') or {} }}",
+              "requested": "{{ (lights if lights is list else [lights]) if lights|default(none) else [] }}",
+              "lamp_targets": "{% set n=namespace(t={}) %}{% for L,t in resolved.targets.items() if not t.is_room and (not plan.get('output_targets') or L in plan.output_targets) %}{% set n.t=dict(n.t,**{L:t}) %}{% endfor %}{{ n.t }}"
+            }
+          },
+          {
+            "variables": {
+              "ordinary": "{% set n=namespace(t={}) %}\n{% for L,t in lamp_targets.items() if is_state(L,'on') and (L in requested or baseline.targets[L].get('send',true))\n and (L in requested or (L in previous_effects and L not in resolved.assignments) or t!=previous.get(L)) %}\n {% set n.t=dict(n.t,**{L:t}) %}\n{% endfor %}{{ n.t }}"
+            }
+          },
+          {
+            "action": "script.effects_assign",
+            "data": {
+              "targets": "{{ resolved.targets }}",
+              "assignments": "{{ resolved.assignments }}",
+              "revision": "{{ revision }}",
+              "invalidate": "{{ ordinary.keys()|list }}",
+              "plan_order": "{{ plan.plan_order }}"
+            },
+            "response_variable": "assigned"
+          },
+          {
+            "action": "script.effects_frame_plan",
+            "data": {
+              "targets": "{{ ordinary }}",
+              "catalog": "{{ catalog }}",
+              "timestamp": "{{ as_timestamp(now()) }}",
+              "transition_cap": "{{ 0.5 if plan.get('remote',false) or plan.get('remote_rooms',[]) else none }}",
+              "transition_rooms": "{{ plan.get('remote_rooms',[]) if not plan.get('remote',false) else none }}"
+            },
+            "response_variable": "batch"
+          },
+          {
+            "action": "script.effects_emit",
+            "data": {
+              "commands": "{{ batch.commands }}",
+              "revision": "{{ revision }}",
+              "generation": "{{ assigned.generation }}"
+            },
+            "response_variable": "emission"
+          },
+          {
+            "condition": "template",
+            "value_template": "{{ revision==states.sensor.ls_overrides.last_updated.isoformat() and assigned.generation==state_attr('sensor.ls_effects_runtime','generation') }}"
+          },
+          {
+            "if": [
+              {
+                "condition": "template",
+                "value_template": "{{ ordinary|count>0 and emission.completed }}"
+              }
+            ],
+            "then": [
+              {
+                "action": "variable.update_sensor",
+                "target": {
+                  "entity_id": "sensor.ls_effects_runtime"
+                },
+                "data": {
+                  "value": "{{ assigned.generation }}",
+                  "replace_attributes": false,
+                  "attributes": "{% set prior=state_attr('sensor.ls_effects_runtime','applied') or {} %}{{ {'applied':dict(prior|to_json|from_json,**ordinary)} }}"
+                }
+              }
+            ]
+          },
+          {
+            "repeat": {
+              "for_each": "{{ plan.switches.keys()|list }}",
+              "sequence": [
+                {
+                  "variables": {
+                    "L": "{{ repeat.item }}",
+                    "switch": "{{ plan.switches[L] }}"
+                  }
+                },
+                {
+                  "if": [
+                    {
+                      "condition": "template",
+                      "value_template": "{{ revision==states.sensor.ls_overrides.last_updated.isoformat() and not is_state(L,'on' if switch.on else 'off') }}"
+                    }
+                  ],
+                  "then": [
+                    {
+                      "action": "{{ \"homeassistant.turn_on\" if switch.on else \"homeassistant.turn_off\" }}",
+                      "target": {
+                        "entity_id": "{{ L }}"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "condition": "template",
+            "value_template": "{{ revision==states.sensor.ls_overrides.last_updated.isoformat() }}"
+          },
+          {
+            "repeat": {
+              "for_each": "{{ plan.mirror }}",
+              "sequence": [
+                {
+                  "action": "input_select.select_option",
+                  "target": {
+                    "entity_id": "{{ repeat.item.entity }}"
+                  },
+                  "data": {
+                    "option": "{{ repeat.item.option }}"
+                  }
+                }
+              ]
+            },
+            "note": "Display only: mirror the effective block (override or schedule) into input_select.ls_<scope>_override so dashboards can highlight it. The engine never reads these selects."
+          },
+          {
+            "alias": "Display only: mirror Sara Mode (override record mode:sara) into input_boolean.ls_sara_mode_mirror so /house-lights can highlight it. The engine never reads it.",
+            "choose": [
+              {
+                "conditions": [
+                  {
+                    "condition": "template",
+                    "value_template": "{{ plan.sara_mirror == 'on' }}"
+                  }
+                ],
+                "sequence": [
+                  {
+                    "action": "input_boolean.turn_on",
+                    "target": {
+                      "entity_id": "input_boolean.ls_sara_mode_mirror"
+                    }
+                  }
+                ]
+              },
+              {
+                "conditions": [
+                  {
+                    "condition": "template",
+                    "value_template": "{{ plan.sara_mirror == 'off' }}"
+                  }
+                ],
+                "sequence": [
+                  {
+                    "action": "input_boolean.turn_off",
+                    "target": {
+                      "entity_id": "input_boolean.ls_sara_mode_mirror"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "if": [
+              {
+                "condition": "template",
+                "value_template": "{{ plan.stale_keys | count > 0 }}"
+              }
+            ],
+            "then": [
+              {
+                "event": "ls_override",
+                "event_data": {
+                  "op": "clear",
+                  "keys": "{{ plan.stale_keys }}",
+                  "via": "rule_next_block",
+                  "expected_revision": "{{ revision }}"
+                }
+              }
+            ],
+            "note": "Next-block rule: overrides set before the scope's latest fade start fade out with the fade (see plan) and end once the new block is reached."
+          },
+          {
+            "variables": {
+              "result": "{{ {'completed':emission.completed and revision==states.sensor.ls_overrides.last_updated.isoformat() and assigned.generation==state_attr('sensor.ls_effects_runtime','generation'),'published_at':emission.get('published_at',[])} }}"
+            }
+          },
+          {
+            "stop": "Return result",
+            "response_variable": "result"
+          }
+        ],
+        "max": 50,
+        "fields": {
+          "plan": {
+            "selector": {
+              "object": {}
+            }
+          },
+          "lights": {
+            "selector": {
+              "object": {}
+            }
+          }
+        },
+        "description": "Serialize current output; commit runtime directly and preserve invalidated applied entries until emission completes. No MQTT echo wait or artificial output pacing."
+      },
+      "config_hash": "83754fe00221f8f5"
+    },
+    "ls_remote_gesture_bedroom": {
+      "success": true,
+      "action": "get",
+      "script_id": "ls_remote_gesture_bedroom",
+      "config": {
+        "alias": "Lighting · Bedroom Remote Gestures",
+        "description": "Single quick state owner for raw power/presets/directions. A token-guarded restart script debounces power; native timer bounds the secret chord. No waits here. Cursor reset and decoding are serialized. Logical commands launch asynchronously so actuator latency cannot drop input.",
+        "mode": "queued",
+        "max": 50,
+        "fields": {
+          "command": {
+            "selector": {
+              "text": {}
+            }
+          },
+          "payload": {
+            "default": {},
+            "selector": {
+              "object": {}
+            }
+          },
+          "token": {
+            "default": "",
+            "selector": {
+              "text": {}
+            }
+          }
+        },
+        "sequence": [
+          {
+            "condition": "template",
+            "value_template": "{{ command in ['power','power_done','preset','cancel','left','right','up','down'] }}"
+          },
+          {
+            "variables": {
+              "step": "{{ states('input_number.ls_bedroom_remote_chord_step')|int(0) }}",
+              "active": "{{ is_state('timer.ls_bedroom_remote_chord','active') }}",
+              "clicks": "{{ states('input_number.ls_bedroom_remote_power_count')|int(0) }}",
+              "stored_token": "{{ states('input_text.ls_bedroom_remote_power_token') if has_value('input_text.ls_bedroom_remote_power_token') else '' }}"
+            }
+          },
+          {
+            "variables": {
+              "quiet_active": "{{ clicks>0 and stored_token|length>0 and as_timestamp(stored_token,0)+0.4>as_timestamp(now()) }}"
+            }
+          },
+          {
+            "choose": [
+              {
+                "conditions": [
+                  {
+                    "condition": "template",
+                    "value_template": "{{ command=='power_done' }}"
+                  }
+                ],
+                "sequence": [
+                  {
+                    "if": [
+                      {
+                        "condition": "template",
+                        "value_template": "{{ token|length==0 or token!=stored_token or clicks<=0 }}"
+                      }
+                    ],
+                    "then": [
+                      {
+                        "stop": "Ignore stale power completion"
+                      }
+                    ]
+                  },
+                  {
+                    "action": "input_number.set_value",
+                    "target": {
+                      "entity_id": "input_number.ls_bedroom_remote_power_count"
+                    },
+                    "data": {
+                      "value": 0
+                    }
+                  },
+                  {
+                    "action": "input_text.set_value",
+                    "target": {
+                      "entity_id": "input_text.ls_bedroom_remote_power_token"
+                    },
+                    "data": {
+                      "value": ""
+                    }
+                  },
+                  {
+                    "if": [
+                      {
+                        "condition": "template",
+                        "value_template": "{{ clicks==1 or clicks>=3 }}"
+                      }
+                    ],
+                    "then": [
+                      {
+                        "action": "input_number.set_value",
+                        "target": {
+                          "entity_id": "input_number.ls_bedroom_remote_chord_step"
+                        },
+                        "data": {
+                          "value": 0
+                        }
+                      },
+                      {
+                        "action": "timer.cancel",
+                        "target": {
+                          "entity_id": "timer.ls_bedroom_remote_chord"
+                        }
+                      },
+                      {
+                        "variables": {
+                          "room": "{{ area_id('0e973e9202acb5ace9a8e6a8b336891d') }}"
+                        }
+                      },
+                      {
+                        "if": [
+                          {
+                            "condition": "template",
+                            "value_template": "{{ room is string and room|length>0 }}"
+                          }
+                        ],
+                        "then": [
+                          {
+                            "action": "script.turn_on",
+                            "target": {
+                              "entity_id": "script.ls_remote_command"
+                            },
+                            "data": {
+                              "variables": {
+                                "source": "0x385b44fffea4fc67",
+                                "area": "{{ room }}",
+                                "command": "{{ 'toggle' if clicks==1 else 'reset' }}",
+                                "dry_run": false
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "stop": "Completed quiet power burst"
+                  }
+                ]
+              },
+              {
+                "conditions": [
+                  {
+                    "condition": "template",
+                    "value_template": "{{ command=='power' }}"
+                  }
+                ],
+                "sequence": [
+                  {
+                    "if": [
+                      {
+                        "condition": "template",
+                        "value_template": "{{ clicks>0 and not quiet_active }}"
+                      }
+                    ],
+                    "then": [
+                      {
+                        "action": "input_number.set_value",
+                        "target": {
+                          "entity_id": "input_number.ls_bedroom_remote_power_count"
+                        },
+                        "data": {
+                          "value": 0
+                        }
+                      },
+                      {
+                        "action": "input_text.set_value",
+                        "target": {
+                          "entity_id": "input_text.ls_bedroom_remote_power_token"
+                        },
+                        "data": {
+                          "value": ""
+                        }
+                      },
+                      {
+                        "if": [
+                          {
+                            "condition": "template",
+                            "value_template": "{{ clicks==1 or clicks>=3 }}"
+                          }
+                        ],
+                        "then": [
+                          {
+                            "action": "input_number.set_value",
+                            "target": {
+                              "entity_id": "input_number.ls_bedroom_remote_chord_step"
+                            },
+                            "data": {
+                              "value": 0
+                            }
+                          },
+                          {
+                            "action": "timer.cancel",
+                            "target": {
+                              "entity_id": "timer.ls_bedroom_remote_chord"
+                            }
+                          },
+                          {
+                            "variables": {
+                              "room": "{{ area_id('0e973e9202acb5ace9a8e6a8b336891d') }}"
+                            }
+                          },
+                          {
+                            "if": [
+                              {
+                                "condition": "template",
+                                "value_template": "{{ room is string and room|length>0 }}"
+                              }
+                            ],
+                            "then": [
+                              {
+                                "action": "script.turn_on",
+                                "target": {
+                                  "entity_id": "script.ls_remote_command"
+                                },
+                                "data": {
+                                  "variables": {
+                                    "source": "0x385b44fffea4fc67",
+                                    "area": "{{ room }}",
+                                    "command": "{{ 'toggle' if clicks==1 else 'reset' }}",
+                                    "dry_run": false
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "variables": {
+                      "clicks": "{{ [3,clicks+1]|min if quiet_active else 1 }}"
+                    }
+                  },
+                  {
+                    "action": "input_number.set_value",
+                    "target": {
+                      "entity_id": "input_number.ls_bedroom_remote_power_count"
+                    },
+                    "data": {
+                      "value": "{{ clicks }}"
+                    }
+                  },
+                  {
+                    "choose": [
+                      {
+                        "conditions": [
+                          {
+                            "condition": "template",
+                            "value_template": "{{ clicks==1 }}"
+                          }
+                        ],
+                        "sequence": [
+                          {
+                            "action": "input_number.set_value",
+                            "target": {
+                              "entity_id": "input_number.ls_bedroom_remote_chord_step"
+                            },
+                            "data": {
+                              "value": -1
+                            }
+                          },
+                          {
+                            "action": "timer.start",
+                            "target": {
+                              "entity_id": "timer.ls_bedroom_remote_chord"
+                            },
+                            "data": {
+                              "duration": "00:00:03"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "conditions": [
+                          {
+                            "condition": "template",
+                            "value_template": "{{ clicks==2 }}"
+                          }
+                        ],
+                        "sequence": [
+                          {
+                            "action": "input_number.set_value",
+                            "target": {
+                              "entity_id": "input_number.ls_bedroom_remote_preset"
+                            },
+                            "data": {
+                              "value": 0
+                            }
+                          },
+                          {
+                            "if": [
+                              {
+                                "condition": "template",
+                                "value_template": "{{ active and step==-1 }}"
+                              }
+                            ],
+                            "then": [
+                              {
+                                "action": "input_number.set_value",
+                                "target": {
+                                  "entity_id": "input_number.ls_bedroom_remote_chord_step"
+                                },
+                                "data": {
+                                  "value": 1
+                                }
+                              },
+                              {
+                                "action": "timer.start",
+                                "target": {
+                                  "entity_id": "timer.ls_bedroom_remote_chord"
+                                },
+                                "data": {
+                                  "duration": "00:00:03"
+                                }
+                              }
+                            ],
+                            "else": [
+                              {
+                                "action": "input_number.set_value",
+                                "target": {
+                                  "entity_id": "input_number.ls_bedroom_remote_chord_step"
+                                },
+                                "data": {
+                                  "value": 0
+                                }
+                              },
+                              {
+                                "action": "timer.cancel",
+                                "target": {
+                                  "entity_id": "timer.ls_bedroom_remote_chord"
+                                }
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ],
+                    "default": [
+                      {
+                        "action": "input_number.set_value",
+                        "target": {
+                          "entity_id": "input_number.ls_bedroom_remote_chord_step"
+                        },
+                        "data": {
+                          "value": 0
+                        }
+                      },
+                      {
+                        "action": "timer.cancel",
+                        "target": {
+                          "entity_id": "timer.ls_bedroom_remote_chord"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "variables": {
+                      "fresh_token": "{{ now().isoformat() }}"
+                    }
+                  },
+                  {
+                    "action": "input_text.set_value",
+                    "target": {
+                      "entity_id": "input_text.ls_bedroom_remote_power_token"
+                    },
+                    "data": {
+                      "value": "{{ fresh_token }}"
+                    }
+                  },
+                  {
+                    "action": "script.turn_on",
+                    "target": {
+                      "entity_id": "script.ls_remote_power_quiet_bedroom"
+                    },
+                    "data": {
+                      "variables": {
+                        "token": "{{ fresh_token }}"
+                      }
+                    }
+                  },
+                  {
+                    "stop": "Raw power recorded without waiting"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "if": [
+              {
+                "condition": "template",
+                "value_template": "{{ command=='preset' }}"
+              }
+            ],
+            "then": [
+              {
+                "if": [
+                  {
+                    "condition": "template",
+                    "value_template": "{{ payload is not mapping or payload.get('action') not in ['color_temperature_move','brightness_move_to_level'] }}"
+                  }
+                ],
+                "then": [
+                  {
+                    "stop": "Ignore unrelated MQTT payload"
+                  }
+                ]
+              },
+              {
+                "variables": {
+                  "presets": "{{ [200,285,370,454,588] if payload.action=='color_temperature_move' else [254,229,178,76,2] }}",
+                  "preset": "{{ payload.get('action_color_temperature') if payload.action=='color_temperature_move' else payload.get('action_level') }}",
+                  "previous": "{{ states('input_number.ls_bedroom_remote_preset')|float(-1) }}"
+                }
+              },
+              {
+                "if": [
+                  {
+                    "condition": "template",
+                    "value_template": "{{ preset is not number or preset is boolean or preset not in presets }}"
+                  }
+                ],
+                "then": [
+                  {
+                    "action": "input_number.set_value",
+                    "target": {
+                      "entity_id": "input_number.ls_bedroom_remote_chord_step"
+                    },
+                    "data": {
+                      "value": 0
+                    }
+                  },
+                  {
+                    "action": "timer.cancel",
+                    "target": {
+                      "entity_id": "timer.ls_bedroom_remote_chord"
+                    }
+                  },
+                  {
+                    "stop": "Unknown preset cancels chord"
+                  }
+                ]
+              },
+              {
+                "variables": {
+                  "index": "{{ presets.index(preset) }}"
+                }
+              },
+              {
+                "if": [
+                  {
+                    "condition": "template",
+                    "value_template": "{{ index==previous }}"
+                  }
+                ],
+                "then": [
+                  {
+                    "stop": "Ignore duplicate preset companion"
+                  }
+                ]
+              },
+              {
+                "variables": {
+                  "delta": "{{ (index-previous|int)%5 if previous in [0,1,2,3,4] else -1 }}"
+                }
+              },
+              {
+                "action": "input_number.set_value",
+                "target": {
+                  "entity_id": "input_number.ls_bedroom_remote_preset"
+                },
+                "data": {
+                  "value": "{{ index }}"
+                }
+              },
+              {
+                "variables": {
+                  "command": "{{ 'right' if delta==1 else 'left' if delta==4 else 'cancel' }}"
+                }
+              }
+            ]
+          },
+          {
+            "choose": [
+              {
+                "conditions": [
+                  {
+                    "condition": "template",
+                    "value_template": "{{ active and step in [1,2,3,4] and command==['left','right','left','right'][step-1] }}"
+                  }
+                ],
+                "sequence": [
+                  {
+                    "if": [
+                      {
+                        "condition": "template",
+                        "value_template": "{{ step==4 }}"
+                      }
+                    ],
+                    "then": [
+                      {
+                        "action": "input_number.set_value",
+                        "target": {
+                          "entity_id": "input_number.ls_bedroom_remote_chord_step"
+                        },
+                        "data": {
+                          "value": 0
+                        }
+                      },
+                      {
+                        "action": "timer.cancel",
+                        "target": {
+                          "entity_id": "timer.ls_bedroom_remote_chord"
+                        }
+                      },
+                      {
+                        "variables": {
+                          "room": "{{ area_id('0e973e9202acb5ace9a8e6a8b336891d') }}"
+                        }
+                      },
+                      {
+                        "if": [
+                          {
+                            "condition": "template",
+                            "value_template": "{{ room is string and room|length>0 }}"
+                          }
+                        ],
+                        "then": [
+                          {
+                            "action": "script.turn_on",
+                            "target": {
+                              "entity_id": "script.ls_remote_command"
+                            },
+                            "data": {
+                              "variables": {
+                                "source": "0x385b44fffea4fc67",
+                                "area": "{{ room }}",
+                                "command": "sara_toggle",
+                                "dry_run": false
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    ],
+                    "else": [
+                      {
+                        "action": "input_number.set_value",
+                        "target": {
+                          "entity_id": "input_number.ls_bedroom_remote_chord_step"
+                        },
+                        "data": {
+                          "value": "{{ step+1 }}"
+                        }
+                      },
+                      {
+                        "action": "timer.start",
+                        "target": {
+                          "entity_id": "timer.ls_bedroom_remote_chord"
+                        },
+                        "data": {
+                          "duration": "00:00:03"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "stop": "Matched chord input consumed"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "if": [
+              {
+                "condition": "template",
+                "value_template": "{{ step!=0 or active }}"
+              }
+            ],
+            "then": [
+              {
+                "action": "input_number.set_value",
+                "target": {
+                  "entity_id": "input_number.ls_bedroom_remote_chord_step"
+                },
+                "data": {
+                  "value": 0
+                }
+              },
+              {
+                "action": "timer.cancel",
+                "target": {
+                  "entity_id": "timer.ls_bedroom_remote_chord"
+                }
+              }
+            ]
+          },
+          {
+            "condition": "template",
+            "value_template": "{{ command in ['left','right','up','down'] }}"
+          },
+          {
+            "variables": {
+              "room": "{{ area_id('0e973e9202acb5ace9a8e6a8b336891d') }}"
+            }
+          },
+          {
+            "if": [
+              {
+                "condition": "template",
+                "value_template": "{{ room is string and room|length>0 }}"
+              }
+            ],
+            "then": [
+              {
+                "action": "script.turn_on",
+                "target": {
+                  "entity_id": "script.ls_remote_command"
+                },
+                "data": {
+                  "variables": {
+                    "source": "0x385b44fffea4fc67",
+                    "area": "{{ room }}",
+                    "command": "{{ command }}",
+                    "dry_run": false
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "config_hash": "4c23402871cd3977"
+    },
+    "ls_remote_gesture_living_room": {
+      "success": true,
+      "action": "get",
+      "script_id": "ls_remote_gesture_living_room",
+      "config": {
+        "alias": "Lighting · Living Room Remote Gestures",
+        "description": "Single quick state owner for raw power/presets/directions. A token-guarded restart script debounces power; native timer bounds the secret chord. No waits here. Cursor reset and decoding are serialized. Logical commands launch asynchronously so actuator latency cannot drop input.",
+        "mode": "queued",
+        "max": 50,
+        "fields": {
+          "command": {
+            "selector": {
+              "text": {}
+            }
+          },
+          "payload": {
+            "default": {},
+            "selector": {
+              "object": {}
+            }
+          },
+          "token": {
+            "default": "",
+            "selector": {
+              "text": {}
+            }
+          }
+        },
+        "sequence": [
+          {
+            "condition": "template",
+            "value_template": "{{ command in ['power','power_done','preset','cancel','left','right','up','down'] }}"
+          },
+          {
+            "variables": {
+              "step": "{{ states('input_number.ls_living_room_remote_chord_step')|int(0) }}",
+              "active": "{{ is_state('timer.ls_living_room_remote_chord','active') }}",
+              "clicks": "{{ states('input_number.ls_living_room_remote_power_count')|int(0) }}",
+              "stored_token": "{{ states('input_text.ls_living_room_remote_power_token') if has_value('input_text.ls_living_room_remote_power_token') else '' }}"
+            }
+          },
+          {
+            "variables": {
+              "quiet_active": "{{ clicks>0 and stored_token|length>0 and as_timestamp(stored_token,0)+0.4>as_timestamp(now()) }}"
+            }
+          },
+          {
+            "choose": [
+              {
+                "conditions": [
+                  {
+                    "condition": "template",
+                    "value_template": "{{ command=='power_done' }}"
+                  }
+                ],
+                "sequence": [
+                  {
+                    "if": [
+                      {
+                        "condition": "template",
+                        "value_template": "{{ token|length==0 or token!=stored_token or clicks<=0 }}"
+                      }
+                    ],
+                    "then": [
+                      {
+                        "stop": "Ignore stale power completion"
+                      }
+                    ]
+                  },
+                  {
+                    "action": "input_number.set_value",
+                    "target": {
+                      "entity_id": "input_number.ls_living_room_remote_power_count"
+                    },
+                    "data": {
+                      "value": 0
+                    }
+                  },
+                  {
+                    "action": "input_text.set_value",
+                    "target": {
+                      "entity_id": "input_text.ls_living_room_remote_power_token"
+                    },
+                    "data": {
+                      "value": ""
+                    }
+                  },
+                  {
+                    "if": [
+                      {
+                        "condition": "template",
+                        "value_template": "{{ clicks==1 or clicks>=3 }}"
+                      }
+                    ],
+                    "then": [
+                      {
+                        "action": "input_number.set_value",
+                        "target": {
+                          "entity_id": "input_number.ls_living_room_remote_chord_step"
+                        },
+                        "data": {
+                          "value": 0
+                        }
+                      },
+                      {
+                        "action": "timer.cancel",
+                        "target": {
+                          "entity_id": "timer.ls_living_room_remote_chord"
+                        }
+                      },
+                      {
+                        "variables": {
+                          "room": "{{ area_id('0752f2b4e9a0992ac8efc2af1f53c62a') }}"
+                        }
+                      },
+                      {
+                        "if": [
+                          {
+                            "condition": "template",
+                            "value_template": "{{ room is string and room|length>0 }}"
+                          }
+                        ],
+                        "then": [
+                          {
+                            "action": "script.turn_on",
+                            "target": {
+                              "entity_id": "script.ls_remote_command"
+                            },
+                            "data": {
+                              "variables": {
+                                "source": "0x385b44fffea50c99",
+                                "area": "{{ room }}",
+                                "command": "{{ 'toggle' if clicks==1 else 'reset' }}",
+                                "dry_run": false
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "stop": "Completed quiet power burst"
+                  }
+                ]
+              },
+              {
+                "conditions": [
+                  {
+                    "condition": "template",
+                    "value_template": "{{ command=='power' }}"
+                  }
+                ],
+                "sequence": [
+                  {
+                    "if": [
+                      {
+                        "condition": "template",
+                        "value_template": "{{ clicks>0 and not quiet_active }}"
+                      }
+                    ],
+                    "then": [
+                      {
+                        "action": "input_number.set_value",
+                        "target": {
+                          "entity_id": "input_number.ls_living_room_remote_power_count"
+                        },
+                        "data": {
+                          "value": 0
+                        }
+                      },
+                      {
+                        "action": "input_text.set_value",
+                        "target": {
+                          "entity_id": "input_text.ls_living_room_remote_power_token"
+                        },
+                        "data": {
+                          "value": ""
+                        }
+                      },
+                      {
+                        "if": [
+                          {
+                            "condition": "template",
+                            "value_template": "{{ clicks==1 or clicks>=3 }}"
+                          }
+                        ],
+                        "then": [
+                          {
+                            "action": "input_number.set_value",
+                            "target": {
+                              "entity_id": "input_number.ls_living_room_remote_chord_step"
+                            },
+                            "data": {
+                              "value": 0
+                            }
+                          },
+                          {
+                            "action": "timer.cancel",
+                            "target": {
+                              "entity_id": "timer.ls_living_room_remote_chord"
+                            }
+                          },
+                          {
+                            "variables": {
+                              "room": "{{ area_id('0752f2b4e9a0992ac8efc2af1f53c62a') }}"
+                            }
+                          },
+                          {
+                            "if": [
+                              {
+                                "condition": "template",
+                                "value_template": "{{ room is string and room|length>0 }}"
+                              }
+                            ],
+                            "then": [
+                              {
+                                "action": "script.turn_on",
+                                "target": {
+                                  "entity_id": "script.ls_remote_command"
+                                },
+                                "data": {
+                                  "variables": {
+                                    "source": "0x385b44fffea50c99",
+                                    "area": "{{ room }}",
+                                    "command": "{{ 'toggle' if clicks==1 else 'reset' }}",
+                                    "dry_run": false
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "variables": {
+                      "clicks": "{{ [3,clicks+1]|min if quiet_active else 1 }}"
+                    }
+                  },
+                  {
+                    "action": "input_number.set_value",
+                    "target": {
+                      "entity_id": "input_number.ls_living_room_remote_power_count"
+                    },
+                    "data": {
+                      "value": "{{ clicks }}"
+                    }
+                  },
+                  {
+                    "choose": [
+                      {
+                        "conditions": [
+                          {
+                            "condition": "template",
+                            "value_template": "{{ clicks==1 }}"
+                          }
+                        ],
+                        "sequence": [
+                          {
+                            "action": "input_number.set_value",
+                            "target": {
+                              "entity_id": "input_number.ls_living_room_remote_chord_step"
+                            },
+                            "data": {
+                              "value": -1
+                            }
+                          },
+                          {
+                            "action": "timer.start",
+                            "target": {
+                              "entity_id": "timer.ls_living_room_remote_chord"
+                            },
+                            "data": {
+                              "duration": "00:00:03"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "conditions": [
+                          {
+                            "condition": "template",
+                            "value_template": "{{ clicks==2 }}"
+                          }
+                        ],
+                        "sequence": [
+                          {
+                            "action": "input_number.set_value",
+                            "target": {
+                              "entity_id": "input_number.ls_living_room_remote_preset"
+                            },
+                            "data": {
+                              "value": 0
+                            }
+                          },
+                          {
+                            "if": [
+                              {
+                                "condition": "template",
+                                "value_template": "{{ active and step==-1 }}"
+                              }
+                            ],
+                            "then": [
+                              {
+                                "action": "input_number.set_value",
+                                "target": {
+                                  "entity_id": "input_number.ls_living_room_remote_chord_step"
+                                },
+                                "data": {
+                                  "value": 1
+                                }
+                              },
+                              {
+                                "action": "timer.start",
+                                "target": {
+                                  "entity_id": "timer.ls_living_room_remote_chord"
+                                },
+                                "data": {
+                                  "duration": "00:00:03"
+                                }
+                              }
+                            ],
+                            "else": [
+                              {
+                                "action": "input_number.set_value",
+                                "target": {
+                                  "entity_id": "input_number.ls_living_room_remote_chord_step"
+                                },
+                                "data": {
+                                  "value": 0
+                                }
+                              },
+                              {
+                                "action": "timer.cancel",
+                                "target": {
+                                  "entity_id": "timer.ls_living_room_remote_chord"
+                                }
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ],
+                    "default": [
+                      {
+                        "action": "input_number.set_value",
+                        "target": {
+                          "entity_id": "input_number.ls_living_room_remote_chord_step"
+                        },
+                        "data": {
+                          "value": 0
+                        }
+                      },
+                      {
+                        "action": "timer.cancel",
+                        "target": {
+                          "entity_id": "timer.ls_living_room_remote_chord"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "variables": {
+                      "fresh_token": "{{ now().isoformat() }}"
+                    }
+                  },
+                  {
+                    "action": "input_text.set_value",
+                    "target": {
+                      "entity_id": "input_text.ls_living_room_remote_power_token"
+                    },
+                    "data": {
+                      "value": "{{ fresh_token }}"
+                    }
+                  },
+                  {
+                    "action": "script.turn_on",
+                    "target": {
+                      "entity_id": "script.ls_remote_power_quiet_living_room"
+                    },
+                    "data": {
+                      "variables": {
+                        "token": "{{ fresh_token }}"
+                      }
+                    }
+                  },
+                  {
+                    "stop": "Raw power recorded without waiting"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "if": [
+              {
+                "condition": "template",
+                "value_template": "{{ command=='preset' }}"
+              }
+            ],
+            "then": [
+              {
+                "if": [
+                  {
+                    "condition": "template",
+                    "value_template": "{{ payload is not mapping or payload.get('action') not in ['color_temperature_move','brightness_move_to_level'] }}"
+                  }
+                ],
+                "then": [
+                  {
+                    "stop": "Ignore unrelated MQTT payload"
+                  }
+                ]
+              },
+              {
+                "variables": {
+                  "presets": "{{ [200,285,370,454,588] if payload.action=='color_temperature_move' else [254,229,178,76,2] }}",
+                  "preset": "{{ payload.get('action_color_temperature') if payload.action=='color_temperature_move' else payload.get('action_level') }}",
+                  "previous": "{{ states('input_number.ls_living_room_remote_preset')|float(-1) }}"
+                }
+              },
+              {
+                "if": [
+                  {
+                    "condition": "template",
+                    "value_template": "{{ preset is not number or preset is boolean or preset not in presets }}"
+                  }
+                ],
+                "then": [
+                  {
+                    "action": "input_number.set_value",
+                    "target": {
+                      "entity_id": "input_number.ls_living_room_remote_chord_step"
+                    },
+                    "data": {
+                      "value": 0
+                    }
+                  },
+                  {
+                    "action": "timer.cancel",
+                    "target": {
+                      "entity_id": "timer.ls_living_room_remote_chord"
+                    }
+                  },
+                  {
+                    "stop": "Unknown preset cancels chord"
+                  }
+                ]
+              },
+              {
+                "variables": {
+                  "index": "{{ presets.index(preset) }}"
+                }
+              },
+              {
+                "if": [
+                  {
+                    "condition": "template",
+                    "value_template": "{{ index==previous }}"
+                  }
+                ],
+                "then": [
+                  {
+                    "stop": "Ignore duplicate preset companion"
+                  }
+                ]
+              },
+              {
+                "variables": {
+                  "delta": "{{ (index-previous|int)%5 if previous in [0,1,2,3,4] else -1 }}"
+                }
+              },
+              {
+                "action": "input_number.set_value",
+                "target": {
+                  "entity_id": "input_number.ls_living_room_remote_preset"
+                },
+                "data": {
+                  "value": "{{ index }}"
+                }
+              },
+              {
+                "variables": {
+                  "command": "{{ 'right' if delta==1 else 'left' if delta==4 else 'cancel' }}"
+                }
+              }
+            ]
+          },
+          {
+            "choose": [
+              {
+                "conditions": [
+                  {
+                    "condition": "template",
+                    "value_template": "{{ active and step in [1,2,3,4] and command==['left','right','left','right'][step-1] }}"
+                  }
+                ],
+                "sequence": [
+                  {
+                    "if": [
+                      {
+                        "condition": "template",
+                        "value_template": "{{ step==4 }}"
+                      }
+                    ],
+                    "then": [
+                      {
+                        "action": "input_number.set_value",
+                        "target": {
+                          "entity_id": "input_number.ls_living_room_remote_chord_step"
+                        },
+                        "data": {
+                          "value": 0
+                        }
+                      },
+                      {
+                        "action": "timer.cancel",
+                        "target": {
+                          "entity_id": "timer.ls_living_room_remote_chord"
+                        }
+                      },
+                      {
+                        "variables": {
+                          "room": "{{ area_id('0752f2b4e9a0992ac8efc2af1f53c62a') }}"
+                        }
+                      },
+                      {
+                        "if": [
+                          {
+                            "condition": "template",
+                            "value_template": "{{ room is string and room|length>0 }}"
+                          }
+                        ],
+                        "then": [
+                          {
+                            "action": "script.turn_on",
+                            "target": {
+                              "entity_id": "script.ls_remote_command"
+                            },
+                            "data": {
+                              "variables": {
+                                "source": "0x385b44fffea50c99",
+                                "area": "{{ room }}",
+                                "command": "sara_toggle",
+                                "dry_run": false
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    ],
+                    "else": [
+                      {
+                        "action": "input_number.set_value",
+                        "target": {
+                          "entity_id": "input_number.ls_living_room_remote_chord_step"
+                        },
+                        "data": {
+                          "value": "{{ step+1 }}"
+                        }
+                      },
+                      {
+                        "action": "timer.start",
+                        "target": {
+                          "entity_id": "timer.ls_living_room_remote_chord"
+                        },
+                        "data": {
+                          "duration": "00:00:03"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "stop": "Matched chord input consumed"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "if": [
+              {
+                "condition": "template",
+                "value_template": "{{ step!=0 or active }}"
+              }
+            ],
+            "then": [
+              {
+                "action": "input_number.set_value",
+                "target": {
+                  "entity_id": "input_number.ls_living_room_remote_chord_step"
+                },
+                "data": {
+                  "value": 0
+                }
+              },
+              {
+                "action": "timer.cancel",
+                "target": {
+                  "entity_id": "timer.ls_living_room_remote_chord"
+                }
+              }
+            ]
+          },
+          {
+            "condition": "template",
+            "value_template": "{{ command in ['left','right','up','down'] }}"
+          },
+          {
+            "variables": {
+              "room": "{{ area_id('0752f2b4e9a0992ac8efc2af1f53c62a') }}"
+            }
+          },
+          {
+            "if": [
+              {
+                "condition": "template",
+                "value_template": "{{ room is string and room|length>0 }}"
+              }
+            ],
+            "then": [
+              {
+                "action": "script.turn_on",
+                "target": {
+                  "entity_id": "script.ls_remote_command"
+                },
+                "data": {
+                  "variables": {
+                    "source": "0x385b44fffea50c99",
+                    "area": "{{ room }}",
+                    "command": "{{ command }}",
+                    "dry_run": false
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "config_hash": "c9d0e6e5a3910d48"
+    }
+  },
+  "helpers": {
+    "data": {
+      "success": true,
+      "count": 2,
+      "states": {
+        "input_number.ls_bedroom_remote_preset": {
+          "state": "2.0",
+          "attributes": {
+            "initial": null,
+            "editable": true,
+            "min": 0,
+            "max": 4,
+            "step": 1,
+            "mode": "box",
+            "icon": "mdi:remote",
+            "friendly_name": "Bedroom Remote Preset Cursor"
+          }
+        },
+        "input_number.ls_living_room_remote_preset": {
+          "state": "0.0",
+          "attributes": {
+            "initial": null,
+            "editable": true,
+            "min": -1,
+            "max": 4,
+            "step": 1,
+            "mode": "box",
+            "icon": "mdi:remote",
+            "friendly_name": "Living Room Remote Preset Cursor"
+          }
+        }
+      }
+    },
+    "metadata": {
+      "home_assistant_timezone": "Europe/Stockholm",
+      "timestamp_format": "ISO 8601 (Europe/Stockholm)",
+      "note": "Per-record timestamp fields (last_changed, last_updated, last_reported, when, last_triggered) have been converted to Europe/Stockholm local time. Query-window boundary fields (period, start_time, end_time) remain in UTC."
+    }
+  },
+  "native_dispatch": {
+    "success": true,
+    "template": "{% set n=namespace(t={}) %}\n{% for L,t in lamp_targets.items() if is_state(L,'on') and (L in requested or t.area in plan.get('remote_rooms',[]) or baseline.targets[L].get('send',true))\n and (L in requested or (L in previous_effects and L not in resolved.assignments) or t!=previous.get(L)) %}\n {% set n.t=dict(n.t,**{L:t}) %}\n{% endfor %}{{ n.t }}",
+    "result": {
+      "light.jonathan_bedroom_floor_lamp": {
+        "area": "bedroom",
+        "brightness": 110,
+        "color": {
+          "mode": "temperature",
+          "kelvin": 2200
+        }
+      }
+    },
+    "listeners": {
+      "all": false,
+      "entities": [
+        "light.jonathan_bedroom_floor_lamp"
+      ],
+      "domains": [],
+      "time": false
+    }
+  }
+}

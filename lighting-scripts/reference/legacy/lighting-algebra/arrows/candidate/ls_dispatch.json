@@ -1,0 +1,220 @@
+{
+  "alias": "Lighting \u00b7 Apply Changed Targets",
+  "mode": "queued",
+  "sequence": [
+    {
+      "variables": {
+        "revision": "{{ plan.revision }}",
+        "resolved": "{{ plan.resolved }}",
+        "baseline": "{{ {'targets':plan.base} }}"
+      }
+    },
+    {
+      "condition": "template",
+      "value_template": "{{ revision==states.sensor.ls_overrides.last_updated.isoformat() and plan.plan_order>=(state_attr('sensor.ls_effects_runtime','plan_order') or 0) }}"
+    },
+    {
+      "action": "script.effects_catalog",
+      "response_variable": "catalog"
+    },
+    {
+      "variables": {
+        "previous": "{% set applied=state_attr('sensor.ls_effects_runtime','applied') %}{{ (state_attr('sensor.ls_effects_runtime','targets') or {}) if applied is none else applied }}",
+        "previous_effects": "{{ state_attr('sensor.ls_effects_runtime','assignments') or {} }}",
+        "requested": "{{ (lights if lights is list else [lights]) if lights|default(none) else [] }}",
+        "lamp_targets": "{% set n=namespace(t={}) %}{% for L,t in resolved.targets.items() if not t.is_room and (not plan.get('output_targets') or L in plan.output_targets) %}{% set n.t=dict(n.t,**{L:t}) %}{% endfor %}{{ n.t }}"
+      }
+    },
+    {
+      "variables": {
+        "ordinary": "{% set n=namespace(t={}) %}\n{% for L,t in lamp_targets.items() if is_state(L,'on') and (L in requested or baseline.targets[L].get('send',true))\n and (L in requested or (L in previous_effects and L not in resolved.assignments) or t!=previous.get(L)) %}\n {% set n.t=dict(n.t,**{L:t}) %}\n{% endfor %}{{ n.t }}"
+      }
+    },
+    {
+      "action": "script.effects_assign",
+      "data": {
+        "targets": "{{ resolved.targets }}",
+        "assignments": "{{ resolved.assignments }}",
+        "revision": "{{ revision }}",
+        "invalidate": "{{ ordinary.keys()|list }}",
+        "plan_order": "{{ plan.plan_order }}"
+      },
+      "response_variable": "assigned"
+    },
+    {
+      "action": "script.effects_frame_plan",
+      "data": {
+        "targets": "{{ ordinary }}",
+        "catalog": "{{ catalog }}",
+        "timestamp": "{{ as_timestamp(now()) }}",
+        "transition_cap": "{{ 0.5 if plan.get('remote',false) or plan.get('remote_rooms',[]) else none }}",
+        "transition_rooms": "{{ plan.get('remote_rooms',[]) if not plan.get('remote',false) else none }}"
+      },
+      "response_variable": "batch"
+    },
+    {
+      "action": "script.effects_emit",
+      "data": {
+        "commands": "{{ batch.commands }}",
+        "revision": "{{ revision }}",
+        "generation": "{{ assigned.generation }}"
+      },
+      "response_variable": "emission"
+    },
+    {
+      "condition": "template",
+      "value_template": "{{ revision==states.sensor.ls_overrides.last_updated.isoformat() and assigned.generation==state_attr('sensor.ls_effects_runtime','generation') }}"
+    },
+    {
+      "if": [
+        {
+          "condition": "template",
+          "value_template": "{{ ordinary|count>0 and emission.completed }}"
+        }
+      ],
+      "then": [
+        {
+          "action": "variable.update_sensor",
+          "target": {
+            "entity_id": "sensor.ls_effects_runtime"
+          },
+          "data": {
+            "value": "{{ assigned.generation }}",
+            "replace_attributes": false,
+            "attributes": "{% set prior=state_attr('sensor.ls_effects_runtime','applied') or {} %}{{ {'applied':dict(prior|to_json|from_json,**ordinary)} }}"
+          }
+        }
+      ]
+    },
+    {
+      "repeat": {
+        "for_each": "{{ plan.switches.keys()|list }}",
+        "sequence": [
+          {
+            "variables": {
+              "L": "{{ repeat.item }}",
+              "switch": "{{ plan.switches[L] }}"
+            }
+          },
+          {
+            "if": [
+              {
+                "condition": "template",
+                "value_template": "{{ revision==states.sensor.ls_overrides.last_updated.isoformat() and not is_state(L,'on' if switch.on else 'off') }}"
+              }
+            ],
+            "then": [
+              {
+                "action": "{{ \"homeassistant.turn_on\" if switch.on else \"homeassistant.turn_off\" }}",
+                "target": {
+                  "entity_id": "{{ L }}"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "condition": "template",
+      "value_template": "{{ revision==states.sensor.ls_overrides.last_updated.isoformat() }}"
+    },
+    {
+      "repeat": {
+        "for_each": "{{ plan.mirror }}",
+        "sequence": [
+          {
+            "action": "input_select.select_option",
+            "target": {
+              "entity_id": "{{ repeat.item.entity }}"
+            },
+            "data": {
+              "option": "{{ repeat.item.option }}"
+            }
+          }
+        ]
+      },
+      "note": "Display only: mirror the effective block (override or schedule) into input_select.ls_<scope>_override so dashboards can highlight it. The engine never reads these selects."
+    },
+    {
+      "alias": "Display only: mirror Sara Mode (override record mode:sara) into input_boolean.ls_sara_mode_mirror so /house-lights can highlight it. The engine never reads it.",
+      "choose": [
+        {
+          "conditions": [
+            {
+              "condition": "template",
+              "value_template": "{{ plan.sara_mirror == 'on' }}"
+            }
+          ],
+          "sequence": [
+            {
+              "action": "input_boolean.turn_on",
+              "target": {
+                "entity_id": "input_boolean.ls_sara_mode_mirror"
+              }
+            }
+          ]
+        },
+        {
+          "conditions": [
+            {
+              "condition": "template",
+              "value_template": "{{ plan.sara_mirror == 'off' }}"
+            }
+          ],
+          "sequence": [
+            {
+              "action": "input_boolean.turn_off",
+              "target": {
+                "entity_id": "input_boolean.ls_sara_mode_mirror"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "if": [
+        {
+          "condition": "template",
+          "value_template": "{{ plan.stale_keys | count > 0 }}"
+        }
+      ],
+      "then": [
+        {
+          "event": "ls_override",
+          "event_data": {
+            "op": "clear",
+            "keys": "{{ plan.stale_keys }}",
+            "via": "rule_next_block",
+            "expected_revision": "{{ revision }}"
+          }
+        }
+      ],
+      "note": "Next-block rule: overrides set before the scope's latest fade start fade out with the fade (see plan) and end once the new block is reached."
+    },
+    {
+      "variables": {
+        "result": "{{ {'completed':emission.completed and revision==states.sensor.ls_overrides.last_updated.isoformat() and assigned.generation==state_attr('sensor.ls_effects_runtime','generation'),'published_at':emission.get('published_at',[])} }}"
+      }
+    },
+    {
+      "stop": "Return result",
+      "response_variable": "result"
+    }
+  ],
+  "max": 50,
+  "fields": {
+    "plan": {
+      "selector": {
+        "object": {}
+      }
+    },
+    "lights": {
+      "selector": {
+        "object": {}
+      }
+    }
+  },
+  "description": "Serialize current output; commit runtime directly and preserve invalidated applied entries until emission completes. No MQTT echo wait or artificial output pacing."
+}

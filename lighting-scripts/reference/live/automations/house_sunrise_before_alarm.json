@@ -1,0 +1,39 @@
+{
+  "success": true,
+  "action": "get",
+  "automation_id": "automation.house_sunrise_before_alarm",
+  "config": {
+    "id": "1791920087349",
+    "alias": "House sunrise before alarm",
+    "description": "Starts the bedroom sunrise 30 min before Jonathan's next phone alarm (Android companion app Next alarm sensor). No alarm set = no sunrise.",
+    "triggers": [
+      {
+        "trigger": "time",
+        "at": {
+          "entity_id": "sensor.jonathan_galaxy_next_alarm",
+          "offset": "-00:30:00"
+        }
+      }
+    ],
+    "conditions": [
+      {
+        "condition": "state",
+        "entity_id": "sensor.jonathan_galaxy_next_alarm",
+        "attribute": "Package",
+        "state": "com.sec.android.app.clockpackage",
+        "note": "Only real Samsung Clock alarms; Tasker also schedules alarms that show up in this sensor."
+      }
+    ],
+    "actions": [
+      {
+        "action": "script.turn_on",
+        "target": {
+          "entity_id": "script.house_sunrise"
+        },
+        "note": "script.turn_on does not wait for the 37 min fade to finish."
+      }
+    ],
+    "mode": "single"
+  },
+  "config_hash": "19c007fcb1fae240"
+}

@@ -1,0 +1,308 @@
+{
+  "alias": "Effects · Native Control Adapter",
+  "description": "One stable override per control source and scope. Updates only supplied channels; effects claim their declared channels. Group activations share an effect instance. Room power is persistent state, never an override. Dry run returns proposed events/commands without changing state.",
+  "mode": "queued",
+  "max": 50,
+  "fields": {
+    "source": {
+      "selector": {
+        "object": {}
+      }
+    },
+    "attribute": {
+      "selector": {
+        "object": {}
+      }
+    },
+    "value": {
+      "selector": {
+        "object": {}
+      }
+    },
+    "dry_run": {
+      "name": "Dry Run",
+      "default": false,
+      "selector": {
+        "boolean": {}
+      }
+    }
+  },
+  "sequence": [
+    {
+      "action": "script.effects_catalog",
+      "response_variable": "catalog"
+    },
+    {
+      "variables": {
+        "is_profile": "{{ source.startswith('light.ls_') }}",
+        "targets": "{{ catalog.groups.get(source,[source]) }}",
+        "stamp": "{{ as_timestamp(now()) }}",
+        "current": {
+          "plan": {
+            "base": {},
+            "resolved": {
+              "targets": {}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": [
+        {
+          "condition": "template",
+          "value_template": "{{ not is_profile and attribute!='power' }}"
+        }
+      ],
+      "then": [
+        {
+          "action": "script.ls_plan",
+          "data": {
+            "reason": "config"
+          },
+          "response_variable": "current"
+        }
+      ]
+    },
+    {
+      "variables": {
+        "result": "{% set n=namespace(valid=true,errors=[],events=[],commands=[],records=[]) %}\n{% set allowed=['power','brightness','rgb','temperature','effect'] %}\n{% if attribute not in allowed %}{% set n.errors=n.errors+['Unsupported control attribute.'] %}{% endif %}\n{% if attribute=='effect' and value not in ['Normal light']+catalog.effects.keys()|list %}{% set n.errors=n.errors+['Unknown effect.'] %}{% endif %}\n{% if attribute=='power' and value not in ['ON','OFF'] %}{% set n.errors=n.errors+['Power must be ON or OFF.'] %}{% endif %}\n{% if attribute=='brightness' and not (0 <= value|float(-1) <= 255) %}{% set n.errors=n.errors+['Brightness must be 0–255.'] %}{% endif %}\n{% if attribute=='temperature' and not (100 <= value|float(-1) <= 1000) %}{% set n.errors=n.errors+['Temperature must be 100–1000 mireds.'] %}{% endif %}\n{% set rgb=value.split(',') if value is string else value %}\n{% if attribute=='rgb' %}\n {% if rgb is not sequence or rgb is string or rgb|count!=3 %}{% set n.errors=n.errors+['RGB needs three components.'] %}\n {% else %}{% for v in rgb %}{% if not (0<=v|float(-1)<=255) %}{% set n.errors=n.errors+['RGB components must be 0–255.'] %}{% endif %}{% endfor %}{% endif %}\n{% endif %}\n{% if is_profile %}\n {% if states[source.replace('light.','input_text.')] is none %}{% set n.errors=n.errors+['Unknown schedule profile.'] %}{% endif %}\n {% if not n.errors %}\n  {% if attribute=='effect' %}{% set n.commands=[{'action':'script.ls_store','data':{'store':source.replace('light.','input_text.'),'effect':value},'target':{}}] %}\n  {% elif attribute=='power' and value=='OFF' %}{% set n.commands=[{'action':'light.turn_off','target':{'entity_id':source},'data':{}}] %}\n  {% else %}\n   {% set data={'brightness':value|int} if attribute=='brightness' else {'rgb_color':rgb|map('int')|list} if attribute=='rgb' else {'color_temp_kelvin':(1000000/(value|float))|round|int} if attribute=='temperature' else {} %}\n   {% set n.commands=[{'action':'light.turn_on','target':{'entity_id':source},'data':data}] %}\n  {% endif %}\n {% endif %}\n{% else %}\n {% if targets|count==0 or targets|reject('in',catalog.members)|list|count %}{% set n.errors=n.errors+['Unknown logical lamp or room.'] %}{% endif %}\n {% set scope=namespace(items=[],areas=[]) %}\n {% if source in catalog.groups %}\n  {% for area in targets|map('area_id')|select|unique|sort %}\n   {% set room_members=namespace(v=[]) %}{% for L in catalog.members if area_id(L)==area %}{% set room_members.v=room_members.v+[L] %}{% endfor %}\n   {% if room_members.v|reject('in',targets)|list|count==0 %}\n    {% set scope.items=scope.items+[{'scope':'room','target':area,'base':'room:'~area,'suffix':(':'~area if targets|map('area_id')|select|unique|list|count>1 else '')}] %}\n    {% set scope.areas=scope.areas+[area] %}\n   {% endif %}\n  {% endfor %}\n {% endif %}\n {% for L in targets if area_id(L) not in scope.areas %}{% set scope.items=scope.items+[{'scope':'lamp','target':L,'base':L,'suffix':(':'~L if targets|count>1 else '')}] %}{% endfor %}\n {% if not n.errors and attribute=='power' %}\n  {% set power_areas=(targets|map('area_id')|select|unique|list) if value=='ON' else scope.areas %}\n  {% for area in power_areas %}{% set n.events=n.events+[{'op':'power','area':area,'on':value=='ON','via':'effects-house'}] %}{% endfor %}\n  {% set ids=namespace(v=targets) %}{% for L in (state_attr('sensor.ls_overrides','switch_ranges') or {}) if area_id(L) in scope.areas %}{% set ids.v=ids.v+[L] %}{% endfor %}\n  {% set n.commands=[{'action':('homeassistant.turn_on' if value=='ON' else 'homeassistant.turn_off'),'target':{'entity_id':ids.v|unique|list},'data':{}}] %}\n {% elif not n.errors %}\n  {% for item in scope.items %}\n   {% set base=current.plan.base.get(item.base,{}) %}{% set resolved=current.plan.resolved.targets.get(item.base,{}) %}\n   {% if not base or not resolved %}{% set n.errors=n.errors+['Missing resolved lighting state for '~item.target] %}\n   {% else %}\n    {% set patch=namespace(channels={}) %}\n    {% if attribute=='effect' and value!='Normal light' %}\n     {% for channel in catalog.effects[value].channels %}{% set patch.channels=dict(patch.channels,**{channel:{'kind':'effect','effect':value,'instance':'ui:'~source~':'~value,'updated':stamp}}) %}{% endfor %}\n    {% elif attribute=='effect' %}\n     {% set underlying_color=base.color if resolved.color.get('policy')=='sara' else resolved.color.get('base',base.color) if resolved.color.kind=='effect' else resolved.color.value %}\n     {% set patch.channels={'brightness':{'kind':'constant','value':resolved.level,'updated':stamp},'color':{'kind':'constant','value':underlying_color,'updated':stamp}} %}\n    {% elif attribute=='brightness' %}{% set patch.channels={'brightness':{'kind':'constant','value':value|int,'updated':stamp}} %}\n    {% elif attribute=='rgb' %}{% set patch.channels={'color':{'kind':'constant','value':{'rgb':rgb|map('int')|list},'updated':stamp}} %}\n    {% elif attribute=='temperature' %}{% set patch.channels={'color':{'kind':'constant','value':{'kelvin':(1000000/(value|float))|round|int},'updated':stamp}} %}\n    {% endif %}\n    {% set body={'channels':patch.channels} %}{% if attribute=='effect' %}{% set body=dict(body,selection=value) %}{% endif %}\n    {% set n.records=n.records+[{'kind':'channels','key':'channels:ui:'~source~item.suffix,'source':'ui:'~source,'scope':item.scope,'target':item.target,'value':body}] %}\n   {% endif %}\n  {% endfor %}\n  {% if n.records and not n.errors %}{% set n.events=[{'op':'set','records':n.records,'via':'effects-house'}] %}{% endif %}\n {% endif %}\n{% endif %}\n{{ {'valid':not n.errors,'errors':n.errors,'events':n.events if not n.errors else [],'commands':n.commands if not n.errors else [],'records':n.records if not n.errors else []} }}\n"
+      }
+    },
+    {
+      "if": [
+        {
+          "condition": "template",
+          "value_template": "{{ dry_run|default(false) }}"
+        }
+      ],
+      "then": [
+        {
+          "stop": "Return proposed control",
+          "response_variable": "result"
+        }
+      ]
+    },
+    {
+      "if": [
+        {
+          "condition": "template",
+          "value_template": "{{ not result.valid }}"
+        }
+      ],
+      "then": [
+        {
+          "stop": "{{ result.errors|join(' ') }}",
+          "error": true
+        }
+      ]
+    },
+    {
+      "repeat": {
+        "for_each": "{{ result.events }}",
+        "sequence": [
+          {
+            "choose": [
+              {
+                "conditions": [
+                  {
+                    "condition": "template",
+                    "value_template": "{{ repeat.item.op=='power' }}"
+                  }
+                ],
+                "sequence": [
+                  {
+                    "event": "ls_override",
+                    "event_data": {
+                      "op": "power",
+                      "area": "{{ repeat.item.area }}",
+                      "on": "{{ repeat.item.on }}",
+                      "via": "effects-house"
+                    }
+                  }
+                ]
+              },
+              {
+                "conditions": [
+                  {
+                    "condition": "template",
+                    "value_template": "{{ repeat.item.op=='set' }}"
+                  }
+                ],
+                "sequence": [
+                  {
+                    "event": "ls_override",
+                    "event_data": {
+                      "op": "set",
+                      "records": "{{ repeat.item.records }}",
+                      "via": "effects-house"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "repeat": {
+        "for_each": "{{ result.commands }}",
+        "sequence": [
+          {
+            "choose": [
+              {
+                "conditions": [
+                  {
+                    "condition": "template",
+                    "value_template": "{{ repeat.item.action=='script.ls_store' }}"
+                  }
+                ],
+                "sequence": [
+                  {
+                    "action": "script.ls_store",
+                    "data": {
+                      "store": "{{ repeat.item.data.store }}",
+                      "effect": "{{ repeat.item.data.effect }}"
+                    }
+                  }
+                ]
+              },
+              {
+                "conditions": [
+                  {
+                    "condition": "template",
+                    "value_template": "{{ repeat.item.action=='light.turn_on' }}"
+                  }
+                ],
+                "sequence": [
+                  {
+                    "choose": [
+                      {
+                        "conditions": [
+                          {
+                            "condition": "template",
+                            "value_template": "{{ 'brightness' in repeat.item.data }}"
+                          }
+                        ],
+                        "sequence": [
+                          {
+                            "action": "light.turn_on",
+                            "target": {
+                              "entity_id": "{{ repeat.item.target.entity_id }}"
+                            },
+                            "data": {
+                              "brightness": "{{ repeat.item.data.brightness }}"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "conditions": [
+                          {
+                            "condition": "template",
+                            "value_template": "{{ 'rgb_color' in repeat.item.data }}"
+                          }
+                        ],
+                        "sequence": [
+                          {
+                            "action": "light.turn_on",
+                            "target": {
+                              "entity_id": "{{ repeat.item.target.entity_id }}"
+                            },
+                            "data": {
+                              "rgb_color": "{{ repeat.item.data.rgb_color }}"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "conditions": [
+                          {
+                            "condition": "template",
+                            "value_template": "{{ 'color_temp_kelvin' in repeat.item.data }}"
+                          }
+                        ],
+                        "sequence": [
+                          {
+                            "action": "light.turn_on",
+                            "target": {
+                              "entity_id": "{{ repeat.item.target.entity_id }}"
+                            },
+                            "data": {
+                              "color_temp_kelvin": "{{ repeat.item.data.color_temp_kelvin }}"
+                            }
+                          }
+                        ]
+                      }
+                    ],
+                    "default": [
+                      {
+                        "action": "light.turn_on",
+                        "target": {
+                          "entity_id": "{{ repeat.item.target.entity_id }}"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "conditions": [
+                  {
+                    "condition": "template",
+                    "value_template": "{{ repeat.item.action=='light.turn_off' }}"
+                  }
+                ],
+                "sequence": [
+                  {
+                    "action": "light.turn_off",
+                    "target": {
+                      "entity_id": "{{ repeat.item.target.entity_id }}"
+                    }
+                  }
+                ]
+              },
+              {
+                "conditions": [
+                  {
+                    "condition": "template",
+                    "value_template": "{{ repeat.item.action=='homeassistant.turn_on' }}"
+                  }
+                ],
+                "sequence": [
+                  {
+                    "action": "homeassistant.turn_on",
+                    "target": {
+                      "entity_id": "{{ repeat.item.target.entity_id }}"
+                    }
+                  }
+                ]
+              },
+              {
+                "conditions": [
+                  {
+                    "condition": "template",
+                    "value_template": "{{ repeat.item.action=='homeassistant.turn_off' }}"
+                  }
+                ],
+                "sequence": [
+                  {
+                    "action": "homeassistant.turn_off",
+                    "target": {
+                      "entity_id": "{{ repeat.item.target.entity_id }}"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "stop": "Return proposed control",
+      "response_variable": "result"
+    }
+  ]
+}

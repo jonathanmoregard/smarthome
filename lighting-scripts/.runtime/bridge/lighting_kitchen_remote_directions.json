@@ -1,0 +1,33 @@
+{
+  "id": "lighting_remote_0x385b44fffea542e1_directions",
+  "alias": "Lighting \u00b7 Kitchen Remote Directions",
+  "description": "TypeScript trigger bridge. Up/down pass through without a gesture wait; either cancels an incomplete arrow chord.",
+  "triggers": [
+    {
+      "trigger": "mqtt",
+      "topic": "zigbee2mqtt/0x385b44fffea542e1/action",
+      "payload": "brightness_step_up",
+      "id": "up"
+    },
+    {
+      "trigger": "mqtt",
+      "topic": "zigbee2mqtt/0x385b44fffea542e1/action",
+      "payload": "brightness_step_down",
+      "id": "down"
+    }
+  ],
+  "actions": [
+    {
+      "event": "smarthome_script",
+      "event_data": {
+        "script": "automation.lighting_kitchen_remote_directions",
+        "args": {
+          "trigger": "{% set n=namespace(data={}) %}\n{% for key in ['id','platform','entity_id','topic','payload','payload_json'] %}\n {% if trigger[key] is defined %}{% set n.data=dict(n.data,**{key:trigger[key]}) %}{% endif %}\n{% endfor %}\n{% for key in ['to_state','from_state','event'] %}\n {% if trigger[key] is defined %}{% set value=trigger[key] %}\n  {% set n.data=dict(n.data,**{key:(value.as_dict() if value is not none else none)}) %}\n {% endif %}\n{% endfor %}\n{{ n.data | to_json | from_json }}",
+          "room": "kitchen"
+        }
+      }
+    }
+  ],
+  "mode": "queued",
+  "max": 50
+}

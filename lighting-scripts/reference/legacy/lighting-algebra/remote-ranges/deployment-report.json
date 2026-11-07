@@ -1,0 +1,68 @@
+{
+  "status": "deployed_and_verified",
+  "tests": 237,
+  "candidate_configs_verified": 55,
+  "changed_scripts": [
+    "ls_base",
+    "ls_room_base",
+    "ls_room_plan",
+    "effects_resolve",
+    "ls_remote_plan"
+  ],
+  "dry_tests_only": true,
+  "repo_changes": false,
+  "before_hashes": {
+    "ls_base": "f28b589a0ca3f98c",
+    "ls_room_base": "4d7183edd2a5d752",
+    "ls_room_plan": "d7556d6547288963",
+    "effects_resolve": "79112047f78b52b8",
+    "ls_remote_plan": "e43cfa8986d829d3"
+  },
+  "writes": [
+    {
+      "id": "ls_base",
+      "success": true,
+      "exact_readback": true,
+      "config_hash": "c5b028095a4cb353",
+      "warnings": []
+    },
+    {
+      "id": "ls_room_base",
+      "success": true,
+      "exact_readback": true,
+      "config_hash": "e979ce531aa16fc6",
+      "warnings": []
+    },
+    {
+      "id": "ls_room_plan",
+      "success": true,
+      "exact_readback": true,
+      "config_hash": "ed205dd620f16bc7",
+      "warnings": [
+        "Template detected in condition — if this maps to a native option (`numeric_state`, `state`, `time`, `sun`, `zone`, `device`), use that instead. Templates fail silently at runtime and bypass schema validation. See skill://home-assistant-best-practices/references/template-guidelines.md#when-to-avoid-templates | call ha_get_skill_guide(file='references/template-guidelines.md')"
+      ]
+    },
+    {
+      "id": "effects_resolve",
+      "success": true,
+      "exact_readback": true,
+      "config_hash": "67c37288b4b44d40",
+      "warnings": []
+    },
+    {
+      "id": "ls_remote_plan",
+      "success": true,
+      "exact_readback": true,
+      "config_hash": "bd8438b29e439a3b",
+      "warnings": [
+        "Template detected in condition — if this maps to a native option (`numeric_state`, `state`, `time`, `sun`, `zone`, `device`), use that instead. Templates fail silently at runtime and bypass schema validation. See skill://home-assistant-best-practices/references/template-guidelines.md#when-to-avoid-templates | call ha_get_skill_guide(file='references/template-guidelines.md')"
+      ]
+    }
+  ],
+  "started_at": "2026-10-24T15:40:19.482Z",
+  "review": "No material findings; 3 period-stream tests independently passed",
+  "finished_at": "2026-10-24T15:40:50.467Z",
+  "state_preserved": true,
+  "postdeploy_errors": [],
+  "warning_assessment": "Existing template conditions unchanged; no new post-deployment HA errors"
+}

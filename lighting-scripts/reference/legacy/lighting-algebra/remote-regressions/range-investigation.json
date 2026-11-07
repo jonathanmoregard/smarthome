@@ -1,0 +1,3905 @@
+{
+  "observation": "Brightness plateaus before the shared gradient reaches its color endpoint; reversing immediately changes color but brightness remains clamped.",
+  "capture": [
+    {
+      "time": "2026-10-24T14:32:47.318575+00:00",
+      "context": {
+        "id": "01M5Q585YP7WK9XYHFM25WC754",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852367.31934,
+      "observed_topic": "zigbee2mqtt/0xa4c1387f3e38e505",
+      "observed_payload": {
+        "brightness": 254,
+        "color": {
+          "h": 44,
+          "hue": 44,
+          "s": 33,
+          "saturation": 33,
+          "x": 0.3557,
+          "y": 0.3598
+        },
+        "color_mode": "color_temp",
+        "color_temp": 215,
+        "effect": null,
+        "linkquality": 216,
+        "power_on_behavior": null,
+        "state": "ON"
+      },
+      "cursor": -1,
+      "power_count": 0,
+      "selection": {},
+      "generation": "2026-10-24T16:32:47.034503+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 255,
+          "updated": -1
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 4651
+          },
+          "updated": -1
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 255,
+        "owners": {
+          "brightness": "base",
+          "color": "base"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:47.287869+00:00",
+      "context": {
+        "id": "01M5Q585XQSYQCV74ZACFQEB8N",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852367.288804,
+      "observed_topic": "zigbee2mqtt/0xa4c13889ddf1c22e",
+      "observed_payload": {
+        "brightness": 254,
+        "color": {
+          "h": 44,
+          "hue": 44,
+          "s": 33,
+          "saturation": 33,
+          "x": 0.3557,
+          "y": 0.3598
+        },
+        "color_mode": "color_temp",
+        "color_temp": 215,
+        "effect": null,
+        "linkquality": 176,
+        "power_on_behavior": null,
+        "state": "ON"
+      },
+      "cursor": -1,
+      "power_count": 0,
+      "selection": {},
+      "generation": "2026-10-24T16:32:47.034503+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 255,
+          "updated": -1
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 4651
+          },
+          "updated": -1
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 255,
+        "owners": {
+          "brightness": "base",
+          "color": "base"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:47.166199+00:00",
+      "context": {
+        "id": "01M5Q585SYSYW669T157HK0CPG",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852367.166511,
+      "observed_topic": "zigbee2mqtt/0xa4c13889ddf1c22e/set",
+      "observed_payload": {
+        "brightness": 254,
+        "color_temp": 215,
+        "transition": 0.5
+      },
+      "cursor": -1,
+      "power_count": 0,
+      "selection": {},
+      "generation": "2026-10-24T16:32:47.034503+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 255,
+          "updated": -1
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 4651
+          },
+          "updated": -1
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 255,
+        "owners": {
+          "brightness": "base",
+          "color": "base"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:47.164134+00:00",
+      "context": {
+        "id": "01M5Q585SW9HZ65JF6QTCKRRJK",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852367.164545,
+      "observed_topic": "zigbee2mqtt/0xa4c1387f3e38e505/set",
+      "observed_payload": {
+        "brightness": 254,
+        "color_temp": 215,
+        "transition": 0.5
+      },
+      "cursor": -1,
+      "power_count": 0,
+      "selection": {},
+      "generation": "2026-10-24T16:32:47.034503+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 255,
+          "updated": -1
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 4651
+          },
+          "updated": -1
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 255,
+        "owners": {
+          "brightness": "base",
+          "color": "base"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:46.007152+00:00",
+      "context": {
+        "id": "01M5Q584NQNWFHN1J03DRA0EXJ",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852366.008301,
+      "observed_topic": "zigbee2mqtt/0x385b44fffea4fc67",
+      "observed_payload": {
+        "action": "off",
+        "battery": 100,
+        "linkquality": 192
+      },
+      "cursor": -1,
+      "power_count": 2,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": -6,
+            "upper": -6,
+            "anchor": "day",
+            "updated": 1792852363.994117,
+            "last": "up",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:44.024384+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:44.308642+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 76.5,
+          "updated": 1792852363.994117,
+          "origin": "scale",
+          "position": -0.6
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 2048.8
+          },
+          "updated": 1792852363.994117,
+          "origin": "scale",
+          "position": -0.6
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 76.5,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:45.797582+00:00",
+      "context": {
+        "id": "01M5Q584F52WYNJQDZ8KM4FMB5",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852365.798209,
+      "observed_topic": "zigbee2mqtt/0x385b44fffea4fc67",
+      "observed_payload": {
+        "action": "on",
+        "battery": 100,
+        "linkquality": 192
+      },
+      "cursor": 0,
+      "power_count": 1,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": -6,
+            "upper": -6,
+            "anchor": "day",
+            "updated": 1792852363.994117,
+            "last": "up",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:44.024384+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:44.308642+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 76.5,
+          "updated": 1792852363.994117,
+          "origin": "scale",
+          "position": -0.6
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 2048.8
+          },
+          "updated": 1792852363.994117,
+          "origin": "scale",
+          "position": -0.6
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 76.5,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:45.528821+00:00",
+      "context": {
+        "id": "01M5Q5846RK98254F27V5PE20P",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852365.529354,
+      "observed_topic": "zigbee2mqtt/0x385b44fffea4fc67",
+      "observed_payload": {
+        "action": "off",
+        "battery": 100,
+        "linkquality": 196
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": -6,
+            "upper": -6,
+            "anchor": "day",
+            "updated": 1792852363.994117,
+            "last": "up",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:44.024384+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:44.308642+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 76.5,
+          "updated": 1792852363.994117,
+          "origin": "scale",
+          "position": -0.6
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 2048.8
+          },
+          "updated": 1792852363.994117,
+          "origin": "scale",
+          "position": -0.6
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 76.5,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:44.581694+00:00",
+      "context": {
+        "id": "01M5Q58395XRRYE8XMBGC3CSSP",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852364.582476,
+      "observed_topic": "zigbee2mqtt/0xa4c13889ddf1c22e",
+      "observed_payload": {
+        "brightness": 76,
+        "color": {
+          "h": 25,
+          "hue": 25,
+          "s": 94,
+          "saturation": 94,
+          "x": 0.5223,
+          "y": 0.4139
+        },
+        "color_mode": "color_temp",
+        "color_temp": 488,
+        "effect": null,
+        "linkquality": 192,
+        "power_on_behavior": null,
+        "state": "ON"
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": -6,
+            "upper": -6,
+            "anchor": "day",
+            "updated": 1792852363.994117,
+            "last": "up",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:44.024384+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:44.308642+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 76.5,
+          "updated": 1792852363.994117,
+          "origin": "scale",
+          "position": -0.6
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 2048.8
+          },
+          "updated": 1792852363.994117,
+          "origin": "scale",
+          "position": -0.6
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 76.5,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:44.555398+00:00",
+      "context": {
+        "id": "01M5Q5838B930RVQYQP2ZNSJJE",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852364.556111,
+      "observed_topic": "zigbee2mqtt/0xa4c1387f3e38e505",
+      "observed_payload": {
+        "brightness": 76,
+        "color": {
+          "h": 25,
+          "hue": 25,
+          "s": 94,
+          "saturation": 94,
+          "x": 0.5223,
+          "y": 0.4139
+        },
+        "color_mode": "color_temp",
+        "color_temp": 488,
+        "effect": null,
+        "linkquality": 216,
+        "power_on_behavior": null,
+        "state": "ON"
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": -6,
+            "upper": -6,
+            "anchor": "day",
+            "updated": 1792852363.994117,
+            "last": "up",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:44.024384+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:44.308642+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 76.5,
+          "updated": 1792852363.994117,
+          "origin": "scale",
+          "position": -0.6
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 2048.8
+          },
+          "updated": 1792852363.994117,
+          "origin": "scale",
+          "position": -0.6
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 76.5,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:44.457238+00:00",
+      "context": {
+        "id": "01M5Q58359X6DRF6XWRY1A95CJ",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852364.457628,
+      "observed_topic": "zigbee2mqtt/0xa4c13889ddf1c22e/set",
+      "observed_payload": {
+        "brightness": 76,
+        "color_temp": 488,
+        "transition": 0.2
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": -6,
+            "upper": -6,
+            "anchor": "day",
+            "updated": 1792852363.994117,
+            "last": "up",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:44.024384+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:44.308642+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 76.5,
+          "updated": 1792852363.994117,
+          "origin": "scale",
+          "position": -0.6
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 2048.8
+          },
+          "updated": 1792852363.994117,
+          "origin": "scale",
+          "position": -0.6
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 76.5,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:44.453407+00:00",
+      "context": {
+        "id": "01M5Q5835590R0DCWP4RHQJ58W",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852364.45388,
+      "observed_topic": "zigbee2mqtt/0xa4c1387f3e38e505/set",
+      "observed_payload": {
+        "brightness": 76,
+        "color_temp": 488,
+        "transition": 0.2
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": -6,
+            "upper": -6,
+            "anchor": "day",
+            "updated": 1792852363.994117,
+            "last": "up",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:44.024384+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:44.308642+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 76.5,
+          "updated": 1792852363.994117,
+          "origin": "scale",
+          "position": -0.6
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 2048.8
+          },
+          "updated": 1792852363.994117,
+          "origin": "scale",
+          "position": -0.6
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 76.5,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:43.947513+00:00",
+      "context": {
+        "id": "01M5Q582NBXYEZQ1S18ARX1GWC",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852363.949052,
+      "observed_topic": "zigbee2mqtt/0x385b44fffea4fc67",
+      "observed_payload": {
+        "action": "brightness_step_up",
+        "action_step_size": 51,
+        "action_transition_time": 0.3,
+        "battery": 100,
+        "linkquality": 188
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": -7,
+            "upper": -7,
+            "anchor": "day",
+            "updated": 1792852361.786421,
+            "last": "up",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:41.799742+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:41.959489+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 76.5,
+          "updated": 1792852361.786421,
+          "origin": "scale",
+          "position": -0.7
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 2024.1
+          },
+          "updated": 1792852361.786421,
+          "origin": "scale",
+          "position": -0.7
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 76.5,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:42.248101+00:00",
+      "context": {
+        "id": "01M5Q58108BVQ27ZNAK8TAP6EN",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852362.248878,
+      "observed_topic": "zigbee2mqtt/0xa4c13889ddf1c22e",
+      "observed_payload": {
+        "brightness": 76,
+        "color": {
+          "h": 25,
+          "hue": 25,
+          "s": 94,
+          "saturation": 94,
+          "x": 0.5245,
+          "y": 0.4136
+        },
+        "color_mode": "color_temp",
+        "color_temp": 494,
+        "effect": null,
+        "linkquality": 192,
+        "power_on_behavior": null,
+        "state": "ON"
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": -7,
+            "upper": -7,
+            "anchor": "day",
+            "updated": 1792852361.786421,
+            "last": "up",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:41.799742+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:41.959489+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 76.5,
+          "updated": 1792852361.786421,
+          "origin": "scale",
+          "position": -0.7
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 2024.1
+          },
+          "updated": 1792852361.786421,
+          "origin": "scale",
+          "position": -0.7
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 76.5,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:42.208573+00:00",
+      "context": {
+        "id": "01M5Q580Z0CTMHETRWY18KMS7R",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852362.209305,
+      "observed_topic": "zigbee2mqtt/0xa4c1387f3e38e505",
+      "observed_payload": {
+        "brightness": 76,
+        "color": {
+          "h": 25,
+          "hue": 25,
+          "s": 94,
+          "saturation": 94,
+          "x": 0.5245,
+          "y": 0.4136
+        },
+        "color_mode": "color_temp",
+        "color_temp": 494,
+        "effect": null,
+        "linkquality": 212,
+        "power_on_behavior": null,
+        "state": "ON"
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": -7,
+            "upper": -7,
+            "anchor": "day",
+            "updated": 1792852361.786421,
+            "last": "up",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:41.799742+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:41.959489+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 76.5,
+          "updated": 1792852361.786421,
+          "origin": "scale",
+          "position": -0.7
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 2024.1
+          },
+          "updated": 1792852361.786421,
+          "origin": "scale",
+          "position": -0.7
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 76.5,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:42.118004+00:00",
+      "context": {
+        "id": "01M5Q580W5XCDEQY79GAKAFHK5",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852362.11845,
+      "observed_topic": "zigbee2mqtt/0xa4c13889ddf1c22e/set",
+      "observed_payload": {
+        "brightness": 76,
+        "color_temp": 494,
+        "transition": 0.2
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": -7,
+            "upper": -7,
+            "anchor": "day",
+            "updated": 1792852361.786421,
+            "last": "up",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:41.799742+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:41.959489+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 76.5,
+          "updated": 1792852361.786421,
+          "origin": "scale",
+          "position": -0.7
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 2024.1
+          },
+          "updated": 1792852361.786421,
+          "origin": "scale",
+          "position": -0.7
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 76.5,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:42.113973+00:00",
+      "context": {
+        "id": "01M5Q580W15ZHGFE4WESKSSAX2",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852362.114458,
+      "observed_topic": "zigbee2mqtt/0xa4c1387f3e38e505/set",
+      "observed_payload": {
+        "brightness": 76,
+        "color_temp": 494,
+        "transition": 0.2
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": -7,
+            "upper": -7,
+            "anchor": "day",
+            "updated": 1792852361.786421,
+            "last": "up",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:41.799742+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:41.959489+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 76.5,
+          "updated": 1792852361.786421,
+          "origin": "scale",
+          "position": -0.7
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 2024.1
+          },
+          "updated": 1792852361.786421,
+          "origin": "scale",
+          "position": -0.7
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 76.5,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:41.772242+00:00",
+      "context": {
+        "id": "01M5Q580HCNAMKCA6AH8AEAES1",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852361.772725,
+      "observed_topic": "zigbee2mqtt/0x385b44fffea4fc67",
+      "observed_payload": {
+        "action": "brightness_step_up",
+        "action_step_size": 51,
+        "action_transition_time": 0.3,
+        "battery": 100,
+        "linkquality": 168
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": -8,
+            "upper": -8,
+            "anchor": "day",
+            "updated": 1792852361.462508,
+            "last": "up",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:41.476477+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:41.737121+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 76.5,
+          "updated": 1792852361.462508,
+          "origin": "scale",
+          "position": -0.8
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 1999.4
+          },
+          "updated": 1792852361.462508,
+          "origin": "scale",
+          "position": -0.8
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 76.5,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:41.444107+00:00",
+      "context": {
+        "id": "01M5Q58074KAZSCYYDWY42G0ES",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852361.444533,
+      "observed_topic": "zigbee2mqtt/0x385b44fffea4fc67",
+      "observed_payload": {
+        "action": "brightness_step_up",
+        "action_step_size": 51,
+        "action_transition_time": 0.3,
+        "battery": 100,
+        "linkquality": 168
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": -9,
+            "upper": -9,
+            "anchor": "day",
+            "updated": 1792852360.121005,
+            "last": "down",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:40.131904+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:40.296134+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 76.5,
+          "updated": 1792852360.121005,
+          "origin": "scale",
+          "position": -0.9
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 1974.7
+          },
+          "updated": 1792852360.121005,
+          "origin": "scale",
+          "position": -0.9
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 76.5,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:40.553724+00:00",
+      "context": {
+        "id": "01M5Q57ZB9MWA5PP4ZJ280GFR9",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852360.554351,
+      "observed_topic": "zigbee2mqtt/0xa4c13889ddf1c22e",
+      "observed_payload": {
+        "brightness": 76,
+        "color": {
+          "h": 24,
+          "hue": 24,
+          "s": 95,
+          "saturation": 95,
+          "x": 0.53,
+          "y": 0.4128
+        },
+        "color_mode": "color_temp",
+        "color_temp": 506,
+        "effect": null,
+        "linkquality": 168,
+        "power_on_behavior": null,
+        "state": "ON"
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": -9,
+            "upper": -9,
+            "anchor": "day",
+            "updated": 1792852360.121005,
+            "last": "down",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:40.131904+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:40.296134+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 76.5,
+          "updated": 1792852360.121005,
+          "origin": "scale",
+          "position": -0.9
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 1974.7
+          },
+          "updated": 1792852360.121005,
+          "origin": "scale",
+          "position": -0.9
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 76.5,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:40.534471+00:00",
+      "context": {
+        "id": "01M5Q57ZAPFF53EK0GKN4WGZWZ",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852360.535085,
+      "observed_topic": "zigbee2mqtt/0xa4c1387f3e38e505",
+      "observed_payload": {
+        "brightness": 76,
+        "color": {
+          "h": 24,
+          "hue": 24,
+          "s": 95,
+          "saturation": 95,
+          "x": 0.53,
+          "y": 0.4128
+        },
+        "color_mode": "color_temp",
+        "color_temp": 506,
+        "effect": null,
+        "linkquality": 216,
+        "power_on_behavior": null,
+        "state": "ON"
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": -9,
+            "upper": -9,
+            "anchor": "day",
+            "updated": 1792852360.121005,
+            "last": "down",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:40.131904+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:40.296134+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 76.5,
+          "updated": 1792852360.121005,
+          "origin": "scale",
+          "position": -0.9
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 1974.7
+          },
+          "updated": 1792852360.121005,
+          "origin": "scale",
+          "position": -0.9
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 76.5,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:40.433107+00:00",
+      "context": {
+        "id": "01M5Q57Z7HRXGVGW3STMRPQW28",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852360.433564,
+      "observed_topic": "zigbee2mqtt/0xa4c13889ddf1c22e/set",
+      "observed_payload": {
+        "brightness": 76,
+        "color_temp": 506,
+        "transition": 0.2
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": -9,
+            "upper": -9,
+            "anchor": "day",
+            "updated": 1792852360.121005,
+            "last": "down",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:40.131904+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:40.296134+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 76.5,
+          "updated": 1792852360.121005,
+          "origin": "scale",
+          "position": -0.9
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 1974.7
+          },
+          "updated": 1792852360.121005,
+          "origin": "scale",
+          "position": -0.9
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 76.5,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:40.428358+00:00",
+      "context": {
+        "id": "01M5Q57Z7C3B8WGWK23GKMXF0R",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852360.428884,
+      "observed_topic": "zigbee2mqtt/0xa4c1387f3e38e505/set",
+      "observed_payload": {
+        "brightness": 76,
+        "color_temp": 506,
+        "transition": 0.2
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": -9,
+            "upper": -9,
+            "anchor": "day",
+            "updated": 1792852360.121005,
+            "last": "down",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:40.131904+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:40.296134+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 76.5,
+          "updated": 1792852360.121005,
+          "origin": "scale",
+          "position": -0.9
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 1974.7
+          },
+          "updated": 1792852360.121005,
+          "origin": "scale",
+          "position": -0.9
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 76.5,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:40.104834+00:00",
+      "context": {
+        "id": "01M5Q57YX8H88SM48SFX7EFDXP",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852360.105414,
+      "observed_topic": "zigbee2mqtt/0x385b44fffea4fc67",
+      "observed_payload": {
+        "action": "brightness_step_down",
+        "action_step_size": 51,
+        "action_transition_time": 0.3,
+        "battery": 100,
+        "linkquality": 168
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": -8,
+            "upper": -8,
+            "anchor": "day",
+            "updated": 1792852359.702289,
+            "last": "down",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:39.712291+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:40.051523+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 76.5,
+          "updated": 1792852359.702289,
+          "origin": "scale",
+          "position": -0.8
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 1999.4
+          },
+          "updated": 1792852359.702289,
+          "origin": "scale",
+          "position": -0.8
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 76.5,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:39.685879+00:00",
+      "context": {
+        "id": "01M5Q57YG5CHZ6V1QJQNP10269",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852359.686418,
+      "observed_topic": "zigbee2mqtt/0x385b44fffea4fc67",
+      "observed_payload": {
+        "action": "brightness_step_down",
+        "action_step_size": 51,
+        "action_transition_time": 0.3,
+        "battery": 100,
+        "linkquality": 168
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": -7,
+            "upper": -7,
+            "anchor": "day",
+            "updated": 1792852359.495338,
+            "last": "down",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:39.503984+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:39.598889+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 76.5,
+          "updated": 1792852359.495338,
+          "origin": "scale",
+          "position": -0.7
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 2024.1
+          },
+          "updated": 1792852359.495338,
+          "origin": "scale",
+          "position": -0.7
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 76.5,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:39.460262+00:00",
+      "context": {
+        "id": "01M5Q57Y94ZHY0GZKQP6NNKCJY",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852359.460806,
+      "observed_topic": "zigbee2mqtt/0x385b44fffea4fc67",
+      "observed_payload": {
+        "action": "brightness_step_down",
+        "action_step_size": 51,
+        "action_transition_time": 0.3,
+        "battery": 100,
+        "linkquality": 168
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": -6,
+            "upper": -6,
+            "anchor": "day",
+            "updated": 1792852359.287158,
+            "last": "down",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:39.296414+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:39.250762+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 76.5,
+          "updated": 1792852359.097876,
+          "origin": "scale",
+          "position": -0.5
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 2073.5
+          },
+          "updated": 1792852359.097876,
+          "origin": "scale",
+          "position": -0.5
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 76.5,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:39.275225+00:00",
+      "context": {
+        "id": "01M5Q57Y3BWBAFY632KP7XRSR1",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852359.275613,
+      "observed_topic": "zigbee2mqtt/0x385b44fffea4fc67",
+      "observed_payload": {
+        "action": "brightness_step_down",
+        "action_step_size": 51,
+        "action_transition_time": 0.3,
+        "battery": 100,
+        "linkquality": 164
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": -5,
+            "upper": -5,
+            "anchor": "day",
+            "updated": 1792852359.097876,
+            "last": "down",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:39.107162+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:39.250762+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 76.5,
+          "updated": 1792852359.097876,
+          "origin": "scale",
+          "position": -0.5
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 2073.5
+          },
+          "updated": 1792852359.097876,
+          "origin": "scale",
+          "position": -0.5
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 76.5,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:39.085668+00:00",
+      "context": {
+        "id": "01M5Q57XXDTZNM9Z22YS9A5M58",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852359.086129,
+      "observed_topic": "zigbee2mqtt/0x385b44fffea4fc67",
+      "observed_payload": {
+        "action": "brightness_step_down",
+        "action_step_size": 51,
+        "action_transition_time": 0.3,
+        "battery": 100,
+        "linkquality": 168
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": -4,
+            "upper": -4,
+            "anchor": "day",
+            "updated": 1792852358.780248,
+            "last": "down",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:38.789564+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:39.060504+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 77.19999999999999,
+          "updated": 1792852358.780248,
+          "origin": "scale",
+          "position": -0.4
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 2098.2
+          },
+          "updated": 1792852358.780248,
+          "origin": "scale",
+          "position": -0.4
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 77.19999999999999,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:38.768343+00:00",
+      "context": {
+        "id": "01M5Q57XKGDW8D4S8YR2W7TWFN",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852358.768713,
+      "observed_topic": "zigbee2mqtt/0x385b44fffea4fc67",
+      "observed_payload": {
+        "action": "brightness_step_down",
+        "action_step_size": 51,
+        "action_transition_time": 0.3,
+        "battery": 100,
+        "linkquality": 168
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": -3,
+            "upper": -3,
+            "anchor": "day",
+            "updated": 1792852358.578439,
+            "last": "down",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:38.587697+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:38.743943+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 89.9,
+          "updated": 1792852358.578439,
+          "origin": "scale",
+          "position": -0.3
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 2122.9
+          },
+          "updated": 1792852358.578439,
+          "origin": "scale",
+          "position": -0.3
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 89.9,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:38.566223+00:00",
+      "context": {
+        "id": "01M5Q57XD6SJ3NFRVGZ1956SMC",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852358.566615,
+      "observed_topic": "zigbee2mqtt/0x385b44fffea4fc67",
+      "observed_payload": {
+        "action": "brightness_step_down",
+        "action_step_size": 51,
+        "action_transition_time": 0.3,
+        "battery": 100,
+        "linkquality": 176
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": -2,
+            "upper": -2,
+            "anchor": "day",
+            "updated": 1792852358.261374,
+            "last": "down",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:38.270402+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:38.541183+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 102.6,
+          "updated": 1792852358.261374,
+          "origin": "scale",
+          "position": -0.2
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 2147.6
+          },
+          "updated": 1792852358.261374,
+          "origin": "scale",
+          "position": -0.2
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 102.6,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:38.247234+00:00",
+      "context": {
+        "id": "01M5Q57X37BARY048QNZ05YPB0",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852358.247809,
+      "observed_topic": "zigbee2mqtt/0x385b44fffea4fc67",
+      "observed_payload": {
+        "action": "brightness_step_down",
+        "action_step_size": 51,
+        "action_transition_time": 0.3,
+        "battery": 100,
+        "linkquality": 168
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": -1,
+            "upper": -1,
+            "anchor": "day",
+            "updated": 1792852357.899602,
+            "last": "down",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:37.908587+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:38.166790+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 115.3,
+          "updated": 1792852357.899602,
+          "origin": "scale",
+          "position": -0.1
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 2172.3
+          },
+          "updated": 1792852357.899602,
+          "origin": "scale",
+          "position": -0.1
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 115.3,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:37.883129+00:00",
+      "context": {
+        "id": "01M5Q57WQVS3P051MHPCF1Q9XK",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852357.883498,
+      "observed_topic": "zigbee2mqtt/0x385b44fffea4fc67",
+      "observed_payload": {
+        "action": "brightness_step_down",
+        "action_step_size": 51,
+        "action_transition_time": 0.3,
+        "battery": 100,
+        "linkquality": 172
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": 0,
+            "upper": 0,
+            "anchor": "day",
+            "updated": 1792852357.680118,
+            "last": "down",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:37.688779+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:37.857468+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 128,
+          "updated": 1792852357.680118,
+          "origin": "scale",
+          "position": 0
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 2197
+          },
+          "updated": 1792852357.680118,
+          "origin": "scale",
+          "position": 0
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 128,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:37.536999+00:00",
+      "context": {
+        "id": "01M5Q57WD0EZCKAD63XAN64TV0",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852357.537549,
+      "observed_topic": "zigbee2mqtt/0x385b44fffea4fc67",
+      "observed_payload": {
+        "action": "brightness_step_down",
+        "action_step_size": 51,
+        "action_transition_time": 0.3,
+        "battery": 100,
+        "linkquality": 168
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": 1,
+            "upper": 1,
+            "anchor": "day",
+            "updated": 1792852357.374568,
+            "last": "down",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:37.383135+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:37.337538+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 153.4,
+          "updated": 1792852357.190067,
+          "origin": "scale",
+          "position": 0.2
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 2687.8
+          },
+          "updated": 1792852357.190067,
+          "origin": "scale",
+          "position": 0.2
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 153.4,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:37.362592+00:00",
+      "context": {
+        "id": "01M5Q57W7JT7MTTFQ6WA2Z8KBB",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852357.363013,
+      "observed_topic": "zigbee2mqtt/0x385b44fffea4fc67",
+      "observed_payload": {
+        "action": "brightness_step_down",
+        "action_step_size": 51,
+        "action_transition_time": 0.3,
+        "battery": 100,
+        "linkquality": 176
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": 2,
+            "upper": 2,
+            "anchor": "day",
+            "updated": 1792852357.190067,
+            "last": "down",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:37.199278+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:37.337538+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 153.4,
+          "updated": 1792852357.190067,
+          "origin": "scale",
+          "position": 0.2
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 2687.8
+          },
+          "updated": 1792852357.190067,
+          "origin": "scale",
+          "position": 0.2
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 153.4,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:37.177567+00:00",
+      "context": {
+        "id": "01M5Q57W1SDGK4BPDEPW8VGJB8",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852357.178006,
+      "observed_topic": "zigbee2mqtt/0x385b44fffea4fc67",
+      "observed_payload": {
+        "action": "brightness_step_down",
+        "action_step_size": 51,
+        "action_transition_time": 0.3,
+        "battery": 100,
+        "linkquality": 168
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": 3,
+            "upper": 3,
+            "anchor": "day",
+            "updated": 1792852356.871753,
+            "last": "down",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:36.880363+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:37.139412+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 166.1,
+          "updated": 1792852356.871753,
+          "origin": "scale",
+          "position": 0.3
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 2933.2
+          },
+          "updated": 1792852356.871753,
+          "origin": "scale",
+          "position": 0.3
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 166.1,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:36.859821+00:00",
+      "context": {
+        "id": "01M5Q57VQVCZHXAD40K24BS47X",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852356.860254,
+      "observed_topic": "zigbee2mqtt/0x385b44fffea4fc67",
+      "observed_payload": {
+        "action": "brightness_step_down",
+        "action_step_size": 51,
+        "action_transition_time": 0.3,
+        "battery": 100,
+        "linkquality": 168
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": 4,
+            "upper": 4,
+            "anchor": "day",
+            "updated": 1792852356.682526,
+            "last": "down",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:36.691650+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:36.834535+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 178.8,
+          "updated": 1792852356.682526,
+          "origin": "scale",
+          "position": 0.4
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 3178.6
+          },
+          "updated": 1792852356.682526,
+          "origin": "scale",
+          "position": 0.4
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 178.8,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:36.670050+00:00",
+      "context": {
+        "id": "01M5Q57VHYQS3GHASSE3S1VHZV",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852356.670449,
+      "observed_topic": "zigbee2mqtt/0x385b44fffea4fc67",
+      "observed_payload": {
+        "action": "brightness_step_down",
+        "action_step_size": 51,
+        "action_transition_time": 0.3,
+        "battery": 100,
+        "linkquality": 168
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": 5,
+            "upper": 5,
+            "anchor": "day",
+            "updated": 1792852356.363475,
+            "last": "down",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:36.372104+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:36.643765+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 191.5,
+          "updated": 1792852356.363475,
+          "origin": "scale",
+          "position": 0.5
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 3424
+          },
+          "updated": 1792852356.363475,
+          "origin": "scale",
+          "position": 0.5
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 191.5,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:36.351552+00:00",
+      "context": {
+        "id": "01M5Q57V7ZVVT1QZQYQKSZFBX7",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852356.351925,
+      "observed_topic": "zigbee2mqtt/0x385b44fffea4fc67",
+      "observed_payload": {
+        "action": "brightness_step_down",
+        "action_step_size": 51,
+        "action_transition_time": 0.3,
+        "battery": 100,
+        "linkquality": 168
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": 6,
+            "upper": 6,
+            "anchor": "day",
+            "updated": 1792852356.182773,
+            "last": "down",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:36.191282+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:36.325856+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 204.2,
+          "updated": 1792852356.182773,
+          "origin": "scale",
+          "position": 0.6
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 3669.3999999999996
+          },
+          "updated": 1792852356.182773,
+          "origin": "scale",
+          "position": 0.6
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 204.2,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:36.170742+00:00",
+      "context": {
+        "id": "01M5Q57V2AZHV2FCNHGEYAW89M",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852356.17119,
+      "observed_topic": "zigbee2mqtt/0x385b44fffea4fc67",
+      "observed_payload": {
+        "action": "brightness_step_down",
+        "action_step_size": 51,
+        "action_transition_time": 0.3,
+        "battery": 100,
+        "linkquality": 168
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": 7,
+            "upper": 7,
+            "anchor": "day",
+            "updated": 1792852355.853475,
+            "last": "down",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:35.863053+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:36.144610+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 216.89999999999998,
+          "updated": 1792852355.853475,
+          "origin": "scale",
+          "position": 0.7
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 3914.8
+          },
+          "updated": 1792852355.853475,
+          "origin": "scale",
+          "position": 0.7
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 216.89999999999998,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:35.829756+00:00",
+      "context": {
+        "id": "01M5Q57TQNGBPKGMGVMF3X6QMS",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852355.830382,
+      "observed_topic": "zigbee2mqtt/0x385b44fffea4fc67",
+      "observed_payload": {
+        "action": "brightness_step_down",
+        "action_step_size": 51,
+        "action_transition_time": 0.3,
+        "battery": 100,
+        "linkquality": 172
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": 8,
+            "upper": 8,
+            "anchor": "day",
+            "updated": 1792852355.46044,
+            "last": "down",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:35.468987+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:35.731417+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 229.60000000000002,
+          "updated": 1792852355.46044,
+          "origin": "scale",
+          "position": 0.8
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 4160.2
+          },
+          "updated": 1792852355.46044,
+          "origin": "scale",
+          "position": 0.8
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 229.60000000000002,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:35.757673+00:00",
+      "context": {
+        "id": "01M5Q57TNDNJPYZ2YJSCENMRRT",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852355.758061,
+      "observed_topic": "zigbee2mqtt/0xa4c1387f3e38e505",
+      "observed_payload": {
+        "brightness": 242,
+        "color": {
+          "h": 42,
+          "hue": 42,
+          "s": 39,
+          "saturation": 39,
+          "x": 0.3644,
+          "y": 0.3661
+        },
+        "color_mode": "color_temp",
+        "color_temp": 227,
+        "effect": null,
+        "linkquality": 216,
+        "power_on_behavior": null,
+        "state": "ON"
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": 8,
+            "upper": 8,
+            "anchor": "day",
+            "updated": 1792852355.46044,
+            "last": "down",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:35.468987+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:35.731417+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 229.60000000000002,
+          "updated": 1792852355.46044,
+          "origin": "scale",
+          "position": 0.8
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 4160.2
+          },
+          "updated": 1792852355.46044,
+          "origin": "scale",
+          "position": 0.8
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 229.60000000000002,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:35.636044+00:00",
+      "context": {
+        "id": "01M5Q57THMEJ7Q431DVRKHBSBB",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852355.636405,
+      "observed_topic": "zigbee2mqtt/0xa4c1387f3e38e505/set",
+      "observed_payload": {
+        "brightness": 242,
+        "color_temp": 227,
+        "transition": 0.2
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": 8,
+            "upper": 8,
+            "anchor": "day",
+            "updated": 1792852355.46044,
+            "last": "down",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:35.468987+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:35.323178+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 242.3,
+          "updated": 1792852355.17829,
+          "origin": "scale",
+          "position": 0.9
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 4405.6
+          },
+          "updated": 1792852355.17829,
+          "origin": "scale",
+          "position": 0.9
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 242.3,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:35.445616+00:00",
+      "context": {
+        "id": "01M5Q57TBNR4WB0FNZEZF4N9EM",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852355.446004,
+      "observed_topic": "zigbee2mqtt/0x385b44fffea4fc67",
+      "observed_payload": {
+        "action": "brightness_step_down",
+        "action_step_size": 51,
+        "action_transition_time": 0.3,
+        "battery": 100,
+        "linkquality": 168
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": 9,
+            "upper": 9,
+            "anchor": "day",
+            "updated": 1792852355.17829,
+            "last": "down",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:35.187485+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:35.323178+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 242.3,
+          "updated": 1792852355.17829,
+          "origin": "scale",
+          "position": 0.9
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 4405.6
+          },
+          "updated": 1792852355.17829,
+          "origin": "scale",
+          "position": 0.9
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 242.3,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:35.158623+00:00",
+      "context": {
+        "id": "01M5Q57T2P6K6X9BFPJZW5E1TT",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852355.159106,
+      "observed_topic": "zigbee2mqtt/0x385b44fffea4fc67",
+      "observed_payload": {
+        "action": "brightness_step_down",
+        "action_step_size": 51,
+        "action_transition_time": 0.3,
+        "battery": 100,
+        "linkquality": 168
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": 10,
+            "upper": 10,
+            "anchor": "day",
+            "updated": 1792852354.951891,
+            "last": "down",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:34.962087+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:35.122340+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 255,
+          "updated": 1792852354.951891,
+          "origin": "scale",
+          "position": 1
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 4651
+          },
+          "updated": 1792852354.951891,
+          "origin": "scale",
+          "position": 1
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 255,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:34.931474+00:00",
+      "context": {
+        "id": "01M5Q57SVK3YA80Z8E92CZQQ3S",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852354.931914,
+      "observed_topic": "zigbee2mqtt/0x385b44fffea4fc67",
+      "observed_payload": {
+        "action": "brightness_step_down",
+        "action_step_size": 51,
+        "action_transition_time": 0.3,
+        "battery": 100,
+        "linkquality": 168
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": 11,
+            "upper": 11,
+            "anchor": "day",
+            "updated": 1792852354.536608,
+            "last": "down",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:34.566095+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:34.865777+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 255,
+          "updated": 1792852354.536608,
+          "origin": "scale",
+          "position": 1.1
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 4835.900000000001
+          },
+          "updated": 1792852354.536608,
+          "origin": "scale",
+          "position": 1.1
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 255,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:34.493984+00:00",
+      "context": {
+        "id": "01M5Q57SDXZHJKR9WBZQVXKDB5",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852354.495444,
+      "observed_topic": "zigbee2mqtt/0x385b44fffea4fc67",
+      "observed_payload": {
+        "action": "brightness_step_down",
+        "action_step_size": 51,
+        "action_transition_time": 0.3,
+        "battery": 100,
+        "linkquality": 168
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": 12,
+            "upper": 12,
+            "anchor": "day",
+            "updated": 1792852353.700797,
+            "last": "down",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:33.710164+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:33.854827+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 255,
+          "updated": 1792852353.700797,
+          "origin": "scale",
+          "position": 1.2
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 5020.8
+          },
+          "updated": 1792852353.700797,
+          "origin": "scale",
+          "position": 1.2
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 255,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:34.041426+00:00",
+      "context": {
+        "id": "01M5Q57RZSSXWA9EE1CTM719T5",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852354.042101,
+      "observed_topic": "zigbee2mqtt/0xa4c13889ddf1c22e",
+      "observed_payload": {
+        "brightness": 254,
+        "color": {
+          "h": 46,
+          "hue": 46,
+          "s": 23,
+          "saturation": 23,
+          "x": 0.3445,
+          "y": 0.3512
+        },
+        "color_mode": "color_temp",
+        "color_temp": 199,
+        "effect": null,
+        "linkquality": 168,
+        "power_on_behavior": null,
+        "state": "ON"
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": 12,
+            "upper": 12,
+            "anchor": "day",
+            "updated": 1792852353.700797,
+            "last": "down",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:33.710164+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:33.854827+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 255,
+          "updated": 1792852353.700797,
+          "origin": "scale",
+          "position": 1.2
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 5020.8
+          },
+          "updated": 1792852353.700797,
+          "origin": "scale",
+          "position": 1.2
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 255,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:34.020315+00:00",
+      "context": {
+        "id": "01M5Q57RZ46EQ1RK657X8ZCAZG",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852354.02102,
+      "observed_topic": "zigbee2mqtt/0xa4c1387f3e38e505",
+      "observed_payload": {
+        "brightness": 254,
+        "color": {
+          "h": 46,
+          "hue": 46,
+          "s": 23,
+          "saturation": 23,
+          "x": 0.3445,
+          "y": 0.3512
+        },
+        "color_mode": "color_temp",
+        "color_temp": 199,
+        "effect": null,
+        "linkquality": 216,
+        "power_on_behavior": null,
+        "state": "ON"
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": 12,
+            "upper": 12,
+            "anchor": "day",
+            "updated": 1792852353.700797,
+            "last": "down",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:33.710164+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:33.854827+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 255,
+          "updated": 1792852353.700797,
+          "origin": "scale",
+          "position": 1.2
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 5020.8
+          },
+          "updated": 1792852353.700797,
+          "origin": "scale",
+          "position": 1.2
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 255,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:33.948654+00:00",
+      "context": {
+        "id": "01M5Q57RWWX3DCMP311981MVN7",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852353.949227,
+      "observed_topic": "zigbee2mqtt/0xa4c13889ddf1c22e/set",
+      "observed_payload": {
+        "brightness": 254,
+        "color_temp": 199,
+        "transition": 0.2
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": 12,
+            "upper": 12,
+            "anchor": "day",
+            "updated": 1792852353.700797,
+            "last": "down",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:33.710164+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:33.854827+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 255,
+          "updated": 1792852353.700797,
+          "origin": "scale",
+          "position": 1.2
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 5020.8
+          },
+          "updated": 1792852353.700797,
+          "origin": "scale",
+          "position": 1.2
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 255,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:33.935374+00:00",
+      "context": {
+        "id": "01M5Q57RWF4QYZCK7RWKAJT2JW",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852353.935951,
+      "observed_topic": "zigbee2mqtt/0xa4c1387f3e38e505/set",
+      "observed_payload": {
+        "brightness": 254,
+        "color_temp": 199,
+        "transition": 0.2
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": 12,
+            "upper": 12,
+            "anchor": "day",
+            "updated": 1792852353.700797,
+            "last": "down",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:33.710164+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:33.854827+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 255,
+          "updated": 1792852353.700797,
+          "origin": "scale",
+          "position": 1.2
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 5020.8
+          },
+          "updated": 1792852353.700797,
+          "origin": "scale",
+          "position": 1.2
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 255,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    },
+    {
+      "time": "2026-10-24T14:32:33.685485+00:00",
+      "context": {
+        "id": "01M5Q57RMNEQQG2DNC3PE5866V",
+        "parent_id": null,
+        "user_id": null
+      },
+      "observed_at": 1792852353.686021,
+      "observed_topic": "zigbee2mqtt/0x385b44fffea4fc67",
+      "observed_payload": {
+        "action": "brightness_step_down",
+        "action_step_size": 51,
+        "action_transition_time": 0.3,
+        "battery": 100,
+        "linkquality": 176
+      },
+      "cursor": 0,
+      "power_count": 0,
+      "selection": {
+        "kind": "input",
+        "key": "channels:0x385b44fffea4fc67",
+        "source": "0x385b44fffea4fc67",
+        "scope": "room",
+        "target": "bedroom",
+        "value": {
+          "selection": "day",
+          "selection_updated": 1792852287.554849,
+          "period": "day",
+          "period_updated": 1792852287.554849,
+          "adjustment": {
+            "steps": 0,
+            "lower": 13,
+            "upper": 13,
+            "anchor": "day",
+            "updated": 1792852353.311104,
+            "last": "down",
+            "has_up": true
+          },
+          "selection_input": null,
+          "remote_valid_until": 1792860000,
+          "remote_timing_revision": 1792615899.136221,
+          "selection_instance": "0x385b44fffea4fc67:Candle"
+        },
+        "when": "2026-10-24T16:32:33.329570+02:00",
+        "created": "2026-10-24T15:42:00.189008+02:00",
+        "who": null,
+        "via": "remote"
+      },
+      "generation": "2026-10-24T16:32:33.616527+02:00",
+      "target": {
+        "brightness": {
+          "kind": "constant",
+          "value": 255,
+          "updated": 1792852353.311104,
+          "origin": "scale",
+          "position": 1.3
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 5205.7
+          },
+          "updated": 1792852353.311104,
+          "origin": "scale",
+          "position": 1.3
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 255,
+        "owners": {
+          "brightness": "channels:0x385b44fffea4fc67",
+          "color": "channels:0x385b44fffea4fc67"
+        },
+        "transition": 3
+      },
+      "assignment": {}
+    }
+  ]
+}

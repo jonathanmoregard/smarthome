@@ -1,0 +1,45 @@
+{% set d=trigger.event.data %}{% set op=d.get('op','set') %}
+{% set prev=state_attr('sensor.ls_overrides','overrides') or {} %}
+{% set n=namespace(o=prev,attributes={}) %}
+{% if op=='clear_all' %}{% set n.o={} %}
+{% elif op=='clear' %}{% set n.o=dict(prev.items()|rejectattr(0,'in',d.get('keys',[]))|list) %}
+{% elif op=='clear_room' %}
+ {% set keep=namespace(o={}) %}
+ {% for key,r in prev.items() %}
+  {% set matches=(r.get('scope')=='room' and r.target==d.area) or (r.get('scope')=='lamp' and area_id(r.target)==d.area) or (r.kind=='light' and area_id(r.target)==d.area) or (r.kind=='block' and r.target==d.area) %}
+  {% if not matches %}{% set keep.o=dict(keep.o,**{key:r}) %}{% endif %}
+ {% endfor %}{% set n.o=keep.o %}
+{% elif op=='set' %}
+ {% for r in d.get('records',[]) if r is mapping %}
+  {% set key=r.get('key',r.kind~':'~r.get('source',r.target)) %}
+  {% set old=n.o.get(key,{}) %}{% set value=r.get('value') %}
+  {% if r.kind=='channels' and value is mapping %}
+   {% set before=old.get('value',{}) %}{% set before=before if before is mapping else {} %}
+   {% set merged=namespace(channels=before.get('channels',{})) %}
+   {% for channel,claim in value.get('channels',{}).items() %}
+    {% set previous=merged.channels.get(channel,{}) %}
+    {% if claim.get('kind')=='effect' and 'underlying' not in claim %}
+     {% set underlying=previous if previous.get('kind') in ['constant','scale'] else previous.get('underlying') %}
+     {% if underlying is mapping %}{% set claim=dict(claim,underlying=underlying) %}{% endif %}
+    {% endif %}
+    {% set merged.channels=dict(merged.channels,**{channel:claim}) %}
+   {% endfor %}
+   {% set channels=merged.channels %}
+   {% set value=dict(before,**value) %}{% set value=dict(value,channels=channels) %}
+  {% endif %}
+  {% set record=dict(r,value=value,when=now().isoformat(),created=old.get('created',old.get('when',now().isoformat())),who=d.get('who') or trigger.event.context.user_id,via=d.get('via')) %}
+  {% set n.o=dict(n.o,**{key:record}) %}
+ {% endfor %}
+{% elif op=='power' %}
+ {% set n.attributes={'power':dict(state_attr('sensor.ls_overrides','power') or {},**{d.area:d.on|bool})} %}
+{% elif op=='range_set' %}
+ {% set valid=d.get('profile') in ['bright','cosy'] or (d.get('profile')=='custom' and d.get('min') is number and d.get('max') is number and 0<=d.min<=d.max<=100) %}
+ {% if valid %}{% set rule={'profile':d.profile} if d.profile!='custom' else {'profile':'custom','min':d.min,'max':d.max} %}{% set n.attributes={'switch_ranges':dict(state_attr('sensor.ls_overrides','switch_ranges') or {},**{d.entity:rule})} %}{% endif %}
+{% elif op=='range_defaults' %}
+ {% set ranges=d.get('ranges',{}) %}
+ {% if ranges.get('bright') is sequence and ranges.get('cosy') is sequence and ranges.bright|count==2 and ranges.cosy|count==2 and 0<=ranges.bright[0]<=ranges.bright[1]<=100 and 0<=ranges.cosy[0]<=ranges.cosy[1]<=100 %}{% set n.attributes={'range_defaults':ranges} %}{% endif %}
+{% endif %}
+{% if d.get('via')=='remote' and d.get('source') and d.get('request_id') %}
+ {% set n.attributes=dict(n.attributes,remote_ack=dict(state_attr('sensor.ls_overrides','remote_ack') or {},**{d.source:d.request_id})) %}
+{% endif %}
+{{ dict(n.attributes,overrides=n.o,last_via=d.get('via')) }}

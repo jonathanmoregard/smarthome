@@ -1,0 +1,29 @@
+{
+  "success": true,
+  "action": "get",
+  "script_id": "effects_candle_plan",
+  "config": {
+    "alias": "Effects · Plan Shared Candle Membership",
+    "mode": "parallel",
+    "max": 30,
+    "fields": {
+      "catalog": {
+        "selector": {
+          "object": {}
+        }
+      }
+    },
+    "sequence": [
+      {
+        "variables": {
+          "result": "\n{% set assignments=state_attr('sensor.ls_effects_runtime','assignments') or {} %}\n{% set power=state_attr('sensor.ls_overrides','power') or {} %}\n{% set actual=state_attr('sensor.ls_effects_runtime','candle_group') or {} %}\n{% set n=namespace(lamps={},entities=[],members=[],endpoints={},owners={},remove=[],add=[]) %}\n{% for lamp,ends in catalog.members.items() %}\n {% for E in ends %}\n  {% for domain,identifier in device_attr(E,'identifiers') or [] %}\n   {% if domain=='mqtt' and identifier.startswith('zigbee2mqtt_0x') %}\n    {% set ieee=identifier[12:] %}\n    {% set n.endpoints=dict(n.endpoints,**{E:{'ieee_address':ieee,'endpoint':1}}) %}\n    {% set n.owners=dict(n.owners,**{ieee:lamp}) %}\n   {% endif %}\n  {% endfor %}\n {% endfor %}\n{% endfor %}\n{% for lamp,t in assignments.items() if lamp in catalog.members and is_state(lamp,'on') and t.get('on',false) and power.get(t.get('area'),true) %}\n {% if t.get('brightness',{}).get('effect')=='Candle' and t.brightness.get('kind')=='effect'\n       and t.get('color',{}).get('effect')=='Candle' and t.color.get('kind')=='effect' %}\n  {% set n.lamps=dict(n.lamps,**{lamp:t}) %}\n  {% for E in catalog.members[lamp] if is_state(E,'on') and E in n.endpoints %}\n   {% set n.entities=n.entities+[E] %}{% set n.members=n.members+[n.endpoints[E]] %}\n  {% endfor %}\n {% endif %}\n{% endfor %}\n{% set wanted=n.members|sort(attribute='ieee_address') %}\n{% set members=(actual.get('members',[])|list)|sort(attribute='ieee_address') %}\n{% for m in members if m not in wanted %}{% set n.remove=n.remove+[m] %}{% endfor %}\n{% for m in wanted if m not in members %}{% set n.add=n.add+[m] %}{% endfor %}\n{% set bridge=states.binary_sensor.zigbee2mqtt_bridge_connection_state %}\n{% set listener=states.automation.effects_candle_group_state %}\n{% set epoch=[as_timestamp(bridge.last_changed if bridge is not none else none,0),as_timestamp(listener.last_changed if listener is not none else none,0)]|max %}\n{% set fresh=actual.get('observed_at',0)>=epoch and actual.get('observed_at',0)>0 %}\n{% set synchronized=actual.get('exists',false) and fresh and members==wanted %}\n{{ {'lamps':n.lamps,'entities':n.entities|unique|sort,'members':wanted,'actual':actual,\n    'remove':n.remove,'add':n.add,'owners':n.owners,'fresh':fresh,'synchronized':synchronized,\n    'ready':synchronized and wanted|count>0 and not state_attr('sensor.ls_effects_runtime','candle_syncing')\n      and is_state('binary_sensor.zigbee2mqtt_bridge_connection_state','on')} }}\n"
+        }
+      },
+      {
+        "stop": "Return membership plan",
+        "response_variable": "result"
+      }
+    ]
+  },
+  "config_hash": "56671d32911bbd94"
+}

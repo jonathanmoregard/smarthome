@@ -1,0 +1,11 @@
+{% set S=baseline.schedule.schedule_details.get(room,{}) %}
+{% set T=(as_datetime(test_now)|as_local) if test_now|default(none) else now() %}
+{% set n=namespace(deadlines=[as_timestamp(T.replace(hour=0,minute=0,second=0,microsecond=0)+timedelta(days=1))],moving=S.get('fading',true)) %}
+{% for boundary in [S.get('next_fs',0),at+S.get('left',0),S.get('cur_ts',0)+90] if boundary>at %}{% set n.deadlines=n.deadlines+[boundary] %}{% endfor %}
+{% if has_value('input_datetime.ls_'~room~'_wake') %}
+ {% set wake=state_attr('input_datetime.ls_'~room~'_wake','timestamp')|float(0) %}
+ {% set duration=states('input_number.ls_'~room~'_wake_fade')|float(37.5)*60 %}
+ {% for boundary in [wake,wake+duration,wake+duration+90,wake+86400] if boundary>at %}{% set n.deadlines=n.deadlines+[boundary] %}{% endfor %}
+ {% if 0<=at-wake<duration and S.get('cur')=='night' and S.get('cur_ts',0)<=wake %}{% set n.moving=true %}{% endif %}
+{% endif %}
+{{ {'version':cache_version,'room':room,'dependencies':dependencies,'periods':periods,'valid_from':at,'valid_until':at if n.moving else n.deadlines|min,'baseline':baseline,'gradients':gradients,'catalog':catalog}|to_json|from_json }}

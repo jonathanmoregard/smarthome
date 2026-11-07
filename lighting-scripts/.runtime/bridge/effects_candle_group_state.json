@@ -1,0 +1,35 @@
+{
+  "id": "effects_candle_group_state",
+  "alias": "Effects Candle Group State",
+  "triggers": [
+    {
+      "trigger": "mqtt",
+      "topic": "zigbee2mqtt/bridge/groups",
+      "id": "groups"
+    },
+    {
+      "trigger": "mqtt",
+      "topic": "zigbee2mqtt/bridge/response/group/members/+",
+      "id": "response"
+    },
+    {
+      "trigger": "mqtt",
+      "topic": "zigbee2mqtt/bridge/response/group/add",
+      "id": "response"
+    }
+  ],
+  "actions": [
+    {
+      "event": "smarthome_script",
+      "event_data": {
+        "script": "automation.effects_candle_group_state",
+        "args": {
+          "trigger": "{% set n=namespace(data={}) %}\n{% for key in ['id','platform','entity_id','topic','payload','payload_json'] %}\n {% if trigger[key] is defined %}{% set n.data=dict(n.data,**{key:trigger[key]}) %}{% endif %}\n{% endfor %}\n{% for key in ['to_state','from_state','event'] %}\n {% if trigger[key] is defined %}{% set value=trigger[key] %}\n  {% set n.data=dict(n.data,**{key:(value.as_dict() if value is not none else none)}) %}\n {% endif %}\n{% endfor %}\n{{ n.data | to_json | from_json }}"
+        }
+      }
+    }
+  ],
+  "mode": "queued",
+  "max": 50,
+  "description": "TypeScript trigger bridge. "
+}

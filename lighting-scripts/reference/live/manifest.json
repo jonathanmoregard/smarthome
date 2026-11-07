@@ -1,0 +1,291 @@
+{
+  "captured": "2026-10-26",
+  "scripts": {
+    "effect_breathe_frame.json": {
+      "sha256": "ebdd38e374a01865eebd6208f394c6d142604b8a73c71de9332cc60e96b5810f",
+      "config_hash": "369a158d708723b5"
+    },
+    "effect_candle_frame.json": {
+      "sha256": "4c869c556a689db11531b28910e6b0777dfbb2f3429dec4fd41c614274c3f0cc",
+      "config_hash": "2d4ca94c9c1bc40e"
+    },
+    "effect_colour_loop_frame.json": {
+      "sha256": "3dd1ca5810eeb2807d47108b02fb9863edea646c7b59eb423806a876109acc3d",
+      "config_hash": "075e078c211fbc1e"
+    },
+    "effects_assign.json": {
+      "sha256": "136694907e659404c6ca531e44ba379b562e958f399a3d721106917821fc0f04",
+      "config_hash": "9779edba76076dd9"
+    },
+    "effects_candle_plan.json": {
+      "sha256": "02775e8efd941ac664b98332f356842ac6e34e7a3340e68037e73c6dc4c2cce5",
+      "config_hash": "56671d32911bbd94"
+    },
+    "effects_candle_sync.json": {
+      "sha256": "f7a2a02975ccf362f22979595908170e3c836ba7b112f33d1f403feea8a76f87",
+      "config_hash": "8cb79c54bb0b8b6c"
+    },
+    "effects_catalog.json": {
+      "sha256": "62e21d9156f3d7197942816abd6e84f7fb47a4a69d310f9ed20b413b9fb95fe5",
+      "config_hash": "c69661c8a2b9d60b"
+    },
+    "effects_emit.json": {
+      "sha256": "369d18f59f27c1bd65542a69a5f401d02a0f40b3b94ea3533d27e75e92ea33a0",
+      "config_hash": "bfaaaa24bbfa9469"
+    },
+    "effects_engine.json": {
+      "sha256": "eb003b9e1b3ec0927e9b740f57461e2095b55d36727eb6140dc4b1fc2e90f477",
+      "config_hash": "21dd467c33d1ce4d"
+    },
+    "effects_filter_commands.json": {
+      "sha256": "3647d581507f2cb52a32063c6cf0b81f0e0a3377e3a45bb8b1596823915f7506",
+      "config_hash": "7c04839237d4e41d"
+    },
+    "effects_frame_plan.json": {
+      "sha256": "160c6f8d650dad5ce1759b29c225cf3885a37e9f79b6f29c0308d7c010ae1a65",
+      "config_hash": "e8f3fe56c7964886"
+    },
+    "effects_gradient_plan.json": {
+      "sha256": "9b593ebdf7037b799d2e3a4fb154a31d6ef6fe6f8fe8b00dbd2d385cc8d89388",
+      "config_hash": "528313e105799772"
+    },
+    "effects_group_plan.json": {
+      "sha256": "655e17ad9f1e93d50ab3e42aee3c98ff6fe22e89190eb3e4f06d9c69121a0248",
+      "config_hash": "66dd5e711443c235"
+    },
+    "effects_native_plan.json": {
+      "sha256": "e771191d89e52690eccd8f40501a8f47fc66f6476b5ee921bc01fa929a5cba02",
+      "config_hash": "e8a4a5c0e6a0d384"
+    },
+    "effects_release.json": {
+      "sha256": "89d96306599ba8cbe2534cd727e6ad359950599c7b6eea3981a74bbaf393dcf2",
+      "config_hash": "a13b81bcea953b45"
+    },
+    "effects_resolve.json": {
+      "sha256": "6947df61c16b49fde9f491a68f6dcd0a670ea0448b048544d23cfcb83979f386",
+      "config_hash": "6a1670ad7e928fb7"
+    },
+    "effects_route.json": {
+      "sha256": "3eed561292ac37837d6e0dca6c5999cf8221e419d8d9e5a6e1fa94667a795651",
+      "config_hash": "d1ee5b45bdbf9aa2"
+    },
+    "effects_scale.json": {
+      "sha256": "9601e446dace9b494090dabc692bf08709daba24475687ddc8c8bbe439d1aa70",
+      "config_hash": "52f3d3417a5f78b3"
+    },
+    "effects_set.json": {
+      "sha256": "97ef8554be643cd9192acbdc5dee576ab67e9140ea8a74ecfe8d3f971081fdb3",
+      "config_hash": "7b9b1ffbe7c9f74e"
+    },
+    "effects_ui_catalog.json": {
+      "sha256": "5c4ee87709b1c96cfd71dd9c8501b52c36f9324e45e32a058b31caf356dc3520",
+      "config_hash": "8980a6ea9fe80f8a"
+    },
+    "effects_ui_sync.json": {
+      "sha256": "a68b2333d9efdde7e23034eb1a614621c3f862ee46d2a2ff1a677b31930569d9",
+      "config_hash": "fa678dd906ea3374"
+    },
+    "house_apply_mode.json": {
+      "sha256": "70a2269b55f7ea8a162f6a37cd6a73350dd5dcdc6d994e249188b4cbdc855f03",
+      "config_hash": "b3e2581823c0ba4c"
+    },
+    "house_sunrise.json": {
+      "sha256": "e623cecab3d6fe5f025a034c26d03e270c3717989b6e213bd00e2c8cae95f983",
+      "config_hash": "db28d2762df67f11"
+    },
+    "ls_apply.json": {
+      "sha256": "27082fee8549b0967ae961c957c256a87ed6b2a90e163edbaa6609e07ee3c023",
+      "config_hash": "584069f0f576cc12"
+    },
+    "ls_base.json": {
+      "sha256": "a849d68528f9e196e6e98a793e175fdc3ff83d619a657cd5574ae4b4a4c47b6b",
+      "config_hash": "c5b028095a4cb353"
+    },
+    "ls_clear_overrides.json": {
+      "sha256": "f35c0d6df72364b086d16b3ee21c1da70dbcbee3680e9bbd0ca011792aaff896",
+      "config_hash": "9a7032f51fa168c6"
+    },
+    "ls_commit.json": {
+      "sha256": "7c7ae52aca6cdab384df12a7042e4a564e74cc32227bcc9e597e0be59522ec24",
+      "config_hash": "66dc06a4fcfd647e"
+    },
+    "ls_dispatch.json": {
+      "sha256": "2521d62afc341cd1320fe29fb7fb13455471a35f5833dec1bd9f65056a427124",
+      "config_hash": "9ed79de35e16b9dc"
+    },
+    "ls_override_block.json": {
+      "sha256": "c5d39f6c8f7a50b691d484526ddfd21b992fa3fee0ae17fea7f982632c02e3ba",
+      "config_hash": "afd826ed7e3f8f4c"
+    },
+    "ls_plan.json": {
+      "sha256": "3968c7cc393a5e95c1ff8dce566efbef4305b6c897f9e3ce4a3fbe13405b18ff",
+      "config_hash": "6730445d5512d5b4"
+    },
+    "ls_range_save.json": {
+      "sha256": "8af35a8f7d2307c07131b9917914df6c57ea753fbeca359bbdf2827ce11f8f1a",
+      "config_hash": "009cddc1caa8a1aa"
+    },
+    "ls_remote_command.json": {
+      "sha256": "d46a940c755ab5aad4e8b2b9ba5efc631be8047fae8260a0a6c8700238eb73da",
+      "config_hash": "737614e8233efde4"
+    },
+    "ls_remote_gesture_bedroom.json": {
+      "sha256": "1d410e2d487cce208d1f22be2affca6e38ce328c9c1c58fb03c49abeeb5b116d",
+      "config_hash": "f5000af6b8d39cb3"
+    },
+    "ls_remote_gesture_kitchen.json": {
+      "sha256": "80a1c551aadbe40268d939c8029e593875e872049796ae0c51c534c886a0ebb0",
+      "config_hash": "db5850ecb0da44d3"
+    },
+    "ls_remote_gesture_living_room.json": {
+      "sha256": "bc8e3cef3da205e10d3bae82c0b9cc0444280f57de814b7fccb69d16e2ff47b6",
+      "config_hash": "fe13713fd163a8c5"
+    },
+    "ls_remote_plan.json": {
+      "sha256": "10a638ceefec15c96b3cf7a0ef0cbebb18beef2b1e7f49b7122a5bc8c8ab1101",
+      "config_hash": "bd8438b29e439a3b"
+    },
+    "ls_remote_power_quiet_bedroom.json": {
+      "sha256": "93d4e242386a7898e2cecddb772a82c181e841dbae92eb5b1c6523d837db1c12",
+      "config_hash": "272e2be9c6e34f67"
+    },
+    "ls_remote_power_quiet_kitchen.json": {
+      "sha256": "5b3c36ae31b7aec5ed5a78b774f9a9dd4fd8b6a9d40031ca03134e3b8b1e99e5",
+      "config_hash": "2fe5bcc13c9bd800"
+    },
+    "ls_remote_power_quiet_living_room.json": {
+      "sha256": "b39eb640cd822c1e826ea50d20c403705fead34032bc5cf88249bee915f25ef4",
+      "config_hash": "eefececcf95dfa64"
+    },
+    "ls_render.json": {
+      "sha256": "c108409719e04061569448b77a1b463a0469aa47e78cac9ccbf778d738505304",
+      "config_hash": "2278f4c421989126"
+    },
+    "ls_room_base.json": {
+      "sha256": "293e82132d2ee7dc7f581540cdb223eb9fe331aac4191f1685c736743e76d487",
+      "config_hash": "e979ce531aa16fc6"
+    },
+    "ls_room_plan.json": {
+      "sha256": "135b09cddc47678f4f60632e01575bd9b59a3a2d68203532240e44b0bb742e43",
+      "config_hash": "ed205dd620f16bc7"
+    },
+    "ls_sara_mode.json": {
+      "sha256": "7ada4ed7d2fa3d2ae9ae58535a26f7664fde91fa8d9be58de7c05c6b72de12d6",
+      "config_hash": "139062532413350f"
+    },
+    "ls_store.json": {
+      "sha256": "7cfccb21155f9765ac2fade423aefdf4dad504e2b0107fd7d768e27b00bb9214",
+      "config_hash": "0594539c4f153df2"
+    },
+    "ls_switch_plan.json": {
+      "sha256": "331059fe589923b6605518cdbf309e14c81ab92ea2d95031a7e8e12bc1516a8e",
+      "config_hash": "3a1c602e7024d287"
+    }
+  },
+  "automations": {
+    "lighting_schedule_override_store_writer.json": {
+      "sha256": "800a8488f84c657b9dae4f6ad9bb1450ace633f5e11f0de1c16a7dd4dfb80f3b",
+      "config_hash": "071a14b46fae9dd0"
+    },
+    "effects_candle_group_state.json": {
+      "sha256": "96a2e377c1506951c0f4800562634c679242b3114487fc9fb3880e624570c49f",
+      "config_hash": "cd3a0487dc9e9dab"
+    },
+    "effects_candle_membership.json": {
+      "sha256": "1624929c3e1ef238bc77fe843f780fa0f9e196adb27a099e8bff62b2cafac1a1",
+      "config_hash": "b0e8c7be35753650"
+    },
+    "effects_lifecycle.json": {
+      "sha256": "1db306d0d2dadd3a49176acb222730c203c5c48633955e1e07b656dd17250d0d",
+      "config_hash": "9ea52050c16ab8bc"
+    },
+    "effects_native_light_controls.json": {
+      "sha256": "0b8ea9c398d80a840ca3300efcc563b6d74af4a3edda2f2a964acc04c7d714d4",
+      "config_hash": "93803260aac1f538"
+    },
+    "effects_refresh_native_light_controls.json": {
+      "sha256": "179ff5210f65e1deab089cb4a634b57999342c33b0fe2f4f28545e50af69af7d",
+      "config_hash": "c63b66019c3d5e7e"
+    },
+    "house_lamps_follow_mode.json": {
+      "sha256": "b5d79bcb022c02e659729e2b607c4e4c990c59945179d3bd6d08274294037674",
+      "config_hash": "aed3fd7f72f9ec2f"
+    },
+    "house_schedule.json": {
+      "sha256": "4d23df505a055b751b1423125a35f4d872c2a52850f24d99f05b7902885632b0",
+      "config_hash": "606be4ca10d20160"
+    },
+    "house_sunrise_before_alarm.json": {
+      "sha256": "adbe8a91ef190f7687c03e3b414b515f5fc60a03bc82a6c4949ee89df3100eb8",
+      "config_hash": "19c007fcb1fae240"
+    },
+    "lighting_bedroom_remote_preset_arrows.json": {
+      "sha256": "c3408566accbb449f8f7622bf54e8709c79460461884dc85dd8ccc22a11fd718",
+      "config_hash": "e6d79bdf6c1de62b"
+    },
+    "lighting_jonathan_s_bedroom_remote_center.json": {
+      "sha256": "eced531a71fad12f3d4fcb4088b08f7852f584beb2763629ebf893cb9f124aca",
+      "config_hash": "97df22517c753c04"
+    },
+    "lighting_jonathan_s_bedroom_remote_directions.json": {
+      "sha256": "472209f3d325e26973f8d3c3d3685e35017ab7746b22237d8c22aa10e013b83a",
+      "config_hash": "9cbd174cfb0968bc"
+    },
+    "lighting_kitchen_remote_center.json": {
+      "sha256": "cd26695526e1a94744bbfab8a2602e91165532df07e126e873d6883391352699",
+      "config_hash": "08bbb141c3a2d355"
+    },
+    "lighting_kitchen_remote_directions.json": {
+      "sha256": "237c37e21a4bb823ddd41f96cdf43261503bb29cd6a5c3ebd7992bc1678453ce",
+      "config_hash": "3c5a7d16403f2e27"
+    },
+    "lighting_kitchen_remote_preset_arrows.json": {
+      "sha256": "5f794420c9e88a049b15baa53d1e7e476fd3b50b82e01b694a6749631073fffb",
+      "config_hash": "0893c50d50bec2e2"
+    },
+    "lighting_living_room_remote_center.json": {
+      "sha256": "6063180a543b9407977908a0060d17f109e5083de63808cbf388316704e994a6",
+      "config_hash": "d5adb5b629b0ae5b"
+    },
+    "lighting_living_room_remote_directions.json": {
+      "sha256": "b13dd527a78f1f9d6cda4a510aedb82b0fb7243d4aad6e0a3da48af1f1eba1ab",
+      "config_hash": "7e1c2a4c981cd205"
+    },
+    "lighting_living_room_remote_preset_arrows.json": {
+      "sha256": "ec05364fe3f1f379bce5f240fa3dcdf49e9c93b250fb7d2f9cec34776d37cdeb",
+      "config_hash": "81c7fd02ee0d18e6"
+    },
+    "lighting_recover_failed_zigbee_commands.json": {
+      "sha256": "258d35bc68e4fefdb49396c5a84a7b64909854e47c3b193e047acc52eba473c9",
+      "config_hash": "7c5f56b38e16c3ed"
+    },
+    "lighting_recover_pending_output.json": {
+      "sha256": "1c3f1a44867a507f9bd0d229c726302f2055baf86f26bdc41d14905562d130ff",
+      "config_hash": "c05589f8788ce768"
+    },
+    "lighting_schedule_end_overrides.json": {
+      "sha256": "e399a738efd24b0c286d2a485386a356e8abd6fd7661d855da464c8ef0a3b8a4",
+      "config_hash": "e294a49080bdbc2b"
+    },
+    "lighting_schedule_engine.json": {
+      "sha256": "f6b34244e6a944555090684bddde8982902bf895ea3d682c771ad06e2b1c9eb4",
+      "config_hash": "edcaae81670a202d"
+    },
+    "lighting_schedule_lamp_change_detector.json": {
+      "sha256": "91eed4a005c27732f5fcbed0ee26e19b612f4db4265e04c16e2a982698100461",
+      "config_hash": "be754271f408f1b3"
+    },
+    "lighting_schedule_sara_mode_switch.json": {
+      "sha256": "33bac7306db90e1a7ae6250240b8fe53afcf2831109be364ead3694d6b4f18ef",
+      "config_hash": "beacc8f44475fdd4"
+    },
+    "switch_lamps_validate_house_defaults.json": {
+      "sha256": "c323bcac61de4bf5a97e812582957e3780938d50853179d1d55e71367e0fe03f",
+      "config_hash": "05795c7cae04a0a4"
+    },
+    "wake_light_jonathan.json": {
+      "sha256": "444d15c906518a2b43f58eb16e0ca664e7c02f32ddb9671e2db13ab499abddbd",
+      "config_hash": "c60472ac24904ae4"
+    }
+  }
+}

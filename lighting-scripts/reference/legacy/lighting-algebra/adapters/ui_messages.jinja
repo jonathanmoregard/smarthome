@@ -1,0 +1,58 @@
+{% set targets = state_attr('sensor.effects_controller', 'targets') or {} %}
+{% set assignments = state_attr('sensor.effects_controller', 'assignments') or {} %}
+{% set ns = namespace(messages=[]) %}
+{% for row in rows %}
+ {% set source=row.source %}{% set proxy=row.proxy %}
+ {% set available=states(source) in ['on','off'] %}
+ {% if force|default(false) or available != (states(proxy) in ['on','off']) %}{% set ns.messages=ns.messages+[{'topic':row.topics.availability,'payload':'online' if available else 'offline'}] %}{% endif %}
+ {% set profile=states(row.store)|from_json({}) if row.store else {} %}
+ {% set fx=namespace(names=[],levels=[],colors=[]) %}
+ {% for member in row.members %}
+  {% set entry=targets.get(member,assignments.get(member,{})) %}
+  {% if entry is mapping %}
+   {% for channel in ['brightness','color'] %}
+    {% set claim=entry.get(channel,{}) %}
+    {% if claim is mapping and claim.get('kind')=='effect' and claim.get('effect') %}{% set fx.names=fx.names+[claim.effect] %}{% endif %}
+   {% endfor %}
+   {% if entry.get('effect') and entry.effect!='Normal light' %}{% set fx.names=fx.names+[entry.effect] %}{% endif %}
+   {% if entry.get('level') is number %}{% set fx.levels=fx.levels+[entry.level] %}
+   {% elif entry.get('brightness') is number %}{% set fx.levels=fx.levels+[entry.brightness] %}{% endif %}
+   {% set color=entry.get('color',{}) %}
+   {% if color is mapping and color.get('kind')=='constant' and color.get('value') is mapping %}{% set fx.colors=fx.colors+[color.value] %}{% endif %}
+  {% endif %}
+ {% endfor %}
+ {% set unique_effects=fx.names|unique|list %}
+ {% set effect=unique_effects[0] if unique_effects|count==1 else '' if unique_effects|count>1 else 'Normal light' %}
+ {% if row.store %}{% set effect=profile.get('effect','Normal light') if profile.get('effect_channels',['brightness','color']) else 'Normal light' %}{% endif %}
+ {% set power='ON' if is_state(source,'on') else 'OFF' %}
+ {% set b=state_attr(source,'brightness') %}{% set k=state_attr(source,'color_temp_kelvin') %}{% set rgb=state_attr(source,'rgb_color') %}{% set mode=state_attr(source,'color_mode') %}
+ {% set display=namespace(target=targets.get(source,{}),color={}) %}
+ {% if not row.store and (row.members|count>1 or source not in row.members) %}
+  {% set areas=row.members|map('area_id')|select|unique|list %}
+  {% if areas|count==1 %}{% set display.target=targets.get('room:'~areas[0],{}) %}{% endif %}
+ {% endif %}
+ {% if not row.store %}
+  {% if display.target.get('level') is number %}{% set b=display.target.level %}
+  {% elif fx.levels|count==row.members|count and fx.levels %}{% set b=(fx.levels|sum/fx.levels|count)|round|int %}{% endif %}
+  {% set color=display.target.get('color',{}) %}
+  {% if color is mapping and color.get('kind')=='constant' %}{% set display.color=color.get('value',{}) %}
+  {% elif not display.target and fx.colors|count==row.members|count and fx.colors %}
+   {% set equal=namespace(ok=true) %}{% for c in fx.colors if c!=fx.colors[0] %}{% set equal.ok=false %}{% endfor %}
+   {% if equal.ok %}{% set display.color=fx.colors[0] %}{% endif %}
+  {% endif %}
+  {% if 'kelvin' in display.color %}{% set mode='color_temp' %}{% set k=display.color.kelvin %}
+  {% elif 'rgb' in display.color %}{% set mode='rgb' %}{% set rgb=display.color.rgb %}{% endif %}
+ {% endif %}
+ {% if available %}
+  {% if force|default(false) or states(proxy)!=states(source) %}{% set ns.messages=ns.messages+[{'topic':row.topics.power,'payload':power}] %}{% endif %}
+  {% if force|default(false) or state_attr(proxy,'effect')!=effect %}{% set ns.messages=ns.messages+[{'topic':row.topics.effect,'payload':effect}] %}{% endif %}
+  {% if b is number and (force|default(false) or state_attr(proxy,'brightness')!=b|round|int) %}{% set ns.messages=ns.messages+[{'topic':row.topics.brightness,'payload':b|round|int|string}] %}{% endif %}
+  {% if mode=='color_temp' and k is number and k>0 %}
+   {% set mired=(1000000/k)|round|int %}{% set proxy_k=state_attr(proxy,'color_temp_kelvin')|float(0) %}{% set proxy_mired=(1000000/proxy_k)|round|int if proxy_k>0 else 0 %}
+   {% if force|default(false) or state_attr(proxy,'color_mode')!='color_temp' or proxy_mired!=mired %}{% set ns.messages=ns.messages+[{'topic':row.topics.temperature,'payload':mired|string}] %}{% endif %}
+  {% elif rgb is sequence and rgb|count==3 %}
+   {% if force|default(false) or state_attr(proxy,'color_mode')!='rgb' or (state_attr(proxy,'rgb_color') or [])|list != rgb|list %}{% set ns.messages=ns.messages+[{'topic':row.topics.rgb,'payload':rgb|join(',')}] %}{% endif %}
+  {% endif %}
+ {% endif %}
+{% endfor %}
+{{ ns.messages }}

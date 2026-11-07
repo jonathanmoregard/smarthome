@@ -1,0 +1,167 @@
+{
+  "success": true,
+  "action": "get",
+  "script_id": "effects_engine",
+  "config": {
+    "alias": "Effects · Central engine",
+    "description": "Central owner and transport clock. Maximum 10 unicast publishes/s total, no retained commands and no replay. Samples a shared effect clock; more lamps reduce sampling per lamp. Offline/off/override changes stop writes immediately at next paced step.",
+    "mode": "single",
+    "sequence": [
+      {
+        "action": "script.effects_catalog",
+        "response_variable": "catalog"
+      },
+      {
+        "variables": {
+          "cursor": 0,
+          "previous": {},
+          "color_at": {},
+          "native_done": {}
+        }
+      },
+      {
+        "repeat": {
+          "while": [
+            {
+              "condition": "template",
+              "value_template": "{{ state_attr('sensor.effects_controller','revision') == states.sensor.ls_overrides.last_updated.isoformat() and is_state('binary_sensor.zigbee2mqtt_bridge_connection_state','on') }}"
+            },
+            {
+              "condition": "template",
+              "value_template": "{{ (state_attr('sensor.effects_controller','assignments') or {})|count > 0 }}"
+            }
+          ],
+          "sequence": [
+            {
+              "variables": {
+                "rows": "{% set ns=namespace(rows=[]) %}{% for L,a in (state_attr('sensor.effects_controller','assignments') or {}).items() if is_state(L,'on') %}{% for E in catalog.members.get(L,[]) if is_state(E,'on') %}{% set ns.rows=ns.rows+[{'owner':L,'entity':E,'topic':catalog.topics[E],'effect':a.effect,'brightness':a.brightness}] %}{% endfor %}{% endfor %}{{ ns.rows }}"
+              }
+            },
+            {
+              "if": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ rows|count == 0 }}"
+                }
+              ],
+              "then": [
+                {
+                  "stop": "No powered lamps"
+                }
+              ]
+            },
+            {
+              "variables": {
+                "row": "{{ rows[cursor|int % (rows|count)] }}",
+                "now_ts": "{{ as_timestamp(now()) }}",
+                "definition": "{{ catalog.effects.get(row.effect,{}) }}",
+                "pace": "{{ 150 if rows|count == 1 else (1000/catalog.budget)|round|int }}",
+                "fade": "{{ [0.5,[0.2,(rows|count)/catalog.budget]|max]|min }}"
+              }
+            },
+            {
+              "choose": [
+                {
+                  "conditions": [
+                    {
+                      "condition": "template",
+                      "value_template": "{{ 'renderer' in definition }}"
+                    }
+                  ],
+                  "sequence": [
+                    {
+                      "action": "{{ definition.renderer }}",
+                      "response_variable": "frame",
+                      "data": {
+                        "timestamp": "{{ now_ts }}",
+                        "brightness": "{{ row.brightness }}",
+                        "transition": "{{ fade }}"
+                      }
+                    },
+                    {
+                      "variables": {
+                        "with_color": "{{ now_ts|float - color_at.get(row.entity,0)|float >= 1 }}",
+                        "payload": "{{ dict({'brightness':frame.brightness,'transition':frame.transition}, **({'color':{'rgb':frame.rgb|join(',')}} if with_color else {})) }}"
+                      }
+                    },
+                    {
+                      "if": [
+                        {
+                          "condition": "template",
+                          "value_template": "{{ state_attr('sensor.effects_controller','revision') == states.sensor.ls_overrides.last_updated.isoformat() and is_state('binary_sensor.zigbee2mqtt_bridge_connection_state','on') and is_state(row.owner,'on') and is_state(row.entity,'on') and (with_color or previous.get(row.entity) != frame.brightness) }}"
+                        }
+                      ],
+                      "then": [
+                        {
+                          "action": "mqtt.publish",
+                          "data": {
+                            "topic": "{{ row.topic }}",
+                            "payload": "{{ payload|to_json }}",
+                            "qos": 0,
+                            "retain": false
+                          }
+                        },
+                        {
+                          "variables": {
+                            "previous": "{{ dict(previous, **{row.entity:frame.brightness}) }}",
+                            "color_at": "{{ dict(color_at, **{row.entity:now_ts}) if with_color else color_at }}"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "conditions": [
+                    {
+                      "condition": "template",
+                      "value_template": "{{ 'native' in definition and native_done.get(row.entity) != row.effect }}"
+                    }
+                  ],
+                  "sequence": [
+                    {
+                      "if": [
+                        {
+                          "condition": "template",
+                          "value_template": "{{ state_attr('sensor.effects_controller','revision') == states.sensor.ls_overrides.last_updated.isoformat() and is_state('binary_sensor.zigbee2mqtt_bridge_connection_state','on') and is_state(row.owner,'on') and is_state(row.entity,'on') }}"
+                        }
+                      ],
+                      "then": [
+                        {
+                          "action": "mqtt.publish",
+                          "data": {
+                            "topic": "{{ row.topic }}",
+                            "payload": "{{ {'brightness':[1,[254,row.brightness|int]|min]|max,'effect':definition.native}|to_json }}",
+                            "qos": 0,
+                            "retain": false
+                          }
+                        },
+                        {
+                          "variables": {
+                            "native_done": "{{ dict(native_done, **{row.entity:row.effect}) }}"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "variables": {
+                "cursor": "{{ cursor|int + 1 }}"
+              }
+            },
+            {
+              "delay": {
+                "milliseconds": "{{ pace }}"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "max_exceeded": "silent"
+  },
+  "config_hash": "62c13ba3cafa38d5"
+}

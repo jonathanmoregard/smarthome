@@ -1,0 +1,84 @@
+{# Button-domain state. No brightness, colour, gradient evaluation or effect ownership here.
+   Compact composition represents x -> clamp(x+steps,lower,upper), in remote ticks.
+   The remote record declares step_range; lower/upper compact saturation history.
+   Excess clicks at either endpoint are discarded, independently of output rendering. #}
+{% set key='channels:'~source %}
+{% set old=input_record|default(overrides.get(key,{})) %}
+{% set old=old if old.get('scope')=='room' and old.get('target')==room and input_key|default(key) not in current.plan.get('stale_keys',[]) else {} %}
+{% set value=old.get('value',{}) %}{% set value=value if value is mapping else {} %}
+{% set bounds=value.get('step_range',{'min':-20,'max':20}) %}
+{% set bounds_valid=bounds is mapping and bounds.get('min') is number and bounds.min is not boolean and bounds.get('max') is number and bounds.max is not boolean and -20<=bounds.min<=bounds.max<=20 %}
+{% set n=namespace(result={'op':'noop'},value=value) %}
+{% if room and command in ['up','down','left','right','toggle','reset','sara_toggle'] and (bounds_valid or command in ['toggle','reset','sara_toggle']) %}
+ {% if command=='sara_toggle' %}
+  {% set n.result={'op':'clear','keys':['mode:sara'],'via':'remote'} if 'mode:sara' in overrides else {'op':'set','records':[{'kind':'mode','target':'sara','value':'on'}],'via':'remote'} %}
+ {% elif command=='toggle' %}
+  {% set ids=namespace(v=[]) %}
+  {% for L in catalog.members if area_id(L)==room %}{% set ids.v=ids.v+[L] %}{% endfor %}
+  {% for L in (state_attr('sensor.ls_overrides','switch_ranges') or {}) if area_id(L)==room %}{% set ids.v=ids.v+[L] %}{% endfor %}
+  {% set saved=(state_attr('sensor.ls_overrides','power') or {}).get(room) %}
+  {% set on=not saved if saved is boolean else not (ids.v|select('is_state','on')|list|count>0) %}
+  {% set n.result={'op':'power','area':room,'on':on,'targets':ids.v,'via':'remote'} %}
+ {% elif command=='reset' %}
+  {% set n.result={'op':'clear_room','area':room,'via':'remote'} %}
+ {% else %}
+  {% set identity={'steps':0,'lower':bounds.min,'upper':bounds.max,'anchor':'current','updated':stamp} %}
+  {% set a=namespace(v=value.get('adjustment') if value.get('adjustment') is mapping else value.get('selection_input'),restart=false) %}
+  {% if a.v is not mapping %}
+   {% set a.v=dict(identity,updated=as_timestamp(old.get('when'),0)) %}
+   {# One-time compatibility for already-persisted pre-input remote coordinates. #}
+   {% if old.get('kind')=='channels' and value.get('position') is number %}
+    {% set a.v=dict(a.v,legacy_position=value.position) %}
+   {% endif %}
+  {% endif %}
+  {% for other,r in overrides.items() if other!=key and r is mapping %}
+   {% set applies=(r.get('scope')=='room' and r.get('target')==room) or (r.get('scope')=='house' and r.get('target')=='house' and room not in label_areas('private_room')) %}
+   {% set v=r.get('value',{}) %}
+   {% if applies and v is mapping %}
+    {% set claim=v.get('channels',{}).get('brightness',{}) %}
+    {% set newer=claim.get('updated',as_timestamp(r.get('when'),0)) if claim else v.get('adjustment',{}).get('updated',0) if v.get('adjustment') is mapping else 0 %}
+    {% if newer>a.v.get('updated',0) %}{% set a.restart=true %}{% endif %}
+   {% endif %}
+  {% endfor %}
+  {% if a.restart and command in ['up','down'] %}{% set a.v=identity %}{% endif %}
+  {% set lo=[bounds.min,[bounds.max,a.v.lower]|min]|max %}
+  {% set hi=[bounds.min,[bounds.max,a.v.upper]|min]|max %}
+  {% set a.v=dict(a.v,steps=(0 if lo==hi else a.v.steps),lower=lo,upper=hi) %}
+  {# Input records are replaced as a whole; never merge old interpreted channel claims. #}
+  {% set n.value=dict(value.items()|rejectattr(0,'in',['channels','position'])|list,step_range=bounds) %}
+  {# Retain the original effect claim/instance and its carried baseline while
+     migrating a pre-input record. Its timestamps must never become this click. #}
+  {% if old.get('kind')=='channels' and value.get('channels',{}).values()|selectattr('kind','eq','effect')|list|count>0 %}
+   {% set n.value=dict(n.value,legacy_channels=value.channels) %}
+  {% endif %}
+  {% if command in ['up','down'] %}
+   {% set d=1 if command=='up' else -1 %}
+   {% set lo=[bounds.min,[bounds.max,a.v.lower+d]|min]|max %}{% set hi=[bounds.min,[bounds.max,a.v.upper+d]|min]|max %}
+   {% set a.v=dict(a.v,steps=(0 if lo==hi else a.v.steps+d),lower=lo,upper=hi,updated=stamp,last=command,has_up=a.v.get('has_up',false) or command=='up') %}
+   {% set n.value=dict(n.value,adjustment=a.v) %}
+  {% else %}
+   {% set choices=['day','cosy','Candle'] + (catalog.effects.keys()|reject('in',['Candle','Colour loop','Breathe','Normal light'])|list) %}
+   {% set group=current.plan.resolved.targets.get('room:'~room,{}) %}
+   {% set selected=value.get('selection',group.get('period','day')) %}
+   {% set fields=['period','period_updated','selection_updated','selection_input','selection_instance','legacy_channels'] %}
+   {% set contexts=value.get('preset_contexts',{}) %}
+   {% set contexts=contexts if contexts is mapping else {} %}
+   {% set contexts=dict(contexts,**{selected:dict(n.value.items()|selectattr(0,'in',fields)|list)}) %}
+   {% set index=choices.index(selected) if selected in choices else 0 %}
+   {% set selected=choices[(index+(1 if command=='right' else -1)) % (choices|count)] %}
+   {% set saved=contexts.get(selected) %}
+   {% if saved is not mapping %}
+    {% if selected in ['day','cosy'] %}
+     {% set saved={'period':selected,'period_updated':stamp,'selection_updated':stamp} %}
+    {% else %}
+     {% set saved=dict(n.value.items()|selectattr(0,'in',['period','period_updated'])|list,selection_updated=stamp,selection_input=a.v,selection_instance=source~':'~selected) %}
+    {% endif %}
+   {% endif %}
+   {% set n.value=dict(n.value.items()|rejectattr(0,'in',fields)|list,selection=selected,adjustment=a.v,preset_contexts=contexts,**saved) %}
+  {% endif %}
+  {% set S=current.plan.get('schedule_details',{}).get(room,{}) %}
+  {% if S %}{% set n.value=dict(n.value,remote_valid_until=S.get('next_fs',0),remote_timing_revision=timing_revision) %}{% endif %}
+  {% set n.result={'op':'set','records':[{'kind':'input','key':key,'source':source,'scope':'room','target':room,'value':n.value}],'via':'remote'} %}
+ {% endif %}
+{% endif %}
+{{ n.result }}

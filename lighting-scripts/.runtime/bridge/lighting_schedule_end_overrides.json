@@ -1,0 +1,30 @@
+{
+  "id": "1791977495359",
+  "alias": "Lighting schedule: end overrides",
+  "description": "TypeScript trigger bridge. Ends lighting overrides recorded in sensor.ls_overrides by the rules set on /lighting-schedule: after a set time (input_boolean.ls_ovr_after_on, input_number.ls_ovr_after_min) and at a clock time every day (input_boolean.ls_ovr_at_on, input_datetime.ls_ovr_at). The next-block rule (input_boolean.ls_ovr_next_block_on) lives in script.ls_apply. Removing a record makes the engine re-apply the schedule.",
+  "triggers": [
+    {
+      "trigger": "time_pattern",
+      "minutes": "/1",
+      "id": "after"
+    },
+    {
+      "trigger": "time",
+      "at": "input_datetime.ls_ovr_at",
+      "id": "at"
+    }
+  ],
+  "actions": [
+    {
+      "event": "smarthome_script",
+      "event_data": {
+        "script": "automation.lighting_schedule_end_overrides",
+        "args": {
+          "trigger": "{% set n=namespace(data={}) %}\n{% for key in ['id','platform','entity_id','topic','payload','payload_json'] %}\n {% if trigger[key] is defined %}{% set n.data=dict(n.data,**{key:trigger[key]}) %}{% endif %}\n{% endfor %}\n{% for key in ['to_state','from_state','event'] %}\n {% if trigger[key] is defined %}{% set value=trigger[key] %}\n  {% set n.data=dict(n.data,**{key:(value.as_dict() if value is not none else none)}) %}\n {% endif %}\n{% endfor %}\n{{ n.data | to_json | from_json }}"
+        }
+      }
+    }
+  ],
+  "mode": "queued",
+  "max": 5
+}

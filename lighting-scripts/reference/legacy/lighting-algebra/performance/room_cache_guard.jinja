@@ -1,0 +1,16 @@
+{# Persisted internal cache may be absent, old or partially populated. #}
+{% set n=namespace(ok=cache is mapping) %}
+{% if n.ok %}
+ {% for key in ['dependencies','periods','baseline','gradients','catalog'] %}{% if cache.get(key) is not mapping %}{% set n.ok=false %}{% endif %}{% endfor %}
+ {% for key in ['valid_from','valid_until'] %}{% if cache.get(key) is not number or cache.get(key) is boolean %}{% set n.ok=false %}{% endif %}{% endfor %}
+{% endif %}
+{% if n.ok %}
+ {% set n.ok=cache.baseline.get('targets') is mapping and cache.baseline.get('schedule') is mapping %}
+{% endif %}
+{% if n.ok %}
+ {% set n.ok=cache.baseline.schedule.get('schedule_details') is mapping and cache.baseline.schedule.get('profiles') is mapping %}
+{% endif %}
+{% if n.ok %}
+ {% set n.ok=cache.baseline.schedule.schedule_details.get(room) is mapping and ('room:'~room) in cache.baseline.targets %}
+{% endif %}
+{{ (cache if n.ok else {})|to_json|from_json }}

@@ -1,0 +1,138 @@
+{
+  "started": "2026-10-24 14:07:40 UTC",
+  "completed": "2026-10-24 14:09:43 UTC",
+  "results": [
+    {
+      "id": "ls_dispatch",
+      "success": true,
+      "match": true,
+      "hash": "9ed79de35e16b9dc"
+    },
+    {
+      "id": "ls_remote_gesture_bedroom",
+      "success": true,
+      "match": true,
+      "hash": "7cd32c0fa654d148"
+    },
+    {
+      "id": "ls_remote_gesture_living_room",
+      "success": true,
+      "match": true,
+      "hash": "39324bfc70e40ed3"
+    }
+  ],
+  "helper_update": {
+    "success": true,
+    "action": "update",
+    "helper_type": "input_number",
+    "data": {
+      "id": "ls_bedroom_remote_preset",
+      "name": "Bedroom Remote Preset Cursor",
+      "icon": "mdi:remote",
+      "min": -1,
+      "max": 4,
+      "step": 1,
+      "mode": "box"
+    },
+    "entity_id": "input_number.ls_bedroom_remote_preset",
+    "message": "Successfully updated input_number: input_number.ls_bedroom_remote_preset"
+  },
+  "post_state": {
+    "data": {
+      "success": true,
+      "count": 6,
+      "states": {
+        "script.ls_dispatch": {
+          "state": "off",
+          "attributes": {
+            "last_triggered": "2026-10-24T16:08:15.597630+02:00",
+            "current": 0,
+            "max": 50
+          }
+        },
+        "script.ls_remote_gesture_bedroom": {
+          "state": "off",
+          "attributes": {
+            "last_triggered": "2026-10-24T15:42:38.690716+02:00",
+            "current": 0,
+            "max": 50
+          }
+        },
+        "script.ls_remote_gesture_living_room": {
+          "state": "off",
+          "attributes": {
+            "last_triggered": "2026-10-24T15:21:30.905020+02:00",
+            "current": 0,
+            "max": 50
+          }
+        },
+        "automation.lighting_temporary_remote_diagnostics": {
+          "state": "on",
+          "attributes": {
+            "last_triggered": "2026-10-24T15:43:16.329111+02:00",
+            "current": 0,
+            "max": 100
+          }
+        },
+        "input_number.ls_bedroom_remote_preset": {
+          "state": "2.0",
+          "attributes": {
+            "min": -1,
+            "max": 4
+          }
+        },
+        "input_number.ls_living_room_remote_preset": {
+          "state": "0.0",
+          "attributes": {
+            "min": -1,
+            "max": 4
+          }
+        }
+      }
+    },
+    "metadata": {
+      "home_assistant_timezone": "Europe/Stockholm",
+      "timestamp_format": "ISO 8601 (Europe/Stockholm)",
+      "note": "Per-record timestamp fields (last_changed, last_updated, last_reported, when, last_triggered) have been converted to Europe/Stockholm local time. Query-window boundary fields (period, start_time, end_time) remain in UTC."
+    }
+  },
+  "tests": {
+    "command": "python3 /tmp/lighting-algebra/remote-regressions/run_gate.py",
+    "passed": 219,
+    "seconds": 355.449,
+    "immutable_configs": 55,
+    "light_commands_from_tests": 0
+  },
+  "review": {
+    "dispatches": 2,
+    "completed_reviews": 1,
+    "unavailable": "Named advisor had no usable file reader and was interrupted without review.",
+    "reviewer": "remote_review_read",
+    "material_findings": 0,
+    "independent_regression_tests_passed": 11,
+    "deterministic_gate": "Unavailable: exit 2; runtime staging is not a Git repository."
+  },
+  "performance": {
+    "artifact": "benchmark.json",
+    "measurement": "Offline CPU only",
+    "warm_input_median_ms": [
+      4.388,
+      4.857
+    ],
+    "baseline_warm_input_median_ms": [
+      4.825,
+      4.941
+    ],
+    "warm_gradient_rebuilds": 0,
+    "burst_inputs": 10,
+    "burst_resolver_calls": 1,
+    "blocking_steps": 0
+  },
+  "unresolved": "Physical Candle rebound was not reproduced in latest capture and is not claimed resolved.",
+  "observer": {
+    "entity": "automation.lighting_temporary_remote_diagnostics",
+    "enabled": true,
+    "purpose": "Passive bounded capture for next manual verification; no light commands or helper writes."
+  },
+  "post_deploy_error_count": 0
+}

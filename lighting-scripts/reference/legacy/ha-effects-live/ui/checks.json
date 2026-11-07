@@ -1,0 +1,12 @@
+{
+  "profiles": 66,
+  "physical_proxies": 22,
+  "helper_clones_remaining": [],
+  "source_map_count": 88,
+  "effects": [
+    "Normal light",
+    "Candle",
+    "Breathe",
+    "Colour loop"
+  ]
+}

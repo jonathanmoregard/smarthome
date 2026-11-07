@@ -1,0 +1,23 @@
+{# One logical input stream per room; each source keeps a bounded snapshot.
+   The most recent snapshot includes preceding inputs from the room's other
+   remotes, so alternating devices cannot drop or apply a click twice. #}
+{% macro latest_remote_key(records,room) -%}
+ {% set pick=namespace(key='',stamp=-1) %}
+ {% for key,r in records|dictsort if r is mapping and r.get('scope')=='room' and r.get('target')==room and (r.get('kind')=='input' or (r.get('kind')=='channels' and r.get('via')=='remote')) %}
+  {% set stamp=as_timestamp(r.get('when'),0) %}
+  {% if stamp>=pick.stamp %}{% set pick.key=key %}{% set pick.stamp=stamp %}{% endif %}
+ {% endfor %}
+ {{- pick.key|to_json -}}
+{%- endmacro %}
+
+{% set remote_input_key=latest_remote_key(overrides,room)|from_json %}
+{% set n=namespace(records={}) %}
+{% for key,r in overrides|dictsort if r is mapping %}
+ {% set applies=(r.get('kind')=='block' and r.get('target')==room) or (r.get('kind') in ['channels','input'] and ((r.get('scope')=='room' and r.get('target')==room) or (r.get('scope')=='lamp' and r.get('target') in dependencies.lamps) or (r.get('scope')=='house' and not dependencies.private))) %}
+ {% set value=r.get('value') %}{% set period=value if r.get('kind')=='block' else value.get('period') if value is mapping else none %}
+ {% if applies and (not (r.get('scope')=='room' and (r.get('kind')=='input' or (r.get('kind')=='channels' and r.get('via')=='remote'))) or key==remote_input_key) and period in ['day','cosy','night'] %}
+  {% set stamp=value.get('period_updated',as_timestamp(r.get('when'),0)) if value is mapping else as_timestamp(r.get('when'),0) %}
+  {% set n.records=dict(n.records,**{('remote-input:'~room if r.get('scope')=='room' and (r.get('kind')=='input' or (r.get('kind')=='channels' and r.get('via')=='remote')) else key):[r.get('kind'),r.get('scope'),r.get('target'),period,stamp,dependencies.expiry=='on' and as_timestamp(r.get('when'),0)<=period_boundary]}) %}
+ {% endif %}
+{% endfor %}
+{{ n.records }}

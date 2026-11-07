@@ -1,0 +1,85 @@
+{
+  "scripts": [
+    "effects_catalog",
+    "effect_candle_frame",
+    "effects_engine",
+    "effects_assign",
+    "effects_filter_commands",
+    "effects_route",
+    "effects_release",
+    "effects_set"
+  ],
+  "scheduler_hooks": [
+    "generic effect stored by ls_store",
+    "ls_apply passes profiles to effects_route; filters its settle resend"
+  ],
+  "registry": {
+    "Candle": {
+      "renderer": "script.effect_candle_frame"
+    },
+    "Breathe": {
+      "native": "breathe"
+    },
+    "Colour loop": {
+      "native": "colorloop"
+    }
+  },
+  "transport": "10 unicasts/s total; sampling shared-time frames; no missed-frame replay",
+  "fixtures": {
+    "light.jonathan_bedroom_floor_lamp": [
+      "light.jonathan_bedroom_floor_lamp"
+    ],
+    "light.upper_hall_stair_lamp": [
+      "light.upper_hall_stair_lamp"
+    ],
+    "light.upper_hall_ceiling": [
+      "light.upper_hall_ceiling"
+    ],
+    "light.living_room_desk_ceiling": [
+      "light.living_room_desk_ceiling"
+    ],
+    "light.living_room_hall_ceiling": [
+      "light.living_room_hall_ceiling"
+    ],
+    "light.living_room_vicky_desk_lamp": [
+      "light.living_room_vicky_desk_lamp"
+    ],
+    "light.living_room_table_lamp": [
+      "light.living_room_table_lamp"
+    ],
+    "light.living_room_window_lamp": [
+      "light.living_room_window_lamp"
+    ],
+    "light.living_room_yellow_retro_lamp": [
+      "light.living_room_yellow_retro_lamp"
+    ],
+    "light.kitchen_pendant": [
+      "light.kitchen_pendant_bulb_1",
+      "light.kitchen_pendant_bulb_2",
+      "light.kitchen_pendant_bulb_3"
+    ],
+    "light.kitchen_spots_1": [
+      "light.kitchen_spots_1_bulb_1",
+      "light.kitchen_spots_1_bulb_2",
+      "light.kitchen_spots_1_bulb_3"
+    ],
+    "light.kitchen_spots_2": [
+      "light.kitchen_spots_2_bulb_1",
+      "light.kitchen_spots_2_bulb_2",
+      "light.kitchen_spots_2_bulb_3"
+    ],
+    "light.meditation_floor_lamp": [
+      "light.meditation_floor_lamp_bulb_1",
+      "light.meditation_floor_lamp_bulb_2"
+    ],
+    "light.jonathan_bedroom_ceiling": [
+      "light.jonathan_bedroom_ceiling"
+    ],
+    "light.meditation_ceiling": [
+      "light.meditation_ceiling"
+    ],
+    "light.living_room_sofa_table_ceiling": [
+      "light.living_room_sofa_table_ceiling"
+    ]
+  }
+}

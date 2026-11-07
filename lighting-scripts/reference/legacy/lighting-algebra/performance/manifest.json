@@ -1,0 +1,25 @@
+{
+  "changed": [
+    "automation_lighting_schedule_override_store_writer",
+    "effects_frame_plan",
+    "effects_emit",
+    "effects_assign",
+    "effects_engine",
+    "ls_remote_command",
+    "ls_apply",
+    "automation_lighting_schedule_engine",
+    "effects_ui_sync",
+    "ls_plan",
+    "ls_dispatch",
+    "effects_route",
+    "effects_filter_commands",
+    "automation_effects_lifecycle",
+    "automation_effects_refresh_native_light_controls",
+    "ls_room_base",
+    "ls_room_plan",
+    "ls_commit",
+    "ls_remote_plan",
+    "ls_render",
+    "automation_lighting_output_recovery"
+  ]
+}

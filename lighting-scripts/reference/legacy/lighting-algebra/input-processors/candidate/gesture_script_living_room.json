@@ -1,0 +1,183 @@
+{
+  "alias": "Lighting \u00b7 Living Room Remote Gestures",
+  "description": "Nonwaiting per-remote chord state. Double power arms Left Right Left Right; matched arrows are consumed. Completion toggles global Sara. Wrong input cancels and continues normally. Every step has a three-second deadline; timer does not restore on restart.",
+  "mode": "queued",
+  "max": 50,
+  "fields": {
+    "command": {
+      "selector": {
+        "text": {}
+      }
+    }
+  },
+  "sequence": [
+    {
+      "condition": "template",
+      "value_template": "{{ command in ['arm','cancel','left','right','up','down','toggle','reset'] }}"
+    },
+    {
+      "variables": {
+        "step": "{{ states('input_number.ls_living_room_remote_chord_step')|int(0) }}",
+        "active": "{{ is_state('timer.ls_living_room_remote_chord','active') and as_timestamp(state_attr('timer.ls_living_room_remote_chord','finishes_at'),0)>as_timestamp(now()) }}"
+      }
+    },
+    {
+      "choose": [
+        {
+          "conditions": [
+            {
+              "condition": "template",
+              "value_template": "{{ command=='arm' }}"
+            }
+          ],
+          "sequence": [
+            {
+              "action": "input_number.set_value",
+              "target": {
+                "entity_id": "input_number.ls_living_room_remote_chord_step"
+              },
+              "data": {
+                "value": 1
+              }
+            },
+            {
+              "action": "timer.start",
+              "target": {
+                "entity_id": "timer.ls_living_room_remote_chord"
+              },
+              "data": {
+                "duration": "00:00:03"
+              }
+            },
+            {
+              "stop": "Chord armed"
+            }
+          ]
+        },
+        {
+          "conditions": [
+            {
+              "condition": "template",
+              "value_template": "{{ active and step in [1,2,3,4] and command==['left','right','left','right'][step-1] }}"
+            }
+          ],
+          "sequence": [
+            {
+              "if": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ step==4 }}"
+                }
+              ],
+              "then": [
+                {
+                  "action": "input_number.set_value",
+                  "target": {
+                    "entity_id": "input_number.ls_living_room_remote_chord_step"
+                  },
+                  "data": {
+                    "value": 0
+                  }
+                },
+                {
+                  "action": "timer.cancel",
+                  "target": {
+                    "entity_id": "timer.ls_living_room_remote_chord"
+                  }
+                },
+                {
+                  "variables": {
+                    "room": "{{ area_id('0752f2b4e9a0992ac8efc2af1f53c62a') }}"
+                  }
+                },
+                {
+                  "condition": "template",
+                  "value_template": "{{ room is string and room|length>0 }}"
+                },
+                {
+                  "action": "script.ls_remote_command",
+                  "data": {
+                    "source": "0x385b44fffea50c99",
+                    "area": "{{ room }}",
+                    "command": "sara_toggle",
+                    "dry_run": false
+                  }
+                }
+              ],
+              "else": [
+                {
+                  "action": "input_number.set_value",
+                  "target": {
+                    "entity_id": "input_number.ls_living_room_remote_chord_step"
+                  },
+                  "data": {
+                    "value": "{{ step+1 }}"
+                  }
+                },
+                {
+                  "action": "timer.start",
+                  "target": {
+                    "entity_id": "timer.ls_living_room_remote_chord"
+                  },
+                  "data": {
+                    "duration": "00:00:03"
+                  }
+                }
+              ]
+            },
+            {
+              "stop": "Matched chord input consumed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "if": [
+        {
+          "condition": "template",
+          "value_template": "{{ step!=0 or active }}"
+        }
+      ],
+      "then": [
+        {
+          "action": "input_number.set_value",
+          "target": {
+            "entity_id": "input_number.ls_living_room_remote_chord_step"
+          },
+          "data": {
+            "value": 0
+          }
+        },
+        {
+          "action": "timer.cancel",
+          "target": {
+            "entity_id": "timer.ls_living_room_remote_chord"
+          }
+        }
+      ]
+    },
+    {
+      "condition": "template",
+      "value_template": "{{ command!='cancel' }}"
+    },
+    {
+      "variables": {
+        "room": "{{ area_id('0752f2b4e9a0992ac8efc2af1f53c62a') }}"
+      }
+    },
+    {
+      "condition": "template",
+      "value_template": "{{ room is string and room|length>0 }}"
+    },
+    {
+      "action": "script.ls_remote_command",
+      "data": {
+        "source": "0x385b44fffea50c99",
+        "area": "{{ room }}",
+        "command": "{{ command }}",
+        "dry_run": false
+      }
+    }
+  ]
+}

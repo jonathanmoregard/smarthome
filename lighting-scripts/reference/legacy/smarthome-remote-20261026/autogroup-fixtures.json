@@ -1,0 +1,4655 @@
+{
+  "catalog": {
+    "effects": {
+      "Candle": {
+        "renderer": "script.effect_candle_frame",
+        "channels": [
+          "brightness",
+          "color"
+        ]
+      },
+      "Breathe": {
+        "renderer": "script.effect_breathe_frame",
+        "channels": [
+          "brightness"
+        ]
+      },
+      "Colour loop": {
+        "renderer": "script.effect_colour_loop_frame",
+        "channels": [
+          "color"
+        ]
+      }
+    },
+    "members": {
+      "light.jonathan_bedroom_floor_lamp": [
+        "light.jonathan_bedroom_floor_lamp"
+      ],
+      "light.upper_hall_stair_lamp": [
+        "light.upper_hall_stair_lamp"
+      ],
+      "light.upper_hall_ceiling": [
+        "light.upper_hall_ceiling"
+      ],
+      "light.living_room_desk_ceiling": [
+        "light.living_room_desk_ceiling"
+      ],
+      "light.living_room_hall_ceiling": [
+        "light.living_room_hall_ceiling"
+      ],
+      "light.living_room_vicky_desk_lamp": [
+        "light.living_room_vicky_desk_lamp"
+      ],
+      "light.living_room_table_lamp": [
+        "light.living_room_table_lamp"
+      ],
+      "light.living_room_window_lamp": [
+        "light.living_room_window_lamp"
+      ],
+      "light.living_room_yellow_retro_lamp": [
+        "light.living_room_yellow_retro_lamp"
+      ],
+      "light.kitchen_pendant": [
+        "light.kitchen_pendant_bulb_1",
+        "light.kitchen_pendant_bulb_2",
+        "light.kitchen_pendant_bulb_3"
+      ],
+      "light.kitchen_spots_1": [
+        "light.kitchen_spots_1_bulb_1",
+        "light.kitchen_spots_1_bulb_2",
+        "light.kitchen_spots_1_bulb_3"
+      ],
+      "light.kitchen_spots_2": [
+        "light.kitchen_spots_2_bulb_1",
+        "light.kitchen_spots_2_bulb_2",
+        "light.kitchen_spots_2_bulb_3"
+      ],
+      "light.meditation_floor_lamp": [
+        "light.meditation_floor_lamp_bulb_1",
+        "light.meditation_floor_lamp_bulb_2"
+      ],
+      "light.jonathan_bedroom_ceiling": [
+        "light.jonathan_bedroom_ceiling"
+      ],
+      "light.meditation_ceiling": [
+        "light.meditation_ceiling"
+      ],
+      "light.living_room_sofa_table_ceiling": [
+        "light.living_room_sofa_table_ceiling"
+      ]
+    },
+    "groups": {
+      "light.home": [
+        "light.jonathan_bedroom_floor_lamp",
+        "light.upper_hall_stair_lamp",
+        "light.upper_hall_ceiling",
+        "light.living_room_desk_ceiling",
+        "light.living_room_hall_ceiling",
+        "light.living_room_vicky_desk_lamp",
+        "light.living_room_table_lamp",
+        "light.living_room_window_lamp",
+        "light.living_room_yellow_retro_lamp",
+        "light.kitchen_pendant",
+        "light.kitchen_spots_1",
+        "light.kitchen_spots_2",
+        "light.meditation_floor_lamp",
+        "light.jonathan_bedroom_ceiling",
+        "light.meditation_ceiling",
+        "light.living_room_sofa_table_ceiling"
+      ],
+      "light.kitchen_all": [
+        "light.kitchen_pendant",
+        "light.kitchen_spots_1",
+        "light.kitchen_spots_2"
+      ],
+      "light.living_room": [
+        "light.living_room_desk_ceiling",
+        "light.living_room_hall_ceiling",
+        "light.living_room_vicky_desk_lamp",
+        "light.living_room_table_lamp",
+        "light.living_room_window_lamp",
+        "light.living_room_yellow_retro_lamp",
+        "light.living_room_sofa_table_ceiling"
+      ],
+      "light.upper_hall": [
+        "light.upper_hall_stair_lamp",
+        "light.upper_hall_ceiling"
+      ],
+      "light.jonathan_bedroom": [
+        "light.jonathan_bedroom_floor_lamp",
+        "light.jonathan_bedroom_ceiling"
+      ],
+      "light.meditation_mys_all": [
+        "light.meditation_floor_lamp",
+        "light.meditation_ceiling"
+      ]
+    },
+    "topics": {
+      "light.kitchen_pendant_bulb_1": "zigbee2mqtt/0xa4c138e778a7b45f/set",
+      "light.kitchen_pendant_bulb_2": "zigbee2mqtt/0xa4c1389a579ab983/set",
+      "light.kitchen_pendant_bulb_3": "zigbee2mqtt/0xa4c1389f87b76e60/set",
+      "light.kitchen_spots_1_bulb_1": "zigbee2mqtt/0xa4c1381f885b082f/set",
+      "light.kitchen_spots_1_bulb_2": "zigbee2mqtt/0xa4c1387e4cfba78d/set",
+      "light.kitchen_spots_1_bulb_3": "zigbee2mqtt/0xa4c138a884038127/set",
+      "light.kitchen_spots_2_bulb_1": "zigbee2mqtt/0xa4c1386736786442/set",
+      "light.kitchen_spots_2_bulb_2": "zigbee2mqtt/0xa4c138a50ae5ba5a/set",
+      "light.kitchen_spots_2_bulb_3": "zigbee2mqtt/0xa4c1381a2f63601c/set",
+      "light.meditation_floor_lamp_bulb_1": "zigbee2mqtt/Mys golvlampa 1/set",
+      "light.meditation_floor_lamp_bulb_2": "zigbee2mqtt/Mys golvlampa 2/set",
+      "light.meditation_ceiling": "zigbee2mqtt/0xa4c138eec10a5f95/set",
+      "light.jonathan_bedroom_ceiling": "zigbee2mqtt/0xa4c1387f3e38e505/set",
+      "light.jonathan_bedroom_floor_lamp": "zigbee2mqtt/0xa4c13889ddf1c22e/set",
+      "light.living_room_table_lamp": "zigbee2mqtt/0xa4c138502d6c44cd/set",
+      "light.living_room_desk_ceiling": "zigbee2mqtt/0xa4c13836b344b302/set",
+      "light.living_room_hall_ceiling": "zigbee2mqtt/0xa4c13850c80ed98f/set",
+      "light.living_room_sofa_table_ceiling": "zigbee2mqtt/0xa4c138292a2d7f60/set",
+      "light.living_room_vicky_desk_lamp": "zigbee2mqtt/0x7cc6b6fffe3cef1c/set",
+      "light.living_room_window_lamp": "zigbee2mqtt/0xa4c13825783eff26/set",
+      "light.living_room_yellow_retro_lamp": "zigbee2mqtt/0xa4c1386c73f1db49/set",
+      "light.upper_hall_ceiling": "zigbee2mqtt/0xa4c138f013c2624e/set",
+      "light.upper_hall_stair_lamp": "zigbee2mqtt/0xa4c138b95e526424/set"
+    },
+    "budget": 5,
+    "multicast": [
+      {
+        "id": "fx_candle_cross_a",
+        "topic": "zigbee2mqtt/fx_candle_cross_a/set",
+        "lamps": [
+          "light.living_room_hall_ceiling",
+          "light.living_room_window_lamp",
+          "light.meditation_floor_lamp",
+          "light.kitchen_pendant"
+        ],
+        "members": [
+          "light.kitchen_pendant_bulb_1",
+          "light.kitchen_pendant_bulb_2",
+          "light.kitchen_pendant_bulb_3",
+          "light.living_room_hall_ceiling",
+          "light.living_room_window_lamp",
+          "light.meditation_floor_lamp_bulb_1",
+          "light.meditation_floor_lamp_bulb_2"
+        ],
+        "verified": true,
+        "member_topics": {
+          "light.kitchen_pendant_bulb_1": "zigbee2mqtt/0xa4c138e778a7b45f/set",
+          "light.kitchen_pendant_bulb_2": "zigbee2mqtt/0xa4c1389a579ab983/set",
+          "light.kitchen_pendant_bulb_3": "zigbee2mqtt/0xa4c1389f87b76e60/set",
+          "light.living_room_hall_ceiling": "zigbee2mqtt/0xa4c13850c80ed98f/set",
+          "light.living_room_window_lamp": "zigbee2mqtt/0xa4c13825783eff26/set",
+          "light.meditation_floor_lamp_bulb_1": "zigbee2mqtt/Mys golvlampa 1/set",
+          "light.meditation_floor_lamp_bulb_2": "zigbee2mqtt/Mys golvlampa 2/set"
+        },
+        "phase_cohort": "fx_candle_cross_a",
+        "devices": [
+          "0xa4c138e778a7b45f",
+          "0xa4c1389a579ab983",
+          "0xa4c1389f87b76e60",
+          "0xa4c13850c80ed98f",
+          "0xa4c13825783eff26",
+          "Mys golvlampa 1",
+          "Mys golvlampa 2"
+        ],
+        "desired_members": [
+          "light.kitchen_pendant_bulb_1",
+          "light.kitchen_pendant_bulb_2",
+          "light.kitchen_pendant_bulb_3",
+          "light.living_room_hall_ceiling",
+          "light.living_room_window_lamp",
+          "light.meditation_floor_lamp_bulb_1",
+          "light.meditation_floor_lamp_bulb_2"
+        ],
+        "pending_members": [],
+        "zigbee_id": 1001
+      },
+      {
+        "id": "fx_candle_cross_b",
+        "topic": "zigbee2mqtt/fx_candle_cross_b/set",
+        "lamps": [
+          "light.living_room_desk_ceiling",
+          "light.living_room_sofa_table_ceiling",
+          "light.meditation_ceiling",
+          "light.kitchen_spots_1"
+        ],
+        "members": [
+          "light.kitchen_spots_1_bulb_1",
+          "light.kitchen_spots_1_bulb_2",
+          "light.kitchen_spots_1_bulb_3",
+          "light.living_room_desk_ceiling",
+          "light.living_room_sofa_table_ceiling"
+        ],
+        "verified": true,
+        "member_topics": {
+          "light.kitchen_spots_1_bulb_1": "zigbee2mqtt/0xa4c1381f885b082f/set",
+          "light.kitchen_spots_1_bulb_2": "zigbee2mqtt/0xa4c1387e4cfba78d/set",
+          "light.kitchen_spots_1_bulb_3": "zigbee2mqtt/0xa4c138a884038127/set",
+          "light.living_room_desk_ceiling": "zigbee2mqtt/0xa4c13836b344b302/set",
+          "light.living_room_sofa_table_ceiling": "zigbee2mqtt/0xa4c138292a2d7f60/set",
+          "light.meditation_ceiling": "zigbee2mqtt/0xa4c138eec10a5f95/set"
+        },
+        "phase_cohort": "fx_candle_cross_b",
+        "devices": [
+          "0xa4c1381f885b082f",
+          "0xa4c1387e4cfba78d",
+          "0xa4c138a884038127",
+          "0xa4c13836b344b302",
+          "0xa4c138292a2d7f60",
+          "0xa4c138eec10a5f95"
+        ],
+        "desired_members": [
+          "light.kitchen_spots_1_bulb_1",
+          "light.kitchen_spots_1_bulb_2",
+          "light.kitchen_spots_1_bulb_3",
+          "light.living_room_desk_ceiling",
+          "light.living_room_sofa_table_ceiling",
+          "light.meditation_ceiling"
+        ],
+        "pending_members": [
+          "light.meditation_ceiling"
+        ],
+        "zigbee_id": 1002
+      },
+      {
+        "id": "fx_candle_cross_c",
+        "topic": "zigbee2mqtt/fx_candle_cross_c/set",
+        "lamps": [
+          "light.living_room_yellow_retro_lamp",
+          "light.kitchen_spots_2",
+          "light.upper_hall_stair_lamp"
+        ],
+        "members": [
+          "light.kitchen_spots_2_bulb_1",
+          "light.kitchen_spots_2_bulb_2",
+          "light.kitchen_spots_2_bulb_3",
+          "light.living_room_yellow_retro_lamp"
+        ],
+        "verified": true,
+        "member_topics": {
+          "light.kitchen_spots_2_bulb_1": "zigbee2mqtt/0xa4c1386736786442/set",
+          "light.kitchen_spots_2_bulb_2": "zigbee2mqtt/0xa4c138a50ae5ba5a/set",
+          "light.kitchen_spots_2_bulb_3": "zigbee2mqtt/0xa4c1381a2f63601c/set",
+          "light.living_room_yellow_retro_lamp": "zigbee2mqtt/0xa4c1386c73f1db49/set",
+          "light.upper_hall_stair_lamp": "zigbee2mqtt/0xa4c138b95e526424/set"
+        },
+        "phase_cohort": "fx_candle_cross_c",
+        "devices": [
+          "0xa4c1386736786442",
+          "0xa4c138a50ae5ba5a",
+          "0xa4c1381a2f63601c",
+          "0xa4c1386c73f1db49",
+          "0xa4c138b95e526424"
+        ],
+        "desired_members": [
+          "light.kitchen_spots_2_bulb_1",
+          "light.kitchen_spots_2_bulb_2",
+          "light.kitchen_spots_2_bulb_3",
+          "light.living_room_yellow_retro_lamp",
+          "light.upper_hall_stair_lamp"
+        ],
+        "pending_members": [
+          "light.upper_hall_stair_lamp"
+        ],
+        "zigbee_id": 1003
+      },
+      {
+        "id": "fx_candle_cross_d",
+        "topic": "zigbee2mqtt/fx_candle_cross_d/set",
+        "lamps": [
+          "light.living_room_vicky_desk_lamp",
+          "light.upper_hall_ceiling"
+        ],
+        "members": [
+          "light.living_room_vicky_desk_lamp"
+        ],
+        "verified": true,
+        "member_topics": {
+          "light.living_room_vicky_desk_lamp": "zigbee2mqtt/0x7cc6b6fffe3cef1c/set",
+          "light.upper_hall_ceiling": "zigbee2mqtt/0xa4c138f013c2624e/set"
+        },
+        "phase_cohort": "fx_candle_cross_d",
+        "devices": [
+          "0x7cc6b6fffe3cef1c",
+          "0xa4c138f013c2624e"
+        ],
+        "desired_members": [
+          "light.living_room_vicky_desk_lamp",
+          "light.upper_hall_ceiling"
+        ],
+        "pending_members": [
+          "light.upper_hall_ceiling"
+        ],
+        "zigbee_id": 1004
+      },
+      {
+        "id": "fx_lamp_kitchen_pendant",
+        "topic": "zigbee2mqtt/kitchen/pendant/set",
+        "lamps": [
+          "light.kitchen_pendant"
+        ],
+        "members": [
+          "light.kitchen_pendant_bulb_1",
+          "light.kitchen_pendant_bulb_2",
+          "light.kitchen_pendant_bulb_3"
+        ],
+        "verified": true,
+        "member_topics": {
+          "light.kitchen_pendant_bulb_1": "zigbee2mqtt/0xa4c138e778a7b45f/set",
+          "light.kitchen_pendant_bulb_2": "zigbee2mqtt/0xa4c1389a579ab983/set",
+          "light.kitchen_pendant_bulb_3": "zigbee2mqtt/0xa4c1389f87b76e60/set"
+        },
+        "phase_cohort": "fx_candle_cross_a",
+        "devices": [
+          "0xa4c138e778a7b45f",
+          "0xa4c1389a579ab983",
+          "0xa4c1389f87b76e60"
+        ],
+        "zigbee_id": 1
+      },
+      {
+        "id": "fx_lamp_kitchen_spots_1",
+        "topic": "zigbee2mqtt/kitchen/spots-1/set",
+        "lamps": [
+          "light.kitchen_spots_1"
+        ],
+        "members": [
+          "light.kitchen_spots_1_bulb_1",
+          "light.kitchen_spots_1_bulb_2",
+          "light.kitchen_spots_1_bulb_3"
+        ],
+        "verified": true,
+        "member_topics": {
+          "light.kitchen_spots_1_bulb_1": "zigbee2mqtt/0xa4c1381f885b082f/set",
+          "light.kitchen_spots_1_bulb_2": "zigbee2mqtt/0xa4c1387e4cfba78d/set",
+          "light.kitchen_spots_1_bulb_3": "zigbee2mqtt/0xa4c138a884038127/set"
+        },
+        "phase_cohort": "fx_candle_cross_b",
+        "devices": [
+          "0xa4c1381f885b082f",
+          "0xa4c1387e4cfba78d",
+          "0xa4c138a884038127"
+        ],
+        "zigbee_id": 2
+      },
+      {
+        "id": "fx_lamp_kitchen_spots_2",
+        "topic": "zigbee2mqtt/kitchen/spots-2/set",
+        "lamps": [
+          "light.kitchen_spots_2"
+        ],
+        "members": [
+          "light.kitchen_spots_2_bulb_1",
+          "light.kitchen_spots_2_bulb_2",
+          "light.kitchen_spots_2_bulb_3"
+        ],
+        "verified": true,
+        "member_topics": {
+          "light.kitchen_spots_2_bulb_1": "zigbee2mqtt/0xa4c1386736786442/set",
+          "light.kitchen_spots_2_bulb_2": "zigbee2mqtt/0xa4c138a50ae5ba5a/set",
+          "light.kitchen_spots_2_bulb_3": "zigbee2mqtt/0xa4c1381a2f63601c/set"
+        },
+        "phase_cohort": "fx_candle_cross_c",
+        "devices": [
+          "0xa4c1386736786442",
+          "0xa4c138a50ae5ba5a",
+          "0xa4c1381a2f63601c"
+        ],
+        "zigbee_id": 3
+      },
+      {
+        "id": "fx_lamp_meditation_floor_lamp",
+        "topic": "zigbee2mqtt/Mys golvlampa/set",
+        "lamps": [
+          "light.meditation_floor_lamp"
+        ],
+        "members": [
+          "light.meditation_floor_lamp_bulb_1",
+          "light.meditation_floor_lamp_bulb_2"
+        ],
+        "verified": true,
+        "member_topics": {
+          "light.meditation_floor_lamp_bulb_1": "zigbee2mqtt/Mys golvlampa 1/set",
+          "light.meditation_floor_lamp_bulb_2": "zigbee2mqtt/Mys golvlampa 2/set"
+        },
+        "phase_cohort": "fx_candle_cross_a",
+        "devices": [
+          "Mys golvlampa 1",
+          "Mys golvlampa 2"
+        ],
+        "zigbee_id": 5
+      },
+      {
+        "id": "room_kitchen",
+        "topic": "zigbee2mqtt/kitchen/all/set",
+        "lamps": [
+          "light.kitchen_pendant",
+          "light.kitchen_spots_1",
+          "light.kitchen_spots_2"
+        ],
+        "members": [
+          "light.kitchen_pendant_bulb_1",
+          "light.kitchen_pendant_bulb_2",
+          "light.kitchen_pendant_bulb_3",
+          "light.kitchen_spots_1_bulb_1",
+          "light.kitchen_spots_1_bulb_2",
+          "light.kitchen_spots_1_bulb_3",
+          "light.kitchen_spots_2_bulb_1",
+          "light.kitchen_spots_2_bulb_2",
+          "light.kitchen_spots_2_bulb_3"
+        ],
+        "verified": true,
+        "member_topics": {
+          "light.kitchen_pendant_bulb_1": "zigbee2mqtt/0xa4c138e778a7b45f/set",
+          "light.kitchen_pendant_bulb_2": "zigbee2mqtt/0xa4c1389a579ab983/set",
+          "light.kitchen_pendant_bulb_3": "zigbee2mqtt/0xa4c1389f87b76e60/set",
+          "light.kitchen_spots_1_bulb_1": "zigbee2mqtt/0xa4c1381f885b082f/set",
+          "light.kitchen_spots_1_bulb_2": "zigbee2mqtt/0xa4c1387e4cfba78d/set",
+          "light.kitchen_spots_1_bulb_3": "zigbee2mqtt/0xa4c138a884038127/set",
+          "light.kitchen_spots_2_bulb_1": "zigbee2mqtt/0xa4c1386736786442/set",
+          "light.kitchen_spots_2_bulb_2": "zigbee2mqtt/0xa4c138a50ae5ba5a/set",
+          "light.kitchen_spots_2_bulb_3": "zigbee2mqtt/0xa4c1381a2f63601c/set"
+        },
+        "devices": [
+          "0xa4c138e778a7b45f",
+          "0xa4c1389a579ab983",
+          "0xa4c1389f87b76e60",
+          "0xa4c1381f885b082f",
+          "0xa4c1387e4cfba78d",
+          "0xa4c138a884038127",
+          "0xa4c1386736786442",
+          "0xa4c138a50ae5ba5a",
+          "0xa4c1381a2f63601c"
+        ],
+        "zigbee_id": 4
+      },
+      {
+        "id": "room_bedroom",
+        "topic": "zigbee2mqtt/ls_room_bedroom/set",
+        "lamps": [
+          "light.jonathan_bedroom_floor_lamp",
+          "light.jonathan_bedroom_ceiling"
+        ],
+        "members": [
+          "light.jonathan_bedroom_ceiling",
+          "light.jonathan_bedroom_floor_lamp"
+        ],
+        "verified": true,
+        "member_topics": {
+          "light.jonathan_bedroom_floor_lamp": "zigbee2mqtt/0xa4c13889ddf1c22e/set",
+          "light.jonathan_bedroom_ceiling": "zigbee2mqtt/0xa4c1387f3e38e505/set"
+        },
+        "devices": [
+          "0xa4c13889ddf1c22e",
+          "0xa4c1387f3e38e505"
+        ],
+        "zigbee_id": 2001
+      },
+      {
+        "id": "room_living_room",
+        "topic": "zigbee2mqtt/ls_room_living_room/set",
+        "lamps": [
+          "light.living_room_desk_ceiling",
+          "light.living_room_hall_ceiling",
+          "light.living_room_vicky_desk_lamp",
+          "light.living_room_table_lamp",
+          "light.living_room_window_lamp",
+          "light.living_room_yellow_retro_lamp",
+          "light.living_room_sofa_table_ceiling"
+        ],
+        "members": [
+          "light.living_room_desk_ceiling",
+          "light.living_room_hall_ceiling",
+          "light.living_room_sofa_table_ceiling",
+          "light.living_room_table_lamp",
+          "light.living_room_vicky_desk_lamp",
+          "light.living_room_window_lamp",
+          "light.living_room_yellow_retro_lamp"
+        ],
+        "verified": true,
+        "member_topics": {
+          "light.living_room_desk_ceiling": "zigbee2mqtt/0xa4c13836b344b302/set",
+          "light.living_room_hall_ceiling": "zigbee2mqtt/0xa4c13850c80ed98f/set",
+          "light.living_room_vicky_desk_lamp": "zigbee2mqtt/0x7cc6b6fffe3cef1c/set",
+          "light.living_room_table_lamp": "zigbee2mqtt/0xa4c138502d6c44cd/set",
+          "light.living_room_window_lamp": "zigbee2mqtt/0xa4c13825783eff26/set",
+          "light.living_room_yellow_retro_lamp": "zigbee2mqtt/0xa4c1386c73f1db49/set",
+          "light.living_room_sofa_table_ceiling": "zigbee2mqtt/0xa4c138292a2d7f60/set"
+        },
+        "devices": [
+          "0xa4c13836b344b302",
+          "0xa4c13850c80ed98f",
+          "0x7cc6b6fffe3cef1c",
+          "0xa4c138502d6c44cd",
+          "0xa4c13825783eff26",
+          "0xa4c1386c73f1db49",
+          "0xa4c138292a2d7f60"
+        ],
+        "zigbee_id": 2002
+      }
+    ],
+    "phases": {
+      "light.jonathan_bedroom_floor_lamp": "light.jonathan_bedroom_floor_lamp",
+      "light.upper_hall_stair_lamp": "fx_candle_cross_c",
+      "light.upper_hall_ceiling": "fx_candle_cross_d",
+      "light.living_room_desk_ceiling": "fx_candle_cross_b",
+      "light.living_room_hall_ceiling": "fx_candle_cross_a",
+      "light.living_room_vicky_desk_lamp": "fx_candle_cross_d",
+      "light.living_room_table_lamp": "light.living_room_table_lamp",
+      "light.living_room_window_lamp": "fx_candle_cross_a",
+      "light.living_room_yellow_retro_lamp": "fx_candle_cross_c",
+      "light.kitchen_pendant": "fx_candle_cross_a",
+      "light.kitchen_spots_1": "fx_candle_cross_b",
+      "light.kitchen_spots_2": "fx_candle_cross_c",
+      "light.meditation_floor_lamp": "fx_candle_cross_a",
+      "light.jonathan_bedroom_ceiling": "light.jonathan_bedroom_ceiling",
+      "light.meditation_ceiling": "fx_candle_cross_b",
+      "light.living_room_sofa_table_ceiling": "fx_candle_cross_b"
+    },
+    "processors": {
+      "Normal light": {
+        "channels": [
+          "brightness",
+          "color"
+        ],
+        "remote_adjustment": "gradient",
+        "animated": false
+      },
+      "Candle": {
+        "channels": [
+          "brightness",
+          "color"
+        ],
+        "remote_adjustment": "ignore",
+        "animated": true
+      },
+      "Breathe": {
+        "channels": [
+          "brightness"
+        ],
+        "remote_adjustment": "ignore",
+        "animated": true
+      },
+      "Colour loop": {
+        "channels": [
+          "color"
+        ],
+        "remote_adjustment": "ignore",
+        "animated": true
+      }
+    }
+  },
+  "baselines": {
+    "bedroom": {
+      "day": {
+        "targets": {
+          "light.jonathan_bedroom_floor_lamp": {
+            "effect": "Normal light",
+            "brightness": 255,
+            "on": true,
+            "period": "day",
+            "area": "bedroom",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "kelvin": 4651
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            },
+            "cosy": {
+              "brightness": 128,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            }
+          },
+          "light.jonathan_bedroom_ceiling": {
+            "effect": "Normal light",
+            "brightness": 255,
+            "on": true,
+            "period": "day",
+            "area": "bedroom",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "kelvin": 4651
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            },
+            "cosy": {
+              "brightness": 128,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            }
+          },
+          "room:bedroom": {
+            "brightness": 255,
+            "color": {
+              "kelvin": 4651
+            },
+            "area": "bedroom",
+            "is_room": true,
+            "period": "day",
+            "effect": "Normal light",
+            "on": true,
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            },
+            "cosy": {
+              "brightness": 128,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "ignore_overrides": []
+          }
+        },
+        "schedule": {
+          "cmds": [
+            {
+              "kind": "ct",
+              "brightness": 255,
+              "kelvin": 4651,
+              "transition": 3,
+              "ids": [
+                "light.jonathan_bedroom_floor_lamp",
+                "light.jonathan_bedroom_ceiling"
+              ]
+            }
+          ],
+          "profiles": {
+            "light.jonathan_bedroom_floor_lamp": {
+              "effect": "Normal light",
+              "brightness": 255,
+              "on": true,
+              "period": "day",
+              "area": "bedroom",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            },
+            "light.jonathan_bedroom_ceiling": {
+              "effect": "Normal light",
+              "brightness": 255,
+              "on": true,
+              "period": "day",
+              "area": "bedroom",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            }
+          },
+          "revision": "2026-10-26T14:47:00.356341+00:00",
+          "stale_keys": [],
+          "sched": {
+            "house": "day",
+            "bedroom": "day"
+          },
+          "schedule_details": {
+            "house": {
+              "cur": "day",
+              "nxt": "cosy",
+              "fading": false,
+              "p": 0,
+              "edge": false,
+              "last_fs": 1792989600,
+              "next_fs": 1793036400,
+              "left": 11547.185415029526,
+              "cur_ts": 1792990800
+            },
+            "bedroom": {
+              "cur": "day",
+              "nxt": "cosy",
+              "fading": false,
+              "p": 0,
+              "edge": false,
+              "last_fs": 1793007600,
+              "next_fs": 1793036400,
+              "left": 11547.185415029526,
+              "cur_ts": 1793008800
+            }
+          },
+          "mirror": [],
+          "sara_mirror": null
+        }
+      },
+      "cosy": {
+        "targets": {
+          "light.jonathan_bedroom_floor_lamp": {
+            "effect": "Normal light",
+            "brightness": 128,
+            "on": true,
+            "period": "cosy",
+            "area": "bedroom",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "kelvin": 2197
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            },
+            "cosy": {
+              "brightness": 128,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            }
+          },
+          "light.jonathan_bedroom_ceiling": {
+            "effect": "Normal light",
+            "brightness": 128,
+            "on": true,
+            "period": "cosy",
+            "area": "bedroom",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "kelvin": 2197
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            },
+            "cosy": {
+              "brightness": 128,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            }
+          },
+          "room:bedroom": {
+            "brightness": 128,
+            "color": {
+              "kelvin": 2197
+            },
+            "area": "bedroom",
+            "is_room": true,
+            "period": "cosy",
+            "effect": "Normal light",
+            "on": true,
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            },
+            "cosy": {
+              "brightness": 128,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "ignore_overrides": []
+          }
+        },
+        "schedule": {
+          "cmds": [
+            {
+              "kind": "ct",
+              "brightness": 128,
+              "kelvin": 2197,
+              "transition": 3,
+              "ids": [
+                "light.jonathan_bedroom_floor_lamp",
+                "light.jonathan_bedroom_ceiling"
+              ]
+            }
+          ],
+          "profiles": {
+            "light.jonathan_bedroom_floor_lamp": {
+              "effect": "Normal light",
+              "brightness": 128,
+              "on": true,
+              "period": "cosy",
+              "area": "bedroom",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            },
+            "light.jonathan_bedroom_ceiling": {
+              "effect": "Normal light",
+              "brightness": 128,
+              "on": true,
+              "period": "cosy",
+              "area": "bedroom",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            }
+          },
+          "revision": "2026-10-26T14:47:00.356341+00:00",
+          "stale_keys": [],
+          "sched": {
+            "house": "day",
+            "bedroom": "day"
+          },
+          "schedule_details": {
+            "house": {
+              "cur": "day",
+              "nxt": "cosy",
+              "fading": false,
+              "p": 0,
+              "edge": false,
+              "last_fs": 1792989600,
+              "next_fs": 1793036400,
+              "left": 11547.238770961761,
+              "cur_ts": 1792990800
+            },
+            "bedroom": {
+              "cur": "day",
+              "nxt": "cosy",
+              "fading": false,
+              "p": 0,
+              "edge": false,
+              "last_fs": 1793007600,
+              "next_fs": 1793036400,
+              "left": 11547.238770961761,
+              "cur_ts": 1793008800
+            }
+          },
+          "mirror": [
+            {
+              "entity": "input_select.ls_bedroom_override",
+              "option": "Cosy"
+            }
+          ],
+          "sara_mirror": null
+        }
+      },
+      "night": {
+        "targets": {
+          "light.jonathan_bedroom_floor_lamp": {
+            "effect": "Normal light",
+            "brightness": 3,
+            "on": true,
+            "period": "night",
+            "area": "bedroom",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "rgb": [
+                255,
+                56,
+                0
+              ]
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            },
+            "cosy": {
+              "brightness": 128,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            }
+          },
+          "light.jonathan_bedroom_ceiling": {
+            "effect": "Normal light",
+            "brightness": 3,
+            "on": true,
+            "period": "night",
+            "area": "bedroom",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "rgb": [
+                255,
+                56,
+                0
+              ]
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            },
+            "cosy": {
+              "brightness": 128,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            }
+          },
+          "room:bedroom": {
+            "brightness": 3,
+            "color": {
+              "rgb": [
+                255,
+                56,
+                0
+              ]
+            },
+            "area": "bedroom",
+            "is_room": true,
+            "period": "night",
+            "effect": "Normal light",
+            "on": true,
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            },
+            "cosy": {
+              "brightness": 128,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "ignore_overrides": []
+          }
+        },
+        "schedule": {
+          "cmds": [
+            {
+              "kind": "rgb",
+              "brightness": 3,
+              "rgb": [
+                255,
+                56,
+                0
+              ],
+              "transition": 3,
+              "ids": [
+                "light.jonathan_bedroom_floor_lamp",
+                "light.jonathan_bedroom_ceiling"
+              ]
+            }
+          ],
+          "profiles": {
+            "light.jonathan_bedroom_floor_lamp": {
+              "effect": "Normal light",
+              "brightness": 3,
+              "on": true,
+              "period": "night",
+              "area": "bedroom",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            },
+            "light.jonathan_bedroom_ceiling": {
+              "effect": "Normal light",
+              "brightness": 3,
+              "on": true,
+              "period": "night",
+              "area": "bedroom",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            }
+          },
+          "revision": "2026-10-26T14:47:00.356341+00:00",
+          "stale_keys": [],
+          "sched": {
+            "house": "day",
+            "bedroom": "day"
+          },
+          "schedule_details": {
+            "house": {
+              "cur": "day",
+              "nxt": "cosy",
+              "fading": false,
+              "p": 0,
+              "edge": false,
+              "last_fs": 1792989600,
+              "next_fs": 1793036400,
+              "left": 11547.019066095352,
+              "cur_ts": 1792990800
+            },
+            "bedroom": {
+              "cur": "day",
+              "nxt": "cosy",
+              "fading": false,
+              "p": 0,
+              "edge": false,
+              "last_fs": 1793007600,
+              "next_fs": 1793036400,
+              "left": 11547.019066095352,
+              "cur_ts": 1793008800
+            }
+          },
+          "mirror": [
+            {
+              "entity": "input_select.ls_bedroom_override",
+              "option": "Night"
+            }
+          ],
+          "sara_mirror": null
+        }
+      }
+    },
+    "hall_overvaning": {
+      "day": {
+        "targets": {
+          "light.upper_hall_stair_lamp": {
+            "effect": "Normal light",
+            "brightness": 255,
+            "on": true,
+            "period": "day",
+            "area": "hall_overvaning",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "kelvin": 4651
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            },
+            "cosy": {
+              "brightness": 128,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "rgb": [
+                  255,
+                  255,
+                  255
+                ]
+              }
+            }
+          },
+          "light.upper_hall_ceiling": {
+            "effect": "Normal light",
+            "brightness": 255,
+            "on": true,
+            "period": "day",
+            "area": "hall_overvaning",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "kelvin": 4651
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            },
+            "cosy": {
+              "brightness": 128,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "rgb": [
+                  255,
+                  255,
+                  255
+                ]
+              }
+            }
+          },
+          "room:hall_overvaning": {
+            "brightness": 255,
+            "color": {
+              "kelvin": 4651
+            },
+            "area": "hall_overvaning",
+            "is_room": true,
+            "period": "day",
+            "effect": "Normal light",
+            "on": true,
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            },
+            "cosy": {
+              "brightness": 128,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "ignore_overrides": []
+          }
+        },
+        "schedule": {
+          "cmds": [
+            {
+              "kind": "ct",
+              "brightness": 255,
+              "kelvin": 4651,
+              "transition": 3,
+              "ids": [
+                "light.upper_hall_stair_lamp",
+                "light.upper_hall_ceiling"
+              ]
+            }
+          ],
+          "profiles": {
+            "light.upper_hall_stair_lamp": {
+              "effect": "Normal light",
+              "brightness": 255,
+              "on": true,
+              "period": "day",
+              "area": "hall_overvaning",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            },
+            "light.upper_hall_ceiling": {
+              "effect": "Normal light",
+              "brightness": 255,
+              "on": true,
+              "period": "day",
+              "area": "hall_overvaning",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            }
+          },
+          "revision": "2026-10-26T14:47:00.356341+00:00",
+          "stale_keys": [],
+          "sched": {
+            "house": "day",
+            "hall_overvaning": "day"
+          },
+          "schedule_details": {
+            "house": {
+              "cur": "day",
+              "nxt": "cosy",
+              "fading": false,
+              "p": 0,
+              "edge": false,
+              "last_fs": 1792989600,
+              "next_fs": 1793036400,
+              "left": 11547.135389089584,
+              "cur_ts": 1792990800
+            },
+            "hall_overvaning": {
+              "cur": "day",
+              "nxt": "cosy",
+              "fading": false,
+              "p": 0,
+              "edge": false,
+              "last_fs": 1792989600,
+              "next_fs": 1793036400,
+              "left": 11547.135389089584,
+              "cur_ts": 1792990800
+            }
+          },
+          "mirror": [],
+          "sara_mirror": null
+        }
+      },
+      "cosy": {
+        "targets": {
+          "light.upper_hall_stair_lamp": {
+            "effect": "Normal light",
+            "brightness": 128,
+            "on": true,
+            "period": "cosy",
+            "area": "hall_overvaning",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "kelvin": 2197
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            },
+            "cosy": {
+              "brightness": 128,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "rgb": [
+                  255,
+                  255,
+                  255
+                ]
+              }
+            }
+          },
+          "light.upper_hall_ceiling": {
+            "effect": "Normal light",
+            "brightness": 128,
+            "on": true,
+            "period": "cosy",
+            "area": "hall_overvaning",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "kelvin": 2197
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            },
+            "cosy": {
+              "brightness": 128,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "rgb": [
+                  255,
+                  255,
+                  255
+                ]
+              }
+            }
+          },
+          "room:hall_overvaning": {
+            "brightness": 128,
+            "color": {
+              "kelvin": 2197
+            },
+            "area": "hall_overvaning",
+            "is_room": true,
+            "period": "cosy",
+            "effect": "Normal light",
+            "on": true,
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            },
+            "cosy": {
+              "brightness": 128,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "ignore_overrides": []
+          }
+        },
+        "schedule": {
+          "cmds": [
+            {
+              "kind": "ct",
+              "brightness": 128,
+              "kelvin": 2197,
+              "transition": 3,
+              "ids": [
+                "light.upper_hall_stair_lamp",
+                "light.upper_hall_ceiling"
+              ]
+            }
+          ],
+          "profiles": {
+            "light.upper_hall_stair_lamp": {
+              "effect": "Normal light",
+              "brightness": 128,
+              "on": true,
+              "period": "cosy",
+              "area": "hall_overvaning",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            },
+            "light.upper_hall_ceiling": {
+              "effect": "Normal light",
+              "brightness": 128,
+              "on": true,
+              "period": "cosy",
+              "area": "hall_overvaning",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            }
+          },
+          "revision": "2026-10-26T14:47:00.356341+00:00",
+          "stale_keys": [],
+          "sched": {
+            "house": "day",
+            "hall_overvaning": "day"
+          },
+          "schedule_details": {
+            "house": {
+              "cur": "day",
+              "nxt": "cosy",
+              "fading": false,
+              "p": 0,
+              "edge": false,
+              "last_fs": 1792989600,
+              "next_fs": 1793036400,
+              "left": 11547.072407007217,
+              "cur_ts": 1792990800
+            },
+            "hall_overvaning": {
+              "cur": "day",
+              "nxt": "cosy",
+              "fading": false,
+              "p": 0,
+              "edge": false,
+              "last_fs": 1792989600,
+              "next_fs": 1793036400,
+              "left": 11547.072407007217,
+              "cur_ts": 1792990800
+            }
+          },
+          "mirror": [
+            {
+              "entity": "input_select.ls_hall_overvaning_override",
+              "option": "Cosy"
+            }
+          ],
+          "sara_mirror": null
+        }
+      },
+      "night": {
+        "targets": {
+          "light.upper_hall_stair_lamp": {
+            "effect": "Normal light",
+            "brightness": 13,
+            "on": true,
+            "period": "night",
+            "area": "hall_overvaning",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "rgb": [
+                255,
+                56,
+                0
+              ]
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            },
+            "cosy": {
+              "brightness": 128,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "rgb": [
+                  255,
+                  255,
+                  255
+                ]
+              }
+            }
+          },
+          "light.upper_hall_ceiling": {
+            "effect": "Normal light",
+            "brightness": 13,
+            "on": true,
+            "period": "night",
+            "area": "hall_overvaning",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "rgb": [
+                255,
+                56,
+                0
+              ]
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            },
+            "cosy": {
+              "brightness": 128,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "rgb": [
+                  255,
+                  255,
+                  255
+                ]
+              }
+            }
+          },
+          "room:hall_overvaning": {
+            "brightness": 13,
+            "color": {
+              "rgb": [
+                255,
+                56,
+                0
+              ]
+            },
+            "area": "hall_overvaning",
+            "is_room": true,
+            "period": "night",
+            "effect": "Normal light",
+            "on": true,
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            },
+            "cosy": {
+              "brightness": 128,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "ignore_overrides": []
+          }
+        },
+        "schedule": {
+          "cmds": [
+            {
+              "kind": "rgb",
+              "brightness": 13,
+              "rgb": [
+                255,
+                56,
+                0
+              ],
+              "transition": 3,
+              "ids": [
+                "light.upper_hall_stair_lamp",
+                "light.upper_hall_ceiling"
+              ]
+            }
+          ],
+          "profiles": {
+            "light.upper_hall_stair_lamp": {
+              "effect": "Normal light",
+              "brightness": 13,
+              "on": true,
+              "period": "night",
+              "area": "hall_overvaning",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            },
+            "light.upper_hall_ceiling": {
+              "effect": "Normal light",
+              "brightness": 13,
+              "on": true,
+              "period": "night",
+              "area": "hall_overvaning",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            }
+          },
+          "revision": "2026-10-26T14:47:00.356341+00:00",
+          "stale_keys": [],
+          "sched": {
+            "house": "day",
+            "hall_overvaning": "day"
+          },
+          "schedule_details": {
+            "house": {
+              "cur": "day",
+              "nxt": "cosy",
+              "fading": false,
+              "p": 0,
+              "edge": false,
+              "last_fs": 1792989600,
+              "next_fs": 1793036400,
+              "left": 11546.964855909348,
+              "cur_ts": 1792990800
+            },
+            "hall_overvaning": {
+              "cur": "day",
+              "nxt": "cosy",
+              "fading": false,
+              "p": 0,
+              "edge": false,
+              "last_fs": 1792989600,
+              "next_fs": 1793036400,
+              "left": 11546.964855909348,
+              "cur_ts": 1792990800
+            }
+          },
+          "mirror": [
+            {
+              "entity": "input_select.ls_hall_overvaning_override",
+              "option": "Night"
+            }
+          ],
+          "sara_mirror": null
+        }
+      }
+    },
+    "kitchen": {
+      "day": {
+        "targets": {
+          "light.kitchen_pendant": {
+            "effect": "Normal light",
+            "brightness": 255,
+            "on": true,
+            "period": "day",
+            "area": "kitchen",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "kelvin": 4651
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            },
+            "cosy": {
+              "brightness": 102,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            }
+          },
+          "light.kitchen_spots_1": {
+            "effect": "Normal light",
+            "brightness": 255,
+            "on": true,
+            "period": "day",
+            "area": "kitchen",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "kelvin": 4651
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            },
+            "cosy": {
+              "brightness": 102,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            }
+          },
+          "light.kitchen_spots_2": {
+            "effect": "Normal light",
+            "brightness": 255,
+            "on": true,
+            "period": "day",
+            "area": "kitchen",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "kelvin": 4651
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            },
+            "cosy": {
+              "brightness": 102,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            }
+          },
+          "room:kitchen": {
+            "brightness": 255,
+            "color": {
+              "kelvin": 4651
+            },
+            "area": "kitchen",
+            "is_room": true,
+            "period": "day",
+            "effect": "Normal light",
+            "on": true,
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            },
+            "cosy": {
+              "brightness": 102,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "ignore_overrides": []
+          }
+        },
+        "schedule": {
+          "cmds": [
+            {
+              "kind": "ct",
+              "brightness": 255,
+              "kelvin": 4651,
+              "transition": 3,
+              "ids": [
+                "light.kitchen_all"
+              ]
+            }
+          ],
+          "profiles": {
+            "light.kitchen_pendant": {
+              "effect": "Normal light",
+              "brightness": 255,
+              "on": true,
+              "period": "day",
+              "area": "kitchen",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            },
+            "light.kitchen_spots_1": {
+              "effect": "Normal light",
+              "brightness": 255,
+              "on": true,
+              "period": "day",
+              "area": "kitchen",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            },
+            "light.kitchen_spots_2": {
+              "effect": "Normal light",
+              "brightness": 255,
+              "on": true,
+              "period": "day",
+              "area": "kitchen",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            }
+          },
+          "revision": "2026-10-26T14:47:00.356341+00:00",
+          "stale_keys": [],
+          "sched": {
+            "house": "day",
+            "kitchen": "day"
+          },
+          "schedule_details": {
+            "house": {
+              "cur": "day",
+              "nxt": "cosy",
+              "fading": false,
+              "p": 0,
+              "edge": false,
+              "last_fs": 1792989600,
+              "next_fs": 1793036400,
+              "left": 11546.847460985184,
+              "cur_ts": 1792990800
+            },
+            "kitchen": {
+              "cur": "day",
+              "nxt": "cosy",
+              "fading": false,
+              "p": 0,
+              "edge": false,
+              "last_fs": 1792989600,
+              "next_fs": 1793036400,
+              "left": 11546.847460985184,
+              "cur_ts": 1792990800
+            }
+          },
+          "mirror": [],
+          "sara_mirror": null
+        }
+      },
+      "cosy": {
+        "targets": {
+          "light.kitchen_pendant": {
+            "effect": "Normal light",
+            "brightness": 102,
+            "on": true,
+            "period": "cosy",
+            "area": "kitchen",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "kelvin": 2197
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            },
+            "cosy": {
+              "brightness": 102,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            }
+          },
+          "light.kitchen_spots_1": {
+            "effect": "Normal light",
+            "brightness": 102,
+            "on": true,
+            "period": "cosy",
+            "area": "kitchen",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "kelvin": 2197
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            },
+            "cosy": {
+              "brightness": 102,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            }
+          },
+          "light.kitchen_spots_2": {
+            "effect": "Normal light",
+            "brightness": 102,
+            "on": true,
+            "period": "cosy",
+            "area": "kitchen",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "kelvin": 2197
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            },
+            "cosy": {
+              "brightness": 102,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            }
+          },
+          "room:kitchen": {
+            "brightness": 102,
+            "color": {
+              "kelvin": 2197
+            },
+            "area": "kitchen",
+            "is_room": true,
+            "period": "cosy",
+            "effect": "Normal light",
+            "on": true,
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            },
+            "cosy": {
+              "brightness": 102,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "ignore_overrides": []
+          }
+        },
+        "schedule": {
+          "cmds": [
+            {
+              "kind": "ct",
+              "brightness": 102,
+              "kelvin": 2197,
+              "transition": 3,
+              "ids": [
+                "light.kitchen_all"
+              ]
+            }
+          ],
+          "profiles": {
+            "light.kitchen_pendant": {
+              "effect": "Normal light",
+              "brightness": 102,
+              "on": true,
+              "period": "cosy",
+              "area": "kitchen",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            },
+            "light.kitchen_spots_1": {
+              "effect": "Normal light",
+              "brightness": 102,
+              "on": true,
+              "period": "cosy",
+              "area": "kitchen",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            },
+            "light.kitchen_spots_2": {
+              "effect": "Normal light",
+              "brightness": 102,
+              "on": true,
+              "period": "cosy",
+              "area": "kitchen",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            }
+          },
+          "revision": "2026-10-26T14:47:00.356341+00:00",
+          "stale_keys": [],
+          "sched": {
+            "house": "day",
+            "kitchen": "day"
+          },
+          "schedule_details": {
+            "house": {
+              "cur": "day",
+              "nxt": "cosy",
+              "fading": false,
+              "p": 0,
+              "edge": false,
+              "last_fs": 1792989600,
+              "next_fs": 1793036400,
+              "left": 11546.91173696518,
+              "cur_ts": 1792990800
+            },
+            "kitchen": {
+              "cur": "day",
+              "nxt": "cosy",
+              "fading": false,
+              "p": 0,
+              "edge": false,
+              "last_fs": 1792989600,
+              "next_fs": 1793036400,
+              "left": 11546.91173696518,
+              "cur_ts": 1792990800
+            }
+          },
+          "mirror": [
+            {
+              "entity": "input_select.ls_kitchen_override",
+              "option": "Cosy"
+            }
+          ],
+          "sara_mirror": null
+        }
+      },
+      "night": {
+        "targets": {
+          "light.kitchen_pendant": {
+            "effect": "Normal light",
+            "brightness": 3,
+            "on": true,
+            "period": "night",
+            "area": "kitchen",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "rgb": [
+                255,
+                56,
+                0
+              ]
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            },
+            "cosy": {
+              "brightness": 102,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            }
+          },
+          "light.kitchen_spots_1": {
+            "effect": "Normal light",
+            "brightness": 3,
+            "on": true,
+            "period": "night",
+            "area": "kitchen",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "rgb": [
+                255,
+                56,
+                0
+              ]
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            },
+            "cosy": {
+              "brightness": 102,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            }
+          },
+          "light.kitchen_spots_2": {
+            "effect": "Normal light",
+            "brightness": 3,
+            "on": true,
+            "period": "night",
+            "area": "kitchen",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "rgb": [
+                255,
+                56,
+                0
+              ]
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            },
+            "cosy": {
+              "brightness": 102,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            }
+          },
+          "room:kitchen": {
+            "brightness": 3,
+            "color": {
+              "rgb": [
+                255,
+                56,
+                0
+              ]
+            },
+            "area": "kitchen",
+            "is_room": true,
+            "period": "night",
+            "effect": "Normal light",
+            "on": true,
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            },
+            "cosy": {
+              "brightness": 102,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "ignore_overrides": []
+          }
+        },
+        "schedule": {
+          "cmds": [
+            {
+              "kind": "rgb",
+              "brightness": 3,
+              "rgb": [
+                255,
+                56,
+                0
+              ],
+              "transition": 3,
+              "ids": [
+                "light.kitchen_all"
+              ]
+            }
+          ],
+          "profiles": {
+            "light.kitchen_pendant": {
+              "effect": "Normal light",
+              "brightness": 3,
+              "on": true,
+              "period": "night",
+              "area": "kitchen",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            },
+            "light.kitchen_spots_1": {
+              "effect": "Normal light",
+              "brightness": 3,
+              "on": true,
+              "period": "night",
+              "area": "kitchen",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            },
+            "light.kitchen_spots_2": {
+              "effect": "Normal light",
+              "brightness": 3,
+              "on": true,
+              "period": "night",
+              "area": "kitchen",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            }
+          },
+          "revision": "2026-10-26T14:47:00.356341+00:00",
+          "stale_keys": [],
+          "sched": {
+            "house": "day",
+            "kitchen": "day"
+          },
+          "schedule_details": {
+            "house": {
+              "cur": "day",
+              "nxt": "cosy",
+              "fading": false,
+              "p": 0,
+              "edge": false,
+              "last_fs": 1792989600,
+              "next_fs": 1793036400,
+              "left": 11546.697365045547,
+              "cur_ts": 1792990800
+            },
+            "kitchen": {
+              "cur": "day",
+              "nxt": "cosy",
+              "fading": false,
+              "p": 0,
+              "edge": false,
+              "last_fs": 1792989600,
+              "next_fs": 1793036400,
+              "left": 11546.697365045547,
+              "cur_ts": 1792990800
+            }
+          },
+          "mirror": [
+            {
+              "entity": "input_select.ls_kitchen_override",
+              "option": "Night"
+            }
+          ],
+          "sara_mirror": null
+        }
+      }
+    },
+    "living_room": {
+      "day": {
+        "targets": {
+          "light.living_room_desk_ceiling": {
+            "effect": "Normal light",
+            "brightness": 255,
+            "on": true,
+            "period": "day",
+            "area": "living_room",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "kelvin": 3496
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 3496
+              }
+            },
+            "cosy": {
+              "brightness": 94,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 3496
+              }
+            }
+          },
+          "light.living_room_hall_ceiling": {
+            "effect": "Normal light",
+            "brightness": 255,
+            "on": true,
+            "period": "day",
+            "area": "living_room",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "kelvin": 3496
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 3496
+              }
+            },
+            "cosy": {
+              "brightness": 94,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 3496
+              }
+            }
+          },
+          "light.living_room_vicky_desk_lamp": {
+            "effect": "Normal light",
+            "brightness": 255,
+            "on": true,
+            "period": "day",
+            "area": "living_room",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "kelvin": 3496
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 3496
+              }
+            },
+            "cosy": {
+              "brightness": 94,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 3496
+              }
+            }
+          },
+          "light.living_room_table_lamp": {
+            "effect": "Normal light",
+            "brightness": 255,
+            "on": true,
+            "period": "day",
+            "area": "living_room",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "kelvin": 2985
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 2985
+              }
+            },
+            "cosy": {
+              "brightness": 94,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 2985
+              }
+            }
+          },
+          "light.living_room_window_lamp": {
+            "effect": "Candle",
+            "brightness": 255,
+            "on": true,
+            "period": "day",
+            "area": "living_room",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "kelvin": 4651
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            },
+            "cosy": {
+              "brightness": 128,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            }
+          },
+          "light.living_room_yellow_retro_lamp": {
+            "effect": "Candle",
+            "brightness": 255,
+            "on": true,
+            "period": "day",
+            "area": "living_room",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "kelvin": 4651
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            },
+            "cosy": {
+              "brightness": 128,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 194,
+              "color": {
+                "rgb": [
+                  255,
+                  128,
+                  0
+                ]
+              }
+            }
+          },
+          "light.living_room_sofa_table_ceiling": {
+            "effect": "Normal light",
+            "brightness": 158,
+            "on": true,
+            "period": "day",
+            "area": "living_room",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "kelvin": 2941
+            },
+            "day": {
+              "brightness": 158,
+              "color": {
+                "kelvin": 2941
+              }
+            },
+            "cosy": {
+              "brightness": 94,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 159,
+              "color": {
+                "kelvin": 2941
+              }
+            }
+          },
+          "room:living_room": {
+            "brightness": 255,
+            "color": {
+              "kelvin": 3496
+            },
+            "area": "living_room",
+            "is_room": true,
+            "period": "day",
+            "effect": "Normal light",
+            "on": true,
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 3496
+              }
+            },
+            "cosy": {
+              "brightness": 94,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "ignore_overrides": []
+          }
+        },
+        "schedule": {
+          "cmds": [
+            {
+              "kind": "ct",
+              "brightness": 255,
+              "kelvin": 3496,
+              "transition": 3,
+              "ids": [
+                "light.living_room_desk_ceiling",
+                "light.living_room_hall_ceiling",
+                "light.living_room_vicky_desk_lamp"
+              ]
+            },
+            {
+              "kind": "ct",
+              "brightness": 255,
+              "kelvin": 2985,
+              "transition": 3,
+              "ids": [
+                "light.living_room_table_lamp"
+              ]
+            },
+            {
+              "kind": "ct",
+              "brightness": 255,
+              "kelvin": 4651,
+              "transition": 3,
+              "ids": [
+                "light.living_room_window_lamp",
+                "light.living_room_yellow_retro_lamp"
+              ]
+            },
+            {
+              "kind": "ct",
+              "brightness": 158,
+              "kelvin": 2941,
+              "transition": 3,
+              "ids": [
+                "light.living_room_sofa_table_ceiling"
+              ]
+            }
+          ],
+          "profiles": {
+            "light.living_room_desk_ceiling": {
+              "effect": "Normal light",
+              "brightness": 255,
+              "on": true,
+              "period": "day",
+              "area": "living_room",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            },
+            "light.living_room_hall_ceiling": {
+              "effect": "Normal light",
+              "brightness": 255,
+              "on": true,
+              "period": "day",
+              "area": "living_room",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            },
+            "light.living_room_vicky_desk_lamp": {
+              "effect": "Normal light",
+              "brightness": 255,
+              "on": true,
+              "period": "day",
+              "area": "living_room",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            },
+            "light.living_room_table_lamp": {
+              "effect": "Normal light",
+              "brightness": 255,
+              "on": true,
+              "period": "day",
+              "area": "living_room",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            },
+            "light.living_room_window_lamp": {
+              "effect": "Candle",
+              "brightness": 255,
+              "on": true,
+              "period": "day",
+              "area": "living_room",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            },
+            "light.living_room_yellow_retro_lamp": {
+              "effect": "Candle",
+              "brightness": 255,
+              "on": true,
+              "period": "day",
+              "area": "living_room",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            },
+            "light.living_room_sofa_table_ceiling": {
+              "effect": "Normal light",
+              "brightness": 158,
+              "on": true,
+              "period": "day",
+              "area": "living_room",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            }
+          },
+          "revision": "2026-10-26T14:47:00.356341+00:00",
+          "stale_keys": [],
+          "sched": {
+            "house": "day",
+            "living_room": "day"
+          },
+          "schedule_details": {
+            "house": {
+              "cur": "day",
+              "nxt": "cosy",
+              "fading": false,
+              "p": 0,
+              "edge": false,
+              "last_fs": 1792989600,
+              "next_fs": 1793036400,
+              "left": 11546.37913608551,
+              "cur_ts": 1792990800
+            },
+            "living_room": {
+              "cur": "day",
+              "nxt": "cosy",
+              "fading": false,
+              "p": 0,
+              "edge": false,
+              "last_fs": 1792989600,
+              "next_fs": 1793036400,
+              "left": 11546.37913608551,
+              "cur_ts": 1792990800
+            }
+          },
+          "mirror": [],
+          "sara_mirror": null
+        }
+      },
+      "cosy": {
+        "targets": {
+          "light.living_room_desk_ceiling": {
+            "effect": "Normal light",
+            "brightness": 94,
+            "on": true,
+            "period": "cosy",
+            "area": "living_room",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "kelvin": 2197
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 3496
+              }
+            },
+            "cosy": {
+              "brightness": 94,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 3496
+              }
+            }
+          },
+          "light.living_room_hall_ceiling": {
+            "effect": "Normal light",
+            "brightness": 94,
+            "on": true,
+            "period": "cosy",
+            "area": "living_room",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "kelvin": 2197
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 3496
+              }
+            },
+            "cosy": {
+              "brightness": 94,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 3496
+              }
+            }
+          },
+          "light.living_room_vicky_desk_lamp": {
+            "effect": "Normal light",
+            "brightness": 94,
+            "on": true,
+            "period": "cosy",
+            "area": "living_room",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "kelvin": 2197
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 3496
+              }
+            },
+            "cosy": {
+              "brightness": 94,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 3496
+              }
+            }
+          },
+          "light.living_room_table_lamp": {
+            "effect": "Normal light",
+            "brightness": 94,
+            "on": true,
+            "period": "cosy",
+            "area": "living_room",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "kelvin": 2197
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 2985
+              }
+            },
+            "cosy": {
+              "brightness": 94,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 2985
+              }
+            }
+          },
+          "light.living_room_window_lamp": {
+            "effect": "Candle",
+            "brightness": 128,
+            "on": true,
+            "period": "cosy",
+            "area": "living_room",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "kelvin": 2197
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            },
+            "cosy": {
+              "brightness": 128,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            }
+          },
+          "light.living_room_yellow_retro_lamp": {
+            "effect": "Candle",
+            "brightness": 128,
+            "on": true,
+            "period": "cosy",
+            "area": "living_room",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "kelvin": 2197
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            },
+            "cosy": {
+              "brightness": 128,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 237,
+              "color": {
+                "rgb": [
+                  255,
+                  128,
+                  0
+                ]
+              }
+            }
+          },
+          "light.living_room_sofa_table_ceiling": {
+            "effect": "Normal light",
+            "brightness": 94,
+            "on": true,
+            "period": "cosy",
+            "area": "living_room",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "kelvin": 2197
+            },
+            "day": {
+              "brightness": 158,
+              "color": {
+                "kelvin": 2941
+              }
+            },
+            "cosy": {
+              "brightness": 94,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 159,
+              "color": {
+                "kelvin": 2941
+              }
+            }
+          },
+          "room:living_room": {
+            "brightness": 94,
+            "color": {
+              "kelvin": 2197
+            },
+            "area": "living_room",
+            "is_room": true,
+            "period": "cosy",
+            "effect": "Normal light",
+            "on": true,
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 3496
+              }
+            },
+            "cosy": {
+              "brightness": 94,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "ignore_overrides": []
+          }
+        },
+        "schedule": {
+          "cmds": [
+            {
+              "kind": "ct",
+              "brightness": 94,
+              "kelvin": 2197,
+              "transition": 3,
+              "ids": [
+                "light.living_room_desk_ceiling",
+                "light.living_room_hall_ceiling",
+                "light.living_room_vicky_desk_lamp",
+                "light.living_room_table_lamp",
+                "light.living_room_sofa_table_ceiling"
+              ]
+            },
+            {
+              "kind": "ct",
+              "brightness": 128,
+              "kelvin": 2197,
+              "transition": 3,
+              "ids": [
+                "light.living_room_window_lamp",
+                "light.living_room_yellow_retro_lamp"
+              ]
+            }
+          ],
+          "profiles": {
+            "light.living_room_desk_ceiling": {
+              "effect": "Normal light",
+              "brightness": 94,
+              "on": true,
+              "period": "cosy",
+              "area": "living_room",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            },
+            "light.living_room_hall_ceiling": {
+              "effect": "Normal light",
+              "brightness": 94,
+              "on": true,
+              "period": "cosy",
+              "area": "living_room",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            },
+            "light.living_room_vicky_desk_lamp": {
+              "effect": "Normal light",
+              "brightness": 94,
+              "on": true,
+              "period": "cosy",
+              "area": "living_room",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            },
+            "light.living_room_table_lamp": {
+              "effect": "Normal light",
+              "brightness": 94,
+              "on": true,
+              "period": "cosy",
+              "area": "living_room",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            },
+            "light.living_room_window_lamp": {
+              "effect": "Candle",
+              "brightness": 128,
+              "on": true,
+              "period": "cosy",
+              "area": "living_room",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            },
+            "light.living_room_yellow_retro_lamp": {
+              "effect": "Candle",
+              "brightness": 128,
+              "on": true,
+              "period": "cosy",
+              "area": "living_room",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            },
+            "light.living_room_sofa_table_ceiling": {
+              "effect": "Normal light",
+              "brightness": 94,
+              "on": true,
+              "period": "cosy",
+              "area": "living_room",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            }
+          },
+          "revision": "2026-10-26T14:47:00.356341+00:00",
+          "stale_keys": [],
+          "sched": {
+            "house": "day",
+            "living_room": "day"
+          },
+          "schedule_details": {
+            "house": {
+              "cur": "day",
+              "nxt": "cosy",
+              "fading": false,
+              "p": 0,
+              "edge": false,
+              "last_fs": 1792989600,
+              "next_fs": 1793036400,
+              "left": 11546.591209888458,
+              "cur_ts": 1792990800
+            },
+            "living_room": {
+              "cur": "day",
+              "nxt": "cosy",
+              "fading": false,
+              "p": 0,
+              "edge": false,
+              "last_fs": 1792989600,
+              "next_fs": 1793036400,
+              "left": 11546.591209888458,
+              "cur_ts": 1792990800
+            }
+          },
+          "mirror": [
+            {
+              "entity": "input_select.ls_living_room_override",
+              "option": "Cosy"
+            }
+          ],
+          "sara_mirror": null
+        }
+      },
+      "night": {
+        "targets": {
+          "light.living_room_desk_ceiling": {
+            "effect": "Normal light",
+            "brightness": 13,
+            "on": true,
+            "period": "night",
+            "area": "living_room",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "rgb": [
+                255,
+                56,
+                0
+              ]
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 3496
+              }
+            },
+            "cosy": {
+              "brightness": 94,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 3496
+              }
+            }
+          },
+          "light.living_room_hall_ceiling": {
+            "effect": "Normal light",
+            "brightness": 13,
+            "on": true,
+            "period": "night",
+            "area": "living_room",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "rgb": [
+                255,
+                56,
+                0
+              ]
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 3496
+              }
+            },
+            "cosy": {
+              "brightness": 94,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 3496
+              }
+            }
+          },
+          "light.living_room_vicky_desk_lamp": {
+            "effect": "Normal light",
+            "brightness": 13,
+            "on": true,
+            "period": "night",
+            "area": "living_room",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "rgb": [
+                255,
+                56,
+                0
+              ]
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 3496
+              }
+            },
+            "cosy": {
+              "brightness": 94,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 3496
+              }
+            }
+          },
+          "light.living_room_table_lamp": {
+            "effect": "Normal light",
+            "brightness": 13,
+            "on": true,
+            "period": "night",
+            "area": "living_room",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "rgb": [
+                255,
+                56,
+                0
+              ]
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 2985
+              }
+            },
+            "cosy": {
+              "brightness": 94,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 2985
+              }
+            }
+          },
+          "light.living_room_window_lamp": {
+            "effect": "Normal light",
+            "brightness": 13,
+            "on": true,
+            "period": "night",
+            "area": "living_room",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "rgb": [
+                255,
+                56,
+                0
+              ]
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            },
+            "cosy": {
+              "brightness": 128,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            }
+          },
+          "light.living_room_yellow_retro_lamp": {
+            "effect": "Normal light",
+            "brightness": 13,
+            "on": true,
+            "period": "night",
+            "area": "living_room",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "rgb": [
+                255,
+                56,
+                0
+              ]
+            },
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 4651
+              }
+            },
+            "cosy": {
+              "brightness": 128,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 196,
+              "color": {
+                "rgb": [
+                  255,
+                  128,
+                  0
+                ]
+              }
+            }
+          },
+          "light.living_room_sofa_table_ceiling": {
+            "effect": "Normal light",
+            "brightness": 13,
+            "on": true,
+            "period": "night",
+            "area": "living_room",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "rgb": [
+                255,
+                56,
+                0
+              ]
+            },
+            "day": {
+              "brightness": 158,
+              "color": {
+                "kelvin": 2941
+              }
+            },
+            "cosy": {
+              "brightness": 94,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 159,
+              "color": {
+                "kelvin": 2941
+              }
+            }
+          },
+          "room:living_room": {
+            "brightness": 13,
+            "color": {
+              "rgb": [
+                255,
+                56,
+                0
+              ]
+            },
+            "area": "living_room",
+            "is_room": true,
+            "period": "night",
+            "effect": "Normal light",
+            "on": true,
+            "day": {
+              "brightness": 255,
+              "color": {
+                "kelvin": 3496
+              }
+            },
+            "cosy": {
+              "brightness": 94,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "ignore_overrides": []
+          }
+        },
+        "schedule": {
+          "cmds": [
+            {
+              "kind": "rgb",
+              "brightness": 13,
+              "rgb": [
+                255,
+                56,
+                0
+              ],
+              "transition": 3,
+              "ids": [
+                "light.living_room_desk_ceiling",
+                "light.living_room_hall_ceiling",
+                "light.living_room_vicky_desk_lamp",
+                "light.living_room_table_lamp",
+                "light.living_room_window_lamp",
+                "light.living_room_yellow_retro_lamp",
+                "light.living_room_sofa_table_ceiling"
+              ]
+            }
+          ],
+          "profiles": {
+            "light.living_room_desk_ceiling": {
+              "effect": "Normal light",
+              "brightness": 13,
+              "on": true,
+              "period": "night",
+              "area": "living_room",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            },
+            "light.living_room_hall_ceiling": {
+              "effect": "Normal light",
+              "brightness": 13,
+              "on": true,
+              "period": "night",
+              "area": "living_room",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            },
+            "light.living_room_vicky_desk_lamp": {
+              "effect": "Normal light",
+              "brightness": 13,
+              "on": true,
+              "period": "night",
+              "area": "living_room",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            },
+            "light.living_room_table_lamp": {
+              "effect": "Normal light",
+              "brightness": 13,
+              "on": true,
+              "period": "night",
+              "area": "living_room",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            },
+            "light.living_room_window_lamp": {
+              "effect": "Normal light",
+              "brightness": 13,
+              "on": true,
+              "period": "night",
+              "area": "living_room",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            },
+            "light.living_room_yellow_retro_lamp": {
+              "effect": "Normal light",
+              "brightness": 13,
+              "on": true,
+              "period": "night",
+              "area": "living_room",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            },
+            "light.living_room_sofa_table_ceiling": {
+              "effect": "Normal light",
+              "brightness": 13,
+              "on": true,
+              "period": "night",
+              "area": "living_room",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            }
+          },
+          "revision": "2026-10-26T14:47:00.356341+00:00",
+          "stale_keys": [],
+          "sched": {
+            "house": "day",
+            "living_room": "day"
+          },
+          "schedule_details": {
+            "house": {
+              "cur": "day",
+              "nxt": "cosy",
+              "fading": false,
+              "p": 0,
+              "edge": false,
+              "last_fs": 1792989600,
+              "next_fs": 1793036400,
+              "left": 11546.774003982544,
+              "cur_ts": 1792990800
+            },
+            "living_room": {
+              "cur": "day",
+              "nxt": "cosy",
+              "fading": false,
+              "p": 0,
+              "edge": false,
+              "last_fs": 1792989600,
+              "next_fs": 1793036400,
+              "left": 11546.774003982544,
+              "cur_ts": 1792990800
+            }
+          },
+          "mirror": [
+            {
+              "entity": "input_select.ls_living_room_override",
+              "option": "Night"
+            }
+          ],
+          "sara_mirror": null
+        }
+      }
+    },
+    "meditation_mys": {
+      "day": {
+        "targets": {
+          "light.meditation_floor_lamp": {
+            "effect": "Normal light",
+            "brightness": 148,
+            "on": true,
+            "period": "day",
+            "area": "meditation_mys",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "kelvin": 3401
+            },
+            "day": {
+              "brightness": 148,
+              "color": {
+                "kelvin": 3401
+              }
+            },
+            "cosy": {
+              "brightness": 128,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 149,
+              "color": {
+                "kelvin": 3401
+              }
+            }
+          },
+          "light.meditation_ceiling": {
+            "effect": "Normal light",
+            "brightness": 148,
+            "on": true,
+            "period": "day",
+            "area": "meditation_mys",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "kelvin": 3401
+            },
+            "day": {
+              "brightness": 148,
+              "color": {
+                "kelvin": 3401
+              }
+            },
+            "cosy": {
+              "brightness": 128,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "rgb": [
+                  255,
+                  255,
+                  255
+                ]
+              }
+            }
+          },
+          "room:meditation_mys": {
+            "brightness": 148,
+            "color": {
+              "kelvin": 3401
+            },
+            "area": "meditation_mys",
+            "is_room": true,
+            "period": "day",
+            "effect": "Normal light",
+            "on": true,
+            "day": {
+              "brightness": 148,
+              "color": {
+                "kelvin": 3401
+              }
+            },
+            "cosy": {
+              "brightness": 128,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "ignore_overrides": []
+          }
+        },
+        "schedule": {
+          "cmds": [
+            {
+              "kind": "ct",
+              "brightness": 148,
+              "kelvin": 3401,
+              "transition": 3,
+              "ids": [
+                "light.meditation_floor_lamp",
+                "light.meditation_ceiling"
+              ]
+            }
+          ],
+          "profiles": {
+            "light.meditation_floor_lamp": {
+              "effect": "Normal light",
+              "brightness": 148,
+              "on": true,
+              "period": "day",
+              "area": "meditation_mys",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            },
+            "light.meditation_ceiling": {
+              "effect": "Normal light",
+              "brightness": 148,
+              "on": true,
+              "period": "day",
+              "area": "meditation_mys",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            }
+          },
+          "revision": "2026-10-26T14:47:00.356341+00:00",
+          "stale_keys": [],
+          "sched": {
+            "house": "day",
+            "meditation_mys": "day"
+          },
+          "schedule_details": {
+            "house": {
+              "cur": "day",
+              "nxt": "cosy",
+              "fading": false,
+              "p": 0,
+              "edge": false,
+              "last_fs": 1792989600,
+              "next_fs": 1793036400,
+              "left": 11546.429827928543,
+              "cur_ts": 1792990800
+            },
+            "meditation_mys": {
+              "cur": "day",
+              "nxt": "cosy",
+              "fading": false,
+              "p": 0,
+              "edge": false,
+              "last_fs": 1792989600,
+              "next_fs": 1793036400,
+              "left": 11546.429827928543,
+              "cur_ts": 1792990800
+            }
+          },
+          "mirror": [],
+          "sara_mirror": null
+        }
+      },
+      "cosy": {
+        "targets": {
+          "light.meditation_floor_lamp": {
+            "effect": "Normal light",
+            "brightness": 128,
+            "on": true,
+            "period": "cosy",
+            "area": "meditation_mys",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "kelvin": 2197
+            },
+            "day": {
+              "brightness": 148,
+              "color": {
+                "kelvin": 3401
+              }
+            },
+            "cosy": {
+              "brightness": 128,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 149,
+              "color": {
+                "kelvin": 3401
+              }
+            }
+          },
+          "light.meditation_ceiling": {
+            "effect": "Normal light",
+            "brightness": 128,
+            "on": true,
+            "period": "cosy",
+            "area": "meditation_mys",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "kelvin": 2197
+            },
+            "day": {
+              "brightness": 148,
+              "color": {
+                "kelvin": 3401
+              }
+            },
+            "cosy": {
+              "brightness": 128,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "rgb": [
+                  255,
+                  255,
+                  255
+                ]
+              }
+            }
+          },
+          "room:meditation_mys": {
+            "brightness": 128,
+            "color": {
+              "kelvin": 2197
+            },
+            "area": "meditation_mys",
+            "is_room": true,
+            "period": "cosy",
+            "effect": "Normal light",
+            "on": true,
+            "day": {
+              "brightness": 148,
+              "color": {
+                "kelvin": 3401
+              }
+            },
+            "cosy": {
+              "brightness": 128,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "ignore_overrides": []
+          }
+        },
+        "schedule": {
+          "cmds": [
+            {
+              "kind": "ct",
+              "brightness": 128,
+              "kelvin": 2197,
+              "transition": 3,
+              "ids": [
+                "light.meditation_floor_lamp",
+                "light.meditation_ceiling"
+              ]
+            }
+          ],
+          "profiles": {
+            "light.meditation_floor_lamp": {
+              "effect": "Normal light",
+              "brightness": 128,
+              "on": true,
+              "period": "cosy",
+              "area": "meditation_mys",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            },
+            "light.meditation_ceiling": {
+              "effect": "Normal light",
+              "brightness": 128,
+              "on": true,
+              "period": "cosy",
+              "area": "meditation_mys",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            }
+          },
+          "revision": "2026-10-26T14:47:00.356341+00:00",
+          "stale_keys": [],
+          "sched": {
+            "house": "day",
+            "meditation_mys": "day"
+          },
+          "schedule_details": {
+            "house": {
+              "cur": "day",
+              "nxt": "cosy",
+              "fading": false,
+              "p": 0,
+              "edge": false,
+              "last_fs": 1792989600,
+              "next_fs": 1793036400,
+              "left": 11546.642950057983,
+              "cur_ts": 1792990800
+            },
+            "meditation_mys": {
+              "cur": "day",
+              "nxt": "cosy",
+              "fading": false,
+              "p": 0,
+              "edge": false,
+              "last_fs": 1792989600,
+              "next_fs": 1793036400,
+              "left": 11546.642950057983,
+              "cur_ts": 1792990800
+            }
+          },
+          "mirror": [
+            {
+              "entity": "input_select.ls_meditation_mys_override",
+              "option": "Cosy"
+            }
+          ],
+          "sara_mirror": null
+        }
+      },
+      "night": {
+        "targets": {
+          "light.meditation_floor_lamp": {
+            "effect": "Normal light",
+            "brightness": 13,
+            "on": true,
+            "period": "night",
+            "area": "meditation_mys",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "rgb": [
+                255,
+                56,
+                0
+              ]
+            },
+            "day": {
+              "brightness": 148,
+              "color": {
+                "kelvin": 3401
+              }
+            },
+            "cosy": {
+              "brightness": 128,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 149,
+              "color": {
+                "kelvin": 3401
+              }
+            }
+          },
+          "light.meditation_ceiling": {
+            "effect": "Normal light",
+            "brightness": 13,
+            "on": true,
+            "period": "night",
+            "area": "meditation_mys",
+            "effect_channels": [
+              "brightness",
+              "color"
+            ],
+            "send": true,
+            "ignore_overrides": [],
+            "is_room": false,
+            "color": {
+              "rgb": [
+                255,
+                56,
+                0
+              ]
+            },
+            "day": {
+              "brightness": 148,
+              "color": {
+                "kelvin": 3401
+              }
+            },
+            "cosy": {
+              "brightness": 128,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "transition": 3,
+            "observed": {
+              "brightness": 255,
+              "color": {
+                "rgb": [
+                  255,
+                  255,
+                  255
+                ]
+              }
+            }
+          },
+          "room:meditation_mys": {
+            "brightness": 13,
+            "color": {
+              "rgb": [
+                255,
+                56,
+                0
+              ]
+            },
+            "area": "meditation_mys",
+            "is_room": true,
+            "period": "night",
+            "effect": "Normal light",
+            "on": true,
+            "day": {
+              "brightness": 148,
+              "color": {
+                "kelvin": 3401
+              }
+            },
+            "cosy": {
+              "brightness": 128,
+              "color": {
+                "kelvin": 2197
+              }
+            },
+            "ignore_overrides": []
+          }
+        },
+        "schedule": {
+          "cmds": [
+            {
+              "kind": "rgb",
+              "brightness": 13,
+              "rgb": [
+                255,
+                56,
+                0
+              ],
+              "transition": 3,
+              "ids": [
+                "light.meditation_floor_lamp",
+                "light.meditation_ceiling"
+              ]
+            }
+          ],
+          "profiles": {
+            "light.meditation_floor_lamp": {
+              "effect": "Normal light",
+              "brightness": 13,
+              "on": true,
+              "period": "night",
+              "area": "meditation_mys",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            },
+            "light.meditation_ceiling": {
+              "effect": "Normal light",
+              "brightness": 13,
+              "on": true,
+              "period": "night",
+              "area": "meditation_mys",
+              "effect_channels": [
+                "brightness",
+                "color"
+              ],
+              "send": true,
+              "ignore_overrides": []
+            }
+          },
+          "revision": "2026-10-26T14:47:00.356341+00:00",
+          "stale_keys": [],
+          "sched": {
+            "house": "day",
+            "meditation_mys": "day"
+          },
+          "schedule_details": {
+            "house": {
+              "cur": "day",
+              "nxt": "cosy",
+              "fading": false,
+              "p": 0,
+              "edge": false,
+              "last_fs": 1792989600,
+              "next_fs": 1793036400,
+              "left": 11546.480426073074,
+              "cur_ts": 1792990800
+            },
+            "meditation_mys": {
+              "cur": "day",
+              "nxt": "cosy",
+              "fading": false,
+              "p": 0,
+              "edge": false,
+              "last_fs": 1792989600,
+              "next_fs": 1793036400,
+              "left": 11546.480426073074,
+              "cur_ts": 1792990800
+            }
+          },
+          "mirror": [
+            {
+              "entity": "input_select.ls_meditation_mys_override",
+              "option": "Night"
+            }
+          ],
+          "sara_mirror": null
+        }
+      }
+    }
+  },
+  "ieee": {
+    "light.kitchen_pendant_bulb_1": "0xa4c138e778a7b45f",
+    "light.kitchen_pendant_bulb_2": "0xa4c1389a579ab983",
+    "light.kitchen_pendant_bulb_3": "0xa4c1389f87b76e60",
+    "light.kitchen_spots_1_bulb_1": "0xa4c1381f885b082f",
+    "light.kitchen_spots_1_bulb_2": "0xa4c1387e4cfba78d",
+    "light.kitchen_spots_1_bulb_3": "0xa4c138a884038127",
+    "light.kitchen_spots_2_bulb_1": "0xa4c1386736786442",
+    "light.kitchen_spots_2_bulb_2": "0xa4c138a50ae5ba5a",
+    "light.kitchen_spots_2_bulb_3": "0xa4c1381a2f63601c",
+    "light.meditation_floor_lamp_bulb_1": "0xa4c138b1f2401a46",
+    "light.meditation_floor_lamp_bulb_2": "0xa4c138af806e6d70",
+    "light.meditation_ceiling": "0xa4c138eec10a5f95",
+    "light.jonathan_bedroom_ceiling": "0xa4c1387f3e38e505",
+    "light.jonathan_bedroom_floor_lamp": "0xa4c13889ddf1c22e",
+    "light.living_room_table_lamp": "0xa4c138502d6c44cd",
+    "light.living_room_desk_ceiling": "0xa4c13836b344b302",
+    "light.living_room_hall_ceiling": "0xa4c13850c80ed98f",
+    "light.living_room_sofa_table_ceiling": "0xa4c138292a2d7f60",
+    "light.living_room_vicky_desk_lamp": "0x7cc6b6fffe3cef1c",
+    "light.living_room_window_lamp": "0xa4c13825783eff26",
+    "light.living_room_yellow_retro_lamp": "0xa4c1386c73f1db49",
+    "light.upper_hall_ceiling": "0xa4c138f013c2624e",
+    "light.upper_hall_stair_lamp": "0xa4c138b95e526424"
+  },
+  "bridge_groups": [
+    {
+      "friendly_name": "kitchen/pendant",
+      "id": 1,
+      "members": [
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c138e778a7b45f"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c1389a579ab983"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c1389f87b76e60"
+        }
+      ],
+      "scenes": []
+    },
+    {
+      "friendly_name": "kitchen/spots-1",
+      "id": 2,
+      "members": [
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c1381f885b082f"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c1387e4cfba78d"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c138a884038127"
+        }
+      ],
+      "scenes": []
+    },
+    {
+      "friendly_name": "kitchen/spots-2",
+      "id": 3,
+      "members": [
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c1386736786442"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c138a50ae5ba5a"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c1381a2f63601c"
+        }
+      ],
+      "scenes": []
+    },
+    {
+      "friendly_name": "kitchen/all",
+      "id": 4,
+      "members": [
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c138e778a7b45f"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c1389a579ab983"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c1389f87b76e60"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c1381f885b082f"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c1387e4cfba78d"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c138a884038127"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c1386736786442"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c138a50ae5ba5a"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c1381a2f63601c"
+        }
+      ],
+      "scenes": []
+    },
+    {
+      "friendly_name": "Mys golvlampa",
+      "id": 5,
+      "members": [
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c138b1f2401a46"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c138af806e6d70"
+        }
+      ],
+      "scenes": []
+    },
+    {
+      "friendly_name": "Mysrum",
+      "id": 6,
+      "members": [
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c138eec10a5f95"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c138b1f2401a46"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c138af806e6d70"
+        }
+      ],
+      "scenes": []
+    },
+    {
+      "friendly_name": "fx_candle_cross_a",
+      "id": 1001,
+      "members": [
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c138e778a7b45f"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c1389a579ab983"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c1389f87b76e60"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c13850c80ed98f"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c13825783eff26"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c138b1f2401a46"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c138af806e6d70"
+        }
+      ],
+      "scenes": []
+    },
+    {
+      "friendly_name": "fx_candle_cross_b",
+      "id": 1002,
+      "members": [
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c1381f885b082f"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c1387e4cfba78d"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c138a884038127"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c13836b344b302"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c138292a2d7f60"
+        }
+      ],
+      "scenes": []
+    },
+    {
+      "friendly_name": "fx_candle_cross_c",
+      "id": 1003,
+      "members": [
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c1386736786442"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c138a50ae5ba5a"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c1381a2f63601c"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c1386c73f1db49"
+        }
+      ],
+      "scenes": []
+    },
+    {
+      "friendly_name": "fx_candle_cross_d",
+      "id": 1004,
+      "members": [
+        {
+          "endpoint": 1,
+          "ieee_address": "0x7cc6b6fffe3cef1c"
+        }
+      ],
+      "scenes": []
+    },
+    {
+      "friendly_name": "fx_candle_active",
+      "id": 1100,
+      "members": [
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c13825783eff26"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c1386c73f1db49"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c13889ddf1c22e"
+        }
+      ],
+      "scenes": []
+    },
+    {
+      "friendly_name": "ls_room_bedroom",
+      "id": 2001,
+      "members": [
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c13889ddf1c22e"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c1387f3e38e505"
+        }
+      ],
+      "scenes": []
+    },
+    {
+      "friendly_name": "ls_room_living_room",
+      "id": 2002,
+      "members": [
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c13836b344b302"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c13850c80ed98f"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0x7cc6b6fffe3cef1c"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c138502d6c44cd"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c13825783eff26"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c1386c73f1db49"
+        },
+        {
+          "endpoint": 1,
+          "ieee_address": "0xa4c138292a2d7f60"
+        }
+      ],
+      "scenes": []
+    }
+  ]
+}

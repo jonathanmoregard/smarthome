@@ -1,0 +1,15 @@
+{
+  "success": false,
+  "error": {
+    "code": "VALIDATION_FAILED",
+    "message": "TypeError: Type is not JSON serializable: datetime.datetime",
+    "suggestion": "Fix the template at the reported line, if one is given, then evaluate it again",
+    "suggestions": [
+      "Fix the template at the reported line, if one is given, then evaluate it again",
+      "Use default values for missing data: {{ states('sensor.temp') | float(0) }}",
+      "Verify entity_ids exist using ha_get_state() or ha_search()",
+      "Pass values the template expects through 'variables'"
+    ]
+  },
+  "template": "{% set n=namespace(rows=[]) %}{% for s in states if s.entity_id.startswith(('light.','input_text.ls_','input_boolean.ls_','input_datetime.ls_','input_number.ls_','input_select.ls_','sensor.ls_','sensor.effects_','script.effects_')) %}{% set n.rows=n.rows+[{'entity_id':s.entity_id,'state':s.state,'attributes':dict(s.attributes),'last_updated':s.last_updated.isoformat()}] %}{% endfor %}{{ n.rows|to_json }}"
+}

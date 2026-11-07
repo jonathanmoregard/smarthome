@@ -1,0 +1,50 @@
+[
+  {
+    "helper_type": "input_number",
+    "helper_id": "ls_range_bright_min",
+    "name": "Bright Lamps Minimum",
+    "min_value": 0,
+    "max_value": 100,
+    "step": 1,
+    "mode": "box",
+    "unit_of_measurement": "%",
+    "initial": 90,
+    "icon": "mdi:brightness-percent"
+  },
+  {
+    "helper_type": "input_number",
+    "helper_id": "ls_range_bright_max",
+    "name": "Bright Lamps Maximum",
+    "min_value": 0,
+    "max_value": 100,
+    "step": 1,
+    "mode": "box",
+    "unit_of_measurement": "%",
+    "initial": 100,
+    "icon": "mdi:brightness-percent"
+  },
+  {
+    "helper_type": "input_number",
+    "helper_id": "ls_range_cosy_min",
+    "name": "Cosy Lamps Minimum",
+    "min_value": 0,
+    "max_value": 100,
+    "step": 1,
+    "mode": "box",
+    "unit_of_measurement": "%",
+    "initial": 30,
+    "icon": "mdi:brightness-percent"
+  },
+  {
+    "helper_type": "input_number",
+    "helper_id": "ls_range_cosy_max",
+    "name": "Cosy Lamps Maximum",
+    "min_value": 0,
+    "max_value": 100,
+    "step": 1,
+    "mode": "box",
+    "unit_of_measurement": "%",
+    "initial": 60,
+    "icon": "mdi:brightness-percent"
+  }
+]

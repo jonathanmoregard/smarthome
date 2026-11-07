@@ -1,0 +1,2535 @@
+{
+  "ls_remote_gesture_kitchen": {
+    "config": {
+      "alias": "Lighting · Kitchen Remote Gestures",
+      "description": "Single quick state owner for raw power/presets/directions. A token-guarded restart script debounces power; native timer bounds the secret chord. No waits here. Cursor reset and decoding are serialized. Logical commands launch asynchronously so actuator latency cannot drop input. Every raw power event invalidates the preset cursor. Cursor -1 means no subsequent preset has been observed; first 0/4 is right/left. Unavailable cursor remains unknown. Presets use only color_temperature_move; brightness_move_to_level is the companion and never navigates, even across power.",
+      "mode": "queued",
+      "max": 50,
+      "fields": {
+        "command": {
+          "selector": {
+            "text": {}
+          }
+        },
+        "payload": {
+          "default": {},
+          "selector": {
+            "object": {}
+          }
+        },
+        "token": {
+          "default": "",
+          "selector": {
+            "text": {}
+          }
+        }
+      },
+      "sequence": [
+        {
+          "condition": "template",
+          "value_template": "{{ command in ['power','power_done','preset','cancel','left','right','up','down'] }}"
+        },
+        {
+          "variables": {
+            "step": "{{ states('input_number.ls_kitchen_remote_chord_step')|int(0) }}",
+            "active": "{{ is_state('timer.ls_kitchen_remote_chord','active') }}",
+            "clicks": "{{ states('input_number.ls_kitchen_remote_power_count')|int(0) }}",
+            "stored_token": "{{ states('input_text.ls_kitchen_remote_power_token') if has_value('input_text.ls_kitchen_remote_power_token') else '' }}"
+          }
+        },
+        {
+          "variables": {
+            "quiet_active": "{{ clicks>0 and stored_token|length>0 and as_timestamp(stored_token,0)+0.6>as_timestamp(now()) }}"
+          }
+        },
+        {
+          "choose": [
+            {
+              "conditions": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ command=='power_done' }}"
+                }
+              ],
+              "sequence": [
+                {
+                  "if": [
+                    {
+                      "condition": "template",
+                      "value_template": "{{ token|length==0 or token!=stored_token or clicks<=0 }}"
+                    }
+                  ],
+                  "then": [
+                    {
+                      "stop": "Ignore stale power completion"
+                    }
+                  ]
+                },
+                {
+                  "action": "input_number.set_value",
+                  "target": {
+                    "entity_id": "input_number.ls_kitchen_remote_power_count"
+                  },
+                  "data": {
+                    "value": 0
+                  }
+                },
+                {
+                  "action": "input_text.set_value",
+                  "target": {
+                    "entity_id": "input_text.ls_kitchen_remote_power_token"
+                  },
+                  "data": {
+                    "value": ""
+                  }
+                },
+                {
+                  "if": [
+                    {
+                      "condition": "template",
+                      "value_template": "{{ clicks==1 or clicks>=3 }}"
+                    }
+                  ],
+                  "then": [
+                    {
+                      "action": "input_number.set_value",
+                      "target": {
+                        "entity_id": "input_number.ls_kitchen_remote_chord_step"
+                      },
+                      "data": {
+                        "value": 0
+                      }
+                    },
+                    {
+                      "action": "timer.cancel",
+                      "target": {
+                        "entity_id": "timer.ls_kitchen_remote_chord"
+                      }
+                    },
+                    {
+                      "variables": {
+                        "room": "{{ area_id('1c125b382f1e1d19eb9e999b6cc07466') or 'kitchen' }}"
+                      }
+                    },
+                    {
+                      "if": [
+                        {
+                          "condition": "template",
+                          "value_template": "{{ room is string and room|length>0 }}"
+                        }
+                      ],
+                      "then": [
+                        {
+                          "action": "script.turn_on",
+                          "target": {
+                            "entity_id": "script.ls_remote_command"
+                          },
+                          "data": {
+                            "variables": {
+                              "source": "0x385b44fffea542e1",
+                              "area": "{{ room }}",
+                              "command": "{{ 'toggle' if clicks==1 else 'reset' }}",
+                              "dry_run": false
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "stop": "Completed quiet power burst"
+                }
+              ]
+            },
+            {
+              "conditions": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ command=='power' }}"
+                }
+              ],
+              "sequence": [
+                {
+                  "action": "input_number.set_value",
+                  "target": {
+                    "entity_id": "input_number.ls_kitchen_remote_preset"
+                  },
+                  "data": {
+                    "value": -1
+                  },
+                  "alias": "Resynchronize the hardware preset cursor on raw power before any arrow can arrive"
+                },
+                {
+                  "if": [
+                    {
+                      "condition": "template",
+                      "value_template": "{{ clicks>0 and not quiet_active }}"
+                    }
+                  ],
+                  "then": [
+                    {
+                      "action": "input_number.set_value",
+                      "target": {
+                        "entity_id": "input_number.ls_kitchen_remote_power_count"
+                      },
+                      "data": {
+                        "value": 0
+                      }
+                    },
+                    {
+                      "action": "input_text.set_value",
+                      "target": {
+                        "entity_id": "input_text.ls_kitchen_remote_power_token"
+                      },
+                      "data": {
+                        "value": ""
+                      }
+                    },
+                    {
+                      "if": [
+                        {
+                          "condition": "template",
+                          "value_template": "{{ clicks==1 or clicks>=3 }}"
+                        }
+                      ],
+                      "then": [
+                        {
+                          "action": "input_number.set_value",
+                          "target": {
+                            "entity_id": "input_number.ls_kitchen_remote_chord_step"
+                          },
+                          "data": {
+                            "value": 0
+                          }
+                        },
+                        {
+                          "action": "timer.cancel",
+                          "target": {
+                            "entity_id": "timer.ls_kitchen_remote_chord"
+                          }
+                        },
+                        {
+                          "variables": {
+                            "room": "{{ area_id('1c125b382f1e1d19eb9e999b6cc07466') or 'kitchen' }}"
+                          }
+                        },
+                        {
+                          "if": [
+                            {
+                              "condition": "template",
+                              "value_template": "{{ room is string and room|length>0 }}"
+                            }
+                          ],
+                          "then": [
+                            {
+                              "action": "script.turn_on",
+                              "target": {
+                                "entity_id": "script.ls_remote_command"
+                              },
+                              "data": {
+                                "variables": {
+                                  "source": "0x385b44fffea542e1",
+                                  "area": "{{ room }}",
+                                  "command": "{{ 'toggle' if clicks==1 else 'reset' }}",
+                                  "dry_run": false
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "variables": {
+                    "clicks": "{{ [3,clicks+1]|min if quiet_active else 1 }}"
+                  }
+                },
+                {
+                  "action": "input_number.set_value",
+                  "target": {
+                    "entity_id": "input_number.ls_kitchen_remote_power_count"
+                  },
+                  "data": {
+                    "value": "{{ clicks }}"
+                  }
+                },
+                {
+                  "choose": [
+                    {
+                      "conditions": [
+                        {
+                          "condition": "template",
+                          "value_template": "{{ clicks==1 }}"
+                        }
+                      ],
+                      "sequence": [
+                        {
+                          "action": "input_number.set_value",
+                          "target": {
+                            "entity_id": "input_number.ls_kitchen_remote_chord_step"
+                          },
+                          "data": {
+                            "value": -1
+                          }
+                        },
+                        {
+                          "action": "timer.start",
+                          "target": {
+                            "entity_id": "timer.ls_kitchen_remote_chord"
+                          },
+                          "data": {
+                            "duration": "00:00:03"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "conditions": [
+                        {
+                          "condition": "template",
+                          "value_template": "{{ clicks==2 }}"
+                        }
+                      ],
+                      "sequence": [
+                        {
+                          "if": [
+                            {
+                              "condition": "template",
+                              "value_template": "{{ active and step==-1 }}"
+                            }
+                          ],
+                          "then": [
+                            {
+                              "action": "input_number.set_value",
+                              "target": {
+                                "entity_id": "input_number.ls_kitchen_remote_chord_step"
+                              },
+                              "data": {
+                                "value": 1
+                              }
+                            },
+                            {
+                              "action": "timer.start",
+                              "target": {
+                                "entity_id": "timer.ls_kitchen_remote_chord"
+                              },
+                              "data": {
+                                "duration": "00:00:03"
+                              }
+                            }
+                          ],
+                          "else": [
+                            {
+                              "action": "input_number.set_value",
+                              "target": {
+                                "entity_id": "input_number.ls_kitchen_remote_chord_step"
+                              },
+                              "data": {
+                                "value": 0
+                              }
+                            },
+                            {
+                              "action": "timer.cancel",
+                              "target": {
+                                "entity_id": "timer.ls_kitchen_remote_chord"
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ],
+                  "default": [
+                    {
+                      "action": "input_number.set_value",
+                      "target": {
+                        "entity_id": "input_number.ls_kitchen_remote_chord_step"
+                      },
+                      "data": {
+                        "value": 0
+                      }
+                    },
+                    {
+                      "action": "timer.cancel",
+                      "target": {
+                        "entity_id": "timer.ls_kitchen_remote_chord"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "variables": {
+                    "fresh_token": "{{ now().isoformat() }}"
+                  }
+                },
+                {
+                  "action": "input_text.set_value",
+                  "target": {
+                    "entity_id": "input_text.ls_kitchen_remote_power_token"
+                  },
+                  "data": {
+                    "value": "{{ fresh_token }}"
+                  }
+                },
+                {
+                  "action": "script.turn_on",
+                  "target": {
+                    "entity_id": "script.ls_remote_power_quiet_kitchen"
+                  },
+                  "data": {
+                    "variables": {
+                      "token": "{{ fresh_token }}"
+                    }
+                  }
+                },
+                {
+                  "stop": "Raw power recorded without waiting"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "if": [
+            {
+              "condition": "template",
+              "value_template": "{{ command=='preset' }}"
+            }
+          ],
+          "then": [
+            {
+              "if": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ payload is not mapping or payload.get('action') != 'color_temperature_move' }}"
+                }
+              ],
+              "then": [
+                {
+                  "stop": "Ignore non-canonical preset companion or unrelated MQTT payload"
+                }
+              ]
+            },
+            {
+              "variables": {
+                "presets": [
+                  200,
+                  285,
+                  370,
+                  454,
+                  588
+                ],
+                "preset": "{{ payload.get('action_color_temperature') }}",
+                "previous": "{{ states('input_number.ls_kitchen_remote_preset')|float(-2) }}"
+              }
+            },
+            {
+              "if": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ preset is not number or preset is boolean or preset not in presets }}"
+                }
+              ],
+              "then": [
+                {
+                  "action": "input_number.set_value",
+                  "target": {
+                    "entity_id": "input_number.ls_kitchen_remote_chord_step"
+                  },
+                  "data": {
+                    "value": 0
+                  }
+                },
+                {
+                  "action": "timer.cancel",
+                  "target": {
+                    "entity_id": "timer.ls_kitchen_remote_chord"
+                  }
+                },
+                {
+                  "stop": "Unknown preset cancels chord"
+                }
+              ]
+            },
+            {
+              "variables": {
+                "index": "{{ presets.index(preset) }}"
+              }
+            },
+            {
+              "if": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ index==previous }}"
+                }
+              ],
+              "then": [
+                {
+                  "stop": "Ignore duplicate preset companion"
+                }
+              ]
+            },
+            {
+              "variables": {
+                "delta": "{{ (1 if index==0 else 4 if index==4 else -1) if previous==-1 else (index-previous|int)%5 if previous in [0,1,2,3,4] else -1 }}"
+              }
+            },
+            {
+              "action": "input_number.set_value",
+              "target": {
+                "entity_id": "input_number.ls_kitchen_remote_preset"
+              },
+              "data": {
+                "value": "{{ index }}"
+              }
+            },
+            {
+              "variables": {
+                "command": "{{ 'right' if delta==1 else 'left' if delta==4 else 'cancel' }}"
+              }
+            }
+          ]
+        },
+        {
+          "choose": [
+            {
+              "conditions": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ active and step in [1,2,3,4] and command==['left','right','left','right'][step-1] }}"
+                }
+              ],
+              "sequence": [
+                {
+                  "if": [
+                    {
+                      "condition": "template",
+                      "value_template": "{{ step==4 }}"
+                    }
+                  ],
+                  "then": [
+                    {
+                      "action": "input_number.set_value",
+                      "target": {
+                        "entity_id": "input_number.ls_kitchen_remote_chord_step"
+                      },
+                      "data": {
+                        "value": 0
+                      }
+                    },
+                    {
+                      "action": "timer.cancel",
+                      "target": {
+                        "entity_id": "timer.ls_kitchen_remote_chord"
+                      }
+                    },
+                    {
+                      "variables": {
+                        "room": "{{ area_id('1c125b382f1e1d19eb9e999b6cc07466') or 'kitchen' }}"
+                      }
+                    },
+                    {
+                      "if": [
+                        {
+                          "condition": "template",
+                          "value_template": "{{ room is string and room|length>0 }}"
+                        }
+                      ],
+                      "then": [
+                        {
+                          "action": "script.turn_on",
+                          "target": {
+                            "entity_id": "script.ls_remote_command"
+                          },
+                          "data": {
+                            "variables": {
+                              "source": "0x385b44fffea542e1",
+                              "area": "{{ room }}",
+                              "command": "sara_toggle",
+                              "dry_run": false
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "else": [
+                    {
+                      "action": "input_number.set_value",
+                      "target": {
+                        "entity_id": "input_number.ls_kitchen_remote_chord_step"
+                      },
+                      "data": {
+                        "value": "{{ step+1 }}"
+                      }
+                    },
+                    {
+                      "action": "timer.start",
+                      "target": {
+                        "entity_id": "timer.ls_kitchen_remote_chord"
+                      },
+                      "data": {
+                        "duration": "00:00:03"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "stop": "Matched chord input consumed"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "if": [
+            {
+              "condition": "template",
+              "value_template": "{{ step!=0 or active }}"
+            }
+          ],
+          "then": [
+            {
+              "action": "input_number.set_value",
+              "target": {
+                "entity_id": "input_number.ls_kitchen_remote_chord_step"
+              },
+              "data": {
+                "value": 0
+              }
+            },
+            {
+              "action": "timer.cancel",
+              "target": {
+                "entity_id": "timer.ls_kitchen_remote_chord"
+              }
+            }
+          ]
+        },
+        {
+          "condition": "template",
+          "value_template": "{{ command in ['left','right','up','down'] }}"
+        },
+        {
+          "variables": {
+            "room": "{{ area_id('1c125b382f1e1d19eb9e999b6cc07466') or 'kitchen' }}"
+          }
+        },
+        {
+          "if": [
+            {
+              "condition": "template",
+              "value_template": "{{ room is string and room|length>0 }}"
+            }
+          ],
+          "then": [
+            {
+              "action": "script.turn_on",
+              "target": {
+                "entity_id": "script.ls_remote_command"
+              },
+              "data": {
+                "variables": {
+                  "source": "0x385b44fffea542e1",
+                  "area": "{{ room }}",
+                  "command": "{{ command }}",
+                  "dry_run": false
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "ls_remote_gesture_bedroom": {
+    "config": {
+      "alias": "Lighting · Bedroom Remote Gestures",
+      "description": "Single quick state owner for raw power/presets/directions. A token-guarded restart script debounces power; native timer bounds the secret chord. No waits here. Cursor reset and decoding are serialized. Logical commands launch asynchronously so actuator latency cannot drop input. Every raw power event invalidates the preset cursor. Cursor -1 means no subsequent preset has been observed; first 0/4 is right/left. Unavailable cursor remains unknown. Presets use only color_temperature_move; brightness_move_to_level is the companion and never navigates, even across power.",
+      "mode": "queued",
+      "max": 50,
+      "fields": {
+        "command": {
+          "selector": {
+            "text": {}
+          }
+        },
+        "payload": {
+          "default": {},
+          "selector": {
+            "object": {}
+          }
+        },
+        "token": {
+          "default": "",
+          "selector": {
+            "text": {}
+          }
+        }
+      },
+      "sequence": [
+        {
+          "condition": "template",
+          "value_template": "{{ command in ['power','power_done','preset','cancel','left','right','up','down'] }}"
+        },
+        {
+          "variables": {
+            "step": "{{ states('input_number.ls_bedroom_remote_chord_step')|int(0) }}",
+            "active": "{{ is_state('timer.ls_bedroom_remote_chord','active') }}",
+            "clicks": "{{ states('input_number.ls_bedroom_remote_power_count')|int(0) }}",
+            "stored_token": "{{ states('input_text.ls_bedroom_remote_power_token') if has_value('input_text.ls_bedroom_remote_power_token') else '' }}"
+          }
+        },
+        {
+          "variables": {
+            "quiet_active": "{{ clicks>0 and stored_token|length>0 and as_timestamp(stored_token,0)+0.6>as_timestamp(now()) }}"
+          }
+        },
+        {
+          "choose": [
+            {
+              "conditions": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ command=='power_done' }}"
+                }
+              ],
+              "sequence": [
+                {
+                  "if": [
+                    {
+                      "condition": "template",
+                      "value_template": "{{ token|length==0 or token!=stored_token or clicks<=0 }}"
+                    }
+                  ],
+                  "then": [
+                    {
+                      "stop": "Ignore stale power completion"
+                    }
+                  ]
+                },
+                {
+                  "action": "input_number.set_value",
+                  "target": {
+                    "entity_id": "input_number.ls_bedroom_remote_power_count"
+                  },
+                  "data": {
+                    "value": 0
+                  }
+                },
+                {
+                  "action": "input_text.set_value",
+                  "target": {
+                    "entity_id": "input_text.ls_bedroom_remote_power_token"
+                  },
+                  "data": {
+                    "value": ""
+                  }
+                },
+                {
+                  "if": [
+                    {
+                      "condition": "template",
+                      "value_template": "{{ clicks==1 or clicks>=3 }}"
+                    }
+                  ],
+                  "then": [
+                    {
+                      "action": "input_number.set_value",
+                      "target": {
+                        "entity_id": "input_number.ls_bedroom_remote_chord_step"
+                      },
+                      "data": {
+                        "value": 0
+                      }
+                    },
+                    {
+                      "action": "timer.cancel",
+                      "target": {
+                        "entity_id": "timer.ls_bedroom_remote_chord"
+                      }
+                    },
+                    {
+                      "variables": {
+                        "room": "{{ area_id('0e973e9202acb5ace9a8e6a8b336891d') }}"
+                      }
+                    },
+                    {
+                      "if": [
+                        {
+                          "condition": "template",
+                          "value_template": "{{ room is string and room|length>0 }}"
+                        }
+                      ],
+                      "then": [
+                        {
+                          "action": "script.turn_on",
+                          "target": {
+                            "entity_id": "script.ls_remote_command"
+                          },
+                          "data": {
+                            "variables": {
+                              "source": "0x385b44fffea4fc67",
+                              "area": "{{ room }}",
+                              "command": "{{ 'toggle' if clicks==1 else 'reset' }}",
+                              "dry_run": false
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "stop": "Completed quiet power burst"
+                }
+              ]
+            },
+            {
+              "conditions": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ command=='power' }}"
+                }
+              ],
+              "sequence": [
+                {
+                  "action": "input_number.set_value",
+                  "target": {
+                    "entity_id": "input_number.ls_bedroom_remote_preset"
+                  },
+                  "data": {
+                    "value": -1
+                  },
+                  "alias": "Resynchronize the hardware preset cursor on raw power before any arrow can arrive"
+                },
+                {
+                  "if": [
+                    {
+                      "condition": "template",
+                      "value_template": "{{ clicks>0 and not quiet_active }}"
+                    }
+                  ],
+                  "then": [
+                    {
+                      "action": "input_number.set_value",
+                      "target": {
+                        "entity_id": "input_number.ls_bedroom_remote_power_count"
+                      },
+                      "data": {
+                        "value": 0
+                      }
+                    },
+                    {
+                      "action": "input_text.set_value",
+                      "target": {
+                        "entity_id": "input_text.ls_bedroom_remote_power_token"
+                      },
+                      "data": {
+                        "value": ""
+                      }
+                    },
+                    {
+                      "if": [
+                        {
+                          "condition": "template",
+                          "value_template": "{{ clicks==1 or clicks>=3 }}"
+                        }
+                      ],
+                      "then": [
+                        {
+                          "action": "input_number.set_value",
+                          "target": {
+                            "entity_id": "input_number.ls_bedroom_remote_chord_step"
+                          },
+                          "data": {
+                            "value": 0
+                          }
+                        },
+                        {
+                          "action": "timer.cancel",
+                          "target": {
+                            "entity_id": "timer.ls_bedroom_remote_chord"
+                          }
+                        },
+                        {
+                          "variables": {
+                            "room": "{{ area_id('0e973e9202acb5ace9a8e6a8b336891d') }}"
+                          }
+                        },
+                        {
+                          "if": [
+                            {
+                              "condition": "template",
+                              "value_template": "{{ room is string and room|length>0 }}"
+                            }
+                          ],
+                          "then": [
+                            {
+                              "action": "script.turn_on",
+                              "target": {
+                                "entity_id": "script.ls_remote_command"
+                              },
+                              "data": {
+                                "variables": {
+                                  "source": "0x385b44fffea4fc67",
+                                  "area": "{{ room }}",
+                                  "command": "{{ 'toggle' if clicks==1 else 'reset' }}",
+                                  "dry_run": false
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "variables": {
+                    "clicks": "{{ [3,clicks+1]|min if quiet_active else 1 }}"
+                  }
+                },
+                {
+                  "action": "input_number.set_value",
+                  "target": {
+                    "entity_id": "input_number.ls_bedroom_remote_power_count"
+                  },
+                  "data": {
+                    "value": "{{ clicks }}"
+                  }
+                },
+                {
+                  "choose": [
+                    {
+                      "conditions": [
+                        {
+                          "condition": "template",
+                          "value_template": "{{ clicks==1 }}"
+                        }
+                      ],
+                      "sequence": [
+                        {
+                          "action": "input_number.set_value",
+                          "target": {
+                            "entity_id": "input_number.ls_bedroom_remote_chord_step"
+                          },
+                          "data": {
+                            "value": -1
+                          }
+                        },
+                        {
+                          "action": "timer.start",
+                          "target": {
+                            "entity_id": "timer.ls_bedroom_remote_chord"
+                          },
+                          "data": {
+                            "duration": "00:00:03"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "conditions": [
+                        {
+                          "condition": "template",
+                          "value_template": "{{ clicks==2 }}"
+                        }
+                      ],
+                      "sequence": [
+                        {
+                          "if": [
+                            {
+                              "condition": "template",
+                              "value_template": "{{ active and step==-1 }}"
+                            }
+                          ],
+                          "then": [
+                            {
+                              "action": "input_number.set_value",
+                              "target": {
+                                "entity_id": "input_number.ls_bedroom_remote_chord_step"
+                              },
+                              "data": {
+                                "value": 1
+                              }
+                            },
+                            {
+                              "action": "timer.start",
+                              "target": {
+                                "entity_id": "timer.ls_bedroom_remote_chord"
+                              },
+                              "data": {
+                                "duration": "00:00:03"
+                              }
+                            }
+                          ],
+                          "else": [
+                            {
+                              "action": "input_number.set_value",
+                              "target": {
+                                "entity_id": "input_number.ls_bedroom_remote_chord_step"
+                              },
+                              "data": {
+                                "value": 0
+                              }
+                            },
+                            {
+                              "action": "timer.cancel",
+                              "target": {
+                                "entity_id": "timer.ls_bedroom_remote_chord"
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ],
+                  "default": [
+                    {
+                      "action": "input_number.set_value",
+                      "target": {
+                        "entity_id": "input_number.ls_bedroom_remote_chord_step"
+                      },
+                      "data": {
+                        "value": 0
+                      }
+                    },
+                    {
+                      "action": "timer.cancel",
+                      "target": {
+                        "entity_id": "timer.ls_bedroom_remote_chord"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "variables": {
+                    "fresh_token": "{{ now().isoformat() }}"
+                  }
+                },
+                {
+                  "action": "input_text.set_value",
+                  "target": {
+                    "entity_id": "input_text.ls_bedroom_remote_power_token"
+                  },
+                  "data": {
+                    "value": "{{ fresh_token }}"
+                  }
+                },
+                {
+                  "action": "script.turn_on",
+                  "target": {
+                    "entity_id": "script.ls_remote_power_quiet_bedroom"
+                  },
+                  "data": {
+                    "variables": {
+                      "token": "{{ fresh_token }}"
+                    }
+                  }
+                },
+                {
+                  "stop": "Raw power recorded without waiting"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "if": [
+            {
+              "condition": "template",
+              "value_template": "{{ command=='preset' }}"
+            }
+          ],
+          "then": [
+            {
+              "if": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ payload is not mapping or payload.get('action') != 'color_temperature_move' }}"
+                }
+              ],
+              "then": [
+                {
+                  "stop": "Ignore non-canonical preset companion or unrelated MQTT payload"
+                }
+              ]
+            },
+            {
+              "variables": {
+                "presets": [
+                  200,
+                  285,
+                  370,
+                  454,
+                  588
+                ],
+                "preset": "{{ payload.get('action_color_temperature') }}",
+                "previous": "{{ states('input_number.ls_bedroom_remote_preset')|float(-2) }}"
+              }
+            },
+            {
+              "if": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ preset is not number or preset is boolean or preset not in presets }}"
+                }
+              ],
+              "then": [
+                {
+                  "action": "input_number.set_value",
+                  "target": {
+                    "entity_id": "input_number.ls_bedroom_remote_chord_step"
+                  },
+                  "data": {
+                    "value": 0
+                  }
+                },
+                {
+                  "action": "timer.cancel",
+                  "target": {
+                    "entity_id": "timer.ls_bedroom_remote_chord"
+                  }
+                },
+                {
+                  "stop": "Unknown preset cancels chord"
+                }
+              ]
+            },
+            {
+              "variables": {
+                "index": "{{ presets.index(preset) }}"
+              }
+            },
+            {
+              "if": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ index==previous }}"
+                }
+              ],
+              "then": [
+                {
+                  "stop": "Ignore duplicate preset companion"
+                }
+              ]
+            },
+            {
+              "variables": {
+                "delta": "{{ (1 if index==0 else 4 if index==4 else -1) if previous==-1 else (index-previous|int)%5 if previous in [0,1,2,3,4] else -1 }}"
+              }
+            },
+            {
+              "action": "input_number.set_value",
+              "target": {
+                "entity_id": "input_number.ls_bedroom_remote_preset"
+              },
+              "data": {
+                "value": "{{ index }}"
+              }
+            },
+            {
+              "variables": {
+                "command": "{{ 'right' if delta==1 else 'left' if delta==4 else 'cancel' }}"
+              }
+            }
+          ]
+        },
+        {
+          "choose": [
+            {
+              "conditions": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ active and step in [1,2,3,4] and command==['left','right','left','right'][step-1] }}"
+                }
+              ],
+              "sequence": [
+                {
+                  "if": [
+                    {
+                      "condition": "template",
+                      "value_template": "{{ step==4 }}"
+                    }
+                  ],
+                  "then": [
+                    {
+                      "action": "input_number.set_value",
+                      "target": {
+                        "entity_id": "input_number.ls_bedroom_remote_chord_step"
+                      },
+                      "data": {
+                        "value": 0
+                      }
+                    },
+                    {
+                      "action": "timer.cancel",
+                      "target": {
+                        "entity_id": "timer.ls_bedroom_remote_chord"
+                      }
+                    },
+                    {
+                      "variables": {
+                        "room": "{{ area_id('0e973e9202acb5ace9a8e6a8b336891d') }}"
+                      }
+                    },
+                    {
+                      "if": [
+                        {
+                          "condition": "template",
+                          "value_template": "{{ room is string and room|length>0 }}"
+                        }
+                      ],
+                      "then": [
+                        {
+                          "action": "script.turn_on",
+                          "target": {
+                            "entity_id": "script.ls_remote_command"
+                          },
+                          "data": {
+                            "variables": {
+                              "source": "0x385b44fffea4fc67",
+                              "area": "{{ room }}",
+                              "command": "sara_toggle",
+                              "dry_run": false
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "else": [
+                    {
+                      "action": "input_number.set_value",
+                      "target": {
+                        "entity_id": "input_number.ls_bedroom_remote_chord_step"
+                      },
+                      "data": {
+                        "value": "{{ step+1 }}"
+                      }
+                    },
+                    {
+                      "action": "timer.start",
+                      "target": {
+                        "entity_id": "timer.ls_bedroom_remote_chord"
+                      },
+                      "data": {
+                        "duration": "00:00:03"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "stop": "Matched chord input consumed"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "if": [
+            {
+              "condition": "template",
+              "value_template": "{{ step!=0 or active }}"
+            }
+          ],
+          "then": [
+            {
+              "action": "input_number.set_value",
+              "target": {
+                "entity_id": "input_number.ls_bedroom_remote_chord_step"
+              },
+              "data": {
+                "value": 0
+              }
+            },
+            {
+              "action": "timer.cancel",
+              "target": {
+                "entity_id": "timer.ls_bedroom_remote_chord"
+              }
+            }
+          ]
+        },
+        {
+          "condition": "template",
+          "value_template": "{{ command in ['left','right','up','down'] }}"
+        },
+        {
+          "variables": {
+            "room": "{{ area_id('0e973e9202acb5ace9a8e6a8b336891d') }}"
+          }
+        },
+        {
+          "if": [
+            {
+              "condition": "template",
+              "value_template": "{{ room is string and room|length>0 }}"
+            }
+          ],
+          "then": [
+            {
+              "action": "script.turn_on",
+              "target": {
+                "entity_id": "script.ls_remote_command"
+              },
+              "data": {
+                "variables": {
+                  "source": "0x385b44fffea4fc67",
+                  "area": "{{ room }}",
+                  "command": "{{ command }}",
+                  "dry_run": false
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "ls_remote_gesture_living_room": {
+    "config": {
+      "alias": "Lighting · Living Room Remote Gestures",
+      "description": "Single quick state owner for raw power/presets/directions. A token-guarded restart script debounces power; native timer bounds the secret chord. No waits here. Cursor reset and decoding are serialized. Logical commands launch asynchronously so actuator latency cannot drop input. Every raw power event invalidates the preset cursor. Cursor -1 means no subsequent preset has been observed; first 0/4 is right/left. Unavailable cursor remains unknown. Presets use only color_temperature_move; brightness_move_to_level is the companion and never navigates, even across power.",
+      "mode": "queued",
+      "max": 50,
+      "fields": {
+        "command": {
+          "selector": {
+            "text": {}
+          }
+        },
+        "payload": {
+          "default": {},
+          "selector": {
+            "object": {}
+          }
+        },
+        "token": {
+          "default": "",
+          "selector": {
+            "text": {}
+          }
+        }
+      },
+      "sequence": [
+        {
+          "condition": "template",
+          "value_template": "{{ command in ['power','power_done','preset','cancel','left','right','up','down'] }}"
+        },
+        {
+          "variables": {
+            "step": "{{ states('input_number.ls_living_room_remote_chord_step')|int(0) }}",
+            "active": "{{ is_state('timer.ls_living_room_remote_chord','active') }}",
+            "clicks": "{{ states('input_number.ls_living_room_remote_power_count')|int(0) }}",
+            "stored_token": "{{ states('input_text.ls_living_room_remote_power_token') if has_value('input_text.ls_living_room_remote_power_token') else '' }}"
+          }
+        },
+        {
+          "variables": {
+            "quiet_active": "{{ clicks>0 and stored_token|length>0 and as_timestamp(stored_token,0)+0.6>as_timestamp(now()) }}"
+          }
+        },
+        {
+          "choose": [
+            {
+              "conditions": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ command=='power_done' }}"
+                }
+              ],
+              "sequence": [
+                {
+                  "if": [
+                    {
+                      "condition": "template",
+                      "value_template": "{{ token|length==0 or token!=stored_token or clicks<=0 }}"
+                    }
+                  ],
+                  "then": [
+                    {
+                      "stop": "Ignore stale power completion"
+                    }
+                  ]
+                },
+                {
+                  "action": "input_number.set_value",
+                  "target": {
+                    "entity_id": "input_number.ls_living_room_remote_power_count"
+                  },
+                  "data": {
+                    "value": 0
+                  }
+                },
+                {
+                  "action": "input_text.set_value",
+                  "target": {
+                    "entity_id": "input_text.ls_living_room_remote_power_token"
+                  },
+                  "data": {
+                    "value": ""
+                  }
+                },
+                {
+                  "if": [
+                    {
+                      "condition": "template",
+                      "value_template": "{{ clicks==1 or clicks>=3 }}"
+                    }
+                  ],
+                  "then": [
+                    {
+                      "action": "input_number.set_value",
+                      "target": {
+                        "entity_id": "input_number.ls_living_room_remote_chord_step"
+                      },
+                      "data": {
+                        "value": 0
+                      }
+                    },
+                    {
+                      "action": "timer.cancel",
+                      "target": {
+                        "entity_id": "timer.ls_living_room_remote_chord"
+                      }
+                    },
+                    {
+                      "variables": {
+                        "room": "{{ area_id('0752f2b4e9a0992ac8efc2af1f53c62a') }}"
+                      }
+                    },
+                    {
+                      "if": [
+                        {
+                          "condition": "template",
+                          "value_template": "{{ room is string and room|length>0 }}"
+                        }
+                      ],
+                      "then": [
+                        {
+                          "action": "script.turn_on",
+                          "target": {
+                            "entity_id": "script.ls_remote_command"
+                          },
+                          "data": {
+                            "variables": {
+                              "source": "0x385b44fffea50c99",
+                              "area": "{{ room }}",
+                              "command": "{{ 'toggle' if clicks==1 else 'reset' }}",
+                              "dry_run": false
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "stop": "Completed quiet power burst"
+                }
+              ]
+            },
+            {
+              "conditions": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ command=='power' }}"
+                }
+              ],
+              "sequence": [
+                {
+                  "action": "input_number.set_value",
+                  "target": {
+                    "entity_id": "input_number.ls_living_room_remote_preset"
+                  },
+                  "data": {
+                    "value": -1
+                  },
+                  "alias": "Resynchronize the hardware preset cursor on raw power before any arrow can arrive"
+                },
+                {
+                  "if": [
+                    {
+                      "condition": "template",
+                      "value_template": "{{ clicks>0 and not quiet_active }}"
+                    }
+                  ],
+                  "then": [
+                    {
+                      "action": "input_number.set_value",
+                      "target": {
+                        "entity_id": "input_number.ls_living_room_remote_power_count"
+                      },
+                      "data": {
+                        "value": 0
+                      }
+                    },
+                    {
+                      "action": "input_text.set_value",
+                      "target": {
+                        "entity_id": "input_text.ls_living_room_remote_power_token"
+                      },
+                      "data": {
+                        "value": ""
+                      }
+                    },
+                    {
+                      "if": [
+                        {
+                          "condition": "template",
+                          "value_template": "{{ clicks==1 or clicks>=3 }}"
+                        }
+                      ],
+                      "then": [
+                        {
+                          "action": "input_number.set_value",
+                          "target": {
+                            "entity_id": "input_number.ls_living_room_remote_chord_step"
+                          },
+                          "data": {
+                            "value": 0
+                          }
+                        },
+                        {
+                          "action": "timer.cancel",
+                          "target": {
+                            "entity_id": "timer.ls_living_room_remote_chord"
+                          }
+                        },
+                        {
+                          "variables": {
+                            "room": "{{ area_id('0752f2b4e9a0992ac8efc2af1f53c62a') }}"
+                          }
+                        },
+                        {
+                          "if": [
+                            {
+                              "condition": "template",
+                              "value_template": "{{ room is string and room|length>0 }}"
+                            }
+                          ],
+                          "then": [
+                            {
+                              "action": "script.turn_on",
+                              "target": {
+                                "entity_id": "script.ls_remote_command"
+                              },
+                              "data": {
+                                "variables": {
+                                  "source": "0x385b44fffea50c99",
+                                  "area": "{{ room }}",
+                                  "command": "{{ 'toggle' if clicks==1 else 'reset' }}",
+                                  "dry_run": false
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "variables": {
+                    "clicks": "{{ [3,clicks+1]|min if quiet_active else 1 }}"
+                  }
+                },
+                {
+                  "action": "input_number.set_value",
+                  "target": {
+                    "entity_id": "input_number.ls_living_room_remote_power_count"
+                  },
+                  "data": {
+                    "value": "{{ clicks }}"
+                  }
+                },
+                {
+                  "choose": [
+                    {
+                      "conditions": [
+                        {
+                          "condition": "template",
+                          "value_template": "{{ clicks==1 }}"
+                        }
+                      ],
+                      "sequence": [
+                        {
+                          "action": "input_number.set_value",
+                          "target": {
+                            "entity_id": "input_number.ls_living_room_remote_chord_step"
+                          },
+                          "data": {
+                            "value": -1
+                          }
+                        },
+                        {
+                          "action": "timer.start",
+                          "target": {
+                            "entity_id": "timer.ls_living_room_remote_chord"
+                          },
+                          "data": {
+                            "duration": "00:00:03"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "conditions": [
+                        {
+                          "condition": "template",
+                          "value_template": "{{ clicks==2 }}"
+                        }
+                      ],
+                      "sequence": [
+                        {
+                          "if": [
+                            {
+                              "condition": "template",
+                              "value_template": "{{ active and step==-1 }}"
+                            }
+                          ],
+                          "then": [
+                            {
+                              "action": "input_number.set_value",
+                              "target": {
+                                "entity_id": "input_number.ls_living_room_remote_chord_step"
+                              },
+                              "data": {
+                                "value": 1
+                              }
+                            },
+                            {
+                              "action": "timer.start",
+                              "target": {
+                                "entity_id": "timer.ls_living_room_remote_chord"
+                              },
+                              "data": {
+                                "duration": "00:00:03"
+                              }
+                            }
+                          ],
+                          "else": [
+                            {
+                              "action": "input_number.set_value",
+                              "target": {
+                                "entity_id": "input_number.ls_living_room_remote_chord_step"
+                              },
+                              "data": {
+                                "value": 0
+                              }
+                            },
+                            {
+                              "action": "timer.cancel",
+                              "target": {
+                                "entity_id": "timer.ls_living_room_remote_chord"
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ],
+                  "default": [
+                    {
+                      "action": "input_number.set_value",
+                      "target": {
+                        "entity_id": "input_number.ls_living_room_remote_chord_step"
+                      },
+                      "data": {
+                        "value": 0
+                      }
+                    },
+                    {
+                      "action": "timer.cancel",
+                      "target": {
+                        "entity_id": "timer.ls_living_room_remote_chord"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "variables": {
+                    "fresh_token": "{{ now().isoformat() }}"
+                  }
+                },
+                {
+                  "action": "input_text.set_value",
+                  "target": {
+                    "entity_id": "input_text.ls_living_room_remote_power_token"
+                  },
+                  "data": {
+                    "value": "{{ fresh_token }}"
+                  }
+                },
+                {
+                  "action": "script.turn_on",
+                  "target": {
+                    "entity_id": "script.ls_remote_power_quiet_living_room"
+                  },
+                  "data": {
+                    "variables": {
+                      "token": "{{ fresh_token }}"
+                    }
+                  }
+                },
+                {
+                  "stop": "Raw power recorded without waiting"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "if": [
+            {
+              "condition": "template",
+              "value_template": "{{ command=='preset' }}"
+            }
+          ],
+          "then": [
+            {
+              "if": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ payload is not mapping or payload.get('action') != 'color_temperature_move' }}"
+                }
+              ],
+              "then": [
+                {
+                  "stop": "Ignore non-canonical preset companion or unrelated MQTT payload"
+                }
+              ]
+            },
+            {
+              "variables": {
+                "presets": [
+                  200,
+                  285,
+                  370,
+                  454,
+                  588
+                ],
+                "preset": "{{ payload.get('action_color_temperature') }}",
+                "previous": "{{ states('input_number.ls_living_room_remote_preset')|float(-2) }}"
+              }
+            },
+            {
+              "if": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ preset is not number or preset is boolean or preset not in presets }}"
+                }
+              ],
+              "then": [
+                {
+                  "action": "input_number.set_value",
+                  "target": {
+                    "entity_id": "input_number.ls_living_room_remote_chord_step"
+                  },
+                  "data": {
+                    "value": 0
+                  }
+                },
+                {
+                  "action": "timer.cancel",
+                  "target": {
+                    "entity_id": "timer.ls_living_room_remote_chord"
+                  }
+                },
+                {
+                  "stop": "Unknown preset cancels chord"
+                }
+              ]
+            },
+            {
+              "variables": {
+                "index": "{{ presets.index(preset) }}"
+              }
+            },
+            {
+              "if": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ index==previous }}"
+                }
+              ],
+              "then": [
+                {
+                  "stop": "Ignore duplicate preset companion"
+                }
+              ]
+            },
+            {
+              "variables": {
+                "delta": "{{ (1 if index==0 else 4 if index==4 else -1) if previous==-1 else (index-previous|int)%5 if previous in [0,1,2,3,4] else -1 }}"
+              }
+            },
+            {
+              "action": "input_number.set_value",
+              "target": {
+                "entity_id": "input_number.ls_living_room_remote_preset"
+              },
+              "data": {
+                "value": "{{ index }}"
+              }
+            },
+            {
+              "variables": {
+                "command": "{{ 'right' if delta==1 else 'left' if delta==4 else 'cancel' }}"
+              }
+            }
+          ]
+        },
+        {
+          "choose": [
+            {
+              "conditions": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ active and step in [1,2,3,4] and command==['left','right','left','right'][step-1] }}"
+                }
+              ],
+              "sequence": [
+                {
+                  "if": [
+                    {
+                      "condition": "template",
+                      "value_template": "{{ step==4 }}"
+                    }
+                  ],
+                  "then": [
+                    {
+                      "action": "input_number.set_value",
+                      "target": {
+                        "entity_id": "input_number.ls_living_room_remote_chord_step"
+                      },
+                      "data": {
+                        "value": 0
+                      }
+                    },
+                    {
+                      "action": "timer.cancel",
+                      "target": {
+                        "entity_id": "timer.ls_living_room_remote_chord"
+                      }
+                    },
+                    {
+                      "variables": {
+                        "room": "{{ area_id('0752f2b4e9a0992ac8efc2af1f53c62a') }}"
+                      }
+                    },
+                    {
+                      "if": [
+                        {
+                          "condition": "template",
+                          "value_template": "{{ room is string and room|length>0 }}"
+                        }
+                      ],
+                      "then": [
+                        {
+                          "action": "script.turn_on",
+                          "target": {
+                            "entity_id": "script.ls_remote_command"
+                          },
+                          "data": {
+                            "variables": {
+                              "source": "0x385b44fffea50c99",
+                              "area": "{{ room }}",
+                              "command": "sara_toggle",
+                              "dry_run": false
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "else": [
+                    {
+                      "action": "input_number.set_value",
+                      "target": {
+                        "entity_id": "input_number.ls_living_room_remote_chord_step"
+                      },
+                      "data": {
+                        "value": "{{ step+1 }}"
+                      }
+                    },
+                    {
+                      "action": "timer.start",
+                      "target": {
+                        "entity_id": "timer.ls_living_room_remote_chord"
+                      },
+                      "data": {
+                        "duration": "00:00:03"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "stop": "Matched chord input consumed"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "if": [
+            {
+              "condition": "template",
+              "value_template": "{{ step!=0 or active }}"
+            }
+          ],
+          "then": [
+            {
+              "action": "input_number.set_value",
+              "target": {
+                "entity_id": "input_number.ls_living_room_remote_chord_step"
+              },
+              "data": {
+                "value": 0
+              }
+            },
+            {
+              "action": "timer.cancel",
+              "target": {
+                "entity_id": "timer.ls_living_room_remote_chord"
+              }
+            }
+          ]
+        },
+        {
+          "condition": "template",
+          "value_template": "{{ command in ['left','right','up','down'] }}"
+        },
+        {
+          "variables": {
+            "room": "{{ area_id('0752f2b4e9a0992ac8efc2af1f53c62a') }}"
+          }
+        },
+        {
+          "if": [
+            {
+              "condition": "template",
+              "value_template": "{{ room is string and room|length>0 }}"
+            }
+          ],
+          "then": [
+            {
+              "action": "script.turn_on",
+              "target": {
+                "entity_id": "script.ls_remote_command"
+              },
+              "data": {
+                "variables": {
+                  "source": "0x385b44fffea50c99",
+                  "area": "{{ room }}",
+                  "command": "{{ command }}",
+                  "dry_run": false
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "effects_catalog": {
+    "config": {
+      "alias": "Effects · Catalogue",
+      "description": "Single registration point for effects and transport endpoints. Renderers return a payload; the central engine owns all sending and timing.",
+      "mode": "parallel",
+      "sequence": [
+        {
+          "variables": {
+            "result": {
+              "effects": {
+                "Candle": {
+                  "renderer": "script.effect_candle_frame",
+                  "channels": [
+                    "brightness",
+                    "color"
+                  ]
+                },
+                "Breathe": {
+                  "renderer": "script.effect_breathe_frame",
+                  "channels": [
+                    "brightness"
+                  ]
+                },
+                "Colour loop": {
+                  "renderer": "script.effect_colour_loop_frame",
+                  "channels": [
+                    "color"
+                  ]
+                }
+              },
+              "members": {
+                "light.jonathan_bedroom_floor_lamp": [
+                  "light.jonathan_bedroom_floor_lamp"
+                ],
+                "light.upper_hall_stair_lamp": [
+                  "light.upper_hall_stair_lamp"
+                ],
+                "light.upper_hall_ceiling": [
+                  "light.upper_hall_ceiling"
+                ],
+                "light.living_room_desk_ceiling": [
+                  "light.living_room_desk_ceiling"
+                ],
+                "light.living_room_hall_ceiling": [
+                  "light.living_room_hall_ceiling"
+                ],
+                "light.living_room_vicky_desk_lamp": [
+                  "light.living_room_vicky_desk_lamp"
+                ],
+                "light.living_room_table_lamp": [
+                  "light.living_room_table_lamp"
+                ],
+                "light.living_room_window_lamp": [
+                  "light.living_room_window_lamp"
+                ],
+                "light.living_room_yellow_retro_lamp": [
+                  "light.living_room_yellow_retro_lamp"
+                ],
+                "light.kitchen_pendant": [
+                  "light.kitchen_pendant_bulb_1",
+                  "light.kitchen_pendant_bulb_2",
+                  "light.kitchen_pendant_bulb_3"
+                ],
+                "light.kitchen_spots_1": [
+                  "light.kitchen_spots_1_bulb_1",
+                  "light.kitchen_spots_1_bulb_2",
+                  "light.kitchen_spots_1_bulb_3"
+                ],
+                "light.kitchen_spots_2": [
+                  "light.kitchen_spots_2_bulb_1",
+                  "light.kitchen_spots_2_bulb_2",
+                  "light.kitchen_spots_2_bulb_3"
+                ],
+                "light.meditation_floor_lamp": [
+                  "light.meditation_floor_lamp_bulb_1",
+                  "light.meditation_floor_lamp_bulb_2"
+                ],
+                "light.jonathan_bedroom_ceiling": [
+                  "light.jonathan_bedroom_ceiling"
+                ],
+                "light.meditation_ceiling": [
+                  "light.meditation_ceiling"
+                ],
+                "light.living_room_sofa_table_ceiling": [
+                  "light.living_room_sofa_table_ceiling"
+                ]
+              },
+              "groups": {
+                "light.home": [
+                  "light.jonathan_bedroom_floor_lamp",
+                  "light.upper_hall_stair_lamp",
+                  "light.upper_hall_ceiling",
+                  "light.living_room_desk_ceiling",
+                  "light.living_room_hall_ceiling",
+                  "light.living_room_vicky_desk_lamp",
+                  "light.living_room_table_lamp",
+                  "light.living_room_window_lamp",
+                  "light.living_room_yellow_retro_lamp",
+                  "light.kitchen_pendant",
+                  "light.kitchen_spots_1",
+                  "light.kitchen_spots_2",
+                  "light.meditation_floor_lamp",
+                  "light.jonathan_bedroom_ceiling",
+                  "light.meditation_ceiling",
+                  "light.living_room_sofa_table_ceiling"
+                ],
+                "light.kitchen_all": [
+                  "light.kitchen_pendant",
+                  "light.kitchen_spots_1",
+                  "light.kitchen_spots_2"
+                ],
+                "light.living_room": [
+                  "light.living_room_desk_ceiling",
+                  "light.living_room_hall_ceiling",
+                  "light.living_room_vicky_desk_lamp",
+                  "light.living_room_table_lamp",
+                  "light.living_room_window_lamp",
+                  "light.living_room_yellow_retro_lamp",
+                  "light.living_room_sofa_table_ceiling"
+                ],
+                "light.upper_hall": [
+                  "light.upper_hall_stair_lamp",
+                  "light.upper_hall_ceiling"
+                ],
+                "light.jonathan_bedroom": [
+                  "light.jonathan_bedroom_floor_lamp",
+                  "light.jonathan_bedroom_ceiling"
+                ],
+                "light.meditation_mys_all": [
+                  "light.meditation_floor_lamp",
+                  "light.meditation_ceiling"
+                ]
+              },
+              "topics": {
+                "light.kitchen_pendant_bulb_1": "zigbee2mqtt/0xa4c138e778a7b45f/set",
+                "light.kitchen_pendant_bulb_2": "zigbee2mqtt/0xa4c1389a579ab983/set",
+                "light.kitchen_pendant_bulb_3": "zigbee2mqtt/0xa4c1389f87b76e60/set",
+                "light.kitchen_spots_1_bulb_1": "zigbee2mqtt/0xa4c1381f885b082f/set",
+                "light.kitchen_spots_1_bulb_2": "zigbee2mqtt/0xa4c1387e4cfba78d/set",
+                "light.kitchen_spots_1_bulb_3": "zigbee2mqtt/0xa4c138a884038127/set",
+                "light.kitchen_spots_2_bulb_1": "zigbee2mqtt/0xa4c1386736786442/set",
+                "light.kitchen_spots_2_bulb_2": "zigbee2mqtt/0xa4c138a50ae5ba5a/set",
+                "light.kitchen_spots_2_bulb_3": "zigbee2mqtt/0xa4c1381a2f63601c/set",
+                "light.meditation_floor_lamp_bulb_1": "zigbee2mqtt/Mys golvlampa 1/set",
+                "light.meditation_floor_lamp_bulb_2": "zigbee2mqtt/Mys golvlampa 2/set",
+                "light.meditation_ceiling": "zigbee2mqtt/0xa4c138eec10a5f95/set",
+                "light.jonathan_bedroom_ceiling": "zigbee2mqtt/0xa4c1387f3e38e505/set",
+                "light.jonathan_bedroom_floor_lamp": "zigbee2mqtt/0xa4c13889ddf1c22e/set",
+                "light.living_room_table_lamp": "zigbee2mqtt/0xa4c138502d6c44cd/set",
+                "light.living_room_desk_ceiling": "zigbee2mqtt/0xa4c13836b344b302/set",
+                "light.living_room_hall_ceiling": "zigbee2mqtt/0xa4c13850c80ed98f/set",
+                "light.living_room_sofa_table_ceiling": "zigbee2mqtt/0xa4c138292a2d7f60/set",
+                "light.living_room_vicky_desk_lamp": "zigbee2mqtt/0x7cc6b6fffe3cef1c/set",
+                "light.living_room_window_lamp": "zigbee2mqtt/0xa4c13825783eff26/set",
+                "light.living_room_yellow_retro_lamp": "zigbee2mqtt/0xa4c1386c73f1db49/set",
+                "light.upper_hall_ceiling": "zigbee2mqtt/0xa4c138f013c2624e/set",
+                "light.upper_hall_stair_lamp": "zigbee2mqtt/0xa4c138b95e526424/set"
+              },
+              "budget": 5,
+              "multicast": [
+                {
+                  "id": "fx_candle_cross_a",
+                  "topic": "zigbee2mqtt/fx_candle_cross_a/set",
+                  "lamps": [
+                    "light.living_room_hall_ceiling",
+                    "light.living_room_window_lamp",
+                    "light.meditation_floor_lamp",
+                    "light.kitchen_pendant"
+                  ],
+                  "members": [
+                    "light.kitchen_pendant_bulb_1",
+                    "light.kitchen_pendant_bulb_2",
+                    "light.kitchen_pendant_bulb_3",
+                    "light.living_room_hall_ceiling",
+                    "light.living_room_window_lamp",
+                    "light.meditation_floor_lamp_bulb_1",
+                    "light.meditation_floor_lamp_bulb_2"
+                  ],
+                  "verified": true,
+                  "member_topics": {
+                    "light.kitchen_pendant_bulb_1": "zigbee2mqtt/0xa4c138e778a7b45f/set",
+                    "light.kitchen_pendant_bulb_2": "zigbee2mqtt/0xa4c1389a579ab983/set",
+                    "light.kitchen_pendant_bulb_3": "zigbee2mqtt/0xa4c1389f87b76e60/set",
+                    "light.living_room_hall_ceiling": "zigbee2mqtt/0xa4c13850c80ed98f/set",
+                    "light.living_room_window_lamp": "zigbee2mqtt/0xa4c13825783eff26/set",
+                    "light.meditation_floor_lamp_bulb_1": "zigbee2mqtt/Mys golvlampa 1/set",
+                    "light.meditation_floor_lamp_bulb_2": "zigbee2mqtt/Mys golvlampa 2/set"
+                  },
+                  "phase_cohort": "fx_candle_cross_a",
+                  "devices": [
+                    "0xa4c138e778a7b45f",
+                    "0xa4c1389a579ab983",
+                    "0xa4c1389f87b76e60",
+                    "0xa4c13850c80ed98f",
+                    "0xa4c13825783eff26",
+                    "Mys golvlampa 1",
+                    "Mys golvlampa 2"
+                  ],
+                  "desired_members": [
+                    "light.kitchen_pendant_bulb_1",
+                    "light.kitchen_pendant_bulb_2",
+                    "light.kitchen_pendant_bulb_3",
+                    "light.living_room_hall_ceiling",
+                    "light.living_room_window_lamp",
+                    "light.meditation_floor_lamp_bulb_1",
+                    "light.meditation_floor_lamp_bulb_2"
+                  ],
+                  "pending_members": [],
+                  "zigbee_id": 1001
+                },
+                {
+                  "id": "fx_candle_cross_b",
+                  "topic": "zigbee2mqtt/fx_candle_cross_b/set",
+                  "lamps": [
+                    "light.living_room_desk_ceiling",
+                    "light.living_room_sofa_table_ceiling",
+                    "light.meditation_ceiling",
+                    "light.kitchen_spots_1"
+                  ],
+                  "members": [
+                    "light.kitchen_spots_1_bulb_1",
+                    "light.kitchen_spots_1_bulb_2",
+                    "light.kitchen_spots_1_bulb_3",
+                    "light.living_room_desk_ceiling",
+                    "light.living_room_sofa_table_ceiling"
+                  ],
+                  "verified": true,
+                  "member_topics": {
+                    "light.kitchen_spots_1_bulb_1": "zigbee2mqtt/0xa4c1381f885b082f/set",
+                    "light.kitchen_spots_1_bulb_2": "zigbee2mqtt/0xa4c1387e4cfba78d/set",
+                    "light.kitchen_spots_1_bulb_3": "zigbee2mqtt/0xa4c138a884038127/set",
+                    "light.living_room_desk_ceiling": "zigbee2mqtt/0xa4c13836b344b302/set",
+                    "light.living_room_sofa_table_ceiling": "zigbee2mqtt/0xa4c138292a2d7f60/set",
+                    "light.meditation_ceiling": "zigbee2mqtt/0xa4c138eec10a5f95/set"
+                  },
+                  "phase_cohort": "fx_candle_cross_b",
+                  "devices": [
+                    "0xa4c1381f885b082f",
+                    "0xa4c1387e4cfba78d",
+                    "0xa4c138a884038127",
+                    "0xa4c13836b344b302",
+                    "0xa4c138292a2d7f60",
+                    "0xa4c138eec10a5f95"
+                  ],
+                  "desired_members": [
+                    "light.kitchen_spots_1_bulb_1",
+                    "light.kitchen_spots_1_bulb_2",
+                    "light.kitchen_spots_1_bulb_3",
+                    "light.living_room_desk_ceiling",
+                    "light.living_room_sofa_table_ceiling",
+                    "light.meditation_ceiling"
+                  ],
+                  "pending_members": [
+                    "light.meditation_ceiling"
+                  ],
+                  "zigbee_id": 1002
+                },
+                {
+                  "id": "fx_candle_cross_c",
+                  "topic": "zigbee2mqtt/fx_candle_cross_c/set",
+                  "lamps": [
+                    "light.living_room_yellow_retro_lamp",
+                    "light.kitchen_spots_2",
+                    "light.upper_hall_stair_lamp"
+                  ],
+                  "members": [
+                    "light.kitchen_spots_2_bulb_1",
+                    "light.kitchen_spots_2_bulb_2",
+                    "light.kitchen_spots_2_bulb_3",
+                    "light.living_room_yellow_retro_lamp"
+                  ],
+                  "verified": true,
+                  "member_topics": {
+                    "light.kitchen_spots_2_bulb_1": "zigbee2mqtt/0xa4c1386736786442/set",
+                    "light.kitchen_spots_2_bulb_2": "zigbee2mqtt/0xa4c138a50ae5ba5a/set",
+                    "light.kitchen_spots_2_bulb_3": "zigbee2mqtt/0xa4c1381a2f63601c/set",
+                    "light.living_room_yellow_retro_lamp": "zigbee2mqtt/0xa4c1386c73f1db49/set",
+                    "light.upper_hall_stair_lamp": "zigbee2mqtt/0xa4c138b95e526424/set"
+                  },
+                  "phase_cohort": "fx_candle_cross_c",
+                  "devices": [
+                    "0xa4c1386736786442",
+                    "0xa4c138a50ae5ba5a",
+                    "0xa4c1381a2f63601c",
+                    "0xa4c1386c73f1db49",
+                    "0xa4c138b95e526424"
+                  ],
+                  "desired_members": [
+                    "light.kitchen_spots_2_bulb_1",
+                    "light.kitchen_spots_2_bulb_2",
+                    "light.kitchen_spots_2_bulb_3",
+                    "light.living_room_yellow_retro_lamp",
+                    "light.upper_hall_stair_lamp"
+                  ],
+                  "pending_members": [
+                    "light.upper_hall_stair_lamp"
+                  ],
+                  "zigbee_id": 1003
+                },
+                {
+                  "id": "fx_candle_cross_d",
+                  "topic": "zigbee2mqtt/fx_candle_cross_d/set",
+                  "lamps": [
+                    "light.living_room_vicky_desk_lamp",
+                    "light.upper_hall_ceiling"
+                  ],
+                  "members": [
+                    "light.living_room_vicky_desk_lamp"
+                  ],
+                  "verified": true,
+                  "member_topics": {
+                    "light.living_room_vicky_desk_lamp": "zigbee2mqtt/0x7cc6b6fffe3cef1c/set",
+                    "light.upper_hall_ceiling": "zigbee2mqtt/0xa4c138f013c2624e/set"
+                  },
+                  "phase_cohort": "fx_candle_cross_d",
+                  "devices": [
+                    "0x7cc6b6fffe3cef1c",
+                    "0xa4c138f013c2624e"
+                  ],
+                  "desired_members": [
+                    "light.living_room_vicky_desk_lamp",
+                    "light.upper_hall_ceiling"
+                  ],
+                  "pending_members": [
+                    "light.upper_hall_ceiling"
+                  ],
+                  "zigbee_id": 1004
+                },
+                {
+                  "id": "fx_lamp_kitchen_pendant",
+                  "topic": "zigbee2mqtt/kitchen/pendant/set",
+                  "lamps": [
+                    "light.kitchen_pendant"
+                  ],
+                  "members": [
+                    "light.kitchen_pendant_bulb_1",
+                    "light.kitchen_pendant_bulb_2",
+                    "light.kitchen_pendant_bulb_3"
+                  ],
+                  "verified": true,
+                  "member_topics": {
+                    "light.kitchen_pendant_bulb_1": "zigbee2mqtt/0xa4c138e778a7b45f/set",
+                    "light.kitchen_pendant_bulb_2": "zigbee2mqtt/0xa4c1389a579ab983/set",
+                    "light.kitchen_pendant_bulb_3": "zigbee2mqtt/0xa4c1389f87b76e60/set"
+                  },
+                  "phase_cohort": "fx_candle_cross_a",
+                  "devices": [
+                    "0xa4c138e778a7b45f",
+                    "0xa4c1389a579ab983",
+                    "0xa4c1389f87b76e60"
+                  ],
+                  "zigbee_id": 1
+                },
+                {
+                  "id": "fx_lamp_kitchen_spots_1",
+                  "topic": "zigbee2mqtt/kitchen/spots-1/set",
+                  "lamps": [
+                    "light.kitchen_spots_1"
+                  ],
+                  "members": [
+                    "light.kitchen_spots_1_bulb_1",
+                    "light.kitchen_spots_1_bulb_2",
+                    "light.kitchen_spots_1_bulb_3"
+                  ],
+                  "verified": true,
+                  "member_topics": {
+                    "light.kitchen_spots_1_bulb_1": "zigbee2mqtt/0xa4c1381f885b082f/set",
+                    "light.kitchen_spots_1_bulb_2": "zigbee2mqtt/0xa4c1387e4cfba78d/set",
+                    "light.kitchen_spots_1_bulb_3": "zigbee2mqtt/0xa4c138a884038127/set"
+                  },
+                  "phase_cohort": "fx_candle_cross_b",
+                  "devices": [
+                    "0xa4c1381f885b082f",
+                    "0xa4c1387e4cfba78d",
+                    "0xa4c138a884038127"
+                  ],
+                  "zigbee_id": 2
+                },
+                {
+                  "id": "fx_lamp_kitchen_spots_2",
+                  "topic": "zigbee2mqtt/kitchen/spots-2/set",
+                  "lamps": [
+                    "light.kitchen_spots_2"
+                  ],
+                  "members": [
+                    "light.kitchen_spots_2_bulb_1",
+                    "light.kitchen_spots_2_bulb_2",
+                    "light.kitchen_spots_2_bulb_3"
+                  ],
+                  "verified": true,
+                  "member_topics": {
+                    "light.kitchen_spots_2_bulb_1": "zigbee2mqtt/0xa4c1386736786442/set",
+                    "light.kitchen_spots_2_bulb_2": "zigbee2mqtt/0xa4c138a50ae5ba5a/set",
+                    "light.kitchen_spots_2_bulb_3": "zigbee2mqtt/0xa4c1381a2f63601c/set"
+                  },
+                  "phase_cohort": "fx_candle_cross_c",
+                  "devices": [
+                    "0xa4c1386736786442",
+                    "0xa4c138a50ae5ba5a",
+                    "0xa4c1381a2f63601c"
+                  ],
+                  "zigbee_id": 3
+                },
+                {
+                  "id": "fx_lamp_meditation_floor_lamp",
+                  "topic": "zigbee2mqtt/Mys golvlampa/set",
+                  "lamps": [
+                    "light.meditation_floor_lamp"
+                  ],
+                  "members": [
+                    "light.meditation_floor_lamp_bulb_1",
+                    "light.meditation_floor_lamp_bulb_2"
+                  ],
+                  "verified": true,
+                  "member_topics": {
+                    "light.meditation_floor_lamp_bulb_1": "zigbee2mqtt/Mys golvlampa 1/set",
+                    "light.meditation_floor_lamp_bulb_2": "zigbee2mqtt/Mys golvlampa 2/set"
+                  },
+                  "phase_cohort": "fx_candle_cross_a",
+                  "devices": [
+                    "Mys golvlampa 1",
+                    "Mys golvlampa 2"
+                  ],
+                  "zigbee_id": 5
+                },
+                {
+                  "id": "room_kitchen",
+                  "topic": "zigbee2mqtt/kitchen/all/set",
+                  "lamps": [
+                    "light.kitchen_pendant",
+                    "light.kitchen_spots_1",
+                    "light.kitchen_spots_2"
+                  ],
+                  "members": [
+                    "light.kitchen_pendant_bulb_1",
+                    "light.kitchen_pendant_bulb_2",
+                    "light.kitchen_pendant_bulb_3",
+                    "light.kitchen_spots_1_bulb_1",
+                    "light.kitchen_spots_1_bulb_2",
+                    "light.kitchen_spots_1_bulb_3",
+                    "light.kitchen_spots_2_bulb_1",
+                    "light.kitchen_spots_2_bulb_2",
+                    "light.kitchen_spots_2_bulb_3"
+                  ],
+                  "verified": true,
+                  "member_topics": {
+                    "light.kitchen_pendant_bulb_1": "zigbee2mqtt/0xa4c138e778a7b45f/set",
+                    "light.kitchen_pendant_bulb_2": "zigbee2mqtt/0xa4c1389a579ab983/set",
+                    "light.kitchen_pendant_bulb_3": "zigbee2mqtt/0xa4c1389f87b76e60/set",
+                    "light.kitchen_spots_1_bulb_1": "zigbee2mqtt/0xa4c1381f885b082f/set",
+                    "light.kitchen_spots_1_bulb_2": "zigbee2mqtt/0xa4c1387e4cfba78d/set",
+                    "light.kitchen_spots_1_bulb_3": "zigbee2mqtt/0xa4c138a884038127/set",
+                    "light.kitchen_spots_2_bulb_1": "zigbee2mqtt/0xa4c1386736786442/set",
+                    "light.kitchen_spots_2_bulb_2": "zigbee2mqtt/0xa4c138a50ae5ba5a/set",
+                    "light.kitchen_spots_2_bulb_3": "zigbee2mqtt/0xa4c1381a2f63601c/set"
+                  },
+                  "devices": [
+                    "0xa4c138e778a7b45f",
+                    "0xa4c1389a579ab983",
+                    "0xa4c1389f87b76e60",
+                    "0xa4c1381f885b082f",
+                    "0xa4c1387e4cfba78d",
+                    "0xa4c138a884038127",
+                    "0xa4c1386736786442",
+                    "0xa4c138a50ae5ba5a",
+                    "0xa4c1381a2f63601c"
+                  ],
+                  "zigbee_id": 4
+                },
+                {
+                  "id": "room_bedroom",
+                  "topic": "zigbee2mqtt/ls_room_bedroom/set",
+                  "lamps": [
+                    "light.jonathan_bedroom_floor_lamp",
+                    "light.jonathan_bedroom_ceiling"
+                  ],
+                  "members": [
+                    "light.jonathan_bedroom_ceiling",
+                    "light.jonathan_bedroom_floor_lamp"
+                  ],
+                  "verified": true,
+                  "member_topics": {
+                    "light.jonathan_bedroom_floor_lamp": "zigbee2mqtt/0xa4c13889ddf1c22e/set",
+                    "light.jonathan_bedroom_ceiling": "zigbee2mqtt/0xa4c1387f3e38e505/set"
+                  },
+                  "devices": [
+                    "0xa4c13889ddf1c22e",
+                    "0xa4c1387f3e38e505"
+                  ],
+                  "zigbee_id": 2001
+                },
+                {
+                  "id": "room_living_room",
+                  "topic": "zigbee2mqtt/ls_room_living_room/set",
+                  "lamps": [
+                    "light.living_room_desk_ceiling",
+                    "light.living_room_hall_ceiling",
+                    "light.living_room_vicky_desk_lamp",
+                    "light.living_room_table_lamp",
+                    "light.living_room_window_lamp",
+                    "light.living_room_yellow_retro_lamp",
+                    "light.living_room_sofa_table_ceiling"
+                  ],
+                  "members": [
+                    "light.living_room_desk_ceiling",
+                    "light.living_room_hall_ceiling",
+                    "light.living_room_sofa_table_ceiling",
+                    "light.living_room_table_lamp",
+                    "light.living_room_vicky_desk_lamp",
+                    "light.living_room_window_lamp",
+                    "light.living_room_yellow_retro_lamp"
+                  ],
+                  "verified": true,
+                  "member_topics": {
+                    "light.living_room_desk_ceiling": "zigbee2mqtt/0xa4c13836b344b302/set",
+                    "light.living_room_hall_ceiling": "zigbee2mqtt/0xa4c13850c80ed98f/set",
+                    "light.living_room_vicky_desk_lamp": "zigbee2mqtt/0x7cc6b6fffe3cef1c/set",
+                    "light.living_room_table_lamp": "zigbee2mqtt/0xa4c138502d6c44cd/set",
+                    "light.living_room_window_lamp": "zigbee2mqtt/0xa4c13825783eff26/set",
+                    "light.living_room_yellow_retro_lamp": "zigbee2mqtt/0xa4c1386c73f1db49/set",
+                    "light.living_room_sofa_table_ceiling": "zigbee2mqtt/0xa4c138292a2d7f60/set"
+                  },
+                  "devices": [
+                    "0xa4c13836b344b302",
+                    "0xa4c13850c80ed98f",
+                    "0x7cc6b6fffe3cef1c",
+                    "0xa4c138502d6c44cd",
+                    "0xa4c13825783eff26",
+                    "0xa4c1386c73f1db49",
+                    "0xa4c138292a2d7f60"
+                  ],
+                  "zigbee_id": 2002
+                }
+              ],
+              "phases": {
+                "light.jonathan_bedroom_floor_lamp": "light.jonathan_bedroom_floor_lamp",
+                "light.upper_hall_stair_lamp": "fx_candle_cross_c",
+                "light.upper_hall_ceiling": "fx_candle_cross_d",
+                "light.living_room_desk_ceiling": "fx_candle_cross_b",
+                "light.living_room_hall_ceiling": "fx_candle_cross_a",
+                "light.living_room_vicky_desk_lamp": "fx_candle_cross_d",
+                "light.living_room_table_lamp": "light.living_room_table_lamp",
+                "light.living_room_window_lamp": "fx_candle_cross_a",
+                "light.living_room_yellow_retro_lamp": "fx_candle_cross_c",
+                "light.kitchen_pendant": "fx_candle_cross_a",
+                "light.kitchen_spots_1": "fx_candle_cross_b",
+                "light.kitchen_spots_2": "fx_candle_cross_c",
+                "light.meditation_floor_lamp": "fx_candle_cross_a",
+                "light.jonathan_bedroom_ceiling": "light.jonathan_bedroom_ceiling",
+                "light.meditation_ceiling": "fx_candle_cross_b",
+                "light.living_room_sofa_table_ceiling": "fx_candle_cross_b"
+              },
+              "processors": {
+                "Normal light": {
+                  "channels": [
+                    "brightness",
+                    "color"
+                  ],
+                  "remote_adjustment": "gradient",
+                  "animated": false
+                },
+                "Candle": {
+                  "channels": [
+                    "brightness",
+                    "color"
+                  ],
+                  "remote_adjustment": "ignore",
+                  "animated": true
+                },
+                "Breathe": {
+                  "channels": [
+                    "brightness"
+                  ],
+                  "remote_adjustment": "ignore",
+                  "animated": true
+                },
+                "Colour loop": {
+                  "channels": [
+                    "color"
+                  ],
+                  "remote_adjustment": "ignore",
+                  "animated": true
+                }
+              }
+            }
+          }
+        },
+        {
+          "stop": "Return result",
+          "response_variable": "result"
+        }
+      ],
+      "max": 50
+    }
+  }
+}

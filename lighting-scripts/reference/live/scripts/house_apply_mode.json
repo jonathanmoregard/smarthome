@@ -1,0 +1,221 @@
+{
+  "success": true,
+  "action": "get",
+  "script_id": "house_apply_mode",
+  "config": {
+    "alias": "House: apply mode",
+    "description": "Sets lamps to their room's current block. Kitchen and living room follow Downstairs mode, Jonathan's bedroom follows Bedroom mode, every other room follows House mode. Day: 100% at 3500 K. Cosy: 2200 K, kitchen 40%, elsewhere 50%. Night: dim red, kitchen 1%, upper hall 15%, living room 15%, bedroom 5%, other 1%. When all three kitchen fixtures are targeted they get one Zigbee group command (light.kitchen_all). Lamps in a running sunrise are skipped. After a fade the block is re-sent instantly to lamps still on.",
+    "mode": "parallel",
+    "max": 20,
+    "icon": "mdi:home-lightbulb-outline",
+    "fields": {
+      "lights": {
+        "name": "Lights",
+        "description": "Lamps to set. Omit to use Scope.",
+        "required": false,
+        "selector": {
+          "entity": {
+            "domain": "light",
+            "multiple": true
+          }
+        }
+      },
+      "scope": {
+        "name": "Scope",
+        "description": "Used when Lights is omitted: House schedule lamps driven by House mode (house: upper hall and unlisted rooms), by Downstairs mode (downstairs: kitchen and living room), by Bedroom mode (bedroom), the kitchen only (kitchen), or all of them (all).",
+        "default": "all",
+        "selector": {
+          "select": {
+            "options": [
+              "house",
+              "downstairs",
+              "bedroom",
+              "kitchen",
+              "all"
+            ]
+          }
+        }
+      },
+      "transition": {
+        "name": "Transition",
+        "description": "Fade time in seconds",
+        "default": 0,
+        "selector": {
+          "number": {
+            "min": 0,
+            "max": 3600,
+            "unit_of_measurement": "s"
+          }
+        }
+      }
+    },
+    "sequence": [
+      {
+        "variables": {
+          "scheduled": "{{ (label_entities('house_schedule') + (label_devices('house_schedule') | map('device_entities') | sum(start=[]))) | select('match', 'light\\.') | unique | list }}",
+          "sunrise_lamps": "{{ ((label_entities('sunrise') + (label_devices('sunrise') | map('device_entities') | sum(start=[]))) | select('match', 'light\\.') | list) if is_state('script.house_sunrise', 'on') else [] }}",
+          "scope_name": "{{ scope | default('all') }}",
+          "fade": "{{ transition | default(0) | int(0) }}",
+          "rooms": [
+            {
+              "area": "kitchen",
+              "mode": "input_select.downstairs_mode",
+              "pct": {
+                "Day": 100,
+                "Cosy": 40,
+                "Night": 1
+              },
+              "whole": "light.kitchen_all",
+              "parts": [
+                "light.kitchen_pendant",
+                "light.kitchen_spots_1",
+                "light.kitchen_spots_2"
+              ]
+            },
+            {
+              "area": "hall_overvaning",
+              "mode": "input_select.house_mode",
+              "pct": {
+                "Day": 100,
+                "Cosy": 50,
+                "Night": 15
+              }
+            },
+            {
+              "area": "living_room",
+              "mode": "input_select.downstairs_mode",
+              "pct": {
+                "Day": 100,
+                "Cosy": 50,
+                "Night": 15
+              }
+            },
+            {
+              "area": "bedroom",
+              "mode": "input_select.bedroom_mode",
+              "pct": {
+                "Day": 100,
+                "Cosy": 50,
+                "Night": 5
+              }
+            },
+            {
+              "area": "",
+              "mode": "input_select.house_mode",
+              "pct": {
+                "Day": 100,
+                "Cosy": 50,
+                "Night": 1
+              },
+              "note": "Scheduled lamps in no listed room."
+            }
+          ],
+          "note": "Device labels count too: a newly paired lamp is often labelled on its device."
+        }
+      },
+      {
+        "variables": {
+          "chosen": "{{ (lights if lights is list else [lights]) if (lights | default([])) else (scheduled | reject('in', area_entities('bedroom') + area_entities('kitchen') + area_entities('living_room')) | list) if scope_name == 'house' else (scheduled | select('in', area_entities('kitchen') + area_entities('living_room')) | list) if scope_name == 'downstairs' else (scheduled | select('in', area_entities('bedroom')) | list) if scope_name == 'bedroom' else (scheduled | select('in', area_entities('kitchen')) | list) if scope_name == 'kitchen' else scheduled }}",
+          "listed": "{{ area_entities('kitchen') + area_entities('hall_overvaning') + area_entities('living_room') + area_entities('bedroom') }}"
+        }
+      },
+      {
+        "variables": {
+          "base": "{{ chosen | reject('in', sunrise_lamps) | list }}",
+          "passes": "{{ [{'t': fade, 'wait': 0}] + ([{'t': 0, 'wait': fade + 5}] if fade > 0 else []) }}"
+        }
+      },
+      {
+        "repeat": {
+          "for_each": "{{ passes }}",
+          "sequence": [
+            {
+              "delay": {
+                "seconds": "{{ repeat.item.wait }}"
+              }
+            },
+            {
+              "variables": {
+                "t": "{{ repeat.item.t }}",
+                "targets": "{{ base | select('is_state', 'on') | list }}"
+              },
+              "note": "Only lamps that are still on; a settle pass must not switch a lamp back on."
+            },
+            {
+              "repeat": {
+                "for_each": "{{ rooms }}",
+                "sequence": [
+                  {
+                    "variables": {
+                      "room_lamps": "{{ (targets | select('in', area_entities(repeat.item.area)) | list) if repeat.item.area else (targets | reject('in', listed) | list) }}"
+                    }
+                  },
+                  {
+                    "variables": {
+                      "send": "{{ ([repeat.item.whole] + (room_lamps | reject('in', repeat.item.parts) | list)) if (repeat.item.whole is defined and repeat.item.parts | reject('in', room_lamps) | list | count == 0) else room_lamps }}",
+                      "block": "{{ states(repeat.item.mode) }}"
+                    }
+                  },
+                  {
+                    "variables": {
+                      "pct": "{{ repeat.item.pct.get(block, 0) }}"
+                    }
+                  },
+                  {
+                    "if": [
+                      {
+                        "condition": "template",
+                        "value_template": "{{ send | count > 0 and pct > 0 }}"
+                      }
+                    ],
+                    "then": [
+                      {
+                        "if": [
+                          {
+                            "condition": "template",
+                            "value_template": "{{ block == 'Night' }}"
+                          }
+                        ],
+                        "then": [
+                          {
+                            "action": "light.turn_on",
+                            "target": {
+                              "entity_id": "{{ send }}"
+                            },
+                            "data": {
+                              "rgb_color": [
+                                255,
+                                56,
+                                0
+                              ],
+                              "brightness_pct": "{{ pct }}",
+                              "transition": "{{ t }}"
+                            }
+                          }
+                        ],
+                        "else": [
+                          {
+                            "action": "light.turn_on",
+                            "target": {
+                              "entity_id": "{{ send }}"
+                            },
+                            "data": {
+                              "color_temp_kelvin": "{{ 3500 if block == 'Day' else 2200 }}",
+                              "brightness_pct": "{{ pct }}",
+                              "transition": "{{ t }}"
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "config_hash": "b3e2581823c0ba4c"
+}

@@ -1,0 +1,43 @@
+{
+  "alias": "Effects \u00b7 Native Control Adapter",
+  "description": "Command-only TypeScript bridge. Dry-run/response queries use local RPC. ",
+  "mode": "queued",
+  "max": 50,
+  "fields": {
+    "source": {
+      "selector": {
+        "object": {}
+      }
+    },
+    "attribute": {
+      "selector": {
+        "object": {}
+      }
+    },
+    "value": {
+      "selector": {
+        "object": {}
+      }
+    },
+    "dry_run": {
+      "name": "Dry Run",
+      "default": false,
+      "selector": {
+        "boolean": {}
+      }
+    }
+  },
+  "sequence": [
+    {
+      "condition": "template",
+      "value_template": "{{ not (dry_run | default(false)) }}"
+    },
+    {
+      "event": "smarthome_script",
+      "event_data": {
+        "script": "effects_set",
+        "args": "{% set n=namespace(args={}) %}{% if source is defined %}{% set n.args=dict(n.args,source=source) %}{% endif %}{% if attribute is defined %}{% set n.args=dict(n.args,attribute=attribute) %}{% endif %}{% if value is defined %}{% set n.args=dict(n.args,value=value) %}{% endif %}{% if dry_run is defined %}{% set n.args=dict(n.args,dry_run=dry_run) %}{% endif %}{{ n.args }}"
+      }
+    }
+  ]
+}

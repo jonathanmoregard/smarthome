@@ -1,0 +1,111 @@
+{
+  "success": true,
+  "action": "get",
+  "script_id": "ls_store",
+  "config": {
+    "alias": "Lighting schedule: store block light",
+    "description": "Backing store for the block virtual lights (light.ls_*) and the per-lamp Override Light switches (switch.ls_lamp_*_override). Merges what was asked into the JSON held by the input_text: on, b (brightness 0-255), m (ct|hs), k (kelvin), h/s (hue/sat), own (per-lamp: Override Light). Writes to per-lamp stores (input_text.ls_lamp_*) fire ls_lamp_store_changed so the engine applies them at once. The generic effect property is interpreted by the Effects module; explicit colour selects Normal light.",
+    "mode": "queued",
+    "max": 50,
+    "icon": "mdi:content-save",
+    "fields": {
+      "store": {
+        "name": "Store",
+        "required": true,
+        "selector": {
+          "entity": {
+            "domain": "input_text"
+          }
+        }
+      },
+      "on": {
+        "name": "On",
+        "required": false,
+        "selector": {
+          "boolean": {}
+        }
+      },
+      "brightness": {
+        "name": "Brightness",
+        "selector": {
+          "number": {
+            "min": 0,
+            "max": 255
+          }
+        }
+      },
+      "kelvin": {
+        "name": "Kelvin",
+        "selector": {
+          "number": {
+            "min": 1000,
+            "max": 10000
+          }
+        }
+      },
+      "mireds": {
+        "name": "Mireds",
+        "selector": {
+          "number": {
+            "min": 100,
+            "max": 1000
+          }
+        }
+      },
+      "hs": {
+        "name": "Hue/saturation",
+        "selector": {
+          "object": {}
+        }
+      },
+      "own": {
+        "name": "Own",
+        "description": "Per-lamp stores only: true = this lamp uses its own light in this block (Override Light).",
+        "selector": {
+          "boolean": {}
+        }
+      },
+      "effect": {
+        "name": "Effect",
+        "selector": {
+          "text": {}
+        }
+      }
+    },
+    "sequence": [
+      {
+        "variables": {
+          "current": "{{ states(store) | from_json(default={}) }}",
+          "patch": "{% set p = {} %}{% if on is defined and on is not none %}{% set p = dict(p, on=on | bool) %}{% endif %}{% if own is defined and own is not none %}{% set p = dict(p, own=own | bool) %}{% endif %}{% if brightness is defined and brightness is not none %}{% set p = dict(p, b=brightness | int) %}{% endif %}{% if kelvin is defined and kelvin is not none %}{% set p = dict(p, m='ct', k=kelvin | int) %}{% elif mireds is defined and mireds is not none %}{% set p = dict(p, m='ct', k=(1000000 / (mireds | float)) | int) %}{% endif %}{% if hs is defined and hs is not none %}{% set p = dict(p, m='hs', h=hs[0] | float, s=hs[1] | float) %}{% endif %}{% if effect is defined and effect is not none %}{% set p=dict(p,effect=effect) %}{% elif (kelvin is defined and kelvin is not none) or (mireds is defined and mireds is not none) or (hs is defined and hs is not none) %}{% set p=dict(p,effect='Normal light') %}{% endif %}{{ p }}"
+        }
+      },
+      {
+        "action": "input_text.set_value",
+        "target": {
+          "entity_id": "{{ store }}"
+        },
+        "data": {
+          "value": "{{ dict(current, **patch) | to_json }}"
+        }
+      },
+      {
+        "alias": "Per-lamp stores: tell the engine (HA has no wildcard state trigger, so the engine listens for this event).",
+        "if": [
+          {
+            "condition": "template",
+            "value_template": "{{ store.startswith('input_text.ls_lamp_') }}"
+          }
+        ],
+        "then": [
+          {
+            "event": "ls_lamp_store_changed",
+            "event_data": {
+              "store": "{{ store }}"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "config_hash": "85a7abf948ef800d"
+}

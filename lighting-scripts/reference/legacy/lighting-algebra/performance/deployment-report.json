@@ -1,0 +1,390 @@
+{
+  "activated_at": 1792840482.624,
+  "started_at": 1792840361.73,
+  "readbacks": [
+    {
+      "status": "fulfilled",
+      "value": {
+        "name": "automation_lighting_schedule_override_store_writer",
+        "success": true,
+        "exact": true
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "name": "effects_frame_plan",
+        "success": true,
+        "exact": true
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "name": "effects_emit",
+        "success": true,
+        "exact": true
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "name": "effects_assign",
+        "success": true,
+        "exact": true
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "name": "effects_engine",
+        "success": true,
+        "exact": true
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "name": "ls_remote_command",
+        "success": true,
+        "exact": true
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "name": "ls_apply",
+        "success": true,
+        "exact": true
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "name": "automation_lighting_schedule_engine",
+        "success": true,
+        "exact": true
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "name": "effects_ui_sync",
+        "success": true,
+        "exact": true
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "name": "ls_plan",
+        "success": true,
+        "exact": true
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "name": "ls_dispatch",
+        "success": true,
+        "exact": true
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "name": "effects_route",
+        "success": true,
+        "exact": true
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "name": "effects_filter_commands",
+        "success": true,
+        "exact": true
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "name": "automation_effects_lifecycle",
+        "success": true,
+        "exact": true
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "name": "automation_effects_refresh_native_light_controls",
+        "success": true,
+        "exact": true
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "name": "ls_room_base",
+        "success": true,
+        "exact": true
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "name": "ls_room_plan",
+        "success": true,
+        "exact": true
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "name": "ls_commit",
+        "success": true,
+        "exact": true
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "name": "ls_remote_plan",
+        "success": true,
+        "exact": true
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "name": "ls_render",
+        "success": true,
+        "exact": true
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "name": "automation_lighting_output_recovery",
+        "success": true,
+        "exact": true
+      }
+    }
+  ],
+  "tests": {
+    "complete_gate": 193,
+    "post_catalogue_slimming": 12,
+    "post_review_gate": 58,
+    "parsed_templates": 529,
+    "native_scope_probe": "passed"
+  },
+  "review": {
+    "finding": "Repeated override revisions restart candle manager and starve all but first endpoint",
+    "resolution": "Long-lived manager preserves fair rotation across revisions, pauses on mismatch, verifies current ownership per send",
+    "status": "fixed",
+    "deterministic_git_gate": "unavailable: artifacts are runtime configuration outside a git repository"
+  },
+  "original_adapter_states": {
+    "automation.lighting_jonathan_s_bedroom_remote_center": {
+      "entity_id": "automation.lighting_jonathan_s_bedroom_remote_center",
+      "state": "on"
+    },
+    "automation.lighting_jonathan_s_bedroom_remote_directions": {
+      "entity_id": "automation.lighting_jonathan_s_bedroom_remote_directions",
+      "state": "on"
+    },
+    "automation.lighting_bedroom_remote_preset_arrows": {
+      "entity_id": "automation.lighting_bedroom_remote_preset_arrows",
+      "state": "on"
+    },
+    "automation.lighting_living_room_remote_center": {
+      "entity_id": "automation.lighting_living_room_remote_center",
+      "state": "on"
+    },
+    "automation.lighting_living_room_remote_directions": {
+      "entity_id": "automation.lighting_living_room_remote_directions",
+      "state": "on"
+    },
+    "automation.lighting_living_room_remote_preset_arrows": {
+      "entity_id": "automation.lighting_living_room_remote_preset_arrows",
+      "state": "on"
+    },
+    "automation.lighting_schedule_engine": {
+      "entity_id": "automation.lighting_schedule_engine",
+      "state": "on"
+    },
+    "automation.lighting_schedule_override_store_writer": {
+      "entity_id": "automation.lighting_schedule_override_store_writer",
+      "state": "on"
+    },
+    "automation.effects_lifecycle": {
+      "entity_id": "automation.effects_lifecycle",
+      "state": "on"
+    },
+    "automation.effects_refresh_native_light_controls": {
+      "entity_id": "automation.effects_refresh_native_light_controls",
+      "state": "on"
+    }
+  },
+  "passive_after_activation": {
+    "data": {
+      "success": true,
+      "count": 15,
+      "states": {
+        "automation.lighting_jonathan_s_bedroom_remote_center": {
+          "entity_id": "automation.lighting_jonathan_s_bedroom_remote_center",
+          "state": "on",
+          "attributes": {
+            "last_triggered": "2026-10-24T12:05:06.821515+02:00",
+            "current": 0
+          }
+        },
+        "automation.lighting_jonathan_s_bedroom_remote_directions": {
+          "entity_id": "automation.lighting_jonathan_s_bedroom_remote_directions",
+          "state": "on",
+          "attributes": {
+            "last_triggered": "2026-10-24T12:05:20.133418+02:00",
+            "current": 0
+          }
+        },
+        "automation.lighting_bedroom_remote_preset_arrows": {
+          "entity_id": "automation.lighting_bedroom_remote_preset_arrows",
+          "state": "on",
+          "attributes": {
+            "last_triggered": "2026-10-24T12:05:20.002214+02:00",
+            "current": 0
+          }
+        },
+        "automation.lighting_living_room_remote_center": {
+          "entity_id": "automation.lighting_living_room_remote_center",
+          "state": "on",
+          "attributes": {
+            "last_triggered": "2026-10-24T09:40:36.705132+02:00",
+            "current": 0
+          }
+        },
+        "automation.lighting_living_room_remote_directions": {
+          "entity_id": "automation.lighting_living_room_remote_directions",
+          "state": "on",
+          "attributes": {
+            "last_triggered": "2026-10-24T09:40:14.413009+02:00",
+            "current": 0
+          }
+        },
+        "automation.lighting_living_room_remote_preset_arrows": {
+          "entity_id": "automation.lighting_living_room_remote_preset_arrows",
+          "state": "on",
+          "attributes": {
+            "last_triggered": "2026-10-24T09:40:36.603660+02:00",
+            "current": 0
+          }
+        },
+        "automation.lighting_schedule_engine": {
+          "entity_id": "automation.lighting_schedule_engine",
+          "state": "on",
+          "attributes": {
+            "last_triggered": "2026-10-24T13:15:00.347323+02:00",
+            "current": 0
+          }
+        },
+        "automation.lighting_schedule_override_store_writer": {
+          "entity_id": "automation.lighting_schedule_override_store_writer",
+          "state": "on",
+          "attributes": {
+            "last_triggered": "2026-10-24T12:05:20.164084+02:00",
+            "current": 0
+          }
+        },
+        "automation.effects_lifecycle": {
+          "entity_id": "automation.effects_lifecycle",
+          "state": "on",
+          "attributes": {
+            "last_triggered": "2026-10-24T13:14:45.225729+02:00",
+            "current": 0
+          }
+        },
+        "automation.effects_refresh_native_light_controls": {
+          "entity_id": "automation.effects_refresh_native_light_controls",
+          "state": "on",
+          "attributes": {
+            "last_triggered": "2026-10-24T13:15:05.152778+02:00",
+            "current": 0
+          }
+        },
+        "automation.lighting_recover_pending_output": {
+          "entity_id": "automation.lighting_recover_pending_output",
+          "state": "on",
+          "attributes": {
+            "last_triggered": "2026-10-24T13:15:00.819237+02:00",
+            "current": 0
+          }
+        },
+        "script.ls_render": {
+          "entity_id": "script.ls_render",
+          "state": "off",
+          "attributes": {
+            "last_triggered": "2026-10-24T13:15:00.819716+02:00",
+            "current": 0
+          }
+        },
+        "script.effects_engine": {
+          "entity_id": "script.effects_engine",
+          "state": "on",
+          "attributes": {
+            "last_triggered": "2026-10-24T13:14:45.683433+02:00",
+            "current": 1
+          }
+        },
+        "sensor.ls_effects_runtime": {
+          "entity_id": "sensor.ls_effects_runtime",
+          "state": "2026-10-24T13:15:00.875908+02:00",
+          "attributes": {
+            "revision": "2026-10-24T11:15:00.357677+00:00",
+            "handled_rooms": {},
+            "handled_full": "2026-10-24T13:15:00.351255+02:00",
+            "last_latency": {
+              "request_id": "2026-10-24T13:15:00.351255+02:00",
+              "received_at": 1792840500.355394,
+              "started_at": 1792840500.358768,
+              "planned_at": 1792840500.756273,
+              "published_at": [],
+              "completed_at": 1792840500.876158,
+              "rooms": [],
+              "full": true
+            }
+          }
+        },
+        "input_boolean.ls_sara_mode_mirror": {
+          "entity_id": "input_boolean.ls_sara_mode_mirror",
+          "state": "off",
+          "attributes": {}
+        }
+      },
+      "warnings": [
+        "attribute_keys ['current', 'handled_full', 'handled_rooms', 'last_latency', 'last_triggered', 'revision'] matched no attribute keys — attributes came out empty. Available keys: ['editable', 'friendly_name', 'icon']"
+      ]
+    },
+    "metadata": {
+      "home_assistant_timezone": "Europe/Stockholm",
+      "timestamp_format": "ISO 8601 (Europe/Stockholm)",
+      "note": "Per-record timestamp fields (last_changed, last_updated, last_reported, when, last_triggered) have been converted to Europe/Stockholm local time. Query-window boundary fields (period, start_time, end_time) remain in UTC."
+    }
+  },
+  "pending_after_activation": {
+    "success": true,
+    "template": "{{ {'pending':state_attr('sensor.ls_overrides','pending_rooms'),'full_version':state_attr('sensor.ls_overrides','full_version'),'controller_revision':state_attr('sensor.ls_effects_runtime','revision'),'store_revision':states.sensor.ls_overrides.last_updated.isoformat(),'sara':(state_attr('sensor.ls_overrides','overrides') or {}).get('mode:sara'),'cache_sizes':dict((('bedroom',(state_attr('sensor.ls_cache_bedroom','cache') or {})|to_json|length),('living_room',(state_attr('sensor.ls_cache_living_room','cache') or {})|to_json|length))) }|to_json }}",
+    "result": "{\"pending\":{},\"full_version\":\"2026-10-24T13:15:00.351255+02:00\",\"controller_revision\":\"2026-10-24T11:15:00.357677+00:00\",\"store_revision\":\"2026-10-24T11:15:00.357677+00:00\",\"sara\":null,\"cache_sizes\":{\"bedroom\":6318,\"living_room\":14879}}",
+    "listeners": {
+      "all": false,
+      "entities": [
+        "sensor.ls_cache_living_room",
+        "sensor.ls_effects_runtime",
+        "sensor.ls_overrides",
+        "sensor.ls_cache_bedroom"
+      ],
+      "domains": [],
+      "time": false
+    }
+  },
+  "physical_test_commands": false
+}

@@ -1,0 +1,41 @@
+{
+  "id": "1791984723499",
+  "alias": "Lighting schedule: Sara Mode switch",
+  "description": "TypeScript trigger bridge. Makes input_boolean.ls_sara_mode_mirror usable as a slide switch. When a person flips it, records or clears the mode:sara override (who = that person, via app). Changes made by the engine (mirror sync, expiry) carry no user and are ignored, so this never loops.",
+  "triggers": [
+    {
+      "trigger": "state",
+      "entity_id": "input_boolean.ls_sara_mode_mirror",
+      "from": "off",
+      "to": "on",
+      "id": "on"
+    },
+    {
+      "trigger": "state",
+      "entity_id": "input_boolean.ls_sara_mode_mirror",
+      "from": "on",
+      "to": "off",
+      "id": "off"
+    }
+  ],
+  "conditions": [
+    {
+      "condition": "template",
+      "value_template": "{{ trigger.to_state.context.user_id is not none }}",
+      "note": "Only a person's flip; the engine's mirror writes have no user."
+    }
+  ],
+  "actions": [
+    {
+      "event": "smarthome_script",
+      "event_data": {
+        "script": "automation.lighting_schedule_sara_mode_switch",
+        "args": {
+          "trigger": "{% set n=namespace(data={}) %}\n{% for key in ['id','platform','entity_id','topic','payload','payload_json'] %}\n {% if trigger[key] is defined %}{% set n.data=dict(n.data,**{key:trigger[key]}) %}{% endif %}\n{% endfor %}\n{% for key in ['to_state','from_state','event'] %}\n {% if trigger[key] is defined %}{% set value=trigger[key] %}\n  {% set n.data=dict(n.data,**{key:(value.as_dict() if value is not none else none)}) %}\n {% endif %}\n{% endfor %}\n{{ n.data | to_json | from_json }}"
+        }
+      }
+    }
+  ],
+  "mode": "queued",
+  "max": 10
+}

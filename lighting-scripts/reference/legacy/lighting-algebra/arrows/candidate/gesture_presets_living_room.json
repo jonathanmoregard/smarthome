@@ -1,0 +1,22 @@
+{
+  "id": "lighting_remote_0x385b44fffea50c99_presets",
+  "alias": "Lighting \u00b7 Living Room Remote Preset Arrows",
+  "description": "Modulo-five preset decoder with both wraps. Full JSON colour-temperature and brightness preset actions map to the same hardware index; the first available family advances and its same-index partner is ignored. Ambiguous or unknown preset input cancels any pending secret chord, without guessing a direction.",
+  "mode": "queued",
+  "max": 50,
+  "triggers": [
+    {
+      "trigger": "mqtt",
+      "topic": "zigbee2mqtt/0x385b44fffea50c99"
+    }
+  ],
+  "actions": [
+    {
+      "action": "script.ls_remote_gesture_living_room",
+      "data": {
+        "command": "preset",
+        "payload": "{{ trigger.payload_json|default({}) }}"
+      }
+    }
+  ]
+}

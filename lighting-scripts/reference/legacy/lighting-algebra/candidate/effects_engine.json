@@ -1,0 +1,57 @@
+{
+  "alias": "Effects \u00b7 Central engine",
+  "mode": "single",
+  "sequence": [
+    {
+      "action": "script.effects_catalog",
+      "response_variable": "catalog"
+    },
+    {
+      "repeat": {
+        "while": [
+          {
+            "condition": "template",
+            "value_template": "{{ state_attr('sensor.effects_controller','revision')==states.sensor.ls_overrides.last_updated.isoformat() and (state_attr('sensor.effects_controller','assignments') or {})|count>0 }}"
+          },
+          {
+            "condition": "state",
+            "entity_id": "binary_sensor.zigbee2mqtt_bridge_connection_state",
+            "state": "on"
+          }
+        ],
+        "sequence": [
+          {
+            "variables": {
+              "revision": "{{ state_attr('sensor.effects_controller','revision') }}",
+              "generation": "{{ state_attr('sensor.effects_controller','generation') }}",
+              "targets": "{% set n=namespace(t={}) %}{% for L,t in (state_attr('sensor.effects_controller','assignments') or {}).items() if is_state(L,'on') and t.on %}{% set n.t=dict(n.t,**{L:t}) %}{% endfor %}{{ n.t }}"
+            }
+          },
+          {
+            "action": "script.effects_frame_plan",
+            "data": {
+              "targets": "{{ targets }}",
+              "catalog": "{{ catalog }}",
+              "timestamp": "{{ as_timestamp(now()) }}"
+            },
+            "response_variable": "batch"
+          },
+          {
+            "action": "script.effects_emit",
+            "data": {
+              "commands": "{{ batch.commands }}",
+              "revision": "{{ revision }}",
+              "generation": "{{ generation }}"
+            }
+          },
+          {
+            "delay": {
+              "milliseconds": 200
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "max_exceeded": "silent"
+}

@@ -1,0 +1,33 @@
+{
+  "id": "1791977337255",
+  "alias": "Lighting schedule: lamp change detector",
+  "description": "TypeScript trigger bridge. Capture only brightness/colour/effect channels explicitly changed by a user. Explicit user ON opens the affected room power gate without operating other lamps. Existing logical lamp membership is preserved. Automation and running-script contexts are ignored. Power-only calls create no override.",
+  "triggers": [
+    {
+      "trigger": "event",
+      "event_type": "call_service",
+      "event_data": {
+        "domain": "light"
+      }
+    }
+  ],
+  "conditions": [
+    {
+      "condition": "template",
+      "value_template": "{{ trigger.event.context.user_id is not none and trigger.event.data.service == 'turn_on' and trigger.event.context.id not in (states.script | selectattr('state', 'eq', 'on') | map(attribute='context') | map(attribute='id') | list) }}"
+    }
+  ],
+  "actions": [
+    {
+      "event": "smarthome_script",
+      "event_data": {
+        "script": "automation.lighting_schedule_lamp_change_detector",
+        "args": {
+          "trigger": "{% set n=namespace(data={}) %}\n{% for key in ['id','platform','entity_id','topic','payload','payload_json'] %}\n {% if trigger[key] is defined %}{% set n.data=dict(n.data,**{key:trigger[key]}) %}{% endif %}\n{% endfor %}\n{% for key in ['to_state','from_state','event'] %}\n {% if trigger[key] is defined %}{% set value=trigger[key] %}\n  {% set n.data=dict(n.data,**{key:(value.as_dict() if value is not none else none)}) %}\n {% endif %}\n{% endfor %}\n{{ n.data | to_json | from_json }}"
+        }
+      }
+    }
+  ],
+  "mode": "queued",
+  "max": 20
+}

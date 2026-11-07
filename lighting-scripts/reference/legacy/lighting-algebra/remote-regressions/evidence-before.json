@@ -1,0 +1,3935 @@
+{
+  "recorded_at": "2026-10-24",
+  "symptoms": [
+    "First right did nothing, second selected Cosy",
+    "Cosy->Candle->Day: bedroom floor lamp briefly Day then back to Candle"
+  ],
+  "user_confirmed_lamp": "light.jonathan_bedroom_floor_lamp",
+  "live": {
+    "overrides": {},
+    "power": {
+      "bedroom": true
+    },
+    "assignments": {
+      "light.living_room_yellow_retro_lamp": {
+        "brightness": {
+          "kind": "effect",
+          "effect": "Candle",
+          "instance": "base:light.living_room_yellow_retro_lamp:Candle",
+          "updated": -1,
+          "base": 255,
+          "intensity": 255
+        },
+        "color": {
+          "kind": "effect",
+          "effect": "Candle",
+          "instance": "base:light.living_room_yellow_retro_lamp:Candle",
+          "updated": -1,
+          "base": {
+            "kelvin": 4651
+          },
+          "intensity": 255
+        },
+        "period": "day",
+        "on": true,
+        "area": "living_room",
+        "is_room": false,
+        "level": 255,
+        "owners": {
+          "brightness": "base:Candle",
+          "color": "base:Candle"
+        },
+        "transition": 3
+      }
+    },
+    "last_latency": {
+      "request_id": "2026-10-24T15:35:00.350860+02:00",
+      "received_at": 1792848900.352632,
+      "started_at": 1792848900.356818,
+      "planned_at": 1792848900.76045,
+      "published_at": [],
+      "completed_at": 1792848900.880559,
+      "rooms": [],
+      "full": true
+    },
+    "targets": {
+      "room:bedroom": {
+        "brightness": {
+          "kind": "constant",
+          "value": 255,
+          "updated": -1
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 4651
+          },
+          "updated": -1
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": true,
+        "level": 255,
+        "owners": {
+          "brightness": "base",
+          "color": "base"
+        },
+        "transition": 3
+      },
+      "room:hall_overvaning": {
+        "brightness": {
+          "kind": "constant",
+          "value": 255,
+          "updated": -1
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 4651
+          },
+          "updated": -1
+        },
+        "period": "day",
+        "on": true,
+        "area": "hall_overvaning",
+        "is_room": true,
+        "level": 255,
+        "owners": {
+          "brightness": "base",
+          "color": "base"
+        },
+        "transition": 3
+      },
+      "room:kitchen": {
+        "brightness": {
+          "kind": "constant",
+          "value": 255,
+          "updated": -1
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 4651
+          },
+          "updated": -1
+        },
+        "period": "day",
+        "on": true,
+        "area": "kitchen",
+        "is_room": true,
+        "level": 255,
+        "owners": {
+          "brightness": "base",
+          "color": "base"
+        },
+        "transition": 3
+      },
+      "room:living_room": {
+        "brightness": {
+          "kind": "constant",
+          "value": 255,
+          "updated": -1
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 3496
+          },
+          "updated": -1
+        },
+        "period": "day",
+        "on": true,
+        "area": "living_room",
+        "is_room": true,
+        "level": 255,
+        "owners": {
+          "brightness": "base",
+          "color": "base"
+        },
+        "transition": 3
+      },
+      "room:meditation_mys": {
+        "brightness": {
+          "kind": "constant",
+          "value": 148,
+          "updated": -1
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 3401
+          },
+          "updated": -1
+        },
+        "period": "day",
+        "on": true,
+        "area": "meditation_mys",
+        "is_room": true,
+        "level": 148,
+        "owners": {
+          "brightness": "base",
+          "color": "base"
+        },
+        "transition": 3
+      },
+      "light.jonathan_bedroom_ceiling": {
+        "brightness": {
+          "kind": "constant",
+          "value": 255,
+          "updated": -1
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 4651
+          },
+          "updated": -1
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 255,
+        "owners": {
+          "brightness": "base",
+          "color": "base"
+        },
+        "transition": 3
+      },
+      "light.jonathan_bedroom_floor_lamp": {
+        "brightness": {
+          "kind": "constant",
+          "value": 255,
+          "updated": -1
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 4651
+          },
+          "updated": -1
+        },
+        "period": "day",
+        "on": true,
+        "area": "bedroom",
+        "is_room": false,
+        "level": 255,
+        "owners": {
+          "brightness": "base",
+          "color": "base"
+        },
+        "transition": 3
+      },
+      "light.kitchen_pendant": {
+        "brightness": {
+          "kind": "constant",
+          "value": 255,
+          "updated": -1
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 4651
+          },
+          "updated": -1
+        },
+        "period": "day",
+        "on": true,
+        "area": "kitchen",
+        "is_room": false,
+        "level": 255,
+        "owners": {
+          "brightness": "base",
+          "color": "base"
+        },
+        "transition": 3
+      },
+      "light.kitchen_spots_1": {
+        "brightness": {
+          "kind": "constant",
+          "value": 255,
+          "updated": -1
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 4651
+          },
+          "updated": -1
+        },
+        "period": "day",
+        "on": true,
+        "area": "kitchen",
+        "is_room": false,
+        "level": 255,
+        "owners": {
+          "brightness": "base",
+          "color": "base"
+        },
+        "transition": 3
+      },
+      "light.kitchen_spots_2": {
+        "brightness": {
+          "kind": "constant",
+          "value": 255,
+          "updated": -1
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 4651
+          },
+          "updated": -1
+        },
+        "period": "day",
+        "on": true,
+        "area": "kitchen",
+        "is_room": false,
+        "level": 255,
+        "owners": {
+          "brightness": "base",
+          "color": "base"
+        },
+        "transition": 3
+      },
+      "light.living_room_desk_ceiling": {
+        "brightness": {
+          "kind": "constant",
+          "value": 255,
+          "updated": -1
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 3496
+          },
+          "updated": -1
+        },
+        "period": "day",
+        "on": true,
+        "area": "living_room",
+        "is_room": false,
+        "level": 255,
+        "owners": {
+          "brightness": "base",
+          "color": "base"
+        },
+        "transition": 3
+      },
+      "light.living_room_hall_ceiling": {
+        "brightness": {
+          "kind": "constant",
+          "value": 255,
+          "updated": -1
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 3496
+          },
+          "updated": -1
+        },
+        "period": "day",
+        "on": true,
+        "area": "living_room",
+        "is_room": false,
+        "level": 255,
+        "owners": {
+          "brightness": "base",
+          "color": "base"
+        },
+        "transition": 3
+      },
+      "light.living_room_sofa_table_ceiling": {
+        "brightness": {
+          "kind": "constant",
+          "value": 158,
+          "updated": -1
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 2941
+          },
+          "updated": -1
+        },
+        "period": "day",
+        "on": true,
+        "area": "living_room",
+        "is_room": false,
+        "level": 158,
+        "owners": {
+          "brightness": "base",
+          "color": "base"
+        },
+        "transition": 3
+      },
+      "light.living_room_table_lamp": {
+        "brightness": {
+          "kind": "constant",
+          "value": 255,
+          "updated": -1
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 2985
+          },
+          "updated": -1
+        },
+        "period": "day",
+        "on": true,
+        "area": "living_room",
+        "is_room": false,
+        "level": 255,
+        "owners": {
+          "brightness": "base",
+          "color": "base"
+        },
+        "transition": 3
+      },
+      "light.living_room_vicky_desk_lamp": {
+        "brightness": {
+          "kind": "constant",
+          "value": 255,
+          "updated": -1
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 3496
+          },
+          "updated": -1
+        },
+        "period": "day",
+        "on": true,
+        "area": "living_room",
+        "is_room": false,
+        "level": 255,
+        "owners": {
+          "brightness": "base",
+          "color": "base"
+        },
+        "transition": 3
+      },
+      "light.living_room_window_lamp": {
+        "brightness": {
+          "kind": "constant",
+          "value": 255,
+          "updated": -1
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 3496
+          },
+          "updated": -1
+        },
+        "period": "day",
+        "on": true,
+        "area": "living_room",
+        "is_room": false,
+        "level": 255,
+        "owners": {
+          "brightness": "base",
+          "color": "base"
+        },
+        "transition": 3
+      },
+      "light.living_room_yellow_retro_lamp": {
+        "brightness": {
+          "kind": "effect",
+          "effect": "Candle",
+          "instance": "base:light.living_room_yellow_retro_lamp:Candle",
+          "updated": -1,
+          "base": 255,
+          "intensity": 255
+        },
+        "color": {
+          "kind": "effect",
+          "effect": "Candle",
+          "instance": "base:light.living_room_yellow_retro_lamp:Candle",
+          "updated": -1,
+          "base": {
+            "kelvin": 4651
+          },
+          "intensity": 255
+        },
+        "period": "day",
+        "on": true,
+        "area": "living_room",
+        "is_room": false,
+        "level": 255,
+        "owners": {
+          "brightness": "base:Candle",
+          "color": "base:Candle"
+        },
+        "transition": 3
+      },
+      "light.meditation_ceiling": {
+        "brightness": {
+          "kind": "constant",
+          "value": 148,
+          "updated": -1
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 3401
+          },
+          "updated": -1
+        },
+        "period": "day",
+        "on": true,
+        "area": "meditation_mys",
+        "is_room": false,
+        "level": 148,
+        "owners": {
+          "brightness": "base",
+          "color": "base"
+        },
+        "transition": 3
+      },
+      "light.meditation_floor_lamp": {
+        "brightness": {
+          "kind": "constant",
+          "value": 148,
+          "updated": -1
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 3401
+          },
+          "updated": -1
+        },
+        "period": "day",
+        "on": true,
+        "area": "meditation_mys",
+        "is_room": false,
+        "level": 148,
+        "owners": {
+          "brightness": "base",
+          "color": "base"
+        },
+        "transition": 3
+      },
+      "light.upper_hall_ceiling": {
+        "brightness": {
+          "kind": "constant",
+          "value": 255,
+          "updated": -1
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 4651
+          },
+          "updated": -1
+        },
+        "period": "day",
+        "on": true,
+        "area": "hall_overvaning",
+        "is_room": false,
+        "level": 255,
+        "owners": {
+          "brightness": "base",
+          "color": "base"
+        },
+        "transition": 3
+      },
+      "light.upper_hall_stair_lamp": {
+        "brightness": {
+          "kind": "constant",
+          "value": 255,
+          "updated": -1
+        },
+        "color": {
+          "kind": "constant",
+          "value": {
+            "kelvin": 4651
+          },
+          "updated": -1
+        },
+        "period": "day",
+        "on": true,
+        "area": "hall_overvaning",
+        "is_room": false,
+        "level": 255,
+        "owners": {
+          "brightness": "base",
+          "color": "base"
+        },
+        "transition": 3
+      }
+    }
+  },
+  "first_retained_plan": {
+    "success": true,
+    "automation_id": "script.ls_remote_plan",
+    "run_id": "8fc78de28f5403b1ffa351a6f6bdf343",
+    "timestamp": {
+      "start": "2026-10-24T13:32:44.958598+00:00",
+      "finish": "2026-10-24T13:32:45.056642+00:00"
+    },
+    "state": "stopped",
+    "action_trace": [
+      {
+        "path": "sequence/0",
+        "timestamp": "2026-10-24T13:32:44.959320+00:00",
+        "variables": {
+          "this": {
+            "entity_id": "script.ls_remote_plan",
+            "state": "off",
+            "attributes": {
+              "last_triggered": "2026-10-24T13:32:38.950058+00:00",
+              "mode": "parallel",
+              "current": 0,
+              "max": 100,
+              "friendly_name": "Lighting · Pure Remote Input"
+            },
+            "last_changed": "2026-10-24T13:32:38.974733+00:00",
+            "last_reported": "2026-10-24T13:32:38.974733+00:00",
+            "last_updated": "2026-10-24T13:32:38.974733+00:00",
+            "context": {
+              "id": "01M5Q1T1Q7STTNW24868ATVQP6",
+              "parent_id": null,
+              "user_id": null
+            }
+          },
+          "source": "0x385b44fffea4fc67",
+          "area": "bedroom",
+          "command": "right",
+          "context": {
+            "id": "01M5Q1T7ZS9PTQJJ1ZKV519691",
+            "parent_id": null,
+            "user_id": null
+          },
+          "overrides": {},
+          "stamp": 1792848764.962286,
+          "room": "bedroom",
+          "catalog": {},
+          "current": {
+            "plan": {
+              "base": {},
+              "resolved": {
+                "targets": {}
+              }
+            }
+          },
+          "input_revision": "2026-10-24T13:32:38.997730+00:00",
+          "input_key": "",
+          "input_record": {}
+        }
+      },
+      {
+        "path": "sequence/1",
+        "timestamp": "2026-10-24T13:32:44.964259+00:00",
+        "variables": {
+          "timing_revision": 0,
+          "request_id": "0x385b44fffea4fc67:1792848764.962286"
+        }
+      },
+      {
+        "path": "sequence/2",
+        "timestamp": "2026-10-24T13:32:44.965261+00:00",
+        "variables": {
+          "needs_context": true
+        }
+      },
+      {
+        "path": "sequence/3",
+        "timestamp": "2026-10-24T13:32:44.966051+00:00",
+        "result": {
+          "choice": "then"
+        },
+        "variables": {
+          "current": {
+            "plan": {
+              "cmds": [
+                {
+                  "kind": "ct",
+                  "brightness": 255,
+                  "kelvin": 4651,
+                  "transition": 3,
+                  "ids": [
+                    "light.jonathan_bedroom_floor_lamp",
+                    "light.jonathan_bedroom_ceiling"
+                  ]
+                }
+              ],
+              "profiles": {
+                "light.jonathan_bedroom_floor_lamp": {
+                  "effect": "Normal light",
+                  "brightness": 255,
+                  "on": true,
+                  "period": "day",
+                  "area": "bedroom",
+                  "effect_channels": [
+                    "brightness",
+                    "color"
+                  ],
+                  "send": true,
+                  "ignore_overrides": []
+                },
+                "light.jonathan_bedroom_ceiling": {
+                  "effect": "Normal light",
+                  "brightness": 255,
+                  "on": true,
+                  "period": "day",
+                  "area": "bedroom",
+                  "effect_channels": [
+                    "brightness",
+                    "color"
+                  ],
+                  "send": true,
+                  "ignore_overrides": []
+                }
+              },
+              "revision": "2026-10-24T13:32:38.997730+00:00",
+              "stale_keys": [],
+              "sched": {
+                "bedroom": "day"
+              },
+              "schedule_details": {
+                "bedroom": {
+                  "cur": "day",
+                  "nxt": "cosy",
+                  "fading": false,
+                  "p": 0,
+                  "edge": false,
+                  "last_fs": 1792831200,
+                  "next_fs": 1792860000,
+                  "left": 12435.016094207764,
+                  "cur_ts": 1792832400
+                }
+              },
+              "mirror": [],
+              "sara_mirror": null,
+              "room": "bedroom",
+              "base": {
+                "light.jonathan_bedroom_floor_lamp": {
+                  "effect": "Normal light",
+                  "brightness": 255,
+                  "on": true,
+                  "period": "day",
+                  "area": "bedroom",
+                  "effect_channels": [
+                    "brightness",
+                    "color"
+                  ],
+                  "send": true,
+                  "ignore_overrides": [],
+                  "is_room": false,
+                  "color": {
+                    "kelvin": 4651
+                  },
+                  "day": {
+                    "brightness": 255,
+                    "color": {
+                      "kelvin": 4651
+                    }
+                  },
+                  "cosy": {
+                    "brightness": 128,
+                    "color": {
+                      "kelvin": 2197
+                    }
+                  },
+                  "transition": 3,
+                  "observed": {
+                    "brightness": 255,
+                    "color": {
+                      "kelvin": 4651
+                    }
+                  }
+                },
+                "light.jonathan_bedroom_ceiling": {
+                  "effect": "Normal light",
+                  "brightness": 255,
+                  "on": true,
+                  "period": "day",
+                  "area": "bedroom",
+                  "effect_channels": [
+                    "brightness",
+                    "color"
+                  ],
+                  "send": true,
+                  "ignore_overrides": [],
+                  "is_room": false,
+                  "color": {
+                    "kelvin": 4651
+                  },
+                  "day": {
+                    "brightness": 255,
+                    "color": {
+                      "kelvin": 4651
+                    }
+                  },
+                  "cosy": {
+                    "brightness": 128,
+                    "color": {
+                      "kelvin": 2197
+                    }
+                  },
+                  "transition": 3,
+                  "observed": {
+                    "brightness": 255,
+                    "color": {
+                      "kelvin": 4651
+                    }
+                  }
+                },
+                "room:bedroom": {
+                  "brightness": 255,
+                  "color": {
+                    "kelvin": 4651
+                  },
+                  "area": "bedroom",
+                  "is_room": true,
+                  "period": "day",
+                  "effect": "Normal light",
+                  "on": true,
+                  "day": {
+                    "brightness": 255,
+                    "color": {
+                      "kelvin": 4651
+                    }
+                  },
+                  "cosy": {
+                    "brightness": 128,
+                    "color": {
+                      "kelvin": 2197
+                    }
+                  },
+                  "ignore_overrides": []
+                }
+              },
+              "resolved": {
+                "targets": {
+                  "room:bedroom": {
+                    "brightness": {
+                      "kind": "constant",
+                      "value": 255,
+                      "updated": -1
+                    },
+                    "color": {
+                      "kind": "constant",
+                      "value": {
+                        "kelvin": 4651
+                      },
+                      "updated": -1
+                    },
+                    "period": "day",
+                    "on": true,
+                    "area": "bedroom",
+                    "is_room": true,
+                    "level": 255,
+                    "owners": {
+                      "brightness": "base",
+                      "color": "base"
+                    },
+                    "transition": 3
+                  },
+                  "light.jonathan_bedroom_ceiling": {
+                    "brightness": {
+                      "kind": "constant",
+                      "value": 255,
+                      "updated": -1
+                    },
+                    "color": {
+                      "kind": "constant",
+                      "value": {
+                        "kelvin": 4651
+                      },
+                      "updated": -1
+                    },
+                    "period": "day",
+                    "on": true,
+                    "area": "bedroom",
+                    "is_room": false,
+                    "level": 255,
+                    "owners": {
+                      "brightness": "base",
+                      "color": "base"
+                    },
+                    "transition": 3
+                  },
+                  "light.jonathan_bedroom_floor_lamp": {
+                    "brightness": {
+                      "kind": "constant",
+                      "value": 255,
+                      "updated": -1
+                    },
+                    "color": {
+                      "kind": "constant",
+                      "value": {
+                        "kelvin": 4651
+                      },
+                      "updated": -1
+                    },
+                    "period": "day",
+                    "on": true,
+                    "area": "bedroom",
+                    "is_room": false,
+                    "level": 255,
+                    "owners": {
+                      "brightness": "base",
+                      "color": "base"
+                    },
+                    "transition": 3
+                  }
+                },
+                "assignments": {}
+              },
+              "gradients": {
+                "light.jonathan_bedroom_floor_lamp": {
+                  "signature": [
+                    1,
+                    255,
+                    {
+                      "kelvin": 4651
+                    },
+                    128,
+                    {
+                      "kelvin": 2197
+                    },
+                    [
+                      255,
+                      126,
+                      0
+                    ]
+                  ],
+                  "curve": {
+                    "version": 1,
+                    "day": {
+                      "brightness": 255,
+                      "color": {
+                        "kelvin": 4651
+                      }
+                    },
+                    "cosy": {
+                      "brightness": 128,
+                      "color": {
+                        "kelvin": 2197
+                      }
+                    },
+                    "brightness": {
+                      "floor": 76.5,
+                      "lower": 127,
+                      "middle": 127,
+                      "upper": 0
+                    },
+                    "colors": {
+                      "lower": {
+                        "left": {
+                          "kelvin": 2197
+                        },
+                        "right": {
+                          "kelvin": 1950
+                        },
+                        "kind": "kelvin",
+                        "start": 2197,
+                        "delta": -247
+                      },
+                      "middle": {
+                        "left": {
+                          "kelvin": 2197
+                        },
+                        "right": {
+                          "kelvin": 4651
+                        },
+                        "kind": "kelvin",
+                        "start": 2197,
+                        "delta": 2454
+                      },
+                      "upper": {
+                        "left": {
+                          "kelvin": 4651
+                        },
+                        "right": {
+                          "kelvin": 6500
+                        },
+                        "kind": "kelvin",
+                        "start": 4651,
+                        "delta": 1849
+                      },
+                      "tail": {
+                        "left": {
+                          "rgb": [
+                            255,
+                            134,
+                            7
+                          ]
+                        },
+                        "right": {
+                          "rgb": [
+                            255,
+                            126,
+                            0
+                          ]
+                        },
+                        "kind": "rgb",
+                        "start": [
+                          255,
+                          134,
+                          7
+                        ],
+                        "delta": [
+                          0,
+                          -8,
+                          -7
+                        ]
+                      }
+                    }
+                  }
+                },
+                "light.jonathan_bedroom_ceiling": {
+                  "signature": [
+                    1,
+                    255,
+                    {
+                      "kelvin": 4651
+                    },
+                    128,
+                    {
+                      "kelvin": 2197
+                    },
+                    [
+                      255,
+                      126,
+                      0
+                    ]
+                  ],
+                  "curve": {
+                    "version": 1,
+                    "day": {
+                      "brightness": 255,
+                      "color": {
+                        "kelvin": 4651
+                      }
+                    },
+                    "cosy": {
+                      "brightness": 128,
+                      "color": {
+                        "kelvin": 2197
+                      }
+                    },
+                    "brightness": {
+                      "floor": 76.5,
+                      "lower": 127,
+                      "middle": 127,
+                      "upper": 0
+                    },
+                    "colors": {
+                      "lower": {
+                        "left": {
+                          "kelvin": 2197
+                        },
+                        "right": {
+                          "kelvin": 1950
+                        },
+                        "kind": "kelvin",
+                        "start": 2197,
+                        "delta": -247
+                      },
+                      "middle": {
+                        "left": {
+                          "kelvin": 2197
+                        },
+                        "right": {
+                          "kelvin": 4651
+                        },
+                        "kind": "kelvin",
+                        "start": 2197,
+                        "delta": 2454
+                      },
+                      "upper": {
+                        "left": {
+                          "kelvin": 4651
+                        },
+                        "right": {
+                          "kelvin": 6500
+                        },
+                        "kind": "kelvin",
+                        "start": 4651,
+                        "delta": 1849
+                      },
+                      "tail": {
+                        "left": {
+                          "rgb": [
+                            255,
+                            134,
+                            7
+                          ]
+                        },
+                        "right": {
+                          "rgb": [
+                            255,
+                            126,
+                            0
+                          ]
+                        },
+                        "kind": "rgb",
+                        "start": [
+                          255,
+                          134,
+                          7
+                        ],
+                        "delta": [
+                          0,
+                          -8,
+                          -7
+                        ]
+                      }
+                    }
+                  }
+                },
+                "room:bedroom": {
+                  "signature": [
+                    1,
+                    255,
+                    {
+                      "kelvin": 4651
+                    },
+                    128,
+                    {
+                      "kelvin": 2197
+                    },
+                    [
+                      255,
+                      126,
+                      0
+                    ]
+                  ],
+                  "curve": {
+                    "version": 1,
+                    "day": {
+                      "brightness": 255,
+                      "color": {
+                        "kelvin": 4651
+                      }
+                    },
+                    "cosy": {
+                      "brightness": 128,
+                      "color": {
+                        "kelvin": 2197
+                      }
+                    },
+                    "brightness": {
+                      "floor": 76.5,
+                      "lower": 127,
+                      "middle": 127,
+                      "upper": 0
+                    },
+                    "colors": {
+                      "lower": {
+                        "left": {
+                          "kelvin": 2197
+                        },
+                        "right": {
+                          "kelvin": 1950
+                        },
+                        "kind": "kelvin",
+                        "start": 2197,
+                        "delta": -247
+                      },
+                      "middle": {
+                        "left": {
+                          "kelvin": 2197
+                        },
+                        "right": {
+                          "kelvin": 4651
+                        },
+                        "kind": "kelvin",
+                        "start": 2197,
+                        "delta": 2454
+                      },
+                      "upper": {
+                        "left": {
+                          "kelvin": 4651
+                        },
+                        "right": {
+                          "kelvin": 6500
+                        },
+                        "kind": "kelvin",
+                        "start": 4651,
+                        "delta": 1849
+                      },
+                      "tail": {
+                        "left": {
+                          "rgb": [
+                            255,
+                            134,
+                            7
+                          ]
+                        },
+                        "right": {
+                          "rgb": [
+                            255,
+                            126,
+                            0
+                          ]
+                        },
+                        "kind": "rgb",
+                        "start": [
+                          255,
+                          134,
+                          7
+                        ],
+                        "delta": [
+                          0,
+                          -8,
+                          -7
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              "catalog": {
+                "effects": {
+                  "Candle": {
+                    "renderer": "script.effect_candle_frame",
+                    "channels": [
+                      "brightness",
+                      "color"
+                    ]
+                  },
+                  "Breathe": {
+                    "renderer": "script.effect_breathe_frame",
+                    "channels": [
+                      "brightness"
+                    ]
+                  },
+                  "Colour loop": {
+                    "renderer": "script.effect_colour_loop_frame",
+                    "channels": [
+                      "color"
+                    ]
+                  }
+                },
+                "processors": {
+                  "Normal light": {
+                    "channels": [
+                      "brightness",
+                      "color"
+                    ],
+                    "remote_adjustment": "gradient",
+                    "animated": false
+                  },
+                  "Candle": {
+                    "channels": [
+                      "brightness",
+                      "color"
+                    ],
+                    "remote_adjustment": "ignore",
+                    "animated": true
+                  },
+                  "Breathe": {
+                    "channels": [
+                      "brightness"
+                    ],
+                    "remote_adjustment": "ignore",
+                    "animated": true
+                  },
+                  "Colour loop": {
+                    "channels": [
+                      "color"
+                    ],
+                    "remote_adjustment": "ignore",
+                    "animated": true
+                  }
+                }
+              },
+              "switches": {},
+              "plan_order": 1792848764.972262,
+              "remote": true
+            },
+            "cache_update": null,
+            "cache_hit": true
+          }
+        }
+      },
+      {
+        "path": "sequence/3/if",
+        "timestamp": "2026-10-24T13:32:44.966299+00:00",
+        "result": {
+          "result": true
+        }
+      },
+      {
+        "path": "sequence/3/if/condition/0",
+        "timestamp": "2026-10-24T13:32:44.966492+00:00",
+        "result": {
+          "result": true,
+          "entities": []
+        }
+      },
+      {
+        "path": "sequence/3/then/0",
+        "timestamp": "2026-10-24T13:32:44.967383+00:00",
+        "result": {
+          "params": {
+            "domain": "script",
+            "service": "ls_room_plan",
+            "service_data": {
+              "room": "bedroom",
+              "overrides": {},
+              "cache": {
+                "version": "db7981f72ee868e8d33ff1481dffb34e5e26570e8bf949a3cb2c505d7c3f37e1:input-processors-v1",
+                "room": "bedroom",
+                "dependencies": {
+                  "lamps": [
+                    "light.jonathan_bedroom_ceiling",
+                    "light.jonathan_bedroom_floor_lamp"
+                  ],
+                  "switches": [],
+                  "values": [
+                    "06:00:00",
+                    "08:00:00",
+                    "20.0",
+                    "unknown",
+                    "unknown",
+                    "19:00:00",
+                    "19:00:00",
+                    "20.0",
+                    "unknown",
+                    "unknown",
+                    "00:20:00",
+                    "01:30:00",
+                    "20.0",
+                    "unknown",
+                    "unknown",
+                    "11:00:00",
+                    "11:00:00",
+                    "20.0",
+                    "on",
+                    "off",
+                    "19:00:00",
+                    "19:00:00",
+                    "20.0",
+                    "off",
+                    "off",
+                    "22:45:00",
+                    "22:45:00",
+                    "20.0",
+                    "on",
+                    "on",
+                    "{\"on\":true,\"b\":255,\"m\":\"ct\",\"k\":4653}",
+                    "on",
+                    255,
+                    "color_temp",
+                    4651,
+                    [
+                      255,
+                      221,
+                      193
+                    ],
+                    "{\"on\":true,\"b\":128,\"m\":\"ct\",\"k\":2200}",
+                    "on",
+                    128,
+                    "color_temp",
+                    2197,
+                    [
+                      255,
+                      146,
+                      39
+                    ],
+                    "{\"on\":true,\"b\":13,\"m\":\"hs\",\"h\":13.2,\"s\":100.0,\"k\":2200}",
+                    "on",
+                    13,
+                    "hs",
+                    null,
+                    [
+                      255,
+                      56,
+                      0
+                    ],
+                    "{\"on\":true,\"b\":255,\"m\":\"ct\",\"k\":3500}",
+                    "on",
+                    255,
+                    "color_temp",
+                    3496,
+                    [
+                      255,
+                      192,
+                      141
+                    ],
+                    "{\"on\":true,\"b\":128,\"m\":\"ct\",\"k\":2200}",
+                    "on",
+                    128,
+                    "color_temp",
+                    2197,
+                    [
+                      255,
+                      146,
+                      39
+                    ],
+                    "{\"on\":true,\"b\":3,\"m\":\"hs\",\"h\":13.2,\"s\":100.0,\"k\":2200}",
+                    "on",
+                    3,
+                    "hs",
+                    null,
+                    [
+                      255,
+                      56,
+                      0
+                    ],
+                    "{\"on\":true,\"b\":255,\"m\":\"ct\",\"k\":4653}",
+                    "on",
+                    255,
+                    "color_temp",
+                    4651,
+                    [
+                      255,
+                      221,
+                      193
+                    ],
+                    "{\"on\":true,\"b\":128,\"m\":\"ct\",\"k\":2200}",
+                    "on",
+                    128,
+                    "color_temp",
+                    2197,
+                    [
+                      255,
+                      146,
+                      39
+                    ],
+                    "{\"on\":true,\"b\":13,\"m\":\"hs\",\"h\":13.2,\"s\":100.0,\"k\":2200}",
+                    "on",
+                    13,
+                    "hs",
+                    null,
+                    [
+                      255,
+                      56,
+                      0
+                    ],
+                    "{\"on\":true,\"b\":255,\"m\":\"ct\",\"k\":4653}",
+                    "on",
+                    255,
+                    "color_temp",
+                    4651,
+                    [
+                      255,
+                      221,
+                      193
+                    ],
+                    "{\"on\":true,\"b\":128,\"m\":\"ct\",\"k\":2200}",
+                    "on",
+                    128,
+                    "color_temp",
+                    2197,
+                    [
+                      255,
+                      146,
+                      39
+                    ],
+                    "{\"on\":true,\"b\":13,\"m\":\"hs\",\"h\":13.2,\"s\":100.0,\"k\":2200}",
+                    "on",
+                    13,
+                    "hs",
+                    null,
+                    [
+                      255,
+                      56,
+                      0
+                    ]
+                  ],
+                  "wake": [
+                    "2026-10-24 06:29:00",
+                    1792816140.219341,
+                    "37.5"
+                  ],
+                  "expiry": "on",
+                  "private": true,
+                  "warm": [
+                    255,
+                    126,
+                    0
+                  ],
+                  "tick": false
+                },
+                "periods": {},
+                "valid_from": 1792848759.192265,
+                "valid_until": 1792860000,
+                "baseline": {
+                  "targets": {
+                    "light.jonathan_bedroom_floor_lamp": {
+                      "effect": "Normal light",
+                      "brightness": 255,
+                      "on": true,
+                      "period": "day",
+                      "area": "bedroom",
+                      "effect_channels": [
+                        "brightness",
+                        "color"
+                      ],
+                      "send": true,
+                      "ignore_overrides": [],
+                      "is_room": false,
+                      "color": {
+                        "kelvin": 4651
+                      },
+                      "day": {
+                        "brightness": 255,
+                        "color": {
+                          "kelvin": 4651
+                        }
+                      },
+                      "cosy": {
+                        "brightness": 128,
+                        "color": {
+                          "kelvin": 2197
+                        }
+                      },
+                      "transition": 3,
+                      "observed": {
+                        "brightness": 129,
+                        "color": {
+                          "kelvin": 2197
+                        }
+                      }
+                    },
+                    "light.jonathan_bedroom_ceiling": {
+                      "effect": "Normal light",
+                      "brightness": 255,
+                      "on": true,
+                      "period": "day",
+                      "area": "bedroom",
+                      "effect_channels": [
+                        "brightness",
+                        "color"
+                      ],
+                      "send": true,
+                      "ignore_overrides": [],
+                      "is_room": false,
+                      "color": {
+                        "kelvin": 4651
+                      },
+                      "day": {
+                        "brightness": 255,
+                        "color": {
+                          "kelvin": 4651
+                        }
+                      },
+                      "cosy": {
+                        "brightness": 128,
+                        "color": {
+                          "kelvin": 2197
+                        }
+                      },
+                      "transition": 3,
+                      "observed": {
+                        "brightness": 129,
+                        "color": {
+                          "kelvin": 2197
+                        }
+                      }
+                    },
+                    "room:bedroom": {
+                      "brightness": 255,
+                      "color": {
+                        "kelvin": 4651
+                      },
+                      "area": "bedroom",
+                      "is_room": true,
+                      "period": "day",
+                      "effect": "Normal light",
+                      "on": true,
+                      "day": {
+                        "brightness": 255,
+                        "color": {
+                          "kelvin": 4651
+                        }
+                      },
+                      "cosy": {
+                        "brightness": 128,
+                        "color": {
+                          "kelvin": 2197
+                        }
+                      },
+                      "ignore_overrides": []
+                    }
+                  },
+                  "schedule": {
+                    "cmds": [
+                      {
+                        "kind": "ct",
+                        "brightness": 255,
+                        "kelvin": 4651,
+                        "transition": 3,
+                        "ids": [
+                          "light.jonathan_bedroom_floor_lamp",
+                          "light.jonathan_bedroom_ceiling"
+                        ]
+                      }
+                    ],
+                    "profiles": {
+                      "light.jonathan_bedroom_floor_lamp": {
+                        "effect": "Normal light",
+                        "brightness": 255,
+                        "on": true,
+                        "period": "day",
+                        "area": "bedroom",
+                        "effect_channels": [
+                          "brightness",
+                          "color"
+                        ],
+                        "send": true,
+                        "ignore_overrides": []
+                      },
+                      "light.jonathan_bedroom_ceiling": {
+                        "effect": "Normal light",
+                        "brightness": 255,
+                        "on": true,
+                        "period": "day",
+                        "area": "bedroom",
+                        "effect_channels": [
+                          "brightness",
+                          "color"
+                        ],
+                        "send": true,
+                        "ignore_overrides": []
+                      }
+                    },
+                    "revision": "2026-10-24T13:32:38.997730+00:00",
+                    "stale_keys": [],
+                    "sched": {
+                      "house": "day",
+                      "bedroom": "day"
+                    },
+                    "schedule_details": {
+                      "house": {
+                        "cur": "day",
+                        "nxt": "cosy",
+                        "fading": false,
+                        "p": 0,
+                        "edge": false,
+                        "last_fs": 1792820400,
+                        "next_fs": 1792860000,
+                        "left": 12440.795267105103,
+                        "cur_ts": 1792821600
+                      },
+                      "bedroom": {
+                        "cur": "day",
+                        "nxt": "cosy",
+                        "fading": false,
+                        "p": 0,
+                        "edge": false,
+                        "last_fs": 1792831200,
+                        "next_fs": 1792860000,
+                        "left": 12440.795267105103,
+                        "cur_ts": 1792832400
+                      }
+                    },
+                    "mirror": [],
+                    "sara_mirror": null
+                  }
+                },
+                "gradients": {
+                  "light.jonathan_bedroom_floor_lamp": {
+                    "signature": [
+                      1,
+                      255,
+                      {
+                        "kelvin": 4651
+                      },
+                      128,
+                      {
+                        "kelvin": 2197
+                      },
+                      [
+                        255,
+                        126,
+                        0
+                      ]
+                    ],
+                    "curve": {
+                      "version": 1,
+                      "day": {
+                        "brightness": 255,
+                        "color": {
+                          "kelvin": 4651
+                        }
+                      },
+                      "cosy": {
+                        "brightness": 128,
+                        "color": {
+                          "kelvin": 2197
+                        }
+                      },
+                      "brightness": {
+                        "floor": 76.5,
+                        "lower": 127,
+                        "middle": 127,
+                        "upper": 0
+                      },
+                      "colors": {
+                        "lower": {
+                          "left": {
+                            "kelvin": 2197
+                          },
+                          "right": {
+                            "kelvin": 1950
+                          },
+                          "kind": "kelvin",
+                          "start": 2197,
+                          "delta": -247
+                        },
+                        "middle": {
+                          "left": {
+                            "kelvin": 2197
+                          },
+                          "right": {
+                            "kelvin": 4651
+                          },
+                          "kind": "kelvin",
+                          "start": 2197,
+                          "delta": 2454
+                        },
+                        "upper": {
+                          "left": {
+                            "kelvin": 4651
+                          },
+                          "right": {
+                            "kelvin": 6500
+                          },
+                          "kind": "kelvin",
+                          "start": 4651,
+                          "delta": 1849
+                        },
+                        "tail": {
+                          "left": {
+                            "rgb": [
+                              255,
+                              134,
+                              7
+                            ]
+                          },
+                          "right": {
+                            "rgb": [
+                              255,
+                              126,
+                              0
+                            ]
+                          },
+                          "kind": "rgb",
+                          "start": [
+                            255,
+                            134,
+                            7
+                          ],
+                          "delta": [
+                            0,
+                            -8,
+                            -7
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "light.jonathan_bedroom_ceiling": {
+                    "signature": [
+                      1,
+                      255,
+                      {
+                        "kelvin": 4651
+                      },
+                      128,
+                      {
+                        "kelvin": 2197
+                      },
+                      [
+                        255,
+                        126,
+                        0
+                      ]
+                    ],
+                    "curve": {
+                      "version": 1,
+                      "day": {
+                        "brightness": 255,
+                        "color": {
+                          "kelvin": 4651
+                        }
+                      },
+                      "cosy": {
+                        "brightness": 128,
+                        "color": {
+                          "kelvin": 2197
+                        }
+                      },
+                      "brightness": {
+                        "floor": 76.5,
+                        "lower": 127,
+                        "middle": 127,
+                        "upper": 0
+                      },
+                      "colors": {
+                        "lower": {
+                          "left": {
+                            "kelvin": 2197
+                          },
+                          "right": {
+                            "kelvin": 1950
+                          },
+                          "kind": "kelvin",
+                          "start": 2197,
+                          "delta": -247
+                        },
+                        "middle": {
+                          "left": {
+                            "kelvin": 2197
+                          },
+                          "right": {
+                            "kelvin": 4651
+                          },
+                          "kind": "kelvin",
+                          "start": 2197,
+                          "delta": 2454
+                        },
+                        "upper": {
+                          "left": {
+                            "kelvin": 4651
+                          },
+                          "right": {
+                            "kelvin": 6500
+                          },
+                          "kind": "kelvin",
+                          "start": 4651,
+                          "delta": 1849
+                        },
+                        "tail": {
+                          "left": {
+                            "rgb": [
+                              255,
+                              134,
+                              7
+                            ]
+                          },
+                          "right": {
+                            "rgb": [
+                              255,
+                              126,
+                              0
+                            ]
+                          },
+                          "kind": "rgb",
+                          "start": [
+                            255,
+                            134,
+                            7
+                          ],
+                          "delta": [
+                            0,
+                            -8,
+                            -7
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "room:bedroom": {
+                    "signature": [
+                      1,
+                      255,
+                      {
+                        "kelvin": 4651
+                      },
+                      128,
+                      {
+                        "kelvin": 2197
+                      },
+                      [
+                        255,
+                        126,
+                        0
+                      ]
+                    ],
+                    "curve": {
+                      "version": 1,
+                      "day": {
+                        "brightness": 255,
+                        "color": {
+                          "kelvin": 4651
+                        }
+                      },
+                      "cosy": {
+                        "brightness": 128,
+                        "color": {
+                          "kelvin": 2197
+                        }
+                      },
+                      "brightness": {
+                        "floor": 76.5,
+                        "lower": 127,
+                        "middle": 127,
+                        "upper": 0
+                      },
+                      "colors": {
+                        "lower": {
+                          "left": {
+                            "kelvin": 2197
+                          },
+                          "right": {
+                            "kelvin": 1950
+                          },
+                          "kind": "kelvin",
+                          "start": 2197,
+                          "delta": -247
+                        },
+                        "middle": {
+                          "left": {
+                            "kelvin": 2197
+                          },
+                          "right": {
+                            "kelvin": 4651
+                          },
+                          "kind": "kelvin",
+                          "start": 2197,
+                          "delta": 2454
+                        },
+                        "upper": {
+                          "left": {
+                            "kelvin": 4651
+                          },
+                          "right": {
+                            "kelvin": 6500
+                          },
+                          "kind": "kelvin",
+                          "start": 4651,
+                          "delta": 1849
+                        },
+                        "tail": {
+                          "left": {
+                            "rgb": [
+                              255,
+                              134,
+                              7
+                            ]
+                          },
+                          "right": {
+                            "rgb": [
+                              255,
+                              126,
+                              0
+                            ]
+                          },
+                          "kind": "rgb",
+                          "start": [
+                            255,
+                            134,
+                            7
+                          ],
+                          "delta": [
+                            0,
+                            -8,
+                            -7
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                "catalog": {
+                  "effects": {
+                    "Candle": {
+                      "renderer": "script.effect_candle_frame",
+                      "channels": [
+                        "brightness",
+                        "color"
+                      ]
+                    },
+                    "Breathe": {
+                      "renderer": "script.effect_breathe_frame",
+                      "channels": [
+                        "brightness"
+                      ]
+                    },
+                    "Colour loop": {
+                      "renderer": "script.effect_colour_loop_frame",
+                      "channels": [
+                        "color"
+                      ]
+                    }
+                  },
+                  "processors": {
+                    "Normal light": {
+                      "channels": [
+                        "brightness",
+                        "color"
+                      ],
+                      "remote_adjustment": "gradient",
+                      "animated": false
+                    },
+                    "Candle": {
+                      "channels": [
+                        "brightness",
+                        "color"
+                      ],
+                      "remote_adjustment": "ignore",
+                      "animated": true
+                    },
+                    "Breathe": {
+                      "channels": [
+                        "brightness"
+                      ],
+                      "remote_adjustment": "ignore",
+                      "animated": true
+                    },
+                    "Colour loop": {
+                      "channels": [
+                        "color"
+                      ],
+                      "remote_adjustment": "ignore",
+                      "animated": true
+                    }
+                  }
+                }
+              },
+              "reason": "remote"
+            },
+            "target": {}
+          },
+          "running_script": true
+        },
+        "child_id": {
+          "domain": "script",
+          "item_id": "ls_room_plan",
+          "run_id": "b97df7c2b19f3d8aaf2fbcf7cde2c848"
+        }
+      },
+      {
+        "path": "sequence/4",
+        "timestamp": "2026-10-24T13:32:45.049975+00:00",
+        "result": {
+          "choice": "then"
+        },
+        "variables": {
+          "catalog": {
+            "effects": {
+              "Candle": {
+                "renderer": "script.effect_candle_frame",
+                "channels": [
+                  "brightness",
+                  "color"
+                ]
+              },
+              "Breathe": {
+                "renderer": "script.effect_breathe_frame",
+                "channels": [
+                  "brightness"
+                ]
+              },
+              "Colour loop": {
+                "renderer": "script.effect_colour_loop_frame",
+                "channels": [
+                  "color"
+                ]
+              }
+            },
+            "members": {
+              "light.jonathan_bedroom_floor_lamp": [
+                "light.jonathan_bedroom_floor_lamp"
+              ],
+              "light.upper_hall_stair_lamp": [
+                "light.upper_hall_stair_lamp"
+              ],
+              "light.upper_hall_ceiling": [
+                "light.upper_hall_ceiling"
+              ],
+              "light.living_room_desk_ceiling": [
+                "light.living_room_desk_ceiling"
+              ],
+              "light.living_room_hall_ceiling": [
+                "light.living_room_hall_ceiling"
+              ],
+              "light.living_room_vicky_desk_lamp": [
+                "light.living_room_vicky_desk_lamp"
+              ],
+              "light.living_room_table_lamp": [
+                "light.living_room_table_lamp"
+              ],
+              "light.living_room_window_lamp": [
+                "light.living_room_window_lamp"
+              ],
+              "light.living_room_yellow_retro_lamp": [
+                "light.living_room_yellow_retro_lamp"
+              ],
+              "light.kitchen_pendant": [
+                "light.kitchen_pendant_bulb_1",
+                "light.kitchen_pendant_bulb_2",
+                "light.kitchen_pendant_bulb_3"
+              ],
+              "light.kitchen_spots_1": [
+                "light.kitchen_spots_1_bulb_1",
+                "light.kitchen_spots_1_bulb_2",
+                "light.kitchen_spots_1_bulb_3"
+              ],
+              "light.kitchen_spots_2": [
+                "light.kitchen_spots_2_bulb_1",
+                "light.kitchen_spots_2_bulb_2",
+                "light.kitchen_spots_2_bulb_3"
+              ],
+              "light.meditation_floor_lamp": [
+                "light.meditation_floor_lamp_bulb_1",
+                "light.meditation_floor_lamp_bulb_2"
+              ],
+              "light.jonathan_bedroom_ceiling": [
+                "light.jonathan_bedroom_ceiling"
+              ],
+              "light.meditation_ceiling": [
+                "light.meditation_ceiling"
+              ],
+              "light.living_room_sofa_table_ceiling": [
+                "light.living_room_sofa_table_ceiling"
+              ]
+            },
+            "groups": {
+              "light.home": [
+                "light.jonathan_bedroom_floor_lamp",
+                "light.upper_hall_stair_lamp",
+                "light.upper_hall_ceiling",
+                "light.living_room_desk_ceiling",
+                "light.living_room_hall_ceiling",
+                "light.living_room_vicky_desk_lamp",
+                "light.living_room_table_lamp",
+                "light.living_room_window_lamp",
+                "light.living_room_yellow_retro_lamp",
+                "light.kitchen_pendant",
+                "light.kitchen_spots_1",
+                "light.kitchen_spots_2",
+                "light.meditation_floor_lamp",
+                "light.jonathan_bedroom_ceiling",
+                "light.meditation_ceiling",
+                "light.living_room_sofa_table_ceiling"
+              ],
+              "light.kitchen_all": [
+                "light.kitchen_pendant",
+                "light.kitchen_spots_1",
+                "light.kitchen_spots_2"
+              ],
+              "light.living_room": [
+                "light.living_room_desk_ceiling",
+                "light.living_room_hall_ceiling",
+                "light.living_room_vicky_desk_lamp",
+                "light.living_room_table_lamp",
+                "light.living_room_window_lamp",
+                "light.living_room_yellow_retro_lamp",
+                "light.living_room_sofa_table_ceiling"
+              ],
+              "light.upper_hall": [
+                "light.upper_hall_stair_lamp",
+                "light.upper_hall_ceiling"
+              ],
+              "light.jonathan_bedroom": [
+                "light.jonathan_bedroom_floor_lamp",
+                "light.jonathan_bedroom_ceiling"
+              ],
+              "light.meditation_mys_all": [
+                "light.meditation_floor_lamp",
+                "light.meditation_ceiling"
+              ]
+            },
+            "topics": {
+              "light.kitchen_pendant_bulb_1": "zigbee2mqtt/0xa4c138e778a7b45f/set",
+              "light.kitchen_pendant_bulb_2": "zigbee2mqtt/0xa4c1389a579ab983/set",
+              "light.kitchen_pendant_bulb_3": "zigbee2mqtt/0xa4c1389f87b76e60/set",
+              "light.kitchen_spots_1_bulb_1": "zigbee2mqtt/0xa4c1381f885b082f/set",
+              "light.kitchen_spots_1_bulb_2": "zigbee2mqtt/0xa4c1387e4cfba78d/set",
+              "light.kitchen_spots_1_bulb_3": "zigbee2mqtt/0xa4c138a884038127/set",
+              "light.kitchen_spots_2_bulb_1": "zigbee2mqtt/0xa4c1386736786442/set",
+              "light.kitchen_spots_2_bulb_2": "zigbee2mqtt/0xa4c138a50ae5ba5a/set",
+              "light.kitchen_spots_2_bulb_3": "zigbee2mqtt/0xa4c1381a2f63601c/set",
+              "light.meditation_floor_lamp_bulb_1": "zigbee2mqtt/Mys golvlampa 1/set",
+              "light.meditation_floor_lamp_bulb_2": "zigbee2mqtt/Mys golvlampa 2/set",
+              "light.meditation_ceiling": "zigbee2mqtt/0xa4c138eec10a5f95/set",
+              "light.jonathan_bedroom_ceiling": "zigbee2mqtt/0xa4c1387f3e38e505/set",
+              "light.jonathan_bedroom_floor_lamp": "zigbee2mqtt/0xa4c13889ddf1c22e/set",
+              "light.living_room_table_lamp": "zigbee2mqtt/0xa4c138502d6c44cd/set",
+              "light.living_room_desk_ceiling": "zigbee2mqtt/0xa4c13836b344b302/set",
+              "light.living_room_hall_ceiling": "zigbee2mqtt/0xa4c13850c80ed98f/set",
+              "light.living_room_sofa_table_ceiling": "zigbee2mqtt/0xa4c138292a2d7f60/set",
+              "light.living_room_vicky_desk_lamp": "zigbee2mqtt/0x7cc6b6fffe3cef1c/set",
+              "light.living_room_window_lamp": "zigbee2mqtt/0xa4c13825783eff26/set",
+              "light.living_room_yellow_retro_lamp": "zigbee2mqtt/0xa4c1386c73f1db49/set",
+              "light.upper_hall_ceiling": "zigbee2mqtt/0xa4c138f013c2624e/set",
+              "light.upper_hall_stair_lamp": "zigbee2mqtt/0xa4c138b95e526424/set"
+            },
+            "budget": 5,
+            "multicast": [
+              {
+                "id": "fx_candle_cross_a",
+                "topic": "zigbee2mqtt/fx_candle_cross_a/set",
+                "lamps": [
+                  "light.living_room_hall_ceiling",
+                  "light.living_room_window_lamp",
+                  "light.meditation_floor_lamp",
+                  "light.kitchen_pendant"
+                ],
+                "members": [
+                  "light.kitchen_pendant_bulb_1",
+                  "light.kitchen_pendant_bulb_2",
+                  "light.kitchen_pendant_bulb_3",
+                  "light.living_room_hall_ceiling",
+                  "light.living_room_window_lamp",
+                  "light.meditation_floor_lamp_bulb_1",
+                  "light.meditation_floor_lamp_bulb_2"
+                ],
+                "verified": true,
+                "member_topics": {
+                  "light.kitchen_pendant_bulb_1": "zigbee2mqtt/0xa4c138e778a7b45f/set",
+                  "light.kitchen_pendant_bulb_2": "zigbee2mqtt/0xa4c1389a579ab983/set",
+                  "light.kitchen_pendant_bulb_3": "zigbee2mqtt/0xa4c1389f87b76e60/set",
+                  "light.living_room_hall_ceiling": "zigbee2mqtt/0xa4c13850c80ed98f/set",
+                  "light.living_room_window_lamp": "zigbee2mqtt/0xa4c13825783eff26/set",
+                  "light.meditation_floor_lamp_bulb_1": "zigbee2mqtt/Mys golvlampa 1/set",
+                  "light.meditation_floor_lamp_bulb_2": "zigbee2mqtt/Mys golvlampa 2/set"
+                },
+                "phase_cohort": "fx_candle_cross_a",
+                "devices": [
+                  "0xa4c138e778a7b45f",
+                  "0xa4c1389a579ab983",
+                  "0xa4c1389f87b76e60",
+                  "0xa4c13850c80ed98f",
+                  "0xa4c13825783eff26",
+                  "Mys golvlampa 1",
+                  "Mys golvlampa 2"
+                ],
+                "desired_members": [
+                  "light.kitchen_pendant_bulb_1",
+                  "light.kitchen_pendant_bulb_2",
+                  "light.kitchen_pendant_bulb_3",
+                  "light.living_room_hall_ceiling",
+                  "light.living_room_window_lamp",
+                  "light.meditation_floor_lamp_bulb_1",
+                  "light.meditation_floor_lamp_bulb_2"
+                ],
+                "pending_members": [],
+                "zigbee_id": 1001
+              },
+              {
+                "id": "fx_candle_cross_b",
+                "topic": "zigbee2mqtt/fx_candle_cross_b/set",
+                "lamps": [
+                  "light.living_room_desk_ceiling",
+                  "light.living_room_sofa_table_ceiling",
+                  "light.meditation_ceiling",
+                  "light.kitchen_spots_1"
+                ],
+                "members": [
+                  "light.kitchen_spots_1_bulb_1",
+                  "light.kitchen_spots_1_bulb_2",
+                  "light.kitchen_spots_1_bulb_3",
+                  "light.living_room_desk_ceiling",
+                  "light.living_room_sofa_table_ceiling"
+                ],
+                "verified": true,
+                "member_topics": {
+                  "light.kitchen_spots_1_bulb_1": "zigbee2mqtt/0xa4c1381f885b082f/set",
+                  "light.kitchen_spots_1_bulb_2": "zigbee2mqtt/0xa4c1387e4cfba78d/set",
+                  "light.kitchen_spots_1_bulb_3": "zigbee2mqtt/0xa4c138a884038127/set",
+                  "light.living_room_desk_ceiling": "zigbee2mqtt/0xa4c13836b344b302/set",
+                  "light.living_room_sofa_table_ceiling": "zigbee2mqtt/0xa4c138292a2d7f60/set",
+                  "light.meditation_ceiling": "zigbee2mqtt/0xa4c138eec10a5f95/set"
+                },
+                "phase_cohort": "fx_candle_cross_b",
+                "devices": [
+                  "0xa4c1381f885b082f",
+                  "0xa4c1387e4cfba78d",
+                  "0xa4c138a884038127",
+                  "0xa4c13836b344b302",
+                  "0xa4c138292a2d7f60",
+                  "0xa4c138eec10a5f95"
+                ],
+                "desired_members": [
+                  "light.kitchen_spots_1_bulb_1",
+                  "light.kitchen_spots_1_bulb_2",
+                  "light.kitchen_spots_1_bulb_3",
+                  "light.living_room_desk_ceiling",
+                  "light.living_room_sofa_table_ceiling",
+                  "light.meditation_ceiling"
+                ],
+                "pending_members": [
+                  "light.meditation_ceiling"
+                ],
+                "zigbee_id": 1002
+              },
+              {
+                "id": "fx_candle_cross_c",
+                "topic": "zigbee2mqtt/fx_candle_cross_c/set",
+                "lamps": [
+                  "light.living_room_yellow_retro_lamp",
+                  "light.kitchen_spots_2",
+                  "light.upper_hall_stair_lamp"
+                ],
+                "members": [
+                  "light.kitchen_spots_2_bulb_1",
+                  "light.kitchen_spots_2_bulb_2",
+                  "light.kitchen_spots_2_bulb_3",
+                  "light.living_room_yellow_retro_lamp"
+                ],
+                "verified": true,
+                "member_topics": {
+                  "light.kitchen_spots_2_bulb_1": "zigbee2mqtt/0xa4c1386736786442/set",
+                  "light.kitchen_spots_2_bulb_2": "zigbee2mqtt/0xa4c138a50ae5ba5a/set",
+                  "light.kitchen_spots_2_bulb_3": "zigbee2mqtt/0xa4c1381a2f63601c/set",
+                  "light.living_room_yellow_retro_lamp": "zigbee2mqtt/0xa4c1386c73f1db49/set",
+                  "light.upper_hall_stair_lamp": "zigbee2mqtt/0xa4c138b95e526424/set"
+                },
+                "phase_cohort": "fx_candle_cross_c",
+                "devices": [
+                  "0xa4c1386736786442",
+                  "0xa4c138a50ae5ba5a",
+                  "0xa4c1381a2f63601c",
+                  "0xa4c1386c73f1db49",
+                  "0xa4c138b95e526424"
+                ],
+                "desired_members": [
+                  "light.kitchen_spots_2_bulb_1",
+                  "light.kitchen_spots_2_bulb_2",
+                  "light.kitchen_spots_2_bulb_3",
+                  "light.living_room_yellow_retro_lamp",
+                  "light.upper_hall_stair_lamp"
+                ],
+                "pending_members": [
+                  "light.upper_hall_stair_lamp"
+                ],
+                "zigbee_id": 1003
+              },
+              {
+                "id": "fx_candle_cross_d",
+                "topic": "zigbee2mqtt/fx_candle_cross_d/set",
+                "lamps": [
+                  "light.living_room_vicky_desk_lamp",
+                  "light.upper_hall_ceiling"
+                ],
+                "members": [
+                  "light.living_room_vicky_desk_lamp"
+                ],
+                "verified": true,
+                "member_topics": {
+                  "light.living_room_vicky_desk_lamp": "zigbee2mqtt/0x7cc6b6fffe3cef1c/set",
+                  "light.upper_hall_ceiling": "zigbee2mqtt/0xa4c138f013c2624e/set"
+                },
+                "phase_cohort": "fx_candle_cross_d",
+                "devices": [
+                  "0x7cc6b6fffe3cef1c",
+                  "0xa4c138f013c2624e"
+                ],
+                "desired_members": [
+                  "light.living_room_vicky_desk_lamp",
+                  "light.upper_hall_ceiling"
+                ],
+                "pending_members": [
+                  "light.upper_hall_ceiling"
+                ],
+                "zigbee_id": 1004
+              },
+              {
+                "id": "fx_lamp_kitchen_pendant",
+                "topic": "zigbee2mqtt/kitchen/pendant/set",
+                "lamps": [
+                  "light.kitchen_pendant"
+                ],
+                "members": [
+                  "light.kitchen_pendant_bulb_1",
+                  "light.kitchen_pendant_bulb_2",
+                  "light.kitchen_pendant_bulb_3"
+                ],
+                "verified": true,
+                "member_topics": {
+                  "light.kitchen_pendant_bulb_1": "zigbee2mqtt/0xa4c138e778a7b45f/set",
+                  "light.kitchen_pendant_bulb_2": "zigbee2mqtt/0xa4c1389a579ab983/set",
+                  "light.kitchen_pendant_bulb_3": "zigbee2mqtt/0xa4c1389f87b76e60/set"
+                },
+                "phase_cohort": "fx_candle_cross_a",
+                "devices": [
+                  "0xa4c138e778a7b45f",
+                  "0xa4c1389a579ab983",
+                  "0xa4c1389f87b76e60"
+                ],
+                "zigbee_id": 1
+              },
+              {
+                "id": "fx_lamp_kitchen_spots_1",
+                "topic": "zigbee2mqtt/kitchen/spots-1/set",
+                "lamps": [
+                  "light.kitchen_spots_1"
+                ],
+                "members": [
+                  "light.kitchen_spots_1_bulb_1",
+                  "light.kitchen_spots_1_bulb_2",
+                  "light.kitchen_spots_1_bulb_3"
+                ],
+                "verified": true,
+                "member_topics": {
+                  "light.kitchen_spots_1_bulb_1": "zigbee2mqtt/0xa4c1381f885b082f/set",
+                  "light.kitchen_spots_1_bulb_2": "zigbee2mqtt/0xa4c1387e4cfba78d/set",
+                  "light.kitchen_spots_1_bulb_3": "zigbee2mqtt/0xa4c138a884038127/set"
+                },
+                "phase_cohort": "fx_candle_cross_b",
+                "devices": [
+                  "0xa4c1381f885b082f",
+                  "0xa4c1387e4cfba78d",
+                  "0xa4c138a884038127"
+                ],
+                "zigbee_id": 2
+              },
+              {
+                "id": "fx_lamp_kitchen_spots_2",
+                "topic": "zigbee2mqtt/kitchen/spots-2/set",
+                "lamps": [
+                  "light.kitchen_spots_2"
+                ],
+                "members": [
+                  "light.kitchen_spots_2_bulb_1",
+                  "light.kitchen_spots_2_bulb_2",
+                  "light.kitchen_spots_2_bulb_3"
+                ],
+                "verified": true,
+                "member_topics": {
+                  "light.kitchen_spots_2_bulb_1": "zigbee2mqtt/0xa4c1386736786442/set",
+                  "light.kitchen_spots_2_bulb_2": "zigbee2mqtt/0xa4c138a50ae5ba5a/set",
+                  "light.kitchen_spots_2_bulb_3": "zigbee2mqtt/0xa4c1381a2f63601c/set"
+                },
+                "phase_cohort": "fx_candle_cross_c",
+                "devices": [
+                  "0xa4c1386736786442",
+                  "0xa4c138a50ae5ba5a",
+                  "0xa4c1381a2f63601c"
+                ],
+                "zigbee_id": 3
+              },
+              {
+                "id": "fx_lamp_meditation_floor_lamp",
+                "topic": "zigbee2mqtt/Mys golvlampa/set",
+                "lamps": [
+                  "light.meditation_floor_lamp"
+                ],
+                "members": [
+                  "light.meditation_floor_lamp_bulb_1",
+                  "light.meditation_floor_lamp_bulb_2"
+                ],
+                "verified": true,
+                "member_topics": {
+                  "light.meditation_floor_lamp_bulb_1": "zigbee2mqtt/Mys golvlampa 1/set",
+                  "light.meditation_floor_lamp_bulb_2": "zigbee2mqtt/Mys golvlampa 2/set"
+                },
+                "phase_cohort": "fx_candle_cross_a",
+                "devices": [
+                  "Mys golvlampa 1",
+                  "Mys golvlampa 2"
+                ],
+                "zigbee_id": 5
+              }
+            ],
+            "phases": {
+              "light.jonathan_bedroom_floor_lamp": "light.jonathan_bedroom_floor_lamp",
+              "light.upper_hall_stair_lamp": "fx_candle_cross_c",
+              "light.upper_hall_ceiling": "fx_candle_cross_d",
+              "light.living_room_desk_ceiling": "fx_candle_cross_b",
+              "light.living_room_hall_ceiling": "fx_candle_cross_a",
+              "light.living_room_vicky_desk_lamp": "fx_candle_cross_d",
+              "light.living_room_table_lamp": "light.living_room_table_lamp",
+              "light.living_room_window_lamp": "fx_candle_cross_a",
+              "light.living_room_yellow_retro_lamp": "fx_candle_cross_c",
+              "light.kitchen_pendant": "fx_candle_cross_a",
+              "light.kitchen_spots_1": "fx_candle_cross_b",
+              "light.kitchen_spots_2": "fx_candle_cross_c",
+              "light.meditation_floor_lamp": "fx_candle_cross_a",
+              "light.jonathan_bedroom_ceiling": "light.jonathan_bedroom_ceiling",
+              "light.meditation_ceiling": "fx_candle_cross_b",
+              "light.living_room_sofa_table_ceiling": "fx_candle_cross_b"
+            },
+            "processors": {
+              "Normal light": {
+                "channels": [
+                  "brightness",
+                  "color"
+                ],
+                "remote_adjustment": "gradient",
+                "animated": false
+              },
+              "Candle": {
+                "channels": [
+                  "brightness",
+                  "color"
+                ],
+                "remote_adjustment": "ignore",
+                "animated": true
+              },
+              "Breathe": {
+                "channels": [
+                  "brightness"
+                ],
+                "remote_adjustment": "ignore",
+                "animated": true
+              },
+              "Colour loop": {
+                "channels": [
+                  "color"
+                ],
+                "remote_adjustment": "ignore",
+                "animated": true
+              }
+            }
+          }
+        }
+      },
+      {
+        "path": "sequence/4/if",
+        "timestamp": "2026-10-24T13:32:45.050154+00:00",
+        "result": {
+          "result": true
+        }
+      },
+      {
+        "path": "sequence/4/if/condition/0",
+        "timestamp": "2026-10-24T13:32:45.050284+00:00",
+        "result": {
+          "result": true,
+          "entities": []
+        }
+      },
+      {
+        "path": "sequence/4/then/0",
+        "timestamp": "2026-10-24T13:32:45.050914+00:00"
+      },
+      {
+        "path": "sequence/5",
+        "timestamp": "2026-10-24T13:32:45.051351+00:00",
+        "variables": {
+          "result": {
+            "op": "set",
+            "records": [
+              {
+                "kind": "input",
+                "key": "channels:0x385b44fffea4fc67",
+                "source": "0x385b44fffea4fc67",
+                "scope": "room",
+                "target": "bedroom",
+                "value": {
+                  "selection": "cosy",
+                  "selection_updated": 1792848764.962286,
+                  "period": "cosy",
+                  "period_updated": 1792848764.962286,
+                  "adjustment": {
+                    "steps": 0,
+                    "lower": -20,
+                    "upper": 20,
+                    "anchor": "cosy",
+                    "updated": 1792848764.962286
+                  },
+                  "selection_input": null,
+                  "remote_valid_until": 1792860000,
+                  "remote_timing_revision": 0
+                }
+              }
+            ],
+            "via": "remote"
+          }
+        }
+      },
+      {
+        "path": "sequence/6",
+        "timestamp": "2026-10-24T13:32:45.054183+00:00",
+        "variables": {
+          "result": {
+            "op": "set",
+            "records": [
+              {
+                "kind": "input",
+                "key": "channels:0x385b44fffea4fc67",
+                "source": "0x385b44fffea4fc67",
+                "scope": "room",
+                "target": "bedroom",
+                "value": {
+                  "selection": "cosy",
+                  "selection_updated": 1792848764.962286,
+                  "period": "cosy",
+                  "period_updated": 1792848764.962286,
+                  "adjustment": {
+                    "steps": 0,
+                    "lower": -20,
+                    "upper": 20,
+                    "anchor": "cosy",
+                    "updated": 1792848764.962286
+                  },
+                  "selection_input": null,
+                  "remote_valid_until": 1792860000,
+                  "remote_timing_revision": 0
+                }
+              }
+            ],
+            "via": "remote",
+            "input_revision": "2026-10-24T13:32:38.997730+00:00",
+            "received_at": 1792848764.962286,
+            "request_id": "0x385b44fffea4fc67:1792848764.962286"
+          }
+        }
+      },
+      {
+        "path": "sequence/7",
+        "timestamp": "2026-10-24T13:32:45.056164+00:00",
+        "result": {
+          "stop": "Return result",
+          "error": false
+        }
+      }
+    ],
+    "script_execution": "finished"
+  },
+  "mqtt_floor": {
+    "success": true,
+    "ws_command": "mqtt/device/debug_info",
+    "parameters": {
+      "device_id": "aace79449faff3b047e4c8e8f0212567"
+    },
+    "result": {
+      "entities": [
+        {
+          "entity_id": "select.0xa4c13889ddf1c22e_power_on_behavior",
+          "subscriptions": [
+            {
+              "topic": "zigbee2mqtt/bridge/state",
+              "messages": [
+                {
+                  "payload": "{\"state\":\"online\"}",
+                  "qos": 0,
+                  "retain": true,
+                  "time": "2026-10-23T14:11:27.005195+00:00",
+                  "topic": "zigbee2mqtt/bridge/state"
+                },
+                {
+                  "payload": "{\"state\":\"online\"}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-23T14:12:01.337718+00:00",
+                  "topic": "zigbee2mqtt/bridge/state"
+                }
+              ]
+            },
+            {
+              "topic": "zigbee2mqtt/0xa4c13889ddf1c22e/availability",
+              "messages": [
+                {
+                  "payload": "{\"state\":\"online\"}",
+                  "qos": 0,
+                  "retain": true,
+                  "time": "2026-10-23T14:11:27.025011+00:00",
+                  "topic": "zigbee2mqtt/0xa4c13889ddf1c22e/availability"
+                }
+              ]
+            },
+            {
+              "topic": "zigbee2mqtt/0xa4c13889ddf1c22e",
+              "messages": [
+                {
+                  "payload": "{\"brightness\":97,\"color\":{\"h\":14,\"hue\":14,\"s\":100,\"saturation\":100,\"x\":0.6047,\"y\":0.3783},\"color_mode\":\"xy\",\"color_temp\":561,\"effect\":null,\"linkquality\":184,\"power_on_behavior\":null,\"state\":\"ON\"}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T13:32:48.788085+00:00",
+                  "topic": "zigbee2mqtt/0xa4c13889ddf1c22e"
+                },
+                {
+                  "payload": "{\"brightness\":104,\"color\":{\"h\":14,\"hue\":14,\"s\":100,\"saturation\":100,\"x\":0.6017,\"y\":0.3801},\"color_mode\":\"xy\",\"color_temp\":567,\"effect\":null,\"linkquality\":176,\"power_on_behavior\":null,\"state\":\"ON\"}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T13:32:49.332632+00:00",
+                  "topic": "zigbee2mqtt/0xa4c13889ddf1c22e"
+                },
+                {
+                  "payload": "{\"brightness\":96,\"color\":{\"h\":13,\"hue\":13,\"s\":100,\"saturation\":100,\"x\":0.6061,\"y\":0.3773},\"color_mode\":\"xy\",\"color_temp\":558,\"effect\":null,\"linkquality\":176,\"power_on_behavior\":null,\"state\":\"ON\"}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T13:32:50.382033+00:00",
+                  "topic": "zigbee2mqtt/0xa4c13889ddf1c22e"
+                },
+                {
+                  "payload": "{\"brightness\":111,\"color\":{\"h\":15,\"hue\":15,\"s\":99,\"saturation\":99,\"x\":0.5984,\"y\":0.3817},\"color_mode\":\"xy\",\"color_temp\":572,\"effect\":null,\"linkquality\":176,\"power_on_behavior\":null,\"state\":\"ON\"}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T13:32:51.436348+00:00",
+                  "topic": "zigbee2mqtt/0xa4c13889ddf1c22e"
+                },
+                {
+                  "payload": "{\"brightness\":107,\"color\":{\"h\":14,\"hue\":14,\"s\":100,\"saturation\":100,\"x\":0.6,\"y\":0.3809},\"color_mode\":\"xy\",\"color_temp\":570,\"effect\":null,\"linkquality\":176,\"power_on_behavior\":null,\"state\":\"ON\"}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T13:32:52.503884+00:00",
+                  "topic": "zigbee2mqtt/0xa4c13889ddf1c22e"
+                },
+                {
+                  "payload": "{\"brightness\":88,\"color\":{\"h\":13,\"hue\":13,\"s\":100,\"saturation\":100,\"x\":0.6092,\"y\":0.3756},\"color_mode\":\"xy\",\"color_temp\":551,\"effect\":null,\"linkquality\":180,\"power_on_behavior\":null,\"state\":\"ON\"}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T13:32:53.417397+00:00",
+                  "topic": "zigbee2mqtt/0xa4c13889ddf1c22e"
+                },
+                {
+                  "payload": "{\"brightness\":107,\"color\":{\"h\":14,\"hue\":14,\"s\":100,\"saturation\":100,\"x\":0.6,\"y\":0.3809},\"color_mode\":\"xy\",\"color_temp\":570,\"effect\":null,\"linkquality\":180,\"power_on_behavior\":null,\"state\":\"ON\"}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T13:32:54.994709+00:00",
+                  "topic": "zigbee2mqtt/0xa4c13889ddf1c22e"
+                },
+                {
+                  "payload": "{\"brightness\":254,\"color\":{\"h\":44,\"hue\":44,\"s\":33,\"saturation\":33,\"x\":0.3557,\"y\":0.3598},\"color_mode\":\"color_temp\",\"color_temp\":215,\"effect\":null,\"linkquality\":180,\"power_on_behavior\":null,\"state\":\"ON\"}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T13:32:55.198168+00:00",
+                  "topic": "zigbee2mqtt/0xa4c13889ddf1c22e"
+                },
+                {
+                  "payload": "{\"brightness\":128,\"color\":{\"h\":27,\"hue\":27,\"s\":92,\"saturation\":92,\"x\":0.5066,\"y\":0.4152},\"color_mode\":\"color_temp\",\"color_temp\":455,\"effect\":null,\"linkquality\":188,\"power_on_behavior\":null,\"state\":\"ON\"}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T13:33:06.707990+00:00",
+                  "topic": "zigbee2mqtt/0xa4c13889ddf1c22e"
+                },
+                {
+                  "payload": "{\"brightness\":254,\"color\":{\"h\":44,\"hue\":44,\"s\":33,\"saturation\":33,\"x\":0.3557,\"y\":0.3598},\"color_mode\":\"color_temp\",\"color_temp\":215,\"effect\":null,\"linkquality\":184,\"power_on_behavior\":null,\"state\":\"ON\"}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T13:33:24.958518+00:00",
+                  "topic": "zigbee2mqtt/0xa4c13889ddf1c22e"
+                }
+              ]
+            }
+          ],
+          "discovery_data": {
+            "topic": "homeassistant/select/0xa4c13889ddf1c22e/power_on_behavior/config",
+            "payload": {
+              "availability": [
+                {
+                  "topic": "zigbee2mqtt/bridge/state",
+                  "value_template": "{{ value_json.state }}"
+                },
+                {
+                  "topic": "zigbee2mqtt/0xa4c13889ddf1c22e/availability",
+                  "value_template": "{{ value_json.state }}"
+                }
+              ],
+              "availability_mode": "all",
+              "command_topic": "zigbee2mqtt/0xa4c13889ddf1c22e/set/power_on_behavior",
+              "default_entity_id": "select.0xa4c13889ddf1c22e_power_on_behavior",
+              "device": {
+                "hw_version": 1,
+                "identifiers": [
+                  "zigbee2mqtt_0xa4c13889ddf1c22e"
+                ],
+                "manufacturer": "Innr",
+                "model": "E27 bulb RGBW",
+                "model_id": "RB 282 C",
+                "sw_version": "1.9.64",
+                "via_device": "zigbee2mqtt_bridge_0xc02cedfffe0752e2",
+                "name": "0xa4c13889ddf1c22e"
+              },
+              "entity_category": "config",
+              "icon": "mdi:power-settings",
+              "object_id": "0xa4c13889ddf1c22e_power_on_behavior",
+              "options": [
+                "off",
+                "on",
+                "toggle",
+                "previous"
+              ],
+              "origin": {
+                "sw_version": "2.13.0",
+                "name": "Zigbee2MQTT",
+                "support_url": "https://www.zigbee2mqtt.io"
+              },
+              "state_topic": "zigbee2mqtt/0xa4c13889ddf1c22e",
+              "unique_id": "0xa4c13889ddf1c22e_power_on_behavior_zigbee2mqtt",
+              "value_template": "{{ value_json[\"power_on_behavior\"] }}",
+              "name": "Power-on behavior"
+            }
+          },
+          "transmitted": []
+        },
+        {
+          "entity_id": "light.jonathan_bedroom_floor_lamp",
+          "subscriptions": [
+            {
+              "topic": "zigbee2mqtt/bridge/state",
+              "messages": [
+                {
+                  "payload": "{\"state\":\"online\"}",
+                  "qos": 0,
+                  "retain": true,
+                  "time": "2026-10-23T14:11:27.005196+00:00",
+                  "topic": "zigbee2mqtt/bridge/state"
+                },
+                {
+                  "payload": "{\"state\":\"online\"}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-23T14:12:01.337719+00:00",
+                  "topic": "zigbee2mqtt/bridge/state"
+                }
+              ]
+            },
+            {
+              "topic": "zigbee2mqtt/0xa4c13889ddf1c22e/availability",
+              "messages": [
+                {
+                  "payload": "{\"state\":\"online\"}",
+                  "qos": 0,
+                  "retain": true,
+                  "time": "2026-10-23T14:11:27.025011+00:00",
+                  "topic": "zigbee2mqtt/0xa4c13889ddf1c22e/availability"
+                }
+              ]
+            },
+            {
+              "topic": "zigbee2mqtt/0xa4c13889ddf1c22e",
+              "messages": [
+                {
+                  "payload": "{\"brightness\":97,\"color\":{\"h\":14,\"hue\":14,\"s\":100,\"saturation\":100,\"x\":0.6047,\"y\":0.3783},\"color_mode\":\"xy\",\"color_temp\":561,\"effect\":null,\"linkquality\":184,\"power_on_behavior\":null,\"state\":\"ON\"}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T13:32:48.788085+00:00",
+                  "topic": "zigbee2mqtt/0xa4c13889ddf1c22e"
+                },
+                {
+                  "payload": "{\"brightness\":104,\"color\":{\"h\":14,\"hue\":14,\"s\":100,\"saturation\":100,\"x\":0.6017,\"y\":0.3801},\"color_mode\":\"xy\",\"color_temp\":567,\"effect\":null,\"linkquality\":176,\"power_on_behavior\":null,\"state\":\"ON\"}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T13:32:49.332633+00:00",
+                  "topic": "zigbee2mqtt/0xa4c13889ddf1c22e"
+                },
+                {
+                  "payload": "{\"brightness\":96,\"color\":{\"h\":13,\"hue\":13,\"s\":100,\"saturation\":100,\"x\":0.6061,\"y\":0.3773},\"color_mode\":\"xy\",\"color_temp\":558,\"effect\":null,\"linkquality\":176,\"power_on_behavior\":null,\"state\":\"ON\"}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T13:32:50.382033+00:00",
+                  "topic": "zigbee2mqtt/0xa4c13889ddf1c22e"
+                },
+                {
+                  "payload": "{\"brightness\":111,\"color\":{\"h\":15,\"hue\":15,\"s\":99,\"saturation\":99,\"x\":0.5984,\"y\":0.3817},\"color_mode\":\"xy\",\"color_temp\":572,\"effect\":null,\"linkquality\":176,\"power_on_behavior\":null,\"state\":\"ON\"}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T13:32:51.436348+00:00",
+                  "topic": "zigbee2mqtt/0xa4c13889ddf1c22e"
+                },
+                {
+                  "payload": "{\"brightness\":107,\"color\":{\"h\":14,\"hue\":14,\"s\":100,\"saturation\":100,\"x\":0.6,\"y\":0.3809},\"color_mode\":\"xy\",\"color_temp\":570,\"effect\":null,\"linkquality\":176,\"power_on_behavior\":null,\"state\":\"ON\"}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T13:32:52.503884+00:00",
+                  "topic": "zigbee2mqtt/0xa4c13889ddf1c22e"
+                },
+                {
+                  "payload": "{\"brightness\":88,\"color\":{\"h\":13,\"hue\":13,\"s\":100,\"saturation\":100,\"x\":0.6092,\"y\":0.3756},\"color_mode\":\"xy\",\"color_temp\":551,\"effect\":null,\"linkquality\":180,\"power_on_behavior\":null,\"state\":\"ON\"}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T13:32:53.417397+00:00",
+                  "topic": "zigbee2mqtt/0xa4c13889ddf1c22e"
+                },
+                {
+                  "payload": "{\"brightness\":107,\"color\":{\"h\":14,\"hue\":14,\"s\":100,\"saturation\":100,\"x\":0.6,\"y\":0.3809},\"color_mode\":\"xy\",\"color_temp\":570,\"effect\":null,\"linkquality\":180,\"power_on_behavior\":null,\"state\":\"ON\"}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T13:32:54.994710+00:00",
+                  "topic": "zigbee2mqtt/0xa4c13889ddf1c22e"
+                },
+                {
+                  "payload": "{\"brightness\":254,\"color\":{\"h\":44,\"hue\":44,\"s\":33,\"saturation\":33,\"x\":0.3557,\"y\":0.3598},\"color_mode\":\"color_temp\",\"color_temp\":215,\"effect\":null,\"linkquality\":180,\"power_on_behavior\":null,\"state\":\"ON\"}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T13:32:55.198168+00:00",
+                  "topic": "zigbee2mqtt/0xa4c13889ddf1c22e"
+                },
+                {
+                  "payload": "{\"brightness\":128,\"color\":{\"h\":27,\"hue\":27,\"s\":92,\"saturation\":92,\"x\":0.5066,\"y\":0.4152},\"color_mode\":\"color_temp\",\"color_temp\":455,\"effect\":null,\"linkquality\":188,\"power_on_behavior\":null,\"state\":\"ON\"}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T13:33:06.707990+00:00",
+                  "topic": "zigbee2mqtt/0xa4c13889ddf1c22e"
+                },
+                {
+                  "payload": "{\"brightness\":254,\"color\":{\"h\":44,\"hue\":44,\"s\":33,\"saturation\":33,\"x\":0.3557,\"y\":0.3598},\"color_mode\":\"color_temp\",\"color_temp\":215,\"effect\":null,\"linkquality\":184,\"power_on_behavior\":null,\"state\":\"ON\"}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T13:33:24.958518+00:00",
+                  "topic": "zigbee2mqtt/0xa4c13889ddf1c22e"
+                }
+              ]
+            }
+          ],
+          "discovery_data": {
+            "topic": "homeassistant/light/0xa4c13889ddf1c22e/light/config",
+            "payload": {
+              "availability": [
+                {
+                  "topic": "zigbee2mqtt/bridge/state",
+                  "value_template": "{{ value_json.state }}"
+                },
+                {
+                  "topic": "zigbee2mqtt/0xa4c13889ddf1c22e/availability",
+                  "value_template": "{{ value_json.state }}"
+                }
+              ],
+              "availability_mode": "all",
+              "brightness": true,
+              "brightness_scale": 254,
+              "command_topic": "zigbee2mqtt/0xa4c13889ddf1c22e/set",
+              "default_entity_id": "light.0xa4c13889ddf1c22e",
+              "device": {
+                "hw_version": 1,
+                "identifiers": [
+                  "zigbee2mqtt_0xa4c13889ddf1c22e"
+                ],
+                "manufacturer": "Innr",
+                "model": "E27 bulb RGBW",
+                "model_id": "RB 282 C",
+                "sw_version": "1.9.64",
+                "via_device": "zigbee2mqtt_bridge_0xc02cedfffe0752e2",
+                "name": "0xa4c13889ddf1c22e"
+              },
+              "effect": true,
+              "effect_list": [
+                "blink",
+                "breathe",
+                "okay",
+                "channel_change",
+                "finish_effect",
+                "stop_effect",
+                "colorloop",
+                "stop_colorloop"
+              ],
+              "max_mireds": 556,
+              "min_mireds": 153,
+              "object_id": "0xa4c13889ddf1c22e",
+              "origin": {
+                "sw_version": "2.13.0",
+                "name": "Zigbee2MQTT",
+                "support_url": "https://www.zigbee2mqtt.io"
+              },
+              "schema": "json",
+              "state_topic": "zigbee2mqtt/0xa4c13889ddf1c22e",
+              "supported_color_modes": [
+                "xy",
+                "color_temp"
+              ],
+              "unique_id": "0xa4c13889ddf1c22e_light_zigbee2mqtt",
+              "name": null
+            }
+          },
+          "transmitted": [
+            {
+              "topic": "zigbee2mqtt/0xa4c13889ddf1c22e/set",
+              "messages": [
+                {
+                  "payload": "{\"state\":\"ON\",\"color\":{\"x\":0.405,\"y\":0.356},\"transition\":60.0,\"brightness\":237}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T05:04:00.544937+00:00",
+                  "topic": "zigbee2mqtt/0xa4c13889ddf1c22e/set"
+                },
+                {
+                  "payload": "{\"state\":\"ON\",\"color\":{\"x\":0.398,\"y\":0.355},\"transition\":60.0,\"brightness\":244}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T05:05:00.543187+00:00",
+                  "topic": "zigbee2mqtt/0xa4c13889ddf1c22e/set"
+                },
+                {
+                  "payload": "{\"state\":\"ON\",\"color\":{\"x\":0.39,\"y\":0.356},\"transition\":60.0,\"brightness\":251}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T05:06:00.544963+00:00",
+                  "topic": "zigbee2mqtt/0xa4c13889ddf1c22e/set"
+                },
+                {
+                  "payload": "{\"state\":\"ON\",\"transition\":3.0,\"brightness\":254,\"color_temp\":215}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T05:07:00.545816+00:00",
+                  "topic": "zigbee2mqtt/0xa4c13889ddf1c22e/set"
+                },
+                {
+                  "payload": "{\"state\":\"OFF\"}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T06:15:24.485430+00:00",
+                  "topic": "zigbee2mqtt/0xa4c13889ddf1c22e/set"
+                },
+                {
+                  "payload": "{\"state\":\"ON\"}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T06:15:27.496444+00:00",
+                  "topic": "zigbee2mqtt/0xa4c13889ddf1c22e/set"
+                },
+                {
+                  "payload": "{\"state\":\"OFF\"}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T06:52:32.628577+00:00",
+                  "topic": "zigbee2mqtt/0xa4c13889ddf1c22e/set"
+                },
+                {
+                  "payload": "{\"state\":\"ON\"}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T06:52:35.383427+00:00",
+                  "topic": "zigbee2mqtt/0xa4c13889ddf1c22e/set"
+                },
+                {
+                  "payload": "{\"state\":\"OFF\"}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T07:46:40.344091+00:00",
+                  "topic": "zigbee2mqtt/0xa4c13889ddf1c22e/set"
+                },
+                {
+                  "payload": "{\"state\":\"ON\"}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T10:05:07.687866+00:00",
+                  "topic": "zigbee2mqtt/0xa4c13889ddf1c22e/set"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "triggers": []
+    },
+    "message": "Successfully executed WebSocket command 'mqtt/device/debug_info'"
+  },
+  "mqtt_remote": {
+    "success": true,
+    "ws_command": "mqtt/device/debug_info",
+    "parameters": {
+      "device_id": "0e973e9202acb5ace9a8e6a8b336891d"
+    },
+    "result": {
+      "entities": [
+        {
+          "entity_id": "sensor.0x385b44fffea4fc67_battery",
+          "subscriptions": [
+            {
+              "topic": "zigbee2mqtt/bridge/state",
+              "messages": [
+                {
+                  "payload": "{\"state\":\"online\"}",
+                  "qos": 0,
+                  "retain": true,
+                  "time": "2026-10-24T06:06:04.895603+00:00",
+                  "topic": "zigbee2mqtt/bridge/state"
+                }
+              ]
+            },
+            {
+              "topic": "zigbee2mqtt/0x385b44fffea4fc67/availability",
+              "messages": [
+                {
+                  "payload": "{\"state\":\"online\"}",
+                  "qos": 0,
+                  "retain": true,
+                  "time": "2026-10-24T06:06:04.901649+00:00",
+                  "topic": "zigbee2mqtt/0x385b44fffea4fc67/availability"
+                }
+              ]
+            },
+            {
+              "topic": "zigbee2mqtt/0x385b44fffea4fc67",
+              "messages": [
+                {
+                  "payload": "{\"action\":\"color_temperature_move\",\"action_color_temperature\":285,\"action_transition_time\":3,\"battery\":100,\"linkquality\":184}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T13:32:45.470065+00:00",
+                  "topic": "zigbee2mqtt/0x385b44fffea4fc67"
+                },
+                {
+                  "payload": "{\"action\":\"brightness_move_to_level\",\"action_level\":178,\"action_transition_time\":0.3,\"battery\":100,\"linkquality\":176}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T13:32:48.112224+00:00",
+                  "topic": "zigbee2mqtt/0x385b44fffea4fc67"
+                },
+                {
+                  "payload": "{\"action\":\"color_temperature_move\",\"action_color_temperature\":370,\"action_transition_time\":3,\"battery\":100,\"linkquality\":180}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T13:32:48.584001+00:00",
+                  "topic": "zigbee2mqtt/0x385b44fffea4fc67"
+                },
+                {
+                  "payload": "{\"action\":\"brightness_move_to_level\",\"action_level\":76,\"action_transition_time\":0.3,\"battery\":100,\"linkquality\":176}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T13:32:54.410634+00:00",
+                  "topic": "zigbee2mqtt/0x385b44fffea4fc67"
+                },
+                {
+                  "payload": "{\"action\":\"color_temperature_move\",\"action_color_temperature\":454,\"action_transition_time\":3,\"battery\":100,\"linkquality\":180}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T13:32:54.962439+00:00",
+                  "topic": "zigbee2mqtt/0x385b44fffea4fc67"
+                },
+                {
+                  "payload": "{\"action\":\"brightness_move_to_level\",\"action_level\":2,\"action_transition_time\":0.3,\"battery\":100,\"linkquality\":184}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T13:33:05.929105+00:00",
+                  "topic": "zigbee2mqtt/0x385b44fffea4fc67"
+                },
+                {
+                  "payload": "{\"action\":\"color_temperature_move\",\"action_color_temperature\":588,\"action_transition_time\":3,\"battery\":100,\"linkquality\":188}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T13:33:06.474028+00:00",
+                  "topic": "zigbee2mqtt/0x385b44fffea4fc67"
+                },
+                {
+                  "payload": "{\"action\":\"off\",\"battery\":100,\"linkquality\":192}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T13:33:23.454797+00:00",
+                  "topic": "zigbee2mqtt/0x385b44fffea4fc67"
+                },
+                {
+                  "payload": "{\"action\":\"on\",\"battery\":100,\"linkquality\":192}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T13:33:23.568634+00:00",
+                  "topic": "zigbee2mqtt/0x385b44fffea4fc67"
+                },
+                {
+                  "payload": "{\"action\":\"off\",\"battery\":100,\"linkquality\":192}",
+                  "qos": 0,
+                  "retain": false,
+                  "time": "2026-10-24T13:33:23.811726+00:00",
+                  "topic": "zigbee2mqtt/0x385b44fffea4fc67"
+                }
+              ]
+            }
+          ],
+          "discovery_data": {
+            "topic": "homeassistant/sensor/0x385b44fffea4fc67/battery/config",
+            "payload": {
+              "availability": [
+                {
+                  "topic": "zigbee2mqtt/bridge/state",
+                  "value_template": "{{ value_json.state }}"
+                },
+                {
+                  "topic": "zigbee2mqtt/0x385b44fffea4fc67/availability",
+                  "value_template": "{{ value_json.state }}"
+                }
+              ],
+              "availability_mode": "all",
+              "default_entity_id": "sensor.0x385b44fffea4fc67_battery",
+              "device": {
+                "hw_version": 1,
+                "identifiers": [
+                  "zigbee2mqtt_0x385b44fffea4fc67"
+                ],
+                "manufacturer": "Innr",
+                "model": "Remote control",
+                "model_id": "RC 250",
+                "sw_version": "2.01.08",
+                "via_device": "zigbee2mqtt_bridge_0xc02cedfffe0752e2",
+                "name": "0x385b44fffea4fc67"
+              },
+              "device_class": "battery",
+              "enabled_by_default": true,
+              "entity_category": "diagnostic",
+              "object_id": "0x385b44fffea4fc67_battery",
+              "origin": {
+                "sw_version": "2.13.0",
+                "name": "Zigbee2MQTT",
+                "support_url": "https://www.zigbee2mqtt.io"
+              },
+              "state_class": "measurement",
+              "state_topic": "zigbee2mqtt/0x385b44fffea4fc67",
+              "unique_id": "0x385b44fffea4fc67_battery_zigbee2mqtt",
+              "unit_of_measurement": "%",
+              "value_template": "{{ value_json[\"battery\"] }}"
+            }
+          },
+          "transmitted": []
+        }
+      ],
+      "triggers": [
+        {
+          "discovery_data": {
+            "topic": "homeassistant/device_automation/0x385b44fffea4fc67/action_brightness_step_down/config",
+            "payload": {
+              "automation_type": "trigger",
+              "device": {
+                "hw_version": 1,
+                "identifiers": [
+                  "zigbee2mqtt_0x385b44fffea4fc67"
+                ],
+                "manufacturer": "Innr",
+                "model": "Remote control",
+                "model_id": "RC 250",
+                "sw_version": "2.01.08",
+                "via_device": "zigbee2mqtt_bridge_0xc02cedfffe0752e2",
+                "name": "0x385b44fffea4fc67"
+              },
+              "origin": {
+                "sw_version": "2.13.0",
+                "name": "Zigbee2MQTT",
+                "support_url": "https://www.zigbee2mqtt.io"
+              },
+              "payload": "brightness_step_down",
+              "subtype": "brightness_step_down",
+              "topic": "zigbee2mqtt/0x385b44fffea4fc67/action",
+              "type": "action"
+            }
+          },
+          "trigger_key": [
+            "device_automation",
+            "0x385b44fffea4fc67 action_brightness_step_down"
+          ]
+        },
+        {
+          "discovery_data": {
+            "topic": "homeassistant/device_automation/0x385b44fffea4fc67/action_on/config",
+            "payload": {
+              "automation_type": "trigger",
+              "device": {
+                "hw_version": 1,
+                "identifiers": [
+                  "zigbee2mqtt_0x385b44fffea4fc67"
+                ],
+                "manufacturer": "Innr",
+                "model": "Remote control",
+                "model_id": "RC 250",
+                "sw_version": "2.01.08",
+                "via_device": "zigbee2mqtt_bridge_0xc02cedfffe0752e2",
+                "name": "0x385b44fffea4fc67"
+              },
+              "origin": {
+                "sw_version": "2.13.0",
+                "name": "Zigbee2MQTT",
+                "support_url": "https://www.zigbee2mqtt.io"
+              },
+              "payload": "on",
+              "subtype": "on",
+              "topic": "zigbee2mqtt/0x385b44fffea4fc67/action",
+              "type": "action"
+            }
+          },
+          "trigger_key": [
+            "device_automation",
+            "0x385b44fffea4fc67 action_on"
+          ]
+        },
+        {
+          "discovery_data": {
+            "topic": "homeassistant/device_automation/0x385b44fffea4fc67/action_brightness_step_up/config",
+            "payload": {
+              "automation_type": "trigger",
+              "device": {
+                "hw_version": 1,
+                "identifiers": [
+                  "zigbee2mqtt_0x385b44fffea4fc67"
+                ],
+                "manufacturer": "Innr",
+                "model": "Remote control",
+                "model_id": "RC 250",
+                "sw_version": "2.01.08",
+                "via_device": "zigbee2mqtt_bridge_0xc02cedfffe0752e2",
+                "name": "0x385b44fffea4fc67"
+              },
+              "origin": {
+                "sw_version": "2.13.0",
+                "name": "Zigbee2MQTT",
+                "support_url": "https://www.zigbee2mqtt.io"
+              },
+              "payload": "brightness_step_up",
+              "subtype": "brightness_step_up",
+              "topic": "zigbee2mqtt/0x385b44fffea4fc67/action",
+              "type": "action"
+            }
+          },
+          "trigger_key": [
+            "device_automation",
+            "0x385b44fffea4fc67 action_brightness_step_up"
+          ]
+        },
+        {
+          "discovery_data": {
+            "topic": "homeassistant/device_automation/0x385b44fffea4fc67/action_off/config",
+            "payload": {
+              "automation_type": "trigger",
+              "device": {
+                "hw_version": 1,
+                "identifiers": [
+                  "zigbee2mqtt_0x385b44fffea4fc67"
+                ],
+                "manufacturer": "Innr",
+                "model": "Remote control",
+                "model_id": "RC 250",
+                "sw_version": "2.01.08",
+                "via_device": "zigbee2mqtt_bridge_0xc02cedfffe0752e2",
+                "name": "0x385b44fffea4fc67"
+              },
+              "origin": {
+                "sw_version": "2.13.0",
+                "name": "Zigbee2MQTT",
+                "support_url": "https://www.zigbee2mqtt.io"
+              },
+              "payload": "off",
+              "subtype": "off",
+              "topic": "zigbee2mqtt/0x385b44fffea4fc67/action",
+              "type": "action"
+            }
+          },
+          "trigger_key": [
+            "device_automation",
+            "0x385b44fffea4fc67 action_off"
+          ]
+        },
+        {
+          "discovery_data": {
+            "topic": "homeassistant/device_automation/0x385b44fffea4fc67/action_brightness_move_to_level/config",
+            "payload": {
+              "automation_type": "trigger",
+              "device": {
+                "hw_version": 1,
+                "identifiers": [
+                  "zigbee2mqtt_0x385b44fffea4fc67"
+                ],
+                "manufacturer": "Innr",
+                "model": "Remote control",
+                "model_id": "RC 250",
+                "sw_version": "2.01.08",
+                "via_device": "zigbee2mqtt_bridge_0xc02cedfffe0752e2",
+                "name": "0x385b44fffea4fc67"
+              },
+              "origin": {
+                "sw_version": "2.13.0",
+                "name": "Zigbee2MQTT",
+                "support_url": "https://www.zigbee2mqtt.io"
+              },
+              "payload": "brightness_move_to_level",
+              "subtype": "brightness_move_to_level",
+              "topic": "zigbee2mqtt/0x385b44fffea4fc67/action",
+              "type": "action"
+            }
+          },
+          "trigger_key": [
+            "device_automation",
+            "0x385b44fffea4fc67 action_brightness_move_to_level"
+          ]
+        },
+        {
+          "discovery_data": {
+            "topic": "homeassistant/device_automation/0x385b44fffea4fc67/action_color_temperature_move/config",
+            "payload": {
+              "automation_type": "trigger",
+              "device": {
+                "hw_version": 1,
+                "identifiers": [
+                  "zigbee2mqtt_0x385b44fffea4fc67"
+                ],
+                "manufacturer": "Innr",
+                "model": "Remote control",
+                "model_id": "RC 250",
+                "sw_version": "2.01.08",
+                "via_device": "zigbee2mqtt_bridge_0xc02cedfffe0752e2",
+                "name": "0x385b44fffea4fc67"
+              },
+              "origin": {
+                "sw_version": "2.13.0",
+                "name": "Zigbee2MQTT",
+                "support_url": "https://www.zigbee2mqtt.io"
+              },
+              "payload": "color_temperature_move",
+              "subtype": "color_temperature_move",
+              "topic": "zigbee2mqtt/0x385b44fffea4fc67/action",
+              "type": "action"
+            }
+          },
+          "trigger_key": [
+            "device_automation",
+            "0x385b44fffea4fc67 action_color_temperature_move"
+          ]
+        }
+      ]
+    },
+    "message": "Successfully executed WebSocket command 'mqtt/device/debug_info'"
+  },
+  "observer": {
+    "success": true,
+    "action": "get",
+    "automation_id": "automation.lighting_temporary_remote_diagnostics",
+    "config": {
+      "id": "1792849283781",
+      "alias": "Lighting · Temporary Remote Diagnostics",
+      "description": "Passive bounded traces for the reported missed arrow and Candle-to-Day handoff. Captures MQTT only; no services, events, helpers or device writes.",
+      "triggers": [
+        {
+          "trigger": "mqtt",
+          "topic": "zigbee2mqtt/0x385b44fffea4fc67"
+        },
+        {
+          "trigger": "mqtt",
+          "topic": "zigbee2mqtt/0xa4c13889ddf1c22e"
+        },
+        {
+          "trigger": "mqtt",
+          "topic": "zigbee2mqtt/0xa4c1387f3e38e505"
+        },
+        {
+          "trigger": "mqtt",
+          "topic": "zigbee2mqtt/+/set"
+        }
+      ],
+      "actions": [
+        {
+          "variables": {
+            "observed_at": "{{ as_timestamp(now()) }}",
+            "observed_topic": "{{ trigger.topic }}",
+            "observed_payload": "{{ trigger.payload_json|default(trigger.payload) }}",
+            "cursor": "{{ states('input_number.ls_bedroom_remote_preset') }}",
+            "power_count": "{{ states('input_number.ls_bedroom_remote_power_count') }}",
+            "selection": "{{ (state_attr('sensor.ls_overrides','overrides') or {}).get('channels:0x385b44fffea4fc67',{}) }}",
+            "generation": "{{ state_attr('sensor.ls_effects_runtime','generation') }}",
+            "target": "{{ (state_attr('sensor.ls_effects_runtime','targets') or {}).get('light.jonathan_bedroom_floor_lamp',{}) }}",
+            "assignment": "{{ (state_attr('sensor.ls_effects_runtime','assignments') or {}).get('light.jonathan_bedroom_floor_lamp',{}) }}"
+          }
+        },
+        {
+          "stop": "Passive diagnostic capture complete"
+        }
+      ],
+      "mode": "parallel",
+      "max": 100,
+      "trace": {
+        "stored_traces": 400
+      }
+    },
+    "config_hash": "eda1b5433f1ba7fc"
+  },
+  "history": {
+    "data": {
+      "success": true,
+      "source": "history",
+      "entities": [
+        {
+          "entity_id": "light.jonathan_bedroom_ceiling",
+          "period": {
+            "start": "2026-10-24T13:31:00+00:00",
+            "end": "2026-10-24T13:34:00+00:00"
+          },
+          "states": [
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:08.045171+02:00",
+              "last_updated": "2026-10-24T15:33:24.938117+02:00",
+              "attributes": {
+                "friendly_name": "Jonathans Taklampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:08.045171+02:00",
+              "last_updated": "2026-10-24T15:33:06.675957+02:00",
+              "attributes": {
+                "friendly_name": "Jonathans Taklampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:08.045171+02:00",
+              "last_updated": "2026-10-24T15:32:55.172378+02:00",
+              "attributes": {
+                "friendly_name": "Jonathans Taklampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:08.045171+02:00",
+              "last_updated": "2026-10-24T15:32:54.083994+02:00",
+              "attributes": {
+                "friendly_name": "Jonathans Taklampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:08.045171+02:00",
+              "last_updated": "2026-10-24T15:32:53.102226+02:00",
+              "attributes": {
+                "friendly_name": "Jonathans Taklampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:08.045171+02:00",
+              "last_updated": "2026-10-24T15:32:52.149357+02:00",
+              "attributes": {
+                "friendly_name": "Jonathans Taklampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:08.045171+02:00",
+              "last_updated": "2026-10-24T15:32:51.074454+02:00",
+              "attributes": {
+                "friendly_name": "Jonathans Taklampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:08.045171+02:00",
+              "last_updated": "2026-10-24T15:32:50.037196+02:00",
+              "attributes": {
+                "friendly_name": "Jonathans Taklampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:08.045171+02:00",
+              "last_updated": "2026-10-24T15:32:48.984154+02:00",
+              "attributes": {
+                "friendly_name": "Jonathans Taklampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:08.045171+02:00",
+              "last_updated": "2026-10-24T15:32:48.760312+02:00",
+              "attributes": {
+                "friendly_name": "Jonathans Taklampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:08.045171+02:00",
+              "last_updated": "2026-10-24T15:32:45.650436+02:00",
+              "attributes": {
+                "friendly_name": "Jonathans Taklampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:08.045171+02:00",
+              "last_updated": "2026-10-24T15:32:39.578079+02:00",
+              "attributes": {
+                "friendly_name": "Jonathans Taklampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:08.045171+02:00",
+              "last_updated": "2026-10-24T15:32:36.036273+02:00",
+              "attributes": {
+                "friendly_name": "Jonathans Taklampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:08.045171+02:00",
+              "last_updated": "2026-10-24T15:32:25.593869+02:00",
+              "attributes": {
+                "friendly_name": "Jonathans Taklampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:08.045171+02:00",
+              "last_updated": "2026-10-24T15:32:22.135417+02:00",
+              "attributes": {
+                "friendly_name": "Jonathans Taklampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:08.045171+02:00",
+              "last_updated": "2026-10-24T15:32:20.348516+02:00",
+              "attributes": {
+                "friendly_name": "Jonathans Taklampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:08.045171+02:00",
+              "last_updated": "2026-10-24T15:32:18.463642+02:00",
+              "attributes": {
+                "friendly_name": "Jonathans Taklampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:08.045171+02:00",
+              "last_updated": "2026-10-24T15:32:16.105915+02:00",
+              "attributes": {
+                "friendly_name": "Jonathans Taklampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:08.045171+02:00",
+              "last_updated": "2026-10-24T15:32:09.624662+02:00",
+              "attributes": {
+                "friendly_name": "Jonathans Taklampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:08.045171+02:00",
+              "last_updated": "2026-10-24T15:32:08.350728+02:00",
+              "attributes": {
+                "friendly_name": "Jonathans Taklampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:08.045171+02:00",
+              "last_updated": "2026-10-24T15:32:07.110596+02:00",
+              "attributes": {
+                "friendly_name": "Jonathans Taklampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:08.045171+02:00",
+              "last_updated": "2026-10-24T15:32:05.000216+02:00",
+              "attributes": {
+                "friendly_name": "Jonathans Taklampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T15:31:00+02:00",
+              "last_updated": "2026-10-24T15:31:00+02:00",
+              "attributes": {
+                "friendly_name": "Jonathans Taklampa"
+              }
+            }
+          ],
+          "total_count": 23,
+          "offset": 0,
+          "limit": 150,
+          "count": 23,
+          "has_more": false,
+          "next_offset": null
+        },
+        {
+          "entity_id": "light.jonathan_bedroom_floor_lamp",
+          "period": {
+            "start": "2026-10-24T13:31:00+00:00",
+            "end": "2026-10-24T13:34:00+00:00"
+          },
+          "states": [
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:07.772181+02:00",
+              "last_updated": "2026-10-24T15:33:24.959128+02:00",
+              "attributes": {
+                "friendly_name": "Golvlampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:07.772181+02:00",
+              "last_updated": "2026-10-24T15:33:06.708682+02:00",
+              "attributes": {
+                "friendly_name": "Golvlampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:07.772181+02:00",
+              "last_updated": "2026-10-24T15:32:55.198785+02:00",
+              "attributes": {
+                "friendly_name": "Golvlampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:07.772181+02:00",
+              "last_updated": "2026-10-24T15:32:54.995144+02:00",
+              "attributes": {
+                "friendly_name": "Golvlampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:07.772181+02:00",
+              "last_updated": "2026-10-24T15:32:53.418262+02:00",
+              "attributes": {
+                "friendly_name": "Golvlampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:07.772181+02:00",
+              "last_updated": "2026-10-24T15:32:52.504552+02:00",
+              "attributes": {
+                "friendly_name": "Golvlampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:07.772181+02:00",
+              "last_updated": "2026-10-24T15:32:51.437334+02:00",
+              "attributes": {
+                "friendly_name": "Golvlampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:07.772181+02:00",
+              "last_updated": "2026-10-24T15:32:50.382872+02:00",
+              "attributes": {
+                "friendly_name": "Golvlampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:07.772181+02:00",
+              "last_updated": "2026-10-24T15:32:49.333522+02:00",
+              "attributes": {
+                "friendly_name": "Golvlampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:07.772181+02:00",
+              "last_updated": "2026-10-24T15:32:48.789237+02:00",
+              "attributes": {
+                "friendly_name": "Golvlampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:07.772181+02:00",
+              "last_updated": "2026-10-24T15:32:45.700123+02:00",
+              "attributes": {
+                "friendly_name": "Golvlampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:07.772181+02:00",
+              "last_updated": "2026-10-24T15:32:39.569270+02:00",
+              "attributes": {
+                "friendly_name": "Golvlampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:07.772181+02:00",
+              "last_updated": "2026-10-24T15:32:36.061092+02:00",
+              "attributes": {
+                "friendly_name": "Golvlampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:07.772181+02:00",
+              "last_updated": "2026-10-24T15:32:25.632630+02:00",
+              "attributes": {
+                "friendly_name": "Golvlampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:07.772181+02:00",
+              "last_updated": "2026-10-24T15:32:22.160949+02:00",
+              "attributes": {
+                "friendly_name": "Golvlampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:07.772181+02:00",
+              "last_updated": "2026-10-24T15:32:20.392435+02:00",
+              "attributes": {
+                "friendly_name": "Golvlampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:07.772181+02:00",
+              "last_updated": "2026-10-24T15:32:18.482749+02:00",
+              "attributes": {
+                "friendly_name": "Golvlampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:07.772181+02:00",
+              "last_updated": "2026-10-24T15:32:16.113151+02:00",
+              "attributes": {
+                "friendly_name": "Golvlampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:07.772181+02:00",
+              "last_updated": "2026-10-24T15:32:09.661672+02:00",
+              "attributes": {
+                "friendly_name": "Golvlampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:07.772181+02:00",
+              "last_updated": "2026-10-24T15:32:08.396982+02:00",
+              "attributes": {
+                "friendly_name": "Golvlampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:07.772181+02:00",
+              "last_updated": "2026-10-24T15:32:07.121583+02:00",
+              "attributes": {
+                "friendly_name": "Golvlampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T12:05:07.772181+02:00",
+              "last_updated": "2026-10-24T15:32:05.025283+02:00",
+              "attributes": {
+                "friendly_name": "Golvlampa"
+              }
+            },
+            {
+              "state": "on",
+              "last_changed": "2026-10-24T15:31:00+02:00",
+              "last_updated": "2026-10-24T15:31:00+02:00",
+              "attributes": {
+                "friendly_name": "Golvlampa"
+              }
+            }
+          ],
+          "total_count": 23,
+          "offset": 0,
+          "limit": 150,
+          "count": 23,
+          "has_more": false,
+          "next_offset": null
+        },
+        {
+          "entity_id": "input_number.ls_bedroom_remote_preset",
+          "period": {
+            "start": "2026-10-24T13:31:00+00:00",
+            "end": "2026-10-24T13:34:00+00:00"
+          },
+          "states": [
+            {
+              "state": "0.0",
+              "last_changed": "2026-10-24T15:33:23.605339+02:00",
+              "last_updated": "2026-10-24T15:33:23.605339+02:00",
+              "attributes": {
+                "initial": null,
+                "icon": "mdi:remote",
+                "friendly_name": "Bedroom Remote Preset Cursor"
+              }
+            },
+            {
+              "state": "4.0",
+              "last_changed": "2026-10-24T15:33:05.959650+02:00",
+              "last_updated": "2026-10-24T15:33:05.959650+02:00",
+              "attributes": {
+                "initial": null,
+                "icon": "mdi:remote",
+                "friendly_name": "Bedroom Remote Preset Cursor"
+              }
+            },
+            {
+              "state": "3.0",
+              "last_changed": "2026-10-24T15:32:54.429979+02:00",
+              "last_updated": "2026-10-24T15:32:54.429979+02:00",
+              "attributes": {
+                "initial": null,
+                "icon": "mdi:remote",
+                "friendly_name": "Bedroom Remote Preset Cursor"
+              }
+            },
+            {
+              "state": "2.0",
+              "last_changed": "2026-10-24T15:32:48.135279+02:00",
+              "last_updated": "2026-10-24T15:32:48.135279+02:00",
+              "attributes": {
+                "initial": null,
+                "icon": "mdi:remote",
+                "friendly_name": "Bedroom Remote Preset Cursor"
+              }
+            },
+            {
+              "state": "1.0",
+              "last_changed": "2026-10-24T15:32:44.944991+02:00",
+              "last_updated": "2026-10-24T15:32:44.944991+02:00",
+              "attributes": {
+                "initial": null,
+                "icon": "mdi:remote",
+                "friendly_name": "Bedroom Remote Preset Cursor"
+              }
+            },
+            {
+              "state": "0.0",
+              "last_changed": "2026-10-24T15:32:38.308074+02:00",
+              "last_updated": "2026-10-24T15:32:38.308074+02:00",
+              "attributes": {
+                "initial": null,
+                "icon": "mdi:remote",
+                "friendly_name": "Bedroom Remote Preset Cursor"
+              }
+            },
+            {
+              "state": "1.0",
+              "last_changed": "2026-10-24T15:32:35.346418+02:00",
+              "last_updated": "2026-10-24T15:32:35.346418+02:00",
+              "attributes": {
+                "initial": null,
+                "icon": "mdi:remote",
+                "friendly_name": "Bedroom Remote Preset Cursor"
+              }
+            },
+            {
+              "state": "0.0",
+              "last_changed": "2026-10-24T15:31:00+02:00",
+              "last_updated": "2026-10-24T15:31:00+02:00",
+              "attributes": {
+                "initial": null,
+                "icon": "mdi:remote",
+                "friendly_name": "Bedroom Remote Preset Cursor"
+              }
+            }
+          ],
+          "total_count": 8,
+          "offset": 0,
+          "limit": 150,
+          "count": 8,
+          "has_more": false,
+          "next_offset": null
+        }
+      ],
+      "period": {
+        "start": "2026-10-24T13:31:00+00:00",
+        "end": "2026-10-24T13:34:00+00:00"
+      },
+      "query_params": {
+        "minimal_response": false,
+        "significant_changes_only": false,
+        "limit": 150,
+        "offset": 0,
+        "order": "desc"
+      }
+    },
+    "metadata": {
+      "home_assistant_timezone": "Europe/Stockholm",
+      "timestamp_format": "ISO 8601 (Europe/Stockholm)",
+      "note": "Per-record timestamp fields (last_changed, last_updated, last_reported, when, last_triggered) have been converted to Europe/Stockholm local time. Query-window boundary fields (period, start_time, end_time) remain in UTC."
+    }
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "state_entity": "sensor.ls_overrides",
+  "attribute": "switch_ranges",
+  "range_record": {
+    "profile": "bright|cosy|custom",
+    "min": "custom only",
+    "max": "custom only"
+  },
+  "save_script": "script.ls_range_save",
+  "save_fields": [
+    "entity",
+    "profile",
+    "minimum",
+    "maximum"
+  ],
+  "global_helpers": [
+    "input_number.ls_range_bright_min",
+    "input_number.ls_range_bright_max",
+    "input_number.ls_range_cosy_min",
+    "input_number.ls_range_cosy_max"
+  ],
+  "eligibility": "Validate physical on/off switch/light and assigned room; reject override helper switches, bridge permit_join, dimmable bulbs, and aggregate room entities.",
+  "discovery": "Configured switch_ranges keys feed dynamic House tiles and Schedule summaries. Do not require automatic label mutation.",
+  "validation": "Validate both bounds atomically before writing range record. Default profiles are references, not copied bounds.",
+  "power": "House toggle is persistent lamp power, never an expiring channel override.",
+  "initial_inventory": "No physical on/off switches registered at generation time.",
+  "no_live_writes": true,
+  "defaults_attribute": "range_defaults",
+  "defaults_record": {
+    "bright": [
+      90,
+      100
+    ],
+    "cosy": [
+      30,
+      60
+    ]
+  },
+  "write_events": {
+    "range_set": "{entity,profile,min,max}",
+    "range_defaults": "{ranges:{bright:[min,max],cosy:[min,max]}}"
+  }
+}

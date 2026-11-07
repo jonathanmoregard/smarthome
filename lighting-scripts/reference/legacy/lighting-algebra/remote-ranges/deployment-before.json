@@ -1,0 +1,659 @@
+{
+  "scripts": {
+    "ls_remote_plan": {
+      "success": true,
+      "action": "get",
+      "script_id": "ls_remote_plan",
+      "config": {
+        "alias": "Lighting · Pure Remote Input",
+        "mode": "parallel",
+        "sequence": [
+          {
+            "variables": {
+              "overrides": "{{ state_attr('sensor.ls_overrides','overrides') or {} }}",
+              "stamp": "{{ as_timestamp(now()) }}",
+              "room": "{{ area if area_entities(area) else '' }}",
+              "catalog": {},
+              "current": {
+                "plan": {
+                  "base": {},
+                  "resolved": {
+                    "targets": {}
+                  }
+                }
+              },
+              "input_revision": "{{ states.sensor.ls_overrides.last_updated.isoformat() }}",
+              "input_key": "{# One logical input stream per room; each source keeps a bounded snapshot.\n   The most recent snapshot includes preceding inputs from the room's other\n   remotes, so alternating devices cannot drop or apply a click twice. #}\n{% macro latest_remote_key(records,room) -%}\n {% set pick=namespace(key='',stamp=-1) %}\n {% for key,r in records|dictsort if r is mapping and r.get('scope')=='room' and r.get('target')==room and (r.get('kind')=='input' or (r.get('kind')=='channels' and r.get('via')=='remote')) %}\n  {% set stamp=as_timestamp(r.get('when'),0) %}\n  {% if stamp>=pick.stamp %}{% set pick.key=key %}{% set pick.stamp=stamp %}{% endif %}\n {% endfor %}\n {{- pick.key|to_json -}}\n{%- endmacro %}\n\n{{ latest_remote_key(overrides,room)|from_json }}",
+              "input_record": "{{ overrides.get(input_key,{}) }}"
+            }
+          },
+          {
+            "variables": {
+              "timing_revision": "{# No clock/schedule expansion: only versions of the room's expiry dependencies. #}\n{% if command in ['up','down'] and is_state('input_boolean.ls_ovr_next_block_on','on') %}\n {% set n=namespace(ids=['input_boolean.ls_ovr_next_block_on']) %}\n {% for scope in ['house',room] %}\n  {% for block in ['day','cosy','night'] %}\n   {% set n.ids=n.ids+['input_boolean.ls_'~scope~'_'~block~'_own_timing','input_datetime.ls_'~scope~'_'~block~'_start','input_datetime.ls_'~scope~'_'~block~'_weekend','input_number.ls_'~scope~'_'~block~'_fade'] %}\n  {% endfor %}\n {% endfor %}\n {% set version=namespace(latest=0) %}\n {% for entity in n.ids if states[entity] is not none %}\n  {% set version.latest=[version.latest,as_timestamp(states[entity].last_updated,0)]|max %}\n {% endfor %}\n {{ version.latest }}\n{% else %}{{ 0 }}{% endif %}\n",
+              "request_id": "{{ source~':'~stamp }}"
+            }
+          },
+          {
+            "variables": {
+              "needs_context": "\n{% set value=input_record.get('value',{}) %}\n{{ command in ['left','right'] or (command in ['up','down'] and is_state('input_boolean.ls_ovr_next_block_on','on') and (value.get('remote_valid_until',0)<=stamp or value.get('remote_timing_revision')!=timing_revision)) }}\n"
+            }
+          },
+          {
+            "if": [
+              {
+                "condition": "template",
+                "value_template": "{{ needs_context }}"
+              }
+            ],
+            "then": [
+              {
+                "action": "script.ls_room_plan",
+                "data": {
+                  "room": "{{ room }}",
+                  "overrides": "{{ overrides }}",
+                  "cache": "{{ state_attr('sensor.ls_cache_'~room,'cache') or {} }}",
+                  "reason": "remote"
+                },
+                "response_variable": "current"
+              }
+            ]
+          },
+          {
+            "if": [
+              {
+                "condition": "template",
+                "value_template": "{{ command in ['toggle','left','right'] }}"
+              }
+            ],
+            "then": [
+              {
+                "variables": {
+                  "catalog": {
+                    "effects": {
+                      "Candle": {
+                        "renderer": "script.effect_candle_frame",
+                        "channels": [
+                          "brightness",
+                          "color"
+                        ]
+                      },
+                      "Breathe": {
+                        "renderer": "script.effect_breathe_frame",
+                        "channels": [
+                          "brightness"
+                        ]
+                      },
+                      "Colour loop": {
+                        "renderer": "script.effect_colour_loop_frame",
+                        "channels": [
+                          "color"
+                        ]
+                      }
+                    },
+                    "members": {
+                      "light.jonathan_bedroom_floor_lamp": [
+                        "light.jonathan_bedroom_floor_lamp"
+                      ],
+                      "light.upper_hall_stair_lamp": [
+                        "light.upper_hall_stair_lamp"
+                      ],
+                      "light.upper_hall_ceiling": [
+                        "light.upper_hall_ceiling"
+                      ],
+                      "light.living_room_desk_ceiling": [
+                        "light.living_room_desk_ceiling"
+                      ],
+                      "light.living_room_hall_ceiling": [
+                        "light.living_room_hall_ceiling"
+                      ],
+                      "light.living_room_vicky_desk_lamp": [
+                        "light.living_room_vicky_desk_lamp"
+                      ],
+                      "light.living_room_table_lamp": [
+                        "light.living_room_table_lamp"
+                      ],
+                      "light.living_room_window_lamp": [
+                        "light.living_room_window_lamp"
+                      ],
+                      "light.living_room_yellow_retro_lamp": [
+                        "light.living_room_yellow_retro_lamp"
+                      ],
+                      "light.kitchen_pendant": [
+                        "light.kitchen_pendant_bulb_1",
+                        "light.kitchen_pendant_bulb_2",
+                        "light.kitchen_pendant_bulb_3"
+                      ],
+                      "light.kitchen_spots_1": [
+                        "light.kitchen_spots_1_bulb_1",
+                        "light.kitchen_spots_1_bulb_2",
+                        "light.kitchen_spots_1_bulb_3"
+                      ],
+                      "light.kitchen_spots_2": [
+                        "light.kitchen_spots_2_bulb_1",
+                        "light.kitchen_spots_2_bulb_2",
+                        "light.kitchen_spots_2_bulb_3"
+                      ],
+                      "light.meditation_floor_lamp": [
+                        "light.meditation_floor_lamp_bulb_1",
+                        "light.meditation_floor_lamp_bulb_2"
+                      ],
+                      "light.jonathan_bedroom_ceiling": [
+                        "light.jonathan_bedroom_ceiling"
+                      ],
+                      "light.meditation_ceiling": [
+                        "light.meditation_ceiling"
+                      ],
+                      "light.living_room_sofa_table_ceiling": [
+                        "light.living_room_sofa_table_ceiling"
+                      ]
+                    },
+                    "groups": {
+                      "light.home": [
+                        "light.jonathan_bedroom_floor_lamp",
+                        "light.upper_hall_stair_lamp",
+                        "light.upper_hall_ceiling",
+                        "light.living_room_desk_ceiling",
+                        "light.living_room_hall_ceiling",
+                        "light.living_room_vicky_desk_lamp",
+                        "light.living_room_table_lamp",
+                        "light.living_room_window_lamp",
+                        "light.living_room_yellow_retro_lamp",
+                        "light.kitchen_pendant",
+                        "light.kitchen_spots_1",
+                        "light.kitchen_spots_2",
+                        "light.meditation_floor_lamp",
+                        "light.jonathan_bedroom_ceiling",
+                        "light.meditation_ceiling",
+                        "light.living_room_sofa_table_ceiling"
+                      ],
+                      "light.kitchen_all": [
+                        "light.kitchen_pendant",
+                        "light.kitchen_spots_1",
+                        "light.kitchen_spots_2"
+                      ],
+                      "light.living_room": [
+                        "light.living_room_desk_ceiling",
+                        "light.living_room_hall_ceiling",
+                        "light.living_room_vicky_desk_lamp",
+                        "light.living_room_table_lamp",
+                        "light.living_room_window_lamp",
+                        "light.living_room_yellow_retro_lamp",
+                        "light.living_room_sofa_table_ceiling"
+                      ],
+                      "light.upper_hall": [
+                        "light.upper_hall_stair_lamp",
+                        "light.upper_hall_ceiling"
+                      ],
+                      "light.jonathan_bedroom": [
+                        "light.jonathan_bedroom_floor_lamp",
+                        "light.jonathan_bedroom_ceiling"
+                      ],
+                      "light.meditation_mys_all": [
+                        "light.meditation_floor_lamp",
+                        "light.meditation_ceiling"
+                      ]
+                    },
+                    "topics": {
+                      "light.kitchen_pendant_bulb_1": "zigbee2mqtt/0xa4c138e778a7b45f/set",
+                      "light.kitchen_pendant_bulb_2": "zigbee2mqtt/0xa4c1389a579ab983/set",
+                      "light.kitchen_pendant_bulb_3": "zigbee2mqtt/0xa4c1389f87b76e60/set",
+                      "light.kitchen_spots_1_bulb_1": "zigbee2mqtt/0xa4c1381f885b082f/set",
+                      "light.kitchen_spots_1_bulb_2": "zigbee2mqtt/0xa4c1387e4cfba78d/set",
+                      "light.kitchen_spots_1_bulb_3": "zigbee2mqtt/0xa4c138a884038127/set",
+                      "light.kitchen_spots_2_bulb_1": "zigbee2mqtt/0xa4c1386736786442/set",
+                      "light.kitchen_spots_2_bulb_2": "zigbee2mqtt/0xa4c138a50ae5ba5a/set",
+                      "light.kitchen_spots_2_bulb_3": "zigbee2mqtt/0xa4c1381a2f63601c/set",
+                      "light.meditation_floor_lamp_bulb_1": "zigbee2mqtt/Mys golvlampa 1/set",
+                      "light.meditation_floor_lamp_bulb_2": "zigbee2mqtt/Mys golvlampa 2/set",
+                      "light.meditation_ceiling": "zigbee2mqtt/0xa4c138eec10a5f95/set",
+                      "light.jonathan_bedroom_ceiling": "zigbee2mqtt/0xa4c1387f3e38e505/set",
+                      "light.jonathan_bedroom_floor_lamp": "zigbee2mqtt/0xa4c13889ddf1c22e/set",
+                      "light.living_room_table_lamp": "zigbee2mqtt/0xa4c138502d6c44cd/set",
+                      "light.living_room_desk_ceiling": "zigbee2mqtt/0xa4c13836b344b302/set",
+                      "light.living_room_hall_ceiling": "zigbee2mqtt/0xa4c13850c80ed98f/set",
+                      "light.living_room_sofa_table_ceiling": "zigbee2mqtt/0xa4c138292a2d7f60/set",
+                      "light.living_room_vicky_desk_lamp": "zigbee2mqtt/0x7cc6b6fffe3cef1c/set",
+                      "light.living_room_window_lamp": "zigbee2mqtt/0xa4c13825783eff26/set",
+                      "light.living_room_yellow_retro_lamp": "zigbee2mqtt/0xa4c1386c73f1db49/set",
+                      "light.upper_hall_ceiling": "zigbee2mqtt/0xa4c138f013c2624e/set",
+                      "light.upper_hall_stair_lamp": "zigbee2mqtt/0xa4c138b95e526424/set"
+                    },
+                    "budget": 5,
+                    "multicast": [
+                      {
+                        "id": "fx_candle_cross_a",
+                        "topic": "zigbee2mqtt/fx_candle_cross_a/set",
+                        "lamps": [
+                          "light.living_room_hall_ceiling",
+                          "light.living_room_window_lamp",
+                          "light.meditation_floor_lamp",
+                          "light.kitchen_pendant"
+                        ],
+                        "members": [
+                          "light.kitchen_pendant_bulb_1",
+                          "light.kitchen_pendant_bulb_2",
+                          "light.kitchen_pendant_bulb_3",
+                          "light.living_room_hall_ceiling",
+                          "light.living_room_window_lamp",
+                          "light.meditation_floor_lamp_bulb_1",
+                          "light.meditation_floor_lamp_bulb_2"
+                        ],
+                        "verified": true,
+                        "member_topics": {
+                          "light.kitchen_pendant_bulb_1": "zigbee2mqtt/0xa4c138e778a7b45f/set",
+                          "light.kitchen_pendant_bulb_2": "zigbee2mqtt/0xa4c1389a579ab983/set",
+                          "light.kitchen_pendant_bulb_3": "zigbee2mqtt/0xa4c1389f87b76e60/set",
+                          "light.living_room_hall_ceiling": "zigbee2mqtt/0xa4c13850c80ed98f/set",
+                          "light.living_room_window_lamp": "zigbee2mqtt/0xa4c13825783eff26/set",
+                          "light.meditation_floor_lamp_bulb_1": "zigbee2mqtt/Mys golvlampa 1/set",
+                          "light.meditation_floor_lamp_bulb_2": "zigbee2mqtt/Mys golvlampa 2/set"
+                        },
+                        "phase_cohort": "fx_candle_cross_a",
+                        "devices": [
+                          "0xa4c138e778a7b45f",
+                          "0xa4c1389a579ab983",
+                          "0xa4c1389f87b76e60",
+                          "0xa4c13850c80ed98f",
+                          "0xa4c13825783eff26",
+                          "Mys golvlampa 1",
+                          "Mys golvlampa 2"
+                        ],
+                        "desired_members": [
+                          "light.kitchen_pendant_bulb_1",
+                          "light.kitchen_pendant_bulb_2",
+                          "light.kitchen_pendant_bulb_3",
+                          "light.living_room_hall_ceiling",
+                          "light.living_room_window_lamp",
+                          "light.meditation_floor_lamp_bulb_1",
+                          "light.meditation_floor_lamp_bulb_2"
+                        ],
+                        "pending_members": [],
+                        "zigbee_id": 1001
+                      },
+                      {
+                        "id": "fx_candle_cross_b",
+                        "topic": "zigbee2mqtt/fx_candle_cross_b/set",
+                        "lamps": [
+                          "light.living_room_desk_ceiling",
+                          "light.living_room_sofa_table_ceiling",
+                          "light.meditation_ceiling",
+                          "light.kitchen_spots_1"
+                        ],
+                        "members": [
+                          "light.kitchen_spots_1_bulb_1",
+                          "light.kitchen_spots_1_bulb_2",
+                          "light.kitchen_spots_1_bulb_3",
+                          "light.living_room_desk_ceiling",
+                          "light.living_room_sofa_table_ceiling"
+                        ],
+                        "verified": true,
+                        "member_topics": {
+                          "light.kitchen_spots_1_bulb_1": "zigbee2mqtt/0xa4c1381f885b082f/set",
+                          "light.kitchen_spots_1_bulb_2": "zigbee2mqtt/0xa4c1387e4cfba78d/set",
+                          "light.kitchen_spots_1_bulb_3": "zigbee2mqtt/0xa4c138a884038127/set",
+                          "light.living_room_desk_ceiling": "zigbee2mqtt/0xa4c13836b344b302/set",
+                          "light.living_room_sofa_table_ceiling": "zigbee2mqtt/0xa4c138292a2d7f60/set",
+                          "light.meditation_ceiling": "zigbee2mqtt/0xa4c138eec10a5f95/set"
+                        },
+                        "phase_cohort": "fx_candle_cross_b",
+                        "devices": [
+                          "0xa4c1381f885b082f",
+                          "0xa4c1387e4cfba78d",
+                          "0xa4c138a884038127",
+                          "0xa4c13836b344b302",
+                          "0xa4c138292a2d7f60",
+                          "0xa4c138eec10a5f95"
+                        ],
+                        "desired_members": [
+                          "light.kitchen_spots_1_bulb_1",
+                          "light.kitchen_spots_1_bulb_2",
+                          "light.kitchen_spots_1_bulb_3",
+                          "light.living_room_desk_ceiling",
+                          "light.living_room_sofa_table_ceiling",
+                          "light.meditation_ceiling"
+                        ],
+                        "pending_members": [
+                          "light.meditation_ceiling"
+                        ],
+                        "zigbee_id": 1002
+                      },
+                      {
+                        "id": "fx_candle_cross_c",
+                        "topic": "zigbee2mqtt/fx_candle_cross_c/set",
+                        "lamps": [
+                          "light.living_room_yellow_retro_lamp",
+                          "light.kitchen_spots_2",
+                          "light.upper_hall_stair_lamp"
+                        ],
+                        "members": [
+                          "light.kitchen_spots_2_bulb_1",
+                          "light.kitchen_spots_2_bulb_2",
+                          "light.kitchen_spots_2_bulb_3",
+                          "light.living_room_yellow_retro_lamp"
+                        ],
+                        "verified": true,
+                        "member_topics": {
+                          "light.kitchen_spots_2_bulb_1": "zigbee2mqtt/0xa4c1386736786442/set",
+                          "light.kitchen_spots_2_bulb_2": "zigbee2mqtt/0xa4c138a50ae5ba5a/set",
+                          "light.kitchen_spots_2_bulb_3": "zigbee2mqtt/0xa4c1381a2f63601c/set",
+                          "light.living_room_yellow_retro_lamp": "zigbee2mqtt/0xa4c1386c73f1db49/set",
+                          "light.upper_hall_stair_lamp": "zigbee2mqtt/0xa4c138b95e526424/set"
+                        },
+                        "phase_cohort": "fx_candle_cross_c",
+                        "devices": [
+                          "0xa4c1386736786442",
+                          "0xa4c138a50ae5ba5a",
+                          "0xa4c1381a2f63601c",
+                          "0xa4c1386c73f1db49",
+                          "0xa4c138b95e526424"
+                        ],
+                        "desired_members": [
+                          "light.kitchen_spots_2_bulb_1",
+                          "light.kitchen_spots_2_bulb_2",
+                          "light.kitchen_spots_2_bulb_3",
+                          "light.living_room_yellow_retro_lamp",
+                          "light.upper_hall_stair_lamp"
+                        ],
+                        "pending_members": [
+                          "light.upper_hall_stair_lamp"
+                        ],
+                        "zigbee_id": 1003
+                      },
+                      {
+                        "id": "fx_candle_cross_d",
+                        "topic": "zigbee2mqtt/fx_candle_cross_d/set",
+                        "lamps": [
+                          "light.living_room_vicky_desk_lamp",
+                          "light.upper_hall_ceiling"
+                        ],
+                        "members": [
+                          "light.living_room_vicky_desk_lamp"
+                        ],
+                        "verified": true,
+                        "member_topics": {
+                          "light.living_room_vicky_desk_lamp": "zigbee2mqtt/0x7cc6b6fffe3cef1c/set",
+                          "light.upper_hall_ceiling": "zigbee2mqtt/0xa4c138f013c2624e/set"
+                        },
+                        "phase_cohort": "fx_candle_cross_d",
+                        "devices": [
+                          "0x7cc6b6fffe3cef1c",
+                          "0xa4c138f013c2624e"
+                        ],
+                        "desired_members": [
+                          "light.living_room_vicky_desk_lamp",
+                          "light.upper_hall_ceiling"
+                        ],
+                        "pending_members": [
+                          "light.upper_hall_ceiling"
+                        ],
+                        "zigbee_id": 1004
+                      },
+                      {
+                        "id": "fx_lamp_kitchen_pendant",
+                        "topic": "zigbee2mqtt/kitchen/pendant/set",
+                        "lamps": [
+                          "light.kitchen_pendant"
+                        ],
+                        "members": [
+                          "light.kitchen_pendant_bulb_1",
+                          "light.kitchen_pendant_bulb_2",
+                          "light.kitchen_pendant_bulb_3"
+                        ],
+                        "verified": true,
+                        "member_topics": {
+                          "light.kitchen_pendant_bulb_1": "zigbee2mqtt/0xa4c138e778a7b45f/set",
+                          "light.kitchen_pendant_bulb_2": "zigbee2mqtt/0xa4c1389a579ab983/set",
+                          "light.kitchen_pendant_bulb_3": "zigbee2mqtt/0xa4c1389f87b76e60/set"
+                        },
+                        "phase_cohort": "fx_candle_cross_a",
+                        "devices": [
+                          "0xa4c138e778a7b45f",
+                          "0xa4c1389a579ab983",
+                          "0xa4c1389f87b76e60"
+                        ],
+                        "zigbee_id": 1
+                      },
+                      {
+                        "id": "fx_lamp_kitchen_spots_1",
+                        "topic": "zigbee2mqtt/kitchen/spots-1/set",
+                        "lamps": [
+                          "light.kitchen_spots_1"
+                        ],
+                        "members": [
+                          "light.kitchen_spots_1_bulb_1",
+                          "light.kitchen_spots_1_bulb_2",
+                          "light.kitchen_spots_1_bulb_3"
+                        ],
+                        "verified": true,
+                        "member_topics": {
+                          "light.kitchen_spots_1_bulb_1": "zigbee2mqtt/0xa4c1381f885b082f/set",
+                          "light.kitchen_spots_1_bulb_2": "zigbee2mqtt/0xa4c1387e4cfba78d/set",
+                          "light.kitchen_spots_1_bulb_3": "zigbee2mqtt/0xa4c138a884038127/set"
+                        },
+                        "phase_cohort": "fx_candle_cross_b",
+                        "devices": [
+                          "0xa4c1381f885b082f",
+                          "0xa4c1387e4cfba78d",
+                          "0xa4c138a884038127"
+                        ],
+                        "zigbee_id": 2
+                      },
+                      {
+                        "id": "fx_lamp_kitchen_spots_2",
+                        "topic": "zigbee2mqtt/kitchen/spots-2/set",
+                        "lamps": [
+                          "light.kitchen_spots_2"
+                        ],
+                        "members": [
+                          "light.kitchen_spots_2_bulb_1",
+                          "light.kitchen_spots_2_bulb_2",
+                          "light.kitchen_spots_2_bulb_3"
+                        ],
+                        "verified": true,
+                        "member_topics": {
+                          "light.kitchen_spots_2_bulb_1": "zigbee2mqtt/0xa4c1386736786442/set",
+                          "light.kitchen_spots_2_bulb_2": "zigbee2mqtt/0xa4c138a50ae5ba5a/set",
+                          "light.kitchen_spots_2_bulb_3": "zigbee2mqtt/0xa4c1381a2f63601c/set"
+                        },
+                        "phase_cohort": "fx_candle_cross_c",
+                        "devices": [
+                          "0xa4c1386736786442",
+                          "0xa4c138a50ae5ba5a",
+                          "0xa4c1381a2f63601c"
+                        ],
+                        "zigbee_id": 3
+                      },
+                      {
+                        "id": "fx_lamp_meditation_floor_lamp",
+                        "topic": "zigbee2mqtt/Mys golvlampa/set",
+                        "lamps": [
+                          "light.meditation_floor_lamp"
+                        ],
+                        "members": [
+                          "light.meditation_floor_lamp_bulb_1",
+                          "light.meditation_floor_lamp_bulb_2"
+                        ],
+                        "verified": true,
+                        "member_topics": {
+                          "light.meditation_floor_lamp_bulb_1": "zigbee2mqtt/Mys golvlampa 1/set",
+                          "light.meditation_floor_lamp_bulb_2": "zigbee2mqtt/Mys golvlampa 2/set"
+                        },
+                        "phase_cohort": "fx_candle_cross_a",
+                        "devices": [
+                          "Mys golvlampa 1",
+                          "Mys golvlampa 2"
+                        ],
+                        "zigbee_id": 5
+                      }
+                    ],
+                    "phases": {
+                      "light.jonathan_bedroom_floor_lamp": "light.jonathan_bedroom_floor_lamp",
+                      "light.upper_hall_stair_lamp": "fx_candle_cross_c",
+                      "light.upper_hall_ceiling": "fx_candle_cross_d",
+                      "light.living_room_desk_ceiling": "fx_candle_cross_b",
+                      "light.living_room_hall_ceiling": "fx_candle_cross_a",
+                      "light.living_room_vicky_desk_lamp": "fx_candle_cross_d",
+                      "light.living_room_table_lamp": "light.living_room_table_lamp",
+                      "light.living_room_window_lamp": "fx_candle_cross_a",
+                      "light.living_room_yellow_retro_lamp": "fx_candle_cross_c",
+                      "light.kitchen_pendant": "fx_candle_cross_a",
+                      "light.kitchen_spots_1": "fx_candle_cross_b",
+                      "light.kitchen_spots_2": "fx_candle_cross_c",
+                      "light.meditation_floor_lamp": "fx_candle_cross_a",
+                      "light.jonathan_bedroom_ceiling": "light.jonathan_bedroom_ceiling",
+                      "light.meditation_ceiling": "fx_candle_cross_b",
+                      "light.living_room_sofa_table_ceiling": "fx_candle_cross_b"
+                    },
+                    "processors": {
+                      "Normal light": {
+                        "channels": [
+                          "brightness",
+                          "color"
+                        ],
+                        "remote_adjustment": "gradient",
+                        "animated": false
+                      },
+                      "Candle": {
+                        "channels": [
+                          "brightness",
+                          "color"
+                        ],
+                        "remote_adjustment": "ignore",
+                        "animated": true
+                      },
+                      "Breathe": {
+                        "channels": [
+                          "brightness"
+                        ],
+                        "remote_adjustment": "ignore",
+                        "animated": true
+                      },
+                      "Colour loop": {
+                        "channels": [
+                          "color"
+                        ],
+                        "remote_adjustment": "ignore",
+                        "animated": true
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "variables": {
+              "result": "{# Button-domain state. No brightness, colour, gradient evaluation or effect ownership here.\n   Compact composition represents x -> clamp(x+steps,lower,upper), in remote ticks.\n   Lower/upper retain saturation history: a down click after many ups responds immediately. #}\n{% set key='channels:'~source %}\n{% set old=input_record|default(overrides.get(key,{})) %}\n{% set old=old if old.get('scope')=='room' and old.get('target')==room and input_key|default(key) not in current.plan.get('stale_keys',[]) else {} %}\n{% set value=old.get('value',{}) %}{% set value=value if value is mapping else {} %}\n{% set n=namespace(result={'op':'noop'},value=value) %}\n{% if room and command in ['up','down','left','right','toggle','reset','sara_toggle'] %}\n {% if command=='sara_toggle' %}\n  {% set n.result={'op':'clear','keys':['mode:sara'],'via':'remote'} if 'mode:sara' in overrides else {'op':'set','records':[{'kind':'mode','target':'sara','value':'on'}],'via':'remote'} %}\n {% elif command=='toggle' %}\n  {% set ids=namespace(v=[]) %}\n  {% for L in catalog.members if area_id(L)==room %}{% set ids.v=ids.v+[L] %}{% endfor %}\n  {% for L in (state_attr('sensor.ls_overrides','switch_ranges') or {}) if area_id(L)==room %}{% set ids.v=ids.v+[L] %}{% endfor %}\n  {% set saved=(state_attr('sensor.ls_overrides','power') or {}).get(room) %}\n  {% set on=not saved if saved is boolean else not (ids.v|select('is_state','on')|list|count>0) %}\n  {% set n.result={'op':'power','area':room,'on':on,'targets':ids.v,'via':'remote'} %}\n {% elif command=='reset' %}\n  {% set n.result={'op':'clear_room','area':room,'via':'remote'} %}\n {% else %}\n  {% set identity={'steps':0,'lower':-20,'upper':20,'anchor':'current','updated':stamp} %}\n  {% set a=namespace(v=value.get('adjustment'),restart=false) %}\n  {% if a.v is not mapping %}\n   {% set a.v=dict(identity,updated=as_timestamp(old.get('when'),0)) %}\n   {# One-time compatibility for already-persisted pre-input remote coordinates. #}\n   {% if old.get('kind')=='channels' and value.get('position') is number %}\n    {% set a.v=dict(a.v,legacy_position=value.position) %}\n   {% endif %}\n  {% endif %}\n  {% for other,r in overrides.items() if other!=key and r is mapping %}\n   {% set applies=(r.get('scope')=='room' and r.get('target')==room) or (r.get('scope')=='house' and r.get('target')=='house' and room not in label_areas('private_room')) %}\n   {% set v=r.get('value',{}) %}\n   {% if applies and v is mapping %}\n    {% set claim=v.get('channels',{}).get('brightness',{}) %}\n    {% set newer=claim.get('updated',as_timestamp(r.get('when'),0)) if claim else v.get('adjustment',{}).get('updated',0) if v.get('adjustment') is mapping else 0 %}\n    {% if newer>a.v.get('updated',0) %}{% set a.restart=true %}{% endif %}\n   {% endif %}\n  {% endfor %}\n  {% if a.restart %}{% set a.v=identity %}{% endif %}\n  {# Input records are replaced as a whole; never merge old interpreted channel claims. #}\n  {% set n.value=dict(value.items()|rejectattr(0,'in',['channels','position'])|list) %}\n  {# Retain the original effect claim/instance and its carried baseline while\n     migrating a pre-input record. Its timestamps must never become this click. #}\n  {% if old.get('kind')=='channels' and value.get('channels',{}).values()|selectattr('kind','eq','effect')|list|count>0 %}\n   {% set n.value=dict(n.value,legacy_channels=value.channels) %}\n  {% endif %}\n  {% if command in ['up','down'] %}\n   {% set d=1 if command=='up' else -1 %}\n   {% set lo=[-20,[20,a.v.lower+d]|min]|max %}{% set hi=[-20,[20,a.v.upper+d]|min]|max %}\n   {% set a.v=dict(a.v,steps=(0 if lo==hi else a.v.steps+d),lower=lo,upper=hi,updated=stamp,last=command,has_up=a.v.get('has_up',false) or command=='up') %}\n   {% set n.value=dict(n.value,adjustment=a.v) %}\n  {% else %}\n   {% set n.value=dict(n.value.items()|rejectattr(0,'eq','legacy_channels')|list) %}\n   {% set choices=['day','cosy','Candle'] + (catalog.effects.keys()|reject('in',['Candle','Colour loop','Breathe','Normal light'])|list) %}\n   {% set group=current.plan.resolved.targets.get('room:'~room,{}) %}\n   {% set selected=value.get('selection',group.get('period','day')) %}\n   {% set index=choices.index(selected) if selected in choices else 0 %}\n   {% set selected=choices[(index+(1 if command=='right' else -1)) % (choices|count)] %}\n   {% set n.value=dict(n.value,selection=selected,selection_updated=stamp) %}\n   {% if selected in ['day','cosy'] %}\n    {% set n.value=dict(n.value,period=selected,period_updated=stamp,adjustment=dict(identity,anchor=selected),selection_input=none) %}\n   {% else %}\n    {% set n.value=dict(n.value,selection_input=a.v,selection_instance=source~':'~selected,adjustment=none) %}\n   {% endif %}\n  {% endif %}\n  {% set S=current.plan.get('schedule_details',{}).get(room,{}) %}\n  {% if S %}{% set n.value=dict(n.value,remote_valid_until=S.get('next_fs',0),remote_timing_revision=timing_revision) %}{% endif %}\n  {% set n.result={'op':'set','records':[{'kind':'input','key':key,'source':source,'scope':'room','target':room,'value':n.value}],'via':'remote'} %}\n {% endif %}\n{% endif %}\n{{ n.result }}\n"
+            }
+          },
+          {
+            "variables": {
+              "result": "{{ dict(result,input_revision=input_revision,received_at=stamp,request_id=request_id) }}"
+            }
+          },
+          {
+            "stop": "Return result",
+            "response_variable": "result"
+          }
+        ],
+        "fields": {
+          "source": {
+            "selector": {
+              "object": {}
+            }
+          },
+          "area": {
+            "selector": {
+              "object": {}
+            }
+          },
+          "command": {
+            "selector": {
+              "object": {}
+            }
+          }
+        },
+        "max": 100,
+        "description": "Store compact button input in one stable room/source record; interpretation belongs to processors. No channel or colour calculation in the click path."
+      },
+      "config_hash": "e43cfa8986d829d3"
+    },
+    "effects_resolve": {
+      "success": true,
+      "action": "get",
+      "script_id": "effects_resolve",
+      "config": {
+        "alias": "Effects · Resolve channel ownership",
+        "description": "Resolve explicit channel claims and input overrides chronologically. Normal Light interprets remote ticks using cached gradients; animation processors ignore remote adjustments. Pure, no state access or actions.",
+        "mode": "parallel",
+        "max": 50,
+        "fields": {
+          "base": {
+            "selector": {
+              "object": {}
+            },
+            "required": true
+          },
+          "overrides": {
+            "selector": {
+              "object": {}
+            },
+            "default": {}
+          },
+          "catalog": {
+            "selector": {
+              "object": {}
+            },
+            "required": true
+          },
+          "sara": {
+            "selector": {
+              "object": {}
+            },
+            "default": false
+          },
+          "private": {
+            "selector": {
+              "object": {}
+            },
+            "default": []
+          },
+          "power": {
+            "selector": {
+              "object": {}
+            },
+            "default": {}
+          },
+          "warm_end": {
+            "selector": {
+              "object": {}
+            },
+            "default": [
+              255,
+              126,
+              0
+            ]
+          },
+          "gradients": {
+            "selector": {
+              "object": {}
+            },
+            "default": {}
+          }
+        },
+        "sequence": [
+          {
+            "variables": {
+              "result": "{# Shared build-time source embedded into the two pure HA script templates. #}\n{% macro color_json(color) -%}\n  {{- ({'kelvin':color.kelvin} if 'kelvin' in color else {'rgb':color.rgb|list})|to_json -}}\n{%- endmacro %}\n\n{% macro rgb_value(color) -%}\n  {%- if 'rgb' in color -%}\n    {{- color.rgb|list|to_json -}}\n  {%- else -%}\n    {%- set t = color.kelvin / 100 -%}\n    {%- set r = 255 if t <= 66 else 329.698727446 * ((t-60) ** -0.1332047592) -%}\n    {%- set g = 99.4708025861 * (t|log) - 161.1195681661 if t <= 66 else 288.1221695283 * ((t-60) ** -0.0755148492) -%}\n    {%- set b = 255 if t >= 66 else 0 if t <= 19 else 138.5177312231 * ((t-10)|log) - 305.0447927307 -%}\n    {{- [[0,[255,r]|min]|max|round|int, [0,[255,g]|min]|max|round|int, [0,[255,b]|min]|max|round|int]|to_json -}}\n  {%- endif -%}\n{%- endmacro %}\n\n{% macro mix_color(a, b, amount) -%}\n  {%- if amount <= 0 -%}{{- color_json(a) -}}\n  {%- elif amount >= 1 -%}{{- color_json(b) -}}\n  {%- elif 'kelvin' in a and 'kelvin' in b -%}\n    {{- {'kelvin': a.kelvin + (b.kelvin-a.kelvin)*amount}|to_json -}}\n  {%- else -%}\n    {%- set left=rgb_value(a)|from_json -%}\n    {%- set right=rgb_value(b)|from_json -%}\n    {{- {'rgb': [(left[0]+(right[0]-left[0])*amount)|round|int, (left[1]+(right[1]-left[1])*amount)|round|int, (left[2]+(right[2]-left[2])*amount)|round|int]}|to_json -}}\n  {%- endif -%}\n{%- endmacro %}\n\n{% macro scale_value(day, cosy, position, warm_end) -%}\n  {%- set p = [-2,[2,position]|min]|max -%}\n  {%- if p == 0 -%}\n    {%- set brightness=cosy.brightness -%}{%- set color=cosy.color -%}\n  {%- elif p == 1 -%}\n    {%- set brightness=day.brightness -%}{%- set color=day.color -%}\n  {%- elif p > 1 -%}\n    {%- set brightness=day.brightness+(255-day.brightness)*(p-1) -%}\n    {%- set color=mix_color(day.color, {'kelvin':6500}, p-1)|from_json -%}\n  {%- elif p > 0 -%}\n    {%- set brightness=cosy.brightness+(day.brightness-cosy.brightness)*p -%}\n    {%- set color=mix_color(cosy.color,day.color,p)|from_json -%}\n  {%- else -%}\n    {# Preserve configured anchors below the normal floor; moving down must never brighten them. #}\n    {%- set floor=[76.5,cosy.brightness]|min -%}\n    {%- set slope=[0,day.brightness-cosy.brightness,(cosy.brightness-floor)/2]|max -%}\n    {%- set brightness=[floor,cosy.brightness+p*slope]|max -%}\n    {%- if p <= -1 -%}\n      {%- set color=mix_color({'rgb':[255,134,7]}, {'rgb':warm_end}, -p-1)|from_json -%}\n    {%- elif 'kelvin' in cosy.color and cosy.color.kelvin >= 1950 -%}\n      {%- set color={'kelvin':cosy.color.kelvin+(1950-cosy.color.kelvin)*(-p)} -%}\n    {%- else -%}\n      {%- set color=mix_color(cosy.color, {'rgb':[255,134,7]}, -p)|from_json -%}\n    {%- endif -%}\n  {%- endif -%}\n  {{- {'brightness':[0,[255,brightness]|min]|max, 'color':color_json(color)|from_json, 'position':p}|to_json -}}\n{%- endmacro %}\n\n{# Compile only on anchor changes. Sampling retains the original arithmetic order. #}\n{% macro gradient_signature(day,cosy,warm_end) -%}\n {{- [1,day.brightness,color_json(day.color)|from_json,cosy.brightness,color_json(cosy.color)|from_json,warm_end|list]|to_json -}}\n{%- endmacro %}\n\n{% macro gradient_color(left,right) -%}\n {%- set a=color_json(left)|from_json -%}{%- set b=color_json(right)|from_json -%}\n {%- if 'kelvin' in a and 'kelvin' in b -%}\n  {{- {'left':a,'right':b,'kind':'kelvin','start':a.kelvin,'delta':b.kelvin-a.kelvin}|to_json -}}\n {%- else -%}\n  {%- set x=rgb_value(a)|from_json -%}{%- set y=rgb_value(b)|from_json -%}\n  {{- {'left':a,'right':b,'kind':'rgb','start':x,'delta':[y[0]-x[0],y[1]-x[1],y[2]-x[2]]}|to_json -}}\n {%- endif -%}\n{%- endmacro %}\n\n{% macro gradient_compile(day,cosy,warm_end) -%}\n {%- set floor=[76.5,cosy.brightness]|min -%}\n {%- set crossover={'rgb':[255,134,7]} -%}\n {%- set lower={'kelvin':1950} if 'kelvin' in cosy.color and cosy.color.kelvin>=1950 else crossover -%}\n {{- {'version':1,\n       'day':{'brightness':day.brightness,'color':color_json(day.color)|from_json},\n       'cosy':{'brightness':cosy.brightness,'color':color_json(cosy.color)|from_json},\n       'brightness':{'floor':floor,'lower':[0,day.brightness-cosy.brightness,(cosy.brightness-floor)/2]|max,'middle':day.brightness-cosy.brightness,'upper':255-day.brightness},\n       'colors':{'lower':gradient_color(cosy.color,lower)|from_json,'middle':gradient_color(cosy.color,day.color)|from_json,'upper':gradient_color(day.color,{'kelvin':6500})|from_json,'tail':gradient_color(crossover,{'rgb':warm_end})|from_json}}|to_json -}}\n{%- endmacro %}\n\n{% macro gradient_color_valid(color) -%}\n {%- set n=namespace(ok=color is mapping) -%}\n {%- if n.ok -%}\n  {%- if 'kelvin' in color and 'rgb' not in color -%}\n   {%- set n.ok=color.kelvin is number and color.kelvin is not boolean and 0<color.kelvin<1e20 -%}\n  {%- elif 'rgb' in color and 'kelvin' not in color and color.rgb is sequence and color.rgb is not string and color.rgb is not mapping and color.rgb|count==3 -%}\n   {%- for v in color.rgb -%}{%- if v is not number or v is boolean or not (0<=v<=255) -%}{%- set n.ok=false -%}{%- endif -%}{%- endfor -%}\n  {%- else -%}{%- set n.ok=false -%}{%- endif -%}\n {%- endif -%}\n {{- n.ok|to_json -}}\n{%- endmacro %}\n\n{% macro gradient_valid(entry,signature) -%}\n {# Cache is our own compiled data: validate version, anchor identity and complete shape.\n    Never recompute Kelvin conversions to validate a cache hit. #}\n {%- set n=namespace(ok=entry is mapping) -%}\n {%- if n.ok -%}{%- set n.ok=entry.get('signature')==signature and entry.get('curve') is mapping -%}{%- endif -%}\n {%- if n.ok -%}\n  {%- set c=entry.curve -%}\n  {%- set n.ok=c.get('version')==1 and c.get('day') is mapping and c.get('cosy') is mapping and c.get('brightness') is mapping and c.get('colors') is mapping -%}\n  {%- if n.ok -%}\n   {%- set n.ok=c.day.get('brightness')==signature[1] and c.day.get('color')==signature[2] and c.cosy.get('brightness')==signature[3] and c.cosy.get('color')==signature[4] -%}\n   {%- for name in ['floor','lower','middle','upper'] -%}\n    {%- set v=c.brightness.get(name) -%}{%- if v is not number or v is boolean or not (-1e20<v<1e20) -%}{%- set n.ok=false -%}{%- endif -%}\n   {%- endfor -%}\n   {%- for name in ['lower','middle','upper','tail'] -%}\n    {%- set piece=c.colors.get(name) -%}\n    {%- if piece is not mapping -%}{%- set n.ok=false -%}\n    {%- else -%}\n     {%- if not (gradient_color_valid(piece.get('left'))|from_json) or not (gradient_color_valid(piece.get('right'))|from_json) -%}{%- set n.ok=false -%}{%- endif -%}\n     {%- if piece.get('kind')=='kelvin' -%}\n      {%- for field in ['start','delta'] -%}{%- set v=piece.get(field) -%}{%- if v is not number or v is boolean or not (-1e20<v<1e20) -%}{%- set n.ok=false -%}{%- endif -%}{%- endfor -%}\n     {%- elif piece.get('kind')=='rgb' -%}\n      {%- for field in ['start','delta'] -%}\n       {%- set values=piece.get(field) -%}\n       {%- if values is not sequence or values is string or values is mapping or values|count!=3 -%}{%- set n.ok=false -%}\n       {%- else -%}{%- for v in values -%}{%- if v is not number or v is boolean or not (-1e20<v<1e20) -%}{%- set n.ok=false -%}{%- endif -%}{%- endfor -%}{%- endif -%}\n      {%- endfor -%}\n     {%- else -%}{%- set n.ok=false -%}{%- endif -%}\n    {%- endif -%}\n   {%- endfor -%}\n  {%- endif -%}\n {%- endif -%}\n {{- n.ok|to_json -}}\n{%- endmacro %}\n\n{% macro gradient_color_sample(piece,amount) -%}\n {%- if amount<=0 -%}{{- piece.left|to_json -}}\n {%- elif amount>=1 -%}{{- piece.right|to_json -}}\n {%- elif piece.kind=='kelvin' -%}{{- {'kelvin':piece.start+piece.delta*amount}|to_json -}}\n {%- else -%}{{- {'rgb':[(piece.start[0]+piece.delta[0]*amount)|round|int,(piece.start[1]+piece.delta[1]*amount)|round|int,(piece.start[2]+piece.delta[2]*amount)|round|int]}|to_json -}}\n {%- endif -%}\n{%- endmacro %}\n\n{% macro gradient_sample(curve,position) -%}\n {%- set p=[-2,[2,position]|min]|max -%}\n {%- if p==0 -%}{%- set brightness=curve.cosy.brightness -%}{%- set color=curve.cosy.color -%}\n {%- elif p==1 -%}{%- set brightness=curve.day.brightness -%}{%- set color=curve.day.color -%}\n {%- elif p>1 -%}\n  {%- set brightness=curve.day.brightness+curve.brightness.upper*(p-1) -%}\n  {%- set color=gradient_color_sample(curve.colors.upper,p-1)|from_json -%}\n {%- elif p>0 -%}\n  {%- set brightness=curve.cosy.brightness+curve.brightness.middle*p -%}\n  {%- set color=gradient_color_sample(curve.colors.middle,p)|from_json -%}\n {%- else -%}\n  {%- set brightness=[curve.brightness.floor,curve.cosy.brightness+p*curve.brightness.lower]|max -%}\n  {%- set color=gradient_color_sample(curve.colors.tail,-p-1)|from_json if p<=-1 else gradient_color_sample(curve.colors.lower,-p)|from_json -%}\n {%- endif -%}\n {{- {'brightness':[0,[255,brightness]|min]|max,'color':color,'position':p}|to_json -}}\n{%- endmacro %}\n\n{# One logical input stream per room; each source keeps a bounded snapshot.\n   The most recent snapshot includes preceding inputs from the room's other\n   remotes, so alternating devices cannot drop or apply a click twice. #}\n{% macro latest_remote_key(records,room) -%}\n {% set pick=namespace(key='',stamp=-1) %}\n {% for key,r in records|dictsort if r is mapping and r.get('scope')=='room' and r.get('target')==room and (r.get('kind')=='input' or (r.get('kind')=='channels' and r.get('via')=='remote')) %}\n  {% set stamp=as_timestamp(r.get('when'),0) %}\n  {% if stamp>=pick.stamp %}{% set pick.key=key %}{% set pick.stamp=stamp %}{% endif %}\n {% endfor %}\n {{- pick.key|to_json -}}\n{%- endmacro %}\n\n{# Pure Normal Light processor. The adapter stores ticks; only this processor knows\n   how ticks map to the Day/Cosy gradient. Animation processors default to no-op. #}\n{% macro normal_position(input, item, level) -%}\n {% set d=item.day.brightness-item.cosy.brightness %}\n {% set floor=[76.5,item.cosy.brightness]|min %}\n {% set slope=[0,d,(item.cosy.brightness-floor)/2]|max %}\n {% if input.get('anchor')=='day' %}{% set seed=1 %}\n {% elif input.get('anchor')=='cosy' %}{% set seed=0 %}\n {% elif input.get('legacy_position') is number %}{% set seed=input.legacy_position %}\n {% elif level>item.day.brightness and item.day.brightness<255 %}{% set seed=1+(level-item.day.brightness)/(255-item.day.brightness) %}\n {% elif level<item.cosy.brightness and slope>0 %}{% set seed=[-2,(level-item.cosy.brightness)/slope]|max %}\n {% else %}{% set seed=(level-item.cosy.brightness)/d if d>0 else 1 %}{% endif %}\n {{- ([input.lower,[input.upper,seed*10+input.steps]|min]|max/10)|to_json -}}\n{%- endmacro %}\n\n{% macro input_claims(value,key,stamp) -%}\n {% set n=namespace(claims=[]) %}\n {% if value.get('selection') not in ['day','cosy',none] and value.get('legacy_channels') is not mapping %}\n  {% if value.get('selection_input') is mapping %}\n   {% set n.claims=n.claims+[{'kind':'input','input':value.selection_input,'updated':value.selection_input.get('updated',stamp)}] %}\n  {% endif %}\n  {% set n.claims=n.claims+[{'kind':'effect','effect':value.selection,'instance':value.get('selection_instance',key~':'~value.selection),'updated':value.get('selection_updated',stamp)}] %}\n {% endif %}\n {% if value.get('adjustment') is mapping %}\n  {% set n.claims=n.claims+[{'kind':'input','input':value.adjustment,'updated':value.adjustment.get('updated',stamp)}] %}\n {% endif %}\n {{- n.claims|to_json -}}\n{%- endmacro %}\n\n{# No time, state, service or event access. Only record timestamps are interpreted. #}\n{% macro valid_color(c) -%}\n  {%- set v=namespace(ok=false) -%}\n  {%- if c is mapping -%}\n    {%- if 'kelvin' in c and 'rgb' not in c and c.kelvin is number and c.kelvin is not boolean and c.kelvin >= 1000 and c.kelvin <= 10000 -%}\n      {%- set v.ok=true -%}\n    {%- elif 'rgb' in c and 'kelvin' not in c and c.rgb is sequence and c.rgb is not string and c.rgb is not mapping and c.rgb|count == 3 -%}\n      {%- set v.ok=true -%}\n      {%- for component in c.rgb -%}\n        {%- if component is not number or component is boolean or component < 0 or component > 255 or component != component -%}{%- set v.ok=false -%}{%- endif -%}\n      {%- endfor -%}\n    {%- endif -%}\n  {%- endif -%}\n  {{- v.ok|to_json -}}\n{%- endmacro %}\n\n{% macro effect_channels(name) -%}\n  {%- set d=catalog.effects.get(name,{}) if name is string else {} -%}\n  {%- set channels=d.get('channels',[]) if d is mapping else [] -%}\n  {%- set v=namespace(ok=channels is sequence and channels is not string and channels is not mapping and channels|count > 0) -%}\n  {%- if v.ok -%}\n    {%- for channel in channels -%}{%- if channel not in ['brightness','color'] -%}{%- set v.ok=false -%}{%- endif -%}{%- endfor -%}\n  {%- endif -%}\n  {{- (channels|list if v.ok else [])|to_json -}}\n{%- endmacro %}\n\n\n{% set out=namespace(targets={},assignments={},inputs={},streams={},order=[]) %}\n{% for target,item in base|dictsort if item.get('is_room',false) %}{% set out.order=out.order+[target] %}{% endfor %}\n{% for target,item in base|dictsort if not item.get('is_room',false) %}{% set out.order=out.order+[target] %}{% endfor %}\n{% for target in out.order %}{% set item=base[target] %}\n\n  \n{% set area=item.area %}\n{% if area not in out.streams %}{% set out.streams=dict(out.streams,**{area:latest_remote_key(overrides,area)|from_json}) %}{% endif %}\n\n  {% set is_room=item.get('is_room',false) %}\n  {% set ignored=item.get('ignore_overrides',[]) %}\n  {% set ignored=ignored if ignored is sequence and ignored is not string and ignored is not mapping else [] %}\n  {% set observed=item.get('observed',{}) %}\n  {% set observed=observed if observed is mapping else {} %}\n  {% set n=namespace(candidates={'brightness':[],'color':[]},sources={},owners={},underlying={}) %}\n  {% set gradient=namespace(checked=false,curve=none,samples={}) %}\n  {% for key,record in overrides|dictsort if record is mapping and key not in ignored %}\n    {% set value=record.get('value') %}\n    {% set scope=record.get('scope','lamp' if record.get('kind') == 'light' else '') %}\n    {% set applies=(scope == 'house' and record.get('target') == 'house' and area not in private) or (scope == 'room' and record.get('target') == area) or (scope == 'lamp' and not is_room and record.get('target') == target) %}\n    \n{% if record.get('scope')=='room' and (record.get('kind')=='input' or (record.get('kind')=='channels' and record.get('via')=='remote')) and key!=out.streams.get(area) %}{% set applies=false %}{% endif %}\n{% if applies %}\n\n      {% set stamp=as_timestamp(record.get('when'),0)|float(0) %}\n      {% set patch={} %}\n      \n{% if record.get('kind') == 'input' and value is mapping %}\n {% set patch=value.get('legacy_channels',{}) %}\n {% for claim in input_claims(value,key,stamp)|from_json %}\n  {% for channel in ['brightness','color'] if claim.kind=='input' or channel in effect_channels(claim.get('effect'))|from_json %}\n   {% set n.candidates=dict(n.candidates,**{channel:n.candidates[channel]+[{'key':key,'updated':claim.updated,'source':claim,'baseline_only':false}]}) %}\n  {% endfor %}\n {% endfor %}\n{% elif record.get('kind') == 'channels' and value is mapping and value.get('channels') is mapping %}\n\n        {% set patch=value.channels %}\n      {% elif record.get('kind') == 'light' %}\n        {% if value is none %}\n          {% set patch={'brightness':{'kind':'constant','value':observed.get('brightness',item.brightness)},'color':{'kind':'constant','value':observed.get('color',item.color)}} %}\n        {% elif value is mapping %}\n          {% set ef=value.get('effect') %}\n          {% set declared=effect_channels(ef)|from_json %}\n          {% if ef is not none and ef != 'Normal light' %}\n            {% set legacy=namespace(p={}) %}\n            {% for channel in declared %}\n              {% set source={'kind':'effect','effect':ef,'instance':key} %}\n              {% if 'brightness' in value %}{% set source=dict(source,intensity=value.brightness) %}{% endif %}\n              {% set legacy.p=dict(legacy.p,**{channel:source}) %}\n            {% endfor %}\n            {% if declared|count == 0 %}\n              {% set legacy.p={'brightness':{'kind':'constant','value':item.brightness},'color':{'kind':'constant','value':item.color}} %}\n            {% elif 'brightness' in value and 'brightness' not in declared %}\n              {% set legacy.p=dict(legacy.p,brightness={'kind':'constant','value':value.brightness}) %}\n            {% endif %}\n            {% set patch=legacy.p %}\n          {% elif ef == 'Normal light' %}\n            {% set patch={'brightness':{'kind':'constant','value':value.get('brightness',observed.get('brightness',item.brightness))},'color':{'kind':'constant','value':observed.get('color',item.color)}} %}\n          {% elif 'brightness' in value %}\n            {% set patch={'brightness':{'kind':'constant','value':value.brightness}} %}\n          {% endif %}\n        {% endif %}\n      {% endif %}\n      {% for channel in ['brightness','color'] if channel in patch %}\n        \n{% set source=patch[channel] %}\n{# Read compatibility for remote records written before this deployment. #}\n{% if record.get('via')=='remote' and source is mapping and source.get('kind')=='scale' %}\n {% set source={'kind':'input','input':{'steps':0,'lower':-20,'upper':20,'legacy_position':source.position},'updated':source.get('updated',stamp)} %}\n{% endif %}\n\n        {% set update=source.get('updated',stamp) if source is mapping else stamp %}\n        {% set update=update if update is number and update is not boolean and update > -1e20 and update < 1e20 else stamp %}\n        {% set entries=[{'key':key,'updated':update,'source':source,'baseline_only':false}] %}\n        {# Replacing a stable source record must retain the constant/scale that fed its effect.\n           Its original timestamp competes with other baseline values; selecting an effect\n           does not make the carried input newer than unrelated manual settings. #}\n        {% if source is mapping and source.get('kind') == 'effect' and channel in effect_channels(source.get('effect'))|from_json and source.get('instance') is string and source.instance|length > 0 %}\n          {% set carried=namespace(source=source.get('underlying')) %}\n          {% for depth in range(8) %}\n            {% if carried.source is mapping and carried.source.get('kind') == 'effect' %}\n              {% set carried.source=carried.source.get('underlying') %}\n            {% endif %}\n          {% endfor %}\n          {% if carried.source is mapping and carried.source.get('kind') in ['constant','scale'] %}\n            {% set carried_stamp=carried.source.get('updated') %}\n            {% if carried_stamp is number and carried_stamp is not boolean and carried_stamp > -1e20 and carried_stamp <= update %}\n              {% set entries=entries+[{'key':key,'updated':carried_stamp,'source':carried.source,'baseline_only':true}] %}\n            {% endif %}\n          {% endif %}\n        {% endif %}\n        {% set n.candidates=dict(n.candidates,**{channel:n.candidates[channel]+entries}) %}\n      {% endfor %}\n    {% endif %}\n  {% endfor %}\n  {% set baseline_effect=item.get('effect','Normal light') %}\n  {% set declared=effect_channels(baseline_effect)|from_json %}\n  {% set enabled=item.get('effect_channels',declared) %}\n  {% set enabled=enabled if enabled is sequence and enabled is not string and enabled is not mapping else [] %}\n  {% for channel in ['brightness','color'] %}\n    {% set initial= color_json(item[channel])|from_json if channel=='color' else item[channel] %}\n    {% set c=namespace(underlying=initial,source={'kind':'constant','value':initial,'updated':-1},owner='base') %}\n    {% if channel in declared and channel in enabled %}\n      {% set c.source={'kind':'effect','effect':baseline_effect,'instance':item.get('effect_instance','base:' ~ target ~ ':' ~ baseline_effect),'updated':-1} %}\n      {% set c.owner='base:' ~ baseline_effect %}\n    {% endif %}\n    {% for candidate in n.candidates[channel]|sort(attribute='key')|sort(attribute='updated') %}\n      {% set source=candidate.source %}\n      {% set check=namespace(valid=false,ignore=false,value=initial,selected={}) %}\n      {% if source is mapping %}\n        {% if source.get('kind') == 'constant' %}\n          {% set v=source.get('value') %}\n          {% set check.valid=(v is number and v is not boolean and v >= 0 and v <= 255) if channel == 'brightness' else valid_color(v)|from_json %}\n          {% if check.valid %}{% set check.value=color_json(v)|from_json if channel=='color' else v %}{% endif %}\n        \n{% elif source.get('kind') in ['scale','input'] %}\n          {% set p=source.get('position') %}\n          {% if source.kind=='input' %}\n           {% set input=source.get('input',{}) %}\n           {% set valid=namespace(ok=input is mapping and item.get('day') is mapping and item.get('cosy') is mapping) %}\n           {% for field in ['steps','lower','upper'] %}\n            {% set v=input.get(field) if input is mapping else none %}\n            {% if v is not number or v is boolean or v!=v or v < -40 or v > 40 %}{% set valid.ok=false %}{% endif %}\n           {% endfor %}\n           {% if valid.ok and -20<=input.lower<=input.upper<=20 %}\n            {% set ref=candidate.key~':'~candidate.updated %}\n            {% set position=out.inputs.get(ref) %}\n            {% if position is none %}\n             {% set level=c.underlying if channel=='brightness' else n.underlying.get('brightness',item.brightness) %}\n             {% set position={'position':normal_position(input,item,level)|from_json,'level':level} %}\n             {% if is_room %}{% set out.inputs=dict(out.inputs,**{ref:position}) %}{% endif %}\n            {% endif %}\n            {% set p=position.position %}\n            {% set processor=c.source.effect if c.source.kind=='effect' else 'Normal light' %}\n            {% set strategy=catalog.get('processors',{}).get(processor,{}).get('remote_adjustment','gradient' if processor=='Normal light' else 'ignore') %}\n            {% set check.ignore=strategy!='gradient' %}\n           {% else %}{% set check.ignore=true %}{% endif %}\n          {% endif %}\n\n          {% if not check.ignore and p is number and p is not boolean and p > -1e20 and p < 1e20 and item.get('day') is mapping and item.get('cosy') is mapping %}\n            {% if not gradient.checked %}\n              {% set cached=(gradients|default({})).get(target) if gradients|default({}) is mapping else none %}\n              {% set signature=gradient_signature(item.day,item.cosy,warm_end)|from_json %}\n              {% if gradient_valid(cached,signature)|from_json %}{% set gradient.curve=cached.curve %}{% endif %}\n              {% set gradient.checked=true %}\n            {% endif %}\n            {% set coordinate=[-2,[2,p]|min]|max %}\n            {% if coordinate not in gradient.samples %}\n              {% set sample=gradient_sample(gradient.curve,coordinate)|from_json if gradient.curve is not none else scale_value(item.day,item.cosy,coordinate,warm_end)|from_json %}\n              {% set gradient.samples=dict(gradient.samples.items()|list+[(coordinate,sample)]) %}\n            {% endif %}\n            {% set scaled=gradient.samples[coordinate] %}\n            \n{% set check.valid=true %}{% set check.value=scaled[channel] %}\n            {# A down input must never brighten a below-floor Night baseline. #}\n            {% if source.kind=='input' and channel=='brightness' and input.get('last')=='down' and not input.get('has_up',false) and position.level<[76.5,item.cosy.brightness]|min and input.get('anchor','current')=='current' and input.steps<=0 %}\n             {% set check.value=[c.underlying,check.value]|min %}\n            {% endif %}\n\n            {% set check.selected={'origin':'scale','position':scaled.position} %}\n          {% endif %}\n        {% elif source.get('kind') == 'effect' and channel in effect_channels(source.get('effect'))|from_json and source.get('instance') is string and source.instance|length > 0 %}\n          {% set check.valid=true %}\n          {% set check.selected={'kind':'effect','effect':source.effect,'instance':source.instance,'updated':candidate.updated} %}\n          {% if channel == 'brightness' and source.get('intensity') is number and source.intensity is not boolean and source.intensity >= 0 and source.intensity <= 255 %}\n            {% set c.underlying=source.intensity %}\n          {% endif %}\n        {% endif %}\n      {% endif %}\n      {% if not check.ignore %}\n      {% if candidate.baseline_only %}\n        {% if check.valid %}{% set c.underlying=check.value %}{% endif %}\n      {% elif check.valid and check.selected.get('kind') == 'effect' %}\n        {% set c.source=check.selected %}\n      {% else %}\n        {% set c.underlying=check.value if check.valid else initial %}\n        {% set c.source=dict({'kind':'constant','value':c.underlying,'updated':candidate.updated},**check.selected) %}\n        {% if not check.valid %}{% set c.source=dict(c.source,origin='invalid_source') %}{% endif %}\n      {% endif %}\n      {% if not candidate.baseline_only %}{% set c.owner=candidate.key %}{% endif %}\n      {% endif %}\n    {% endfor %}\n    {% set n.sources=dict(n.sources,**{channel:c.source}) %}\n    {% set n.owners=dict(n.owners,**{channel:c.owner}) %}\n    {% set n.underlying=dict(n.underlying,**{channel:c.underlying}) %}\n  {% endfor %}\n  {% for channel in ['brightness','color'] if n.sources[channel].kind == 'effect' %}\n    {% set n.sources=dict(n.sources,**{channel:dict(n.sources[channel],base=n.underlying[channel],intensity=n.underlying.brightness)}) %}\n  {% endfor %}\n  {% if sara and 'mode:sara' not in ignored and area not in private and item.period != 'night' %}\n    {% set n.sources=dict(n.sources,color={'kind':'constant','value':{'rgb':[255,105,180]},'updated':0,'policy':'sara'}) %}\n    {% set n.owners=dict(n.owners,color='mode:sara') %}\n  {% endif %}\n  {% set resolved=dict(n.sources,period=item.period,on=item.get('on',true) and power.get(area,true),area=area,is_room=is_room,level=n.underlying.brightness,owners=n.owners,transition=item.get('transition',3)) %}\n  {% set out.targets=dict(out.targets,**{target:resolved}) %}\n  {% if not is_room and (resolved.brightness.kind == 'effect' or resolved.color.kind == 'effect') %}\n    {% set out.assignments=dict(out.assignments,**{target:resolved}) %}\n  {% endif %}\n{% endfor %}\n{{ {'targets':out.targets,'assignments':out.assignments} }}\n"
+            }
+          },
+          {
+            "stop": "Return pure result",
+            "response_variable": "result"
+          }
+        ]
+      },
+      "config_hash": "79112047f78b52b8"
+    }
+  }
+}

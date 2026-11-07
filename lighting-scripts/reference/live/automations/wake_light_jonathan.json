@@ -1,0 +1,24 @@
+{
+  "success": true,
+  "action": "get",
+  "automation_id": "automation.wake_light_jonathan",
+  "config": {
+    "id": "1791965778049",
+    "alias": "Wake light: Jonathan",
+    "description": "Jonathan's sunrise: starts 30 min before his Samsung Clock alarm and fades his bedroom from Night to Day over 37.5 min.",
+    "use_blueprint": {
+      "path": "smarthome/wake_light.yaml",
+      "input": {
+        "alarm_sensor": "sensor.jonathan_galaxy_next_alarm",
+        "alarm_package": "com.sec.android.app.clockpackage",
+        "wake_helper": "input_datetime.ls_bedroom_wake",
+        "lamps": [
+          "light.jonathan_bedroom_ceiling",
+          "light.jonathan_bedroom_floor_lamp"
+        ],
+        "lead_minutes": 30
+      }
+    }
+  },
+  "config_hash": "c60472ac24904ae4"
+}

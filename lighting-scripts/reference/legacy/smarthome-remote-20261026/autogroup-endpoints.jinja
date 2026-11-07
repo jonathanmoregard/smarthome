@@ -1,0 +1,19 @@
+{# Only a unique MQTT device identity and one known lighting endpoint qualify. #}
+{% set n=namespace(candidates={},result={}) %}
+{% for entity,identifiers in devices|dictsort %}
+ {% set d=namespace(ids=[]) %}
+ {% for identifier in identifiers if identifier is sequence and identifier is not string and identifier|count==2 %}
+  {% if identifier[0]=='mqtt' and identifier[1] is string and identifier[1]|regex_match('^zigbee2mqtt_0x[0-9a-fA-F]{16}$') %}
+   {% set d.ids=d.ids+[identifier[1][12:]|lower] %}
+  {% endif %}
+ {% endfor %}
+ {% set ids=d.ids|unique|list %}
+ {% set eps=lighting_endpoints.get(ids[0],[]) if ids|count==1 else [] %}
+ {% if eps is sequence and eps is not string and eps|count==1 and eps[0] is integer and eps[0] is not boolean and 1<=eps[0]<=240 %}
+  {% set n.candidates=dict(n.candidates,**{entity:{'ieee_address':ids[0],'endpoint':eps[0]}}) %}
+ {% endif %}
+{% endfor %}
+{% for entity,physical in n.candidates|dictsort %}
+ {% if n.candidates.values()|select('eq',physical)|list|count==1 %}{% set n.result=dict(n.result,**{entity:physical}) %}{% endif %}
+{% endfor %}
+{{ n.result }}

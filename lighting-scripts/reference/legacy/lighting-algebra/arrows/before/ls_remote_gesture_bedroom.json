@@ -1,0 +1,610 @@
+{
+  "alias": "Lighting · Bedroom Remote Gestures",
+  "description": "Single quick state owner for raw power/presets/directions. A token-guarded restart script debounces power; native timer bounds the secret chord. No waits here. Cursor reset and decoding are serialized. Logical commands launch asynchronously so actuator latency cannot drop input.",
+  "mode": "queued",
+  "max": 50,
+  "fields": {
+    "command": {
+      "selector": {
+        "text": {}
+      }
+    },
+    "payload": {
+      "default": {},
+      "selector": {
+        "object": {}
+      }
+    },
+    "token": {
+      "default": "",
+      "selector": {
+        "text": {}
+      }
+    }
+  },
+  "sequence": [
+    {
+      "condition": "template",
+      "value_template": "{{ command in ['power','power_done','preset','cancel','left','right','up','down'] }}"
+    },
+    {
+      "variables": {
+        "step": "{{ states('input_number.ls_bedroom_remote_chord_step')|int(0) }}",
+        "active": "{{ is_state('timer.ls_bedroom_remote_chord','active') }}",
+        "clicks": "{{ states('input_number.ls_bedroom_remote_power_count')|int(0) }}",
+        "stored_token": "{{ states('input_text.ls_bedroom_remote_power_token') if has_value('input_text.ls_bedroom_remote_power_token') else '' }}"
+      }
+    },
+    {
+      "variables": {
+        "quiet_active": "{{ clicks>0 and stored_token|length>0 and as_timestamp(stored_token,0)+0.4>as_timestamp(now()) }}"
+      }
+    },
+    {
+      "choose": [
+        {
+          "conditions": [
+            {
+              "condition": "template",
+              "value_template": "{{ command=='power_done' }}"
+            }
+          ],
+          "sequence": [
+            {
+              "condition": "template",
+              "value_template": "{{ token|length>0 and token==stored_token and clicks>0 }}"
+            },
+            {
+              "action": "input_number.set_value",
+              "target": {
+                "entity_id": "input_number.ls_bedroom_remote_power_count"
+              },
+              "data": {
+                "value": 0
+              }
+            },
+            {
+              "action": "input_text.set_value",
+              "target": {
+                "entity_id": "input_text.ls_bedroom_remote_power_token"
+              },
+              "data": {
+                "value": ""
+              }
+            },
+            {
+              "if": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ clicks==1 or clicks>=3 }}"
+                }
+              ],
+              "then": [
+                {
+                  "action": "input_number.set_value",
+                  "target": {
+                    "entity_id": "input_number.ls_bedroom_remote_chord_step"
+                  },
+                  "data": {
+                    "value": 0
+                  }
+                },
+                {
+                  "action": "timer.cancel",
+                  "target": {
+                    "entity_id": "timer.ls_bedroom_remote_chord"
+                  }
+                },
+                {
+                  "variables": {
+                    "room": "{{ area_id('0e973e9202acb5ace9a8e6a8b336891d') }}"
+                  }
+                },
+                {
+                  "if": [
+                    {
+                      "condition": "template",
+                      "value_template": "{{ room is string and room|length>0 }}"
+                    }
+                  ],
+                  "then": [
+                    {
+                      "action": "script.turn_on",
+                      "target": {
+                        "entity_id": "script.ls_remote_command"
+                      },
+                      "data": {
+                        "variables": {
+                          "source": "0x385b44fffea4fc67",
+                          "area": "{{ room }}",
+                          "command": "{{ 'toggle' if clicks==1 else 'reset' }}",
+                          "dry_run": false
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "stop": "Completed quiet power burst"
+            }
+          ]
+        },
+        {
+          "conditions": [
+            {
+              "condition": "template",
+              "value_template": "{{ command=='power' }}"
+            }
+          ],
+          "sequence": [
+            {
+              "if": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ clicks>0 and not quiet_active }}"
+                }
+              ],
+              "then": [
+                {
+                  "action": "input_number.set_value",
+                  "target": {
+                    "entity_id": "input_number.ls_bedroom_remote_power_count"
+                  },
+                  "data": {
+                    "value": 0
+                  }
+                },
+                {
+                  "action": "input_text.set_value",
+                  "target": {
+                    "entity_id": "input_text.ls_bedroom_remote_power_token"
+                  },
+                  "data": {
+                    "value": ""
+                  }
+                },
+                {
+                  "if": [
+                    {
+                      "condition": "template",
+                      "value_template": "{{ clicks==1 or clicks>=3 }}"
+                    }
+                  ],
+                  "then": [
+                    {
+                      "action": "input_number.set_value",
+                      "target": {
+                        "entity_id": "input_number.ls_bedroom_remote_chord_step"
+                      },
+                      "data": {
+                        "value": 0
+                      }
+                    },
+                    {
+                      "action": "timer.cancel",
+                      "target": {
+                        "entity_id": "timer.ls_bedroom_remote_chord"
+                      }
+                    },
+                    {
+                      "variables": {
+                        "room": "{{ area_id('0e973e9202acb5ace9a8e6a8b336891d') }}"
+                      }
+                    },
+                    {
+                      "if": [
+                        {
+                          "condition": "template",
+                          "value_template": "{{ room is string and room|length>0 }}"
+                        }
+                      ],
+                      "then": [
+                        {
+                          "action": "script.turn_on",
+                          "target": {
+                            "entity_id": "script.ls_remote_command"
+                          },
+                          "data": {
+                            "variables": {
+                              "source": "0x385b44fffea4fc67",
+                              "area": "{{ room }}",
+                              "command": "{{ 'toggle' if clicks==1 else 'reset' }}",
+                              "dry_run": false
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "variables": {
+                "clicks": "{{ [3,clicks+1]|min if quiet_active else 1 }}"
+              }
+            },
+            {
+              "action": "input_number.set_value",
+              "target": {
+                "entity_id": "input_number.ls_bedroom_remote_power_count"
+              },
+              "data": {
+                "value": "{{ clicks }}"
+              }
+            },
+            {
+              "choose": [
+                {
+                  "conditions": [
+                    {
+                      "condition": "template",
+                      "value_template": "{{ clicks==1 }}"
+                    }
+                  ],
+                  "sequence": [
+                    {
+                      "action": "input_number.set_value",
+                      "target": {
+                        "entity_id": "input_number.ls_bedroom_remote_chord_step"
+                      },
+                      "data": {
+                        "value": -1
+                      }
+                    },
+                    {
+                      "action": "timer.start",
+                      "target": {
+                        "entity_id": "timer.ls_bedroom_remote_chord"
+                      },
+                      "data": {
+                        "duration": "00:00:03"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "conditions": [
+                    {
+                      "condition": "template",
+                      "value_template": "{{ clicks==2 }}"
+                    }
+                  ],
+                  "sequence": [
+                    {
+                      "action": "input_number.set_value",
+                      "target": {
+                        "entity_id": "input_number.ls_bedroom_remote_preset"
+                      },
+                      "data": {
+                        "value": 0
+                      }
+                    },
+                    {
+                      "if": [
+                        {
+                          "condition": "template",
+                          "value_template": "{{ active and step==-1 }}"
+                        }
+                      ],
+                      "then": [
+                        {
+                          "action": "input_number.set_value",
+                          "target": {
+                            "entity_id": "input_number.ls_bedroom_remote_chord_step"
+                          },
+                          "data": {
+                            "value": 1
+                          }
+                        },
+                        {
+                          "action": "timer.start",
+                          "target": {
+                            "entity_id": "timer.ls_bedroom_remote_chord"
+                          },
+                          "data": {
+                            "duration": "00:00:03"
+                          }
+                        }
+                      ],
+                      "else": [
+                        {
+                          "action": "input_number.set_value",
+                          "target": {
+                            "entity_id": "input_number.ls_bedroom_remote_chord_step"
+                          },
+                          "data": {
+                            "value": 0
+                          }
+                        },
+                        {
+                          "action": "timer.cancel",
+                          "target": {
+                            "entity_id": "timer.ls_bedroom_remote_chord"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "default": [
+                {
+                  "action": "input_number.set_value",
+                  "target": {
+                    "entity_id": "input_number.ls_bedroom_remote_chord_step"
+                  },
+                  "data": {
+                    "value": 0
+                  }
+                },
+                {
+                  "action": "timer.cancel",
+                  "target": {
+                    "entity_id": "timer.ls_bedroom_remote_chord"
+                  }
+                }
+              ]
+            },
+            {
+              "variables": {
+                "fresh_token": "{{ now().isoformat() }}"
+              }
+            },
+            {
+              "action": "input_text.set_value",
+              "target": {
+                "entity_id": "input_text.ls_bedroom_remote_power_token"
+              },
+              "data": {
+                "value": "{{ fresh_token }}"
+              }
+            },
+            {
+              "action": "script.turn_on",
+              "target": {
+                "entity_id": "script.ls_remote_power_quiet_bedroom"
+              },
+              "data": {
+                "variables": {
+                  "token": "{{ fresh_token }}"
+                }
+              }
+            },
+            {
+              "stop": "Raw power recorded without waiting"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "if": [
+        {
+          "condition": "template",
+          "value_template": "{{ command=='preset' }}"
+        }
+      ],
+      "then": [
+        {
+          "condition": "template",
+          "value_template": "{{ payload is mapping and payload.get('action') in ['color_temperature_move','brightness_move_to_level'] }}"
+        },
+        {
+          "variables": {
+            "presets": "{{ [200,285,370,454,588] if payload.action=='color_temperature_move' else [254,229,178,76,2] }}",
+            "preset": "{{ payload.get('action_color_temperature') if payload.action=='color_temperature_move' else payload.get('action_level') }}",
+            "previous": "{{ states('input_number.ls_bedroom_remote_preset')|float(-1) }}"
+          }
+        },
+        {
+          "if": [
+            {
+              "condition": "template",
+              "value_template": "{{ preset is not number or preset is boolean or preset not in presets }}"
+            }
+          ],
+          "then": [
+            {
+              "action": "input_number.set_value",
+              "target": {
+                "entity_id": "input_number.ls_bedroom_remote_chord_step"
+              },
+              "data": {
+                "value": 0
+              }
+            },
+            {
+              "action": "timer.cancel",
+              "target": {
+                "entity_id": "timer.ls_bedroom_remote_chord"
+              }
+            },
+            {
+              "stop": "Unknown preset cancels chord"
+            }
+          ]
+        },
+        {
+          "variables": {
+            "index": "{{ presets.index(preset) }}"
+          }
+        },
+        {
+          "condition": "template",
+          "value_template": "{{ index!=previous }}"
+        },
+        {
+          "variables": {
+            "delta": "{{ (index-previous|int)%5 if previous in [0,1,2,3,4] else -1 }}"
+          }
+        },
+        {
+          "action": "input_number.set_value",
+          "target": {
+            "entity_id": "input_number.ls_bedroom_remote_preset"
+          },
+          "data": {
+            "value": "{{ index }}"
+          }
+        },
+        {
+          "variables": {
+            "command": "{{ 'right' if delta==1 else 'left' if delta==4 else 'cancel' }}"
+          }
+        }
+      ]
+    },
+    {
+      "choose": [
+        {
+          "conditions": [
+            {
+              "condition": "template",
+              "value_template": "{{ active and step in [1,2,3,4] and command==['left','right','left','right'][step-1] }}"
+            }
+          ],
+          "sequence": [
+            {
+              "if": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ step==4 }}"
+                }
+              ],
+              "then": [
+                {
+                  "action": "input_number.set_value",
+                  "target": {
+                    "entity_id": "input_number.ls_bedroom_remote_chord_step"
+                  },
+                  "data": {
+                    "value": 0
+                  }
+                },
+                {
+                  "action": "timer.cancel",
+                  "target": {
+                    "entity_id": "timer.ls_bedroom_remote_chord"
+                  }
+                },
+                {
+                  "variables": {
+                    "room": "{{ area_id('0e973e9202acb5ace9a8e6a8b336891d') }}"
+                  }
+                },
+                {
+                  "if": [
+                    {
+                      "condition": "template",
+                      "value_template": "{{ room is string and room|length>0 }}"
+                    }
+                  ],
+                  "then": [
+                    {
+                      "action": "script.turn_on",
+                      "target": {
+                        "entity_id": "script.ls_remote_command"
+                      },
+                      "data": {
+                        "variables": {
+                          "source": "0x385b44fffea4fc67",
+                          "area": "{{ room }}",
+                          "command": "sara_toggle",
+                          "dry_run": false
+                        }
+                      }
+                    }
+                  ]
+                }
+              ],
+              "else": [
+                {
+                  "action": "input_number.set_value",
+                  "target": {
+                    "entity_id": "input_number.ls_bedroom_remote_chord_step"
+                  },
+                  "data": {
+                    "value": "{{ step+1 }}"
+                  }
+                },
+                {
+                  "action": "timer.start",
+                  "target": {
+                    "entity_id": "timer.ls_bedroom_remote_chord"
+                  },
+                  "data": {
+                    "duration": "00:00:03"
+                  }
+                }
+              ]
+            },
+            {
+              "stop": "Matched chord input consumed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "if": [
+        {
+          "condition": "template",
+          "value_template": "{{ step!=0 or active }}"
+        }
+      ],
+      "then": [
+        {
+          "action": "input_number.set_value",
+          "target": {
+            "entity_id": "input_number.ls_bedroom_remote_chord_step"
+          },
+          "data": {
+            "value": 0
+          }
+        },
+        {
+          "action": "timer.cancel",
+          "target": {
+            "entity_id": "timer.ls_bedroom_remote_chord"
+          }
+        }
+      ]
+    },
+    {
+      "condition": "template",
+      "value_template": "{{ command!='cancel' }}"
+    },
+    {
+      "variables": {
+        "room": "{{ area_id('0e973e9202acb5ace9a8e6a8b336891d') }}"
+      }
+    },
+    {
+      "if": [
+        {
+          "condition": "template",
+          "value_template": "{{ room is string and room|length>0 }}"
+        }
+      ],
+      "then": [
+        {
+          "action": "script.turn_on",
+          "target": {
+            "entity_id": "script.ls_remote_command"
+          },
+          "data": {
+            "variables": {
+              "source": "0x385b44fffea4fc67",
+              "area": "{{ room }}",
+              "command": "{{ command }}",
+              "dry_run": false
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

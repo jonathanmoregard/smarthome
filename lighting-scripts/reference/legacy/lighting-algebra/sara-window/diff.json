@@ -1,0 +1,22 @@
+[
+  {
+    "path": "ls_remote_gesture_bedroom/sequence/2/variables/quiet_active",
+    "before": "{{ clicks>0 and stored_token|length>0 and as_timestamp(stored_token,0)+0.4>as_timestamp(now()) }}",
+    "after": "{{ clicks>0 and stored_token|length>0 and as_timestamp(stored_token,0)+0.6>as_timestamp(now()) }}"
+  },
+  {
+    "path": "ls_remote_gesture_living_room/sequence/2/variables/quiet_active",
+    "before": "{{ clicks>0 and stored_token|length>0 and as_timestamp(stored_token,0)+0.4>as_timestamp(now()) }}",
+    "after": "{{ clicks>0 and stored_token|length>0 and as_timestamp(stored_token,0)+0.6>as_timestamp(now()) }}"
+  },
+  {
+    "path": "ls_remote_power_quiet_bedroom/sequence/0/delay/milliseconds",
+    "before": 400,
+    "after": 600
+  },
+  {
+    "path": "ls_remote_power_quiet_living_room/sequence/0/delay/milliseconds",
+    "before": 400,
+    "after": 600
+  }
+]

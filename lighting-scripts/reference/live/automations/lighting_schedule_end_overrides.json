@@ -1,0 +1,89 @@
+{
+  "success": true,
+  "action": "get",
+  "automation_id": "automation.lighting_schedule_end_overrides",
+  "config": {
+    "id": "1791977495359",
+    "alias": "Lighting schedule: end overrides",
+    "description": "Ends lighting overrides recorded in sensor.ls_overrides by the rules set on /lighting-schedule: after a set time (input_boolean.ls_ovr_after_on, input_number.ls_ovr_after_min) and at a clock time every day (input_boolean.ls_ovr_at_on, input_datetime.ls_ovr_at). The next-block rule (input_boolean.ls_ovr_next_block_on) lives in script.ls_apply. Removing a record makes the engine re-apply the schedule.",
+    "triggers": [
+      {
+        "trigger": "time_pattern",
+        "minutes": "/1",
+        "id": "after"
+      },
+      {
+        "trigger": "time",
+        "at": "input_datetime.ls_ovr_at",
+        "id": "at"
+      }
+    ],
+    "actions": [
+      {
+        "choose": [
+          {
+            "conditions": [
+              {
+                "condition": "trigger",
+                "id": "after"
+              },
+              {
+                "condition": "state",
+                "entity_id": "input_boolean.ls_ovr_after_on",
+                "state": "on"
+              }
+            ],
+            "sequence": [
+              {
+                "variables": {
+                  "expired": "{%- set o = state_attr('sensor.ls_overrides', 'overrides') -%}\n{%- set lim = states('input_number.ls_ovr_after_min') | float(180) * 60 -%}\n{%- set ns = namespace(k=[]) -%}\n{%- for k, r in (o if o is mapping else {}).items() if r is mapping -%}\n  {%- if as_timestamp(now()) - as_timestamp(r.when, as_timestamp(now())) >= lim -%}{%- set ns.k = ns.k + [k] -%}{%- endif -%}\n{%- endfor -%}\n{{ ns.k }}"
+                }
+              },
+              {
+                "condition": "template",
+                "value_template": "{{ expired | count > 0 }}"
+              },
+              {
+                "event": "ls_override",
+                "event_data": {
+                  "op": "clear",
+                  "keys": "{{ expired }}",
+                  "via": "rule_after"
+                }
+              }
+            ]
+          },
+          {
+            "conditions": [
+              {
+                "condition": "trigger",
+                "id": "at"
+              },
+              {
+                "condition": "state",
+                "entity_id": "input_boolean.ls_ovr_at_on",
+                "state": "on"
+              },
+              {
+                "condition": "template",
+                "value_template": "{{ (state_attr('sensor.ls_overrides', 'overrides') or {}) | count > 0 }}"
+              }
+            ],
+            "sequence": [
+              {
+                "event": "ls_override",
+                "event_data": {
+                  "op": "clear_all",
+                  "via": "rule_at"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "mode": "queued",
+    "max": 5
+  },
+  "config_hash": "e294a49080bdbc2b"
+}

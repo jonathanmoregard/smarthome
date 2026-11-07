@@ -1,0 +1,25 @@
+{
+  "alias": "Lighting \u00b7 Bedroom Remote Power Quiet",
+  "description": "Command-only TypeScript bridge. Dry-run/response queries use local RPC. ",
+  "mode": "restart",
+  "fields": {
+    "token": {
+      "selector": {
+        "text": {}
+      }
+    }
+  },
+  "sequence": [
+    {
+      "condition": "template",
+      "value_template": "{{ not (dry_run | default(false)) }}"
+    },
+    {
+      "event": "smarthome_script",
+      "event_data": {
+        "script": "ls_remote_power_quiet_bedroom",
+        "args": "{% set n=namespace(args={}) %}{% if token is defined %}{% set n.args=dict(n.args,token=token) %}{% endif %}{{ n.args }}"
+      }
+    }
+  ]
+}

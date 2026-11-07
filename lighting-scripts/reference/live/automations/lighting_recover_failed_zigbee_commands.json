@@ -1,0 +1,114 @@
+{
+  "success": true,
+  "action": "get",
+  "automation_id": "automation.lighting_recover_failed_zigbee_commands",
+  "config": {
+    "id": "lighting_transport_recovery",
+    "alias": "Lighting · Recover Failed Zigbee Commands",
+    "description": "Recover explicit Zigbee2MQTT set failures for static scheduled fixtures. Coalesce errors and retry one fixture per five-second tick, using its latest lighting plan. At most three retries per fixture per five-minute episode; persistent failure produces a notification. Off/unavailable fixtures and active animations are excluded. Bridge outages retain pending work.",
+    "triggers": [
+      {
+        "trigger": "mqtt",
+        "topic": "zigbee2mqtt/bridge/logging",
+        "value_template": "{{ 'failed' if value_json is defined and value_json is mapping and value_json.get('level')=='error' and value_json.get('message','') | regex_findall(\"^(?:z2m: )?Publish 'set' '(?:color_temp|color|brightness|state)' to '([^']+)' failed:\") | count > 0 else 'ignored' }}",
+        "payload": "failed",
+        "id": "failure"
+      },
+      {
+        "trigger": "time_pattern",
+        "seconds": "/5",
+        "id": "retry"
+      },
+      {
+        "trigger": "state",
+        "entity_id": "binary_sensor.zigbee2mqtt_bridge_connection_state",
+        "to": "on",
+        "id": "retry"
+      }
+    ],
+    "conditions": [
+      {
+        "condition": "template",
+        "value_template": "{{ trigger.id=='failure' or (state_attr('sensor.ls_effects_runtime','transport_recovery') or {}).values()|selectattr('pending','eq',true)|list|count>0 }}"
+      }
+    ],
+    "actions": [
+      {
+        "action": "script.effects_catalog",
+        "response_variable": "catalog"
+      },
+      {
+        "variables": {
+          "decision": "\n{# A failed radio send is separate from MQTT acceptance. Store only known logical\n   fixtures; coalesce channel errors, then retry one current fixture per tick. #}\n{% set now_s=as_timestamp(now()) %}\n{% set prior=state_attr('sensor.ls_effects_runtime','transport_recovery') or {} %}\n{% set targets=state_attr('sensor.ls_effects_runtime','targets') or {} %}\n{% set power=state_attr('sensor.ls_overrides','power') or {} %}\n{% set n=namespace(ledger={},matched=[],retry='',notices=[],eligible=[]) %}\n{% for L,t in targets.items() if L in catalog.members and not t.get('is_room',false) %}\n {% if is_state(L,'on') and t.get('on',false) and power.get(t.get('area'),true)\n       and t.get('brightness',{}).get('kind')=='constant'\n       and t.get('color',{}).get('kind')=='constant' %}\n  {% set n.eligible=n.eligible+[L] %}\n {% endif %}\n{% endfor %}\n{% for L,r in prior.items() if L in catalog.members and r is mapping %}\n {% if r.get('window_start') is number and r.get('attempts') is number and r.get('due') is number %}\n  {% set n.ledger=dict(n.ledger,**{L:r}) %}\n {% endif %}\n{% endfor %}\n{% if trigger.id=='failure' %}\n {% set names=trigger.payload_json.get('message','')  | regex_findall(\"^(?:z2m: )?Publish 'set' '(?:color_temp|color|brightness|state)' to '([^']+)' failed:\") %}\n {% if names %}\n  {% set topic='zigbee2mqtt/'~names[0]~'/set' %}\n  {% set endpoints=namespace(ids=[]) %}\n  {% for E,T in catalog.topics.items() if T==topic %}{% set endpoints.ids=endpoints.ids+[E] %}{% endfor %}\n  {% for group in catalog.multicast if group.get('verified',false) and group.topic==topic %}\n   {% set endpoints.ids=endpoints.ids+(group.members|list) %}\n  {% endfor %}\n  {# Z2M logs a device's current friendly name even when the command used IEEE.\n     Resolve its integration-supplied name only when it identifies one endpoint. #}\n  {% if not endpoints.ids %}\n   {% set named=namespace(ids=[]) %}\n   {% for E in catalog.topics if device_attr(E,'name')==names[0] %}\n    {% set named.ids=named.ids+[E] %}\n   {% endfor %}\n   {% if named.ids|count==1 %}{% set endpoints.ids=named.ids %}{% endif %}\n  {% endif %}\n  {% for L,members in catalog.members.items() if L in n.eligible %}\n   {% if members|select('in',endpoints.ids)|list|count>0 %}{% set n.matched=n.matched+[L] %}{% endif %}\n  {% endfor %}\n {% endif %}\n {% for L in n.matched %}\n  {% set r=n.ledger.get(L,{}) %}\n  {% if not r or now_s-r.window_start>=300 %}\n   {% set r={'window_start':now_s,'attempts':0,'due':now_s+3,'pending':false,'notified':false} %}\n  {% endif %}\n  {% if r.attempts>=3 %}\n   {% if not r.get('notified',false) %}{% set n.notices=n.notices+[L] %}{% endif %}\n   {% set r=dict(r,pending=false,notified=true) %}\n  {% else %}\n   {% set r=dict(r,pending=true,due=r.due if r.get('pending',false) else now_s+3) %}\n  {% endif %}\n  {% set n.ledger=dict(n.ledger,**{L:r}) %}\n {% endfor %}\n{% elif is_state('binary_sensor.zigbee2mqtt_bridge_connection_state','on') %}\n {% set pick=namespace(lamp='',due=none) %}\n {% for L,r in n.ledger|dictsort if r.get('pending',false) %}\n  {% if L not in n.eligible %}\n   {% set n.ledger=dict(n.ledger,**{L:dict(r,pending=false)}) %}\n  {% elif r.attempts>=3 %}\n   {% if not r.get('notified',false) %}{% set n.notices=n.notices+[L] %}{% endif %}\n   {% set n.ledger=dict(n.ledger,**{L:dict(r,pending=false,notified=true)}) %}\n  {% elif r.due<=now_s and (pick.due is none or r.due<pick.due) %}\n   {% set pick.lamp=L %}{% set pick.due=r.due %}\n  {% endif %}\n {% endfor %}\n {% if pick.lamp %}\n  {% set n.retry=pick.lamp %}{% set r=n.ledger[n.retry] %}\n  {# Keep pending until HA accepts the render request. An API error leaves a\n     bounded retry for the next tick; radio errors arrive through MQTT later. #}\n  {% set n.ledger=dict(n.ledger,**{n.retry:dict(r,attempts=r.attempts+1,due=now_s+5)}) %}\n {% endif %}\n{% endif %}\n{{ {'ledger':n.ledger,'retry':n.retry,'notices':n.notices} }}\n"
+        }
+      },
+      {
+        "if": [
+          {
+            "condition": "template",
+            "value_template": "{{ decision.ledger != (state_attr('sensor.ls_effects_runtime','transport_recovery') or {}) }}"
+          }
+        ],
+        "then": [
+          {
+            "action": "variable.update_sensor",
+            "target": {
+              "entity_id": "sensor.ls_effects_runtime"
+            },
+            "data": {
+              "value": "{{ states('sensor.ls_effects_runtime') }}",
+              "replace_attributes": false,
+              "attributes": "{{ {'transport_recovery':decision.ledger} }}"
+            }
+          }
+        ]
+      },
+      {
+        "if": [
+          {
+            "condition": "template",
+            "value_template": "{{ decision.retry|length>0 }}"
+          }
+        ],
+        "then": [
+          {
+            "action": "script.ls_apply",
+            "data": {
+              "reason": "manual",
+              "lights": "{{ [decision.retry] }}"
+            }
+          },
+          {
+            "action": "variable.update_sensor",
+            "target": {
+              "entity_id": "sensor.ls_effects_runtime"
+            },
+            "data": {
+              "value": "{{ states('sensor.ls_effects_runtime') }}",
+              "replace_attributes": false,
+              "attributes": "{% set current=state_attr('sensor.ls_effects_runtime','transport_recovery') or {} %}{{ {'transport_recovery':dict(current,**{decision.retry:dict(current[decision.retry],pending=false)})} }}"
+            }
+          }
+        ]
+      },
+      {
+        "repeat": {
+          "for_each": "{{ decision.notices }}",
+          "sequence": [
+            {
+              "action": "persistent_notification.create",
+              "data": {
+                "notification_id": "{{ 'lighting_transport_'~repeat.item }}",
+                "title": "Lighting Command Could Not Be Delivered",
+                "message": "{{ repeat.item }} still reported Zigbee command failures after three recovery attempts. Automatic retries for this fixture are paused for the rest of this five-minute episode. Check its power and Zigbee connection."
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "mode": "queued",
+    "max": 50
+  },
+  "config_hash": "7c5f56b38e16c3ed"
+}

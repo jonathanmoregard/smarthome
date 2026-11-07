@@ -1,0 +1,69 @@
+{
+  "entity": {
+    "name": "Lamp",
+    "required": true,
+    "description": "Choose the paired on/off lamp or smart plug.",
+    "selector": {
+      "entity": {
+        "filter": [
+          {
+            "domain": "switch"
+          },
+          {
+            "domain": "light"
+          }
+        ]
+      }
+    }
+  },
+  "profile": {
+    "name": "Brightness Range",
+    "required": true,
+    "default": "bright",
+    "selector": {
+      "select": {
+        "options": [
+          {
+            "value": "bright",
+            "label": "Bright Default"
+          },
+          {
+            "value": "cosy",
+            "label": "Cosy Default"
+          },
+          {
+            "value": "custom",
+            "label": "Own Range"
+          }
+        ],
+        "mode": "dropdown"
+      }
+    }
+  },
+  "minimum": {
+    "name": "Own Range · From",
+    "description": "Used only with Own Range.",
+    "selector": {
+      "number": {
+        "min": 0,
+        "max": 100,
+        "step": 1,
+        "mode": "box",
+        "unit_of_measurement": "%"
+      }
+    }
+  },
+  "maximum": {
+    "name": "Own Range · Through",
+    "description": "Used only with Own Range. Both ends are included.",
+    "selector": {
+      "number": {
+        "min": 0,
+        "max": 100,
+        "step": 1,
+        "mode": "box",
+        "unit_of_measurement": "%"
+      }
+    }
+  }
+}

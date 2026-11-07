@@ -1,0 +1,76 @@
+{
+  "data": {
+    "success": true,
+    "count": 7,
+    "states": {
+      "automation.house_schedule": {
+        "entity_id": "automation.house_schedule",
+        "state": "off",
+        "attributes": {
+          "id": "1791919631065",
+          "last_triggered": "2026-10-14T08:00:00.344946+02:00"
+        },
+        "last_changed": "2026-10-14T21:09:39.937795+02:00"
+      },
+      "automation.house_lamps_follow_mode": {
+        "entity_id": "automation.house_lamps_follow_mode",
+        "state": "off",
+        "attributes": {
+          "id": "1791919638348",
+          "last_triggered": "2026-10-14T08:32:37.049523+02:00"
+        },
+        "last_changed": "2026-10-14T21:09:39.938063+02:00"
+      },
+      "automation.house_sunrise_before_alarm": {
+        "entity_id": "automation.house_sunrise_before_alarm",
+        "state": "off",
+        "attributes": {
+          "id": "1791920087349",
+          "last_triggered": "2026-10-14T07:55:00.002865+02:00"
+        },
+        "last_changed": "2026-10-14T21:09:39.938256+02:00"
+      },
+      "automation.effects_candle_group_state": {
+        "entity_id": "automation.effects_candle_group_state",
+        "state": "off",
+        "attributes": {
+          "id": "effects_candle_group_state",
+          "last_triggered": "2026-10-24T22:36:34.597700+02:00"
+        },
+        "last_changed": "2026-10-24T22:45:01.609055+02:00"
+      },
+      "automation.effects_candle_membership": {
+        "entity_id": "automation.effects_candle_membership",
+        "state": "off",
+        "attributes": {
+          "id": "effects_candle_membership",
+          "last_triggered": "2026-10-24T22:45:00.913035+02:00"
+        },
+        "last_changed": "2026-10-24T22:45:01.531641+02:00"
+      },
+      "automation.effects_lifecycle": {
+        "entity_id": "automation.effects_lifecycle",
+        "state": "on",
+        "attributes": {
+          "id": "effects_lifecycle",
+          "last_triggered": "2026-10-26T16:44:45.196661+01:00"
+        },
+        "last_changed": "2026-10-24T13:14:42.234794+02:00"
+      },
+      "automation.wake_light_jonathan": {
+        "entity_id": "automation.wake_light_jonathan",
+        "state": "on",
+        "attributes": {
+          "id": "1791965778049",
+          "last_triggered": "2026-10-26T07:00:00.812929+01:00"
+        },
+        "last_changed": "2026-10-25T14:59:41.006050+01:00"
+      }
+    }
+  },
+  "metadata": {
+    "home_assistant_timezone": "Europe/Stockholm",
+    "timestamp_format": "ISO 8601 (Europe/Stockholm)",
+    "note": "Per-record timestamp fields (last_changed, last_updated, last_reported, when, last_triggered) have been converted to Europe/Stockholm local time. Query-window boundary fields (period, start_time, end_time) remain in UTC."
+  }
+}

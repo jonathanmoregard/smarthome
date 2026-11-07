@@ -1,0 +1,84 @@
+{
+  "alias": "Lighting schedule: store block light",
+  "description": "Command-only TypeScript bridge. Dry-run/response queries use local RPC. ",
+  "mode": "queued",
+  "max": 50,
+  "icon": "mdi:content-save",
+  "fields": {
+    "store": {
+      "name": "Store",
+      "required": true,
+      "selector": {
+        "entity": {
+          "domain": "input_text"
+        }
+      }
+    },
+    "on": {
+      "name": "On",
+      "required": false,
+      "selector": {
+        "boolean": {}
+      }
+    },
+    "brightness": {
+      "name": "Brightness",
+      "selector": {
+        "number": {
+          "min": 0,
+          "max": 255
+        }
+      }
+    },
+    "kelvin": {
+      "name": "Kelvin",
+      "selector": {
+        "number": {
+          "min": 1000,
+          "max": 10000
+        }
+      }
+    },
+    "mireds": {
+      "name": "Mireds",
+      "selector": {
+        "number": {
+          "min": 100,
+          "max": 1000
+        }
+      }
+    },
+    "hs": {
+      "name": "Hue/saturation",
+      "selector": {
+        "object": {}
+      }
+    },
+    "own": {
+      "name": "Own",
+      "description": "Per-lamp stores only: true = this lamp uses its own light in this block (Override Light).",
+      "selector": {
+        "boolean": {}
+      }
+    },
+    "effect": {
+      "name": "Effect",
+      "selector": {
+        "text": {}
+      }
+    }
+  },
+  "sequence": [
+    {
+      "condition": "template",
+      "value_template": "{{ not (dry_run | default(false)) }}"
+    },
+    {
+      "event": "smarthome_script",
+      "event_data": {
+        "script": "ls_store",
+        "args": "{% set n=namespace(args={}) %}{% if store is defined %}{% set n.args=dict(n.args,store=store) %}{% endif %}{% if on is defined %}{% set n.args=dict(n.args,on=on) %}{% endif %}{% if brightness is defined %}{% set n.args=dict(n.args,brightness=brightness) %}{% endif %}{% if kelvin is defined %}{% set n.args=dict(n.args,kelvin=kelvin) %}{% endif %}{% if mireds is defined %}{% set n.args=dict(n.args,mireds=mireds) %}{% endif %}{% if hs is defined %}{% set n.args=dict(n.args,hs=hs) %}{% endif %}{% if own is defined %}{% set n.args=dict(n.args,own=own) %}{% endif %}{% if effect is defined %}{% set n.args=dict(n.args,effect=effect) %}{% endif %}{{ n.args }}"
+      }
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "success": true,
+  "action": "get",
+  "automation_id": "automation.effects_candle_group_state",
+  "config": {
+    "id": "effects_candle_group_state",
+    "alias": "Effects Candle Group State",
+    "triggers": [
+      {
+        "trigger": "mqtt",
+        "topic": "zigbee2mqtt/bridge/groups",
+        "id": "groups"
+      },
+      {
+        "trigger": "mqtt",
+        "topic": "zigbee2mqtt/bridge/response/group/members/+",
+        "id": "response"
+      },
+      {
+        "trigger": "mqtt",
+        "topic": "zigbee2mqtt/bridge/response/group/add",
+        "id": "response"
+      }
+    ],
+    "actions": [
+      {
+        "choose": [
+          {
+            "conditions": [
+              {
+                "condition": "trigger",
+                "id": "groups"
+              }
+            ],
+            "sequence": [
+              {
+                "variables": {
+                  "group": "{% set n=namespace(g={}) %}{% for g in trigger.payload_json if g.friendly_name=='fx_candle_active' %}{% set n.g={'exists':true,'id':g.id,'members':g.members|list,'observed_at':as_timestamp(now())} %}{% endfor %}{{ n.g if n.g else {'exists':false,'members':[],'observed_at':as_timestamp(now())} }}"
+                }
+              },
+              {
+                "action": "variable.update_sensor",
+                "target": {
+                  "entity_id": "sensor.ls_effects_runtime"
+                },
+                "data": {
+                  "value": "{{ states('sensor.ls_effects_runtime') }}",
+                  "replace_attributes": false,
+                  "attributes": "{{ {'candle_group':group} }}"
+                }
+              }
+            ]
+          },
+          {
+            "conditions": [
+              {
+                "condition": "trigger",
+                "id": "response"
+              },
+              {
+                "condition": "template",
+                "value_template": "{{ trigger.payload_json is mapping and (trigger.payload_json.get('transaction','')|string).startswith('candle:') }}"
+              }
+            ],
+            "sequence": [
+              {
+                "action": "variable.update_sensor",
+                "target": {
+                  "entity_id": "sensor.ls_effects_runtime"
+                },
+                "data": {
+                  "value": "{{ states('sensor.ls_effects_runtime') }}",
+                  "replace_attributes": false,
+                  "attributes": "{{ {'candle_response':trigger.payload_json} }}"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "mode": "queued",
+    "max": 50
+  },
+  "config_hash": "cd3a0487dc9e9dab"
+}

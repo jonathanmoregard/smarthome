@@ -1,0 +1,53 @@
+{# Baselines prewarm memberships independently of physical power. Current
+   snapshots use the same admission and final payload as effects_frame_plan. #}
+{% set n=namespace(scenarios=[]) %}
+{% for snapshot in snapshots %}
+ {% set s=namespace(buckets={}) %}
+ {% for lamp,target in snapshot.targets|dictsort if lamp in catalog.members and target is mapping and target.get('area')==snapshot.room and target.get('on') is boolean %}
+  {% set current=snapshot.kind=='current' %}
+  {% set off=not target.on %}
+  {% set eligible=not current or (is_state(lamp,'on') and (off or snapshot.get('power',true))) %}
+  {% set brightness=target.get('brightness') %}{% set color=target.get('color') %}
+  {% if current and not off %}
+   {% set eligible=eligible and brightness is mapping and color is mapping and brightness.get('kind')=='constant' and color.get('kind')=='constant' %}
+   {% set brightness=brightness.get('value') if brightness is mapping else none %}
+   {% set color=color.get('value') if color is mapping else none %}
+  {% elif not off %}
+   {% set eligible=eligible and target.get('effect')=='Normal light' %}
+  {% endif %}
+  {% set manual=current and target.get('owners',{}) is mapping and target.get('owners',{}).values()|select('match','^channels:')|list|count>0 %}
+  {% set transition=0.2 if manual and not off else target.get('transition',3) %}
+  {% set eligible=eligible and transition is number and transition is not boolean and transition>=0 %}
+  {% set payload={'state':'OFF','transition':transition} if off else {} %}
+  {% if eligible and not off %}
+   {% set eligible=is_number(brightness) and brightness is not boolean and color is mapping %}
+   {% if eligible %}
+    {% set payload={'brightness':([1,[254,brightness|float]|min]|max)|round|int,'transition':transition} %}
+    {% if 'kelvin' in color %}
+     {% set eligible=color.kelvin is number and color.kelvin is not boolean and color.kelvin>0 %}
+     {% if eligible %}{% set payload=dict(payload,color_temp=(1000000/color.kelvin)|round|int) %}{% endif %}
+    {% else %}
+     {% set rgb=color.get('rgb') %}
+     {% set eligible=rgb is sequence and rgb is not string and rgb|count==3 %}
+     {% if eligible %}
+      {% set valid=namespace(ok=true) %}{% for channel in rgb %}{% if channel is not number or channel is boolean or not 0<=channel<=255 %}{% set valid.ok=false %}{% endif %}{% endfor %}
+      {% set eligible=valid.ok %}
+      {% if eligible %}{% set payload=dict(payload,color={'rgb':rgb|join(',')}) %}{% endif %}
+     {% endif %}
+    {% endif %}
+   {% endif %}
+  {% endif %}
+  {% if eligible %}
+   {% set key=payload|to_json(sort_keys=true) %}
+   {% for entity in catalog.members[lamp]|unique|sort if entity in endpoints and entity in catalog.topics and (not current or is_state(entity,'on')) %}
+    {% set physical=endpoints[entity] %}
+    {% set row={'entity':entity,'owner':lamp,'room':snapshot.room,'topic':catalog.topics[entity],'ieee_address':physical.ieee_address,'endpoint':physical.endpoint} %}
+    {% set s.buckets=dict(s.buckets,**{key:s.buckets.get(key,[])+[row]}) %}
+   {% endfor %}
+  {% endif %}
+ {% endfor %}
+ {% set c=namespace(cohorts=[]) %}
+ {% for key,members in s.buckets|dictsort if members|count>=2 %}{% set c.cohorts=c.cohorts+[members|sort(attribute='entity')] %}{% endfor %}
+ {% set n.scenarios=n.scenarios+[{'room':snapshot.room,'cohorts':c.cohorts}] %}
+{% endfor %}
+{{ {'scenarios':n.scenarios,'existing_groups':existing_groups} }}

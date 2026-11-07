@@ -1,0 +1,29 @@
+{
+  "alias": "Lighting schedule: cancel all overrides",
+  "description": "Command-only TypeScript bridge. Dry-run/response queries use local RPC. ",
+  "mode": "single",
+  "icon": "mdi:restore",
+  "fields": {
+    "via": {
+      "name": "Via",
+      "description": "app | remote | ...",
+      "default": "app",
+      "selector": {
+        "text": {}
+      }
+    }
+  },
+  "sequence": [
+    {
+      "condition": "template",
+      "value_template": "{{ not (dry_run | default(false)) }}"
+    },
+    {
+      "event": "smarthome_script",
+      "event_data": {
+        "script": "ls_clear_overrides",
+        "args": "{% set n=namespace(args={}) %}{% if via is defined %}{% set n.args=dict(n.args,via=via) %}{% endif %}{{ n.args }}"
+      }
+    }
+  ]
+}

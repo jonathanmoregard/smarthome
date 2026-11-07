@@ -1,0 +1,78 @@
+{
+  "current": {
+    "success": true,
+    "result": {
+      "cmds": [
+        {
+          "kind": "ct",
+          "brightness": 255,
+          "kelvin": 4651,
+          "transition": 3,
+          "ids": [
+            "light.living_room_yellow_retro_lamp"
+          ]
+        }
+      ],
+      "profiles": {
+        "light.living_room_yellow_retro_lamp": {
+          "effect": "Normal light",
+          "brightness": 255,
+          "on": true
+        }
+      },
+      "revision": "2026-10-23T14:19:00.571954+00:00",
+      "stale_keys": [],
+      "sched": {
+        "house": "day",
+        "bedroom": "day",
+        "hall_overvaning": "day",
+        "kitchen": "day",
+        "living_room": "day",
+        "meditation_mys": "day"
+      },
+      "mirror": [],
+      "sara_mirror": null,
+      "dbg": [
+        "light.living_room_yellow_retro_lamp living_room/living_room schedule day>day p=0.0 send=True"
+      ]
+    }
+  },
+  "unmasked": {
+    "success": true,
+    "result": {
+      "cmds": [
+        {
+          "kind": "ct",
+          "brightness": 255,
+          "kelvin": 4651,
+          "transition": 3,
+          "ids": [
+            "light.living_room_yellow_retro_lamp"
+          ]
+        }
+      ],
+      "profiles": {
+        "light.living_room_yellow_retro_lamp": {
+          "effect": "Candle",
+          "brightness": 255,
+          "on": true
+        }
+      },
+      "revision": "2026-10-23T14:19:00.571954+00:00",
+      "stale_keys": [],
+      "sched": {
+        "house": "day",
+        "bedroom": "day",
+        "hall_overvaning": "day",
+        "kitchen": "day",
+        "living_room": "day",
+        "meditation_mys": "day"
+      },
+      "mirror": [],
+      "sara_mirror": null,
+      "dbg": [
+        "light.living_room_yellow_retro_lamp living_room/living_room schedule day>day p=0.0 send=True"
+      ]
+    }
+  }
+}

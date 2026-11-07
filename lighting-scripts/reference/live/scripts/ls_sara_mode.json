@@ -1,0 +1,61 @@
+{
+  "success": true,
+  "action": "get",
+  "script_id": "ls_sara_mode",
+  "config": {
+    "alias": "Lighting schedule: Sara Mode",
+    "description": "Dashboard toggle (and later room remotes). Sara Mode turns every scheduled dimmable lamp in the common areas (everything except the bedroom) pink while its block is Day or Cosy, keeping each block/room/lamp brightness; Night stays red. Stored as override record mode:sara in sensor.ls_overrides with who/when/via, so it ends by the same rules as every override (after N min, at a set time, at next block for the House scope). Calling it while on clears it.",
+    "mode": "queued",
+    "max": 10,
+    "icon": "mdi:heart",
+    "fields": {
+      "via": {
+        "name": "Via",
+        "description": "app | remote | ...",
+        "default": "app",
+        "selector": {
+          "text": {}
+        }
+      }
+    },
+    "sequence": [
+      {
+        "if": [
+          {
+            "condition": "template",
+            "value_template": "{{ 'mode:sara' in (state_attr('sensor.ls_overrides', 'overrides') or {}) }}"
+          }
+        ],
+        "then": [
+          {
+            "event": "ls_override",
+            "event_data": {
+              "op": "clear",
+              "keys": [
+                "mode:sara"
+              ],
+              "via": "{{ via | default('app') }}"
+            }
+          }
+        ],
+        "else": [
+          {
+            "event": "ls_override",
+            "event_data": {
+              "op": "set",
+              "records": [
+                {
+                  "kind": "mode",
+                  "target": "sara",
+                  "value": "on"
+                }
+              ],
+              "via": "{{ via | default('app') }}"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "config_hash": "139062532413350f"
+}

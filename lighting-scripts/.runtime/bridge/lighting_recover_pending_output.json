@@ -1,0 +1,43 @@
+{
+  "id": "lighting_output_recovery",
+  "alias": "Lighting \u00b7 Recover Pending Output",
+  "triggers": [
+    {
+      "trigger": "time_pattern",
+      "seconds": "/5"
+    },
+    {
+      "trigger": "state",
+      "entity_id": "binary_sensor.zigbee2mqtt_bridge_connection_state",
+      "to": "on"
+    },
+    {
+      "trigger": "homeassistant",
+      "event": "start"
+    }
+  ],
+  "conditions": [
+    {
+      "condition": "state",
+      "entity_id": "binary_sensor.zigbee2mqtt_bridge_connection_state",
+      "state": "on"
+    },
+    {
+      "condition": "template",
+      "value_template": "{% set n=namespace(dirty=(state_attr('sensor.ls_overrides','full_version')!=state_attr('sensor.ls_effects_runtime','handled_full'))) %}{% for room,v in (state_attr('sensor.ls_overrides','pending_rooms') or {}).items() if v!=(state_attr('sensor.ls_effects_runtime','handled_rooms') or {}).get(room) %}{% set n.dirty=true %}{% endfor %}{{ n.dirty }}"
+    }
+  ],
+  "actions": [
+    {
+      "event": "smarthome_script",
+      "event_data": {
+        "script": "automation.lighting_recover_pending_output",
+        "args": {
+          "trigger": "{% set n=namespace(data={}) %}\n{% for key in ['id','platform','entity_id','topic','payload','payload_json'] %}\n {% if trigger[key] is defined %}{% set n.data=dict(n.data,**{key:trigger[key]}) %}{% endif %}\n{% endfor %}\n{% for key in ['to_state','from_state','event'] %}\n {% if trigger[key] is defined %}{% set value=trigger[key] %}\n  {% set n.data=dict(n.data,**{key:(value.as_dict() if value is not none else none)}) %}\n {% endif %}\n{% endfor %}\n{{ n.data | to_json | from_json }}"
+        }
+      }
+    }
+  ],
+  "mode": "single",
+  "description": "TypeScript trigger bridge. "
+}
