@@ -123,6 +123,11 @@
           inherit pkgs;
           script = ./nixos/modules/activate-system.sh;
         };
+        zigbee2mqtt-watchdog = import ./nixos/tests/zigbee2mqtt-watchdog.nix {
+          inherit pkgs;
+          script = ./nixos/modules/zigbee2mqtt-watchdog.sh;
+          driver = ./nixos/tests/zigbee2mqtt-watchdog.sh;
+        };
         hydrator = import ./nixos/tests/hydrator.nix {
           inherit pkgs;
           script = ./nixos/modules/hydrate-release-paths.sh;

@@ -158,6 +158,16 @@ pkgsSystem.testers.runNixOSTest {
         OnUnitActiveSec = lib.mkForce "1h";
       };
 
+      # Same treatment, same reason: this run stops and starts Zigbee2MQTT
+      # repeatedly, and a watchdog tick landing in the middle of that would make
+      # the cases below depend on timing. Its behaviour is pinned far more
+      # thoroughly by checks.zigbee2mqtt-watchdog, which can stub the broker and
+      # systemd instead of needing a radio the VM does not have.
+      systemd.timers.zigbee2mqtt-watchdog.timerConfig = {
+        OnBootSec = lib.mkForce "1h";
+        OnUnitActiveSec = lib.mkForce "1h";
+      };
+
       assertions = [
         {
           assertion = !(builtins.hasAttr "buildCoordination" options.services);
@@ -362,6 +372,46 @@ pkgsSystem.testers.runNixOSTest {
         "systemctl stop zigbee2mqtt.service; "
         "systemctl reset-failed zigbee2mqtt.service; "
         "rm -f /var/lib/zigbee2mqtt/groups.yaml"
+    )
+
+    # Replugging the coordinator must bring the radio back with no human in the
+    # loop. `requires` on the device unit propagates an unplug into a stop, but
+    # only multi-user.target wanted this service, and that target was reached
+    # long ago -- so before this the house stayed without Zigbee until someone
+    # noticed, which is what happened on 2026-11-07. Re-announcing the device is
+    # as close as the VM gets to a physical replug.
+    device_unit = home_server.succeed(
+        "systemd-escape -p --suffix=device '${physicalCoordinator}'"
+    ).strip()
+    home_server.succeed(
+        f"test -L '/etc/systemd/system/{device_unit}.wants/zigbee2mqtt.service'"
+    )
+    home_server.succeed("systemctl show zigbee2mqtt.service -P ActiveState | grep -Fx inactive")
+    starts_before = int(home_server.succeed(
+        "journalctl -u zigbee2mqtt.service --no-pager -o cat | "
+        "grep -c 'Starting Zigbee2MQTT version' || true"
+    ).strip())
+    tty = home_server.succeed("readlink -f '${physicalCoordinator}'").strip()
+    # A remove before the add is what makes this a replug rather than a nudge.
+    # `wants` are pulled in when a unit *starts*, so re-announcing a device that
+    # never left produces no transition and therefore no recovery -- an add-only
+    # trigger passes while proving nothing, which is how this test first lied.
+    home_server.succeed(f"udevadm trigger --action=remove {tty}; udevadm settle")
+    home_server.wait_until_succeeds(
+        f"systemctl show '{device_unit}' -P ActiveState | grep -Fx inactive", timeout=60
+    )
+    home_server.succeed(f"udevadm trigger --action=add {tty}; udevadm settle")
+    home_server.wait_until_succeeds(
+        f"systemctl show '{device_unit}' -P ActiveState | grep -Fx active", timeout=60
+    )
+    home_server.wait_until_succeeds(
+        "test \"$(journalctl -u zigbee2mqtt.service --no-pager -o cat | "
+        f"grep -c 'Starting Zigbee2MQTT version')\" -gt {starts_before}",
+        timeout=120,
+    )
+    # Leave it stopped for the composition checks below, as the cases above do.
+    home_server.succeed(
+        "systemctl stop zigbee2mqtt.service; systemctl reset-failed zigbee2mqtt.service"
     )
 
     home_server.wait_for_unit("home-assistant.service")

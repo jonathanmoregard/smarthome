@@ -36,6 +36,16 @@ let
       exec python3 ${./zigbee2mqtt-state-guard.py} "$@"
     '';
   };
+  # systemd can only see that the process exists; the bridge's own availability
+  # topic is the only thing that knows whether the radio actually works. See the
+  # script's header for why it acts as rarely as it does.
+  zigbee2mqttWatchdog = pkgs.writeShellApplication {
+    name = "zigbee2mqtt-watchdog";
+    runtimeInputs = [ pkgs.bash pkgs.coreutils pkgs.mosquitto pkgs.systemd ];
+    text = ''
+      exec bash ${./zigbee2mqtt-watchdog.sh} "$@"
+    '';
+  };
   zigbee2mqttSchema =
     "${config.services.zigbee2mqtt.package}/lib/node_modules/zigbee2mqtt"
     + "/dist/util/settings.schema.json";
@@ -300,6 +310,16 @@ in
       systemd.services.zigbee2mqtt = {
         requires = [ "mosquitto.service" zigbeeDeviceUnit ];
         after = [ "mosquitto.service" zigbeeDeviceUnit ];
+        # Replugging the coordinator has to bring the radio back by itself.
+        # `requires` propagates the device's disappearance into a stop of this
+        # service, but nothing starts it again when the device reappears: the
+        # unit is only wanted by multi-user.target, which is long since reached.
+        # So an unplug leaves the house without Zigbee until a human notices and
+        # intervenes, which is exactly what happened on 2026-11-07 -- replugging
+        # the dongle did not recover it. Being wanted by the device unit closes
+        # that: udev creates the device, systemd pulls this service up with it,
+        # and the state guard above repairs the registry on the way in.
+        wantedBy = [ zigbeeDeviceUnit ];
         environment.Z2M_ONBOARD_NO_SERVER = "1";
         serviceConfig = {
           LoadCredential = "network-key:${cfg.zigbeeNetworkKeyFile}";
@@ -319,6 +339,39 @@ in
              + " --data-dir ${config.services.zigbee2mqtt.dataDir}"
              + " --schema ${zigbee2mqttSchema}")
           ];
+        };
+      };
+    })
+
+    (mkIf zigbeeEnabled {
+      # The last gap: the known causes of a dead radio now recover on their own,
+      # but anything unforeseen still leaves Zigbee down for as long as it takes
+      # a human to notice. This closes that without asking one to.
+      systemd.services.zigbee2mqtt-watchdog = {
+        description = "Restart Zigbee2MQTT when its bridge is not online";
+        after = [ "mosquitto.service" ];
+        environment.WATCHDOG_DEVICE_UNIT = zigbeeDeviceUnit;
+        serviceConfig = {
+          Type = "oneshot";
+          ExecStart = lib.getExe zigbee2mqttWatchdog;
+          User = "root";
+          Group = "root";
+          StateDirectory = "zigbee2mqtt-watchdog";
+          StateDirectoryMode = "0700";
+          UMask = "0077";
+          ProtectHome = true;
+          PrivateTmp = true;
+          NoNewPrivileges = true;
+          RestrictAddressFamilies = [ "AF_UNIX" "AF_INET" "AF_INET6" ];
+        };
+      };
+      systemd.timers.zigbee2mqtt-watchdog = {
+        wantedBy = [ "timers.target" ];
+        timerConfig = {
+          OnBootSec = "5min";
+          OnUnitActiveSec = "2min";
+          Persistent = true;
+          Unit = "zigbee2mqtt-watchdog.service";
         };
       };
     })
