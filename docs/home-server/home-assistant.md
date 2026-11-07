@@ -13,16 +13,30 @@ automations and dashboards.
 
 From the home wifi: <http://192.168.0.148:8123>. Port 8123 is open on the
 wired LAN interface (`enp1s0`) alone, so household phones keep working when
-Tailscale does not. This path is plain HTTP: anyone who can read traffic on
-the home wifi can read the login and the app's token, so keep the wifi
-password inside the household and put visitors on a guest SSID. Pin the
-address with a DHCP reservation, or it moves on the router's one-hour lease.
+Tailscale does not.
+
+**Reserve that address in the router before relying on it.** The lease is one
+hour and the DHCP pool spans the whole subnet, so the address is stable by
+accident. The companion app's internal URL is pinned to it, and the first
+lease change brings back the outage this path exists to prevent.
+
+This path is plain HTTP, and the threat is not the Internet but the wifi
+itself. Under WPA2-PSK anyone who knows the passphrase can decrypt another
+client's traffic, and what they lift is the companion app's long-lived
+refresh token, which is durable admin over the house rather than a glimpse.
+Keeping the passphrase inside the household is the actual control; this
+router cannot create an isolated guest SSID, so a visitor who is given the
+passphrase is inside this boundary until it is changed.
 
 From anywhere else, over the tailnet: <https://home-server.tailbebb40.ts.net>.
 Tailscale Serve terminates TLS with a certificate Tailscale issues for that
 name, so browsers accept a password and `Secure` cookies. Port 443 is open on
-`tailscale0` only, 8123 is never open there, and nothing is exposed to the
-public Internet. Do not enable Funnel.
+`tailscale0` only and 8123 is never open there. Nothing is exposed to the
+public Internet, and that holds by construction rather than by the router's
+good behaviour: Home Assistant binds no routable address. Only the IPv4
+wildcard is bound, reachable on the LAN behind NAT, while IPv6 stays on
+loopback, so a router that ever delegates a routable IPv6 prefix cannot carry
+plain 8123 out with it. Do not enable Funnel.
 
 In the companion app, set the internal URL to the LAN address, the external
 URL to the tailnet one, and the home network SSID, so it switches by itself.

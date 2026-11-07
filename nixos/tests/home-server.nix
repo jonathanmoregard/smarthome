@@ -138,6 +138,7 @@ pkgsSystem.testers.runNixOSTest {
             .${config.homeServer.homeAssistantLanInterface}
             .allowedTCPPorts;
         haTailnetPorts = config.networking.firewall.interfaces.tailscale0.allowedTCPPorts;
+        haTrustedInterfaces = config.networking.firewall.trustedInterfaces;
       };
 
       virtualisation = {
@@ -258,10 +259,16 @@ pkgsSystem.testers.runNixOSTest {
     # keeps working without Tailscale, while the tailnet keeps getting TLS
     # from Tailscale Serve and never plain 8123.
     assert values["haLanInterface"] == "enp1s0", values
-    assert values["haServerHost"] == ["0.0.0.0", "::"], values
+    # Only the IPv4 wildcard widens. A per-interface firewall rule does not
+    # restrict the source, and IPv6 has no NAT, so binding a routable IPv6
+    # address would leave "not exposed to the Internet" resting on the
+    # router's inbound filter instead of on this configuration.
+    assert values["haServerHost"] == ["0.0.0.0", "::1"], values
     assert values["haLanPorts"] == [8123], values
     assert 443 in values["haTailnetPorts"], values
     assert 8123 not in values["haTailnetPorts"], values
+    # A trusted interface takes a blanket accept ahead of the per-port rule.
+    assert "tailscale0" not in values["haTrustedInterfaces"], values
     # LAN clients connect directly, so no LAN address may forge X-Forwarded-For.
     assert values["haTrustedProxies"] == ["127.0.0.1", "::1"], values
 

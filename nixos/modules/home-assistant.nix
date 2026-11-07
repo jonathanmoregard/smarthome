@@ -91,15 +91,21 @@ in
       homeassistant.time_zone = null;
 
       # Without a LAN interface this is loopback only, and the sole way in is
-      # Tailscale Serve below, which terminates TLS. With one, Home Assistant
-      # also binds every address, and the firewall below is what keeps plain
-      # HTTP on the wired LAN and off the tailnet. Binding every address
-      # rather than the lease keeps a DHCP renewal from breaking startup.
-      # `trusted_proxies` stays loopback-only: LAN clients connect directly,
-      # so no LAN address may forge an X-Forwarded-For.
+      # Tailscale Serve below, which terminates TLS.
+      #
+      # With one, only the IPv4 wildcard widens; IPv6 stays on loopback. A
+      # per-interface firewall rule does not restrict the source address, and
+      # IPv6 has no NAT to fall back on, so a router that ever delegates a
+      # routable prefix would otherwise put plain 8123 on the Internet and
+      # leave "not exposed" resting on that router's inbound filter. Not
+      # binding a routable IPv6 address keeps that true by construction.
+      # IPv4 reaches the LAN alone via the firewall rule below, behind NAT.
+      # Binding the wildcard rather than the lease keeps a DHCP renewal from
+      # breaking startup. `trusted_proxies` stays loopback-only: LAN clients
+      # connect directly, so no LAN address may forge an X-Forwarded-For.
       http = {
         server_host =
-          if lanEnabled then [ "0.0.0.0" "::" ] else [ "127.0.0.1" "::1" ];
+          if lanEnabled then [ "0.0.0.0" "::1" ] else [ "127.0.0.1" "::1" ];
         server_port = 8123;
         use_x_forwarded_for = true;
         trusted_proxies = [ "127.0.0.1" "::1" ];
@@ -136,6 +142,20 @@ in
       message =
         "homeServer.homeAssistantLanInterface must name a wired LAN interface;"
         + " tailscale0 is served over TLS by Tailscale Serve.";
+    }
+    {
+      # A trusted interface takes a blanket accept ahead of any per-port rule,
+      # so trusting tailscale0 would publish plain 8123 on the tailnet now
+      # that Home Assistant binds the IPv4 wildcard. The common NixOS snippet
+      # that adds it is exactly how this would happen by accident.
+      assertion =
+        !lanEnabled
+        || !(builtins.elem "tailscale0" config.networking.firewall.trustedInterfaces);
+      message =
+        "networking.firewall.trustedInterfaces must not contain tailscale0 while"
+        + " homeServer.homeAssistantLanInterface is set: a blanket accept there"
+        + " would expose Home Assistant's plain-HTTP port on the tailnet, which"
+        + " Tailscale Serve already carries over TLS on 443.";
     }
   ];
 
