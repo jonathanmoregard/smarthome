@@ -11,12 +11,21 @@ automations and dashboards.
 
 ## Open it
 
-From a machine on the tailnet: <https://home-server.tailbebb40.ts.net>.
+From the home wifi: <http://192.168.0.148:8123>. Port 8123 is open on the
+wired LAN interface (`enp1s0`) alone, so household phones keep working when
+Tailscale does not. This path is plain HTTP: anyone who can read traffic on
+the home wifi can read the login and the app's token, so keep the wifi
+password inside the household and put visitors on a guest SSID. Pin the
+address with a DHCP reservation, or it moves on the router's one-hour lease.
+
+From anywhere else, over the tailnet: <https://home-server.tailbebb40.ts.net>.
 Tailscale Serve terminates TLS with a certificate Tailscale issues for that
-name, so browsers accept a password and `Secure` cookies. Home Assistant
-listens on loopback only, and port 443 is open on `tailscale0` only: there is
-no plain-HTTP path and nothing is exposed to the public Internet. Do not enable
-Funnel.
+name, so browsers accept a password and `Secure` cookies. Port 443 is open on
+`tailscale0` only, 8123 is never open there, and nothing is exposed to the
+public Internet. Do not enable Funnel.
+
+In the companion app, set the internal URL to the LAN address, the external
+URL to the tailnet one, and the home network SSID, so it switches by itself.
 
 One-time, in the Tailscale admin console: DNS, then enable **HTTPS
 Certificates**. Until then `tailscale-serve-home-assistant.service` fails and
