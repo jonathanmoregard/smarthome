@@ -62,6 +62,14 @@ let
     in assertion.assertion;
 in
 assert builtins.elem "home-assistant.service" host.config.services.system-auto-deploy.healthUnits;
+# The registry guard must run as a pre-start step, and must not have displaced
+# the declarative configuration.yaml copy it shares ExecStartPre with.
+assert pkgsSystem.lib.any
+  (entry: pkgsSystem.lib.hasInfix "zigbee2mqtt-state-guard" entry)
+  host.config.systemd.services.zigbee2mqtt.serviceConfig.ExecStartPre;
+assert pkgsSystem.lib.any
+  (entry: pkgsSystem.lib.hasInfix "configuration.yaml" entry)
+  host.config.systemd.services.zigbee2mqtt.serviceConfig.ExecStartPre;
 assert registryFilesGuard "devices.yaml";
 assert !(registryFilesGuard "configuration.yaml");
 assert host.config.homeServer.zigbeeSerialPort == physicalCoordinator;
@@ -279,6 +287,65 @@ pkgsSystem.testers.runNixOSTest {
     )
     home_server.fail("ss -lnt | grep -F ':8080'")
     home_server.succeed("systemctl stop zigbee2mqtt.service; rm /var/lib/zigbee2mqtt/devices.yaml")
+
+    # A legacy `homeassistant: false` is what actually stranded the radio:
+    # Zigbee2MQTT 1.x persisted the boolean, 2.x's schema constrains the key to
+    # object-or-null, and nothing re-read the file between that write and the
+    # next restart -- so it surfaced weeks later, on a restart triggered by a
+    # pulled coordinator.  The guard must normalise it before Zigbee2MQTT parses
+    # anything, in place, and preserve every other byte of the registry.
+    home_server.succeed(
+        "printf '%s\\n' \"'2001':\" '  friendly_name: ls_room_bedroom' "
+        "'  homeassistant: false' > /var/lib/zigbee2mqtt/groups.yaml; "
+        "systemctl reset-failed zigbee2mqtt.service; "
+        "systemctl start zigbee2mqtt.service"
+    )
+    home_server.wait_until_succeeds(
+        "journalctl -u zigbee2mqtt.service --no-pager -o cat | "
+        "grep -F 'zigbee2mqtt-state-guard: groups.yaml: repaired'"
+    )
+    home_server.succeed("grep -Fx '  homeassistant: null' /var/lib/zigbee2mqtt/groups.yaml")
+    home_server.fail("grep -F 'homeassistant: false' /var/lib/zigbee2mqtt/groups.yaml")
+    home_server.succeed("grep -Fx '  friendly_name: ls_room_bedroom' /var/lib/zigbee2mqtt/groups.yaml")
+    home_server.succeed("ls /var/lib/zigbee2mqtt/groups.yaml.bak.*")
+    # The fixture above is written by root, which is also what a hand `sudo` edit
+    # of the registry leaves behind. The repair must still land, and must leave
+    # the file owned by the service user, or Zigbee2MQTT cannot persist the next
+    # rename or group change.
+    home_server.succeed("test \"$(stat -c '%U' /var/lib/zigbee2mqtt/groups.yaml)\" = zigbee2mqtt")
+    # The repair is only worth anything if Zigbee2MQTT then gets past its own
+    # validation, so require a start that follows the repair in the journal.
+    home_server.wait_until_succeeds(
+        "journalctl -u zigbee2mqtt.service --no-pager -o cat | "
+        "sed -n '/state-guard: groups.yaml: repaired/,$p' | "
+        "grep -F 'Starting Zigbee2MQTT'"
+    )
+    home_server.succeed(
+        "systemctl stop zigbee2mqtt.service; "
+        "systemctl reset-failed zigbee2mqtt.service; "
+        "rm -f /var/lib/zigbee2mqtt/groups.yaml /var/lib/zigbee2mqtt/groups.yaml.bak.*"
+    )
+
+    # An invalidity outside the repair allowlist must be reported and then left
+    # strictly alone.  Zigbee2MQTT stays the authority on whether its own
+    # configuration loads; the guard must not become a second, stricter gate
+    # that blocks starts upstream would have accepted.
+    home_server.succeed(
+        "printf '%s\\n' \"'9':\" '  retain: true' > /var/lib/zigbee2mqtt/groups.yaml; "
+        "systemctl reset-failed zigbee2mqtt.service; "
+        "systemctl start zigbee2mqtt.service || true"
+    )
+    home_server.wait_until_succeeds(
+        "journalctl -u zigbee2mqtt.service --no-pager -o cat | "
+        "grep -F 'nothing in the repair allowlist matched'"
+    )
+    home_server.succeed("grep -Fx '  retain: true' /var/lib/zigbee2mqtt/groups.yaml")
+    home_server.fail("ls /var/lib/zigbee2mqtt/groups.yaml.bak.*")
+    home_server.succeed(
+        "systemctl stop zigbee2mqtt.service; "
+        "systemctl reset-failed zigbee2mqtt.service; "
+        "rm -f /var/lib/zigbee2mqtt/groups.yaml"
+    )
 
     home_server.wait_for_unit("home-assistant.service")
     home_server.wait_until_succeeds(
