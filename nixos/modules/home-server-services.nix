@@ -25,17 +25,6 @@ let
     );
   zigbeeDeviceUnit =
     if zigbeeEnabled then "${utils.escapeSystemdPath cfg.zigbeeSerialPort}.device" else null;
-  # Zigbee2MQTT owns devices.yaml and groups.yaml at runtime and has persisted
-  # shapes its own newer schema rejects, which strands the radio on the next
-  # restart rather than at the write.  The guard normalises the known legacy
-  # scalars before Zigbee2MQTT parses anything.  See the script's docstring.
-  zigbee2mqttStateGuard = pkgs.writeShellApplication {
-    name = "zigbee2mqtt-state-guard";
-    runtimeInputs = [ (pkgs.python3.withPackages (ps: with ps; [ pyyaml jsonschema ])) ];
-    text = ''
-      exec python3 ${./zigbee2mqtt-state-guard.py} "$@"
-    '';
-  };
   # systemd can only see that the process exists; the bridge's own availability
   # topic is the only thing that knows whether the radio actually works. See the
   # script's header for why it acts as rarely as it does.
@@ -46,9 +35,6 @@ let
       exec bash ${./zigbee2mqtt-watchdog.sh} "$@"
     '';
   };
-  zigbee2mqttSchema =
-    "${config.services.zigbee2mqtt.package}/lib/node_modules/zigbee2mqtt"
-    + "/dist/util/settings.schema.json";
   zigbee2mqttWithNetworkKey = pkgs.writeShellApplication {
     name = "zigbee2mqtt-with-network-key";
     text = ''
@@ -324,21 +310,6 @@ in
         serviceConfig = {
           LoadCredential = "network-key:${cfg.zigbeeNetworkKeyFile}";
           ExecStart = lib.mkForce (lib.getExe zigbee2mqttWithNetworkKey);
-          # A list definition concatenates with the upstream string one, so the
-          # declarative configuration.yaml copy survives alongside this.  Their
-          # relative order is irrelevant: the guard reads and writes only
-          # devices.yaml and groups.yaml.
-          #
-          # Running here rather than inside Zigbee2MQTT is deliberate. A failing
-          # ExecStartPre keeps the unit out of "active", so a health gate built
-          # on systemctl is-active can see it; Zigbee2MQTT is Type=simple, so
-          # its own in-process config rejection is preceded by a window in
-          # which the unit already reports active.
-          ExecStartPre = [
-            ("${lib.getExe zigbee2mqttStateGuard}"
-             + " --data-dir ${config.services.zigbee2mqtt.dataDir}"
-             + " --schema ${zigbee2mqttSchema}")
-          ];
         };
       };
     })
