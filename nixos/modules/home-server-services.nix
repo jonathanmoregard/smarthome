@@ -294,7 +294,20 @@ in
       };
 
       systemd.services.zigbee2mqtt = {
-        requires = [ "mosquitto.service" ];
+        # Wants=, not Requires=, for the broker. A Requires= whose target fails
+        # cancels this unit's start job, and the unit it leaves behind is
+        # indistinguishable from one somebody stopped on purpose: measured on
+        # this host, a start cancelled by a failed Requires= yields
+        # ActiveState=inactive, SubState=dead, Result=success -- exactly what
+        # `systemctl stop` yields. The watchdog reads that as a deliberate stop
+        # and stands down, so a single mosquitto failure at boot (its own
+        # Restart= then revives it) left Zigbee2MQTT stopped for good with
+        # nothing acting on it. Wants= keeps the ordering below without the
+        # power to cancel. Zigbee2MQTT retries its own broker connection, the
+        # watchdog already stands down while the broker is down, and mosquitto
+        # is a deploy health unit in its own right, so a broker that stays
+        # broken is still caught.
+        wants = [ "mosquitto.service" ];
         # BindsTo= rather than Requires= for the coordinator. systemd.unit(5):
         # Requires= stops this service only when the listed unit is
         # *explicitly* stopped, whereas BindsTo= "also does so when a listed

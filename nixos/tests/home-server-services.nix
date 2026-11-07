@@ -230,14 +230,19 @@ pkgsSystem.testers.runNixOSTest {
     home_server.succeed("test -c '${physicalCoordinator}'")
 
     home_server.succeed("systemctl show zigbee2mqtt.service -P LoadState | grep -Fx loaded")
-    # The broker is a Requires=, but the coordinator must be a BindsTo=: only
-    # BindsTo= propagates an *unexpected* inactive transition, which is what an
-    # unplugged device is. Asserting the device under Requires= -- as this did
-    # until the unplug half of the replug test below was actually exercised --
-    # pins the wiring that leaves Zigbee2MQTT running against a serial port
-    # that no longer exists.
+    # Three different dependency strengths, each load-bearing:
+    #   - the broker is a Wants=, because a failed Requires= cancels this
+    #     unit's start and leaves it inactive in a state indistinguishable
+    #     from a deliberate stop (Result=success either way), which the
+    #     watchdog then stands down from;
+    #   - the coordinator is a BindsTo=, because only BindsTo= propagates an
+    #     *unexpected* inactive transition, which is what an unplug is;
+    #   - both are After=, for ordering.
+    # Asserting the device under Requires= -- as this did until the unplug half
+    # of the replug test below was actually exercised -- pins the wiring that
+    # leaves Zigbee2MQTT running against a serial port that no longer exists.
     home_server.succeed(
-        "systemctl cat zigbee2mqtt.service | grep '^Requires=' | grep -F mosquitto.service"
+        "systemctl cat zigbee2mqtt.service | grep '^Wants=' | grep -F mosquitto.service"
     )
     home_server.succeed(
         "systemctl cat zigbee2mqtt.service | grep '^BindsTo=' | "
@@ -321,6 +326,52 @@ pkgsSystem.testers.runNixOSTest {
     )
     home_server.fail("ss -lnt | grep -F ':8080'")
     home_server.succeed("systemctl stop zigbee2mqtt.service; rm /var/lib/zigbee2mqtt/devices.yaml")
+
+    # A broker failure must not be able to cancel this unit's start. Masking
+    # mosquitto is how the VM gets a dependency that cannot be satisfied: under
+    # Requires= the start job is cancelled and Zigbee2MQTT lands inactive with
+    # Result=success, indistinguishable from a deliberate stop, which the
+    # watchdog stands down from -- so one mosquitto failure at boot left the
+    # radio dead for good. Under Wants= it starts regardless. This fails if the
+    # broker is ever moved back to Requires=.
+    # A broker that fails, rather than a masked one, which is both closer to
+    # the real scenario and the only thing that works here. Masking cannot be
+    # used: NixOS puts a store symlink in /etc/systemd/system for every unit,
+    # `systemctl mask` refuses to replace it, and a /run/systemd/system
+    # symlink to /dev/null is ignored because systemd.unit(5)'s search path
+    # ranks /etc/systemd/system *above* /run/systemd/system. Drop-ins behave
+    # differently: they merge from every load path rather than the highest one
+    # winning, so a /run drop-in does apply.
+    home_server.succeed("systemctl stop mosquitto.service")
+    home_server.succeed(
+        "mkdir -p /run/systemd/system/mosquitto.service.d && "
+        "printf '%s\\n' '[Service]' 'ExecStart=' "
+        "'ExecStart=/run/current-system/sw/bin/false' 'Restart=no' "
+        "> /run/systemd/system/mosquitto.service.d/fail.conf && "
+        "systemctl daemon-reload"
+    )
+    # Preconditions, asserted rather than assumed: the broker has to really be
+    # unstartable. If it still came up, Zigbee2MQTT would go active for the
+    # wrong reason and this test would pass while proving nothing.
+    home_server.fail("systemctl start mosquitto.service")
+    home_server.succeed("systemctl show mosquitto.service -P ActiveState | grep -Fx failed")
+    home_server.succeed(
+        "systemctl reset-failed zigbee2mqtt.service; systemctl start zigbee2mqtt.service"
+    )
+    home_server.wait_until_succeeds(
+        "systemctl show zigbee2mqtt.service -P ActiveState | grep -Fx active", timeout=60
+    )
+    home_server.succeed(
+        "systemctl stop zigbee2mqtt.service; systemctl reset-failed zigbee2mqtt.service"
+    )
+    home_server.succeed(
+        "rm -f /run/systemd/system/mosquitto.service.d/fail.conf && "
+        "rmdir /run/systemd/system/mosquitto.service.d && "
+        "systemctl daemon-reload && "
+        "systemctl reset-failed mosquitto.service"
+    )
+    home_server.succeed("systemctl start mosquitto.service")
+    home_server.wait_for_unit("mosquitto.service")
 
     # Replugging the coordinator must bring the radio back with no human in the
     # loop, and that is two independent propagations: the unplug has to stop
