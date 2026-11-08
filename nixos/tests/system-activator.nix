@@ -55,24 +55,62 @@ case "$1" in
     [ ! -e "$UNRELATED_FAILED" ] || exit 1
     ;;
   show)
-    [ "$#" -eq 5 ] && [ "$2" = --property=LoadState ] && [ "$3" = --value ] &&
-      [ "$4" = -- ] && [ -n "$5" ] || exit 64
-    case "$5" in
-      sshd.service|tailscaled.service|mosquitto.service|zigbee2mqtt.service)
-        printf 'loaded\n'
+    [ "$#" -eq 5 ] && [ "$3" = --value ] && [ "$4" = -- ] && [ -n "$5" ] || exit 64
+    case "$2" in
+      --property=LoadState)
+        case "$5" in
+          sshd.service|tailscaled.service|mosquitto.service|zigbee2mqtt.service)
+            printf 'loaded\n'
+            ;;
+          system-deploy.timer)
+            if [ "$running" = "$LEGACY" ] || [ "$running" = "$LEGACY_TIMERS_ONLY" ]; then
+              printf 'not-found\n'
+            else
+              printf 'loaded\n'
+            fi
+            ;;
+          smarthome-deploy.timer|nixos-deploy.timer)
+            if [ "$running" = "$LEGACY" ] || [ "$running" = "$LEGACY_TIMERS_ONLY" ]; then
+              printf 'loaded\n'
+            else
+              printf 'not-found\n'
+            fi
+            ;;
+          *) exit 64 ;;
+        esac
         ;;
-      system-deploy.timer)
-        if [ "$running" = "$LEGACY" ] || [ "$running" = "$LEGACY_TIMERS_ONLY" ]; then
-          printf 'not-found\n'
+      # Reverse dependencies answer whether the running system was trying to
+      # start this unit at all. NixOS units are wanted by a target rather than
+      # required by one, so RequiredBy is normally empty; a unit nothing pulls
+      # in reports neither.
+      --property=WantedBy|--property=RequiredBy)
+        case "$5" in
+          sshd.service|tailscaled.service|mosquitto.service|zigbee2mqtt.service) ;;
+          system-deploy.timer|smarthome-deploy.timer|nixos-deploy.timer) ;;
+          *) exit 64 ;;
+        esac
+        if [ "''${UNWANTED_UNIT:-}" = "$5" ] || [ "$2" = --property=RequiredBy ]; then
+          printf '\n'
         else
-          printf 'loaded\n'
+          printf 'multi-user.target\n'
         fi
         ;;
-      smarthome-deploy.timer|nixos-deploy.timer)
-        if [ "$running" = "$LEGACY" ] || [ "$running" = "$LEGACY_TIMERS_ONLY" ]; then
-          printf 'loaded\n'
+      # A crash-looping unit is active at every probe but never twice in the
+      # same activation, so each probe answers with a fresh timestamp.
+      --property=ActiveEnterTimestampMonotonic)
+        case "$5" in
+          sshd.service|tailscaled.service|mosquitto.service|zigbee2mqtt.service) ;;
+          system-deploy.timer|smarthome-deploy.timer|nixos-deploy.timer) ;;
+          *) exit 64 ;;
+        esac
+        if [ "''${FLAPPING_UNIT:-}" = "$5" ] && [ "''${FLAPPING_PATH:-}" = "$running" ]; then
+          flaps=0
+          [ ! -s "$FLAP_COUNTER" ] || flaps=$(cat "$FLAP_COUNTER")
+          flaps=$((flaps + 1))
+          printf '%s\n' "$flaps" > "$FLAP_COUNTER"
+          printf '%s\n' "$((1000000 + flaps * 250000))"
         else
-          printf 'not-found\n'
+          printf '1000000\n'
         fi
         ;;
       *) exit 64 ;;
@@ -80,6 +118,7 @@ case "$1" in
     ;;
   is-active)
     [ "$#" -eq 4 ] && [ "$2" = --quiet ] && [ "$3" = -- ] && [ -n "$4" ] || exit 64
+    [ "''${DOWN_UNIT:-}" != "$4" ] || exit 3
     if [ "$running" = "$UNHEALTHY" ] && [ "$4" = mosquitto.service ]; then
       exit 3
     fi
@@ -193,6 +232,7 @@ EOF
   export SUCCESS_MOVE_SIGNAL_SENT="$PWD/success-move-signal-sent"
   export SUCCESS_MOVE_FAILURE_TRIGGERED="$PWD/success-move-failure-triggered"
   export RECOVERY_SIGNAL_SENT="$PWD/recovery-signal-sent"
+  export FLAP_COUNTER="$PWD/flap-counter"
   health_units=(sshd.service tailscaled.service mosquitto.service zigbee2mqtt.service)
   candidate_health_units=("''${health_units[@]}" system-deploy.timer)
   recovery_health_unit_groups=(system-deploy.timer,nixos-deploy.timer)
@@ -203,6 +243,11 @@ EOF
   for group in "''${recovery_health_unit_groups[@]}"; do
     recovery_health_args+=(--recovery-any-unit-group "$group")
   done
+  # The probe window is an input to the activator, so the test states the window
+  # it is asserting against instead of restating the script's default. Every
+  # probe count below is derived from these two numbers.
+  health_samples=6 health_stable=3
+  recovery_health_args+=(--health-samples "$health_samples" --health-stable "$health_stable")
   health_args=("''${candidate_health_args[@]}" "''${recovery_health_args[@]}")
 
   if bash ${script} --recover "$state" "$profile" "$CURRENT_SYSTEM" \
@@ -218,8 +263,9 @@ EOF
 
   reset_observations() {
     : > "$EVENTS"
-    rm -f "$TIMEOUT_MARKER" "$START_LIMIT" "$UNRELATED_FAILED" "$SUCCESS_MOVE_SIGNAL_SENT" "$SUCCESS_MOVE_FAILURE_TRIGGERED" "$RECOVERY_SIGNAL_SENT"
+    rm -f "$TIMEOUT_MARKER" "$START_LIMIT" "$UNRELATED_FAILED" "$SUCCESS_MOVE_SIGNAL_SENT" "$SUCCESS_MOVE_FAILURE_TRIGGERED" "$RECOVERY_SIGNAL_SENT" "$FLAP_COUNTER"
     unset FAIL_SWITCH_PATH TIMEOUT_PATH SIGNAL_DURING_SWITCH_PATH NEVER_LOADED_UNIT
+    unset FLAPPING_UNIT FLAPPING_PATH DOWN_UNIT UNWANTED_UNIT
     export FAIL_LIST_GENERATIONS=0 FAIL_DELETE_GENERATIONS=0
     export SIGNAL_AFTER_SUCCESS_MOVE=0 FAIL_SUCCESS_MARKER_MOVE=0
   }
@@ -283,9 +329,16 @@ EOF
   }
   [ "$(readlink -f "$profile")" = ${v1} ]
   grep -qxF 'rev=1111111111111111111111111111111111111111' "$state/last-success"
-  [ "$(grep -c '^systemctl is-system-running$' "$EVENTS")" -eq 3 ]
+  [ "$(grep -c '^systemctl is-system-running$' "$EVENTS")" -eq "$health_stable" ]
+  # One probe per unit more than the window, because each unit is also sampled
+  # once before the switch to establish whether it was already down.
   for unit in "''${candidate_health_units[@]}"; do
-    [ "$(grep -c "^systemctl is-active --quiet -- $unit$" "$EVENTS")" -eq 3 ]
+    [ "$(grep -c "^systemctl is-active --quiet -- $unit$" "$EVENTS")" -eq "$((health_stable + 1))" ]
+  done
+  # Every probe inside the window also asks which activation the unit is in,
+  # which is what separates "stayed up" from "execed and respawned".
+  for unit in "''${candidate_health_units[@]}"; do
+    [ "$(grep -c "^systemctl show --property=ActiveEnterTimestampMonotonic --value -- $unit$" "$EVENTS")" -eq "$health_stable" ]
   done
   for unit in smarthome-deploy.timer nixos-deploy.timer; do
     refute grep -q "^systemctl is-active --quiet -- $unit$" "$EVENTS"
@@ -322,6 +375,72 @@ EOF
   grep -qxF 'rollback=complete' "$state/last-failure"
   grep -qF 'switch system-v1 switch' "$EVENTS"
   [ "$(links)" -eq 1 ]
+  # That same fixture is the regression case for the baseline rule below:
+  # mosquitto is active before the switch and inactive after, so it must keep
+  # failing the candidate. A baseline that exempted it would be vacuous.
+
+  # A unit that answers is-active at every probe can still be crash-looping,
+  # because systemd reports a Type=simple unit active the instant it execs --
+  # before it has read a line of its configuration. Sampling is-active cannot
+  # tell "stayed up" from "kept respawning"; the activation timestamp can.
+  seed_v1
+  export FLAPPING_UNIT=zigbee2mqtt.service FLAPPING_PATH=${v2}
+  if run ${v2} 2222222222222222222222222222222222222222; then
+    echo 'candidate health accepted a unit that restarted inside the window' >&2
+    exit 1
+  fi
+  grep -qxF 'reason=candidate-health-failed' "$state/last-failure"
+  grep -qxF 'rollback=complete' "$state/last-failure"
+  [ "$(readlink -f "$profile")" = ${v1} ]
+  [ "$(readlink -f "$CURRENT_SYSTEM")" = ${v1} ]
+  unset FLAPPING_UNIT FLAPPING_PATH
+
+  # A unit that was already down before the switch is not this deploy's doing.
+  # Failing the candidate for it means any unrelated outage blocks every later
+  # deploy until a human clears it -- and zigbee2mqtt is BindsTo= its USB
+  # coordinator, so "unrelated outage" includes an unplugged dongle.
+  seed_v1
+  export DOWN_UNIT=zigbee2mqtt.service
+  run ${v2} 2222222222222222222222222222222222222222 || {
+    echo 'a unit already down before the switch failed the candidate gate' >&2
+    exit 1
+  }
+  [ "$(readlink -f "$profile")" = ${v2} ]
+  grep -qxF 'rev=2222222222222222222222222222222222222222' "$state/last-success"
+  unset DOWN_UNIT
+
+  # Being inactive beforehand is only an exemption if the running system was
+  # trying to start the unit. A unit nothing wants or requires was not meant to
+  # be up, and the candidate may be the very generation that enables it, so it
+  # must still prove it starts. This is the legacy deploy-timer topology in
+  # miniature: the unit file is installed, nothing pulls it in, and a candidate
+  # that cannot bring it up has to fail. Neither LoadState nor UnitFileState
+  # can draw that line -- the file exists either way, and a unit with no
+  # [Install] section reads as static even when a target wants it.
+  seed_v1
+  export DOWN_UNIT=zigbee2mqtt.service UNWANTED_UNIT=zigbee2mqtt.service
+  if run ${v2} 2222222222222222222222222222222222222222; then
+    echo 'a unit nothing wanted was exempted from the candidate gate' >&2
+    exit 1
+  fi
+  grep -qxF 'reason=candidate-health-failed' "$state/last-failure"
+  [ "$(readlink -f "$profile")" = ${v1} ]
+  unset DOWN_UNIT UNWANTED_UNIT
+
+  # The same exemption applies to recovery health, or a rollback is reported
+  # incomplete for a unit it was never going to bring back.
+  seed_v1
+  export DOWN_UNIT=zigbee2mqtt.service
+  if run ${unhealthy} 3333333333333333333333333333333333333333; then exit 1; fi
+  [ "$(readlink -f "$profile")" = ${v1} ]
+  grep -qxF 'reason=candidate-health-failed' "$state/last-failure"
+  grep -qxF 'rollback=complete' "$state/last-failure" || {
+    cat "$state/last-failure" >&2
+    echo 'rollback reported incomplete for a unit that was down beforehand' >&2
+    exit 1
+  }
+  [ ! -e "$state/pending-activation" ]
+  unset DOWN_UNIT
 
   # A candidate cannot satisfy health with the legacy deploy timer name. Its
   # rollback may use that compatibility name to recover the pre-cutover system.

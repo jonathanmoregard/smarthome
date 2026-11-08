@@ -8,6 +8,15 @@ mode=activate
 candidate_health_units=()
 recovery_health_units=()
 recovery_health_unit_groups=()
+baseline_exempt=()
+# The health window is an input, not a constant buried in the probe loop. Its
+# length is the whole detection budget: a unit that execs and only then dies on
+# its own configuration is invisible until the probe outlives its start-up, and
+# every second of window is a second added to every deploy. 20 samples at 1s
+# with 10 required consecutively means a healthy deploy waits ~10s and a
+# candidate has ~20s to betray itself.
+health_samples=20
+health_stable=10
 if [ "$#" -ge 4 ] && [ "$1" = --recover ]; then
   mode=recover
   state_dir=$2 profile=$3 current_system=$4
@@ -42,9 +51,20 @@ while [ "$#" -gt 0 ]; do
       recovery_health_unit_groups+=("$2")
       shift 2
       ;;
+    --health-samples)
+      [ "$#" -ge 2 ] && [[ "$2" =~ ^[1-9][0-9]{0,3}$ ]] || die 'invalid health sample count'
+      health_samples=$2
+      shift 2
+      ;;
+    --health-stable)
+      [ "$#" -ge 2 ] && [[ "$2" =~ ^[1-9][0-9]{0,3}$ ]] || die 'invalid health stable count'
+      health_stable=$2
+      shift 2
+      ;;
     *) die 'invalid health argument' ;;
   esac
 done
+[ "$health_stable" -le "$health_samples" ] || die 'health stable count exceeds sample count'
 store_dir=${NIX_STORE_DIR:-/nix/store}
 store_dir=${store_dir%/}
 mkdir -p "$state_dir" "$(dirname "$profile")"
@@ -104,11 +124,78 @@ reset_health_units() {
   done
 }
 
+is_baseline_exempt() {
+  local unit=$1 exempt
+  for exempt in "${baseline_exempt[@]}"; do
+    [ "$exempt" = "$unit" ] && return 0
+  done
+  return 1
+}
+
+# A unit that is already down when the deploy starts was not brought down by
+# this deploy. Holding the deploy to it means one unrelated outage blocks every
+# later deploy until a human clears it -- and because zigbee2mqtt.service is
+# BindsTo= its USB coordinator, "unrelated outage" includes an unplugged dongle.
+#
+# Absence is not the same as being down: a unit that is not-found before the
+# switch is new in the candidate and must come up, so it is never exempt. A
+# unit that was active and goes inactive is the regression this gate exists to
+# catch, so it is never exempt either.
+#
+# Nor is "inactive" by itself enough, because it does not distinguish a unit
+# that was meant to be running and was not, from one the running system was
+# never trying to start. Only the first is a pre-existing outage; the second may
+# be a unit the candidate is the generation to enable, and the gate's whole job
+# is to prove that it starts. The question is therefore whether anything wanted
+# or required it, not whether its unit file was installed or enabled:
+# LoadState says only that the file exists, and UnitFileState calls a unit
+# static when it has no [Install] section even though a target pulls it in --
+# home-assistant.service on this host is exactly that shape.
+#
+# Group members are deliberately not baselined. The one group is the
+# system-deploy/nixos-deploy timer rename, whose members are timers; a timer
+# cannot exec and then die, which is the failure this exemption is about.
+capture_baseline() {
+  local unit load_state active_status wanted_by required_by
+  local -a units=()
+  local -A considered=()
+  for unit in "${candidate_health_units[@]}" "${recovery_health_units[@]}"; do
+    [ -z "${considered[$unit]+considered}" ] || continue
+    considered[$unit]=1
+    units+=("$unit")
+  done
+  baseline_exempt=()
+  for unit in "${units[@]}"; do
+    load_state=$(timeout --signal=KILL 1s systemctl show --property=LoadState --value -- "$unit") || return 1
+    case "$load_state" in
+      loaded) ;;
+      not-found) continue ;;
+      *) return 1 ;;
+    esac
+    active_status=0
+    timeout --signal=KILL 1s systemctl is-active --quiet -- "$unit" || active_status=$?
+    [ "$active_status" -eq 0 ] && continue
+    wanted_by=$(timeout --signal=KILL 1s systemctl show --property=WantedBy --value -- "$unit") || return 1
+    required_by=$(timeout --signal=KILL 1s systemctl show --property=RequiredBy --value -- "$unit") || return 1
+    [ -n "$wanted_by$required_by" ] || continue
+    baseline_exempt+=("$unit")
+  done
+}
+
 # Short probes bound both candidate validation and TERM-triggered recovery.
+#
+# A probe proves two things per unit: that it is active, and that it is still
+# in the same activation it was in when the current streak began. systemd
+# reports a Type=simple unit active the instant it execs -- before it has read
+# a line of its own configuration -- so is-active alone cannot separate a
+# service that stayed up from one that keeps respawning. The activation
+# timestamp can, and it catches any restart rather than only the auto-restarts
+# NRestarts counts.
 health_check() {
   local expected=$1 contract=$2 attempt consecutive=0 status running unit unit_status units_healthy
-  local group group_member group_healthy
+  local group group_member group_healthy active_enter
   local -a health_units health_unit_groups group_members
+  local -A streak_enter=()
   case "$contract" in
     candidate)
       health_units=("${candidate_health_units[@]}")
@@ -120,15 +207,28 @@ health_check() {
       ;;
     *) return 1 ;;
   esac
-  for attempt in $(seq 1 6); do
+  for attempt in $(seq 1 "$health_samples"); do
     status=0
     timeout --signal=KILL 1s systemctl is-system-running || status=$?
     running=$(readlink -f "$current_system" 2>/dev/null || true)
     units_healthy=1
     for unit in "${health_units[@]}"; do
+      is_baseline_exempt "$unit" && continue
       unit_status=0
       timeout --signal=KILL 1s systemctl is-active --quiet -- "$unit" || unit_status=$?
-      [ "$unit_status" -eq 0 ] || units_healthy=0
+      if [ "$unit_status" -ne 0 ]; then
+        units_healthy=0
+        unset "streak_enter[$unit]"
+        continue
+      fi
+      active_enter=$(timeout --signal=KILL 1s systemctl show --property=ActiveEnterTimestampMonotonic --value -- "$unit") || return 1
+      if [ -z "${streak_enter[$unit]+recorded}" ]; then
+        streak_enter[$unit]=$active_enter
+      elif [ "${streak_enter[$unit]}" != "$active_enter" ]; then
+        # Active at both probes, but not the same activation: it restarted.
+        streak_enter[$unit]=$active_enter
+        units_healthy=0
+      fi
     done
     for group in "${health_unit_groups[@]}"; do
       group_healthy=0
@@ -142,11 +242,11 @@ health_check() {
     done
     if [ "$status" -eq 0 ] && [ "$running" = "$expected" ] && [ "$units_healthy" -eq 1 ]; then
       consecutive=$((consecutive + 1))
-      [ "$consecutive" -lt 3 ] || return 0
+      [ "$consecutive" -lt "$health_stable" ] || return 0
     else
       consecutive=0
     fi
-    [ "$attempt" -eq 6 ] || sleep 1
+    [ "$attempt" -eq "$health_samples" ] || sleep 1
   done
   return 1
 }
@@ -170,16 +270,30 @@ delete_generations_newer_than() {
 }
 
 recover_pending() {
-  local pending="$state_dir/pending-activation" key value
-  local pending_old_path= pending_old_generation=
+  local pending="$state_dir/pending-activation" key value unit
+  local pending_old_path= pending_old_generation= pending_baseline_exempt=
+  local -a pending_exempt_units=()
   [ -s "$pending" ] || return 0
   while IFS='=' read -r key value; do
     case "$key" in
       previous_path) pending_old_path=$value ;;
       previous_generation) pending_old_generation=$value ;;
+      baseline_exempt) pending_baseline_exempt=$value ;;
     esac
   done < "$pending"
   [ -n "$pending_old_path" ] && [ -n "$pending_old_generation" ] || return 1
+  # Recovery runs in a fresh process that never saw the pre-switch system, so
+  # the exemptions are read back from the journal that recorded them. A marker
+  # written before this field existed exempts nothing, which is exactly the
+  # previous require-every-unit behaviour.
+  baseline_exempt=()
+  if [ -n "$pending_baseline_exempt" ]; then
+    IFS=',' read -r -a pending_exempt_units <<< "$pending_baseline_exempt"
+    for unit in "${pending_exempt_units[@]}"; do
+      valid_unit "$unit" || return 1
+      baseline_exempt+=("$unit")
+    done
+  fi
   if [ "$pending_old_path" = none ] && [ "$pending_old_generation" = none ]; then
     rm -f "$profile" || return 1
     delete_generations_newer_than none || return 1
@@ -293,6 +407,7 @@ fail() {
 path=$system_path
 previous_path=$old_path
 previous_generation=${old_generation:-none}
+baseline_exempt=$(IFS=,; printf '%s' "${baseline_exempt[*]}")
 reason=$reason
 rollback=$rollback_state
 " || true
@@ -302,12 +417,18 @@ rollback=$rollback_state
   exit 1
 }
 
+# Sampled before the candidate is switched in, because afterwards there is no
+# way left to ask what was already broken.
+capture_baseline || die 'could not sample pre-switch unit health'
+baseline_exempt_field=$(IFS=,; printf '%s' "${baseline_exempt[*]}")
+
 # This journal is the future last-success marker. Its atomic rename is the only
 # commit point, so any pre-commit crash is distinguishable from operator drift.
 write_marker pending-activation "rev=$revision
 path=$system_path
 previous_path=$old_path
 previous_generation=${old_generation:-none}
+baseline_exempt=$baseline_exempt_field
 " || die 'could not record pending activation'
 trap 'fail received-signal' HUP INT TERM
 nix-env --profile "$profile" --set "$system_path" >/dev/null || fail profile-switch-failed
