@@ -25,6 +25,16 @@ let
     );
   zigbeeDeviceUnit =
     if zigbeeEnabled then "${utils.escapeSystemdPath cfg.zigbeeSerialPort}.device" else null;
+  # systemd can only see that the process exists; the bridge's own availability
+  # topic is the only thing that knows whether the radio actually works. See the
+  # script's header for why it acts as rarely as it does.
+  zigbee2mqttWatchdog = pkgs.writeShellApplication {
+    name = "zigbee2mqtt-watchdog";
+    runtimeInputs = [ pkgs.bash pkgs.coreutils pkgs.mosquitto pkgs.systemd ];
+    text = ''
+      exec bash ${./zigbee2mqtt-watchdog.sh} "$@"
+    '';
+  };
   zigbee2mqttWithNetworkKey = pkgs.writeShellApplication {
     name = "zigbee2mqtt-with-network-key";
     text = ''
@@ -284,12 +294,88 @@ in
       };
 
       systemd.services.zigbee2mqtt = {
-        requires = [ "mosquitto.service" zigbeeDeviceUnit ];
+        # Wants=, not Requires=, for the broker. A Requires= whose target fails
+        # cancels this unit's start job, and the unit it leaves behind is
+        # indistinguishable from one somebody stopped on purpose: measured on
+        # this host, a start cancelled by a failed Requires= yields
+        # ActiveState=inactive, SubState=dead, Result=success -- exactly what
+        # `systemctl stop` yields. The watchdog reads that as a deliberate stop
+        # and stands down, so a single mosquitto failure at boot (its own
+        # Restart= then revives it) left Zigbee2MQTT stopped for good with
+        # nothing acting on it. Wants= keeps the ordering below without the
+        # power to cancel. Zigbee2MQTT retries its own broker connection, the
+        # watchdog already stands down while the broker is down, and mosquitto
+        # is a deploy health unit in its own right, so a broker that stays
+        # broken is still caught.
+        wants = [ "mosquitto.service" ];
+        # BindsTo= rather than Requires= for the coordinator. systemd.unit(5):
+        # Requires= stops this service only when the listed unit is
+        # *explicitly* stopped, whereas BindsTo= "also does so when a listed
+        # unit stops unexpectedly", and names "the backing device of a device
+        # unit might be unplugged" as precisely that case. An unplug is the
+        # unexpected kind, so Requires= left Zigbee2MQTT running against a
+        # serial port that no longer existed -- and because `wants` are pulled
+        # in only when a unit *starts*, re-adding the device could not recover
+        # an already-active service. Paired with After= below, which the man
+        # page recommends combining with BindsTo=.
+        bindsTo = [ zigbeeDeviceUnit ];
         after = [ "mosquitto.service" zigbeeDeviceUnit ];
+        # Nothing starts this service again when the device reappears: it is
+        # only wanted by multi-user.target, long since reached. So an unplug
+        # left the house without Zigbee until a human noticed, which is what
+        # happened on 2026-11-07 -- replugging the dongle did not recover it.
+        # Being wanted by the device unit closes that: udev creates the device,
+        # systemd pulls this service up with it.
+        wantedBy = [ zigbeeDeviceUnit ];
         environment.Z2M_ONBOARD_NO_SERVER = "1";
         serviceConfig = {
           LoadCredential = "network-key:${cfg.zigbeeNetworkKeyFile}";
           ExecStart = lib.mkForce (lib.getExe zigbee2mqttWithNetworkKey);
+          # Upstream ships Restart=on-failure. Under it systemd.service(5)
+          # counts "exit code of 0" and SIGHUP/SIGINT/SIGTERM/SIGPIPE as clean
+          # and does not restart, so a Zigbee2MQTT that exited 0 or died on
+          # SIGPIPE parked the unit in "inactive" indefinitely -- and the
+          # watchdog deliberately skips an inactive unit as "stopped rather
+          # than broken", so nothing recovered the radio at all. `always`
+          # closes that at the source without fighting deliberate stops,
+          # because "when the death of the process is a result of systemd
+          # operation (e.g. service stop or restart), the service will not be
+          # restarted" -- which is also what keeps the BindsTo= stop above from
+          # being undone on an unplug.
+          Restart = lib.mkForce "always";
+        };
+      };
+    })
+
+    (mkIf zigbeeEnabled {
+      # The last gap: the known causes of a dead radio now recover on their own,
+      # but anything unforeseen still leaves Zigbee down for as long as it takes
+      # a human to notice. This closes that without asking one to.
+      systemd.services.zigbee2mqtt-watchdog = {
+        description = "Restart Zigbee2MQTT when its bridge is not online";
+        after = [ "mosquitto.service" ];
+        environment.WATCHDOG_DEVICE_UNIT = zigbeeDeviceUnit;
+        serviceConfig = {
+          Type = "oneshot";
+          ExecStart = lib.getExe zigbee2mqttWatchdog;
+          User = "root";
+          Group = "root";
+          StateDirectory = "zigbee2mqtt-watchdog";
+          StateDirectoryMode = "0700";
+          UMask = "0077";
+          ProtectHome = true;
+          PrivateTmp = true;
+          NoNewPrivileges = true;
+          RestrictAddressFamilies = [ "AF_UNIX" "AF_INET" "AF_INET6" ];
+        };
+      };
+      systemd.timers.zigbee2mqtt-watchdog = {
+        wantedBy = [ "timers.target" ];
+        timerConfig = {
+          OnBootSec = "5min";
+          OnUnitActiveSec = "2min";
+          Persistent = true;
+          Unit = "zigbee2mqtt-watchdog.service";
         };
       };
     })
