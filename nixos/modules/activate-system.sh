@@ -9,12 +9,20 @@ candidate_health_units=()
 recovery_health_units=()
 recovery_health_unit_groups=()
 baseline_exempt=()
-# The health window is an input, not a constant buried in the probe loop. Its
-# length is the whole detection budget: a unit that execs and only then dies on
-# its own configuration is invisible until the probe outlives its start-up, and
-# every second of window is a second added to every deploy. 20 samples at 1s
-# with 10 required consecutively means a healthy deploy waits ~10s and a
-# candidate has ~20s to betray itself.
+# The health window is an input, not a constant buried in the probe loop: a
+# unit that execs and only then dies on its own configuration is invisible
+# until the probe outlives its start-up, and every second of window is a second
+# added to every deploy.
+#
+# The two numbers buy different things and only one of them is a guarantee.
+# health_stable is the floor, and the whole of the detection budget: the probe
+# returns the moment the streak reaches it, so 10 samples at 1s means 10s of
+# continuous observation and 10s of waiting on every healthy deploy.
+# health_samples is only a ceiling on how long a candidate that stumbles may
+# keep trying -- a candidate that never stumbles exits at the floor, so one
+# that dies 12s in is not caught by a 20-sample window. Buying more detection
+# means raising --health-stable, and paying for it on every deploy; raising
+# --health-samples alone only buys patience with a flapping candidate.
 health_samples=20
 health_stable=10
 if [ "$#" -ge 4 ] && [ "$1" = --recover ]; then

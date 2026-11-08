@@ -46,13 +46,23 @@ case "$1" in
       exit 64
     }
     rm -f "$START_LIMIT"
+    # A real `systemctl reset-failed <unit>` clears that unit's failed state,
+    # and with it the manager degradation the unit was causing. Modelling that
+    # is what separates a failed unit the gate resets before it looks (a listed
+    # health unit) from one it never touches (anything else), which the stub
+    # previously could not express at all.
+    [ "''${FAILED_HEALTH_UNIT:-}" != "$3" ] || rm -f "$FAILED_HEALTH_UNIT_MARKER"
     ;;
   is-failed)
     [ "$#" -eq 4 ] && [ "$2" = --quiet ] && [ "$3" = -- ] && [ -n "$4" ] || exit 64
     [ "''${NEVER_LOADED_UNIT:-}" != "$4" ]
     ;;
   is-system-running)
+    # Any failed unit anywhere degrades the manager, so both markers answer
+    # here -- the difference between them is only whether reset-failed above
+    # clears them first.
     [ ! -e "$UNRELATED_FAILED" ] || exit 1
+    [ ! -e "$FAILED_HEALTH_UNIT_MARKER" ] || exit 1
     ;;
   show)
     [ "$#" -eq 5 ] && [ "$3" = --value ] && [ "$4" = -- ] && [ -n "$5" ] || exit 64
@@ -229,6 +239,7 @@ EOF
   export LEGACY_TIMERS_ONLY=${legacyTimersOnly}
   export TIMEOUT_MARKER="$PWD/timeout-once" SUCCESS_MARKER="$state/last-success"
   export UNRELATED_FAILED="$PWD/unrelated-failed"
+  export FAILED_HEALTH_UNIT_MARKER="$PWD/failed-health-unit"
   export SUCCESS_MOVE_SIGNAL_SENT="$PWD/success-move-signal-sent"
   export SUCCESS_MOVE_FAILURE_TRIGGERED="$PWD/success-move-failure-triggered"
   export RECOVERY_SIGNAL_SENT="$PWD/recovery-signal-sent"
@@ -263,9 +274,9 @@ EOF
 
   reset_observations() {
     : > "$EVENTS"
-    rm -f "$TIMEOUT_MARKER" "$START_LIMIT" "$UNRELATED_FAILED" "$SUCCESS_MOVE_SIGNAL_SENT" "$SUCCESS_MOVE_FAILURE_TRIGGERED" "$RECOVERY_SIGNAL_SENT" "$FLAP_COUNTER"
+    rm -f "$TIMEOUT_MARKER" "$START_LIMIT" "$UNRELATED_FAILED" "$SUCCESS_MOVE_SIGNAL_SENT" "$SUCCESS_MOVE_FAILURE_TRIGGERED" "$RECOVERY_SIGNAL_SENT" "$FLAP_COUNTER" "$FAILED_HEALTH_UNIT_MARKER"
     unset FAIL_SWITCH_PATH TIMEOUT_PATH SIGNAL_DURING_SWITCH_PATH NEVER_LOADED_UNIT
-    unset FLAPPING_UNIT FLAPPING_PATH DOWN_UNIT UNWANTED_UNIT
+    unset FLAPPING_UNIT FLAPPING_PATH DOWN_UNIT UNWANTED_UNIT FAILED_HEALTH_UNIT
     export FAIL_LIST_GENERATIONS=0 FAIL_DELETE_GENERATIONS=0
     export SIGNAL_AFTER_SUCCESS_MOVE=0 FAIL_SUCCESS_MARKER_MOVE=0
   }
@@ -408,6 +419,35 @@ EOF
   [ "$(readlink -f "$profile")" = ${v2} ]
   grep -qxF 'rev=2222222222222222222222222222222222222222' "$state/last-success"
   unset DOWN_UNIT
+
+  # The exemption above is about a unit that is *inactive*. One that is already
+  # *failed* is a different shape and the gate meets it somewhere else entirely:
+  # `systemctl is-system-running` reports degraded while any unit on the box is
+  # failed, so a failed unit fails the candidate through manager health
+  # regardless of what the per-unit baseline says about it.
+  #
+  # For a listed health unit that is survivable, and only because of ordering:
+  # reset_health_units clears its failed state before the gate looks. That is
+  # what makes the 2026-11-07 shape deployable -- a Zigbee2MQTT parked in failed
+  # by its start limit is reset, and then exempted for staying down. Pinned
+  # here because nothing else pins it: run the reset after the health check
+  # instead of before and this is what fails.
+  #
+  # A failed unit that is *not* a listed health unit is deliberately not
+  # survivable; see the unrelated-failure case above, which predates the
+  # baseline rule and asserts the deploy fails shut. That gate is untouched.
+  seed_v1
+  export FAILED_HEALTH_UNIT=zigbee2mqtt.service DOWN_UNIT=zigbee2mqtt.service
+  touch "$FAILED_HEALTH_UNIT_MARKER"
+  run ${v2} 2222222222222222222222222222222222222222 || {
+    echo 'a health unit already failed before the switch blocked the deploy' >&2
+    exit 1
+  }
+  [ "$(readlink -f "$profile")" = ${v2} ]
+  # The reset is the mechanism, so assert it happened rather than inferring it
+  # from the deploy having landed.
+  [ ! -e "$FAILED_HEALTH_UNIT_MARKER" ]
+  unset FAILED_HEALTH_UNIT DOWN_UNIT
 
   # Being inactive beforehand is only an exemption if the running system was
   # trying to start the unit. A unit nothing wants or requires was not meant to
