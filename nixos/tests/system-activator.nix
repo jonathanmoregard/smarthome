@@ -101,6 +101,12 @@ case "$1" in
         esac
         if [ "''${UNWANTED_UNIT:-}" = "$5" ] || [ "$2" = --property=RequiredBy ]; then
           printf '\n'
+        elif [ "''${INACTIVE_WANTER:-}" = "$5" ]; then
+          # WantedBy lists the wants links of whichever wanting units are
+          # currently *loaded*, which says nothing about their being active. A
+          # target that stays loaded while inactive therefore leaves a
+          # non-empty WantedBy behind without the unit getting a start job.
+          printf 'sleep.target\n'
         else
           printf 'multi-user.target\n'
         fi
@@ -134,6 +140,12 @@ case "$1" in
     fi
     case "$4" in
       sshd.service|tailscaled.service|mosquitto.service|zigbee2mqtt.service) ;;
+      # Targets answer here because the baseline rule asks whether anything
+      # wanting a unit is actually running, not merely loaded. multi-user.target
+      # is up on any normal boot; sleep.target stands in for the loaded but
+      # inactive wanter, which is the case the rule has to reject.
+      multi-user.target) ;;
+      sleep.target) exit 3 ;;
       system-deploy.timer)
         [ "$running" != "$LEGACY" ] && [ "$running" != "$LEGACY_TIMERS_ONLY" ] || exit 3
         ;;
@@ -277,6 +289,7 @@ EOF
     rm -f "$TIMEOUT_MARKER" "$START_LIMIT" "$UNRELATED_FAILED" "$SUCCESS_MOVE_SIGNAL_SENT" "$SUCCESS_MOVE_FAILURE_TRIGGERED" "$RECOVERY_SIGNAL_SENT" "$FLAP_COUNTER" "$FAILED_HEALTH_UNIT_MARKER"
     unset FAIL_SWITCH_PATH TIMEOUT_PATH SIGNAL_DURING_SWITCH_PATH NEVER_LOADED_UNIT
     unset FLAPPING_UNIT FLAPPING_PATH DOWN_UNIT UNWANTED_UNIT FAILED_HEALTH_UNIT
+    unset INACTIVE_WANTER
     export FAIL_LIST_GENERATIONS=0 FAIL_DELETE_GENERATIONS=0
     export SIGNAL_AFTER_SUCCESS_MOVE=0 FAIL_SUCCESS_MARKER_MOVE=0
   }
@@ -466,6 +479,25 @@ EOF
   grep -qxF 'reason=candidate-health-failed' "$state/last-failure"
   [ "$(readlink -f "$profile")" = ${v1} ]
   unset DOWN_UNIT UNWANTED_UNIT
+
+  # Being wanted is only an exemption if something that wants it is running.
+  # The exemption is sound because the switch starts every active target and
+  # that start pulls up the target's inactive Wants=, so a non-empty WantedBy
+  # is what earns the unit its start job. A wanter that is loaded but inactive
+  # breaks that pairing: WantedBy reports it, so the unit looks exempt, while
+  # no start job ever arrives and the unit stays down past the gate -- and the
+  # watchdog next door leaves an inactive unit alone as a deliberate stop, so
+  # nothing picks it up afterwards. Asking whether a wanter is active holds by
+  # construction instead of resting on when systemd happens to unload a target.
+  seed_v1
+  export DOWN_UNIT=zigbee2mqtt.service INACTIVE_WANTER=zigbee2mqtt.service
+  if run ${v2} 2222222222222222222222222222222222222222; then
+    echo 'a unit wanted only by an inactive unit was exempted from the candidate gate' >&2
+    exit 1
+  fi
+  grep -qxF 'reason=candidate-health-failed' "$state/last-failure"
+  [ "$(readlink -f "$profile")" = ${v1} ]
+  unset DOWN_UNIT INACTIVE_WANTER
 
   # The same exemption applies to recovery health, or a rollback is reported
   # incomplete for a unit it was never going to bring back.

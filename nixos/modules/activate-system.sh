@@ -166,18 +166,29 @@ is_baseline_exempt() {
 #
 # Exempting a unit does not abandon it, and the switch rather than anything here
 # is what saves it: it starts every active target, and starting an
-# already-active target still pulls up its inactive Wants=. Exemption keys on a
-# non-empty WantedBy/RequiredBy, the same fact that earns the unit that start
-# job -- measured on real systemd, including for a unit reset from failed to
-# inactive by reset_health_units below. The watchdog next door depends on it,
-# since it leaves an `inactive` unit alone as somebody's deliberate stop. The
-# pair resisted being split: a unit wanted only by a target that is not active
-# reports an empty WantedBy, so it is required here rather than exempt and fails
-# the deploy shut instead of being stranded. home-server-cd pins the live half
-# by stopping a health unit before a deploy and requiring it back after.
+# already-active target still pulls up its inactive Wants=. Exemption keys on
+# having an *active* wanter, the same fact that earns the unit that start job --
+# measured on real systemd, including for a unit reset from failed to inactive
+# by reset_health_units below. The watchdog next door depends on it, since it
+# leaves an `inactive` unit alone as somebody's deliberate stop. A merely
+# non-empty WantedBy would not do: both properties list the links of whichever
+# wanting units are loaded, so a target that stays loaded while inactive keeps
+# its link while giving the unit no start job, and the unit would be exempted
+# into exactly the stranding this paragraph rules out. home-server-cd pins the
+# live half by stopping a health unit before a deploy and requiring it back
+# after.
+#
+# Exemption is partial, not a pass: it drops the unit from the per-unit check
+# only. `systemctl is-system-running` reports degraded while any unit is failed,
+# and health_check requires that too, so an exempt unit that fails again after
+# the switch still fails the deploy. That direction is safe -- the deploy is
+# blocked and nothing is stranded -- but it means an unrelated outage can still
+# block deploys for a unit that fails on start rather than restart-looping.
+# zigbee2mqtt carries Restart=always and so keeps restarting rather than
+# settling in failed; a health unit without Restart= has no such cover.
 capture_baseline() {
-  local unit load_state active_status wanted_by required_by
-  local -a units=()
+  local unit load_state active_status wanted_by required_by wanter wanter_status wanter_active
+  local -a units=() wanters=()
   local -A considered=()
   for unit in "${candidate_health_units[@]}" "${recovery_health_units[@]}"; do
     [ -z "${considered[$unit]+considered}" ] || continue
@@ -197,7 +208,16 @@ capture_baseline() {
     [ "$active_status" -eq 0 ] && continue
     wanted_by=$(timeout --signal=KILL 1s systemctl show --property=WantedBy --value -- "$unit") || return 1
     required_by=$(timeout --signal=KILL 1s systemctl show --property=RequiredBy --value -- "$unit") || return 1
-    [ -n "$wanted_by$required_by" ] || continue
+    # An active wanter, not merely a listed one; see above. A unit nothing
+    # wants splits to an empty list and falls through unexempted.
+    read -r -a wanters <<< "$wanted_by $required_by"
+    wanter_active=0
+    for wanter in "${wanters[@]}"; do
+      wanter_status=0
+      timeout --signal=KILL 1s systemctl is-active --quiet -- "$wanter" || wanter_status=$?
+      [ "$wanter_status" -ne 0 ] || { wanter_active=1; break; }
+    done
+    [ "$wanter_active" -eq 1 ] || continue
     baseline_exempt+=("$unit")
   done
 }
