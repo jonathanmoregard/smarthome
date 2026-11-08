@@ -62,6 +62,18 @@ let
     in assertion.assertion;
 in
 assert builtins.elem "home-assistant.service" host.config.services.system-auto-deploy.healthUnits;
+# The declarative configuration.yaml copy must still run as a pre-start step.
+# `toList` because upstream defines ExecStartPre as a bare string and this
+# module no longer contributes a list definition to merge it into one.
+assert pkgsSystem.lib.any
+  (entry: pkgsSystem.lib.hasInfix "configuration.yaml" entry)
+  (pkgsSystem.lib.toList host.config.systemd.services.zigbee2mqtt.serviceConfig.ExecStartPre);
+# The deployer's real schedule and wiring, asserted against the production
+# configuration because the VM node below pushes the timer outside this run's
+# window. Without these, that override could quietly mask a regression here.
+assert host.config.systemd.timers.system-deploy.timerConfig.OnBootSec == "3min";
+assert host.config.systemd.timers.system-deploy.timerConfig.OnUnitActiveSec == "15min";
+assert host.config.systemd.timers.system-deploy.wantedBy == [ "timers.target" ];
 assert registryFilesGuard "devices.yaml";
 assert !(registryFilesGuard "configuration.yaml");
 assert host.config.homeServer.zigbeeSerialPort == physicalCoordinator;
@@ -133,6 +145,27 @@ pkgsSystem.testers.runNixOSTest {
       age.secrets.zigbee2mqtt-network-key.file =
         lib.mkForce "${zigbeeTestAgenix}/zigbee2mqtt-network-key.age";
 
+      # Keep the real timer loaded and active, but out of this run's window.
+      # Production fires at OnBootSec=3min, inside the ~9 minutes this VM takes,
+      # and the sandbox has no network for the fetch, so system-deploy exits 1
+      # and the no-failed-units assertion below trips on a timing accident.
+      # Same override, and the same reason, as nixos/tests/home-server.nix.
+      # Transaction behaviour has its own VM in home-server-cd.nix.
+      systemd.timers.system-deploy.timerConfig = {
+        OnBootSec = lib.mkForce "1h";
+        OnUnitActiveSec = lib.mkForce "1h";
+      };
+
+      # Same treatment, same reason: this run stops and starts Zigbee2MQTT
+      # repeatedly, and a watchdog tick landing in the middle of that would make
+      # the cases below depend on timing. Its behaviour is pinned far more
+      # thoroughly by checks.zigbee2mqtt-watchdog, which can stub the broker and
+      # systemd instead of needing a radio the VM does not have.
+      systemd.timers.zigbee2mqtt-watchdog.timerConfig = {
+        OnBootSec = lib.mkForce "1h";
+        OnUnitActiveSec = lib.mkForce "1h";
+      };
+
       assertions = [
         {
           assertion = !(builtins.hasAttr "buildCoordination" options.services);
@@ -197,9 +230,23 @@ pkgsSystem.testers.runNixOSTest {
     home_server.succeed("test -c '${physicalCoordinator}'")
 
     home_server.succeed("systemctl show zigbee2mqtt.service -P LoadState | grep -Fx loaded")
+    # Three different dependency strengths, each load-bearing:
+    #   - the broker is a Wants=, because a failed Requires= cancels this
+    #     unit's start and leaves it inactive in a state indistinguishable
+    #     from a deliberate stop (Result=success either way), which the
+    #     watchdog then stands down from;
+    #   - the coordinator is a BindsTo=, because only BindsTo= propagates an
+    #     *unexpected* inactive transition, which is what an unplug is;
+    #   - both are After=, for ordering.
+    # Asserting the device under Requires= -- as this did until the unplug half
+    # of the replug test below was actually exercised -- pins the wiring that
+    # leaves Zigbee2MQTT running against a serial port that no longer exists.
     home_server.succeed(
-        "systemctl cat zigbee2mqtt.service | grep '^Requires=' | "
-        "grep -F mosquitto.service | grep -F dev-serial-by | grep -F Itead"
+        "systemctl cat zigbee2mqtt.service | grep '^Wants=' | grep -F mosquitto.service"
+    )
+    home_server.succeed(
+        "systemctl cat zigbee2mqtt.service | grep '^BindsTo=' | "
+        "grep -F dev-serial-by | grep -F Itead"
     )
     home_server.succeed(
         "systemctl cat zigbee2mqtt.service | grep '^After=' | "
@@ -280,6 +327,178 @@ pkgsSystem.testers.runNixOSTest {
     home_server.fail("ss -lnt | grep -F ':8080'")
     home_server.succeed("systemctl stop zigbee2mqtt.service; rm /var/lib/zigbee2mqtt/devices.yaml")
 
+    # A broker failure must not be able to cancel this unit's start. Masking
+    # mosquitto is how the VM gets a dependency that cannot be satisfied: under
+    # Requires= the start job is cancelled and Zigbee2MQTT lands inactive with
+    # Result=success, indistinguishable from a deliberate stop, which the
+    # watchdog stands down from -- so one mosquitto failure at boot left the
+    # radio dead for good. Under Wants= it starts regardless. This fails if the
+    # broker is ever moved back to Requires=.
+    # A broker that fails, rather than a masked one, which is both closer to
+    # the real scenario and the only thing that works here. Masking cannot be
+    # used: NixOS puts a store symlink in /etc/systemd/system for every unit,
+    # `systemctl mask` refuses to replace it, and a /run/systemd/system
+    # symlink to /dev/null is ignored because systemd.unit(5)'s search path
+    # ranks /etc/systemd/system *above* /run/systemd/system. Drop-ins behave
+    # differently: they merge from every load path rather than the highest one
+    # winning, so a /run drop-in does apply.
+    home_server.succeed("systemctl stop mosquitto.service")
+    home_server.succeed(
+        "mkdir -p /run/systemd/system/mosquitto.service.d && "
+        "printf '%s\\n' '[Service]' 'ExecStart=' "
+        "'ExecStart=/run/current-system/sw/bin/false' 'Restart=no' "
+        "> /run/systemd/system/mosquitto.service.d/fail.conf && "
+        "systemctl daemon-reload"
+    )
+    # Preconditions, asserted rather than assumed: the broker has to really be
+    # unstartable. If it still came up, Zigbee2MQTT would go active for the
+    # wrong reason and this test would pass while proving nothing.
+    home_server.fail("systemctl start mosquitto.service")
+    home_server.succeed("systemctl show mosquitto.service -P ActiveState | grep -Fx failed")
+    home_server.succeed(
+        "systemctl reset-failed zigbee2mqtt.service; systemctl start zigbee2mqtt.service"
+    )
+    home_server.wait_until_succeeds(
+        "systemctl show zigbee2mqtt.service -P ActiveState | grep -Fx active", timeout=60
+    )
+    home_server.succeed(
+        "systemctl stop zigbee2mqtt.service; systemctl reset-failed zigbee2mqtt.service"
+    )
+    home_server.succeed(
+        "rm -f /run/systemd/system/mosquitto.service.d/fail.conf && "
+        "rmdir /run/systemd/system/mosquitto.service.d && "
+        "systemctl daemon-reload && "
+        "systemctl reset-failed mosquitto.service"
+    )
+    home_server.succeed("systemctl start mosquitto.service")
+    home_server.wait_for_unit("mosquitto.service")
+
+    # Replugging the coordinator must bring the radio back with no human in the
+    # loop, and that is two independent propagations: the unplug has to stop
+    # the service, and the re-add has to start it. Both need proving
+    # separately. An earlier version of this test asserted "inactive" right
+    # after a hand `systemctl stop` further up, so the unplug half was
+    # satisfied by that manual stop and was never exercised at all -- the
+    # second way this test has managed to pass while proving less than it
+    # claimed.
+    device_unit = home_server.succeed(
+        "systemd-escape -p --suffix=device '${physicalCoordinator}'"
+    ).strip()
+    home_server.succeed(
+        f"test -L '/etc/systemd/system/{device_unit}.wants/zigbee2mqtt.service'"
+    )
+    tty = home_server.succeed("readlink -f '${physicalCoordinator}'").strip()
+
+    # The unplug half. The VM's coordinator is a null character device, so the
+    # real Zigbee2MQTT cannot stay up long enough to watch a dependency-driven
+    # stop land. A drop-in replaces ExecStart and nothing else, leaving the
+    # unit's own bindsTo/after/wantedBy wiring -- the thing actually under test
+    # -- intact, against a process that stays put.
+    home_server.succeed(
+        "mkdir -p /run/systemd/system/zigbee2mqtt.service.d && "
+        "printf '%s\\n' '[Service]' 'ExecStart=' "
+        "'ExecStart=/run/current-system/sw/bin/sleep infinity' "
+        "> /run/systemd/system/zigbee2mqtt.service.d/stub.conf && "
+        "systemctl daemon-reload && "
+        "systemctl reset-failed zigbee2mqtt.service && "
+        "systemctl start zigbee2mqtt.service"
+    )
+    home_server.wait_until_succeeds(
+        "systemctl show zigbee2mqtt.service -P ActiveState | grep -Fx active",
+        timeout=60,
+    )
+
+    # "Whatever the cause" includes a *clean* death. Under upstream's
+    # Restart=on-failure, systemd.service(5) counts exit code 0 and
+    # SIGHUP/SIGINT/SIGTERM/SIGPIPE as clean and does not restart, so a
+    # Zigbee2MQTT that exited 0 or took a SIGPIPE sat in "inactive" -- which
+    # the watchdog skips as somebody's decision, leaving the radio dead with
+    # nothing acting on it. `systemctl kill` signals the process without
+    # enqueueing a stop job, so Restart= applies and the unit has to come back
+    # on its own. This fails under on-failure.
+    home_server.succeed("systemctl kill -s TERM zigbee2mqtt.service")
+    home_server.wait_until_succeeds(
+        "systemctl show zigbee2mqtt.service -P NRestarts | grep -vFx 0", timeout=90
+    )
+    home_server.wait_until_succeeds(
+        "systemctl show zigbee2mqtt.service -P ActiveState | grep -Fx active",
+        timeout=90,
+    )
+
+    # Nothing stops the service here except the unplug itself. With Requires=
+    # in place of BindsTo= this assertion fails: systemd.unit(5) propagates
+    # only an *explicit* stop through Requires=, while BindsTo= "also does so
+    # when a listed unit stops unexpectedly", naming an unplugged backing
+    # device as exactly that case.
+    home_server.succeed(f"udevadm trigger --action=remove {tty}; udevadm settle")
+    home_server.wait_until_succeeds(
+        f"systemctl show '{device_unit}' -P ActiveState | grep -Fx inactive", timeout=60
+    )
+    home_server.wait_until_succeeds(
+        "systemctl show zigbee2mqtt.service -P ActiveState | grep -Fx inactive",
+        timeout=60,
+    )
+    home_server.succeed(
+        "rm -f /run/systemd/system/zigbee2mqtt.service.d/stub.conf && "
+        "rmdir /run/systemd/system/zigbee2mqtt.service.d && "
+        "systemctl daemon-reload"
+    )
+
+    # The re-add half, with the real binary back in place. `wants` are pulled
+    # in when a unit *starts*, so re-announcing a device that never left
+    # produces no transition and therefore no recovery -- an add-only trigger
+    # passes while proving nothing, which is how this test first lied.
+    starts_before = int(home_server.succeed(
+        "journalctl -u zigbee2mqtt.service --no-pager -o cat | "
+        "grep -c 'Starting Zigbee2MQTT version' || true"
+    ).strip())
+    home_server.succeed(f"udevadm trigger --action=add {tty}; udevadm settle")
+    home_server.wait_until_succeeds(
+        f"systemctl show '{device_unit}' -P ActiveState | grep -Fx active", timeout=60
+    )
+    home_server.wait_until_succeeds(
+        "test \"$(journalctl -u zigbee2mqtt.service --no-pager -o cat | "
+        f"grep -c 'Starting Zigbee2MQTT version')\" -gt {starts_before}",
+        timeout=120,
+    )
+    # Leave it stopped for the composition checks below, as the cases above do.
+    home_server.succeed(
+        "systemctl stop zigbee2mqtt.service; systemctl reset-failed zigbee2mqtt.service"
+    )
+
+    # The watchdog stands down during a deploy by reading ActiveState rather
+    # than calling `systemctl is-active`, and that is only correct because of
+    # what systemd reports for a running Type=oneshot. Both halves are pinned
+    # here against real systemd: that the deploy unit has that shape, and that
+    # a unit of that shape reports "activating" -- with is-active failing --
+    # for the whole time its ExecStart runs. The hermetic watchdog test has to
+    # stub this, and stubbed it as is-active=active until this assertion
+    # existed, which let a stand-down that could never fire look tested.
+    home_server.succeed("systemctl show system-deploy.service -P Type | grep -Fx oneshot")
+    home_server.succeed(
+        "systemctl show system-deploy.service -P RemainAfterExit | grep -Fx no"
+    )
+    # --no-block, because the start job of a oneshot is not done until its
+    # process exits: systemd-run would otherwise block for the full sleep and
+    # only ever show the settled state.
+    # --collect, because stopping a oneshot mid-run leaves Result=exit-code and
+    # the unit parked in `failed`, which would trip the no-failed-units
+    # assertion that closes this composition.
+    home_server.succeed(
+        "systemd-run --unit=oneshot-contract --service-type=oneshot --no-block --collect "
+        "/run/current-system/sw/bin/sleep 30"
+    )
+    home_server.wait_until_succeeds(
+        "systemctl show oneshot-contract.service -P ActiveState | grep -Fx activating",
+        timeout=30,
+    )
+    home_server.fail("systemctl is-active --quiet oneshot-contract.service")
+    home_server.succeed(
+        "systemctl stop oneshot-contract.service || true; "
+        "systemctl reset-failed oneshot-contract.service || true"
+    )
+    home_server.fail("systemctl --failed --no-legend --plain | grep -F oneshot-contract")
+
     home_server.wait_for_unit("home-assistant.service")
     home_server.wait_until_succeeds(
         "curl -fsS http://127.0.0.1:8123/api/onboarding", timeout=300
@@ -324,6 +543,10 @@ pkgsSystem.testers.runNixOSTest {
     home_server.succeed("test ! -e /run/agenix/smarthome-deploy-ssh-key")
     home_server.fail("find -L /run/agenix -maxdepth 1 -type f -name '*deploy*' -print -quit | grep -q .")
     failed_units = home_server.succeed("systemctl --failed --no-legend")
-    assert failed_units.strip() == "", failed_units
+    assert failed_units.strip() == "", (
+        "units failed in this composition; the system-deploy timer is pushed to 1h "
+        "above, so this is a real failure and not the deploy timer firing mid-run:\n"
+        + failed_units
+    )
   '';
 }
