@@ -11,12 +11,39 @@ automations and dashboards.
 
 ## Open it
 
-From a machine on the tailnet: <https://home-server.tailbebb40.ts.net>.
+From the home wifi: <http://192.168.0.148:8123>. Port 8123 is open on the
+wired LAN interface (`enp1s0`) alone, so household phones keep working when
+Tailscale does not.
+
+**Reserve that address in the router before relying on it.** The lease is one
+hour and the DHCP pool spans the whole subnet, so the address is stable by
+accident. The companion app's internal URL is pinned to it, and the first
+lease change brings back the outage this path exists to prevent.
+
+This path is plain HTTP, and the threat is not the Internet but the wifi
+itself. Under WPA2-PSK anyone who knows the passphrase can decrypt another
+client's traffic, and what they lift is the companion app's long-lived
+refresh token, which is durable admin over the house rather than a glimpse.
+Keeping the passphrase inside the household is the actual control; this
+router cannot create an isolated guest SSID, so a visitor who is given the
+passphrase is inside this boundary until it is changed.
+
+From anywhere else, over the tailnet: <https://home-server.tailbebb40.ts.net>.
 Tailscale Serve terminates TLS with a certificate Tailscale issues for that
-name, so browsers accept a password and `Secure` cookies. Home Assistant
-listens on loopback only, and port 443 is open on `tailscale0` only: there is
-no plain-HTTP path and nothing is exposed to the public Internet. Do not enable
-Funnel.
+name, so browsers accept a password and `Secure` cookies. Port 443 is open on
+`tailscale0` only and 8123 is never open there. Do not enable Funnel.
+
+Be precise about what keeps 8123 off the tailnet, because the two address
+families are protected differently. Home Assistant binds the IPv4 wildcard,
+which includes the tailnet address, so on IPv4 the firewall rule is the only
+thing standing between the tailnet and plain HTTP: it is a rule, not a
+property of the listener. On IPv6 there is no listener to reach at all, since
+Home Assistant binds only `::1`, so a router that ever delegates a routable
+IPv6 prefix cannot carry plain 8123 out with it. IPv4 reaches the Internet
+only through NAT, which no router here forwards inbound.
+
+In the companion app, set the internal URL to the LAN address, the external
+URL to the tailnet one, and the home network SSID, so it switches by itself.
 
 One-time, in the Tailscale admin console: DNS, then enable **HTTPS
 Certificates**. Until then `tailscale-serve-home-assistant.service` fails and
@@ -53,15 +80,25 @@ Revoke by removing the share. Their reachability ends at once.
 
 ## Phones
 
-1. Install the Tailscale app and sign in. Housemates accept the node share in
-   their own Tailscale account instead. Keep Tailscale connected; always-on VPN
-   is optional.
-2. Install the Home Assistant Companion app (iOS or Android). Enter the server
-   URL `https://home-server.tailbebb40.ts.net` and log in with your HA account.
-3. The mobile browser works at the same URL.
+1. Install the Home Assistant Companion app (iOS or Android). Enter
+   `http://192.168.0.148:8123` while on the home wifi and log in with your HA
+   account.
+2. In the app, under Settings → Companion app → Server, set the **internal**
+   URL to `http://192.168.0.148:8123`, the **external** URL to
+   `https://home-server.tailbebb40.ts.net`, and the **home network SSID** to
+   your wifi. The app then uses the LAN at home and the tailnet elsewhere,
+   without being asked.
+3. Install the Tailscale app and sign in, for the away-from-home half.
+   Housemates accept the node share in their own Tailscale account instead.
+4. The mobile browser works at either URL, under the same conditions.
 
-The app reaches HA only while Tailscale is connected. The `mobile_app`
-integration is already enabled in Nix.
+At home the app does not need Tailscale at all; that is the point of the LAN
+path, and it is what keeps the house working when a phone's VPN session
+drops. Away from home Tailscale is required. On Android, Tailscale sessions
+are routinely killed by battery management — on Samsung set the app's battery
+use to Unrestricted and add it to "Never sleeping apps", or the away-from-home
+half will keep failing. The `mobile_app` integration is already enabled in
+Nix.
 
 ## First-time setup
 

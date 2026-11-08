@@ -503,6 +503,16 @@ pkgsSystem.testers.runNixOSTest {
     home_server.wait_until_succeeds(
         "curl -fsS http://127.0.0.1:8123/api/onboarding", timeout=300
     )
+    # Observed sockets, not a restatement of the module: Home Assistant answers
+    # on the IPv4 wildcard, keeps its IPv6 listener on loopback, and holds no
+    # routable IPv6 listener, so plain 8123 cannot follow a delegated IPv6
+    # prefix onto the Internet. The peer column reads `[::]:*`, never
+    # `[::]:8123`, so the negative check cannot match it by accident.
+    listeners = home_server.succeed("ss -lnt | grep -F ':8123'")
+    print("[diag] home-assistant listeners:\n" + listeners)
+    assert "0.0.0.0:8123" in listeners, listeners
+    assert "[::1]:8123" in listeners, listeners
+    assert "[::]:8123" not in listeners, listeners
     # HA itself must accept the generated configuration, custom component
     # included, or a deploy would ship a config it rejects.
     hass = home_server.succeed(
