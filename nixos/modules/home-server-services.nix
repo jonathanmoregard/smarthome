@@ -133,19 +133,6 @@ in
       default = null;
       description = "Reserved runtime EnvironmentFile slot for a future cloud API consumer.";
     };
-    homeAssistantLanInterface = mkOption {
-      type = types.nullOr types.str;
-      default = null;
-      example = "enp1s0";
-      description = ''
-        Wired LAN interface on which Home Assistant's plain-HTTP port is
-        reachable, so household phones keep working when Tailscale does not.
-        Consumed by the Home Assistant module. Null keeps Home Assistant
-        loopback-only, reachable solely through Tailscale Serve. Never name
-        `tailscale0` here: the tailnet is served over TLS by Tailscale Serve,
-        and opening plain HTTP there would undo that.
-      '';
-    };
   };
 
   config = mkMerge [
