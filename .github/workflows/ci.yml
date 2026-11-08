@@ -73,17 +73,19 @@ jobs:
           persist-credentials: false
       - name: Install Nix
         uses: cachix/install-nix-action@ba0dd844c9180cbf77aa72a116d6fbc515d0e87b # v27
-      - name: Build home-server checks
+      # `nix flake check` enumerates `checks` from the flake itself, so a check
+      # cannot be declared and never built. The list this replaced was
+      # hand-maintained and had silently drifted: `pair-zigbee` and
+      # `zigbee2mqtt-watchdog` were declared in flake.nix and absent here.
+      # `classify-paths.sh` routes every non-docs path into this one lane, so
+      # building the whole `checks` set is what this lane already meant to do.
+      #
+      # The toplevel build stays explicit: `nix flake check` only evaluates
+      # `nixosConfigurations`, it does not realise the system closure.
+      - name: Build all flake checks and the home-server closure
         run: |
+          nix flake check -L
           nix build --no-link -L \
-            .#checks.x86_64-linux.standalone-host \
-            .#checks.x86_64-linux.home-server-ssh \
-            .#checks.x86_64-linux.home-server-services \
-            .#checks.x86_64-linux.system-deploy \
-            .#checks.x86_64-linux.system-activator \
-            .#checks.x86_64-linux.hydrator \
-            .#checks.x86_64-linux.vm-home-server \
-            .#checks.x86_64-linux.vm-home-server-cd \
             .#nixosConfigurations.home-server.config.system.build.toplevel
 
   ci:
