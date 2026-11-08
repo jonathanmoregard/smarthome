@@ -75,8 +75,11 @@ jobs:
         uses: cachix/install-nix-action@ba0dd844c9180cbf77aa72a116d6fbc515d0e87b # v27
       # `nix flake check` enumerates `checks` from the flake itself, so a check
       # cannot be declared and never built. The list this replaced was
-      # hand-maintained and had silently drifted: `pair-zigbee` and
-      # `zigbee2mqtt-watchdog` were declared in flake.nix and absent here.
+      # hand-maintained and had silently drifted: `pair-zigbee` was declared in
+      # flake.nix and absent here, so as far as CI was concerned it had never
+      # run. The same list also had to be edited by hand to add
+      # `zigbee2mqtt-watchdog` next to the check itself -- that is the drift
+      # mechanism rather than a second omission, and it is what this removes.
       # `classify-paths.sh` routes every non-docs path into this one lane, so
       # building the whole `checks` set is what this lane already meant to do.
       #
