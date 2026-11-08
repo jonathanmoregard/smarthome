@@ -466,6 +466,39 @@ pkgsSystem.testers.runNixOSTest {
         "systemctl stop zigbee2mqtt.service; systemctl reset-failed zigbee2mqtt.service"
     )
 
+    # The watchdog stands down during a deploy by reading ActiveState rather
+    # than calling `systemctl is-active`, and that is only correct because of
+    # what systemd reports for a running Type=oneshot. Both halves are pinned
+    # here against real systemd: that the deploy unit has that shape, and that
+    # a unit of that shape reports "activating" -- with is-active failing --
+    # for the whole time its ExecStart runs. The hermetic watchdog test has to
+    # stub this, and stubbed it as is-active=active until this assertion
+    # existed, which let a stand-down that could never fire look tested.
+    home_server.succeed("systemctl show system-deploy.service -P Type | grep -Fx oneshot")
+    home_server.succeed(
+        "systemctl show system-deploy.service -P RemainAfterExit | grep -Fx no"
+    )
+    # --no-block, because the start job of a oneshot is not done until its
+    # process exits: systemd-run would otherwise block for the full sleep and
+    # only ever show the settled state.
+    # --collect, because stopping a oneshot mid-run leaves Result=exit-code and
+    # the unit parked in `failed`, which would trip the no-failed-units
+    # assertion that closes this composition.
+    home_server.succeed(
+        "systemd-run --unit=oneshot-contract --service-type=oneshot --no-block --collect "
+        "/run/current-system/sw/bin/sleep 30"
+    )
+    home_server.wait_until_succeeds(
+        "systemctl show oneshot-contract.service -P ActiveState | grep -Fx activating",
+        timeout=30,
+    )
+    home_server.fail("systemctl is-active --quiet oneshot-contract.service")
+    home_server.succeed(
+        "systemctl stop oneshot-contract.service || true; "
+        "systemctl reset-failed oneshot-contract.service || true"
+    )
+    home_server.fail("systemctl --failed --no-legend --plain | grep -F oneshot-contract")
+
     home_server.wait_for_unit("home-assistant.service")
     home_server.wait_until_succeeds(
         "curl -fsS http://127.0.0.1:8123/api/onboarding", timeout=300

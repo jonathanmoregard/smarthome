@@ -9,9 +9,16 @@
 # its device unit and wanted by it, so an unplug stops it and a re-add starts
 # it), but any cause nobody predicted still leaves the radio down indefinitely.
 #
-# The authority on "working" is the bridge's own availability topic, which
-# Zigbee2MQTT publishes retained and backs with an MQTT will, so the broker
-# flips it to offline by itself if Zigbee2MQTT dies or its connection drops.
+# The signal is the bridge's own availability topic, which Zigbee2MQTT
+# publishes retained and backs with an MQTT will, so the broker flips it to
+# offline by itself if Zigbee2MQTT dies or its connection drops.
+#
+# Be clear about what that proves: "online" means the process is alive and
+# talking to the broker, not that the radio is passing traffic. The deaths the
+# topic reports are mostly handled already by Restart=always, so the case this
+# adds cover for is a narrow one -- Zigbee2MQTT still running with its broker
+# connection dead or wedged, plus whatever else leaves the unit up and useless
+# that nobody has thought of yet. Narrow is the honest claim for it.
 #
 # Deliberately narrow about when it acts, because a watchdog that fights another
 # owner of the unit is worse than no watchdog:
@@ -75,15 +82,28 @@ skip() {
 }
 
 active() { systemctl is-active --quiet -- "$1"; }
+state_of() { systemctl show --property=ActiveState --value -- "$1"; }
 
-active "$deploy_unit" && skip 'a deploy is in progress; standing down'
+# `is-active` cannot see a deploy in flight. system-deploy.service is
+# Type=oneshot with no RemainAfterExit, so while its ExecStart runs systemd
+# reports ActiveState=activating and is-active exits non-zero; it reads
+# "active" only for the instant a RemainAfterExit unit would hold. Keying the
+# stand-down on is-active therefore meant it never fired, and the watchdog
+# could restart Zigbee2MQTT underneath a deploy -- which the deploy's own
+# health gate then reads as the new generation flapping, and rolls back. So
+# the question is whether a job is in flight, and only a settled inactive or
+# failed says no.
+case "$(state_of "$deploy_unit")" in
+  inactive | failed) ;;
+  *) skip 'a deploy is in progress; standing down' ;;
+esac
 active "$broker_unit" || skip "$broker_unit is not active; nothing to judge"
 if [ -n "$device_unit" ]; then
   active "$device_unit" ||
     skip 'the coordinator is not present; its device unit restarts the service when it returns'
 fi
 
-unit_state=$(systemctl show --property=ActiveState --value -- "$unit")
+unit_state=$(state_of "$unit")
 case "$unit_state" in
   inactive)
     skip 'the unit is stopped rather than broken; leaving it alone' ;;

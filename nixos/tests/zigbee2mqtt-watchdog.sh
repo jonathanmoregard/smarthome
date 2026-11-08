@@ -29,7 +29,15 @@ case "$1" in
     done
     exit 3
     ;;
-  show) printf '%s\n' "${UNIT_STATE:-active}" ;;
+  show)
+    # Per unit: the script asks about two of them and they are in unrelated
+    # states. A deploy in flight is "activating" while the watched unit is
+    # whatever the scenario says.
+    case "$last" in
+      system-deploy.service) printf '%s\n' "${DEPLOY_STATE:-inactive}" ;;
+      *) printf '%s\n' "${UNIT_STATE:-active}" ;;
+    esac
+    ;;
   reset-failed) printf 'reset-failed %s\n' "$last" >> "$ACTION_LOG" ;;
   restart) printf 'restart %s\n' "$last" >> "$ACTION_LOG" ;;
   *) exit 64 ;;
@@ -126,13 +134,26 @@ check "restart requested despite an online payload" \
   "reset-failed zigbee2mqtt.service;restart zigbee2mqtt.service;" "$(actions "$state")"
 
 printf '\n8. a deploy in progress is never fought\n'
-state=$(new_state)
-for _ in 1 2 3; do
-  ACTIVE_UNITS="mosquitto.service system-deploy.service" UNIT_STATE=failed \
-    BRIDGE_PAYLOAD="" tick "$state"
+# system-deploy.service is Type=oneshot with no RemainAfterExit, so while its
+# ExecStart runs systemd reports ActiveState=activating and `systemctl is-active`
+# exits non-zero. This scenario used to model the running deploy as is-active=
+# active, which is a state systemd never puts it in, so a stand-down that could
+# never fire looked tested. The states below are the whole "job in flight"
+# class, so the check cannot pass by matching one literal string.
+#
+# Asserted after every tick, not once at the end: `tick` truncates the action
+# log, so a trailing check alone sees only the last tick and would miss a
+# restart fired on tick 2 -- which is exactly what a broken stand-down does.
+for deploy_state in activating active deactivating reloading; do
+  state=$(new_state)
+  for tick_number in 1 2 3; do
+    ACTIVE_UNITS="mosquitto.service" DEPLOY_STATE="$deploy_state" UNIT_STATE=failed \
+      BRIDGE_PAYLOAD="" tick "$state"
+    check "no action on tick $tick_number while the deploy is $deploy_state" \
+      "" "$(actions "$state")"
+  done
+  check "streak cleared, not carried ($deploy_state)" "0" "$(counter x "$state")"
 done
-check "no action while deploying" "" "$(actions "$state")"
-check "streak cleared, not carried" "0" "$(counter x "$state")"
 
 printf '\n9. with the broker down there is nothing to judge\n'
 state=$(new_state)
@@ -170,7 +191,7 @@ printf '\n13. a blind tick clears the streak rather than carrying it\n'
 state=$(new_state)
 ACTIVE_UNITS="mosquitto.service" UNIT_STATE=active BRIDGE_PAYLOAD=offline tick "$state"
 check "streak at one" "1" "$(counter x "$state")"
-ACTIVE_UNITS="mosquitto.service system-deploy.service" UNIT_STATE=active \
+ACTIVE_UNITS="mosquitto.service" DEPLOY_STATE=activating UNIT_STATE=active \
   BRIDGE_PAYLOAD=offline tick "$state"
 check "streak cleared by the skip" "0" "$(counter x "$state")"
 ACTIVE_UNITS="mosquitto.service" UNIT_STATE=active BRIDGE_PAYLOAD=offline tick "$state"
