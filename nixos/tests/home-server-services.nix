@@ -499,6 +499,18 @@ pkgsSystem.testers.runNixOSTest {
     )
     home_server.fail("systemctl --failed --no-legend --plain | grep -F oneshot-contract")
 
+    # The deploy's baseline excuses a unit that is already down, and the thing
+    # that stops that from stranding Zigbee2MQTT is this reverse dependency: a
+    # switch starts every active target, so being wanted by multi-user.target is
+    # what gets an excused unit a start job. The module above adds the device
+    # unit to `wantedBy` for replug recovery, and a device unit is not a target
+    # -- if that list ever became only the device unit, the deploy would quietly
+    # stop reviving it and the watchdog would skip the result as a deliberate
+    # stop. home-server-cd pins the behaviour; this pins the wiring it needs.
+    home_server.succeed(
+        "systemctl show zigbee2mqtt.service -P WantedBy | grep -F multi-user.target"
+    )
+
     home_server.wait_for_unit("home-assistant.service")
     home_server.wait_until_succeeds(
         "curl -fsS http://127.0.0.1:8123/api/onboarding", timeout=300

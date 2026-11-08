@@ -163,6 +163,18 @@ is_baseline_exempt() {
 # Group members are deliberately not baselined. The one group is the
 # system-deploy/nixos-deploy timer rename, whose members are timers; a timer
 # cannot exec and then die, which is the failure this exemption is about.
+#
+# Exempting a unit does not abandon it, and the switch rather than anything here
+# is what saves it: it starts every active target, and starting an
+# already-active target still pulls up its inactive Wants=. Exemption keys on a
+# non-empty WantedBy/RequiredBy, the same fact that earns the unit that start
+# job -- measured on real systemd, including for a unit reset from failed to
+# inactive by reset_health_units below. The watchdog next door depends on it,
+# since it leaves an `inactive` unit alone as somebody's deliberate stop. The
+# pair resisted being split: a unit wanted only by a target that is not active
+# reports an empty WantedBy, so it is required here rather than exempt and fails
+# the deploy shut instead of being stranded. home-server-cd pins the live half
+# by stopping a health unit before a deploy and requiring it back after.
 capture_baseline() {
   local unit load_state active_status wanted_by required_by
   local -a units=()
