@@ -155,28 +155,59 @@ in
       (lib.mkIf lanEnabled { ${lanInterface}.allowedTCPPorts = [ 8123 ]; })
     ];
 
-    assertions = [
-      {
-        assertion = !lanEnabled || lanInterface != "tailscale0";
-        message =
-          "homeServer.homeAssistantLanInterface must name a wired LAN interface;"
-          + " tailscale0 is served over TLS by Tailscale Serve.";
-      }
-      {
-        # A trusted interface takes a blanket accept ahead of any per-port rule,
-        # so trusting tailscale0 would publish plain 8123 on the tailnet now
-        # that Home Assistant binds the IPv4 wildcard. The common NixOS snippet
-        # that adds it is exactly how this would happen by accident.
-        assertion =
-          !lanEnabled
-          || !(builtins.elem "tailscale0" config.networking.firewall.trustedInterfaces);
-        message =
-          "networking.firewall.trustedInterfaces must not contain tailscale0 while"
-          + " homeServer.homeAssistantLanInterface is set: a blanket accept there"
-          + " would expose Home Assistant's plain-HTTP port on the tailnet, which"
-          + " Tailscale Serve already carries over TLS on 443.";
-      }
-    ];
+    # Home Assistant binds the IPv4 wildcard, which includes the tailnet
+    # address, so on IPv4 only the firewall keeps plain 8123 off the tailnet.
+    # That makes it a rule rather than a property of the listener, and these
+    # assertions guard the three ways the rule is lost by accident.
+    assertions =
+      let
+        # iptables reads a trailing `+` as a prefix wildcard, so `tailscale+`
+        # matches tailscale0 while comparing unequal to it, and a bare `+`
+        # matches everything.
+        reachesTailnet =
+          name:
+          name == "tailscale0"
+          || (
+            lib.hasSuffix "+" name
+            && lib.hasPrefix (lib.removeSuffix "+" name) "tailscale0"
+          );
+        firewall = config.networking.firewall;
+        # The global list renders with no `-i`, so it opens a port on every
+        # interface, tailscale0 included.
+        globallyOpen =
+          builtins.elem 8123 firewall.allowedTCPPorts
+          || builtins.any (range: range.from <= 8123 && 8123 <= range.to)
+            firewall.allowedTCPPortRanges;
+      in
+      [
+        {
+          assertion = !lanEnabled || !(reachesTailnet lanInterface);
+          message =
+            "homeServer.homeAssistantLanInterface must name a wired LAN interface."
+            + " It may not be tailscale0, nor an iptables `+` wildcard that"
+            + " matches it: the tailnet is served over TLS by Tailscale Serve.";
+        }
+        {
+          # A trusted interface takes a blanket accept ahead of any per-port
+          # rule. The common NixOS snippet that adds tailscale0 is exactly how
+          # this would happen by accident.
+          assertion =
+            !lanEnabled || !(builtins.any reachesTailnet firewall.trustedInterfaces);
+          message =
+            "networking.firewall.trustedInterfaces must not reach tailscale0 while"
+            + " homeServer.homeAssistantLanInterface is set: a blanket accept there"
+            + " would expose Home Assistant's plain-HTTP port on the tailnet, which"
+            + " Tailscale Serve already carries over TLS on 443.";
+        }
+        {
+          assertion = !lanEnabled || !globallyOpen;
+          message =
+            "networking.firewall.allowedTCPPorts/allowedTCPPortRanges must not open"
+            + " 8123 while homeServer.homeAssistantLanInterface is set: the global"
+            + " list renders without an interface match, so it would publish Home"
+            + " Assistant's plain-HTTP port on the tailnet as well as the LAN.";
+        }
+      ];
 
     systemd.services.tailscale-serve-home-assistant = lib.mkIf config.services.tailscale.enable {
       description = "Serve Home Assistant over HTTPS on the tailnet";

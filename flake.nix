@@ -106,6 +106,9 @@
         vm-home-server = import ./nixos/tests/home-server.nix {
           inherit agenix pkgsSystem;
         };
+        home-assistant-lan = import ./nixos/tests/home-assistant-lan.nix {
+          inherit pkgsSystem;
+        };
         vm-home-server-cd = import ./nixos/tests/home-server-cd.nix {
           inherit agenix pkgsSystem;
           inputSources = homeServerCdInputSources;

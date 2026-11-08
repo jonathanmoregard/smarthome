@@ -31,12 +31,16 @@ passphrase is inside this boundary until it is changed.
 From anywhere else, over the tailnet: <https://home-server.tailbebb40.ts.net>.
 Tailscale Serve terminates TLS with a certificate Tailscale issues for that
 name, so browsers accept a password and `Secure` cookies. Port 443 is open on
-`tailscale0` only and 8123 is never open there. Nothing is exposed to the
-public Internet, and that holds by construction rather than by the router's
-good behaviour: Home Assistant binds no routable address. Only the IPv4
-wildcard is bound, reachable on the LAN behind NAT, while IPv6 stays on
-loopback, so a router that ever delegates a routable IPv6 prefix cannot carry
-plain 8123 out with it. Do not enable Funnel.
+`tailscale0` only and 8123 is never open there. Do not enable Funnel.
+
+Be precise about what keeps 8123 off the tailnet, because the two address
+families are protected differently. Home Assistant binds the IPv4 wildcard,
+which includes the tailnet address, so on IPv4 the firewall rule is the only
+thing standing between the tailnet and plain HTTP: it is a rule, not a
+property of the listener. On IPv6 there is no listener to reach at all, since
+Home Assistant binds only `::1`, so a router that ever delegates a routable
+IPv6 prefix cannot carry plain 8123 out with it. IPv4 reaches the Internet
+only through NAT, which no router here forwards inbound.
 
 In the companion app, set the internal URL to the LAN address, the external
 URL to the tailnet one, and the home network SSID, so it switches by itself.
@@ -76,15 +80,25 @@ Revoke by removing the share. Their reachability ends at once.
 
 ## Phones
 
-1. Install the Tailscale app and sign in. Housemates accept the node share in
-   their own Tailscale account instead. Keep Tailscale connected; always-on VPN
-   is optional.
-2. Install the Home Assistant Companion app (iOS or Android). Enter the server
-   URL `https://home-server.tailbebb40.ts.net` and log in with your HA account.
-3. The mobile browser works at the same URL.
+1. Install the Home Assistant Companion app (iOS or Android). Enter
+   `http://192.168.0.148:8123` while on the home wifi and log in with your HA
+   account.
+2. In the app, under Settings → Companion app → Server, set the **internal**
+   URL to `http://192.168.0.148:8123`, the **external** URL to
+   `https://home-server.tailbebb40.ts.net`, and the **home network SSID** to
+   your wifi. The app then uses the LAN at home and the tailnet elsewhere,
+   without being asked.
+3. Install the Tailscale app and sign in, for the away-from-home half.
+   Housemates accept the node share in their own Tailscale account instead.
+4. The mobile browser works at either URL, under the same conditions.
 
-The app reaches HA only while Tailscale is connected. The `mobile_app`
-integration is already enabled in Nix.
+At home the app does not need Tailscale at all; that is the point of the LAN
+path, and it is what keeps the house working when a phone's VPN session
+drops. Away from home Tailscale is required. On Android, Tailscale sessions
+are routinely killed by battery management — on Samsung set the app's battery
+use to Unrestricted and add it to "Never sleeping apps", or the away-from-home
+half will keep failing. The `mobile_app` integration is already enabled in
+Nix.
 
 ## First-time setup
 
