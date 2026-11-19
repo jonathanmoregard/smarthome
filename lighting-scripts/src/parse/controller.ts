@@ -1,0 +1,164 @@
+/**
+ * Parsing for the controller handlers -- `ls_switch_plan`, `ls_plan`,
+ * `ls_apply` and `ls_remote_command` -- and for the override sensor and cache
+ * attributes `ls_plan` reads.
+ *
+ * `ls_plan`'s attribute reads are strict where the inline reads were
+ * (`optionalAttributeObject`: absent or null is `{}`, any other non-mapping
+ * raises), and each is a function the domain calls exactly where the inline
+ * read sat, between the inter-handler calls. The documents `ls_plan` forwards
+ * -- the override mapping, the active overrides, the cached gradients, the
+ * power and switch-range mappings, the range defaults -- are carried. So is
+ * whatever answered to `ls_plan` when `ls_apply` dry-runs it: that verbatim
+ * pass-through is pinned by `tests/parity/test_bridge.py` (see
+ * `tasks/ls-plan-design.md`).
+ */
+import type { JsonObject, JsonValue } from '../runtime/context.ts';
+import { lazy, object, requireArray, requireBoolean, requireObject, requireString } from '../runtime/parse.ts';
+import { carry } from '../runtime/verbatim.ts';
+import type { Verbatim } from '../runtime/verbatim.ts';
+import { WARM_END } from '../domain/scale.ts';
+import type { RGB } from '../domain/scale.ts';
+import { optionalTimestamp } from './accessors.ts';
+import { opaqueMap } from './overrides.ts';
+import type { OpaqueMap } from './overrides.ts';
+import { requireRgb } from './scale.ts';
+import type { ApplyArgs, PlanArgs, PlanOverrides, RemoteCommandArgs, SwitchPlanArgs } from '../domain/controller.ts';
+
+const lenientList = (v: JsonValue | undefined): JsonValue[] => Array.isArray(v) ? v : [];
+
+function optionalScriptBoolean(value: JsonValue | undefined, context: string): boolean {
+  return value === undefined ? false : requireBoolean(value, context);
+}
+
+/** Script callers use null for an explicitly empty optional payload. */
+function optionalScriptObject(value: JsonValue | undefined, context: string): JsonObject | undefined {
+  if (value === undefined || value === null) return undefined;
+  return requireObject({ value }, 'value', context);
+}
+
+/** HA entity attributes use null for no value; present values must be objects. */
+function optionalAttributeObject(value: JsonValue | undefined, context: string): JsonObject {
+  if (value === undefined || value === null) return {};
+  return requireObject({ value }, 'value', context);
+}
+
+function planOverridesOf(value: JsonObject): PlanOverrides {
+  return { document: carry(value), entries: opaqueMap(value) };
+}
+
+/** One switch rule's interval: `[min, max]` for a custom rule, else the profile's default; `undefined` unless a valid 0-100 range. */
+function switchRange(rule: JsonObject, defaults: JsonObject): [number, number] | undefined {
+  const interval = rule.profile === 'custom' ? [rule.min, rule.max] : lenientList(defaults[String(rule.profile)]);
+  const low = interval[0], high = interval[1];
+  if (interval.length !== 2 || typeof low !== 'number' || typeof high !== 'number' || !(0 <= low && low <= high && high <= 100)) return undefined;
+  return [low, high];
+}
+
+// Captured targets/defaults each use mapping.get once and ranges uses
+// mapping.items once; all three therefore require real mappings. A rule and a
+// room target are read leniently; the target's `on` is required only once its
+// rule and target both apply.
+export function parseSwitchPlanArgs(args: JsonObject): SwitchPlanArgs {
+  const targets = requireObject(args, 'targets', 'ls_switch_plan');
+  const ranges = requireObject(args, 'ranges', 'ls_switch_plan');
+  const defaults = requireObject(args, 'defaults', 'ls_switch_plan');
+  return {
+    // Each rule's interval is read at its turn: `String(profile)` is the inline coercion and can raise.
+    rules: Object.entries(ranges).map(([entity, raw]) => ({ entity, range: () => switchRange(object(raw), defaults) })),
+    roomTarget: room => {
+      const group = room === undefined ? {} : object(targets[`room:${room}`]);
+      return {
+        populated: Object.keys(group).length > 0,
+        // `Number(...)`: the JavaScript coercion the inline arithmetic applied.
+        level: () => Number(group.level),
+        on: () => requireBoolean(group.on, `ls_switch_plan.targets.room:${room}.on`),
+      };
+    },
+  };
+}
+
+// Captured test_now has one default(none), reason two default('config')
+// sites, room one default(''), and test_overrides is optional at two sites.
+export function parsePlanArgs(args: JsonObject): PlanArgs {
+  const testOverrides = optionalScriptObject(args.test_overrides, 'ls_plan.test_overrides');
+  return {
+    testOverrides: testOverrides === undefined ? undefined : planOverridesOf(testOverrides),
+    // Captured ls_plan reads test_now raw behind default(none); a numeric
+    // epoch is as legal as a date string, and ls_base parses the same field
+    // with optionalTimestamp. requireString here rejected a valid value.
+    testNow: optionalTimestamp(args.test_now) ?? null,
+    reason: args.reason === undefined ? 'config' : requireString(args, 'reason', 'ls_plan'),
+    room: args.room === undefined ? '' : requireString(args, 'room', 'ls_plan'),
+  };
+}
+
+// Captured dry_run/force_all use boolean defaults, test_now and
+// test_overrides are definition-guarded, reason defaults only when absent,
+// and lights is consumed only after the dry-run/test guard.
+export function parseApplyArgs(args: JsonObject): ApplyArgs {
+  const dryRun = optionalScriptBoolean(args.dry_run, 'ls_apply.dry_run');
+  const forceAll = optionalScriptBoolean(args.force_all, 'ls_apply.force_all');
+  // Same as ls_plan: captured source reads test_now raw.
+  const testNow = optionalTimestamp(args.test_now);
+  const hasTestOverrides = Object.hasOwn(args, 'test_overrides');
+  const testOverrides = optionalScriptObject(args.test_overrides, 'ls_apply.test_overrides');
+  return {
+    dryRun,
+    forceAll,
+    testNow,
+    hasTestOverrides,
+    testOverrides: testOverrides === undefined ? undefined : carry(testOverrides),
+    reason: args.reason === undefined ? 'config' : requireString(args, 'reason', 'ls_apply'),
+    lights: lazy(() => carry(args.lights === undefined ? [] : requireArray(args, 'lights', 'ls_apply'))),
+  };
+}
+
+// Captured source/area/command are raw at four/four/two sites and drive
+// identifiers and command dispatch; dry_run has default(false).
+export function parseRemoteCommandArgs(args: JsonObject): RemoteCommandArgs {
+  return {
+    source: requireString(args, 'source', 'ls_remote_command'),
+    area: requireString(args, 'area', 'ls_remote_command'),
+    command: requireString(args, 'command', 'ls_remote_command'),
+    dryRun: optionalScriptBoolean(args.dry_run, 'ls_remote_command.dry_run'),
+  };
+}
+
+/** `sensor.ls_overrides`'s `overrides`, read strictly: absent or null is `{}`, another non-mapping raises. */
+export function planOverrides(value: JsonValue | undefined): PlanOverrides {
+  return planOverridesOf(optionalAttributeObject(value, 'ls_plan.overrides'));
+}
+
+/** An attribute mapping `ls_plan` forwards, read strictly: absent or null is `{}`, another non-mapping raises. */
+export function planMapping(value: JsonValue | undefined, context: string): Verbatim {
+  return carry(optionalAttributeObject(value, context));
+}
+
+/** The warm-end test lamp's `rgb_color`, or the built-in warm end when it has none. */
+export function planWarmEnd(value: JsonValue | undefined): RGB {
+  // Home Assistant uses null for an attribute with no value.
+  return value === undefined || value === null ? WARM_END : requireRgb(value, 'ls_plan.warm_end');
+}
+
+/** A room cache's gradients, read leniently; entries carried. */
+export function cachedGradients(value: JsonValue | undefined): OpaqueMap {
+  return opaqueMap(object(value).gradients);
+}
+
+/** `range_defaults`, or the built-in ranges when the attribute is absent or null; another non-mapping raises. */
+export function planRangeDefaults(value: JsonValue | undefined): Verbatim {
+  return carry(value === undefined || value === null
+    ? { bright: [90, 100], cosy: [30, 60] }
+    : requireObject({ value }, 'value', 'ls_plan.range_defaults'));
+}
+
+/** The override sensor's `last_updated`, required. */
+export function planRevision(value: string | undefined): string {
+  return requireString({ value: value === undefined ? null : value }, 'value', 'ls_plan.revision');
+}
+
+/** Whatever answered to `ls_plan`, carried unread. */
+export function planPassThrough(value: JsonValue): Verbatim {
+  return carry(value);
+}

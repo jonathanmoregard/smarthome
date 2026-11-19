@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { JsonObject, JsonValue } from '../../src/runtime/context.ts';
 import { controllerHandlers, switchPlan } from '../../src/domain/controller.ts';
+import { parseSwitchPlanArgs } from '../../src/parse/controller.ts';
 import { remoteInputHandlers, remotePlan } from '../../src/domain/remote-input.ts';
 import { stateStoreHandlers } from '../../src/domain/state-store.ts';
 import { uiHandlers } from '../../src/domain/ui-state.ts';
@@ -27,11 +28,11 @@ function remoteContext(value: JsonObject, nextFs: JsonObject['value'] = 100) {
 test('switch targets accept only a real on boolean', () => {
   const ctx = context();
   ctx.areas['switch.lamp'] = 'studio';
-  assert.throws(() => switchPlan(ctx, {
+  assert.throws(() => switchPlan(ctx, parseSwitchPlanArgs({
     targets: { 'room:studio': { on: 'yes', level: 128 } },
     ranges: { 'switch.lamp': { profile: 'custom', min: 0, max: 100 } },
     defaults: {},
-  }), /must be true or false/);
+  })), /must be true or false/);
 });
 
 test('switch planning rejects malformed top-level mappings', () => {

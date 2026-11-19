@@ -388,12 +388,23 @@ const DOMAIN = join(ROOT, 'src/domain');
  * carried unread, in place; an adjustment's numbers are read on demand with
  * `num()`'s own message. The `ctx.now` revision fallback is a known
  * divergence, unchanged and marked.
+ *
+ * U11, `controller.ts`, clears the module on every column:
+ * `jsonTypes 36 -> 15`, `lenientAccessors 55 -> 49`,
+ * `rawJsonReturns 5 -> 0`. `src/parse/controller.ts` holds the four
+ * handlers' argument parsers and `ls_plan`'s attribute reads, each called
+ * where the inline read sat, between the inter-handler calls. A switch rule's
+ * interval and a room target's `Number(level)` and `on` are read at the
+ * rule's turn. The overrides (as stored and entry by entry), the active
+ * overrides, the cached gradients, the power and switch-range mappings and the
+ * range defaults are carried. `ls_apply` answers `Verbatim | null`: whatever
+ * answered to `ls_plan` is still forwarded verbatim (`test_bridge.py`).
  */
 const CEILINGS = {
-  jsonTypes: 36,
+  jsonTypes: 15,
   validatedBags: 0,
-  lenientAccessors: 55,
-  rawJsonReturns: 5,
+  lenientAccessors: 49,
+  rawJsonReturns: 0,
 };
 
 /** Comments may legitimately name these types while explaining why they are gone. */
