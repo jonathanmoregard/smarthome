@@ -1,28 +1,31 @@
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { jinjaTruthy, optionalBoolean, requireBoolean, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { jinjaTruthy, optionalBoolean, requireBoolean, requireObject, requireString } from '../runtime/parse.ts';
 import { typed } from '../runtime/entrypoints.ts';
+import { jsonEqual, sameDocument } from '../runtime/verbatim.ts';
+import type { Verbatim } from '../runtime/verbatim.ts';
 import { list, num, timestamp } from './schedule.ts';
+import { parseGroupPlanArgs } from '../parse/grouping.ts';
 
-function mapping(value: JsonValue | undefined): value is JsonObject {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-function strings(value: JsonValue | undefined): string[] { return list(value).filter((v): v is string => typeof v === 'string'); }
-function topic(value: JsonValue | undefined): value is string {
-  return typeof value === 'string' && value.startsWith('zigbee2mqtt/') && value.endsWith('/set');
-}
 function compare(a: string, b: string): number { return a < b ? -1 : a > b ? 1 : 0; }
-/** JSON structural equality, including mapping-order independence as in Jinja/Python. */
-function equal(a: JsonValue | undefined, b: JsonValue | undefined): boolean {
-  if (a === b) return true;
-  if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((v, i) => equal(v, b[i]));
-  if (mapping(a) && mapping(b)) {
-    const keys = Object.keys(a);
-    return keys.length === Object.keys(b).length && keys.every(k => Object.hasOwn(b, k) && equal(a[k], b[k]));
-  }
-  return false;
+/** Element-wise `===`, which is what JSON equality reduces to on two string lists. */
+function sameStrings(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((v, i) => v === b[i]);
 }
-interface EndpointRow { entity: string; owner: string; topic: string; payload: JsonObject }
-interface Candidate { id: JsonValue; topic: string; members: string[] }
+
+/**
+ * One endpoint's wanted publish. `payload` is the lamp's MQTT body, assembled
+ * by `framePlan` and compared byte for byte downstream, so the planner holds it
+ * opaquely: it only ever asks whether two payloads are the same document.
+ */
+export type EndpointRow = { entity: string; owner: string; topic: string; payload: Verbatim };
+/**
+ * A multicast group the planner may use: verified, on a `/set` topic, with
+ * more than one member and no duplicate or non-string member. `id` is the
+ * group's own id when it names one and its topic otherwise, raw either way.
+ */
+export type MulticastGroup = { id: Verbatim; topic: string; members: string[] };
+/** `undefined` in `rows` is a row that failed to parse; it is rejected by index. */
+export type GroupPlanArgs = { rows: Array<EndpointRow | undefined>; groups: MulticastGroup[] };
 
 function objectOrEmpty(value: JsonValue | undefined, context: string): JsonObject {
   if (value === undefined) return {};
@@ -38,19 +41,21 @@ function stringList(value: JsonValue | undefined, context: string): string[] {
 /**
  * One MQTT publish the planner decided on.
  *
- * `payload` and `group` stay JSON deliberately. The payload is the lamp's own
- * MQTT body, assembled by `framePlan` and carried through here untouched;
+ * `payload` and `group` are carried {@link Verbatim}. The payload is the lamp's
+ * own MQTT body, assembled by `framePlan` and passed through here untouched;
  * `group` is the multicast group's `id` when it names one and its `topic`
  * otherwise, both read raw from the catalog. These are compared bytes, so
- * narrowing either would be a projection -- THE INVARIANT. Everything else is
- * decided here, from locals.
+ * narrowing either would be a projection -- THE INVARIANT -- and the opaque
+ * handle is what lets the domain hold them without being able to read them.
+ * `null` is the unicast marker, decided here. Everything else is decided here,
+ * from locals.
  */
 export type GroupCommand = {
   topic: string;
-  payload: JsonObject;
+  payload: Verbatim;
   members: string[];
   owners: string[];
-  group: JsonValue;
+  group: Verbatim | null;
 };
 /** Why one endpoint row was dropped. Both shapes are built here. */
 export type RejectedRow =
@@ -69,13 +74,12 @@ export type GroupPlanResult = {
 };
 
 /** Exact live effects_group_plan: only verified complete groups may replace unicast. */
-export function planGroups(rows: JsonValue[], groups: JsonValue[]): GroupPlanResult {
+export function planGroups(rows: Array<EndpointRow | undefined>, groups: MulticastGroup[]): GroupPlanResult {
   const byEntity = new Map<string, EndpointRow>();
   const blocked = new Set<string>();
   const rejected: RejectedRow[] = [];
   rows.forEach((row, index) => {
-    if (!mapping(row) || typeof row.entity !== 'string' || typeof row.owner !== 'string' || !topic(row.topic)
-      || !mapping(row.payload) || Object.keys(row.payload).length === 0) {
+    if (row === undefined) {
       rejected.push({ reason: 'invalid_endpoint_row', index });
       return;
     }
@@ -83,27 +87,24 @@ export function planGroups(rows: JsonValue[], groups: JsonValue[]): GroupPlanRes
     if (blocked.has(entity)) return;
     const previous = byEntity.get(entity);
     if (previous === undefined) byEntity.set(entity, { entity, owner: row.owner, topic: row.topic, payload: row.payload });
-    else if (previous.owner !== row.owner || previous.topic !== row.topic || !equal(previous.payload, row.payload)) {
+    else if (previous.owner !== row.owner || previous.topic !== row.topic || !sameDocument(previous.payload, row.payload)) {
       blocked.add(entity);
       byEntity.delete(entity);
       rejected.push({ entity, reason: 'conflicting_endpoint_rows' });
     }
   });
-  const candidates: Candidate[] = [];
-  for (const g of groups) {
-    if (!mapping(g) || g.verified !== true || !topic(g.topic) || !Array.isArray(g.members) || g.members.length <= 1) continue;
-    const members = strings(g.members);
-    if (members.length !== g.members.length || new Set(members).size !== members.length) continue;
-    candidates.push({ id: Object.hasOwn(g, 'id') ? g.id as JsonValue : g.topic, topic: g.topic, members });
-  }
-  candidates.sort((a, b) => b.members.length - a.members.length || compare(a.topic, b.topic));
+  const candidates = [...groups];
+  candidates.sort((a, b) => {
+    const larger = b.members.length - a.members.length;
+    return larger !== 0 ? larger : compare(a.topic, b.topic);
+  });
   const used = new Set<string>();
   const commands: GroupCommand[] = [];
   for (const group of candidates) {
-    if (candidates.some(other => other.topic === group.topic && !equal([...other.members].sort(compare), [...group.members].sort(compare)))) continue;
+    if (candidates.some(other => other.topic === group.topic && !sameStrings([...other.members].sort(compare), [...group.members].sort(compare)))) continue;
     const members = group.members.map(e => byEntity.get(e));
     const first = members[0];
-    if (first === undefined || group.members.some(e => used.has(e)) || members.some(row => row === undefined || !equal(row.payload, first.payload))) continue;
+    if (first === undefined || group.members.some(e => used.has(e)) || members.some(row => row === undefined || !sameDocument(row.payload, first.payload))) continue;
     const owners = [...new Set(members.flatMap(row => row === undefined ? [] : [row.owner]))].sort(compare);
     commands.push({ topic: group.topic, payload: first.payload, members: [...group.members].sort(compare), owners, group: group.id });
     group.members.forEach(e => used.add(e));
@@ -208,8 +209,8 @@ export function planCandle(ctx: ScriptContext, catalogMembers: JsonObject): Cand
     requireString(parsed, 'ieee_address', `effects_candle_plan.actual.members[${index}]`);
     return parsed;
   }).sort(byAddress);
-  const remove = members.filter(member => !wanted.some(w => equal(w, member)));
-  const add = wanted.filter(member => !members.some(m => equal(m, member)));
+  const remove = members.filter(member => !wanted.some(w => jsonEqual(w, member)));
+  const add = wanted.filter(member => !members.some(m => jsonEqual(m, member)));
   const restarted = Math.max(epoch(ctx.state['binary_sensor.zigbee2mqtt_bridge_connection_state']?.last_changed), epoch(ctx.state['automation.effects_candle_group_state']?.last_changed));
   const observed = num(actual.observed_at, 0);
   const fresh = observed >= restarted && observed > 0;
@@ -218,7 +219,7 @@ export function planCandle(ctx: ScriptContext, catalogMembers: JsonObject): Cand
   const exists = actual.exists === undefined
     ? false
     : requireBoolean(actual.exists, 'effects_candle_plan.actual.exists');
-  const synchronized = exists && fresh && equal(members, wanted);
+  const synchronized = exists && fresh && jsonEqual(members, wanted);
   const syncing = optionalBoolean(ctx.attr('sensor.ls_effects_runtime', 'candle_syncing'), 'effects_candle_plan.candle_syncing') ?? false;
   return {
     lamps, entities: [...new Set(entities)].sort(compare), members: wanted, actual, remove, add, owners, fresh, synchronized,
@@ -230,7 +231,7 @@ export const groupingHandlers: ScriptHandlers = {
   // Captured rows/groups are iterated, so absence is empty while a malformed
   // present container raises. catalog.members is accessed through .items().
   effects_group_plan: typed('effects_group_plan', {
-    parse: args => ({ rows: list(args.rows), groups: list(args.groups) }),
+    parse: parseGroupPlanArgs,
     run: (_ctx, args) => planGroups(args.rows, args.groups),
   }),
   effects_candle_plan: typed('effects_candle_plan', {

@@ -8,6 +8,7 @@ import type { RemoteInputRecord, RemoteModeRecord, RemotePlanOp, RemotePlanResul
 import type { LampColor, LampProfile, LampProfileEntry, ScheduleCommand, ScheduleDetails, ScheduleEnvelope, ScheduledBaseResult, TargetEntry } from '../domain/schedule.ts';
 import { optionalBlock } from './blocks.ts';
 import { ParseError, requireArray, requireBoolean, requireFinite, requireNumber, requireObject, requireString } from '../runtime/parse.ts';
+import { carry } from '../runtime/verbatim.ts';
 
 function decodeStrings(container: JsonObject, key: string, context: string): string[] {
   return requireArray(container, key, context)
@@ -116,12 +117,13 @@ function decodeCommit(value: JsonValue, context: string): CommitResult {
 function decodeGroupCommand(value: JsonValue, context: string): GroupCommand {
   const command = requireObject({ value }, 'value', context);
   if (!Object.hasOwn(command, 'group')) throw new ParseError(`${context}.group must be present, got undefined`);
+  const group = command.group ?? null;
   return {
     topic: requireString(command, 'topic', context),
-    payload: requireObject(command, 'payload', context),
+    payload: carry(requireObject(command, 'payload', context)),
     members: decodeStrings(command, 'members', context),
     owners: decodeStrings(command, 'owners', context),
-    group: command.group ?? null,
+    group: group === null ? null : carry(group),
   };
 }
 

@@ -209,11 +209,23 @@ const DOMAIN = join(ROOT, 'src/domain');
  * which is why the accessor column does not move; typing the construction of
  * all nine fields is the criterion-8 value here, and it is not a number this
  * guard can see. Do NOT widen the regexes to make it visible.
+ *
+ * Criterion 6 starts with `effects_group_plan`: `jsonTypes 376 -> 363`,
+ * `lenientAccessors 237 -> 234`. Rows and groups are parsed in
+ * `src/parse/grouping.ts`; the payload and the group id are carried as
+ * `Verbatim` (`src/runtime/verbatim.ts`), an opaque handle that IS the
+ * document at runtime -- so every encoder stays the identity and no compared
+ * byte can move -- but has no readable property, so the domain cannot traverse
+ * it. That is not a renamed `JsonValue`: a `JsonValue` field can be read, and
+ * this cannot. What `grouping.ts` still holds is `planCandle` and its result,
+ * which the user has taken out of the port ("no need to port old candle, use
+ * the new firmware", 2026-11-19); `candle-sync.ts` reads that result as JSON
+ * and is to be left untouched, so those tokens stay until the code is removed.
  */
 const CEILINGS = {
-  jsonTypes: 376,
+  jsonTypes: 363,
   validatedBags: 0,
-  lenientAccessors: 237,
+  lenientAccessors: 234,
   rawJsonReturns: 36,
 };
 
