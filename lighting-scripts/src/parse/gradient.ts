@@ -7,12 +7,11 @@
  */
 import { isDeepStrictEqual } from 'node:util';
 import type { JsonObject } from '../runtime/context.ts';
-import { isObject, object } from '../runtime/parse.ts';
+import { isObject, lazy, object } from '../runtime/parse.ts';
 import { boundedNumber, WARM_END } from '../domain/scale.ts';
 import type { RGB } from '../domain/scale.ts';
-import { compileGradient, gradientSignature } from '../domain/gradient.ts';
-import type { GradientEntry, GradientPlanResult, GradientSignature } from '../domain/gradient.ts';
-import { anchor, validColor } from './scale.ts';
+import type { GradientEntry, GradientPlanArgs, GradientPlanTarget, GradientSignature } from '../domain/gradient.ts';
+import { anchor, requireRgb, validColor } from './scale.ts';
 
 function validGradientColor(value: unknown): boolean {
   return validColor(value, 0, 1e20) && (value.kelvin === undefined || (value.kelvin > 0 && value.kelvin < 1e20));
@@ -39,30 +38,50 @@ export function validGradient(entry: unknown, signature: GradientSignature): ent
 }
 
 /**
- * `effects_gradient_plan`.
+ * A handler's `warm_end` field, read where the oracle lists it.
  *
- * Two pieces of leniency here are load-bearing and deliberately not tightened:
- *
- * - The `continue` skips a target whose `day`/`cosy` is not a mapping rather
- *   than raising. A baseline mid-compile legitimately holds incomplete targets.
- * - `warm_end` falls back to the field's `default: [255,126,0]` only when
- *   absent, as Home Assistant fills field defaults; an explicit null stays and
- *   raises where the signature spreads it, as the captured `warm_end|list`
- *   raises on None. A present value is a cast, not a parse: replacing it with
- *   `requireRgb` would raise where the captured source coerces, and a
- *   fallback's trigger is observable behaviour. It is a known rough edge, left
- *   for whichever criterion owns this handler's argument boundary.
+ * Absent falls back to the field's `default: [255,126,0]`, as Home Assistant
+ * fills field defaults only for a field the caller left out. Read lazily: the
+ * oracle first touches `warm_end` in `gradient_signature`'s `warm_end|list`,
+ * which only runs for a target that compiles, so a handler with nothing to
+ * compile never reads it. When read, an explicit null raises the TypeError
+ * `None|list` raises; anything else must be an `[r, g, b]` triple of finite
+ * numbers. The live callers pass Home Assistant's `rgb_color` (always a
+ * triple) or the default.
  */
-export function planGradients(args: JsonObject): GradientPlanResult {
-  const gradients: Record<string, GradientEntry> = {};
+export function warmEndArgument(args: JsonObject, context: string): () => RGB {
+  return lazy(() => {
+    if (args.warm_end === undefined) return WARM_END;
+    if (args.warm_end === null) throw new TypeError(`${context}.warm_end|list: 'NoneType' object is not iterable`);
+    return requireRgb(args.warm_end, `${context}.warm_end`);
+  });
+}
+
+/**
+ * `effects_gradient_plan`'s arguments.
+ *
+ * One piece of leniency is load-bearing and deliberately not tightened: a
+ * target whose `day`/`cosy` is not a mapping is skipped rather than raising
+ * (the captured `for ... if item is mapping and ...`); a baseline mid-compile
+ * legitimately holds incomplete targets. `base` and `cached` are read as the
+ * captured `is mapping else {}` reads them. A target's anchors are read when
+ * the planner reaches it, so a malformed anchor raises in target order, after
+ * every earlier target's signature, as the inline loop did.
+ */
+export function parseGradientPlanArgs(args: JsonObject): GradientPlanArgs {
   const cache = object(args.cached);
-  const warmEnd = args.warm_end === undefined ? WARM_END : args.warm_end as RGB;
+  const targets: GradientPlanTarget[] = [];
   for (const [target, item] of Object.entries(object(args.base))) {
     if (!isObject(item) || !isObject(item.day) || !isObject(item.cosy)) continue;
-    const day = anchor(item.day), cosy = anchor(item.cosy);
-    const signature = gradientSignature(day, cosy, warmEnd);
-    const cached = cache[target];
-    gradients[target] = validGradient(cached, signature) ? cached : { signature, curve: compileGradient(day, cosy, warmEnd) };
+    const day = item.day, cosy = item.cosy;
+    targets.push({
+      target,
+      anchors: lazy(() => ({ day: anchor(day), cosy: anchor(cosy) })),
+      cached: signature => {
+        const entry = cache[target];
+        return validGradient(entry, signature) ? entry : undefined;
+      },
+    });
   }
-  return { gradients };
+  return { targets, warmEnd: warmEndArgument(args, 'effects_gradient_plan') };
 }

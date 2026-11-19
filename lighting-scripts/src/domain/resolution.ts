@@ -2,11 +2,11 @@ import type { ScriptHandlers } from '../runtime/context.ts';
 import { requireNumber, withParsedArgs } from '../runtime/parse.ts';
 import { typed } from '../runtime/entrypoints.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
-import { gradientSignature, sampleGradient } from './gradient.ts';
+import { gradientSignature, planGradients, sampleGradient } from './gradient.ts';
 import type { GradientCurve, GradientSignature } from './gradient.ts';
 import { boundedNumber, clamp, scaleValue, WARM_END } from './scale.ts';
 import type { Anchor, Color, RGB, Scaled } from './scale.ts';
-import { planGradients } from '../parse/gradient.ts';
+import { parseGradientPlanArgs } from '../parse/gradient.ts';
 import { anchor, requireRgb } from '../parse/scale.ts';
 import { levelNumber, parseResolveArgs } from '../parse/resolution.ts';
 
@@ -129,7 +129,8 @@ export type ResolveArgs = {
   private: string[];
   power(area: string): Verbatim;
   gradient(target: string, signature: GradientSignature): GradientCurve | undefined;
-  warmEnd: RGB;
+  /** Read where the signature lists it (`warm_end|list`); see `warmEndArgument`. */
+  warmEnd: () => RGB;
   sara: boolean;
 };
 
@@ -311,12 +312,12 @@ export function resolveEffects(args: ResolveArgs): ResolutionResult {
           if (!ignore && boundedNumber(p) && item.anchorsPresent) {
             const day = item.day(), cosy = item.cosy();
             if (!gradientChecked) {
-              curve = args.gradient(target, gradientSignature(day, cosy, args.warmEnd));
+              curve = args.gradient(target, gradientSignature(day, cosy, args.warmEnd()));
               gradientChecked = true;
             }
             const coordinate = clamp(p, -2, 2);
             let sample = samples.get(coordinate);
-            if (sample === undefined) { sample = curve !== undefined ? sampleGradient(curve, coordinate) : scaleValue(day, cosy, coordinate, args.warmEnd); samples.set(coordinate, sample); }
+            if (sample === undefined) { sample = curve !== undefined ? sampleGradient(curve, coordinate) : scaleValue(day, cosy, coordinate, args.warmEnd()); samples.set(coordinate, sample); }
             valid = true; value = channel === 'brightness' ? sample.brightness : sample.color;
             if (claim.kind === 'input' && channel === 'brightness' && input !== undefined && input.last === 'down' && !input.hasUp && position !== undefined
               && position.level < Math.min(76.5, cosy.brightness) && input.anchor === 'current' && input.steps <= 0) value = Math.min(levelNumber(currentUnderlying), sample.brightness);
@@ -379,7 +380,7 @@ export const resolutionHandlers: ScriptHandlers = {
     }),
     run: (_context, a) => scaleValue(a.day, a.cosy, a.position, a.warmEnd),
   }),
-  // Same: result typed, arguments still unparsed. `src/parse/gradient.ts`
-  // documents the two pieces of leniency in them that are load-bearing.
-  effects_gradient_plan: typed('effects_gradient_plan', { parse: args => args, run: (_context, args) => planGradients(args) }),
+  // Arguments parsed in `src/parse/gradient.ts`, which documents the
+  // leniency in them that is load-bearing.
+  effects_gradient_plan: typed('effects_gradient_plan', { parse: parseGradientPlanArgs, run: (_context, args) => planGradients(args) }),
 };

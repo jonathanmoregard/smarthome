@@ -3,7 +3,7 @@
  *
  * Pure domain. The validator for a persisted curve and the `effects_gradient_plan`
  * argument parsing live in `src/parse/gradient.ts`, which is what lets this
- * module name no JSON.
+ * module name no JSON; the planning loop takes the typed arguments.
  */
 import { clamp, copyAnchor, copyColor, CROSSOVER, rgbValue, roundEven } from './scale.ts';
 import type { Anchor, Color, RGB, Scaled } from './scale.ts';
@@ -25,6 +25,31 @@ export type GradientSignature = [number, number, Color, number, Color, RGB];
 export type GradientEntry = { signature: GradientSignature; curve: GradientCurve };
 /** `effects_gradient_plan`'s result. One entry per target that compiled. */
 export type GradientPlanResult = { gradients: Record<string, GradientEntry> };
+/** One baseline target with both anchors, as `src/parse/gradient.ts` reads it. */
+export type GradientPlanTarget = {
+  target: string;
+  /** Read when the planner reaches the target; raises on a malformed anchor. */
+  anchors: () => { day: Anchor; cosy: Anchor };
+  /** The cached entry for this target when it is valid for the signature. */
+  cached: (signature: GradientSignature) => GradientEntry | undefined;
+};
+export type GradientPlanArgs = {
+  targets: GradientPlanTarget[];
+  /** Read where the signature lists it (`warm_end|list`); see `warmEndArgument`. */
+  warmEnd: () => RGB;
+};
+
+/** `effects_gradient_plan`: reuse a valid cached curve, compile the rest. */
+export function planGradients(args: GradientPlanArgs): GradientPlanResult {
+  const gradients: Record<string, GradientEntry> = {};
+  for (const { target, anchors, cached } of args.targets) {
+    const { day, cosy } = anchors();
+    const signature = gradientSignature(day, cosy, args.warmEnd());
+    const hit = cached(signature);
+    gradients[target] = hit === undefined ? { signature, curve: compileGradient(day, cosy, args.warmEnd()) } : hit;
+  }
+  return { gradients };
+}
 export function gradientSignature(day: Anchor, cosy: Anchor, warmEnd: RGB): GradientSignature {
   return [1, day.brightness, copyColor(day.color), cosy.brightness, copyColor(cosy.color), [...warmEnd]];
 }

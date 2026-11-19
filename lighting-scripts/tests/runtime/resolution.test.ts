@@ -36,12 +36,14 @@ test('new invalid channel cancels its old effect without replacing the other cha
 });
 
 test('malformed cached gradient is rebuilt while a valid cached curve retains its values', async () => {
-  // `planGradients` parses raw handler arguments, so it lives in the parse
-  // layer; `sampleGradient` is pure algebra and stays in the domain.
+  // `parseGradientPlanArgs` reads the raw handler arguments at the edge;
+  // `planGradients` and `sampleGradient` are pure domain over the typed value.
   const algebra = await import('../../src/domain/gradient.ts').catch(() => ({}));
-  const port = await import('../../src/parse/gradient.ts').catch(() => ({}));
-  assert.equal(typeof port.planGradients, 'function', 'the gradient planner is available');
+  const edge = await import('../../src/parse/gradient.ts').catch(() => ({}));
+  assert.equal(typeof algebra.planGradients, 'function', 'the gradient planner is available');
+  assert.equal(typeof edge.parseGradientPlanArgs, 'function', 'the gradient argument parser is available');
   assert.equal(typeof algebra.sampleGradient, 'function', 'the gradient sampler is available');
+  const port = { planGradients: (args: object) => algebra.planGradients(edge.parseGradientPlanArgs(args)) };
   const base = { lamp: { day: { brightness: 220, color: { kelvin: 4000 } }, cosy: { brightness: 110, color: { kelvin: 2200 } } } };
   const first = port.planGradients({ base });
   assert.deepEqual(first.gradients.lamp.curve.brightness, { floor: 76.5, lower: 110, middle: 110, upper: 35 });

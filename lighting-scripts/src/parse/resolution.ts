@@ -32,12 +32,12 @@ import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import { isObject, jinjaTruthy, object } from '../runtime/parse.ts';
 import { carry, carryOptional } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
-import { boundedNumber, WARM_END } from '../domain/scale.ts';
-import type { Color, RGB } from '../domain/scale.ts';
+import { boundedNumber } from '../domain/scale.ts';
+import type { Color } from '../domain/scale.ts';
 import { latestStream, lexical } from '../domain/resolution.ts';
 import type { BaseItem, Channel, ChannelValue, Claim, InputAnchor, InputClaim, InputFacts, LightValue, OverrideRecord, Patch, ResolveArgs, Stamp } from '../domain/resolution.ts';
 import { anchor, canonicalColor, validColor } from './scale.ts';
-import { validGradient } from './gradient.ts';
+import { validGradient, warmEndArgument } from './gradient.ts';
 
 /**
  * A record or input timestamp in seconds, `0` when absent or unparseable.
@@ -264,14 +264,9 @@ function effectChannels(catalog: JsonObject, name: string | undefined): Channel[
  * `effects_resolve`'s arguments. Every container is read leniently (`object`,
  * `Array.isArray`), as the inline reads did, so nothing raises here.
  *
- * `warm_end` is the script field with `default: [255,126,0]`, which Home
- * Assistant fills only when the caller leaves the field out; an explicit null
- * stays None. A present value keeps its known rough edge: it is a cast, not a
- * parse, so a malformed `warm_end` (null included) raises where the resolver
- * spreads it (`gradientSignature`), as the captured `warm_end|list` raises
- * there. Replacing the cast with `requireRgb` would raise earlier, and a
- * fallback's trigger is observable behaviour. `src/parse/gradient.ts` reads
- * `effects_gradient_plan`'s field the same way.
+ * `warm_end` is read by `warmEndArgument` (`src/parse/gradient.ts`), the
+ * same reader `effects_gradient_plan` uses: the field default only when
+ * absent, read where the resolver first lists it in a gradient signature.
  */
 export function parseResolveArgs(args: JsonObject): ResolveArgs {
   const base = object(args.base), overrides = object(args.overrides), catalog = object(args.catalog);
@@ -288,7 +283,7 @@ export function parseResolveArgs(args: JsonObject): ResolveArgs {
       const cached = gradients[target];
       return validGradient(cached, signature) ? cached.curve : undefined;
     },
-    warmEnd: args.warm_end === undefined ? WARM_END : args.warm_end as RGB,
+    warmEnd: warmEndArgument(args, 'effects_resolve'),
     sara: jinjaTruthy(args.sara),
   };
 }

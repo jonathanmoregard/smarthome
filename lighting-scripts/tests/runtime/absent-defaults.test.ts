@@ -4,7 +4,10 @@ import type { JsonObject, JsonValue } from '../../src/runtime/context.ts';
 import { stateStoreHandlers } from '../../src/domain/state-store.ts';
 import { resolveEffects } from '../../src/domain/resolution.ts';
 import { parseResolveArgs } from '../../src/parse/resolution.ts';
-import { planGradients } from '../../src/parse/gradient.ts';
+import { planGradients as planTyped } from '../../src/domain/gradient.ts';
+import { parseGradientPlanArgs } from '../../src/parse/gradient.ts';
+
+const planGradients = (args: JsonObject) => planTyped(parseGradientPlanArgs(args));
 import { context } from './gestures-context.ts';
 
 /**
