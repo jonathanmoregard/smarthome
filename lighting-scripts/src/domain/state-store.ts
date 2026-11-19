@@ -1,44 +1,77 @@
-import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { isObject, jinjaString, jinjaTruthy, lazy, object, ParseError, requireArray, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
+import { jinjaTruthy, ParseError, withParsedArgs } from '../runtime/parse.ts';
 import { typed } from '../runtime/entrypoints.ts';
+import { withFields } from '../runtime/verbatim.ts';
+import type { Verbatim } from '../runtime/verbatim.ts';
 import { recordTimestamp } from '../parse/resolution.ts';
 import { isAreaId, labelled, privateRooms } from './schedule.ts';
-import type { Verbatim } from '../runtime/verbatim.ts';
-import { cachedProfile, catalogEffectChannels, haBoolean, parseOverrideBlockArgs, parseStoreProfile, parseViaArgs, roomTarget, scheduledBlocks, storedProfileText } from '../parse/state-store.ts';
-import type { OpaqueMap, StoredValue } from '../parse/overrides.ts';
-import { lenientOverrides } from '../parse/sensors.ts';
+import { cachedProfile, catalogEffectChannels, parseOverrideBlockArgs, parseStoreProfile, parseViaArgs, roomTarget, scheduledBlocks, storedProfileText } from '../parse/state-store.ts';
+import { affectedRoom, mergedValue, overrideRecord, parseCommitArgs, underlyingOf } from '../parse/overrides.ts';
+import type { OpaqueMap, StoredEntry, StoredFact, StoredValue } from '../parse/overrides.ts';
+import { attributeFact, attributeList, attributeMapping, lenientOverrides } from '../parse/sensors.ts';
 
-const values = (value: JsonValue | undefined): JsonValue[] => Array.isArray(value) ? value : [];
-
-interface CommitRecord {
-  raw: JsonObject;
-  key: JsonValue;
-  keyContext: string;
-  writeKey: () => string;
-  kind: JsonValue | undefined;
-  scope: JsonValue | undefined;
-  target: JsonValue | undefined;
-  value: JsonValue | undefined;
-  channelClaims: () => Array<[string, JsonObject]>;
+/** One channel claim of a `channels` record, as written. */
+export interface ChannelClaim {
+  channel: string;
+  document: Verbatim;
+  isEffect: boolean;
+  hasUnderlying: boolean;
 }
-interface CommitData {
-  raw: JsonObject;
-  op: JsonValue;
+/** One record of an `ls_commit` request. `document` is the record as sent. */
+export interface CommitRecord {
+  document: Verbatim;
+  /** The key the affected-room scan looks up; raises for an unhashable key. */
+  lookupKey: () => string | undefined;
+  /** The key the record is written under; raises for a present non-string key. */
+  writeKey: () => string;
+  kind: StoredFact;
+  scope: StoredFact;
+  target: StoredFact;
+  value: StoredFact;
+  valueIsMapping: boolean;
+  channelClaims: () => ChannelClaim[];
+}
+/**
+ * A stored switch range rule. Not `ui-state`'s `RangeConfig`: the custom bounds
+ * pass Jinja's `is number`, which accepts booleans, so a bound can be `true`.
+ */
+export type RangeRule = { profile: 'bright' | 'cosy' } | { profile: 'custom'; min: number | boolean; max: number | boolean };
+export interface CommitData {
+  /** `data.get('op', 'set')`, only ever compared with literals. */
+  op: StoredValue;
+  /** The raw op when it is a string, else `''`: the full-render test's spelling. */
+  opText: string;
   records: CommitRecord[];
-  via: JsonValue | undefined;
-  who: JsonValue;
-  area: JsonValue | undefined;
+  via: StoredFact;
+  who: StoredValue;
+  area: StoredFact;
+  receivedAt: StoredFact;
   clearContains: () => (key: string) => boolean;
   power: () => { area: string; on: boolean };
-  range: () => { entity: string; profile: JsonValue; min: JsonValue; max: JsonValue } | undefined;
-  ranges: () => JsonObject | undefined;
-  remoteAck: () => { source: string; requestId: JsonValue } | undefined;
-  full: () => { reason: JsonValue; lights: JsonValue[] };
+  range: () => { entity: string; rule: RangeRule } | undefined;
+  ranges: () => Verbatim | undefined;
+  remoteAck: () => { source: string; requestId: StoredValue } | undefined;
+  full: () => { reason: StoredValue; lights: StoredValue[] };
 }
-interface CommitArgs {
-  expectedRevision: JsonValue | undefined;
+export interface CommitArgs {
+  expectedRevision: StoredFact;
   details: () => CommitData;
 }
+/** The attributes `ls_commit` writes, in the order it writes them. */
+export type OverridesPatch = {
+  power?: Record<string, Verbatim | boolean>;
+  switch_ranges?: Record<string, Verbatim | RangeRule>;
+  range_defaults?: Verbatim;
+  remote_ack?: Record<string, StoredValue>;
+  overrides?: OpaqueMap;
+  last_via?: StoredValue;
+  pending_rooms?: Record<string, StoredValue>;
+  last_request?: string;
+  received_at?: StoredValue;
+  full_version?: string;
+  full_reason?: StoredValue;
+  full_lights?: StoredValue[];
+};
 /**
  * The `ls_override_block` scope, or a room the house scope expanded to. `record`
  * is the raw scope as the set record stores it (`target ?? null`), `keyText` its
@@ -57,122 +90,6 @@ export interface ViaArgs { via: Verbatim }
 export type ScheduledBlocks = (key: string | undefined) => string | undefined;
 
 
-/** Jinja `~` uses an empty string for Undefined, unlike the `| string` filter. */
-function concatString(value: JsonValue | undefined): string {
-  return value === undefined ? '' : jinjaString(value);
-}
-
-/** Python mappings reject the unhashable JSON container types as keys. */
-function jinjaMappingGet(record: JsonObject, key: JsonValue | undefined, context: string): JsonValue | undefined {
-  if (Array.isArray(key) || isObject(key)) {
-    throw new ParseError(`${context} is unhashable for Jinja mapping lookup`);
-  }
-  return typeof key === 'string' ? record[key] : undefined;
-}
-
-function parseRecords(value: JsonValue | undefined, context: string): CommitRecord[] {
-  // The source iterates its `get(..., [])` result. Empty strings/mappings are
-  // empty iterations; any non-empty non-array reaches `.get()` and raises.
-  if (value === undefined || value === '' || isObject(value) && !Object.keys(value).length) return [];
-  const rawRecords = requireArray({ value: value ?? null }, 'value', context);
-  return rawRecords.map((raw, index) => {
-    const recordContext = `${context}[${index}]`;
-    const record = requireObject({ raw }, 'raw', recordContext);
-    // `dict.get('key', fallback)` evaluates this concat even when key exists,
-    // but only falls back for an absent key (explicit null must not fall back).
-    const fallbackKey = `${concatString(record.kind)}:${concatString(record.source === undefined ? record.target : record.source)}`;
-    const key = record.key === undefined ? fallbackKey : record.key;
-    const value = record.value;
-    return {
-      raw: record,
-      key,
-      keyContext: `${recordContext}.key`,
-      writeKey: lazy(() => record.key === undefined ? fallbackKey : requireString(record, 'key', recordContext)),
-      kind: record.kind,
-      scope: record.scope,
-      target: record.target,
-      value,
-      channelClaims: lazy(() => {
-        if (!isObject(value)) return [];
-        const channels = value.channels === undefined ? {} : requireObject(value, 'channels', `${recordContext}.value`);
-        return Object.entries(channels).map(([channel, claim]) => [
-          channel,
-          requireObject({ claim }, 'claim', `${recordContext}.value.channels.${channel}`),
-        ]);
-      }),
-    };
-  });
-}
-
-function membership(value: JsonValue | undefined, context: string): (key: string) => boolean {
-  const container = value === undefined ? [] : value;
-  if (Array.isArray(container)) return key => container.includes(key);
-  if (typeof container === 'string') return key => container.includes(key);
-  if (isObject(container)) return key => Object.hasOwn(container, key);
-  throw new ParseError(`${context} must support Jinja membership`);
-}
-
-function testedNumber(value: JsonValue | undefined): { raw: number | boolean; numeric: number } | undefined {
-  if (typeof value === 'boolean') return { raw: value, numeric: value ? 1 : 0 };
-  if (typeof value === 'number') return { raw: value, numeric: value };
-  return undefined;
-}
-
-function validRangePair(value: JsonValue | undefined, context: string): value is JsonValue[] {
-  // Jinja's `sequence` test accepts strings and mappings. They simply fail the
-  // length test unless length is two; at length two, numeric comparison raises.
-  if (typeof value === 'string' || isObject(value)) {
-    if ((typeof value === 'string' ? value.length : Object.keys(value).length) !== 2) return false;
-    throw new ParseError(`${context} sequence elements cannot be compared with numeric bounds`);
-  }
-  if (!Array.isArray(value) || value.length !== 2) return false;
-  const low = testedNumber(value[0]), high = testedNumber(value[1]);
-  if (low === undefined || high === undefined) {
-    throw new ParseError(`${context} sequence elements cannot be compared with numeric bounds`);
-  }
-  return 0 <= low.numeric && low.numeric <= high.numeric && high.numeric <= 100;
-}
-
-function parseCommitData(data: JsonObject): CommitData {
-  const records = parseRecords(data.records, 'ls_commit.data.records');
-  const via = data.via;
-  return {
-    raw: data,
-    op: data.op === undefined ? 'set' : data.op,
-    records,
-    via,
-    who: jinjaTruthy(data.who) ? data.who! : null,
-    area: data.area,
-    clearContains: lazy(() => membership(data.keys, 'ls_commit.data.keys')),
-    power: lazy(() => ({
-      area: requireString(data, 'area', 'ls_commit.data'),
-      on: haBoolean(data.on, 'ls_commit.data.on'),
-    })),
-    range: lazy(() => {
-      const profile = data.profile;
-      if (profile === 'bright' || profile === 'cosy') {
-        return { entity: requireString(data, 'entity', 'ls_commit.data'), profile, min: null, max: null };
-      }
-      if (profile !== 'custom') return undefined;
-      const min = testedNumber(data.min), max = testedNumber(data.max);
-      if (min === undefined || max === undefined || min.numeric < 0 || min.numeric > max.numeric || max.numeric > 100) return undefined;
-      return { entity: requireString(data, 'entity', 'ls_commit.data'), profile, min: min.raw, max: max.raw };
-    }),
-    ranges: lazy(() => {
-      const ranges = data.ranges === undefined ? {} : requireObject(data, 'ranges', 'ls_commit.data');
-      return validRangePair(ranges.bright, 'ls_commit.data.ranges.bright') && validRangePair(ranges.cosy, 'ls_commit.data.ranges.cosy') ? ranges : undefined;
-    }),
-    remoteAck: lazy(() => {
-      if (via !== 'remote' || !jinjaTruthy(data.source) || !jinjaTruthy(data.request_id)) return undefined;
-      return { source: requireString(data, 'source', 'ls_commit.data'), requestId: data.request_id! };
-    }),
-    full: lazy(() => ({
-      reason: data.reason === undefined ? (via === 'remote' ? 'remote' : 'config') : data.reason,
-      lights: data.lights === undefined ? [] : requireArray(data, 'lights', 'ls_commit.data'),
-    })),
-  };
-}
-
 /** The single override writer, preserving unrelated attributes and channel timestamps. */
 /**
  * `ls_commit`'s result, as a discriminated union because that is what it is:
@@ -184,69 +101,70 @@ export type CommitResult = { accepted: false } | { accepted: true; revision: str
 
 export function commit(ctx: ScriptContext, args: CommitArgs): CommitResult {
   const entity = 'sensor.ls_overrides';
+  // divergence: the captured ls_commit reads `last_updated` bare and raises when
+  // the sensor is missing; this falls back to ctx.now. Scheduled as its own fix.
   const currentRevision = ctx.state[entity]?.last_updated ?? ctx.now;
   if (args.expectedRevision != null && args.expectedRevision !== currentRevision) return { accepted: false };
-  const parsed = args.details(), data = parsed.raw;
-  const before = object(ctx.attr(entity, 'overrides'));
-  let overrides = structuredClone(before);
-  let patch: JsonObject = {};
+  const parsed = args.details();
+  const before = lenientOverrides(ctx);
+  let overrides = before.clone();
+  let patch: OverridesPatch = {};
   const op = parsed.op;
+  const kept = (entries: StoredEntry[]): OpaqueMap => Object.fromEntries(entries.map(entry => [entry.key, entry.document]));
   if (op === 'clear_all') overrides = {};
   else if (op === 'clear') {
     const contains = parsed.clearContains();
-    overrides = Object.fromEntries(Object.entries(before).filter(([key]) => !contains(key)));
+    overrides = kept(before.entries.filter(({ key }) => !contains(key)));
   }
-  else if (op === 'clear_room') overrides = Object.fromEntries(Object.entries(before).filter(([, raw]) => {
-    const r = object(raw), targetArea = typeof r.target === 'string' ? ctx.areas[r.target] : undefined;
+  else if (op === 'clear_room') overrides = kept(before.entries.filter(({ record: r }) => {
+    const targetArea = typeof r.target === 'string' ? ctx.areas[r.target] : undefined;
     return !(r.scope === 'room' && r.target === parsed.area || (r.scope === 'lamp' || r.kind === 'light') && targetArea === parsed.area || r.kind === 'block' && r.target === parsed.area);
   }));
   else if (op === 'set') for (const record of parsed.records) {
-    const key = record.writeKey(), old = object(overrides[key]);
-    let value = record.value === undefined ? null : record.value;
-    if (record.kind === 'channels' && isObject(value)) {
-      const prior = object(old.value);
-      const channels = { ...object(prior.channels) };
-      for (const [channel, raw] of record.channelClaims()) {
-        const claim = { ...raw }, previous = object(channels[channel]);
-        if (claim.kind === 'effect' && !Object.hasOwn(claim, 'underlying')) {
-          const underlying = ['constant', 'scale'].includes(String(previous.kind)) ? previous : previous.underlying;
-          if (isObject(underlying)) claim.underlying = underlying;
+    const key = record.writeKey(), old = overrideRecord(overrides[key]);
+    let value: StoredValue = record.value === undefined ? null : record.value;
+    if (record.kind === 'channels' && record.valueIsMapping) {
+      const channels = { ...old.channels };
+      for (const claim of record.channelClaims()) {
+        let written = claim.document;
+        if (claim.isEffect && !claim.hasUnderlying) {
+          const underlying = underlyingOf(channels[claim.channel]);
+          if (underlying !== undefined) written = withFields(claim.document, { underlying });
         }
-        channels[channel] = claim;
+        channels[claim.channel] = written;
       }
-      value = { ...prior, ...value, channels };
+      value = mergedValue(old.value, value, channels);
     }
-    overrides[key] = { ...record.raw, value, when: ctx.now, created: old.created ?? old.when ?? ctx.now, who: parsed.who, via: parsed.via ?? null };
+    // divergence: `??` also falls back on an explicit null, where the captured
+    // `old.get('created', old.get('when', now))` falls back only on an absent key.
+    overrides[key] = withFields(record.document, { value, when: ctx.now, created: old.created ?? old.when ?? ctx.now, who: parsed.who, via: parsed.via ?? null });
   }
   else if (op === 'power') {
     const power = parsed.power();
-    patch.power = { ...object(ctx.attr(entity, 'power')), [power.area]: power.on };
+    patch.power = { ...attributeMapping(ctx, entity, 'power'), [power.area]: power.on };
   }
   else if (op === 'range_set') {
     const range = parsed.range();
-    if (range) patch.switch_ranges = { ...object(ctx.attr(entity, 'switch_ranges')), [range.entity]: range.profile === 'custom' ? { profile: 'custom', min: range.min, max: range.max } : { profile: range.profile } };
+    if (range !== undefined) patch.switch_ranges = { ...attributeMapping(ctx, entity, 'switch_ranges'), [range.entity]: range.rule };
   } else if (op === 'range_defaults') {
     const ranges = parsed.ranges();
-    if (ranges) patch.range_defaults = ranges;
+    if (ranges !== undefined) patch.range_defaults = ranges;
   }
   const remoteAck = parsed.remoteAck();
-  if (remoteAck) patch.remote_ack = { ...object(ctx.attr(entity, 'remote_ack')), [remoteAck.source]: remoteAck.requestId };
+  if (remoteAck !== undefined) patch.remote_ack = { ...attributeMapping(ctx, entity, 'remote_ack'), [remoteAck.source]: remoteAck.requestId };
   patch = { ...patch, overrides, last_via: parsed.via ?? null };
-  const pending = { ...object(ctx.attr(entity, 'pending_rooms')) };
-  const affected: Array<JsonValue | undefined> = [];
+  const pending: Record<string, StoredValue> = { ...attributeMapping(ctx, entity, 'pending_rooms') };
+  const affected: StoredFact[] = [];
   if (jinjaTruthy(parsed.area)) affected.push(parsed.area);
-  for (const record of parsed.records) for (const item of [
-    object(jinjaMappingGet(before, record.key, record.keyContext)),
-    record.raw,
-  ]) {
+  for (const record of parsed.records) for (const item of [before.lookup(record.lookupKey()), record]) {
     if (item.scope === 'room') affected.push(item.target);
   }
   for (const [index, room] of affected.entries()) {
-    pending[requireString({ room: room ?? null }, 'room', `ls_commit affected[${index}]`)] = ctx.now;
+    pending[affectedRoom(room, index)] = ctx.now;
   }
   patch = { ...patch, pending_rooms: pending, last_request: ctx.now,
-    received_at: data.received_at === undefined ? recordTimestamp(ctx.now) : data.received_at };
-  const full = parsed.via !== 'remote' || ['render_request', 'clear', 'clear_all'].includes(typeof data.op === 'string' ? data.op : '') || parsed.records.some(r => r.kind === 'mode');
+    received_at: parsed.receivedAt === undefined ? recordTimestamp(ctx.now) : parsed.receivedAt };
+  const full = parsed.via !== 'remote' || ['render_request', 'clear', 'clear_all'].includes(parsed.opText) || parsed.records.some(r => r.kind === 'mode');
   if (full) {
     // Captured: `old != (state_attr(runtime,'handled_full') or none)`. Jinja `or`
     // fires on every falsy value, `[]` and `{}` included, so an empty container
@@ -254,17 +172,20 @@ export function commit(ctx: ScriptContext, args: CommitArgs): CommitResult {
     // container as itself, and a reference comparison against it is always
     // unequal -- which marked the last full render unhandled and resurrected its
     // stale light list.
-    const handled = ctx.attr('sensor.ls_effects_runtime', 'handled_full');
-    const unhandled = (ctx.attr(entity, 'full_version') ?? null) !== (jinjaTruthy(handled) ? handled : null);
-    const previousLights = unhandled ? values(ctx.attr(entity, 'full_lights')) : [];
-    const previousReason = unhandled ? ctx.attr(entity, 'full_reason') : null;
+    const handled = attributeFact(ctx, 'sensor.ls_effects_runtime', 'handled_full');
+    const unhandled = (attributeFact(ctx, entity, 'full_version') ?? null) !== (jinjaTruthy(handled) ? handled : null);
+    const previousLights = unhandled ? attributeList(ctx, entity, 'full_lights') : [];
+    const previousReason = unhandled ? attributeFact(ctx, entity, 'full_reason') : null;
     const fullData = parsed.full();
     let reason = fullData.reason;
+    // divergence: JS truthiness on previousReason, where the captured
+    // `previous_reason and ...` is Jinja's (`[]`/`{}` falsy, NaN truthy).
     if (reason === 'tick' && previousReason && previousReason !== 'tick') reason = 'config';
     patch = { ...patch, full_version: ctx.now, full_reason: reason, full_lights: [...new Set([...previousLights, ...fullData.lights])] };
   }
   ctx.emit('variable.update_sensor', { value: ctx.now, attributes: patch, replace_attributes: false }, { entity_id: entity });
   ctx.emit('script.turn_on', {}, { entity_id: 'script.ls_render' });
+  // divergence: as above, the captured result reads `last_updated` bare.
   return { accepted: true, revision: ctx.state[entity]?.last_updated ?? ctx.now, committed_at: recordTimestamp(ctx.now) };
 }
 
@@ -363,16 +284,7 @@ export const stateStoreHandlers: ScriptHandlers = {
   // scope occur 2/5/2/6/1/3 times; value.channels has one empty-object fallback.
   // Keep the stale-revision stop ahead of every other parse and make operation-
   // specific strict fields lazy, matching the captured short-circuit order.
-  ls_commit: typed('ls_commit', {
-    parse: args => {
-      const data = requireObject(args, 'data', 'ls_commit');
-      return {
-        expectedRevision: data.expected_revision,
-        details: lazy(() => parseCommitData(data)),
-      };
-    },
-    run: commit,
-  }),
+  ls_commit: typed('ls_commit', { parse: parseCommitArgs, run: commit }),
   // Captured `store` is required; every other field is guarded `is defined and
   // is not none` and carries its own filter (see `parseStoreProfile`). The
   // saved profile's two reads are `dict.get`, so an explicit null is a value.

@@ -288,12 +288,25 @@ const DOMAIN = join(ROOT, 'src/domain');
  * whose keys are written in the captured order. The `effects_catalog` call
  * stays a call (it is recorded); its result is read by
  * `catalogEffectChannels`, whose unhashable-key raise happens at lookup.
+ *
+ * U4, `ls_commit`, clears `state-store.ts` to zero on every column:
+ * `jsonTypes 224 -> 188`, `lenientAccessors 172 -> 162`,
+ * `rawJsonReturns 20 -> 18`. The request is a `CommitData` of `StoredFact`s
+ * and lazy readers (`src/parse/overrides.ts`); stored records are read through
+ * one lenient `OverrideRecord` view whether they came from the sensor or were
+ * written earlier in the same commit; the written attributes are an
+ * `OverridesPatch` built in the captured key order, with stored maps carried
+ * as `OpaqueMap`s and spread. Every `===`, `??` and `Set` on a stored value is
+ * the raw value's, because `StoredFact` is the raw value. The three known
+ * divergences in `commit` (two bare `last_updated` reads, the `created ?? when`
+ * fallback, the `previousReason &&` truthiness) are unchanged and marked
+ * `// divergence:` for their own commits.
  */
 const CEILINGS = {
-  jsonTypes: 224,
+  jsonTypes: 188,
   validatedBags: 0,
-  lenientAccessors: 172,
-  rawJsonReturns: 20,
+  lenientAccessors: 162,
+  rawJsonReturns: 18,
 };
 
 /** Comments may legitimately name these types while explaining why they are gone. */
