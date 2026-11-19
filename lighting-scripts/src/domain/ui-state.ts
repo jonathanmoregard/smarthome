@@ -1,41 +1,15 @@
 import { isDeepStrictEqual } from 'node:util';
-import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { jinjaTruthy, object, requireArray, requireBoolean, requireString, withParsedArgs } from '../runtime/parse.ts';
+import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
+import { withParsedArgs } from '../runtime/parse.ts';
+import { storedEquals, withFields } from '../runtime/verbatim.ts';
+import type { Verbatim } from '../runtime/verbatim.ts';
 import { roundEven } from './scale.ts';
-import { isAreaId, list, num, saved, strings } from './schedule.ts';
-
-/**
- * A UI row collection the catalog must name. Absence is an error here, not an
- * empty list: a catalog with no rows would otherwise publish nothing and look
- * like a working sync.
- */
-function rows(ctx: ScriptContext, key: 'ui_rows' | 'ui_discovery'): JsonValue[] {
-  const value = ctx.catalog[key];
-  if (value === undefined) throw new Error(`Missing runtime catalog.${key}`);
-  return value;
-}
-
-function requireStringValue(value: JsonValue | undefined, context: string): string {
-  return requireString({ value: value === undefined ? null : value }, 'value', context);
-}
-
-function requireStringArray(value: JsonValue | undefined, context: string): string[] {
-  const items = requireArray({ value: value === undefined ? null : value }, 'value', context);
-  return items.map((item, index) => requireStringValue(item, `${context}[${index}]`));
-}
-
-/** Captured rows use an absent key or an empty string to mean no profile store. */
-function optionalStoreId(value: JsonValue | undefined, context: string): string | undefined {
-  if (value === undefined) return undefined;
-  const store = requireStringValue(value, context);
-  return store.length === 0 ? undefined : store;
-}
-
-/** HA uses null for an entity attribute with no value; present values must be arrays. */
-function optionalAttributeArray(value: JsonValue | undefined, context: string): JsonValue[] {
-  if (value === undefined || value === null) return [];
-  return requireArray({ value }, 'value', context);
-}
+import { isAreaId } from './schedule.ts';
+import {
+  discoveryRows, displayOfColour, lampReading, onOffOnly, parseRangeSaveArgs, parseUiSyncArgs, proxyKelvin,
+  proxyShowsRgb, runtimeTargets, storedRangeBounds, uiProfile, uiRows,
+} from '../parse/ui-state.ts';
+import type { Display, RangeSaveArgs } from '../parse/ui-state.ts';
 
 /**
  * One MQTT message for the UI proxy. Both fields are built here -- the topic
@@ -46,74 +20,59 @@ function optionalAttributeArray(value: JsonValue | undefined, context: string): 
 export type UiMessage = { topic: string; payload: string };
 
 export function uiMessages(ctx: ScriptContext, force: boolean): UiMessage[] {
-  const targets = object(ctx.attr('sensor.ls_effects_runtime', 'targets'));
-  const assignments = object(ctx.attr('sensor.ls_effects_runtime', 'assignments'));
+  const runtime = runtimeTargets(ctx);
   const messages: UiMessage[] = [];
-  for (const raw of rows(ctx, 'ui_rows')) {
-    const row = object(raw), source = String(row.source), proxy = String(row.proxy);
-    const store = optionalStoreId(row.store, 'effects_ui_sync.row.store');
-    const members = strings(row.members), topics = object(row.topics);
+  for (const parseRow of uiRows(ctx)) {
+    const { source, proxy, store, members, topic: topicOf } = parseRow();
     const append = (channel: string, payload: string) => {
-      const topic = topics[channel];
-      if (typeof topic !== 'string') throw Error(`UI row has no ${channel} topic: ${source}`);
+      const topic = topicOf(channel);
+      if (topic === undefined) throw Error(`UI row has no ${channel} topic: ${source}`);
       messages.push({ topic, payload });
     };
     const available = ['on', 'off'].includes(ctx.get(source));
     if (force || available !== ['on', 'off'].includes(ctx.get(proxy))) append('availability', available ? 'online' : 'offline');
-    const names: string[] = [], levels: number[] = [], colors: JsonObject[] = [];
+    const names: string[] = [], levels: number[] = [], colors: Verbatim[] = [];
     for (const member of members) {
-      const entry = object(Object.hasOwn(targets, member) ? targets[member] : assignments[member]);
-      for (const channel of ['brightness', 'color']) {
-        const claim = object(entry[channel]);
-        // Captured `claim.get('effect')` sits in a Jinja boolean position, where
-        // an empty container is false. Bare truthiness let one through to
-        // String(), inventing '[object Object]' or '' as an effect name.
-        if (claim.kind === 'effect' && jinjaTruthy(claim.effect)) names.push(String(claim.effect));
-      }
-      if (jinjaTruthy(entry.effect) && entry.effect !== 'Normal light') names.push(String(entry.effect));
-      if (typeof entry.level === 'number') levels.push(entry.level);
-      else if (typeof entry.brightness === 'number') levels.push(entry.brightness);
-      const color = object(entry.color);
-      if (color.kind === 'constant' && color.value !== null && typeof color.value === 'object' && !Array.isArray(color.value)) colors.push(color.value);
+      const entry = runtime.member(member);
+      names.push(...entry.claimEffects);
+      if (entry.effect !== undefined) names.push(entry.effect);
+      if (entry.level !== undefined) levels.push(entry.level);
+      else if (entry.brightness !== undefined) levels.push(entry.brightness);
+      if (entry.constantColour !== undefined) colors.push(entry.constantColour);
     }
     const unique = names.filter((name, i) => names.findIndex(other => other.toLowerCase() === name.toLowerCase()) === i);
     let effect = unique.length === 1 ? unique[0]! : unique.length > 1 ? '' : 'Normal light';
     if (store !== undefined) {
-      const pr = saved(ctx, store);
-      const effectChannels = pr.effect_channels === undefined
-        ? ['brightness', 'color']
-        : requireStringArray(pr.effect_channels, 'effects_ui_sync.profile.effect_channels');
-      effect = effectChannels.length
-        ? pr.effect === undefined ? 'Normal light' : requireStringValue(pr.effect, 'effects_ui_sync.profile.effect')
-        : 'Normal light';
+      const pr = uiProfile(ctx, store);
+      const stored = pr.effectChannels.length > 0 ? pr.effect() : undefined;
+      effect = stored === undefined ? 'Normal light' : stored;
     }
     if (effect === 'Normal light') effect = 'Normal Light';
-    let b = ctx.attr(source, 'brightness'), k = ctx.attr(source, 'color_temp_kelvin'), rgb = ctx.attr(source, 'rgb_color'), mode = ctx.attr(source, 'color_mode');
-    let target = object(targets[source]);
+    let { brightness: b, colourTemp, kelvin: k, rgb } = lampReading(ctx, source);
+    let target = runtime.target(source);
     if (store === undefined && (members.length > 1 || !members.includes(source))) {
       const areas = [...new Set(members.map(e => ctx.areas[e]).filter(isAreaId))];
-      if (areas.length === 1) target = object(targets[`room:${areas[0]}`]);
+      if (areas.length === 1) target = runtime.target(`room:${areas[0]}`);
     }
     if (store === undefined) {
-      if (typeof target.level === 'number') b = target.level;
+      if (target.level !== undefined) b = target.level;
       else if (levels.length === members.length && levels.length) b = roundEven(levels.reduce((sum, level) => sum + level, 0) / levels.length);
-      const color = object(target.color);
-      let display: JsonObject = {};
-      if (color.kind === 'constant') display = object(color.value);
-      else if (!Object.keys(target).length && colors.length === members.length && colors.length && colors.every(c => isDeepStrictEqual(c, colors[0]))) display = colors[0]!;
-      if ('kelvin' in display) { mode = 'color_temp'; k = display.kelvin; }
-      else if ('rgb' in display) { mode = 'rgb'; rgb = display.rgb; }
+      let display: Display = { kind: 'neither' };
+      if (target.display !== undefined) display = target.display;
+      else if (!target.populated && colors.length === members.length && colors.length > 0 && colors.every(c => storedEquals(c, colors[0]))) display = displayOfColour(colors[0]!);
+      if (display.kind === 'kelvin') { colourTemp = true; k = display.kelvin; }
+      else if (display.kind === 'rgb') { colourTemp = false; rgb = display.rgb; }
     }
     if (!available) continue;
     if (force || ctx.get(proxy) !== ctx.get(source)) append('power', ctx.get(source) === 'on' ? 'ON' : 'OFF');
     if (force || ctx.attr(proxy, 'effect') !== effect) append('effect', effect);
-    if (typeof b === 'number' && (force || ctx.attr(proxy, 'brightness') !== roundEven(b))) append('brightness', String(roundEven(b)));
-    if (mode === 'color_temp' && typeof k === 'number' && k > 0) {
-      const mired = roundEven(1e6 / k), proxyK = num(ctx.attr(proxy, 'color_temp_kelvin'), 0);
+    if (b !== undefined && (force || ctx.attr(proxy, 'brightness') !== roundEven(b))) append('brightness', String(roundEven(b)));
+    if (colourTemp && k !== undefined && k > 0) {
+      const mired = roundEven(1e6 / k), proxyK = proxyKelvin(ctx, proxy);
       const proxyMired = proxyK > 0 ? roundEven(1e6 / proxyK) : 0;
       if (force || ctx.attr(proxy, 'color_mode') !== 'color_temp' || proxyMired !== mired) append('temperature', String(mired));
-    } else if (Array.isArray(rgb) && rgb.length === 3) {
-      if (force || ctx.attr(proxy, 'color_mode') !== 'rgb' || !isDeepStrictEqual(list(ctx.attr(proxy, 'rgb_color')), rgb)) append('rgb', rgb.join(','));
+    } else if (rgb !== undefined) {
+      if (force || ctx.attr(proxy, 'color_mode') !== 'rgb' || !proxyShowsRgb(ctx, proxy, rgb)) append('rgb', rgb.text);
     }
   }
   return messages;
@@ -125,10 +84,9 @@ function uiCatalog(ctx: ScriptContext): null {
   const choices = ctx.catalog.ui_choices === undefined
     ? ['Normal Light', 'Candle']
     : ctx.catalog.ui_choices;
-  for (const raw of rows(ctx, 'ui_discovery')) {
-    const row = object(raw), config = object(row.config);
-    if (!isDeepStrictEqual(ctx.attr(String(row.entity), 'effect_list'), choices)) {
-      ctx.emit('mqtt.publish', { topic: `homeassistant/light/${config.unique_id}/config`, payload: JSON.stringify({ ...config, effect_list: choices }), qos: 0, retain: true });
+  for (const row of discoveryRows(ctx)) {
+    if (!isDeepStrictEqual(ctx.attr(row.entity, 'effect_list'), choices)) {
+      ctx.emit('mqtt.publish', { topic: `homeassistant/light/${row.uniqueId}/config`, payload: JSON.stringify(withFields(row.config, { effect_list: choices })), qos: 0, retain: true });
     }
   }
   return null;
@@ -146,12 +104,10 @@ export type RangeSaveResult = {
   config: RangeConfig;
 };
 
-export function rangeSave(ctx: ScriptContext, args: JsonObject): RangeSaveResult {
-  const entity = args.entity === undefined ? '' : requireString(args, 'entity', 'ls_range_save');
-  const profile = args.profile === undefined ? 'bright' : requireString(args, 'profile', 'ls_range_save');
-  const dryRun = args.dry_run === undefined ? false : requireBoolean(args.dry_run, 'ls_range_save.dry_run');
+export function rangeSave(ctx: ScriptContext, args: RangeSaveArgs): RangeSaveResult {
+  const { entity, profile, dryRun } = args;
   const e = entity;
-  const previous = object(object(ctx.attr('sensor.ls_overrides', 'switch_ranges'))[e]);
+  const previous = storedRangeBounds(ctx, e);
   const lo = args.minimum === undefined ? previous.min : args.minimum;
   const hi = args.maximum === undefined ? previous.max : args.maximum;
   const errors: string[] = [], config: RangeConfig = { profile };
@@ -162,8 +118,7 @@ export function rangeSave(ctx: ScriptContext, args: JsonObject): RangeSaveResult
   const hasDevice = Object.values(devices).some(entities => entities.includes(e));
   if (!supportedDomain || !ctx.state[e] || !hasDevice || blocked) errors.push('Choose a physical on/off lamp or smart plug.');
   else if (domain === 'light') {
-    const modes = optionalAttributeArray(ctx.attr(e, 'supported_color_modes'), `ls_range_save.${e}.supported_color_modes`);
-    if (!isDeepStrictEqual(modes, ['onoff'])) errors.push('Choose an on/off lamp; dimmable lamps use the normal lighting settings.');
+    if (!onOffOnly(ctx, e)) errors.push('Choose an on/off lamp; dimmable lamps use the normal lighting settings.');
   }
   if (supportedDomain && ctx.state[e] && ctx.areas[e] === undefined) errors.push('Assign this lamp to a room before configuring its range.');
   // `profile` is already a string from the parse above, so the String() this
@@ -185,10 +140,7 @@ export function rangeSave(ctx: ScriptContext, args: JsonObject): RangeSaveResult
 export const uiHandlers: ScriptHandlers = {
   effects_ui_catalog: ctx => uiCatalog(ctx),
   effects_ui_sync: withParsedArgs({
-    parse: args => ({
-      dryRun: args.dry_run === undefined ? false : requireBoolean(args.dry_run, 'effects_ui_sync.dry_run'),
-      force: args.force === undefined ? false : requireBoolean(args.force, 'effects_ui_sync.force'),
-    }),
+    parse: parseUiSyncArgs,
     run: (ctx, args) => {
     if (!args.dryRun) ctx.run('effects_ui_catalog');
     const messages = uiMessages(ctx, args.force);
@@ -197,5 +149,7 @@ export const uiHandlers: ScriptHandlers = {
     return null;
     },
   }),
-  ls_range_save: rangeSave,
+  // Every argument read is eager in the captured script and none can raise
+  // between them, so the arguments parse up front.
+  ls_range_save: withParsedArgs({ parse: parseRangeSaveArgs, run: rangeSave }),
 };

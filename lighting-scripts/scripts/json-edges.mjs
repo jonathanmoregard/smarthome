@@ -322,12 +322,23 @@ const DOMAIN = join(ROOT, 'src/domain');
  * lenient `ui_rows` source match, the `effects_native_plan` capture view
  * (records read after the power events, where the inline read sat) and the
  * expiry ages, which skip non-mapping records exactly as the inline filter did.
+ *
+ * U6, `ui-state.ts`: `jsonTypes 164 -> 153`, `lenientAccessors 139 -> 117`,
+ * `rawJsonReturns 17 -> 15`. UI rows are parsed one per loop iteration (the
+ * store still raises before the members); the runtime sensor's targets and
+ * assignments are read through a lenient `UiTargetView` of the fields the
+ * mirror reads, each with the inline type test; a display colour is a
+ * `Display` whose branch is chosen by key (`'kelvin' in display`) exactly as
+ * before; the discovery config is carried and re-spread with `effect_list`.
+ * `ls_range_save` parses its arguments up front (nothing between the reads can
+ * raise). The two `String(...)` calls left format already-typed numbers into
+ * MQTT payloads; they are not parses.
  */
 const CEILINGS = {
-  jsonTypes: 164,
+  jsonTypes: 153,
   validatedBags: 0,
-  lenientAccessors: 139,
-  rawJsonReturns: 17,
+  lenientAccessors: 117,
+  rawJsonReturns: 15,
 };
 
 /** Comments may legitimately name these types while explaining why they are gone. */

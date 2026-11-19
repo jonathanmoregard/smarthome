@@ -1,0 +1,267 @@
+/**
+ * Parsing for the UI mirror (`effects_ui_sync`, `effects_ui_catalog`) and
+ * `ls_range_save`.
+ *
+ * The UI rows and discovery rows are the catalog's deliberately raw lists
+ * (`Catalog.ui_rows`/`ui_discovery`), so their elements are parsed here, one row
+ * per loop iteration, with every raise in the order the inline reads made it.
+ * The runtime sensor's targets and assignments are read through a lenient
+ * {@link UiTargetView}: only the handful of fields the mirror reads, each with
+ * the exact type test the inline code applied, so nothing compares differently.
+ */
+import { isDeepStrictEqual } from 'node:util';
+import type { JsonObject, JsonValue, ScriptContext } from '../runtime/context.ts';
+import { isObject, jinjaTruthy, object, requireArray, requireBoolean, requireString } from '../runtime/parse.ts';
+import { carry, reveal } from '../runtime/verbatim.ts';
+import type { Verbatim } from '../runtime/verbatim.ts';
+import { list, num, saved, strings } from './accessors.ts';
+
+const runtime = 'sensor.ls_effects_runtime';
+
+/**
+ * A UI row collection the catalog must name. Absence is an error here, not an
+ * empty list: a catalog with no rows would otherwise publish nothing and look
+ * like a working sync.
+ */
+function rows(ctx: ScriptContext, key: 'ui_rows' | 'ui_discovery'): JsonValue[] {
+  const value = ctx.catalog[key];
+  if (value === undefined) throw new Error(`Missing runtime catalog.${key}`);
+  return value;
+}
+
+function requireStringValue(value: JsonValue | undefined, context: string): string {
+  return requireString({ value: value === undefined ? null : value }, 'value', context);
+}
+
+function requireStringArray(value: JsonValue | undefined, context: string): string[] {
+  const items = requireArray({ value: value === undefined ? null : value }, 'value', context);
+  return items.map((item, index) => requireStringValue(item, `${context}[${index}]`));
+}
+
+/** Captured rows use an absent key or an empty string to mean no profile store. */
+function optionalStoreId(value: JsonValue | undefined, context: string): string | undefined {
+  if (value === undefined) return undefined;
+  const store = requireStringValue(value, context);
+  return store.length === 0 ? undefined : store;
+}
+
+/** One UI row. `source`/`proxy` keep JavaScript `String` semantics, as the inline read did. */
+export interface UiRow {
+  source: string;
+  proxy: string;
+  store: string | undefined;
+  members: string[];
+  /** The row's topic for a channel, when the topics mapping holds a string there. */
+  topic(channel: string): string | undefined;
+}
+
+/** The `ui_rows` list, each row parsed as the loop reaches it. */
+export function uiRows(ctx: ScriptContext): Array<() => UiRow> {
+  return rows(ctx, 'ui_rows').map(raw => () => {
+    const row = object(raw), source = String(row.source), proxy = String(row.proxy);
+    // The store raises before the members do.
+    const store = optionalStoreId(row.store, 'effects_ui_sync.row.store');
+    const members = strings(row.members), topics = object(row.topics);
+    return {
+      source, proxy, store, members,
+      topic: channel => {
+        const topic = topics[channel];
+        return typeof topic === 'string' ? topic : undefined;
+      },
+    };
+  });
+}
+
+/** A display colour as the mirror reads it: an rgb triple and its MQTT text. */
+export interface Rgb { text: string; value: Verbatim }
+
+function rgbOf(value: JsonValue | undefined): Rgb | undefined {
+  return Array.isArray(value) && value.length === 3 ? { text: value.join(','), value: carry(value) } : undefined;
+}
+
+/**
+ * Which colour a display mapping names: `'kelvin' in display` first, then
+ * `'rgb' in display`. The key decides the branch whatever its value is; the
+ * value is then read with the exact test the mirror applies (a number; a
+ * three-element list), so a malformed value fails that test as it did inline.
+ */
+export type Display =
+  | { kind: 'kelvin'; kelvin: number | undefined }
+  | { kind: 'rgb'; rgb: Rgb | undefined }
+  | { kind: 'neither' };
+
+function displayOf(value: JsonObject): Display {
+  if ('kelvin' in value) return { kind: 'kelvin', kelvin: typeof value.kelvin === 'number' ? value.kelvin : undefined };
+  if ('rgb' in value) return { kind: 'rgb', rgb: rgbOf(value.rgb) };
+  return { kind: 'neither' };
+}
+
+/** {@link displayOf} for a member's carried constant colour. */
+export function displayOfColour(colour: Verbatim): Display {
+  return displayOf(object(reveal(colour)));
+}
+
+/**
+ * A runtime target or assignment, read leniently: a non-mapping is `{}`, a
+ * non-mapping claim has no fields.
+ */
+export interface UiTargetView {
+  /** Effects claimed on brightness then colour (Jinja-truthy names only), `String`ed. */
+  claimEffects: string[];
+  /** The entry's own Jinja-truthy `effect`, `String`ed, unless it is 'Normal light'. */
+  effect: string | undefined;
+  level: number | undefined;
+  brightness: number | undefined;
+  /** The colour claim's value when it is a constant mapping, carried for comparison. */
+  constantColour: Verbatim | undefined;
+  /** The colour claim's display when the claim is a constant (a non-mapping value is `neither`). */
+  display: Display | undefined;
+  /** Whether the entry has any key at all. */
+  populated: boolean;
+}
+
+function uiTargetView(raw: JsonValue | undefined): UiTargetView {
+  const entry = object(raw), claimEffects: string[] = [];
+  for (const channel of ['brightness', 'color']) {
+    const claim = object(entry[channel]);
+    // Captured `claim.get('effect')` sits in a Jinja boolean position, where
+    // an empty container is false. Bare truthiness let one through to
+    // String(), inventing '[object Object]' or '' as an effect name.
+    if (claim.kind === 'effect' && jinjaTruthy(claim.effect)) claimEffects.push(String(claim.effect));
+  }
+  const colour = object(entry.color);
+  return {
+    claimEffects,
+    effect: jinjaTruthy(entry.effect) && entry.effect !== 'Normal light' ? String(entry.effect) : undefined,
+    level: typeof entry.level === 'number' ? entry.level : undefined,
+    brightness: typeof entry.brightness === 'number' ? entry.brightness : undefined,
+    constantColour: colour.kind === 'constant' && isObject(colour.value) ? carry(colour.value) : undefined,
+    display: colour.kind === 'constant' ? displayOf(object(colour.value)) : undefined,
+    populated: Object.keys(entry).length > 0,
+  };
+}
+
+/** `sensor.ls_effects_runtime`'s targets and assignments, read once. */
+export interface RuntimeTargets {
+  /** A member's target, else its assignment: plain-object lookups, as inline. */
+  member(entity: string): UiTargetView;
+  target(key: string): UiTargetView;
+}
+
+export function runtimeTargets(ctx: ScriptContext): RuntimeTargets {
+  const targets = object(ctx.attr(runtime, 'targets'));
+  const assignments = object(ctx.attr(runtime, 'assignments'));
+  return {
+    member: entity => uiTargetView(Object.hasOwn(targets, entity) ? targets[entity] : assignments[entity]),
+    target: key => uiTargetView(targets[key]),
+  };
+}
+
+/** What a light entity's attributes say, read with the mirror's type tests. */
+export interface LampReading {
+  brightness: number | undefined;
+  colourTemp: boolean;
+  kelvin: number | undefined;
+  rgb: Rgb | undefined;
+}
+
+export function lampReading(ctx: ScriptContext, entity: string): LampReading {
+  const brightness = ctx.attr(entity, 'brightness'), kelvin = ctx.attr(entity, 'color_temp_kelvin');
+  return {
+    brightness: typeof brightness === 'number' ? brightness : undefined,
+    colourTemp: ctx.attr(entity, 'color_mode') === 'color_temp',
+    kelvin: typeof kelvin === 'number' ? kelvin : undefined,
+    rgb: rgbOf(ctx.attr(entity, 'rgb_color')),
+  };
+}
+
+/** The proxy's `color_temp_kelvin` as `num(value, 0)`. */
+export function proxyKelvin(ctx: ScriptContext, proxy: string): number {
+  return num(ctx.attr(proxy, 'color_temp_kelvin'), 0);
+}
+
+/** Does the proxy's `rgb_color` (a list, or raising) equal this triple? */
+export function proxyShowsRgb(ctx: ScriptContext, proxy: string, rgb: Rgb): boolean {
+  return isDeepStrictEqual(list(ctx.attr(proxy, 'rgb_color')), reveal(rgb.value));
+}
+
+/** A row's stored profile: its effect channels at once, its effect where it is read. */
+export interface UiProfile {
+  effectChannels: string[];
+  effect: () => string | undefined;
+}
+
+export function uiProfile(ctx: ScriptContext, store: string): UiProfile {
+  const pr = saved(ctx, store);
+  return {
+    effectChannels: pr.effect_channels === undefined
+      ? ['brightness', 'color']
+      : requireStringArray(pr.effect_channels, 'effects_ui_sync.profile.effect_channels'),
+    effect: () => pr.effect === undefined ? undefined : requireStringValue(pr.effect, 'effects_ui_sync.profile.effect'),
+  };
+}
+
+/** One discovery row. `entity` is `String`ed and `uniqueId` template-formatted, as inline. */
+export interface DiscoveryRow {
+  entity: string;
+  uniqueId: string;
+  /** The stored discovery config, republished with `effect_list` replaced. */
+  config: Verbatim;
+}
+
+export function discoveryRows(ctx: ScriptContext): DiscoveryRow[] {
+  return rows(ctx, 'ui_discovery').map(raw => {
+    const row = object(raw), config = object(row.config);
+    return { entity: String(row.entity), uniqueId: `${config.unique_id}`, config: carry(config) };
+  });
+}
+
+export function parseUiSyncArgs(args: JsonObject): { dryRun: boolean; force: boolean } {
+  return {
+    dryRun: args.dry_run === undefined ? false : requireBoolean(args.dry_run, 'effects_ui_sync.dry_run'),
+    force: args.force === undefined ? false : requireBoolean(args.force, 'effects_ui_sync.force'),
+  };
+}
+
+/** A range bound as given: absent, or the stored value (only a number is a bound). */
+export type RangeBound = string | number | boolean | null | Verbatim | undefined;
+
+function bound(value: JsonValue | undefined): RangeBound {
+  return Array.isArray(value) || isObject(value) ? carry(value) : value;
+}
+
+export interface RangeSaveArgs {
+  entity: string;
+  profile: string;
+  dryRun: boolean;
+  minimum: RangeBound;
+  maximum: RangeBound;
+}
+
+export function parseRangeSaveArgs(args: JsonObject): RangeSaveArgs {
+  return {
+    entity: args.entity === undefined ? '' : requireString(args, 'entity', 'ls_range_save'),
+    profile: args.profile === undefined ? 'bright' : requireString(args, 'profile', 'ls_range_save'),
+    dryRun: args.dry_run === undefined ? false : requireBoolean(args.dry_run, 'ls_range_save.dry_run'),
+    minimum: bound(args.minimum),
+    maximum: bound(args.maximum),
+  };
+}
+
+/** A switch's stored range bounds, read leniently from `sensor.ls_overrides`. */
+export function storedRangeBounds(ctx: ScriptContext, entity: string): { min: RangeBound; max: RangeBound } {
+  const previous = object(object(ctx.attr('sensor.ls_overrides', 'switch_ranges'))[entity]);
+  return { min: bound(previous.min), max: bound(previous.max) };
+}
+
+/**
+ * Is the light on/off only? HA uses null for an attribute with no value
+ * (read as no modes); a present value must be a list.
+ */
+export function onOffOnly(ctx: ScriptContext, entity: string): boolean {
+  const value = ctx.attr(entity, 'supported_color_modes');
+  const modes = value === undefined || value === null
+    ? []
+    : requireArray({ value }, 'value', `ls_range_save.${entity}.supported_color_modes`);
+  return isDeepStrictEqual(modes, ['onoff']);
+}

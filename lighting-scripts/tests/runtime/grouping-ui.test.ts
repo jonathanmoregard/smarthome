@@ -95,3 +95,31 @@ test('range save validates physical devices, rejects boolean ranges, and emits o
   assert.deepEqual(ctx.calls, []);
   assert.equal(ctx.get('switch.new_lamp'), 'off');
 });
+
+test('a constant colour with a non-numeric kelvin wins over its rgb and mirrors the lamp\'s own rgb', async () => {
+  // `'kelvin' in display` takes the colour-temperature branch before the number
+  // test, replacing the lamp's kelvin and leaving its rgb. A colour view that
+  // dropped the non-numeric kelvin would publish the display's rgb (9,9,9) or
+  // the lamp's 3000 K instead.
+  const ctx = await load();
+  setCatalog(ctx, { ui_rows: [row('light.group')] });
+  ctx.put('light.group', 'on', { brightness: 20, color_mode: 'rgb', rgb_color: [1, 2, 3], color_temp_kelvin: 3000 });
+  ctx.put('sensor.ls_effects_runtime', '2', { targets: { 'light.group': { color: { kind: 'constant', value: { kelvin: '2700', rgb: [9, 9, 9] } } } } });
+  assert.deepEqual(ctx.run('effects_ui_sync', { dry_run: true, force: true }).messages.slice(3), [
+    { topic: 'test/brightness', payload: '20' }, { topic: 'test/rgb', payload: '1,2,3' },
+  ]);
+});
+
+test('UI discovery republishes the stored config with effect_list replaced in place', async () => {
+  // The payload is `{...config, effect_list}` serialised: an existing key keeps its position.
+  const ctx = await load();
+  setCatalog(ctx, { ui_choices: ['Normal Light', 'Breathe'], ui_discovery: [
+    { entity: 'light.ep_a', config: { unique_id: 'ep_a', effect_list: ['old'], name: 'A' } },
+    { entity: 'light.ep_b', config: { name: 'B' } },
+  ] });
+  ctx.put('light.ep_b', 'on', { effect_list: ['Normal Light', 'Breathe'] });
+  ctx.run('effects_ui_catalog');
+  assert.deepEqual(ctx.calls.map(c => [c.data.topic, c.data.payload]), [
+    ['homeassistant/light/ep_a/config', '{"unique_id":"ep_a","effect_list":["Normal Light","Breathe"],"name":"A"}'],
+  ]);
+});
