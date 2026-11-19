@@ -12,7 +12,8 @@
  * are carried, never narrowed.
  */
 import { isDeepStrictEqual } from 'node:util';
-import type { JsonObject, JsonValue, ScriptContext } from '../runtime/context.ts';
+import type { JsonObject, JsonValue } from '../runtime/context.ts';
+import type { HouseView } from '../runtime/effects.ts';
 import { isObject, jinjaFloat, jinjaTruthy, lazy, object, ParseError, requireArray, requireNumber, requireObject, requireString } from '../runtime/parse.ts';
 import { carry, reveal } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
@@ -42,7 +43,7 @@ function frameColour(value: JsonValue | undefined, context: string): FrameColour
 }
 
 /** The colour a warm-end effect holds: the candle test lamp's warm end, read as a frame colour. */
-export function warmEndColour(ctx: ScriptContext, context: string): FrameColour {
+export function warmEndColour(ctx: HouseView, context: string): FrameColour {
   return frameColour({ rgb: reveal(warmEndOf(ctx.attr('light.candle_test_rgb_warm_end', 'rgb_color'))) }, context);
 }
 
@@ -287,7 +288,7 @@ export interface RuntimeState {
   previous(lamp: string): PreviousLamp;
 }
 
-export function runtimeState(ctx: ScriptContext): RuntimeState {
+export function runtimeState(ctx: HouseView): RuntimeState {
   const old = object(ctx.attr(runtime, 'assignments')), oldTargets = object(ctx.attr(runtime, 'targets'));
   const priorApplied = ctx.attr(runtime, 'applied');
   return {
@@ -305,28 +306,28 @@ export function runtimeState(ctx: ScriptContext): RuntimeState {
 }
 
 /** The runtime's `generation` as stored; absent reads as null. */
-export function runtimeGeneration(ctx: ScriptContext): Verbatim {
+export function runtimeGeneration(ctx: HouseView): Verbatim {
   const generation = ctx.attr(runtime, 'generation');
   return carry(generation === undefined || generation === null ? null : generation);
 }
 
 /** The runtime's `plan_order`, absent read as 0; a present non-number raises. */
-export function runtimePlanOrder(ctx: ScriptContext): number {
+export function runtimePlanOrder(ctx: HouseView): number {
   return requireNumber({ plan_order: ctx.attr(runtime, 'plan_order') ?? 0 }, 'plan_order', 'effects_assign runtime');
 }
 
 /** Is a runtime assignment, read leniently, deep-equal to the effect target a command carries? */
-export function assignedAs(ctx: ScriptContext, owner: string, target: Verbatim): boolean {
+export function assignedAs(ctx: HouseView, owner: string, target: Verbatim): boolean {
   return isDeepStrictEqual(object(ctx.attr(runtime, 'assignments'))[owner], reveal(target));
 }
 
 /** The lamps the runtime currently assigns, in stored order. */
-export function assignedLamps(ctx: ScriptContext): string[] {
+export function assignedLamps(ctx: HouseView): string[] {
   return Object.keys(object(ctx.attr(runtime, 'assignments')));
 }
 
 /** Has the area's power gate been explicitly closed (`power[area] === false`)? */
-export function powerClosed(ctx: ScriptContext, area: string): boolean {
+export function powerClosed(ctx: HouseView, area: string): boolean {
   return object(ctx.attr('sensor.ls_overrides', 'power'))[area] === false;
 }
 

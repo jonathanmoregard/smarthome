@@ -10,7 +10,8 @@
  * the exact type test the inline code applied, so nothing compares differently.
  */
 import { isDeepStrictEqual } from 'node:util';
-import type { JsonObject, JsonValue, ScriptContext } from '../runtime/context.ts';
+import type { JsonObject, JsonValue } from '../runtime/context.ts';
+import type { HouseView } from '../runtime/effects.ts';
 import { isObject, jinjaTruthy, object, requireArray, requireBoolean, requireString } from '../runtime/parse.ts';
 import { carry, reveal } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
@@ -23,7 +24,7 @@ const runtime = 'sensor.ls_effects_runtime';
  * empty list: a catalog with no rows would otherwise publish nothing and look
  * like a working sync.
  */
-function rows(ctx: ScriptContext, key: 'ui_rows' | 'ui_discovery'): JsonValue[] {
+function rows(ctx: HouseView, key: 'ui_rows' | 'ui_discovery'): JsonValue[] {
   const value = ctx.catalog[key];
   if (value === undefined) throw new Error(`Missing runtime catalog.${key}`);
   return value;
@@ -56,7 +57,7 @@ export interface UiRow {
 }
 
 /** The `ui_rows` list, each row parsed as the loop reaches it. */
-export function uiRows(ctx: ScriptContext): Array<() => UiRow> {
+export function uiRows(ctx: HouseView): Array<() => UiRow> {
   return rows(ctx, 'ui_rows').map(raw => () => {
     const row = object(raw), source = String(row.source), proxy = String(row.proxy);
     // The store raises before the members do.
@@ -148,7 +149,7 @@ export interface RuntimeTargets {
   target(key: string): UiTargetView;
 }
 
-export function runtimeTargets(ctx: ScriptContext): RuntimeTargets {
+export function runtimeTargets(ctx: HouseView): RuntimeTargets {
   const targets = object(ctx.attr(runtime, 'targets'));
   const assignments = object(ctx.attr(runtime, 'assignments'));
   return {
@@ -165,7 +166,7 @@ export interface LampReading {
   rgb: Rgb | undefined;
 }
 
-export function lampReading(ctx: ScriptContext, entity: string): LampReading {
+export function lampReading(ctx: HouseView, entity: string): LampReading {
   const brightness = ctx.attr(entity, 'brightness'), kelvin = ctx.attr(entity, 'color_temp_kelvin');
   return {
     brightness: typeof brightness === 'number' ? brightness : undefined,
@@ -176,12 +177,12 @@ export function lampReading(ctx: ScriptContext, entity: string): LampReading {
 }
 
 /** The proxy's `color_temp_kelvin` as `num(value, 0)`. */
-export function proxyKelvin(ctx: ScriptContext, proxy: string): number {
+export function proxyKelvin(ctx: HouseView, proxy: string): number {
   return num(ctx.attr(proxy, 'color_temp_kelvin'), 0);
 }
 
 /** Does the proxy's `rgb_color` (a list, or raising) equal this triple? */
-export function proxyShowsRgb(ctx: ScriptContext, proxy: string, rgb: Rgb): boolean {
+export function proxyShowsRgb(ctx: HouseView, proxy: string, rgb: Rgb): boolean {
   return isDeepStrictEqual(list(ctx.attr(proxy, 'rgb_color')), reveal(rgb.value));
 }
 
@@ -191,7 +192,7 @@ export interface UiProfile {
   effect: () => string | undefined;
 }
 
-export function uiProfile(ctx: ScriptContext, store: string): UiProfile {
+export function uiProfile(ctx: HouseView, store: string): UiProfile {
   const pr = saved(ctx, store);
   return {
     effectChannels: pr.effect_channels === undefined
@@ -209,7 +210,7 @@ export interface DiscoveryRow {
   config: Verbatim;
 }
 
-export function discoveryRows(ctx: ScriptContext): DiscoveryRow[] {
+export function discoveryRows(ctx: HouseView): DiscoveryRow[] {
   return rows(ctx, 'ui_discovery').map(raw => {
     const row = object(raw), config = object(row.config);
     return { entity: String(row.entity), uniqueId: `${config.unique_id}`, config: carry(config) };
@@ -249,7 +250,7 @@ export function parseRangeSaveArgs(args: JsonObject): RangeSaveArgs {
 }
 
 /** A switch's stored range bounds, read leniently from `sensor.ls_overrides`. */
-export function storedRangeBounds(ctx: ScriptContext, entity: string): { min: RangeBound; max: RangeBound } {
+export function storedRangeBounds(ctx: HouseView, entity: string): { min: RangeBound; max: RangeBound } {
   const previous = object(object(ctx.attr('sensor.ls_overrides', 'switch_ranges'))[entity]);
   return { min: bound(previous.min), max: bound(previous.max) };
 }
@@ -258,7 +259,7 @@ export function storedRangeBounds(ctx: ScriptContext, entity: string): { min: Ra
  * Is the light on/off only? HA uses null for an attribute with no value
  * (read as no modes); a present value must be a list.
  */
-export function onOffOnly(ctx: ScriptContext, entity: string): boolean {
+export function onOffOnly(ctx: HouseView, entity: string): boolean {
   const value = ctx.attr(entity, 'supported_color_modes');
   const modes = value === undefined || value === null
     ? []

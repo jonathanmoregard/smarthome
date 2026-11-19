@@ -7,7 +7,8 @@
  * re-export until every importer has been repointed (criterion 7's close-out
  * deletes it). Moved unchanged: every message, fallback and raise is the same.
  */
-import type { JsonObject, JsonValue, ScriptContext } from '../runtime/context.ts';
+import type { JsonObject, JsonValue } from '../runtime/context.ts';
+import type { HouseView } from '../runtime/effects.ts';
 import { ParseError, requireArray, requireFinite, requireObject, requireString } from '../runtime/parse.ts';
 
 export const list = (value: JsonValue | undefined): JsonValue[] =>
@@ -46,7 +47,7 @@ export function timestamp(value: JsonValue | undefined): number {
 export function optionalTimestamp(value: JsonValue | undefined): number | undefined {
   return value === undefined || value === null ? undefined : timestamp(value);
 }
-export function saved(ctx: ScriptContext, entity: string): JsonObject {
+export function saved(ctx: HouseView, entity: string): JsonObject {
   const state = ctx.get(entity);
   // Home Assistant uses these sentinel states when an input_text has no value;
   // malformed present JSON is a corrupt profile, not another absence spelling.

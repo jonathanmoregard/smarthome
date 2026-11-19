@@ -28,7 +28,7 @@ function remoteContext(value: JsonObject, nextFs: JsonObject['value'] = 100) {
 test('switch targets accept only a real on boolean', () => {
   const ctx = context();
   ctx.areas['switch.lamp'] = 'studio';
-  assert.throws(() => switchPlan(ctx, parseSwitchPlanArgs({
+  assert.throws(() => switchPlan(ctx.areas, parseSwitchPlanArgs({
     targets: { 'room:studio': { on: 'yes', level: 128 } },
     ranges: { 'switch.lamp': { profile: 'custom', min: 0, max: 100 } },
     defaults: {},

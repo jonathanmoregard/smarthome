@@ -13,7 +13,8 @@
  * record's `when`, a `period_updated`, a saved profile's `own`/`on`, an rgb
  * component -- are functions the domain calls where the inline read sat.
  */
-import type { JsonObject, JsonValue, ScriptContext } from '../runtime/context.ts';
+import type { JsonObject, JsonValue } from '../runtime/context.ts';
+import type { HouseView } from '../runtime/effects.ts';
 import { object, requireBoolean, requireObject, requireString } from '../runtime/parse.ts';
 import type { Block } from '../domain/blocks.ts';
 import type { LampProfile, LampSample, ScheduledBaseArgs } from '../domain/schedule.ts';
@@ -92,7 +93,7 @@ export interface SavedProfile {
   effectChannels: StoredFact;
 }
 
-export function savedProfile(ctx: ScriptContext, entity: string): SavedProfile {
+export function savedProfile(ctx: HouseView, entity: string): SavedProfile {
   const profile = saved(ctx, entity);
   return {
     own: context => profile.own === undefined ? false : requireBoolean(profile.own, context),
@@ -103,7 +104,7 @@ export function savedProfile(ctx: ScriptContext, entity: string): SavedProfile {
 }
 
 /** A light entity's brightness and colour, as the schedule samples it. */
-export function entityProfile(ctx: ScriptContext, entity: string): LampProfile {
+export function entityProfile(ctx: HouseView, entity: string): LampProfile {
   const rgb = list(ctx.attr(entity, 'rgb_color')).map(value => storedFact(value));
   return { brightness: Math.trunc(num(ctx.attr(entity, 'brightness'), 255)), color: ctx.attr(entity, 'color_mode') === 'color_temp'
     ? { kelvin: Math.trunc(num(ctx.attr(entity, 'color_temp_kelvin'), 3000)) }
@@ -111,7 +112,7 @@ export function entityProfile(ctx: ScriptContext, entity: string): LampProfile {
 }
 
 /** {@link entityProfile}, plus the entity's on state and raw rgb triple. */
-export function entitySample(ctx: ScriptContext, entity: string): LampSample {
+export function entitySample(ctx: HouseView, entity: string): LampSample {
   const rgb = list(ctx.attr(entity, 'rgb_color')).map(value => storedFact(value));
   // `on` is `=== 'on'`, so it is always a real boolean — never absent, never a
   // falsy stand-in. That is what lets every downstream `target.on` read be a
@@ -125,12 +126,12 @@ export function rgbComponent(rgb: StoredValue[], index: number): number {
 }
 
 /** An entity's state as a schedule number; HA's no-value states read as `fallback`. */
-export function stateNumber(ctx: ScriptContext, entity: string, fallback: number): number {
+export function stateNumber(ctx: HouseView, entity: string, fallback: number): number {
   return num(ctx.get(entity), fallback);
 }
 
 /** An entity attribute as a required schedule number. */
-export function attributeNumber(ctx: ScriptContext, entity: string, key: string): number {
+export function attributeNumber(ctx: HouseView, entity: string, key: string): number {
   return num(ctx.attr(entity, key));
 }
 

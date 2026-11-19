@@ -13,7 +13,8 @@
  * are carried, never narrowed; facts compared by identity are stored facts.
  */
 import { isDeepStrictEqual } from 'node:util';
-import type { JsonObject, JsonValue, ScriptContext } from '../runtime/context.ts';
+import type { JsonObject, JsonValue } from '../runtime/context.ts';
+import type { HouseView } from '../runtime/effects.ts';
 import { isObject, jinjaTruthy, lazy, object, ParseError, requireArray, requireNumber, requireObject, requireString } from '../runtime/parse.ts';
 import { carry, reveal } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
@@ -114,7 +115,7 @@ export function parseDispatchArgs(args: JsonObject): DispatchArgs {
 }
 
 /** The runtime's `plan_order`, absent or null read as 0; a present non-number raises. */
-export function dispatchPlanOrder(ctx: ScriptContext): number {
+export function dispatchPlanOrder(ctx: HouseView): number {
   return requireNumber({ plan_order: ctx.attr(runtime, 'plan_order') ?? 0 }, 'plan_order', 'ls_dispatch runtime');
 }
 
@@ -145,7 +146,7 @@ function parseBulbEffects(value: JsonValue | undefined): Record<string, string[]
       requireString({ start }, 'start', `ls_dispatch runtime.bulb_effects.${lamp}[${index}]`))]));
 }
 
-export function dispatchRuntime(ctx: ScriptContext): DispatchRuntime {
+export function dispatchRuntime(ctx: HouseView): DispatchRuntime {
   const applied = ctx.attr(runtime, 'applied');
   const previous = object(applied === null || applied === undefined ? ctx.attr(runtime, 'targets') : applied);
   const previousEffects = object(ctx.attr(runtime, 'assignments'));

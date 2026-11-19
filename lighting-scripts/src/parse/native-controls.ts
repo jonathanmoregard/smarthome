@@ -17,7 +17,8 @@
  * - Pass-through values (an absolute brightness, a Kelvin value, the
  *   underlying colour, the stamp) are carried, never narrowed.
  */
-import type { JsonObject, JsonValue, ScriptContext } from '../runtime/context.ts';
+import type { JsonObject, JsonValue } from '../runtime/context.ts';
+import type { HouseView } from '../runtime/effects.ts';
 import {
   jinjaFloat, jinjaInt, jinjaString, jinjaTruthy, lazy, ParseError, parsePythonNumeric, requireArray, requireNumber, requireObject,
   requireString,
@@ -222,7 +223,7 @@ function serviceData(sd: JsonObject): ServiceData {
 }
 
 /** A lamp's Kelvin range, `| int(6500)` / `| int(2000)` as the captured adapter reads it. */
-export function lampKelvinRange(ctx: ScriptContext, lamp: string): { max: number; min: number } {
+export function lampKelvinRange(ctx: HouseView, lamp: string): { max: number; min: number } {
   return {
     max: jinjaInt(ctx.attr(lamp, 'max_color_temp_kelvin'), 6500),
     min: jinjaInt(ctx.attr(lamp, 'min_color_temp_kelvin'), 2000),
@@ -230,7 +231,7 @@ export function lampKelvinRange(ctx: ScriptContext, lamp: string): { max: number
 }
 
 /** A group or zone's children, `String`ed, when the attribute is a list. */
-export function groupChildren(ctx: ScriptContext, entity: string, zone: boolean): string[] | undefined {
+export function groupChildren(ctx: HouseView, entity: string, zone: boolean): string[] | undefined {
   const children = ctx.attr(entity, zone ? 'persons' : 'entity_id');
   return Array.isArray(children) ? children.map(String) : undefined;
 }

@@ -21,6 +21,9 @@
 // domainScriptContext 49, domainCtx 236, houseViewGenerators 0,
 // effectCalls 39, longLines 144.
 //
+// U1 (parse readers and the pure readers retyped to HouseView, switchPlan on
+// the areas map): domainScriptContext 49 -> 32, domainCtx 236 -> 190.
+//
 // Raising a ceiling is the regression this guard exists to catch; argue any
 // raise in the commit message.
 import { readdir, readFile } from 'node:fs/promises';
@@ -31,8 +34,8 @@ const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const SRC = join(ROOT, 'src');
 
 const CEILINGS = {
-  domainScriptContext: 49,
-  domainCtx: 236,
+  domainScriptContext: 32,
+  domainCtx: 190,
   houseViewGenerators: 0,
   effectCalls: 39,
   longLines: 144,

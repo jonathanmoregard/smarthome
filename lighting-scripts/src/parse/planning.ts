@@ -22,7 +22,8 @@
  * The cache-validity test (`validCache`) is the captured script's own cache
  * sanitiser, check for check; see its comment.
  */
-import type { JsonObject, JsonValue, ScriptContext } from '../runtime/context.ts';
+import type { JsonObject, JsonValue } from '../runtime/context.ts';
+import type { HouseView } from '../runtime/effects.ts';
 import { isObject, jinjaFloat, jinjaTruthy, object, requireNumber, requireObject, requireString } from '../runtime/parse.ts';
 import { carry } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
@@ -252,11 +253,11 @@ export function roomCatalog(raw: JsonObject, fetch: () => JsonValue): Verbatim {
 }
 
 /** The room's wake time: `state_attr('input_datetime.ls_<room>_wake', 'timestamp') | float`. */
-export function wakeTimestamp(ctx: ScriptContext, room: string): number {
+export function wakeTimestamp(ctx: HouseView, room: string): number {
   return jinjaFloat(ctx.attr(`input_datetime.ls_${room}_wake`, 'timestamp'));
 }
 
 /** The room's wake fade in minutes: `states('input_number.ls_<room>_wake_fade') | float(37.5)`. */
-export function wakeFadeMinutes(ctx: ScriptContext, room: string): number {
+export function wakeFadeMinutes(ctx: HouseView, room: string): number {
   return jinjaFloat(ctx.get(`input_number.ls_${room}_wake_fade`), 37.5);
 }

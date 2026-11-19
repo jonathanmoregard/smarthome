@@ -10,7 +10,8 @@
  * the inline read did; reads the captured automation makes only on some path
  * are thunks.
  */
-import type { EntityState, JsonObject, JsonValue, ScriptContext } from '../runtime/context.ts';
+import type { EntityState, JsonObject, JsonValue } from '../runtime/context.ts';
+import type { HouseView } from '../runtime/effects.ts';
 import { isObject, jinjaTruthy, lazy, object, ParseError, requireObject, requireString } from '../runtime/parse.ts';
 import { carry, carryOptional, reveal } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
@@ -177,7 +178,7 @@ export function nativeCapture(result: JsonValue): NativeCapture {
 }
 
 /** An `input_number` read as `num(state, fallback)`: HA's no-value states take the fallback. */
-export function inputNumber(ctx: ScriptContext, entity: string, fallback: number): number {
+export function inputNumber(ctx: HouseView, entity: string, fallback: number): number {
   return num(ctx.get(entity), fallback);
 }
 

@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
+import type { HouseView } from '../runtime/effects.ts';
 import { withParsedArgs } from '../runtime/parse.ts';
 import { storedEquals, withFields } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
@@ -20,18 +21,18 @@ import { payloadNumber } from '../runtime/format.ts';
  */
 export type UiMessage = { topic: string; payload: string };
 
-export function uiMessages(ctx: ScriptContext, force: boolean): UiMessage[] {
-  const runtime = runtimeTargets(ctx);
+export function uiMessages(view: HouseView, force: boolean): UiMessage[] {
+  const runtime = runtimeTargets(view);
   const messages: UiMessage[] = [];
-  for (const parseRow of uiRows(ctx)) {
+  for (const parseRow of uiRows(view)) {
     const { source, proxy, store, members, topic: topicOf } = parseRow();
     const append = (channel: string, payload: string) => {
       const topic = topicOf(channel);
       if (topic === undefined) throw Error(`UI row has no ${channel} topic: ${source}`);
       messages.push({ topic, payload });
     };
-    const available = ['on', 'off'].includes(ctx.get(source));
-    if (force || available !== ['on', 'off'].includes(ctx.get(proxy))) append('availability', available ? 'online' : 'offline');
+    const available = ['on', 'off'].includes(view.get(source));
+    if (force || available !== ['on', 'off'].includes(view.get(proxy))) append('availability', available ? 'online' : 'offline');
     const names: string[] = [], levels: number[] = [], colors: Verbatim[] = [];
     for (const member of members) {
       const entry = runtime.member(member);
@@ -44,15 +45,15 @@ export function uiMessages(ctx: ScriptContext, force: boolean): UiMessage[] {
     const unique = names.filter((name, i) => names.findIndex(other => other.toLowerCase() === name.toLowerCase()) === i);
     let effect = unique.length === 1 ? unique[0]! : unique.length > 1 ? '' : 'Normal light';
     if (store !== undefined) {
-      const pr = uiProfile(ctx, store);
+      const pr = uiProfile(view, store);
       const stored = pr.effectChannels.length > 0 ? pr.effect() : undefined;
       effect = stored === undefined ? 'Normal light' : stored;
     }
     if (effect === 'Normal light') effect = 'Normal Light';
-    let { brightness: b, colourTemp, kelvin: k, rgb } = lampReading(ctx, source);
+    let { brightness: b, colourTemp, kelvin: k, rgb } = lampReading(view, source);
     let target = runtime.target(source);
     if (store === undefined && (members.length > 1 || !members.includes(source))) {
-      const areas = [...new Set(members.map(e => ctx.areas[e]).filter(isAreaId))];
+      const areas = [...new Set(members.map(e => view.areas[e]).filter(isAreaId))];
       if (areas.length === 1) target = runtime.target(`room:${areas[0]}`);
     }
     if (store === undefined) {
@@ -65,15 +66,15 @@ export function uiMessages(ctx: ScriptContext, force: boolean): UiMessage[] {
       else if (display.kind === 'rgb') { colourTemp = false; rgb = display.rgb; }
     }
     if (!available) continue;
-    if (force || ctx.get(proxy) !== ctx.get(source)) append('power', ctx.get(source) === 'on' ? 'ON' : 'OFF');
-    if (force || ctx.attr(proxy, 'effect') !== effect) append('effect', effect);
-    if (b !== undefined && (force || ctx.attr(proxy, 'brightness') !== roundEven(b))) append('brightness', payloadNumber(roundEven(b)));
+    if (force || view.get(proxy) !== view.get(source)) append('power', view.get(source) === 'on' ? 'ON' : 'OFF');
+    if (force || view.attr(proxy, 'effect') !== effect) append('effect', effect);
+    if (b !== undefined && (force || view.attr(proxy, 'brightness') !== roundEven(b))) append('brightness', payloadNumber(roundEven(b)));
     if (colourTemp && k !== undefined && k > 0) {
-      const mired = roundEven(1e6 / k), proxyK = proxyKelvin(ctx, proxy);
+      const mired = roundEven(1e6 / k), proxyK = proxyKelvin(view, proxy);
       const proxyMired = proxyK > 0 ? roundEven(1e6 / proxyK) : 0;
-      if (force || ctx.attr(proxy, 'color_mode') !== 'color_temp' || proxyMired !== mired) append('temperature', payloadNumber(mired));
+      if (force || view.attr(proxy, 'color_mode') !== 'color_temp' || proxyMired !== mired) append('temperature', payloadNumber(mired));
     } else if (rgb !== undefined) {
-      if (force || ctx.attr(proxy, 'color_mode') !== 'rgb' || !proxyShowsRgb(ctx, proxy, rgb)) append('rgb', rgb.text);
+      if (force || view.attr(proxy, 'color_mode') !== 'rgb' || !proxyShowsRgb(view, proxy, rgb)) append('rgb', rgb.text);
     }
   }
   return messages;

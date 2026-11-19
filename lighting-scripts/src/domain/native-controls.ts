@@ -1,4 +1,5 @@
 import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
+import type { HouseView } from '../runtime/effects.ts';
 import { withParsedArgs } from '../runtime/parse.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { rgbValue, roundEven } from './scale.ts';
@@ -194,25 +195,25 @@ export type ControlPlan = { valid: boolean; errors: string[]; events: Array<Powe
 
 function unique(values: string[]): string[] { return [...new Set(values)]; }
 function constant(value: ConstantClaim['value'], stamp: Stamp): ConstantClaim { return { kind: 'constant', value, updated: stamp }; }
-function areasOf(ctx: ScriptContext, entities: string[]): string[] { return unique(entities.map(entity => ctx.areas[entity] ?? '').filter(Boolean)); }
-function expandedEntities(ctx: ScriptContext, entities: string[]): string[] {
+function areasOf(view: HouseView, entities: string[]): string[] { return unique(entities.map(entity => view.areas[entity] ?? '').filter(Boolean)); }
+function expandedEntities(view: HouseView, entities: string[]): string[] {
   const pending = [...entities], seen = new Set<string>(), result: string[] = [];
   while (pending.length) {
     const entity = pending.shift()!;
     if (seen.has(entity)) continue;
     seen.add(entity);
-    if (!ctx.state[entity]) continue;
-    const sources = (ctx as ScriptContext & { entitySources?: Record<string, string> }).entitySources;
+    if (!view.state[entity]) continue;
+    const sources = view.entitySources;
     const group = entity.startsWith('group.') || sources?.[entity] === 'group';
     const zone = entity.startsWith('zone.');
-    if (group || zone) { const children = groupChildren(ctx, entity, zone); if (children !== undefined) pending.push(...children); }
+    if (group || zone) { const children = groupChildren(view, entity, zone); if (children !== undefined) pending.push(...children); }
     else result.push(entity);
   }
   return result;
 }
 
 /** Convert native HA colour payloads to the existing logical RGB/Kelvin form; `undefined` when none is asked for. */
-export function nativeColor(ctx: ScriptContext, request: ColourRequest, lamp: string): ClaimColour | undefined {
+export function nativeColor(view: HouseView, request: ColourRequest, lamp: string): ClaimColour | undefined {
   if (request.kind === 'kelvin') return { kelvin: request.kelvin };
   if (request.kind === 'rgb') return { rgb: request.rgb() };
   if (request.kind === 'hs') {
@@ -237,7 +238,7 @@ export function nativeColor(ctx: ScriptContext, request: ColourRequest, lamp: st
     let white: number[];
     if (channels.length === 4) white = [channels[3]!, channels[3]!, channels[3]!];
     else {
-      const range = lampKelvinRange(ctx, lamp);
+      const range = lampKelvinRange(view, lamp);
       const cold = rgbValue({ kelvin: range.max });
       const warm = rgbValue({ kelvin: range.min });
       white = [0, 1, 2].map(i => (cold[i]! * channels[3]! + warm[i]! * channels[4]!) / 255);
@@ -263,27 +264,27 @@ function requestedBrightness(request: BrightnessRequest, resolved: PlanTarget): 
   return undefined;
 }
 
-export function planNativeControls(ctx: ScriptContext, args: NativePlanArgs): NativePlan {
+export function planNativeControls(view: HouseView, args: NativePlanArgs): NativePlan {
   const { sd, catalog, areas, devices, labels, requested } = args;
   const members = catalog.members;
-  for (const area of areas) requested.push(...Object.keys(ctx.areas).filter(entity => ctx.areas[entity] === area));
-  for (const device of devices) requested.push(...ctx.devices?.[device] ?? []);
-  for (const label of labels) requested.push(...ctx.labels?.[label] ?? []);
+  for (const area of areas) requested.push(...Object.keys(view.areas).filter(entity => view.areas[entity] === area));
+  for (const device of devices) requested.push(...view.devices?.[device] ?? []);
+  for (const label of labels) requested.push(...view.labels?.[label] ?? []);
   const expanded = [...requested];
   for (const source of requested) expanded.push(...catalog.groups.members(source));
-  expanded.push(...expandedEntities(ctx, requested));
+  expanded.push(...expandedEntities(view, requested));
   const lamps = Object.entries(members).filter(([lamp, physical]) => expanded.includes(lamp) || physical.some(entity => expanded.includes(entity))).map(([lamp]) => lamp);
   const roomScopes = [...areas];
   for (const source of requested) {
     if (!catalog.groups.has(source)) continue;
     const membersOfGroup = catalog.groups.members(source);
-    for (const area of areasOf(ctx, membersOfGroup)) if (Object.keys(members).filter(lamp => ctx.areas[lamp] === area).every(lamp => membersOfGroup.includes(lamp))) roomScopes.push(area);
+    for (const area of areasOf(view, membersOfGroup)) if (Object.keys(members).filter(lamp => view.areas[lamp] === area).every(lamp => membersOfGroup.includes(lamp))) roomScopes.push(area);
   }
   if (!roomScopes.length && !lamps.length) return { records: [], power: [] };
   const { baseTargets, resolvedTargets } = args.current();
   const items: ScopeItem[] = unique(roomScopes).sort().filter(area => baseTargets.populatedLeniently(`room:${area}`)).map(area => ({ scope: 'room', target: area, base: `room:${area}` }));
-  for (const lamp of lamps) if (!roomScopes.includes(ctx.areas[lamp] ?? '')) items.push({ scope: 'lamp', target: lamp, base: lamp });
-  const power: PowerEvent[] = areasOf(ctx, lamps).sort().map(area => ({ op: 'power', area, on: true, via: 'app' }));
+  for (const lamp of lamps) if (!roomScopes.includes(view.areas[lamp] ?? '')) items.push({ scope: 'lamp', target: lamp, base: lamp });
+  const power: PowerEvent[] = areasOf(view, lamps).sort().map(area => ({ op: 'power', area, on: true, via: 'app' }));
   if (!items.length) return { records: [], power };
   const resolvedTargetMap = resolvedTargets();
   const records: ChannelRecord[] = [];
@@ -298,7 +299,7 @@ export function planNativeControls(ctx: ScriptContext, args: NativePlanArgs): Na
       else if (Number(brightness) > 255) brightness = 255;
       channels.brightness = constant(brightness, args.stamp());
     }
-    const color = nativeColor(ctx, sd.colour, item.target);
+    const color = nativeColor(view, sd.colour, item.target);
     if (color !== undefined) channels.color = constant(color, args.stamp());
     if (sd.effect !== undefined) {
       const requestedEffect = sd.effect.toLowerCase();
@@ -313,11 +314,11 @@ export function planNativeControls(ctx: ScriptContext, args: NativePlanArgs): Na
   return { records, power };
 }
 
-export function planUIControls(ctx: ScriptContext, args: SetArgs, catalog: NativeCatalog, current: NativeCurrent | undefined): ControlPlan {
+export function planUIControls(view: HouseView, args: SetArgs, catalog: NativeCatalog, current: NativeCurrent | undefined): ControlPlan {
   const { source, attribute, value } = args;
   const profile = source.startsWith('light.ls_'), members = catalog.members;
   const targets = catalog.groups.has(source) ? catalog.groups.members(source) : [source];
-  const stamp = recordTimestamp(ctx.now);
+  const stamp = recordTimestamp(view.now);
   const errors: string[] = [], events: Array<PowerEvent | SetEvent> = [], commands: ControlCommand[] = [], records: ChannelRecord[] = [];
   if (!['power', 'brightness', 'rgb', 'temperature', 'effect'].includes(attribute)) errors.push('Unsupported control attribute.');
   if (attribute === 'effect' && value.raw !== 'Normal light' && !catalog.effects.has(value.text)) errors.push('Unknown effect.');
@@ -340,7 +341,7 @@ export function planUIControls(ctx: ScriptContext, args: SetArgs, catalog: Nativ
   const rgbInts = () => rgb!.map(component => component.int);
   if (profile) {
     const store = source.replace('light.', 'input_text.');
-    if (!ctx.state[store]) errors.push('Unknown schedule profile.');
+    if (!view.state[store]) errors.push('Unknown schedule profile.');
     if (!errors.length) {
       if (attribute === 'effect') commands.push({ action: 'script.ls_store', data: { store, effect: value.string('effects_set') }, target: {} });
       else if (attribute === 'power' && value.raw === 'OFF') commands.push({ action: 'light.turn_off', target: { entity_id: source }, data: {} });
@@ -353,19 +354,19 @@ export function planUIControls(ctx: ScriptContext, args: SetArgs, catalog: Nativ
     if (targets.length === 0 || targets.some(target => !(target in members))) errors.push('Unknown logical lamp or room.');
     const scopes: ScopeItem[] = [], scopeAreas: string[] = [];
     if (catalog.groups.has(source)) {
-      const areas = areasOf(ctx, targets).sort();
+      const areas = areasOf(view, targets).sort();
       for (const area of areas) {
-        if (Object.keys(members).filter(lamp => ctx.areas[lamp] === area).every(lamp => targets.includes(lamp))) {
+        if (Object.keys(members).filter(lamp => view.areas[lamp] === area).every(lamp => targets.includes(lamp))) {
           scopes.push({ scope: 'room', target: area, base: `room:${area}`, suffix: areas.length > 1 ? `:${area}` : '' });
           scopeAreas.push(area);
         }
       }
     }
-    for (const lamp of targets) if (!scopeAreas.includes(ctx.areas[lamp] ?? '')) scopes.push({ scope: 'lamp', target: lamp, base: lamp, suffix: targets.length > 1 ? `:${lamp}` : '' });
+    for (const lamp of targets) if (!scopeAreas.includes(view.areas[lamp] ?? '')) scopes.push({ scope: 'lamp', target: lamp, base: lamp, suffix: targets.length > 1 ? `:${lamp}` : '' });
     if (!errors.length && attribute === 'power') {
-      const powerAreas = value.raw === 'ON' ? areasOf(ctx, targets) : scopeAreas;
+      const powerAreas = value.raw === 'ON' ? areasOf(view, targets) : scopeAreas;
       for (const area of powerAreas) events.push({ op: 'power', area, on: value.raw === 'ON', via: 'effects-house' });
-      const ids = [...targets, ...Object.keys(attributeMapping(ctx, 'sensor.ls_overrides', 'switch_ranges')).filter(lamp => scopeAreas.includes(ctx.areas[lamp] ?? ''))];
+      const ids = [...targets, ...Object.keys(attributeMapping(view, 'sensor.ls_overrides', 'switch_ranges')).filter(lamp => scopeAreas.includes(view.areas[lamp] ?? ''))];
       commands.push({ action: value.raw === 'ON' ? 'homeassistant.turn_on' : 'homeassistant.turn_off', target: { entity_id: unique(ids) }, data: {} });
     } else if (!errors.length) {
       if (current === undefined) throw new Error('effects_set current plan is required for channel controls');

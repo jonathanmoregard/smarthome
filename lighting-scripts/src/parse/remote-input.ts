@@ -9,7 +9,8 @@
  * inline reads sat (lazily, with `num()`'s own `schedule number` message), and
  * every fact compared by identity is a stored fact.
  */
-import type { JsonObject, JsonValue, ScriptContext } from '../runtime/context.ts';
+import type { JsonObject, JsonValue } from '../runtime/context.ts';
+import type { HouseView } from '../runtime/effects.ts';
 import { isObject, jinjaTruthy, object, requireBoolean, requireObject, requireString } from '../runtime/parse.ts';
 import { carry, carryOptional } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
@@ -139,7 +140,7 @@ export interface RemoteOverrides {
   others: OtherRecord[];
 }
 
-export function remoteOverrides(ctx: ScriptContext, room: string): RemoteOverrides {
+export function remoteOverrides(ctx: HouseView, room: string): RemoteOverrides {
   const overrides = object(ctx.attr(OVERRIDES, 'overrides'));
   const inputKey = latestRemoteKey(overrides, room);
   return {
@@ -190,7 +191,7 @@ export function contextEntries(entry: Assembled | undefined): AssembledMap | und
 }
 
 /** The room's saved power state, when it is a boolean. */
-export function roomPower(ctx: ScriptContext, room: string): boolean | undefined {
+export function roomPower(ctx: HouseView, room: string): boolean | undefined {
   const saved = object(ctx.attr(OVERRIDES, 'power'))[room];
   return typeof saved === 'boolean' ? saved : undefined;
 }

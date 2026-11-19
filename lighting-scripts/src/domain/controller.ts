@@ -68,10 +68,10 @@ export type SwitchDecision = {
 };
 export type SwitchPlanResult = { switches: Record<string, SwitchDecision> };
 
-export function switchPlan(ctx: ScriptContext, args: SwitchPlanArgs): SwitchPlanResult {
+export function switchPlan(areas: Readonly<Record<string, string>>, args: SwitchPlanArgs): SwitchPlanResult {
   const switches: Record<string, SwitchDecision> = {};
   for (const { entity, range } of args.rules) {
-    const room = ctx.areas[entity];
+    const room = areas[entity];
     const group = args.roomTarget(room);
     const interval = range();
     if (interval === undefined || !group.populated) continue;
@@ -216,7 +216,7 @@ function remoteCommand(ctx: ScriptContext, args: RemoteCommandArgs): RemotePlanR
 }
 
 export const controllerHandlers: ScriptHandlers = {
-  ls_switch_plan: typed('ls_switch_plan', { parse: parseSwitchPlanArgs, run: switchPlan }),
+  ls_switch_plan: typed('ls_switch_plan', { parse: parseSwitchPlanArgs, run: (ctx, args) => switchPlan(ctx.areas, args) }),
   ls_plan: withParsedArgs({ parse: parsePlanArgs, run: plan }),
   ls_apply: withParsedArgs({ parse: parseApplyArgs, run: apply }),
   ls_remote_command: withParsedArgs({ parse: parseRemoteCommandArgs, run: remoteCommand }),
