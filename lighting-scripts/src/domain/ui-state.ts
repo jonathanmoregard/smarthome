@@ -10,6 +10,7 @@ import {
   proxyShowsRgb, runtimeTargets, storedRangeBounds, uiProfile, uiRows,
 } from '../parse/ui-state.ts';
 import type { Display, RangeSaveArgs } from '../parse/ui-state.ts';
+import { payloadNumber } from '../runtime/format.ts';
 
 /**
  * One MQTT message for the UI proxy. Both fields are built here -- the topic
@@ -66,11 +67,11 @@ export function uiMessages(ctx: ScriptContext, force: boolean): UiMessage[] {
     if (!available) continue;
     if (force || ctx.get(proxy) !== ctx.get(source)) append('power', ctx.get(source) === 'on' ? 'ON' : 'OFF');
     if (force || ctx.attr(proxy, 'effect') !== effect) append('effect', effect);
-    if (b !== undefined && (force || ctx.attr(proxy, 'brightness') !== roundEven(b))) append('brightness', String(roundEven(b)));
+    if (b !== undefined && (force || ctx.attr(proxy, 'brightness') !== roundEven(b))) append('brightness', payloadNumber(roundEven(b)));
     if (colourTemp && k !== undefined && k > 0) {
       const mired = roundEven(1e6 / k), proxyK = proxyKelvin(ctx, proxy);
       const proxyMired = proxyK > 0 ? roundEven(1e6 / proxyK) : 0;
-      if (force || ctx.attr(proxy, 'color_mode') !== 'color_temp' || proxyMired !== mired) append('temperature', String(mired));
+      if (force || ctx.attr(proxy, 'color_mode') !== 'color_temp' || proxyMired !== mired) append('temperature', payloadNumber(mired));
     } else if (rgb !== undefined) {
       if (force || ctx.attr(proxy, 'color_mode') !== 'rgb' || !proxyShowsRgb(ctx, proxy, rgb)) append('rgb', rgb.text);
     }

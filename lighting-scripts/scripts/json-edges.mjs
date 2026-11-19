@@ -413,11 +413,20 @@ const DOMAIN = join(ROOT, 'src/domain');
  * `pythonFloatText` (`src/runtime/format.ts`) spells the debug floats. The
  * three lenient calls left are the text formatting in `gestures.ts` and
  * `ui-state.ts`.
+ *
+ * Criteria 9 and 10 close the domain at 0 on every column:
+ * `lenientAccessors 3 -> 0`. The last three were text formatting, not parses:
+ * `gestures.ts` writing a helper's new state and `ui-state.ts` writing two
+ * numbers into an MQTT payload. They now call `stateText` and `payloadNumber`
+ * (`src/runtime/format.ts`), which keep JavaScript's own number-to-text
+ * conversion, byte for byte. Every ceiling is 0, and `npm run check` fails on
+ * any count above it: `src/domain` names no JSON type, extends no JSON bag,
+ * calls no lenient accessor and returns no raw JSON.
  */
 const CEILINGS = {
   jsonTypes: 0,
   validatedBags: 0,
-  lenientAccessors: 3,
+  lenientAccessors: 0,
   rawJsonReturns: 0,
 };
 

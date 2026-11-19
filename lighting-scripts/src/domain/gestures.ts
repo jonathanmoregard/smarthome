@@ -3,6 +3,7 @@ import { jinjaInt, withParsedArgs } from '../runtime/parse.ts';
 import { withFields } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { parseGestureArgs, parsePowerQuietArgs } from '../parse/gestures.ts';
+import { stateText } from '../runtime/format.ts';
 
 const presets = [200, 285, 370, 454, 588];
 const directions = ['left', 'right', 'up', 'down'];
@@ -35,7 +36,7 @@ export function remoteGesture(ctx: ScriptContext, args: GestureArgs): null {
   const helper = (key: string) => `${key === 'power_token' ? 'input_text' : 'input_number'}.${prefix}${key}`;
   const set = (key: string, value: string | number) => {
     const entity = helper(key);
-    ctx.put(entity, String(value));
+    ctx.put(entity, stateText(value));
     ctx.emit(`${key === 'power_token' ? 'input_text' : 'input_number'}.set_value`, { value }, { entity_id: entity });
   };
   const timer = (start: boolean) => {
