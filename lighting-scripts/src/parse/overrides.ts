@@ -35,6 +35,20 @@ export function storedFact(value: JsonValue | undefined): StoredFact {
 /** A documents map whose entries are carried unread: `{...map}` is the stored bytes. */
 export type OpaqueMap = Record<string, Verbatim>;
 
+/**
+ * A document assembled from stored pieces: stored values as they are, and
+ * mappings of them the domain builds or re-spreads. What a planner writes when
+ * it rebuilds a stored document -- the keys it sets, plus the stored ones
+ * carried unread, in place.
+ */
+export type Assembled = StoredValue | AssembledMap;
+export type AssembledMap = { [key: string]: Assembled };
+
+/** A mapping's entries as stored facts, in stored order: `{...map}` is the stored bytes. */
+export function assembledMap(value: JsonObject): AssembledMap {
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, storedFact(entry)]));
+}
+
 /** `.get(key, {})`-style leniency: a non-mapping is `{}`; every entry is carried. */
 export function opaqueMap(value: JsonValue | undefined): OpaqueMap {
   return Object.fromEntries(Object.entries(object(value)).map(([key, entry]) => [key, carry(entry)]));

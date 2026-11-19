@@ -1,0 +1,67 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { execute } from '../../src/runtime/engine.ts';
+import { handlers } from '../../src/runtime/registry.ts';
+import type { JsonObject, JsonValue, ScriptHandlers, Snapshot } from '../../src/runtime/context.ts';
+
+/**
+ * Boundary characterization for `ls_remote_plan`: the stored input value is
+ * carried into the new record with its keys in place, its numbers are read
+ * where the planner reads them, and stored preset contexts are spread only
+ * when they are mappings.
+ */
+const now = '2026-10-26T12:00:00.000Z';
+const stamp = Date.parse(now) / 1000;
+function snapshot(value: JsonObject): Snapshot {
+  return { now, members: ['light.lamp'], areas: { 'light.lamp': 'studio' },
+    catalog: { members: { 'light.lamp': ['light.bulb'] }, topics: {}, multicast: [], effects: {} },
+    state: {
+      'sensor.ls_overrides': { state: '0', last_updated: now, attributes: { overrides: {
+        'channels:remote': { kind: 'input', scope: 'room', target: 'studio', when: now, value },
+      } } },
+      'light.lamp': { state: 'on', attributes: {} },
+    } };
+}
+function recordValue(value: JsonObject, command: string, extra: ScriptHandlers = {}): string {
+  const { result } = execute({ script: 'ls_remote_plan', snapshot: snapshot(value), args: { source: 'remote', area: 'studio', command } },
+    { ...handlers, ...extra });
+  const records = (result as JsonObject).records as JsonValue[];
+  return JSON.stringify((records[0] as JsonObject).value);
+}
+
+test('an up press keeps the stored value\'s keys in place and carries its documents', () => {
+  const value = { z: 1, step_range: { min: -5, max: 5, note: 'x' }, channels: { brightness: { kind: 'constant' } }, position: 3,
+    adjustment: { extra: [1], updated: 0, lower: -1, upper: 2, steps: 3, has_up: false }, tail: { deep: true } };
+  assert.equal(recordValue(value, 'up'), JSON.stringify({
+    z: 1, step_range: { min: -5, max: 5, note: 'x' },
+    adjustment: { extra: [1], updated: stamp, lower: 0, upper: 3, steps: 4, has_up: true, last: 'up' },
+    tail: { deep: true },
+  }));
+});
+
+test('a stored adjustment with no lower raises the schedule number error on a press', () => {
+  assert.throws(() => recordValue({ adjustment: { updated: 0, upper: 2, steps: 0 } }, 'down'), /schedule number must be a finite number, got undefined/);
+});
+
+const roomPlan: ScriptHandlers = { ls_room_plan: () => ({ plan: { resolved: { targets: { 'room:studio': { period: 'cosy' } } } } }) };
+
+test('a stored preset context that is a mapping is spread into the value', () => {
+  const value = { selection: 'day', preset_contexts: { cosy: { period: 'cosy', other: { x: 1 } } } };
+  assert.equal(recordValue(value, 'right', roomPlan), JSON.stringify({
+    selection: 'cosy', preset_contexts: { cosy: { period: 'cosy', other: { x: 1 } }, day: {} }, step_range: { min: -20, max: 20 },
+    adjustment: { steps: 0, lower: -20, upper: 20, anchor: 'current', updated: stamp }, period: 'cosy', other: { x: 1 },
+  }));
+});
+
+test('a stored preset context that is not a mapping is replaced by a fresh one', () => {
+  const value = { selection: 'day', preset_contexts: { cosy: ['period', 'cosy'] } };
+  assert.equal(recordValue(value, 'right', roomPlan), JSON.stringify({
+    selection: 'cosy', preset_contexts: { cosy: ['period', 'cosy'], day: {} }, step_range: { min: -20, max: 20 },
+    adjustment: { steps: 0, lower: -20, upper: 20, anchor: 'current', updated: stamp }, period: 'cosy', period_updated: stamp, selection_updated: stamp,
+  }));
+});
+
+test('with no stored selection the room plan\'s period is the selection, and a null period raises', () => {
+  const nullPeriod: ScriptHandlers = { ls_room_plan: () => ({ plan: { resolved: { targets: { 'room:studio': { period: null } } } } }) };
+  assert.throws(() => recordValue({}, 'left', nullPeriod), /ls_remote_plan\.selection must be a string, got null/);
+});

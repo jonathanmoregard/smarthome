@@ -1,14 +1,17 @@
-import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { isObject, jinjaTruthy, object, requireBoolean, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
+import { requireString } from '../runtime/parse.ts';
 import { catalogOf, emptyCatalog } from '../runtime/catalog.ts';
 import { typed } from '../runtime/entrypoints.ts';
-import { latestRemoteKey, recordTimestamp } from '../parse/resolution.ts';
+import { recordTimestamp } from '../parse/resolution.ts';
+import { switchRangeEntities } from '../parse/planning.ts';
+import type { AssembledMap } from '../parse/overrides.ts';
+import {
+  contextEntries, noInputRecord, presetSelection, remoteCache, remoteOverrides, remoteRoomPlan, roomPower,
+} from '../parse/remote-input.ts';
 import { clamp } from './scale.ts';
-import { list, num } from './schedule.ts';
 
-const numeric = (v: JsonValue | undefined): v is number => typeof v === 'number' && Number.isFinite(v);
-const omit = (v: JsonObject, keys: string[]): JsonObject => Object.fromEntries(Object.entries(v).filter(([k]) => !keys.includes(k)));
-const pick = (v: JsonObject, keys: string[]): JsonObject => Object.fromEntries(Object.entries(v).filter(([k]) => keys.includes(k)));
+const omit = (v: AssembledMap, keys: string[]): AssembledMap => Object.fromEntries(Object.entries(v).filter(([k]) => !keys.includes(k)));
+const pick = (v: AssembledMap, keys: string[]): AssembledMap => Object.fromEntries(Object.entries(v).filter(([k]) => keys.includes(k)));
 
 interface RemotePlanArgs {
   source: string;
@@ -16,13 +19,34 @@ interface RemotePlanArgs {
   command: string;
 }
 
+/**
+ * An input adjustment as the planner carries it: the document (stored keys in
+ * place), and the numbers it reads from it. A stored adjustment's numbers are
+ * read on demand and raise where the inline reads did; one the planner builds
+ * holds them already.
+ */
+export interface Adjustment {
+  fields: AssembledMap;
+  updated(): number;
+  lower(): number;
+  upper(): number;
+  steps(): number;
+  hasUp(): boolean;
+}
+
+/** An adjustment the planner builds itself; it has no `has_up`. */
+function built(fields: AssembledMap & { updated: number; lower: number; upper: number; steps: number }): Adjustment {
+  return { fields, updated: () => fields.updated, lower: () => fields.lower, upper: () => fields.upper, steps: () => fields.steps, hasUp: () => false };
+}
+
 /** A mode flip carries its own value; `sara_toggle` is the only producer. */
 export type RemoteModeRecord = { kind: 'mode'; target: string; value: string };
 /**
- * A channel claim. `value` stays `JsonObject` because it is `next`, which is
- * assembled by spreading the stored override document through `omit`/`pick`
- * and the preset contexts -- it carries fields this planner never names, and
- * it is persisted and compared. THE INVARIANT.
+ * A channel claim. `value` is `next`, which is assembled by spreading the
+ * stored override document through `omit`/`pick` and the preset contexts -- it
+ * carries fields this planner never names, and it is persisted and compared.
+ * So it is an `AssembledMap`: the keys the planner sets, plus the stored ones
+ * carried unread. THE INVARIANT.
  */
 export type RemoteInputRecord = {
   kind: 'input';
@@ -30,7 +54,7 @@ export type RemoteInputRecord = {
   source: string;
   scope: 'room';
   target: string;
-  value: JsonObject;
+  value: AssembledMap;
 };
 /**
  * What the remote decided, discriminated by `op`. Every field of every variant
@@ -58,11 +82,14 @@ export type RemotePlanResult = RemotePlanOp & {
 export function remotePlan(ctx: ScriptContext, args: RemotePlanArgs): RemotePlanResult {
   const source = args.source, command = args.command, area = args.area;
   const room = Object.values(ctx.areas).includes(area) ? area : '';
-  const overrides = object(ctx.attr('sensor.ls_overrides', 'overrides'));
+  const overrides = remoteOverrides(ctx, room);
   const stamp = recordTimestamp(ctx.now);
+  // divergence: the captured script reads `states.sensor.ls_overrides.last_updated`
+  // bare and raises when the sensor is missing; this falls back to `ctx.now`.
+  // Kept byte-identical for its own commit.
   const revision = ctx.state['sensor.ls_overrides']?.last_updated ?? ctx.now;
-  const inputKey = latestRemoteKey(overrides, room);
-  const inputRecord = object(overrides[inputKey]);
+  const inputKey = overrides.inputKey;
+  const inputRecord = overrides.input;
   let timingRevision = 0;
   const expiry = ctx.get('input_boolean.ls_ovr_next_block_on') === 'on';
   if (['up', 'down'].includes(command) && expiry) {
@@ -73,94 +100,76 @@ export function remotePlan(ctx: ScriptContext, args: RemotePlanArgs): RemotePlan
     }
     timingRevision = Math.max(0, ...ids.map(id => recordTimestamp(ctx.state[id]?.last_updated)));
   }
-  const inputValue = object(inputRecord.value);
+  const inputValue = inputRecord.value;
   const needsContext = ['left', 'right'].includes(command) || (['up', 'down'].includes(command) && expiry
-    && (num(inputValue.remote_valid_until === undefined ? 0 : inputValue.remote_valid_until) <= stamp || inputValue.remote_timing_revision !== timingRevision));
-  const rawCache = ctx.attr(`sensor.ls_cache_${room}`, 'cache');
-  const cache: JsonValue = rawCache !== undefined && jinjaTruthy(rawCache) ? rawCache : {};
-  const current = needsContext ? object(ctx.run('ls_room_plan', { room, overrides,
-    cache, reason: 'remote' })) : { plan: {} };
-  const plan = object(current.plan);
+    && (inputValue.validUntil() <= stamp || inputValue.timingRevision !== timingRevision));
+  const cache = remoteCache(ctx.attr(`sensor.ls_cache_${room}`, 'cache'));
+  const plan = remoteRoomPlan(needsContext ? ctx.run('ls_room_plan', { room, overrides: overrides.document,
+    cache, reason: 'remote' }) : undefined);
   // The captured script calls effects_catalog only for these three commands.
   const catalog = ['toggle', 'left', 'right'].includes(command) ? catalogOf(ctx) : emptyCatalog();
   const key = `channels:${source}`;
-  let old = inputRecord;
-  if (old.scope !== 'room' || old.target !== room || list(plan.stale_keys).includes(inputKey)) old = {};
-  const value = object(old.value);
-  const bounds = Object.hasOwn(value, 'step_range') ? value.step_range : { min: -20, max: 20 };
-  const validBounds = isObject(bounds) && numeric(bounds.min) && numeric(bounds.max)
-    && -20 <= bounds.min && bounds.min <= bounds.max && bounds.max <= 20;
+  const old = inputRecord.scope !== 'room' || inputRecord.target !== room || plan.stale(inputKey) ? noInputRecord() : inputRecord;
+  const value = old.value;
+  const bounds = value.stepRange.bounds;
   let result: RemotePlanOp = { op: 'noop' };
   if (room !== '' && ['up', 'down', 'left', 'right', 'toggle', 'reset', 'sara_toggle'].includes(command)
-    && (validBounds || ['toggle', 'reset', 'sara_toggle'].includes(command))) {
+    && (bounds !== undefined || ['toggle', 'reset', 'sara_toggle'].includes(command))) {
     if (command === 'sara_toggle') {
-      result = Object.hasOwn(overrides, 'mode:sara') ? { op: 'clear', keys: ['mode:sara'], via: 'remote' }
+      result = overrides.has('mode:sara') ? { op: 'clear', keys: ['mode:sara'], via: 'remote' }
         : { op: 'set', records: [{ kind: 'mode', target: 'sara', value: 'on' }], via: 'remote' };
     } else if (command === 'toggle') {
-      const targets = [...Object.keys(catalog.members), ...Object.keys(object(ctx.attr('sensor.ls_overrides', 'switch_ranges')))]
+      const targets = [...Object.keys(catalog.members), ...switchRangeEntities(ctx.attr('sensor.ls_overrides', 'switch_ranges'))]
         .filter(id => ctx.areas[id] === room);
-      const saved = object(ctx.attr('sensor.ls_overrides', 'power'))[room];
-      result = { op: 'power', area: room, on: typeof saved === 'boolean' ? !saved : !targets.some(id => ctx.get(id) === 'on'), targets, via: 'remote' };
+      const saved = roomPower(ctx, room);
+      result = { op: 'power', area: room, on: saved !== undefined ? !saved : !targets.some(id => ctx.get(id) === 'on'), targets, via: 'remote' };
     } else if (command === 'reset') result = { op: 'clear_room', area: room, via: 'remote' };
     else {
-      if (!isObject(bounds) || !numeric(bounds.min) || !numeric(bounds.max)) throw Error('Invalid remote input bounds');
+      if (bounds === undefined) throw Error('Invalid remote input bounds');
       const low = bounds.min, high = bounds.max;
-      const identity: JsonObject = { steps: 0, lower: low, upper: high, anchor: 'current', updated: stamp };
-      let adjustment = isObject(value.adjustment) ? { ...value.adjustment } : isObject(value.selection_input) ? { ...value.selection_input } : undefined;
-      if (adjustment === undefined) {
-        adjustment = { ...identity, updated: recordTimestamp(old.when) };
-        if (old.kind === 'channels' && numeric(value.position)) adjustment.legacy_position = value.position;
-      }
+      const identity = { steps: 0, lower: low, upper: high, anchor: 'current', updated: stamp };
+      let adjustment = value.adjustment === undefined
+        ? built({ ...identity, updated: old.whenStamp,
+          ...(old.kind === 'channels' && value.legacyPosition !== undefined ? { legacy_position: value.legacyPosition } : {}) })
+        : value.adjustment;
       let restart = false;
-      for (const [other, raw] of Object.entries(overrides)) {
-        if (other === key || !isObject(raw)) continue;
-        const applies = raw.scope === 'room' && raw.target === room || raw.scope === 'house' && raw.target === 'house' && !(ctx.labels?.private_room ?? []).includes(room);
-        if (!applies || !isObject(raw.value)) continue;
-        const claim = object(object(raw.value.channels).brightness);
-        const newer = Object.keys(claim).length
-          ? num(claim.updated === undefined ? recordTimestamp(raw.when) : claim.updated)
-          : (() => {
-              const rawAdjustment = raw.value.adjustment === undefined
-                ? {}
-                : requireObject(raw.value, 'adjustment', 'ls_remote_plan.override.value');
-              return num(rawAdjustment.updated === undefined ? 0 : rawAdjustment.updated);
-            })();
-        if (newer > num(adjustment.updated === undefined ? 0 : adjustment.updated)) restart = true;
+      for (const other of overrides.others) {
+        if (other.key === key) continue;
+        // A non-mapping record has no scope or target, so it never applies.
+        const applies = other.scope === 'room' && other.target === room || other.scope === 'house' && other.target === 'house' && !(ctx.labels?.private_room ?? []).includes(room);
+        if (!applies || !other.valueIsMapping) continue;
+        const newer = other.newer();
+        if (newer > adjustment.updated()) restart = true;
       }
-      if (restart && ['up', 'down'].includes(command)) adjustment = { ...identity };
-      let lower = clamp(num(adjustment.lower), low, high), upper = clamp(num(adjustment.upper), low, high);
-      adjustment = { ...adjustment, steps: lower === upper ? 0 : num(adjustment.steps), lower, upper };
-      let next: JsonObject = { ...omit(value, ['channels', 'position']), step_range: bounds };
-      if (old.kind === 'channels' && Object.values(object(value.channels)).some(x => object(x).kind === 'effect')) next.legacy_channels = value.channels!;
+      if (restart && ['up', 'down'].includes(command)) adjustment = built({ ...identity });
+      let lower = clamp(adjustment.lower(), low, high), upper = clamp(adjustment.upper(), low, high);
+      const steps = lower === upper ? 0 : adjustment.steps();
+      let fields: AssembledMap = { ...adjustment.fields, steps, lower, upper };
+      let next: AssembledMap = { ...omit(value.fields, ['channels', 'position']), step_range: value.stepRange.document };
+      if (old.kind === 'channels' && value.effectChannels !== undefined) next.legacy_channels = value.effectChannels;
       if (command === 'up' || command === 'down') {
         const delta = command === 'up' ? 1 : -1;
-        const hasUp = adjustment.has_up === undefined
-          ? false
-          : requireBoolean(adjustment.has_up, 'ls_remote_plan.adjustment.has_up');
+        const hasUp = adjustment.hasUp();
         lower = clamp(lower + delta, low, high); upper = clamp(upper + delta, low, high);
-        adjustment = { ...adjustment, steps: lower === upper ? 0 : num(adjustment.steps) + delta, lower, upper,
+        fields = { ...fields, steps: lower === upper ? 0 : steps + delta, lower, upper,
           updated: stamp, last: command, has_up: hasUp || command === 'up' };
-        next.adjustment = adjustment;
+        next.adjustment = fields;
       } else {
         const choices = ['day', 'cosy', 'Candle', ...Object.keys(catalog.effects).filter(k => !['Candle', 'Colour loop', 'Breathe', 'Normal light'].includes(k))];
-        const group = object(object(object(plan.resolved).targets)[`room:${room}`]);
-        const selectedValue = value.selection === undefined
-          ? (group.period === undefined ? 'day' : group.period)
-          : value.selection;
-        let selected = requireString({ selection: selectedValue }, 'selection', 'ls_remote_plan');
-        const fields = ['period', 'period_updated', 'selection_updated', 'selection_input', 'selection_instance', 'legacy_channels'];
-        const contexts: JsonObject = { ...object(value.preset_contexts), [selected]: pick(next, fields) };
+        let selected = presetSelection(value.selection, plan.roomPeriod(room));
+        const names = ['period', 'period_updated', 'selection_updated', 'selection_input', 'selection_instance', 'legacy_channels'];
+        const contexts: AssembledMap = { ...value.presetContexts, [selected]: pick(next, names) };
         const index = Math.max(0, choices.indexOf(selected));
         selected = choices[(index + (command === 'right' ? 1 : -1) + choices.length) % choices.length]!;
-        let saved = contexts[selected];
-        if (!isObject(saved)) saved = ['day', 'cosy'].includes(selected)
+        const stored = contextEntries(contexts[selected]);
+        const saved: AssembledMap = stored !== undefined ? stored : ['day', 'cosy'].includes(selected)
           ? { period: selected, period_updated: stamp, selection_updated: stamp }
-          : { ...pick(next, ['period', 'period_updated']), selection_updated: stamp, selection_input: adjustment, selection_instance: `${source}:${selected}` };
-        next = { ...omit(next, fields), selection: selected, adjustment, preset_contexts: contexts, ...saved };
+          : { ...pick(next, ['period', 'period_updated']), selection_updated: stamp, selection_input: fields, selection_instance: `${source}:${selected}` };
+        next = { ...omit(next, names), selection: selected, adjustment: fields, preset_contexts: contexts, ...saved };
       }
-      const schedule = object(object(plan.schedule_details)[room]);
-      if (Object.keys(schedule).length) next = { ...next,
-        remote_valid_until: num(schedule.next_fs === undefined ? 0 : schedule.next_fs),
+      const schedule = plan.schedule(room);
+      if (schedule.present) next = { ...next,
+        remote_valid_until: schedule.nextFs(),
         remote_timing_revision: timingRevision };
       result = { op: 'set', records: [{ kind: 'input', key, source, scope: 'room', target: room, value: next }], via: 'remote' };
     }

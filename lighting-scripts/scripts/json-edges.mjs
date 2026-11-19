@@ -375,12 +375,25 @@ const DOMAIN = join(ROOT, 'src/domain');
  * keys and `sara_mirror` are stored facts, compared by identity. The `''`
  * revision fallback and the `|| 'config'` / `|| []` truthiness are known
  * divergences, unchanged and marked.
+ *
+ * U10, `remote-input.ts`, clears the module on every column:
+ * `jsonTypes 48 -> 36`, `lenientAccessors 82 -> 55`,
+ * `rawJsonReturns 7 -> 5`. `src/parse/remote-input.ts` reads the stored
+ * remote input record (its value's step range, adjustment, position,
+ * channels, selection, preset contexts and expiry), the other stored records
+ * the restart check reads (each one's newest update a thunk, read only once it
+ * applies), the `ls_room_plan` answer (stale keys, room period, schedule) and
+ * the saved power. The input value and the adjustment are `AssembledMap`s
+ * (`src/parse/overrides.ts`): the keys the planner sets plus the stored ones
+ * carried unread, in place; an adjustment's numbers are read on demand with
+ * `num()`'s own message. The `ctx.now` revision fallback is a known
+ * divergence, unchanged and marked.
  */
 const CEILINGS = {
-  jsonTypes: 48,
+  jsonTypes: 36,
   validatedBags: 0,
-  lenientAccessors: 82,
-  rawJsonReturns: 7,
+  lenientAccessors: 55,
+  rawJsonReturns: 5,
 };
 
 /** Comments may legitimately name these types while explaining why they are gone. */

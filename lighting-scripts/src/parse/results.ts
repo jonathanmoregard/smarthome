@@ -9,6 +9,7 @@ import type { LampColor, LampProfile, LampProfileEntry, ScheduleCommand, Schedul
 import { optionalBlock } from './blocks.ts';
 import { ParseError, requireArray, requireBoolean, requireFinite, requireNumber, requireObject, requireString } from '../runtime/parse.ts';
 import { carry } from '../runtime/verbatim.ts';
+import { assembledMap } from './overrides.ts';
 
 function decodeStrings(container: JsonObject, key: string, context: string): string[] {
   return requireArray(container, key, context)
@@ -179,8 +180,8 @@ function decodeRemoteRecord(value: JsonValue, context: string): RemoteModeRecord
       source: requireString(record, 'source', context),
       scope,
       target: requireString(record, 'target', context),
-      // Raw, as `RemoteInputRecord` says: this is the stored override document.
-      value: requireObject(record, 'value', context),
+      // Carried, as `RemoteInputRecord` says: this is the stored override document.
+      value: assembledMap(requireObject(record, 'value', context)),
     };
   }
   throw new ParseError(`${context}.kind must be mode or input, got ${JSON.stringify(kind)}`);
