@@ -29,7 +29,6 @@ function effect(name: string, intensity: number): JsonObject {
 }
 const candle: JsonObject = { on: true, area: 'room', brightness: effect('Candle', 120), color: effect('Candle', 120) };
 const steady: JsonObject = { on: true, area: 'room', brightness: { kind: 'constant', value: 100 }, color: { kind: 'constant', value: { kelvin: 2500 } } };
-const breathe: JsonObject = { on: true, area: 'room', brightness: effect('Breathe', 90), color: { kind: 'constant', value: { kelvin: 2500 } } };
 
 function snapshot(runtime: JsonObject = {}): Snapshot {
   return { now, catalog, members: ['light.lamp'], areas: { 'light.lamp': 'room' }, state: {
@@ -79,12 +78,6 @@ test('a constant colour claimed over the candle is sent before the trigger', () 
   ]);
 });
 
-test('the engine streams no frames to a lamp the bulb is flickering', () => {
-  const result = execute({ script: 'effects_engine_tick', args: { catalog, served: {}, admission: 0 },
-    snapshot: snapshot({ assignments: { 'light.lamp': candle }, targets: { 'light.lamp': candle } }) }, handlers);
-  assert.deepEqual(result.calls.filter(call => call.service === 'mqtt.publish'), []);
-});
-
 test('leaving the candle sends stop_effect before the new light', () => {
   const calls = dispatch(steady, { assignments: { 'light.lamp': candle }, targets: { 'light.lamp': candle } });
   const bodies = received(calls, topics['light.bulb_1']);
@@ -93,11 +86,4 @@ test('leaving the candle sends stop_effect before the new light', () => {
   assert.notEqual(stop, -1, 'stop_effect was sent');
   assert.ok(stop < light, 'stop_effect precedes the new brightness');
   assert.equal(bodies.some(body => body.effect === 'channel_change'), false);
-});
-
-test('a software effect gets no firmware trigger and still streams frames', () => {
-  assert.equal(received(dispatch(breathe), topics['light.bulb_1']).some(body => Object.hasOwn(body, 'effect')), false);
-  const tick = execute({ script: 'effects_engine_tick', args: { catalog, served: {}, admission: 0 },
-    snapshot: snapshot({ assignments: { 'light.lamp': breathe }, targets: { 'light.lamp': breathe } }) }, handlers);
-  assert.equal(tick.calls.filter(call => call.service === 'mqtt.publish').length, 1);
 });

@@ -363,32 +363,6 @@ def simulator(stage, rpc, module_path=None):
         assert name in automation_names, 'Unsupported historical automation: ' + name
         return self.run('automation.' + automation_names[name], trigger=trigger)
 
-    def bounded_engine(self, seconds=5, **args):
-        self.elapsed = 0
-        self.max_elapsed = seconds
-        try:
-            self.run('effects_engine', **args)
-            for _ in range(10000):
-                tasks = self._parity_extra.get('scheduled', [])
-                if not tasks:
-                    break
-                task = min(tasks, key=lambda item: item['due'])
-                tasks.remove(task)
-                due = datetime.fromtimestamp(task['due'] / 1000, tz=self.now.tzinfo)
-                self.advance(max(0, (due - self.now).total_seconds()))
-                if self.on_delay:
-                    self.on_delay(self)
-                if self.elapsed >= seconds:
-                    break
-                self.run(task['script'], **task['args'])
-            else:
-                raise AssertionError('Unbounded TypeScript scheduled continuation loop')
-        except dry.Budget:
-            # The original harness uses Budget as the requested timed stop.
-            return None
-        finally:
-            self.max_elapsed = None
-
     dry.DrySim.__init__ = initialize
     dry.DrySim.run = run
     # No test-created Jinja wrapper or direct sequence execution may silently
@@ -398,7 +372,6 @@ def simulator(stage, rpc, module_path=None):
     dry.DrySim.run_automation = run_automation
     dry.DrySim.event = event
     dry.DrySim.service = service
-    dry.DrySim.bounded_engine = bounded_engine
     return dry
 
 

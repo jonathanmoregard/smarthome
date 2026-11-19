@@ -6,16 +6,22 @@ distinguishes the implemented program from deployment and repository delivery.
 
 ## Scope and design
 
-1. 38 of 45 captured scripts have TypeScript implementations, including the room
-   gesture wrappers, planners, channel resolution, UI actions, fair effect engine
-   and guarded dispatch.
-2. Candle is rendered by the bulbs' own firmware, a deliberate change from the
-   captured scripts: dispatch sends a Candle lamp its colour and ceiling, then
-   Zigbee2MQTT `effect: channel_change`; leaving Candle sends `stop_effect`. The
-   software candle's three scripts (`effect_candle_frame`, `effects_candle_plan`,
-   `effects_candle_sync`) and its two automations (`effects_candle_group_state`,
-   `effects_candle_membership`) are retired, not ported; `scripts/export-bridge.py`
-   lists the automations under `retired` for cutover to disable.
+1. 35 of 45 captured scripts have TypeScript implementations, including the room
+   gesture wrappers, planners, channel resolution, UI actions and guarded
+   dispatch.
+2. Candle, Breathe and Colour loop run on the bulbs, a deliberate change from the
+   captured scripts, which streamed rendered frames from a fair effect engine.
+   Dispatch sends each lamp its light once, then the Zigbee2MQTT effect once:
+   `channel_change` (the Innr firmware candle; colour and ceiling first),
+   `breathe` (colour and level first) or `colorloop` (level first; the loop owns
+   the colour). Leaving any of them sends `stop_colorloop` and `stop_effect`
+   before the new light. Retired, not ported: the software candle's three
+   scripts (`effect_candle_frame`, `effects_candle_plan`, `effects_candle_sync`),
+   the two frame renderers (`effect_breathe_frame`, `effect_colour_loop_frame`),
+   the engine (`effects_engine`), and three automations
+   (`effects_candle_group_state`, `effects_candle_membership`,
+   `effects_lifecycle`); `scripts/export-bridge.py` lists the automations under
+   `retired` for cutover to disable.
 3. `house_apply_mode` and `house_sunrise` are legacy: their three captured consumer
    automations have been disabled since 2026-10-14. Current state evidence is
    `reference/live/automation-states.json`.

@@ -2,8 +2,8 @@
  * The runtime catalog, parsed once at the edge.
  *
  * The catalog is the lighting system's registry document: it maps each logical
- * lamp to its physical members, names the effect renderers, carries the MQTT
- * topic per member, and records the remotes. It enters the system as JSON from
+ * lamp to its physical members, names the effects, carries the MQTT topic per
+ * member, and records the remotes. It enters the system as JSON from
  * three edges -- the catalog file read by `main.ts`, the HA snapshot, and the
  * parity harness RPC -- and that is the only place JSON belongs.
  *
@@ -45,13 +45,11 @@ import type { JsonObject, JsonValue, ScriptContext } from './context.ts';
 /**
  * The channels an effect drives.
  *
- * `renderer` is deliberately absent, and that is load-bearing. Only
- * `effects_frame_plan` drives a renderer, and it parses the raw document
- * itself (`parseFrameCatalog` in `domain/transport.ts`) and raises there —
- * mid-frame, which is where the oracle raises too. Requiring it *here* instead
- * promoted that to a load-time complaint for every catalog reader, so
- * `ls_apply` started failing on a document whose `effects.Breathe` carries no
- * renderer and whose frame plan is never reached. The parity gate caught it in
+ * `renderer` is deliberately absent. The document still names one per effect,
+ * but the bulbs run Candle, Breathe and Colour loop themselves, so nothing
+ * renders a frame and nothing reads it. An earlier revision required it here
+ * and `ls_apply` started failing on a document whose `effects.Breathe` carries
+ * no renderer; the parity gate caught it in
  * `lighting-algebra/tests/test_integration.py` — 8 failures, every one
  * `catalog.effects.Breathe.renderer must be a string, got undefined`, against
  * 20 clean reference tests.
@@ -92,8 +90,6 @@ export interface Catalog {
   baseline_groups: Record<string, string[]>;
   /** Member entity to its MQTT topic. */
   topics: Record<string, string>;
-  /** Lamp to the phase name handed to an effect renderer. */
-  phases: Record<string, string>;
   processors: Record<string, CatalogProcessor>;
   /** Room to the remote that controls it; spread into the gesture arguments. */
   remotes: Record<string, CatalogRemote>;
@@ -185,7 +181,7 @@ function parseRemote(remote: JsonObject, context: string): CatalogRemote {
  */
 export function emptyCatalog(): Catalog {
   return {
-    effects: {}, members: {}, groups: {}, baseline_groups: {}, topics: {}, phases: {},
+    effects: {}, members: {}, groups: {}, baseline_groups: {}, topics: {},
     processors: {}, remotes: {}, ui_choices: undefined,
     multicast: [], ui_rows: undefined, ui_discovery: undefined,
   };
@@ -233,7 +229,6 @@ export function parseCatalog(document: JsonValue | undefined): Catalog {
     groups: stringListMap(document, 'groups', at),
     baseline_groups: stringListMap(document, 'baseline_groups', at),
     topics: stringMap(document, 'topics', at),
-    phases: stringMap(document, 'phases', at),
     processors: recordMap(document, 'processors', at, parseProcessor),
     remotes: recordMap(document, 'remotes', at, parseRemote),
     ui_choices: document.ui_choices === undefined

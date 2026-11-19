@@ -301,11 +301,22 @@ const DOMAIN = join(ROOT, 'src/domain');
  * divergences in `commit` (two bare `last_updated` reads, the `created ?? when`
  * fallback, the `previousReason &&` truthiness) are unchanged and marked
  * `// divergence:` for their own commits.
+ *
+ * Breathe and Colour loop now run on the bulbs, like Candle (a deliberate
+ * behaviour change, not a representation step): the frame renderers
+ * (`frames.ts`), the engine and its tick (`effects_engine`,
+ * `effects_engine_tick`: admission, rotation, `served`) and
+ * `automation.effects_lifecycle` were deleted rather than converted, and the
+ * frame plan stopped parsing `renderer`, `phases`, `timestamp` and
+ * `animation_tick`. `jsonTypes 188 -> 186`, `lenientAccessors 162 -> 154`;
+ * `rawJsonReturns` stays 18 because both engine handlers were typed `null`.
+ * Deletion again, not parsing. The start/stop checks share one lenient read
+ * of an unparsed target (`runningIn`), which replaced the candle's own.
  */
 const CEILINGS = {
-  jsonTypes: 188,
+  jsonTypes: 186,
   validatedBags: 0,
-  lenientAccessors: 162,
+  lenientAccessors: 154,
   rawJsonReturns: 18,
 };
 

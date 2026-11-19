@@ -16,9 +16,22 @@ renderer, or flickers between frames. All twelve passed on the reference
 backend, so the gate's clean count moves 244 -> 232 and nothing else does. The
 other modules that mention Candle assert resolution (which lamp holds the
 claim, intensity, ownership); they are unchanged and still compared.
+
+Bulb effects (2026-11-19). Breathe and Colour loop also run on the bulbs
+(Zigbee2MQTT `effect: breathe` / `effect: colorloop`, sent once after the light),
+so the frame renderers and the frame engine are gone. Six more cases: four drive
+`effects_engine` through `bounded_engine`, one asserts the Colour loop colour
+changes between rendered frames, and one pins that the legacy pacing transform
+emits an `effects_engine` script. All six passed on the reference backend, so the
+clean count moves 232 -> 226. Kept, because they still pass identically and
+assert behaviour the port still has: the two `effects_emit` cases left in
+test_effect_pacing.py, the ten emitter/grouping cases left in test_transport.py,
+and all fifteen cases of test_performance_pipeline.py (the commit/render/ack
+pipeline, which does not stream).
 """
 
 _STREAMED = 'Asserts the engine streams software Candle frames; the bulb firmware renders Candle and the engine sends it nothing.'
+_ENGINE = 'Drives the frame engine (effects_engine via bounded_engine); the bulbs run every effect and there is no engine.'
 
 RETIRED = {
     'lighting-algebra/tests/test_effect_pacing.py': {
@@ -33,6 +46,16 @@ RETIRED = {
             'test_slow_iteration_does_not_catch_up_with_burst',
             'test_temporary_revision_mismatch_resumes_same_rotation',
         )
+    } | {
+        name: _ENGINE for name in (
+            'test_current_power_off_and_bridge_off_reject_output',
+            'test_interactive_output_during_animation_wait_is_immediate',
+            'test_ownership_change_between_render_and_admission_is_rejected',
+            'test_revision_change_during_wait_stops_without_stale_frame',
+        )
+    } | {
+        'test_transform_does_not_mutate_input_and_supports_controller_override':
+            'Pins that the legacy pacing transform emits an effects_engine script; the port has no engine.',
     },
     'lighting-algebra/tests/test_transport.py': {
         'test_engine_uses_bounded_shared_transport': _STREAMED,
@@ -40,6 +63,8 @@ RETIRED = {
             'Counts calls to the software renderer effect_candle_frame, which no longer exists.',
         'test_constant_colour_overrides_candle_colour_but_keeps_flicker':
             'Asserts the frame plan flickers Candle brightness between frames; the plan now sends the ceiling and the bulb flickers.',
+        'test_colour_effect_does_not_take_constant_brightness':
+            'Asserts the Colour loop colour changes between rendered frames; the bulb runs colorloop and the plan sends no colour for it.',
     },
 }
 

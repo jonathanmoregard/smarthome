@@ -40,7 +40,7 @@ async def main():
  base=state(**{
   'sensor.ls_effects_runtime':('1',{'assignments':{'light.a':{'on':True}},'handled_full':1,'handled_rooms':{'studio':1}}),
   'sensor.ls_overrides':('1',{'full_version':2,'pending_rooms':{'studio':2},'overrides':{'expired':{'when':NOW.timestamp()-60},'fresh':{'when':NOW.timestamp()-59},'bad':{'when':'invalid'}}}),
-  'binary_sensor.zigbee2mqtt_bridge_connection_state':'on','script.effects_engine':'off',
+  'binary_sensor.zigbee2mqtt_bridge_connection_state':'on',
   'input_boolean.ls_ovr_after_on':'on','input_number.ls_ovr_after_min':'1','input_boolean.ls_ovr_at_on':'on',
   'input_number.ls_range_bright_min':'50','input_number.ls_range_bright_max':'100','input_number.ls_range_cosy_min':'0','input_number.ls_range_cosy_max':'40'})
  cases=[]
@@ -53,7 +53,6 @@ async def main():
  add('effects_native_light_controls',{'topic':'house/v1/effect_preview/ep_home/set/invalid','payload':'OFF'},{'sources':configs['effects_native_light_controls']['variables']['sources']})
  for attribute,payload in [('brightness','87'),('temperature','370'),('rgb','255,100,0'),('effect','Candle')]:
   add('effects_native_light_controls',{'topic':f'house/v1/effect_preview/ep_home/set/{attribute}','payload':payload},{'sources':configs['effects_native_light_controls']['variables']['sources']})
- add('effects_lifecycle',{})
  for trigger in ['start','periodic']:add('effects_refresh_native_light_controls',{'id':trigger})
  for trigger in ['tick','config','lamp_on']:add('lighting_schedule_engine',{'id':trigger,'entity_id':'light.a'})
  for trigger in ['after','at']:add('lighting_schedule_end_overrides',{'id':trigger})

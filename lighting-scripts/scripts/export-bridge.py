@@ -21,6 +21,7 @@ RETAINED = {
 RETIRED = {
     'effects_candle_group_state': 'Fed the software candle group reconciliation; the bulb firmware renders Candle.',
     'effects_candle_membership': 'Started the software candle group reconciliation; the bulb firmware renders Candle.',
+    'effects_lifecycle': 'Restarted the frame engine; the bulbs run Candle, Breathe and Colour loop and there is no engine.',
 }
 COMMAND_SCRIPTS = {
     'effects_set', 'effects_ui_catalog', 'effects_ui_sync',

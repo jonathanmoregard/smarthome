@@ -3,7 +3,7 @@ import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../ru
 import { isObject, jinjaTruthy, lazy, object, ParseError, requireArray, requireBoolean, requireNumber, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
 import { typed } from '../runtime/entrypoints.ts';
 import { hasValue, list, strings, timestamp } from './schedule.ts';
-import { FIRMWARE_CANDLE } from './transport.ts';
+import { runningIn } from './transport.ts';
 import type { AssignResult, EmitResult } from './transport.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
@@ -20,7 +20,7 @@ function optionalRevisionAttribute(value: JsonValue | undefined, context: string
 interface DispatchDetails {
   base: JsonObject;
   targets: JsonObject;
-  targetViews: Record<string, { raw: JsonObject; isRoom: boolean; area: JsonValue | undefined; candle: boolean }>;
+  targetViews: Record<string, { raw: JsonObject; isRoom: boolean; area: JsonValue | undefined; starts: string[] }>;
   assignments: JsonObject;
   requested: JsonValue[];
   outputTargets: JsonValue[];
@@ -49,11 +49,7 @@ function parseDispatchDetails(plan: JsonObject, lights: JsonValue | undefined): 
   const targets = requireObject(resolved, 'targets', 'ls_dispatch.plan.resolved');
   const targetViews = Object.fromEntries(Object.entries(targets).map(([lamp, raw]) => {
     const target = requireObject({ raw }, 'raw', `ls_dispatch.plan.resolved.targets.${lamp}`);
-    // Read without raising: `effects_frame_plan` parses this target strictly,
-    // and raises there, before anything here acts on the answer.
-    const brightness = isObject(target.brightness) ? target.brightness : {};
-    const candle = jinjaTruthy(target.on) && brightness.kind === 'effect' && brightness.effect === FIRMWARE_CANDLE.effect;
-    return [lamp, { raw: target, isRoom: jinjaTruthy(target.is_room), area: target.area, candle }];
+    return [lamp, { raw: target, isRoom: jinjaTruthy(target.is_room), area: target.area, starts: bulbStarts(target) }];
   }));
   return {
     base,
@@ -128,7 +124,7 @@ export function dispatch(ctx: ScriptContext, args: DispatchArgs): DispatchResult
   // every path, so both could only fire for a stub, and `decodeGroupPlan` is
   // where that case is handled now -- strictly, rather than as an empty batch.
   const emission = ctx.call('effects_emit', { commands: batch.commands, revision, generation: assigned.generation });
-  const started = startCandles(ctx, Object.keys(ordinary).filter(lamp => targetViews[lamp]!.candle), revision, assigned.generation);
+  const started = startBulbEffects(ctx, Object.keys(ordinary).map(lamp => [lamp, targetViews[lamp]!.starts]), revision, assigned.generation);
   // `requireBoolean(emission.completed)`, `?? null` on the generation and
   // `?? []` on published_at are all gone: `emitCommands` builds both fields
   // every time and `assignEffects` already normalises an absent generation to
@@ -158,22 +154,35 @@ export function dispatch(ctx: ScriptContext, args: DispatchArgs): DispatchResult
 }
 
 /**
- * Start the bulb's own candle on lamps that were just sent their colour and
- * ceiling. A second emission, after the first, so every bulb receives its
- * colour before the trigger: the firmware flickers under the level the lamp is
- * at and keeps whatever colour it shows. Same members and topics the frame
- * plan addressed, through the same guarded emitter.
+ * Start the effects the bulbs run themselves on lamps that were just sent
+ * their light. A second emission, after the first, so every bulb receives its
+ * colour and level before the start: the candle flickers under the level the
+ * lamp is at and keeps whatever colour it shows. Same members and topics the
+ * frame plan addressed, through the same guarded emitter.
  */
-function startCandles(ctx: ScriptContext, lamps: string[], revision: string, generation: AssignResult['generation']): EmitResult {
-  const commands = lamps.filter(lamp => ctx.get(lamp) === 'on').flatMap(lamp =>
+function startBulbEffects(ctx: ScriptContext, lamps: Array<[string, string[]]>, revision: string, generation: AssignResult['generation']): EmitResult {
+  const commands = lamps.filter(([lamp, starts]) => starts.length > 0 && ctx.get(lamp) === 'on').flatMap(([lamp, starts]) =>
     (ctx.catalog.members[lamp] ?? []).flatMap(member => {
       const topic = ctx.catalog.topics[member];
       return ctx.get(member) === 'on' && topic !== undefined
-        ? [{ topic, payload: { effect: FIRMWARE_CANDLE.start }, members: [member], owners: [lamp], group: null }]
+        ? starts.map(effect => ({ topic, payload: { effect }, members: [member], owners: [lamp], group: null }))
         : [];
     }));
   if (commands.length === 0) return { published_at: [], completed: true };
   return ctx.call('effects_emit', { commands, revision, generation });
+}
+
+/**
+ * The starts an on lamp's bulbs need, brightness channel first. Read without
+ * raising: `effects_frame_plan` parses this target strictly, and raises there,
+ * before anything here acts on the answer.
+ */
+function bulbStarts(target: JsonObject): string[] {
+  if (!jinjaTruthy(target.on)) return [];
+  return (['brightness', 'color'] as const).flatMap(channel => {
+    const effect = runningIn(channel, target);
+    return effect === undefined ? [] : [effect.start];
+  });
 }
 
 /** Coalesce pending room versions, preserving unrelated rooms and retrying incomplete output. */

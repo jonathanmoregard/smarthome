@@ -1,7 +1,6 @@
 import { gestureHandlers } from '../domain/gestures.ts';
 import { resolutionHandlers } from '../domain/resolution.ts';
 import { groupingHandlers } from '../domain/grouping.ts';
-import { frameHandlers } from '../domain/frames.ts';
 import { remoteInputHandlers } from '../domain/remote-input.ts';
 import { stateStoreHandlers } from '../domain/state-store.ts';
 import { scheduleHandlers } from '../domain/schedule.ts';
@@ -18,7 +17,6 @@ export const handlers: ScriptHandlers = {
   ...gestureHandlers,
   ...resolutionHandlers,
   ...groupingHandlers,
-  ...frameHandlers,
   ...remoteInputHandlers,
   ...stateStoreHandlers,
   ...scheduleHandlers,

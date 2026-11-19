@@ -33,15 +33,14 @@ test('a members entry that is not a list of strings rejects the catalog', () => 
     { 'light.a': ['light.a_1'] });
 });
 
-test('an effect without a renderer is accepted, because only the frame plan needs one', () => {
+test('an effect without a renderer is accepted, because nothing renders frames', () => {
   // Regression, found by the parity gate on lighting-algebra/tests/test_integration.py.
   // An earlier revision required `renderer` here. That promoted a mid-frame
   // error into a load-time one for every catalog reader, and `ls_apply` — which
   // never renders a frame — began failing on a real document whose
   // `effects.Breathe` carries no renderer: 8 failures against 20 clean
-  // reference tests. The requirement belongs to the one path that drives a
-  // renderer, and that path parses the raw document itself; see the sibling
-  // assertion in tests/runtime/frame-catalog.test.ts.
+  // reference tests. The bulbs now run every effect, so no path reads a
+  // renderer at all.
   assert.deepEqual(parseCatalog({ ...minimal, effects: { Breathe: {} } }).effects.Breathe, { channels: [] });
   assert.deepEqual(parseCatalog({ ...minimal, effects: { Candle: { renderer: 7 } } }).effects.Candle, { channels: [] });
   const parsed = parseCatalog({ ...minimal, effects: { Candle: { renderer: 'fx_candle', channels: ['brightness'] } } });
@@ -71,7 +70,6 @@ test('fields no consumer raises on default to empty instead of absent', () => {
   assert.deepEqual(parsed.baseline_groups, {});
   assert.deepEqual(parsed.multicast, []);
   assert.deepEqual(parsed.topics, {});
-  assert.deepEqual(parsed.phases, {});
   assert.deepEqual(parsed.processors, {});
   assert.deepEqual(parsed.remotes, {});
 });
@@ -105,16 +103,17 @@ test('unknown document fields are absent from the parsed view', () => {
   // mirror of the file. Unknown fields stay in the raw document that the
   // name-keyed effects_catalog shim serves, so the HA and parity edges are
   // unaffected, but they never reach domain logic.
-  const parsed = parseCatalog({ ...minimal, budget: 12, something_new: { a: 1 } });
+  // `phases` and `renderer` fed the software frame renderers, which are gone:
+  // the bulbs run every effect, so a malformed one must not fail the load.
+  const parsed = parseCatalog({ ...minimal, budget: 12, phases: { 'light.a': null }, something_new: { a: 1 } });
   assert.ok(!Object.hasOwn(parsed, 'something_new'));
   assert.ok(!Object.hasOwn(parsed, 'budget'));
+  assert.ok(!Object.hasOwn(parsed, 'phases'));
 });
 
-test('topic and phase values must be strings', () => {
-  // Both are published or passed as a renderer phase; a number would reach the
-  // MQTT layer as a topic of `7`.
+test('topic values must be strings', () => {
+  // Topics are published to; a number would reach the MQTT layer as a topic of `7`.
   assert.throws(() => parseCatalog({ ...minimal, topics: { 'light.a_1': 7 } }), /topics/);
-  assert.throws(() => parseCatalog({ ...minimal, phases: { 'light.a': null } }), /phases/);
   assert.deepEqual(parseCatalog({ ...minimal, topics: { 'light.a_1': 'zigbee2mqtt/a' } }).topics,
     { 'light.a_1': 'zigbee2mqtt/a' });
 });

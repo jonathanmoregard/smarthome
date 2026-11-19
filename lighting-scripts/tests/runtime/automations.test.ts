@@ -87,14 +87,3 @@ test('lamp capture ignores contexts owned by running scripts', async () => {
   assert.deepEqual(invoked, []);
   assert.deepEqual(ctx.events, []);
 });
-test('lifecycle does not restart the typed engine while its continuation is pending', async () => {
-  const { ctx, invoked } = await driver();
-  ctx.put('script.effects_engine', 'off');
-  ctx.put('sensor.ls_effects_runtime', '1', { assignments: { 'light.a': { on: true } } });
-  ctx.schedule('effects_engine_tick', {}, 200);
-  ctx.run('automation.effects_lifecycle', {});
-  assert.equal(invoked.length, 0);
-  ctx.scheduled = [];
-  ctx.run('automation.effects_lifecycle', {});
-  assert.deepEqual(invoked, [{ name: 'ls_apply', args: { reason: 'config' } }]);
-});

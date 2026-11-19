@@ -168,7 +168,8 @@ still conflicts with the current live Candle restriction and remains reported.
 The settled gate also reruns the native bridge-field, full automation, schedule,
 and UI/range differentials (`native_bridges.py` and the three neighboring
 `tests/runtime/*native*.py` scripts). Their reports cover 72 bridge-field cases,
-33 automation scenarios (38 before the five candle-group cases were retired), 40
+32 automation scenarios (38 before the five candle-group cases and the
+`effects_lifecycle` case were retired), 40
 schedule comparisons and 26 UI/range comparisons.
 The current authoritative verification artifacts are `gate-report.json` and
 `gate-comparison-report.json`. Other comparison JSON files retain exploratory
@@ -194,3 +195,15 @@ runs on the bulb, so the engine sends it nothing. All twelve were clean on the
 reference backend, so the gate's clean count moved 244 -> 232. The
 `automations-native.py` supplement dropped its five candle-group scenarios with
 the automations they exercised.
+
+Bulb effects, 2026-11-19: six more. Breathe and Colour loop run on the bulbs
+too (`effect: breathe` / `effect: colorloop`, sent once after the light), so the
+frame renderers and the engine are gone. Retired: four `test_effect_pacing.py`
+cases that drive `effects_engine`, its transform case that pins the engine
+script, and the `test_transport.py` case asserting that the Colour loop colour
+moves between rendered frames. All six were clean on the reference backend, so
+the count went 232 -> 226. The remaining two pacing cases, ten transport cases
+and all fifteen `test_performance_pipeline.py` cases still pass identically.
+They test the emitter and the commit/render pipeline, which remain, so they
+stay gated. `automations-native.py` dropped its `effects_lifecycle` scenario
+(33 -> 32).

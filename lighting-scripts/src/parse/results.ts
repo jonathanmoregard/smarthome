@@ -392,11 +392,10 @@ export const resultCodecs: { [K in keyof TypedResults]: ResultCodec<TypedResults
   // No decoder: nothing stubs `ls_dispatch`, and `null` plus two built fields
   // is not a shape a stub would get subtly wrong without failing loudly.
   ls_dispatch: { encode: result => result },
-  // Both names share one result type, so they share its decoder. Both are
-  // stubbed in the suite -- `effects_group_plan` by `frame-catalog.test.ts`,
-  // which replaces the group planner so its two tests fail only on the
-  // renderer boundary they are about, and `effects_frame_plan` by
-  // `falsy-boundaries.test.ts`. The decoder is also what now carries the
+  // Both names share one result type, so they share its decoder. No unit
+  // test stubs either any more (the two that did tested the frame renderers
+  // and the engine tick, both gone with the bulb-run effects), so the decoder
+  // is only the edge for a JSON answer to these names. It also carries the
   // leniency the two call sites used to apply inline.
   effects_group_plan: { encode: result => result, decode: decodeGroupPlan },
   effects_frame_plan: { encode: result => result, decode: decodeGroupPlan },

@@ -7,28 +7,73 @@ import { roundEven, clamp } from './scale.ts';
 import { recordTimestamp } from '../parse/resolution.ts';
 import { requireRgb } from '../parse/scale.ts';
 import { warmEndOf } from '../parse/planning.ts';
-import type { GroupCommand, GroupPlanResult } from './grouping.ts';
+import type { GroupPlanResult } from './grouping.ts';
 
 const list = (v: JsonValue | undefined): JsonValue[] => Array.isArray(v) ? v : [];
 const runtime = 'sensor.ls_effects_runtime';
 
 /**
- * The effect the bulb renders itself, and the Zigbee2MQTT light `effect` that
- * starts it. The Innr RB 282 C firmware's Identify TriggerEffect 0x0b flickers
- * under whatever level the lamp is at, holds the lamp's colour, and stops on
- * `stop_effect`, Off, or any brightness command. So the port sends a Candle
- * lamp its colour and ceiling once, then this trigger, and streams nothing.
+ * The effects the bulbs render themselves: the channel each one runs on, and
+ * the Zigbee2MQTT light `effect` that starts it. The port sends a lamp its
+ * light once, then the start, and streams nothing; leaving one sends
+ * `stop_colorloop` and `stop_effect` first.
+ *
+ * - Candle: the Innr RB 282 C firmware's Identify TriggerEffect 0x0b
+ *   (`channel_change`) flickers under whatever level the lamp is at, holds the
+ *   lamp's colour, and stops on `stop_effect`, Off, or any brightness command.
+ * - Breathe and Colour loop: the bulbs' own Zigbee effects (`breathe`,
+ *   `colorloop`), stopped by `stop_effect` and `stop_colorloop`.
  */
-export const FIRMWARE_CANDLE = { effect: 'Candle', start: 'channel_change' } as const;
-function onBulb(source: { kind: string; effect: string | null }): boolean {
-  return source.kind === 'effect' && source.effect === FIRMWARE_CANDLE.effect;
+export type Channel = 'brightness' | 'color';
+export type BulbEffect = {
+  /** The channel the bulb animates; the start is sent only when this channel runs the effect. */
+  readonly channel: Channel;
+  readonly start: string;
+  /**
+   * The colour sent before the start when the effect claims the colour
+   * channel. Candle holds the warm end its software renderer used to return;
+   * a loop owns the colour from its start on, so nothing is sent for it.
+   */
+  readonly colour: 'warm end' | 'none';
+};
+const BULB_EFFECTS: ReadonlyMap<string, BulbEffect> = new Map([
+  ['Candle', { channel: 'brightness', start: 'channel_change', colour: 'warm end' }],
+  ['Breathe', { channel: 'brightness', start: 'breathe', colour: 'none' }],
+  ['Colour loop', { channel: 'color', start: 'colorloop', colour: 'none' }],
+]);
+
+type SourceKind = { kind: string; effect: string | null };
+
+/** The bulb effect a channel source names, wherever it sits, or `undefined`. */
+function bulbEffect(source: SourceKind): BulbEffect | undefined {
+  return source.kind === 'effect' && source.effect !== null ? BULB_EFFECTS.get(source.effect) : undefined;
+}
+
+/**
+ * The bulb effect a channel runs, or `undefined`. An effect runs on exactly one
+ * channel: a Candle claim on colour alone holds the warm colour and starts
+ * nothing, because the flicker is a brightness effect.
+ */
+function runningOn(channel: Channel, source: SourceKind): BulbEffect | undefined {
+  const effect = bulbEffect(source);
+  return effect !== undefined && effect.channel === channel ? effect : undefined;
+}
+/**
+ * {@link runningOn} for an unparsed target: a stored runtime assignment, or a
+ * resolved target `ls_dispatch` has not handed to the strict frame plan yet.
+ * Read without raising, as every other read of those documents is.
+ */
+export function runningIn(channel: Channel, stored: JsonObject): BulbEffect | undefined {
+  const source = isObject(stored[channel]) ? stored[channel] : {};
+  return source.kind === 'effect' && typeof source.effect === 'string'
+    ? runningOn(channel, { kind: 'effect', effect: source.effect }) : undefined;
 }
 const revisionNow = (ctx: ScriptContext) => ctx.state['sensor.ls_overrides']?.last_updated ?? ctx.now;
 
 interface FrameSource {
   kind: string;
   effect: string | null;
-  details: () => { instance: string | null; intensity: number | null; value: JsonValue | undefined };
+  details: () => { intensity: number | null; value: JsonValue | undefined };
 }
 interface FrameTarget {
   brightness: FrameSource;
@@ -39,8 +84,6 @@ interface FrameTarget {
   area: JsonValue | undefined;
 }
 interface FrameCatalog {
-  effects: Record<string, { renderer: string }>;
-  phases: () => JsonObject;
   members: Record<string, string[]>;
   topics: Record<string, string>;
   multicast: () => JsonValue[];
@@ -48,8 +91,6 @@ interface FrameCatalog {
 interface FramePlanArgs {
   catalog: FrameCatalog;
   targets: Record<string, FrameTarget>;
-  animationTick: boolean;
-  timestamp: number;
   transitionCap: number | null;
   transitionRooms: JsonValue[] | null;
 }
@@ -77,13 +118,6 @@ interface AssignDetails {
   planOrder: number | undefined;
 }
 
-interface EngineTickArgs {
-  served: Record<string, number>;
-  admission: number;
-  catalog: JsonObject;
-}
-
-
 function requireStrings(container: JsonObject, key: string, context: string): string[] {
   return requireArray(container, key, context).map((value, index) =>
     requireString({ value }, 'value', `${context}.${key}[${index}]`));
@@ -96,9 +130,8 @@ function parseFrameSource(target: JsonObject, channel: 'brightness' | 'color', c
   return {
     kind,
     effect,
-    // A frame tick skips every channel the bulb renders, so those are never read here.
+    // Read where the plan reads them: a bulb effect's colour needs neither.
     details: lazy(() => ({
-      instance: kind === 'effect' ? requireString(source, 'instance', `${context}.${channel}`) : null,
       intensity: kind === 'effect' ? requireNumber(source, 'intensity', `${context}.${channel}`) : null,
       value: source.value,
     })),
@@ -106,21 +139,16 @@ function parseFrameSource(target: JsonObject, channel: 'brightness' | 'color', c
 }
 
 function parseFrameCatalog(args: JsonObject): FrameCatalog {
+  // `effects` and `phases` are not read: no effect is rendered here any more.
   const catalog = requireObject(args, 'catalog', 'effects_frame_plan');
-  const effectsRaw = requireObject(catalog, 'effects', 'effects_frame_plan.catalog');
   const membersRaw = requireObject(catalog, 'members', 'effects_frame_plan.catalog');
   const topicsRaw = requireObject(catalog, 'topics', 'effects_frame_plan.catalog');
   return {
-    effects: Object.fromEntries(Object.entries(effectsRaw).map(([name, raw]) => {
-      const effect = requireObject({ raw }, 'raw', `effects_frame_plan.catalog.effects.${name}`);
-      return [name, { renderer: requireString(effect, 'renderer', `effects_frame_plan.catalog.effects.${name}`) }];
-    })),
-    // These raw fields occur only when their captured control-flow site runs.
-    phases: lazy(() => requireObject(catalog, 'phases', 'effects_frame_plan.catalog')),
     members: Object.fromEntries(Object.keys(membersRaw).map(lamp =>
       [lamp, requireStrings(membersRaw, lamp, 'effects_frame_plan.catalog.members')])),
     topics: Object.fromEntries(Object.keys(topicsRaw).map(member =>
       [member, requireString(topicsRaw, member, 'effects_frame_plan.catalog.topics')])),
+    // Read only when the group planner is reached, which is where the oracle reads it.
     multicast: lazy(() => requireArray(catalog, 'multicast', 'effects_frame_plan.catalog')),
   };
 }
@@ -182,41 +210,26 @@ function parseAssignTargetViews(targets: JsonObject): ReturnType<AssignDetails['
   }));
 }
 
-function parseServed(args: JsonObject): Record<string, number> {
-  const served = requireObject(args, 'served', 'effects_engine_tick');
-  return Object.fromEntries(Object.keys(served).map(member =>
-    [member, requireNumber(served, member, 'effects_engine_tick.served')]));
-}
-
+/**
+ * Each lamp's light, sent once. A channel running a bulb effect gets a static
+ * value: brightness is the effect's intensity (the level it runs at, and the
+ * candle's ceiling); colour is what the effect holds (see {@link BulbEffect}).
+ * The start follows in a second emission, so it always lands after the light.
+ */
 export function framePlan(ctx: ScriptContext, args: FramePlanArgs): GroupPlanResult {
-  const catalog = args.catalog, effects = catalog.effects, rows: JsonValue[] = [];
+  const catalog = args.catalog, rows: JsonValue[] = [];
   for (const [lamp, target] of Object.entries(args.targets)) {
-    const frames: JsonObject = {};
     let payload: JsonObject = {};
     const color = target.color, brightness = target.brightness;
-    // A frame tick never touches a channel the bulb renders: a brightness
-    // command would end the firmware candle. A lamp left with nothing animated
-    // gets no frame at all.
-    const channels = (['brightness', 'color'] as const).filter(channel => !(args.animationTick && onBulb(target[channel])));
-    if (channels.length < 2 && !channels.some(channel => target[channel].kind === 'effect')) continue;
-    for (const channel of channels) {
+    for (const channel of ['brightness', 'color'] as const) {
       const source = target[channel];
-      const { instance, intensity, value: sourceValue } = source.details();
+      const { intensity, value: sourceValue } = source.details();
+      const effect = bulbEffect(source);
       let value = sourceValue;
-      if (onBulb(source)) {
-        // The candle's ceiling is its intensity; its colour is the warm end the
-        // software renderer used to return on every frame.
-        value = channel === 'brightness' ? intensity : { rgb: warmEndOf(ctx.attr('light.candle_test_rgb_warm_end', 'rgb_color')) };
-      } else if (source.kind === 'effect' && source.effect !== null && Object.hasOwn(effects, source.effect)) {
-        const frameKey = `${instance}:${source.effect}`;
-        if (!Object.hasOwn(frames, frameKey)) {
-          frames[frameKey] = ctx.run(effects[source.effect]!.renderer, {
-            timestamp: args.timestamp, brightness: intensity ?? null, transition: 0.4,
-            phase: catalog.phases()[lamp] ?? lamp,
-          });
-        }
-        const frame = object(frames[frameKey]);
-        value = channel === 'brightness' ? frame.brightness : { rgb: frame.rgb ?? null };
+      if (effect !== undefined) {
+        if (channel === 'brightness') value = intensity;
+        else if (effect.colour === 'warm end') value = { rgb: warmEndOf(ctx.attr('light.candle_test_rgb_warm_end', 'rgb_color')) };
+        else continue;
       }
       if (channel === 'brightness') payload.brightness = roundEven(clamp(jinjaFloat(value), 1, 254));
       else {
@@ -288,10 +301,7 @@ export function assignEffects(ctx: ScriptContext, args: AssignArgs): AssignResul
   const changed = !isDeepStrictEqual(targets, oldTargets) || args.revision !== ctx.attr(runtime, 'revision') || invalidate.length > 0;
   let generation = ctx.attr(runtime, 'generation') ?? null;
   const planOrder = details.planOrder ?? requireNumber({ plan_order: ctx.attr(runtime, 'plan_order') ?? 0 }, 'plan_order', 'effects_assign runtime');
-  if (changed) {
-    if (!Object.keys(assignments).length) ctx.emit('script.turn_off', {}, { entity_id: 'script.effects_engine' });
-    generation = ctx.now;
-  }
+  if (changed) generation = ctx.now;
   if (changed || planOrder > requireNumber({ plan_order: ctx.attr(runtime, 'plan_order') ?? 0 }, 'plan_order', 'effects_assign runtime')) {
     const priorApplied = ctx.attr(runtime, 'applied');
     const applied = Object.fromEntries(Object.entries(priorApplied == null ? oldTargets : object(priorApplied)).filter(([key]) => !invalidate.includes(key)));
@@ -305,13 +315,12 @@ export function assignEffects(ctx: ScriptContext, args: AssignArgs): AssignResul
       if (target.isRoom) continue;
       const previous = object(old[lamp]);
       let needed = ['Breathe', 'Colour loop'].includes(String(previous.effect));
-      // A lamp leaving the bulb's own candle is told to stop it.
-      const before = isObject(previous.brightness) ? previous.brightness : {};
-      if (before.kind === 'effect' && before.effect === FIRMWARE_CANDLE.effect && !onBulb(target.channels.brightness)) needed = true;
-      for (const channel of ['brightness', 'color']) {
-        const typedChannel = channel as 'brightness' | 'color';
-        const source = target.channels[typedChannel];
-        if (source.kind === 'effect' && target.owners[typedChannel].startsWith('channels:native:') && source.updated !== object(object(oldTargets[lamp])[channel]).updated) needed = true;
+      for (const channel of ['brightness', 'color'] as const) {
+        const source = target.channels[channel];
+        // A lamp leaving an effect its bulbs run is told to stop it, before its new light.
+        const was = runningIn(channel, previous);
+        if (was !== undefined && runningOn(channel, source) !== was) needed = true;
+        if (source.kind === 'effect' && target.owners[channel].startsWith('channels:native:') && source.updated !== object(object(oldTargets[lamp])[channel]).updated) needed = true;
       }
       if (needed) for (const member of catalog.members[lamp] ?? []) if (ctx.get(member) === 'on') {
         for (const effect of ['stop_colorloop', 'stop_effect']) commands.push({ topic: catalog.topics[member] ?? null,
@@ -320,85 +329,24 @@ export function assignEffects(ctx: ScriptContext, args: AssignArgs): AssignResul
     }
     ctx.run('effects_emit', { commands, revision: args.revision, generation });
   }
-  if (Object.keys(assignments).length) ctx.emit('script.turn_on', {}, { entity_id: 'script.effects_engine' });
   return { generation: ctx.attr(runtime, 'generation') ?? null };
 }
 
-const tickScript = 'effects_engine_tick';
-function engineActive(ctx: ScriptContext): boolean {
-  return Object.keys(object(ctx.attr(runtime, 'assignments'))).length > 0 && ctx.get('binary_sensor.zigbee2mqtt_bridge_connection_state') === 'on';
-}
-
-/** A continuation replaces HA's blocking delay without holding the input queue. */
-export function startEngine(ctx: ScriptContext): null {
-  if (engineActive(ctx) && !(ctx.scheduled ?? []).some(task => task.script === tickScript)) {
-    ctx.schedule(tickScript, { served: {}, admission: 0, catalog: ctx.run('effects_catalog') }, 200);
-  }
-  return null;
-}
-
-export function engineTick(ctx: ScriptContext, args: EngineTickArgs): null {
-  if (!engineActive(ctx)) return null;
-  // Runtime topology may change without restarting the actor or its fairness state.
-  const served = { ...args.served }, catalog = object(ctx.run('effects_catalog'));
-  let admission = args.admission;
-  if (ctx.attr(runtime, 'revision') === revisionNow(ctx)) {
-    const revision = ctx.attr(runtime, 'revision') ?? null, generation = ctx.attr(runtime, 'generation') ?? null;
-    const power = object(ctx.attr('sensor.ls_overrides', 'power'));
-    // Captured: `... and target.on and power.get(area_id(lamp),true)`. Both sit
-    // in a Jinja boolean position. `power.get` defaults only on an ABSENT area;
-    // `power[area] !== false` got that case right but admitted every other
-    // falsy value, and bare truthiness on `on` admitted empty containers.
-    const admits = (area: string) => jinjaTruthy(Object.hasOwn(power, area) ? power[area] : true);
-    const targets = Object.fromEntries(Object.entries(object(ctx.attr(runtime, 'assignments'))).filter(([lamp, raw]) =>
-      Object.hasOwn(object(catalog.members), lamp) && ctx.get(lamp) === 'on'
-      && jinjaTruthy(object(raw).on) && admits(ctx.areas[lamp] ?? '')));
-    const batch = ctx.call('effects_frame_plan', { targets, catalog, timestamp: recordTimestamp(ctx.now), animation_tick: true });
-    // The spread is load-bearing. `list(batch.commands).map(object)` used to
-    // make this a copy; sorting `batch.commands` itself would reorder the
-    // handler's own result in place.
-    const commands = [...batch.commands].sort((a, b) => a.topic < b.topic ? -1 : a.topic > b.topic ? 1 : 0);
-    let chosen: GroupCommand | undefined, oldest = Infinity;
-    for (const command of commands) {
-      const age = Math.max(-1, ...command.members.map(member => served[member] ?? -1));
-      if (age < oldest) { chosen = command; oldest = age; }
-    }
-    if (chosen) {
-      ctx.run('effects_emit', { commands: [chosen], revision, generation, effect_targets: targets });
-      admission++;
-      for (const member of chosen.members) served[member] = admission;
-    }
-  }
-  if (engineActive(ctx)) ctx.schedule(tickScript, { served, admission, catalog }, 200);
-  return null;
-}
-
 export const transportHandlers: ScriptHandlers = {
-  effects_engine: startEngine,
-  // Captured `effects_engine` reads `served`, `admission`, and `catalog` raw
-  // (6, 2, and 3 sites; no numeric filter), so malformed values must raise.
-  effects_engine_tick: withParsedArgs({
-    parse: args => ({
-      served: parseServed(args),
-      admission: requireNumber(args, 'admission', 'effects_engine_tick'),
-      catalog: requireObject(args, 'catalog', 'effects_engine_tick'),
-    }),
-    run: engineTick,
-  }),
-  // Captured fields: `catalog`, `targets`, and `timestamp` are raw (6, 2,
-  // and 1 sites); `animation_tick` has `| default(false)` once; and
-  // `transition_cap`/`transition_rooms` each have a `default(none)` path plus
-  // a raw use. Nested catalog/target fields are also raw: effects 2, renderer
-  // 1, phases/members/topics/multicast/owners/area 1 each, color 5, brightness
-  // 7, kind 4, effect 8, instance/intensity 1 each, kelvin 2, rgb/on 4 each,
-  // and transition 10. `value` is raw four times but has one `| float`, so
-  // brightness uses jinjaFloat while color uses strict object/color parsers.
+  // The light half of a dispatch. Captured fields: `catalog` and `targets`
+  // are raw (6 and 2 sites); `transition_cap`/`transition_rooms` each have a
+  // `default(none)` path plus a raw use. Nested catalog/target fields are also
+  // raw: members/topics/multicast/owners/area 1 each, color 5, brightness 7,
+  // kind 4, effect 8, intensity 1, kelvin 2, rgb/on 4 each, and transition 10.
+  // `value` is raw four times but has one `| float`, so brightness uses
+  // jinjaFloat while color uses strict object/color parsers. The captured
+  // `timestamp`, `animation_tick`, `effects` and `phases` fed the software
+  // renderers and the frame engine, both gone: callers may still pass them,
+  // and nothing reads them.
   effects_frame_plan: typed('effects_frame_plan', {
     parse: args => ({
       catalog: parseFrameCatalog(args),
       targets: parseFrameTargets(args),
-      animationTick: jinjaTruthy(args.animation_tick),
-      timestamp: requireNumber(args, 'timestamp', 'effects_frame_plan'),
       transitionCap: args.transition_cap == null ? null : requireNumber(args, 'transition_cap', 'effects_frame_plan'),
       transitionRooms: args.transition_rooms == null ? null : requireArray(args, 'transition_rooms', 'effects_frame_plan'),
     }),

@@ -146,10 +146,6 @@ export const automationHandlers: ScriptHandlers = {
     if (dirty) turnOn(ctx, 'ls_render');
     return null;
   },
-  'automation.effects_lifecycle': ctx => {
-    if (!(ctx.scheduled ?? []).some(task => task.script === 'effects_engine_tick') && ctx.get('script.effects_engine') === 'off' && Object.keys(object(ctx.attr(runtime, 'assignments'))).length) ctx.run('ls_apply', { reason: 'config' });
-    return null;
-  },
   // Refresh reads trigger.id raw once for comparison only.
   'automation.effects_refresh_native_light_controls': withParsedArgs({
     parse: args => ({ id: triggerObject(args, 'automation.effects_refresh_native_light_controls').id }),
