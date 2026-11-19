@@ -1,10 +1,11 @@
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { isObject, jinjaFloat, jinjaInt, jinjaString, jinjaTruthy, lazy, object, ParseError, requireArray, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { isObject, jinjaString, jinjaTruthy, lazy, object, ParseError, requireArray, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
 import { typed } from '../runtime/entrypoints.ts';
 import { recordTimestamp } from '../parse/resolution.ts';
 import { isAreaId, labelled, privateRooms } from './schedule.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
-import { parseOverrideBlockArgs, parseViaArgs, roomTarget, scheduledBlocks } from '../parse/state-store.ts';
+import { cachedProfile, catalogEffectChannels, haBoolean, parseOverrideBlockArgs, parseStoreProfile, parseViaArgs, roomTarget, scheduledBlocks, storedProfileText } from '../parse/state-store.ts';
+import type { OpaqueMap, StoredValue } from '../parse/overrides.ts';
 import { lenientOverrides } from '../parse/sensors.ts';
 
 const values = (value: JsonValue | undefined): JsonValue[] => Array.isArray(value) ? value : [];
@@ -67,18 +68,6 @@ function jinjaMappingGet(record: JsonObject, key: JsonValue | undefined, context
     throw new ParseError(`${context} is unhashable for Jinja mapping lookup`);
   }
   return typeof key === 'string' ? record[key] : undefined;
-}
-
-/** Home Assistant's custom `| bool` filter, measured from the pinned oracle. */
-function haBoolean(value: JsonValue | undefined, context: string): boolean {
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'number') return Number.isNaN(value) ? true : value !== 0;
-  if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase();
-    if (['1', 'true', 'yes', 'on', 'enable'].includes(normalized)) return true;
-    if (['0', 'false', 'no', 'off', 'disable'].includes(normalized)) return false;
-  }
-  throw new ParseError(`${context} is not accepted by Home Assistant's bool filter`);
 }
 
 function parseRecords(value: JsonValue | undefined, context: string): CommitRecord[] {
@@ -279,38 +268,7 @@ export function commit(ctx: ScriptContext, args: CommitArgs): CommitResult {
   return { accepted: true, revision: ctx.state[entity]?.last_updated ?? ctx.now, committed_at: recordTimestamp(ctx.now) };
 }
 
-/**
- * `is defined and is not none` -- the captured guard on every optional `ls_store`
- * field. Absent and explicit none are indistinguishable to it, and both leave
- * the field out of the patch entirely, so one predicate covers both.
- */
-function supplied(value: JsonValue | undefined): boolean {
-  return value !== undefined && value !== null;
-}
-
-/** `(1000000 / (mireds | float)) | int` */
-function miredKelvin(mireds: JsonValue | undefined): number {
-  // The float filter yields 0.0 both for a zero and for anything it cannot
-  // parse, and Python division by 0.0 raises ZeroDivisionError. JavaScript
-  // instead produces Infinity or NaN, which `JSON.stringify` wrote to the store
-  // as `"k":null` -- a saved profile claiming colour temperature with no value.
-  const divisor = jinjaFloat(mireds);
-  if (divisor === 0) {
-    throw new ParseError('ls_store.mireds must convert to a kelvin value, got a zero divisor');
-  }
-  return jinjaInt(1_000_000 / divisor);
-}
-
-/** `h=hs[0] | float, s=hs[1] | float` */
-function huePair(hs: JsonValue | undefined): { h: number; s: number } {
-  // Subscripting past the end of a sequence, or into something that is not one,
-  // yields Jinja Undefined, and `Undefined | float` is 0.0. `Number(undefined)`
-  // was NaN, which serialized to null.
-  const pair = values(hs);
-  return { h: jinjaFloat(pair[0]), s: jinjaFloat(pair[1]) };
-}
-
-interface StoreProfileArgs {
+export interface StoreProfileArgs {
   entity: string;
   on: boolean | undefined;
   own: boolean | undefined;
@@ -321,46 +279,43 @@ interface StoreProfileArgs {
   // That is not the same as a kelvin having been computed: kelvin and mireds sit
   // in one `elif`, so supplying both releases the channel once but converts once.
   releasesColour: boolean;
-  effect: JsonValue | undefined;
+  /** Stored as supplied, and looked up in the catalog by hashable key. */
+  effect: StoredValue | undefined;
 }
 
-function parseStoreProfile(args: JsonObject): StoreProfileArgs {
-  return {
-    // `store` is a required field and the captured tail evaluates
-    // `store.startswith('input_text.ls_lamp_')`, which raises for a non-string.
-    // Nothing in the captured script coerces it, so neither does this.
-    entity: requireString(args, 'store', 'ls_store'),
-    on: supplied(args.on) ? haBoolean(args.on, 'ls_store.on') : undefined,
-    own: supplied(args.own) ? haBoolean(args.own, 'ls_store.own') : undefined,
-    brightness: supplied(args.brightness) ? jinjaInt(args.brightness) : undefined,
-    kelvin: supplied(args.kelvin) ? jinjaInt(args.kelvin)
-      : supplied(args.mireds) ? miredKelvin(args.mireds) : undefined,
-    hs: supplied(args.hs) ? huePair(args.hs) : undefined,
-    releasesColour: supplied(args.kelvin) || supplied(args.mireds) || supplied(args.hs),
-    effect: supplied(args.effect) ? args.effect : undefined,
-  };
+/**
+ * The saved profile: the document as stored, `current.get('effect', 'Normal
+ * light')`, and `current.get('effect_channels', ...)` -- `'absent'` when the key
+ * is, `'non-list'` when it holds something that is not a list.
+ */
+export interface StoredProfile {
+  document: OpaqueMap;
+  activeEffect: StoredValue;
+  effectChannels: StoredValue[] | 'absent' | 'non-list';
 }
-
-/** `states(store) | from_json(default={})` */
-function cachedProfile(ctx: ScriptContext, entity: string): JsonObject {
-  // The `default={}` genuinely swallows a parse failure -- an unset or
-  // non-JSON store reads as an empty profile -- so that fallback is faithful and
-  // stays. A cache that parses to a non-mapping is a different case: the
-  // captured `current.get(...)` raises on it.
-  let parsed: JsonValue;
-  try { parsed = JSON.parse(ctx.get(entity)) as JsonValue; } catch { return {}; }
-  if (!isObject(parsed)) {
-    throw new ParseError(`ls_store.store entity ${entity} holds a non-mapping saved profile`);
-  }
-  return parsed;
-}
+/** An effect's catalog channel list; raises for an unhashable effect key. */
+export type EffectChannels = (effect: StoredValue) => StoredValue[];
+/** The fields `ls_store` writes, in the order it writes them. */
+export type ProfilePatch = {
+  on?: boolean;
+  own?: boolean;
+  b?: number;
+  m?: 'ct' | 'hs';
+  k?: number;
+  h?: number;
+  s?: number;
+  effect?: StoredValue;
+  effect_channels?: StoredValue[];
+};
 
 /** Writes the profile store and answers nothing; every path returns null. */
 export function storeProfile(ctx: ScriptContext, args: StoreProfileArgs): null {
   const entity = args.entity;
-  const current = cachedProfile(ctx, entity);
-  const effects = object(object(ctx.run('effects_catalog')).effects);
-  const patch: JsonObject = {};
+  const current = cachedProfile(ctx.get(entity), entity);
+  // `catalog.effects.get(key, {}).get('channels', [])`, over the raw result:
+  // the `effects_catalog` call is recorded in `scriptRuns`, so it stays a call.
+  const catalogChannels = catalogEffectChannels(ctx.run('effects_catalog'));
+  const patch: ProfilePatch = {};
   if (args.on !== undefined) patch.on = args.on;
   if (args.own !== undefined) patch.own = args.own;
   if (args.brightness !== undefined) patch.b = args.brightness;
@@ -368,18 +323,12 @@ export function storeProfile(ctx: ScriptContext, args: StoreProfileArgs): null {
   // the preceding block set still in the patch.
   if (args.kelvin !== undefined) { patch.m = 'ct'; patch.k = args.kelvin; }
   if (args.hs !== undefined) { patch.m = 'hs'; patch.h = args.hs.h; patch.s = args.hs.s; }
-  // `catalog.effects.get(key, {}).get('channels', [])`. The catalog is produced
-  // by effects_catalog, so a missing channel list there is absence, not a
-  // malformed value.
-  const catalogChannels = (key: JsonValue | undefined): JsonValue[] =>
-    values(object(jinjaMappingGet(effects, key, 'ls_store.effect')).channels);
   // Both reads are `dict.get`, which falls back only on an ABSENT key. `??` also
   // fired on an explicit null, so a cached null effect claimed Normal light's
   // channels where the oracle resolves none and yields an empty list.
-  const active = Object.hasOwn(current, 'effect') ? current.effect : 'Normal light';
-  let channels: JsonValue[];
-  if (!Object.hasOwn(current, 'effect_channels')) channels = catalogChannels(active);
-  else if (Array.isArray(current.effect_channels)) channels = current.effect_channels;
+  let channels: StoredValue[];
+  if (current.effectChannels === 'absent') channels = catalogChannels(current.activeEffect);
+  else if (current.effectChannels !== 'non-list') channels = current.effectChannels;
   else {
     // Deliberate divergence, under "rework so it's typed and correct instead".
     // The oracle stores a present non-list verbatim when no release filter runs
@@ -395,7 +344,7 @@ export function storeProfile(ctx: ScriptContext, args: StoreProfileArgs): null {
     if (args.releasesColour) channels = channels.filter(x => x !== 'color');
   }
   patch.effect_channels = channels;
-  const value = JSON.stringify({ ...current, ...patch });
+  const value = storedProfileText(current, patch);
   ctx.emit('input_text.set_value', { value }, { entity_id: entity });
   if (entity.startsWith('input_text.ls_lamp_')) ctx.fire('ls_lamp_store_changed', { store: entity });
   return null;
@@ -424,12 +373,9 @@ export const stateStoreHandlers: ScriptHandlers = {
     },
     run: commit,
   }),
-  // Captured `store` is required and reaches `.startswith`, so it is a plain
-  // string. Every other field is guarded `is defined and is not none`, which
-  // makes absence and none identical, and each carries its own filter: `| bool`
-  // for on/own, `| int` for brightness and kelvin, `| float` under a division
-  // for mireds, `| float` per element for hs. The saved profile's two reads are
-  // `dict.get`, so an explicit null is a value and not a fallback trigger.
+  // Captured `store` is required; every other field is guarded `is defined and
+  // is not none` and carries its own filter (see `parseStoreProfile`). The
+  // saved profile's two reads are `dict.get`, so an explicit null is a value.
   ls_store: withParsedArgs({ parse: parseStoreProfile, run: storeProfile }),
   // Captured scope is raw twice (list construction and comparison), block has
   // one `| lower`, and via has two `| default('app')` sites.

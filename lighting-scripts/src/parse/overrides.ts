@@ -17,8 +17,12 @@ import { carry } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 
 /** A stored value compared by identity: scalars as themselves, containers opaque. */
-export type StoredFact = string | number | boolean | null | Verbatim | undefined;
+export type StoredValue = string | number | boolean | null | Verbatim;
+/** A {@link StoredValue}, or `undefined` for an absent key. */
+export type StoredFact = StoredValue | undefined;
 
+export function storedFact(value: JsonValue): StoredValue;
+export function storedFact(value: JsonValue | undefined): StoredFact;
 export function storedFact(value: JsonValue | undefined): StoredFact {
   return Array.isArray(value) || isObject(value) ? carry(value) : value;
 }

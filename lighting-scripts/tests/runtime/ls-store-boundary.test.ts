@@ -137,3 +137,44 @@ test('ls_store treats an unparseable cache as empty but a non-mapping cache as m
 
   assert.throws(() => store('5').run('ls_store', { store: STORE, on: true }), /ls_store\.store entity/);
 });
+
+const storedText = (ctx: ReturnType<typeof store>): string =>
+  String(ctx.calls.find(c => c.service === 'input_text.set_value')?.data.value);
+
+test('ls_store writes the cached profile first, in its order, then the patch', () => {
+  // `{...current, ...patch}`: an existing key keeps its position and takes the
+  // new value, a key nothing reads passes through, new keys follow in patch order.
+  const ctx = store('{"k":1,"x":{"y":[1,null]},"b":5}');
+  ctx.run('ls_store', { store: STORE, brightness: 9, on: true });
+  assert.equal(storedText(ctx), '{"k":1,"x":{"y":[1,null]},"b":9,"on":true,"effect_channels":["color"]}');
+});
+
+test('ls_store release filters drop only the literal channel names', () => {
+  const ctx = store('{"effect_channels":[1,{"a":1},"brightness","color",null]}');
+  ctx.run('ls_store', { store: STORE, brightness: 3, kelvin: 2700 });
+  assert.equal(JSON.stringify(written(ctx).effect_channels), '[1,{"a":1},null]');
+});
+
+test('ls_store raises a malformed cache before the catalog call and a non-list after it', () => {
+  const runs: string[] = [];
+  const counting = (cached: string) => {
+    const ctx = context({ ...stateStoreHandlers, effects_catalog: () => { runs.push('catalog'); return catalog(); } });
+    ctx.put(STORE, cached);
+    return ctx;
+  };
+  assert.throws(() => counting('[1]').run('ls_store', { store: STORE, on: true }), /non-mapping/);
+  assert.deepEqual(runs, []);
+  assert.throws(() => counting('{"effect_channels":"x"}').run('ls_store', { store: STORE, on: true }), /non-list/);
+  assert.deepEqual(runs, ['catalog']);
+});
+
+test('ls_store looks effects up by hashable key only, raising for a container', () => {
+  assert.throws(() => store('{"effect":{"a":1}}').run('ls_store', { store: STORE, on: true }), /ls_store\.effect.*unhashable/);
+  assert.throws(() => store().run('ls_store', { store: STORE, effect: [] }), /ls_store\.effect.*unhashable/);
+  const numeric = store();
+  numeric.run('ls_store', { store: STORE, effect: 5 });
+  assert.equal(storedText(numeric), '{"effect":5,"effect_channels":[]}');
+  const named = store();
+  named.run('ls_store', { store: STORE, effect: 'Candle', brightness: 1 });
+  assert.equal(storedText(named), '{"b":1,"effect":"Candle","effect_channels":["brightness"]}');
+});

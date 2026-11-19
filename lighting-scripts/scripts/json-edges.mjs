@@ -280,12 +280,20 @@ const DOMAIN = join(ROOT, 'src/domain');
  * runtime, so every `===` and `??` on it is the raw value's. The override-block
  * scope's unhashable raise is a thunk, still thrown after the `ls_apply` dry
  * run. `src/parse/sensors.ts` holds the lenient `overrides` reader.
+ *
+ * U3, `ls_store`: `jsonTypes 237 -> 224`, `lenientAccessors 178 -> 172`,
+ * `rawJsonReturns 22 -> 20`. The saved profile is a `StoredProfile` -- the
+ * document as an `OpaqueMap`, the active effect, and the channel list as
+ * `StoredValue[] | 'absent' | 'non-list'` -- and the patch a `ProfilePatch`
+ * whose keys are written in the captured order. The `effects_catalog` call
+ * stays a call (it is recorded); its result is read by
+ * `catalogEffectChannels`, whose unhashable-key raise happens at lookup.
  */
 const CEILINGS = {
-  jsonTypes: 237,
+  jsonTypes: 224,
   validatedBags: 0,
-  lenientAccessors: 178,
-  rawJsonReturns: 22,
+  lenientAccessors: 172,
+  rawJsonReturns: 20,
 };
 
 /** Comments may legitimately name these types while explaining why they are gone. */
