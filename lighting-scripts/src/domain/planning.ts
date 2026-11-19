@@ -57,8 +57,8 @@ export type RoomDetails = {
   /** `cur` as stored, `null` when absent. */
   cur: Verbatim;
   curIsNight: boolean;
-  /** `cur` as a block; raises on a present value that is not one. */
-  block(context: string): Block | undefined;
+  /** `cur` as a block, read leniently: Night when absent, falsy or unreadable. */
+  block: Block;
   /** `fading`, Jinja-truthy. */
   fading: boolean;
   /** `fading`, Jinja-truthy, with absence counting as fading. */
@@ -211,14 +211,12 @@ function refreshBaseline(ctx: ScriptContext, baseline: RoomBaseline, hitFrom: nu
   const blockKey = `block:${room}`;
   const chosen = overrides.entries.find(entry => entry.key === blockKey)?.record().valueBlock;
   // The captured source spells this `(S.get('cur') or 'night') | capitalize`.
-  // We deliberately do not reproduce either half (mandate v2): `or` would make
-  // a cached 0 or '' mean Night, hiding a malformed cache, and `| capitalize`
-  // would quietly repair 'NIGHT'. Here an absent or null `cur` means "no block
-  // decided yet" and falls back to Night, a valid block is used as-is, and
-  // anything else raises. The option label comes from the union, so there is no
-  // string transformation left to get wrong.
+  // The saved `cur` arrives already parsed by the lenient `savedBlock`: absent
+  // or Jinja-falsy means Night, a block name in any case is that block, and
+  // anything else falls back to Night. It never raises. The option label comes
+  // from the union, so there is no string transformation left to get wrong.
   const override = chosen !== undefined && !stale.includes(blockKey) ? chosen : undefined;
-  const effective = override ?? S.block('ls_room_plan schedule details.cur') ?? DEFAULT_BLOCK;
+  const effective = override ?? S.block;
   const entity = `input_select.ls_${room}_override`, option = blockOption(effective);
   const mirrors: ScheduleMirror[] = ctx.state[entity] !== undefined && ctx.get(entity) !== option ? [{ entity, option }] : [];
   const profiles: Record<string, Verbatim> = {};

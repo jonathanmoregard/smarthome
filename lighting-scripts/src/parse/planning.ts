@@ -28,7 +28,7 @@ import { carry } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { list, optionalTimestamp, timestamp } from './accessors.ts';
 import type { BaselineTarget, DetailField, OverrideFacts, Overrides, RoomBaseline, RoomCache, RoomDetails, RoomPlanArgs, TestNow } from '../domain/planning.ts';
-import { isBlock, optionalBlock } from './blocks.ts';
+import { isBlock, savedBlock } from './blocks.ts';
 
 function requiredObjectValue(value: JsonValue | undefined, context: string): JsonObject {
   return value === undefined ? requireObject({}, 'value', context) : requireObject({ value }, 'value', context);
@@ -92,7 +92,7 @@ function roomDetails(details: JsonObject, room: string, context: string): RoomDe
     document: carry(S),
     cur: carry(S.cur ?? null),
     curIsNight: S.cur === 'night',
-    block: at => optionalBlock(S.cur, at),
+    block: savedBlock(S.cur),
     fading: jinjaTruthy(S.fading),
     fadingOrAbsent: jinjaTruthy(S.fading === undefined ? true : S.fading),
     number: (key: DetailField, at: string) => S[key] === undefined ? 0 : requireNumber(S, key, at),

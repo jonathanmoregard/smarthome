@@ -153,35 +153,53 @@ test('room cache skips baseline recomputation while updating observations and po
   assert.equal(hit.plan.resolved.targets['light.studio'].on, false);
   const fresh = ctx.run('ls_room_plan', { room: 'studio', overrides: {}, reason: 'remote', power: { studio: false } });
   assert.deepEqual(hit.plan, fresh.plan);
-  // A cached block is a Block or it is nothing. The captured source would
-  // coerce — `or 'night'` turns 0 into Night and `| capitalize` repairs
-  // 'NIGHT' — and both of those hide a malformed cache, so the port rejects
-  // instead (mandate v2). Earlier revisions of this test asserted the
-  // coercions; they asserted a bug.
+});
+
+// The saved room period `cur` is read by a lenient parser that always yields a
+// Block and never raises (user directive 2026-11-19: "typed with parser that
+// is flexible and has default"). One test per input class; each runs a cache
+// hit with the override select on Day, so the mirrored option shows the block
+// the parser chose.
+async function mirrorForCachedCur(cur: unknown) {
+  const ctx = await roomPlanner();
+  const first = ctx.run('ls_room_plan', { room: 'studio', overrides: {}, reason: 'remote' });
   ctx.put('input_select.ls_studio_override', 'Day');
-  for (const bad of [5, 0, '', 'NIGHT', 'evening', [], {}, true]) {
-    const badCache = structuredClone(first.cache_update);
-    badCache.baseline.schedule.schedule_details.studio.cur = bad;
-    assert.throws(() => ctx.run('ls_room_plan', { room: 'studio', overrides: {}, reason: 'remote', cache: badCache }),
-      /must be one of day\/cosy\/night/, `cached cur ${JSON.stringify(bad)} must be rejected, not coerced`);
-  }
-  // Absent and null both mean "no block decided yet", which legitimately
-  // falls back to Night rather than raising.
+  const cache = structuredClone(first.cache_update);
+  if (cur === undefined) delete cache.baseline.schedule.schedule_details.studio.cur;
+  else cache.baseline.schedule.schedule_details.studio.cur = cur;
+  const plan = ctx.run('ls_room_plan', { room: 'studio', overrides: {}, reason: 'remote', cache });
+  assert.equal(plan.cache_hit, true);
+  return plan.plan.mirror;
+}
+const mirrorOf = (option: string) => [{ entity: 'input_select.ls_studio_override', option }];
+
+test('saved cur: absent or null means no block decided yet and mirrors Night', async () => {
   for (const absent of [undefined, null]) {
-    const emptyCache = structuredClone(first.cache_update);
-    emptyCache.baseline.schedule.schedule_details.studio.cur = absent;
-    if (absent === undefined) delete emptyCache.baseline.schedule.schedule_details.studio.cur;
-    const plan = ctx.run('ls_room_plan', { room: 'studio', overrides: {}, reason: 'remote', cache: emptyCache });
-    assert.deepEqual(plan.plan.mirror, [{ entity: 'input_select.ls_studio_override', option: 'Night' }],
-      `cur ${JSON.stringify(absent) ?? 'absent'} should mirror Night`);
+    assert.deepEqual(await mirrorForCachedCur(absent), mirrorOf('Night'), `cur ${JSON.stringify(absent) ?? 'absent'}`);
   }
-  // A valid cached block still round-trips, option label included.
-  const cosyCache = structuredClone(first.cache_update);
-  cosyCache.baseline.schedule.schedule_details.studio.cur = 'cosy';
-  const cosy = ctx.run('ls_room_plan', { room: 'studio', overrides: {}, reason: 'remote', cache: cosyCache });
-  assert.equal(cosy.cache_hit, true);
-  assert.equal(cosy.plan.sched.studio, 'cosy');
-  assert.deepEqual(cosy.plan.mirror, [{ entity: 'input_select.ls_studio_override', option: 'Cosy' }]);
+});
+
+test('saved cur: a valid block round-trips with its option label', async () => {
+  assert.deepEqual(await mirrorForCachedCur('cosy'), mirrorOf('Cosy'));
+  assert.deepEqual(await mirrorForCachedCur('day'), []);
+});
+
+test('saved cur: Jinja-falsy values fall back to Night', async () => {
+  for (const falsy of ['', 0, false, [], {}]) {
+    assert.deepEqual(await mirrorForCachedCur(falsy), mirrorOf('Night'), `cur ${JSON.stringify(falsy)}`);
+  }
+});
+
+test('saved cur: a block name in any case is normalised to the block', async () => {
+  assert.deepEqual(await mirrorForCachedCur('NIGHT'), mirrorOf('Night'));
+  assert.deepEqual(await mirrorForCachedCur('Cosy'), mirrorOf('Cosy'));
+  assert.deepEqual(await mirrorForCachedCur('DaY'), []);
+});
+
+test('saved cur: any other value falls back to Night instead of raising', async () => {
+  for (const garbage of [5, true, 'evening', ' cosy', ['cosy'], { cur: 'cosy' }]) {
+    assert.deepEqual(await mirrorForCachedCur(garbage), mirrorOf('Night'), `cur ${JSON.stringify(garbage)}`);
+  }
 });
 
 async function roomPlanner() {
