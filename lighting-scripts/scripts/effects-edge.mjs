@@ -45,6 +45,10 @@
 // domainScriptContext 26 -> 25, domainCtx 89 -> 58, effectCalls 11 -> 3,
 // longLines 137 -> 131.
 //
+// U8a (effects_set's control effects as a plan; RemoteRoomPlan.schedule
+// renamed scheduleDetails, a read the `.schedule(` pattern mistook for an
+// effect): domainCtx 58 -> 55, effectCalls 3 -> 0.
+//
 // Raising a ceiling is the regression this guard exists to catch; argue any
 // raise in the commit message.
 import { readdir, readFile } from 'node:fs/promises';
@@ -56,9 +60,9 @@ const SRC = join(ROOT, 'src');
 
 const CEILINGS = {
   domainScriptContext: 25,
-  domainCtx: 58,
+  domainCtx: 55,
   houseViewGenerators: 0,
-  effectCalls: 3,
+  effectCalls: 0,
   longLines: 131,
 };
 

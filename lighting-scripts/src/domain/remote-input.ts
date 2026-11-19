@@ -201,7 +201,7 @@ export function remoteDecision(view: HouseView, args: RemotePlanArgs, opening: R
           : { ...pick(next, ['period', 'period_updated']), selection_updated: stamp, selection_input: fields, selection_instance: `${source}:${selected}` };
         next = { ...omit(next, names), selection: selected, adjustment: fields, preset_contexts: contexts, ...saved };
       }
-      const schedule = plan.schedule(room);
+      const schedule = plan.scheduleDetails(room);
       if (schedule.present) next = { ...next,
         remote_valid_until: schedule.nextFs(),
         remote_timing_revision: timingRevision };

@@ -164,7 +164,7 @@ export interface RemoteRoomPlan {
   /** The room target's `period`, as stored. */
   roomPeriod(room: string): StoredFact;
   /** The room's schedule details: present when a non-empty mapping. */
-  schedule(room: string): { present: boolean; nextFs(): number };
+  scheduleDetails(room: string): { present: boolean; nextFs(): number };
 }
 
 export function remoteRoomPlan(result: JsonValue | undefined): RemoteRoomPlan {
@@ -172,7 +172,7 @@ export function remoteRoomPlan(result: JsonValue | undefined): RemoteRoomPlan {
   return {
     stale: key => list(plan.stale_keys).includes(key),
     roomPeriod: room => storedFact(object(object(object(plan.resolved).targets)[`room:${room}`]).period),
-    schedule: room => {
+    scheduleDetails: room => {
       const schedule = object(object(plan.schedule_details)[room]);
       return { present: Object.keys(schedule).length > 0, nextFs: () => num(schedule.next_fs === undefined ? 0 : schedule.next_fs) };
     },
