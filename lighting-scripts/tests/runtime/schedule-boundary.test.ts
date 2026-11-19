@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { JsonObject } from '../../src/runtime/context.ts';
-import { scheduleHandlers } from '../../src/domain/schedule.ts';
+import { scheduleHandlers } from '../../src/handlers/schedule.ts';
 import { context } from './gestures-context.ts';
 
 /**

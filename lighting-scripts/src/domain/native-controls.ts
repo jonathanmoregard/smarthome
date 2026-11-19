@@ -1,16 +1,10 @@
-import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { run } from '../runtime/effects.ts';
 import type { HouseView, Plan } from '../runtime/effects.ts';
-import { withParsedArgs } from '../runtime/parse.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { rgbValue, roundEven } from './scale.ts';
 import type { RGB } from './scale.ts';
 import { recordTimestamp } from '../parse/resolution.ts';
 import { attributeMapping } from '../parse/sensors.ts';
-import {
-  groupChildren, lampKelvinRange, parseNativeCatalog, parseNativeCurrent, parseNativePlanArgs, parseSetArgs,
-  underlyingColour,
-} from '../parse/native-controls.ts';
+import { groupChildren, lampKelvinRange, underlyingColour } from '../parse/native-controls.ts';
 import type {
   BrightnessRequest, ColourRequest, NativeCatalog, NativeCurrent, NativePlanArgs, PlanTarget, SetArgs,
 } from '../parse/native-controls.ts';
@@ -393,14 +387,6 @@ export function planUIControls(view: HouseView, args: SetArgs, catalog: NativeCa
   return { valid: errors.length === 0, errors, events: errors.length ? [] : events, commands: errors.length ? [] : commands, records: errors.length ? [] : records };
 }
 
-function setControls(ctx: ScriptContext, args: SetArgs): ControlPlan {
-  const catalog = parseNativeCatalog(ctx.run('effects_catalog'), 'effects_set.catalog');
-  const current = !args.source.startsWith('light.ls_') && args.attribute !== 'power' ? parseNativeCurrent(ctx.run('ls_plan', { reason: 'config' }), 'effects_set.current') : undefined;
-  const result = planUIControls(ctx, args, catalog, current);
-  if (args.dryRun) return result;
-  run(ctx, controlEffects(result));
-  return result;
-}
 
 /**
  * A control plan's effects: an invalid plan raises its errors before anything
@@ -415,7 +401,3 @@ export function* controlEffects(result: ControlPlan): Plan<void> {
     else yield { kind: 'service', service: command.action, data: command.data, target: command.target };
   }
 }
-export const nativeHandlers: ScriptHandlers = {
-  effects_native_plan: withParsedArgs({ parse: parseNativePlanArgs, run: planNativeControls }),
-  effects_set: withParsedArgs({ parse: parseSetArgs, run: setControls }),
-};

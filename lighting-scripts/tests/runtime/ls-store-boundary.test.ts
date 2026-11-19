@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { stateStoreHandlers } from '../../src/domain/state-store.ts';
+import { stateStoreHandlers } from '../../src/handlers/state-store.ts';
 import { context } from './gestures-context.ts';
 
 // `ls_store` was the last handler still reading raw `JsonObject` args, and its

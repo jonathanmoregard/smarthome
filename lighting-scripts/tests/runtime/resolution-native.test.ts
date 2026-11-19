@@ -9,7 +9,7 @@ const resolved = { level: 110, color: { kind: 'constant', value: { kelvin: 2200 
 const current = { plan: { base: { 'light.logical': base, 'room:living': base }, resolved: { targets: { 'light.logical': resolved, 'room:living': resolved } } } };
 
 test('native bulb commands target its logical lamp and full groups target the room', async () => {
-  const path = '../../src/domain/native-controls.ts';
+  const path = '../../src/handlers/native-controls.ts';
   const port = await import(path).catch(() => ({}));
   assert.equal(typeof port.nativeHandlers, 'object', 'native control handlers exist');
   const lamp = execute({ script: 'effects_native_plan', snapshot, args: { sd: { entity_id: 'light.bulb', brightness_pct: 50, hs_color: [120, 100] }, catalog, current, stamp: 5 } }, port.nativeHandlers);
@@ -21,7 +21,7 @@ test('native bulb commands target its logical lamp and full groups target the ro
 });
 
 test('UI invalid controls fail closed and normal-light restores underlying colour under Sara', async () => {
-  const path = '../../src/domain/native-controls.ts';
+  const path = '../../src/handlers/native-controls.ts';
   const port = await import(path).catch(() => ({}));
   assert.equal(typeof port.nativeHandlers, 'object');
   const pink = structuredClone(current);
@@ -36,14 +36,14 @@ test('UI invalid controls fail closed and normal-light restores underlying colou
 });
 
 test('native expansion does not treat incidental entity_id attributes as group integration membership', async () => {
-  const { nativeHandlers } = await import('../../src/domain/native-controls.ts');
+  const { nativeHandlers } = await import('../../src/handlers/native-controls.ts');
   const s = { ...snapshot, state: { 'light.incidental': { state: 'on', attributes: { entity_id: ['light.bulb'] } }, 'light.bulb': { state: 'on', attributes: {} } } };
   const result = execute({ script: 'effects_native_plan', snapshot: s, args: { sd: { entity_id: 'light.incidental', brightness: 80 }, catalog, current, stamp: 5 } }, nativeHandlers);
   assert.deepEqual(result.result, { records: [], power: [] });
 });
 
 test('empty native requests do not evaluate unused current state or stamp', async () => {
-  const { nativeHandlers } = await import('../../src/domain/native-controls.ts');
+  const { nativeHandlers } = await import('../../src/handlers/native-controls.ts');
   const result = execute({ script: 'effects_native_plan', snapshot, args: { sd: {}, catalog: { groups: {}, members: {}, effects: {} } } }, nativeHandlers);
   assert.deepEqual(result.result, { records: [], power: [] });
   const area = execute({ script: 'effects_native_plan', snapshot, args: { sd: { area_id: 'living' }, catalog: { groups: {}, members: {}, effects: {} }, current: { plan: { base: {} } }, stamp: 5 } }, nativeHandlers);
@@ -51,7 +51,7 @@ test('empty native requests do not evaluate unused current state or stamp', asyn
 });
 
 test('raw Kelvin payloads retain their captured value type', async () => {
-  const { nativeHandlers } = await import('../../src/domain/native-controls.ts');
+  const { nativeHandlers } = await import('../../src/handlers/native-controls.ts');
   const result = execute({ script: 'effects_native_plan', snapshot, args: { sd: { entity_id: 'light.bulb', color_temp_kelvin: '2300' }, catalog, current, stamp: 5 } }, nativeHandlers);
   assert.deepEqual(result.result.records[0].value.channels.color.value, { kelvin: '2300' });
   const stamped = execute({ script: 'effects_native_plan', snapshot, args: { sd: { entity_id: 'light.bulb', brightness: 10 }, catalog, current, stamp: '5' } }, nativeHandlers);
@@ -59,13 +59,13 @@ test('raw Kelvin payloads retain their captured value type', async () => {
 });
 
 test('HSV conversion preserves off-grid hue precision at RGB rounding boundaries', async () => {
-  const { nativeHandlers } = await import('../../src/domain/native-controls.ts');
+  const { nativeHandlers } = await import('../../src/handlers/native-controls.ts');
   const result = execute({ script: 'effects_native_plan', snapshot, args: { sd: { entity_id: 'light.bulb', hs_color: [29.99999999999999, 100] }, catalog, current, stamp: 5 } }, nativeHandlers);
   assert.deepEqual(result.result.records[0].value.channels.color.value, { rgb: [255, 127, 0] });
 });
 
 test('registered group integration expands its bulbs through the runtime snapshot boundary', async () => {
-  const { nativeHandlers } = await import('../../src/domain/native-controls.ts');
+  const { nativeHandlers } = await import('../../src/handlers/native-controls.ts');
   const s = { ...snapshot, entitySources: { 'light.group': 'group' }, state: { 'light.group': { state: 'on', attributes: { entity_id: ['light.bulb'] } }, 'light.bulb': { state: 'on', attributes: {} } } };
   const result = execute({ script: 'effects_native_plan', snapshot: s, args: { sd: { entity_id: 'light.group', brightness: 80 }, catalog, current, stamp: 5 } }, nativeHandlers);
   assert.equal(result.result.records[0]?.target, 'light.logical');
@@ -74,7 +74,7 @@ test('registered group integration expands its bulbs through the runtime snapsho
 test('a boolean native brightness is claimed as given, intensity included', async () => {
   // `bool` is an `int` in Python, so `true` passes the numeric test and is stored
   // as `true`, not as 1. A brightness parse that coerced would store 1.
-  const { nativeHandlers } = await import('../../src/domain/native-controls.ts');
+  const { nativeHandlers } = await import('../../src/handlers/native-controls.ts');
   const result = execute({ script: 'effects_native_plan', snapshot, args: { sd: { entity_id: 'light.bulb', brightness: true, effect: 'pulse' }, catalog, current, stamp: 5 } }, nativeHandlers);
   assert.equal(JSON.stringify(result.result.records[0].value.channels), JSON.stringify({
     brightness: { kind: 'effect', effect: 'Pulse', instance: 'native:light.bulb:Pulse', updated: 5, intensity: true },
@@ -82,7 +82,7 @@ test('a boolean native brightness is claimed as given, intensity included', asyn
 });
 
 test('a native brightness step reads the resolved level before the step', async () => {
-  const { nativeHandlers } = await import('../../src/domain/native-controls.ts');
+  const { nativeHandlers } = await import('../../src/handlers/native-controls.ts');
   const levelless = structuredClone(current);
   delete (levelless.plan.resolved.targets['light.logical'] as { level?: number }).level;
   assert.throws(() => execute({ script: 'effects_native_plan', snapshot, args: { sd: { entity_id: 'light.bulb', brightness_step: 'up' }, catalog, current: levelless, stamp: 5 } }, nativeHandlers),
@@ -91,7 +91,7 @@ test('a native brightness step reads the resolved level before the step', async 
 
 test('a reset to normal light with no base colour under Sara writes no colour value at all', async () => {
   // The underlying colour is carried as read: absent stays absent (no `value` key), not null.
-  const { nativeHandlers } = await import('../../src/domain/native-controls.ts');
+  const { nativeHandlers } = await import('../../src/handlers/native-controls.ts');
   const sara = structuredClone(current);
   delete (sara.plan.base['light.logical'] as { color?: unknown }).color;
   sara.plan.resolved.targets['light.logical'].color = { kind: 'constant', value: { rgb: [1, 2, 3] }, policy: 'sara' };
@@ -103,7 +103,7 @@ test('a reset to normal light with no base colour under Sara writes no colour va
 test('an effect name the catalog mapping inherits is not unknown; its channels then fail to parse', async () => {
   // `name in effects` finds inherited names, so the control is not refused as
   // 'Unknown effect.'; the channel lookup then raises on the non-mapping.
-  const { nativeHandlers } = await import('../../src/domain/native-controls.ts');
+  const { nativeHandlers } = await import('../../src/handlers/native-controls.ts');
   const handlers = { ...nativeHandlers, effects_catalog: () => catalog, ls_plan: () => current };
   assert.throws(() => execute({ script: 'effects_set', snapshot, args: { source: 'light.logical', attribute: 'effect', value: 'toString', dry_run: true } }, handlers),
     /catalog\.effects\.toString must be an object/);

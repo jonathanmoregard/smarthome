@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { execute } from '../../src/runtime/engine.ts';
 import type { Snapshot } from '../../src/runtime/context.ts';
-import { gestureHandlers } from '../../src/domain/gestures.ts';
+import { gestureHandlers } from '../../src/handlers/gestures.ts';
 
 const initial = (): Snapshot => ({ state: {}, areas: {}, members: [], now: '2026-10-26T12:00:00+01:00' });
 

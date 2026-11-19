@@ -16,7 +16,7 @@ RESPONSES = {'effects_catalog': {}, 'ls_apply': {}, 'effects_native_plan': {'pow
 NODE = """
 import readline from 'node:readline';
 import {execute} from './src/runtime/engine.ts';
-import {automationHandlers} from './src/domain/automations.ts';
+import {automationHandlers} from './src/handlers/automations.ts';
 for await (const line of readline.createInterface({input:process.stdin})) {
  const r=JSON.parse(line), handlers={...automationHandlers};
  for (const name of r.dependencies) handlers[name]=(ctx,args)=>{ctx.emit('script.'+name,args);return r.responses[name]??null;};

@@ -1,17 +1,13 @@
-import type { ScriptHandlers } from '../runtime/context.ts';
 import type { HouseView } from '../runtime/effects.ts';
 import { BLOCKS, DEFAULT_BLOCK, type Block } from './blocks.ts';
 import { roundEven } from './scale.ts';
 import { isBlock } from '../parse/blocks.ts';
-import { typed } from '../runtime/entrypoints.ts';
 import { timestamp } from '../parse/accessors.ts';
 import { pythonFloatText } from '../runtime/format.ts';
 import type { StoredValue } from '../parse/overrides.ts';
 import { overridesRevision } from '../parse/sensors.ts';
 import { switchRangeEntities } from '../parse/planning.ts';
-import {
-  attributeNumber, entityProfile, entitySample, parseBaseArgs, parseRoomBaseArgs, rgbComponent, savedProfile, stateNumber, storedScheduleRecords,
-} from '../parse/schedule.ts';
+import { attributeNumber, entityProfile, entitySample, rgbComponent, savedProfile, stateNumber, storedScheduleRecords } from '../parse/schedule.ts';
 import type { ScheduleRecord, ScheduleRecords } from '../parse/schedule.ts';
 
 export const blocks: readonly string[] = BLOCKS;
@@ -450,7 +446,3 @@ export function scheduledBase(view: HouseView, args: ScheduledBaseArgs, roomLoca
   if (args.includeDebug === true) schedule.dbg = debug;
   return { targets, schedule };
 }
-export const scheduleHandlers: ScriptHandlers = {
-  ls_base: typed('ls_base', { parse: parseBaseArgs, run: scheduledBase }),
-  ls_room_base: typed('ls_room_base', { parse: parseRoomBaseArgs, run: (ctx, args) => scheduledBase(ctx, args, true) }),
-};

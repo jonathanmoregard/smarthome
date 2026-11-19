@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { context, setCatalog } from './gestures-context.ts';
 async function driver() {
-  const path = '../../src/domain/automations.ts';
+  const path = '../../src/handlers/automations.ts';
   const port = await import(path).catch(() => ({}));
   assert.equal(typeof port.automationHandlers?.['automation.effects_native_light_controls'], 'function');
   const ctx = context(port.automationHandlers), invoked = [];

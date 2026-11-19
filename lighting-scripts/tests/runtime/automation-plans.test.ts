@@ -1,9 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {
-  controlTopic, endOverrides, forwardNativeControl, forwardOverride, forwardRemote, houseRangeDefaults, lampChangeOverrides,
-  pendingOutputDirty, refreshUi, requestRender, runScheduleEngine, saraModeSwitch,
-} from '../../src/domain/automations.ts';
+import { controlTopic, endOverrides, forwardNativeControl, forwardOverride, forwardRemote, houseRangeDefaults, lampChangeOverrides, pendingOutputDirty, refreshUi, requestRender, runScheduleEngine, saraModeSwitch } from '../../src/domain/automations.ts';
 import { decideRangeSave, discoveryPublish, publishUi, saveRange, uiChoices } from '../../src/domain/ui-state.ts';
 import { nativeCapture } from '../../src/parse/automations.ts';
 import { parseRangeSaveArgs } from '../../src/parse/ui-state.ts';

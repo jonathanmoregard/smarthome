@@ -1,14 +1,9 @@
-import type { ScriptHandlers } from '../runtime/context.ts';
-import { withParsedArgs } from '../runtime/parse.ts';
-import { typed } from '../runtime/entrypoints.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
-import { gradientSignature, planGradients, sampleGradient } from './gradient.ts';
+import { gradientSignature, sampleGradient } from './gradient.ts';
 import type { GradientCurve, GradientSignature } from './gradient.ts';
-import { boundedNumber, clamp, scaleValue, WARM_END } from './scale.ts';
+import { boundedNumber, clamp, scaleValue } from './scale.ts';
 import type { Anchor, Color, RGB, Scaled } from './scale.ts';
-import { parseGradientPlanArgs } from '../parse/gradient.ts';
-import { parseScaleArgs } from '../parse/scale.ts';
-import { levelNumber, parseResolveArgs } from '../parse/resolution.ts';
+import { levelNumber } from '../parse/resolution.ts';
 
 const CHANNELS = ['brightness', 'color'] as const;
 export type Channel = typeof CHANNELS[number];
@@ -358,19 +353,3 @@ export function resolveEffects(args: ResolveArgs): ResolutionResult {
   }
   return { targets, assignments };
 }
-
-export const resolutionHandlers: ScriptHandlers = {
-  // Arguments parsed in `src/parse/resolution.ts`. Every read there is as
-  // lenient as the traversal it replaces, so the parse raises nowhere; the
-  // three reads that do raise are thunks the resolver calls where it always
-  // did.
-  effects_resolve: typed('effects_resolve', { parse: parseResolveArgs, run: (_context, args) => resolveEffects(args) }),
-  // Arguments parsed in `src/parse/scale.ts`.
-  effects_scale: withParsedArgs({
-    parse: parseScaleArgs,
-    run: (_context, a) => scaleValue(a.day, a.cosy, a.position, a.warmEnd),
-  }),
-  // Arguments parsed in `src/parse/gradient.ts`, which documents the
-  // leniency in them that is load-bearing.
-  effects_gradient_plan: typed('effects_gradient_plan', { parse: parseGradientPlanArgs, run: (_context, args) => planGradients(args) }),
-};

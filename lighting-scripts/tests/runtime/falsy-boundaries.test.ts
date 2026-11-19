@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { JsonObject, JsonValue } from '../../src/runtime/context.ts';
-import { controllerHandlers, switchPlan } from '../../src/domain/controller.ts';
+import { switchPlan } from '../../src/domain/controller.ts';
+import { controllerHandlers } from '../../src/handlers/controller.ts';
 import { parseSwitchPlanArgs } from '../../src/parse/controller.ts';
-import { remoteInputHandlers, remotePlan } from '../../src/domain/remote-input.ts';
-import { stateStoreHandlers } from '../../src/domain/state-store.ts';
-import { uiHandlers } from '../../src/domain/ui-state.ts';
+import { remoteInputHandlers, remotePlan } from '../../src/handlers/remote-input.ts';
+import { stateStoreHandlers } from '../../src/handlers/state-store.ts';
+import { uiHandlers } from '../../src/handlers/ui-state.ts';
 import { context, setCatalog, stub } from './gestures-context.ts';
 
 function remoteContext(value: JsonObject, nextFs: JsonObject['value'] = 100) {

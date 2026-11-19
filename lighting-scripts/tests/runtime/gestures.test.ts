@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { context, commandCalls } from './gestures-context.ts';
 
-const modulePath = '../../src/domain/gestures.ts';
+const modulePath = '../../src/handlers/gestures.ts';
 const load = async () => {
   const port = await import(modulePath).catch(() => ({}));
   assert.equal(typeof port.gestureHandlers?.ls_remote_gesture, 'function', 'gesture decoder exists');

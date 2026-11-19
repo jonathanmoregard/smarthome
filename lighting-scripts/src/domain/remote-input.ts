@@ -1,16 +1,11 @@
-import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { catalogOf, emptyCatalog } from '../runtime/catalog.ts';
 import type { Catalog } from '../runtime/catalog.ts';
 import type { HouseView } from '../runtime/effects.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
-import { typed } from '../runtime/entrypoints.ts';
 import { recordTimestamp } from '../parse/resolution.ts';
 import { switchRangeEntities } from '../parse/planning.ts';
 import type { AssembledMap } from '../parse/overrides.ts';
 import { overridesRevision } from '../parse/sensors.ts';
-import {
-  contextEntries, noInputRecord, parseRemotePlanArgs, presetSelection, remoteCache, remoteOverrides, remoteRoomPlan, roomPower,
-} from '../parse/remote-input.ts';
+import { contextEntries, noInputRecord, presetSelection, remoteCache, remoteOverrides, roomPower } from '../parse/remote-input.ts';
 import type { RemoteOverrides, RemoteRoomPlan } from '../parse/remote-input.ts';
 import { clamp } from './scale.ts';
 
@@ -82,21 +77,6 @@ export type RemotePlanResult = RemotePlanOp & {
   request_id: string;
 };
 
-/**
- * Store button-domain intent; rendered brightness/color belong to the resolver.
- *
- * Read, then the two inter-handler runs the command needs (the room plan for
- * its context, the catalog for three commands), then decide on the house as
- * it stands after them.
- */
-export function remotePlan(ctx: ScriptContext, args: RemotePlanArgs): RemotePlanResult {
-  const opening = remoteOpening(ctx, args);
-  const plan = remoteRoomPlan(opening.needsContext ? ctx.run('ls_room_plan', { room: opening.room, overrides: opening.overrides.document,
-    cache: opening.cache, reason: 'remote' }) : undefined);
-  // The captured script calls effects_catalog only for these three commands.
-  const catalog = ['toggle', 'left', 'right'].includes(args.command) ? catalogOf(ctx) : emptyCatalog();
-  return remoteDecision(ctx, args, opening, plan, catalog);
-}
 
 /** What `ls_remote_plan` reads before it may ask `ls_room_plan` for the room's context. */
 export interface RemoteOpening {
@@ -210,7 +190,3 @@ export function remoteDecision(view: HouseView, args: RemotePlanArgs, opening: R
   }
   return { ...result, input_revision: revision, received_at: stamp, request_id: `${source}:${stamp}` };
 }
-
-export const remoteInputHandlers: ScriptHandlers = {
-  ls_remote_plan: typed('ls_remote_plan', { parse: parseRemotePlanArgs, run: remotePlan }),
-};

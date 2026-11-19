@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { controllerHandlers } from '../../src/domain/controller.ts';
+import { controllerHandlers } from '../../src/handlers/controller.ts';
 import { context, stub } from './gestures-context.ts';
 
 // The captured ls_plan, ls_apply, ls_base and ls_room_base all read test_now

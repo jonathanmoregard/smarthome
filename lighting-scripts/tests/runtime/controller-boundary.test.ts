@@ -3,7 +3,7 @@ import test from 'node:test';
 import type { JsonObject } from '../../src/runtime/context.ts';
 import { typed } from '../../src/runtime/entrypoints.ts';
 import type { TypedName, TypedResults } from '../../src/runtime/entrypoints.ts';
-import { controllerHandlers } from '../../src/domain/controller.ts';
+import { controllerHandlers } from '../../src/handlers/controller.ts';
 import { context } from './gestures-context.ts';
 
 /**

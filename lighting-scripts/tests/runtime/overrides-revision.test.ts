@@ -4,8 +4,8 @@ import { execute } from '../../src/runtime/engine.ts';
 import { handlers } from '../../src/runtime/registry.ts';
 import type { JsonObject, ScriptContext, ScriptHandler, ScriptHandlers, Snapshot } from '../../src/runtime/context.ts';
 import type { TypedScriptHandler } from '../../src/runtime/entrypoints.ts';
-import { scheduleHandlers } from '../../src/domain/schedule.ts';
-import { stateStoreHandlers } from '../../src/domain/state-store.ts';
+import { scheduleHandlers } from '../../src/handlers/schedule.ts';
+import { stateStoreHandlers } from '../../src/handlers/state-store.ts';
 import { context } from './gestures-context.ts';
 
 /**

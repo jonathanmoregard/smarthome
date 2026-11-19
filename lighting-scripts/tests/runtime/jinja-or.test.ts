@@ -4,7 +4,7 @@ import { execute } from '../../src/runtime/engine.ts';
 import { handlers } from '../../src/runtime/registry.ts';
 import { typed } from '../../src/runtime/entrypoints.ts';
 import type { JsonObject, JsonValue, ScriptHandlers, Snapshot } from '../../src/runtime/context.ts';
-import { stateStoreHandlers } from '../../src/domain/state-store.ts';
+import { stateStoreHandlers } from '../../src/handlers/state-store.ts';
 import { context } from './gestures-context.ts';
 
 /**

@@ -1,9 +1,5 @@
-import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { typed } from '../runtime/entrypoints.ts';
 import { jinjaTruthy } from '../runtime/parse.ts';
-import { carry } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
-import { drive, perform, run } from '../runtime/effects.ts';
 import type { Effect, HouseView, Plan } from '../runtime/effects.ts';
 import type { GroupCommand, GroupPlanResult } from './grouping.ts';
 import { hasValue } from './schedule.ts';
@@ -14,9 +10,7 @@ import type { OpaqueMap, StoredFact, StoredValue } from '../parse/overrides.ts';
 import { attributeFact, attributeMapping, overridesRevision } from '../parse/sensors.ts';
 import { mappingAttribute } from '../parse/planning.ts';
 import type { StoredChannels } from '../parse/transport.ts';
-import {
-  areaOf, dispatchPlanOrder, dispatchRuntime, fullPlan, optionalRevisionAttribute, parseDispatchArgs, roomCacheGradients, roomPlanView,
-} from '../parse/dispatch-render.ts';
+import { areaOf, dispatchPlanOrder, dispatchRuntime, optionalRevisionAttribute, roomCacheGradients } from '../parse/dispatch-render.ts';
 import type { DispatchRuntime, FullPlan, RoomPlanView } from '../parse/dispatch-render.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
@@ -278,26 +272,6 @@ export function* tailEffects(details: DispatchDetails, revision: string, generat
   if (staleKeys.length > 0) yield { kind: 'event', event: 'ls_override', data: { op: 'clear', keys: staleKeys, via: 'rule_next_block', expected_revision: revision } };
 }
 
-/** Delta output actor: invalidate touched lamps before sending, acknowledge only complete batches. */
-export function dispatch(ctx: ScriptContext, args: DispatchArgs): DispatchResult {
-  return drive(dispatchStep, dispatchStart(args), { tag: 'start', house: ctx }, (cmd: DispatchCmd): DispatchMsg => {
-    switch (cmd.tag) {
-      case 'catalog': return { tag: 'catalog', catalog: carry(ctx.run('effects_catalog')), house: ctx };
-      case 'assign': return { tag: 'assigned', result: ctx.call('effects_assign', cmd.args), house: ctx };
-      case 'frame': return { tag: 'framed', batch: ctx.call('effects_frame_plan', cmd.args), house: ctx };
-      // `object(...)` and `?? []` are gone: `planGroups` builds all five fields on
-      // every path, so both could only fire for a stub, and `decodeGroupPlan` is
-      // where that case is handled now -- strictly, rather than as an empty batch.
-      case 'emit': return { tag: 'emitted', result: ctx.call('effects_emit', cmd.args), house: ctx };
-      case 'effect': perform(ctx, cmd.effect); return { tag: 'performed', house: ctx };
-      case 'plan': run(ctx, cmd.plan); return { tag: 'performed', house: ctx };
-      default: {
-        const unknown: never = cmd;
-        throw new Error(`Unhandled ls_dispatch command ${JSON.stringify(unknown)}`);
-      }
-    }
-  }, phase => phase.tag === 'done' ? { value: phase.answer } : undefined);
-}
 
 /**
  * Start the effects the bulbs run themselves on lamps that were just sent
@@ -366,7 +340,7 @@ function bulbStarts(target: DispatchTarget): string[] {
  * The plan `ls_render` builds from the room plans it merged. Every field is
  * constructed here; the stored and planned documents inside it are carried.
  */
-type RoomsPlan = {
+export type RoomsPlan = {
   base: OpaqueMap;
   resolved: { targets: OpaqueMap; assignments: OpaqueMap };
   switches: OpaqueMap;
@@ -380,39 +354,6 @@ type RoomsPlan = {
   output_targets: string[];
 };
 
-/**
- * Coalesce pending room versions, preserving unrelated rooms and retrying
- * incomplete output. Read, then the planning runs (`ls_plan` for a full
- * render, one `ls_room_plan` per pending room otherwise), the cache writes,
- * `ls_dispatch`, and the acknowledgement; every read after a run is live.
- */
-export function render(ctx: ScriptContext): null {
-  const opening = renderOpening(ctx);
-  if (opening === undefined) return null;
-  const { revision, rooms } = opening;
-  let plan: Verbatim | RoomsPlan, lights: StoredValue | StoredValue[] = [], updates: OpaqueMap;
-  if (opening.full) {
-    const planned = fullPlan(ctx.run('ls_plan', { reason: fullReason(ctx) }), rooms);
-    plan = planned.document;
-    lights = fullLights(ctx);
-    updates = gradientUpdates(ctx, planned);
-  } else {
-    let merged = roomsStart(ctx);
-    for (const room of rooms) merged = mergeRoomPlan(merged, room, roomPlanView(ctx.run('ls_room_plan', roomPlanRequest(ctx, room))));
-    plan = roomsPlan(merged, opening);
-    updates = merged.updates;
-  }
-  if (revision !== overridesRevision(ctx, 'ls_render')) return null;
-  for (const [room, cache] of Object.entries(updates)) {
-    const write = cacheWrite(ctx, room, cache);
-    if (write !== undefined) perform(ctx, write);
-  }
-  const plannedAt = timestamp(ctx.now);
-  const emission = ctx.call('ls_dispatch', { plan, lights });
-  const ack = renderAck(ctx, opening, plannedAt, emission);
-  if (ack !== undefined) perform(ctx, ack);
-  return null;
-}
 
 /** What `ls_render` reads first: the clock, the bare revision, and what is pending. */
 export interface RenderOpening {
@@ -535,7 +476,3 @@ export function renderAck(view: HouseView, opening: RenderOpening, plannedAt: nu
       published_at: emission.published_at, completed_at: timestamp(view.now), rooms: opening.rooms, full: opening.full },
   } }, target: { entity_id: runtime }, guard: { revision, generation, requiresOutputSuccess: true } };
 }
-export const dispatchHandlers: ScriptHandlers = {
-  ls_dispatch: typed('ls_dispatch', { parse: parseDispatchArgs, run: dispatch }),
-  ls_render: ctx => render(ctx),
-};

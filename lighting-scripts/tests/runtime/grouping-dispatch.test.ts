@@ -14,7 +14,7 @@ function snapshot(): Snapshot {
 }
 function plan(): JsonObject { return { revision, plan_order: Date.parse(revision) / 1000, base: { 'light.lamp': { send: true } }, resolved: { targets: { 'light.lamp': target }, assignments: {} }, switches: {}, mirror: [], stale_keys: [], sara_mirror: null }; }
 async function handlers() {
-  const modulePath = '../../src/domain/dispatch-render.ts';
+  const modulePath = '../../src/handlers/dispatch-render.ts';
   const port = await import(modulePath).catch(() => ({}));
   assert.equal(typeof port.dispatchHandlers?.ls_dispatch, 'function', 'dispatcher exists');
   const registry = await import('../../src/runtime/registry.ts');

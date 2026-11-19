@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { context } from './gestures-context.ts';
-const modulePath = '../../src/domain/grouping.ts';
+const modulePath = '../../src/handlers/grouping.ts';
 async function load() {
   const port = await import(modulePath).catch(() => ({}));
   assert.equal(typeof port.groupingHandlers?.effects_group_plan, 'function', 'group planner exists');

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { JsonObject, JsonValue } from '../../src/runtime/context.ts';
-import { stateStoreHandlers } from '../../src/domain/state-store.ts';
+import { stateStoreHandlers } from '../../src/handlers/state-store.ts';
 import { resolveEffects } from '../../src/domain/resolution.ts';
 import { parseResolveArgs } from '../../src/parse/resolution.ts';
 import { planGradients as planTyped } from '../../src/domain/gradient.ts';

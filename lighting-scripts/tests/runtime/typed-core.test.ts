@@ -100,7 +100,7 @@ test('effects_set still reports an out-of-range value, without a -1 sentinel', a
   // This is the one path the probe found the gate depending on: a null
   // brightness took `| float(-1)`, failed the bound, and produced this error.
   // The sentinel is gone; the observable outcome must not have moved.
-  const { nativeHandlers } = await import('../../src/domain/native-controls.ts');
+  const { nativeHandlers } = await import('../../src/handlers/native-controls.ts');
   const { execute } = await import('../../src/runtime/engine.ts');
   const snapshot = { now: '2026-10-26T12:00:00+01:00', state: {}, areas: { 'light.logical': 'living' }, members: [] };
   const base = { brightness: 110, color: { kelvin: 2200 } };

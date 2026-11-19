@@ -49,6 +49,10 @@
 // renamed scheduleDetails, a read the `.schedule(` pattern mistook for an
 // effect): domainCtx 58 -> 55, effectCalls 3 -> 0.
 //
+// U8b (every shell and handler table moved to src/handlers; json-edges
+// extended to src/handlers at 0): domainScriptContext 25 -> 0,
+// domainCtx 55 -> 0, longLines 131 -> 126 (the moved import blocks wrapped).
+//
 // Raising a ceiling is the regression this guard exists to catch; argue any
 // raise in the commit message.
 import { readdir, readFile } from 'node:fs/promises';
@@ -59,11 +63,11 @@ const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const SRC = join(ROOT, 'src');
 
 const CEILINGS = {
-  domainScriptContext: 25,
-  domainCtx: 55,
+  domainScriptContext: 0,
+  domainCtx: 0,
   houseViewGenerators: 0,
   effectCalls: 0,
-  longLines: 131,
+  longLines: 126,
 };
 
 function stripComments(source) {

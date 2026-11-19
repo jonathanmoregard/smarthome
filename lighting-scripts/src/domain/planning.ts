@@ -1,8 +1,6 @@
-import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { withParsedArgs } from '../runtime/parse.ts';
 import { storedEquals, withFields } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
-import { BLOCKS, blockOption, DEFAULT_BLOCK } from './blocks.ts';
+import { BLOCKS, blockOption } from './blocks.ts';
 import type { Block } from './blocks.ts';
 import type { GradientPlanResult } from './gradient.ts';
 import type { ResolutionResult } from './resolution.ts';
@@ -13,10 +11,7 @@ import { hasValue, labelled, nextMidnight, privateRooms } from './schedule.ts';
 import { timestamp } from '../parse/accessors.ts';
 import { overridesRevision } from '../parse/sensors.ts';
 import { entityProfile } from '../parse/schedule.ts';
-import {
-  mappingAttribute, parseRoomBaseline, parseRoomPlanArgs, rangeDefaults, roomCatalog, stored, storedList, switchRangeEntities, wakeFadeMinutes,
-  wakeTimestamp, warmEndOf,
-} from '../parse/planning.ts';
+import { stored, storedList, switchRangeEntities, wakeFadeMinutes, wakeTimestamp, warmEndOf } from '../parse/planning.ts';
 
 /**
  * The oracle's own cache version literal, copied verbatim from
@@ -250,38 +245,6 @@ export function expiry(view: HouseView, baseline: RoomBaseline, room: string, at
   return moving ? at : Math.min(...deadlines);
 }
 
-/**
- * Plan one room: the opening reads, then the cache hit or the miss's three
- * inter-handler runs, then the refresh, `effects_resolve` and `ls_switch_plan`.
- * Every read after a run is made on the house as that run left it.
- */
-export function roomPlan(ctx: ScriptContext, args: RoomPlanArgs): RoomPlanResult {
-  const { room, reason, overrides, cache } = args;
-  const opening = roomOpening(ctx, args);
-  const { at, warmEnd } = opening;
-  const hit = opening.hit;
-  let baseline: RoomBaseline, gradients: Gradients, catalog: Verbatim, update: CacheUpdate | null = null;
-  if (hit !== undefined) {
-    baseline = hit.baseline; gradients = hit.gradients; catalog = hit.catalog;
-  } else {
-    baseline = parseRoomBaseline(ctx.run('ls_room_base', { room, overrides: overrides.document, test_now: args.testNow.document ?? null, reason }), 'ls_room_plan baseline');
-    catalog = roomCatalog(ctx.rawCatalog(), () => ctx.run('effects_catalog'));
-    gradients = ctx.call('effects_gradient_plan', { base: baseline.targets, warm_end: warmEnd, cached: cache === undefined ? {} : cache.gradients }).gradients;
-    update = missUpdate(ctx, args, opening, baseline, gradients, catalog);
-  }
-  const refreshed = refreshBaseline(ctx, baseline, hit === undefined ? undefined : hit.validFrom, room, opening.deps, overrides, at);
-  const active = activeOverrides(overrides, refreshed.stale);
-  const resolved: ResolutionResult = ctx.call('effects_resolve', { base: refreshed.targets, overrides: active, catalog, sara: Object.hasOwn(active, 'mode:sara'), private: privateRooms(ctx),
-    power: args.power ?? mappingAttribute(ctx.attr('sensor.ls_overrides', 'power')), warm_end: warmEnd, gradients });
-  // `?? {}` on both results is gone, not dropped as decoration: `switchPlan`
-  // and `resolveEffects` always return their key, so the fallbacks were
-  // unreachable for the real handlers and the types now say so.
-  const switches = ctx.call('ls_switch_plan', { targets: resolved.targets,
-    ranges: args.ranges ?? mappingAttribute(ctx.attr('sensor.ls_overrides', 'switch_ranges')),
-    defaults: args.defaults ?? rangeDefaults(ctx.attr('sensor.ls_overrides', 'range_defaults')) });
-  return roomPlanAnswer(ctx, { room, reason, revision: opening.revision, refreshed, active, resolved, gradients, catalog,
-    switches: switches.switches, update, hit: hit !== undefined });
-}
 
 /** What `ls_room_plan` reads before any run: the instant, the revision, the fingerprint and the cache test. */
 export interface RoomOpening {
@@ -320,7 +283,7 @@ export function missUpdate(view: HouseView, args: RoomPlanArgs, opening: RoomOpe
 }
 
 /** The stored overrides the refresh did not mark stale, as stored. */
-function activeOverrides(overrides: Overrides, stale: string[]): Record<string, Verbatim> {
+export function activeOverrides(overrides: Overrides, stale: string[]): Record<string, Verbatim> {
   return Object.fromEntries(overrides.entries.filter(entry => !stale.includes(entry.key)).map(entry => [entry.key, entry.document]));
 }
 
@@ -348,8 +311,3 @@ export function roomPlanAnswer(view: HouseView, parts: RoomPlanParts): RoomPlanR
     revision: parts.revision, plan_order: timestamp(view.now), remote: reason === 'remote',
     sara_mirror: view.get('input_boolean.ls_sara_mode_mirror') !== wanted ? wanted : null }), cache_update: parts.update, cache_hit: parts.hit };
 }
-export const planningHandlers: ScriptHandlers = {
-  // Argument parsing, the cache's validity test and every document read live in
-  // `src/parse/planning.ts`; see `parseRoomPlanArgs` for the captured sources.
-  ls_room_plan: withParsedArgs({ parse: parseRoomPlanArgs, run: roomPlan }),
-};

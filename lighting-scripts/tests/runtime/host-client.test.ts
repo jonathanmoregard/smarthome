@@ -34,7 +34,7 @@ test('official HA client sends service frames and releases event subscriptions o
 
 test('own Sara mirror events arriving before service ACK are suppressed while genuine user events reach typed automation', async () => {
   const { execute } = await import('../../src/runtime/engine.ts');
-  const { automationHandlers } = await import('../../src/domain/automations.ts');
+  const { automationHandlers } = await import('../../src/handlers/automations.ts');
   class ControlledPort extends SocketPort {
     override send(data: string) { const frame = JSON.parse(data); if (frame.type === 'call_service') this.frames.push(frame); else super.send(data); }
   }

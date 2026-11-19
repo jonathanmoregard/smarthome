@@ -52,7 +52,7 @@ test('saved profiles reject corrupt present caches but allow HA no-value states'
 });
 
 async function configured() {
-  const modulePath = '../../src/domain/schedule.ts';
+  const modulePath = '../../src/handlers/schedule.ts';
   const port = await import(modulePath).catch(() => ({}));
   assert.equal(typeof port.scheduleHandlers?.ls_base, 'function', 'scheduled baseline exists');
   const ctx = context(port.scheduleHandlers);
@@ -133,13 +133,13 @@ test('saved profile ownership accepts only a real optional boolean', async () =>
 
 test('room cache skips baseline recomputation while updating observations and power', async () => {
   const ctx = await configured();
-  const modulePath = '../../src/domain/planning.ts';
+  const modulePath = '../../src/handlers/planning.ts';
   const port = await import(modulePath).catch(() => ({}));
   assert.equal(typeof port.planningHandlers?.ls_room_plan, 'function', 'room cache planner exists');
-  const { resolutionHandlers } = await import('../../src/domain/resolution.ts');
-  const { controllerHandlers } = await import('../../src/domain/controller.ts');
-  const { nativeHandlers } = await import('../../src/domain/native-controls.ts');
-  const { scheduleHandlers } = await import('../../src/domain/schedule.ts');
+  const { resolutionHandlers } = await import('../../src/handlers/resolution.ts');
+  const { controllerHandlers } = await import('../../src/handlers/controller.ts');
+  const { nativeHandlers } = await import('../../src/handlers/native-controls.ts');
+  const { scheduleHandlers } = await import('../../src/handlers/schedule.ts');
   setHandlers(ctx, { ...scheduleHandlers, ...resolutionHandlers, ...controllerHandlers, ...nativeHandlers, ...port.planningHandlers });
   ctx.now = '2026-10-23T12:00:00+02:00';
   setCatalog(ctx, { effects: {}, processors: {} });
@@ -204,11 +204,11 @@ test('saved cur: any other value falls back to Night instead of raising', async 
 
 async function roomPlanner() {
   const ctx = await configured();
-  const { planningHandlers } = await import('../../src/domain/planning.ts');
-  const { resolutionHandlers } = await import('../../src/domain/resolution.ts');
-  const { controllerHandlers } = await import('../../src/domain/controller.ts');
-  const { nativeHandlers } = await import('../../src/domain/native-controls.ts');
-  const { scheduleHandlers } = await import('../../src/domain/schedule.ts');
+  const { planningHandlers } = await import('../../src/handlers/planning.ts');
+  const { resolutionHandlers } = await import('../../src/handlers/resolution.ts');
+  const { controllerHandlers } = await import('../../src/handlers/controller.ts');
+  const { nativeHandlers } = await import('../../src/handlers/native-controls.ts');
+  const { scheduleHandlers } = await import('../../src/handlers/schedule.ts');
   setHandlers(ctx, { ...scheduleHandlers, ...resolutionHandlers, ...controllerHandlers, ...nativeHandlers, ...planningHandlers });
   ctx.now = '2026-10-23T12:00:00+02:00';
   setCatalog(ctx, { effects: {}, processors: {} });

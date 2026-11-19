@@ -12,7 +12,7 @@ import test from 'node:test';
 
 import { execute } from '../../src/runtime/engine.ts';
 import type { JsonObject, ScriptContext, Snapshot } from '../../src/runtime/context.ts';
-import { controllerHandlers } from '../../src/domain/controller.ts';
+import { controllerHandlers } from '../../src/handlers/controller.ts';
 import { context, stub } from './gestures-context.ts';
 
 const snapshot: Snapshot = {

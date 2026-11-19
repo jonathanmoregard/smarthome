@@ -3,7 +3,7 @@ import test from 'node:test';
 import { context, setCatalog } from './gestures-context.ts';
 
 async function load() {
-  const modulePath = '../../src/domain/ui-state.ts';
+  const modulePath = '../../src/handlers/ui-state.ts';
   const port = await import(modulePath).catch(() => ({}));
   assert.equal(typeof port.uiHandlers?.effects_ui_sync, 'function', 'UI mirror exists');
   return context({ ...port.uiHandlers, effects_catalog: ctx => ctx.rawCatalog() });

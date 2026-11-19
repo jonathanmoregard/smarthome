@@ -1,16 +1,16 @@
-import { gestureHandlers } from '../domain/gestures.ts';
-import { resolutionHandlers } from '../domain/resolution.ts';
-import { groupingHandlers } from '../domain/grouping.ts';
-import { remoteInputHandlers } from '../domain/remote-input.ts';
-import { stateStoreHandlers } from '../domain/state-store.ts';
-import { scheduleHandlers } from '../domain/schedule.ts';
-import { nativeHandlers } from '../domain/native-controls.ts';
-import { planningHandlers } from '../domain/planning.ts';
-import { controllerHandlers } from '../domain/controller.ts';
-import { uiHandlers } from '../domain/ui-state.ts';
-import { transportHandlers } from '../domain/transport.ts';
-import { dispatchHandlers } from '../domain/dispatch-render.ts';
-import { automationHandlers } from '../domain/automations.ts';
+import { gestureHandlers } from '../handlers/gestures.ts';
+import { resolutionHandlers } from '../handlers/resolution.ts';
+import { groupingHandlers } from '../handlers/grouping.ts';
+import { remoteInputHandlers } from '../handlers/remote-input.ts';
+import { stateStoreHandlers } from '../handlers/state-store.ts';
+import { scheduleHandlers } from '../handlers/schedule.ts';
+import { nativeHandlers } from '../handlers/native-controls.ts';
+import { planningHandlers } from '../handlers/planning.ts';
+import { controllerHandlers } from '../handlers/controller.ts';
+import { uiHandlers } from '../handlers/ui-state.ts';
+import { transportHandlers } from '../handlers/transport.ts';
+import { dispatchHandlers } from '../handlers/dispatch-render.ts';
+import { automationHandlers } from '../handlers/automations.ts';
 import type { ScriptHandlers } from './context.ts';
 
 export const handlers: ScriptHandlers = {

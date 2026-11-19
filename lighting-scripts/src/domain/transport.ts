@@ -1,22 +1,13 @@
-import type { OutputGuard, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { withParsedArgs } from '../runtime/parse.ts';
-import { catalogOf } from '../runtime/catalog.ts';
+import type { OutputGuard } from '../runtime/context.ts';
 import type { Catalog } from '../runtime/catalog.ts';
-import { perform, run } from '../runtime/effects.ts';
 import type { Effect, HouseView, Plan } from '../runtime/effects.ts';
-import { typed } from '../runtime/entrypoints.ts';
 import { withFields } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { roundEven, clamp } from './scale.ts';
-import { recordTimestamp } from '../parse/resolution.ts';
 import type { OpaqueMap, StoredFact, StoredValue } from '../parse/overrides.ts';
 import { overridesRevision } from '../parse/sensors.ts';
-import {
-  assignedAs, assignedLamps, parseAssignArgs, parseEmitArgs, parseFilterArgs, parseFramePlanArgs, powerClosed,
-  runtimeGeneration, runtimePlanOrder, runtimeState, warmEndColour,
-} from '../parse/transport.ts';
+import { assignedAs, powerClosed, runtimeGeneration, runtimePlanOrder, runtimeState, warmEndColour } from '../parse/transport.ts';
 import type { FrameColour, RuntimeState, StoredChannels } from '../parse/transport.ts';
-import type { GroupPlanResult } from './grouping.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
 
@@ -176,22 +167,6 @@ export interface FilterArgs {
   commands: Array<{ document: Verbatim; ids: string[] }>;
 }
 
-/**
- * Each lamp's light, sent once. A channel running a bulb effect gets a static
- * value: brightness is the effect's intensity (the level it runs at, and the
- * candle's ceiling); colour is what the effect holds (see {@link BulbEffect}).
- * The start follows in a second emission, so it always lands after the light.
- *
- * The rows go to the group planner, an inter-handler call whose result is this
- * script's answer, so the call stays in the handler.
- */
-export function framePlan(ctx: ScriptContext, args: FramePlanArgs): GroupPlanResult {
-  const rows = frameRows(ctx, args);
-  // `ctx.call`, not `ctx.run`: this result is what `effects_frame_plan`
-  // answers, so it must arrive typed. The call itself is unchanged -- same
-  // name in `scriptRuns`, same argument bytes in the compared trace.
-  return ctx.call('effects_group_plan', { rows, groups: args.catalog.multicast() });
-}
 
 /** One row per on member of each on lamp, carrying that lamp's light. */
 export function frameRows(view: HouseView, args: FramePlanArgs): FrameRow[] {
@@ -269,25 +244,6 @@ export type EmitResult = { published_at: number[]; completed: boolean };
  */
 export type AssignResult = { generation: Verbatim };
 
-/**
- * Publish each command the house still allows, in order. Each command's gate
- * is read live, after the publishes before it: the revision first (it raises
- * on a missing sensor, ahead of the command's own parse), then the command.
- */
-export function emitCommands(ctx: ScriptContext, args: EmitArgs): EmitResult {
-  const revision = args.revision, generation = args.generation;
-  let completed = true;
-  const published: number[] = [];
-  for (const parseCommand of args.commands) {
-    const current = overridesRevision(ctx, 'effects_emit');
-    const command = parseCommand();
-    const publish = publishCommand(ctx, { revision, generation, current, command, effectTargets: args.effectTargets() });
-    if (publish === undefined) { completed = false; continue; }
-    published.push(recordTimestamp(ctx.now));
-    perform(ctx, publish);
-  }
-  return { published_at: published, completed: completed && stillCurrent(ctx, 'effects_emit', revision, generation) };
-}
 
 /** One command's gate: the request, the revision read for it, and the command itself. */
 export interface EmitGate {
@@ -334,22 +290,6 @@ export function stillCurrent(view: HouseView, script: string, revision: string, 
 
 type StopCommand = { topic: string; payload: { effect: string }; members: string[]; owners: string[]; group: false };
 
-/**
- * Store the assignment, then stop the bulb effects lamps are leaving. The
- * stop commands read member states after the store and the catalog run, live,
- * and the answer re-reads the generation the store left.
- */
-export function assignEffects(ctx: ScriptContext, args: AssignArgs): AssignResult {
-  if (args.revision !== overridesRevision(ctx, 'effects_assign')) return { generation: runtimeGeneration(ctx) };
-  const details = args.details();
-  const decision = assignDecision(ctx, args.revision, details);
-  run(ctx, planAssignUpdate(decision, args.revision, details));
-  if (decision.changed) {
-    const catalog = catalogOf(ctx);
-    run(ctx, planStops(stopCommands(ctx, catalog, details.targetViews(), decision.stored), args.revision, decision.generation));
-  }
-  return { generation: runtimeGeneration(ctx) };
-}
 
 /** What `effects_assign` decides from the runtime as it stood before the store. */
 export interface AssignDecision {
@@ -439,17 +379,3 @@ export function filterCommands(catalog: Catalog, active: string[], commands: Fil
   }
   return { commands: kept };
 }
-
-export const transportHandlers: ScriptHandlers = {
-  effects_frame_plan: typed('effects_frame_plan', { parse: parseFramePlanArgs, run: framePlan }),
-  effects_emit: typed('effects_emit', { parse: parseEmitArgs, run: emitCommands }),
-  effects_assign: typed('effects_assign', { parse: parseAssignArgs, run: assignEffects }),
-  // The catalog run and the assigned-lamp read happen before any command is looked at.
-  effects_filter_commands: withParsedArgs({
-    parse: parseFilterArgs,
-    run: (ctx, args) => {
-      const catalog = catalogOf(ctx);
-      return filterCommands(catalog, assignedLamps(ctx), args.commands);
-    },
-  }),
-};

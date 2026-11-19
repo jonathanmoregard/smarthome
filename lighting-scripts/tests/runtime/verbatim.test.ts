@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { carry, jsonEqual, sameDocument } from '../../src/runtime/verbatim.ts';
-import { groupingHandlers } from '../../src/domain/grouping.ts';
+import { groupingHandlers } from '../../src/handlers/grouping.ts';
 import type { JsonObject, ScriptContext } from '../../src/runtime/context.ts';
 
 // `jsonEqual` is the planner's old local `equal`, moved. It is deliberately NOT

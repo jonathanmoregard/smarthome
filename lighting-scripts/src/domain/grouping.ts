@@ -1,8 +1,5 @@
-import type { ScriptHandlers } from '../runtime/context.ts';
-import { typed } from '../runtime/entrypoints.ts';
 import { sameDocument } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
-import { parseGroupPlanArgs } from '../parse/grouping.ts';
 
 function compare(a: string, b: string): number { return a < b ? -1 : a > b ? 1 : 0; }
 /** Element-wise `===`, which is what JSON equality reduces to on two string lists. */
@@ -101,12 +98,3 @@ export function planGroups(rows: Array<EndpointRow | undefined>, groups: Multica
   }
   return { commands, rejected, input_count: rows.length, endpoint_count: byEntity.size, command_count: commands.length };
 }
-
-export const groupingHandlers: ScriptHandlers = {
-  // Captured rows/groups are iterated, so absence is empty while a malformed
-  // present container raises. catalog.members is accessed through .items().
-  effects_group_plan: typed('effects_group_plan', {
-    parse: parseGroupPlanArgs,
-    run: (_ctx, args) => planGroups(args.rows, args.groups),
-  }),
-};

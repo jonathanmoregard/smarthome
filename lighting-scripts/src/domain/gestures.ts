@@ -1,15 +1,11 @@
-import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { withParsedArgs } from '../runtime/parse.ts';
 import { withFields } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
-import { gestureState, parseGestureArgs, parsePowerQuietArgs } from '../parse/gestures.ts';
 import { stateText } from '../runtime/format.ts';
-import { run } from '../runtime/effects.ts';
 import type { Plan } from '../runtime/effects.ts';
 
 const presets = [200, 285, 370, 454, 588];
 const directions = ['left', 'right', 'up', 'down'];
-const accepted = ['power', 'power_done', 'preset', 'cancel', ...directions];
+export const accepted = ['power', 'power_done', 'preset', 'cancel', ...directions];
 /** The two preset-payload fields the gesture reads; any other type is `undefined`. */
 export interface PresetPayload {
   action: string | undefined;
@@ -169,27 +165,3 @@ export function* powerQuiet(args: PowerQuietArgs): Plan<null> {
   yield { kind: 'schedule', script: 'ls_remote_gesture', args: withFields(args.document, { room: args.room, command: 'power_done' }), delayMs: 600 };
   return null;
 }
-
-/**
- * Serialized actor. It never waits for actuator services or the power quiet
- * window. Reads the helpers, runs the reducer, then, for a power press, stamps
- * the token and launches the quiet script with `now` re-read after each write,
- * where the captured script reads it: the clock is live mid-transaction.
- */
-export function remoteGesture(ctx: ScriptContext, args: GestureArgs): null {
-  if (!accepted.includes(args.command)) return null;
-  run(ctx, gesture(gestureState(ctx, args.room), { ...args, areas: ctx.areas, now: ctx.now }));
-  if (args.command === 'power') {
-    run(ctx, stampPowerToken(args.room, ctx.now));
-    run(ctx, launchPowerQuiet(args.room, ctx.now));
-  }
-  return null;
-}
-
-export const gestureHandlers: ScriptHandlers = {
-  // Captured command is membership-tested, token is length-tested, and payload
-  // is dereferenced only by preset. Missing command/token are empty; malformed
-  // present values raise, and branch-specific fields retain source order.
-  ls_remote_gesture: withParsedArgs({ parse: parseGestureArgs, run: remoteGesture }),
-  ls_remote_power_quiet: withParsedArgs({ parse: parsePowerQuietArgs, run: (ctx, args) => run(ctx, powerQuiet(args)) }),
-};

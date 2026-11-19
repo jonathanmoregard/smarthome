@@ -1,8 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {
-  cacheWrite, fullLights, fullReason, gradientUpdates, mergeRoomPlan, renderAck, renderOpening, roomPlanRequest, roomsPlan, roomsStart,
-} from '../../src/domain/dispatch-render.ts';
+import { cacheWrite, fullLights, fullReason, gradientUpdates, mergeRoomPlan, renderAck, renderOpening, roomPlanRequest, roomsPlan, roomsStart } from '../../src/domain/dispatch-render.ts';
 import { fullPlan, roomPlanView } from '../../src/parse/dispatch-render.ts';
 import { timestamp } from '../../src/parse/accessors.ts';
 import type { EntityState, JsonObject } from '../../src/runtime/context.ts';
