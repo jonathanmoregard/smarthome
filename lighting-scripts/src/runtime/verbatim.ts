@@ -28,6 +28,17 @@ export function carry(value: JsonValue): Verbatim {
   return value as unknown as Verbatim;
 }
 
+/**
+ * For the parse layer: admit a value that may be absent. An absent value stays
+ * absent at runtime, so an output field holding it serialises without that key
+ * -- the bytes the inline read produced. A carried value may also be `null` at
+ * runtime, which is why nothing may apply `??` to a `Verbatim`: the stored
+ * document's `null` is not an absence.
+ */
+export function carryOptional(value: JsonValue | undefined): Verbatim {
+  return value as unknown as Verbatim;
+}
+
 /** For the parse layer: the document behind a handle, to parse or serialise. */
 export function reveal(value: Verbatim): JsonValue {
   return value as unknown as JsonValue;

@@ -232,12 +232,21 @@ const DOMAIN = join(ROOT, 'src/domain');
  * `src/parse/planning.ts`, called where the inline read sat, so none moves.
  * The two pre-existing divergences (`validCache` tighter than the oracle, the
  * bare `last_updated` read) are preserved and marked at their sites.
+ *
+ * `effects_resolve` clears `resolution.ts` to zero: `jsonTypes 324 -> 287`,
+ * `lenientAccessors 226 -> 203`, `rawJsonReturns 32 -> 29`. Claims, patches,
+ * records and base items are parsed in `src/parse/resolution.ts`; numeric
+ * reads are the exact `Number(...)` / `String(...)` coercions the inline code
+ * applied, precomputed there, and every read that raised is a thunk called
+ * where it sat. `recordTimestamp` and `latestRemoteKey` read stored records,
+ * so they moved to the parse layer with their callers repointed. The pre-
+ * existing `warm_end` cast moved with them, unchanged and marked.
  */
 const CEILINGS = {
-  jsonTypes: 324,
+  jsonTypes: 287,
   validatedBags: 0,
-  lenientAccessors: 226,
-  rawJsonReturns: 32,
+  lenientAccessors: 203,
+  rawJsonReturns: 29,
 };
 
 /** Comments may legitimately name these types while explaining why they are gone. */

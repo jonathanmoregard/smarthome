@@ -2,7 +2,7 @@ import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../ru
 import { isObject, jinjaTruthy, object, requireBoolean, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
 import { catalogOf, emptyCatalog } from '../runtime/catalog.ts';
 import { typed } from '../runtime/entrypoints.ts';
-import { latestRemoteKey, recordTimestamp } from './resolution.ts';
+import { latestRemoteKey, recordTimestamp } from '../parse/resolution.ts';
 import { clamp } from './scale.ts';
 import { list, num } from './schedule.ts';
 

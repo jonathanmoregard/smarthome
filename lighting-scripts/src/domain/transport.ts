@@ -4,7 +4,7 @@ import { jinjaFloat, jinjaTruthy, object, requireArray, requireNumber, requireOb
 import { catalogOf } from '../runtime/catalog.ts';
 import { typed } from '../runtime/entrypoints.ts';
 import { roundEven, clamp } from './scale.ts';
-import { recordTimestamp } from './resolution.ts';
+import { recordTimestamp } from '../parse/resolution.ts';
 import { requireRgb } from '../parse/scale.ts';
 import type { GroupCommand, GroupPlanResult } from './grouping.ts';
 

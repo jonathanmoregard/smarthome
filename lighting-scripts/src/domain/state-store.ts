@@ -1,7 +1,7 @@
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
 import { isObject, jinjaFloat, jinjaInt, jinjaString, jinjaTruthy, object, ParseError, requireArray, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
 import { typed } from '../runtime/entrypoints.ts';
-import { recordTimestamp } from './resolution.ts';
+import { recordTimestamp } from '../parse/resolution.ts';
 import { isAreaId, labelled, privateRooms } from './schedule.ts';
 
 const values = (value: JsonValue | undefined): JsonValue[] => Array.isArray(value) ? value : [];

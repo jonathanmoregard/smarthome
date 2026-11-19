@@ -2,7 +2,7 @@ import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../ru
 import { jinjaFloat, jinjaInt, jinjaString, jinjaTruthy, object, ParseError, parsePythonNumeric, requireArray, requireNumber, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
 import { rgbValue, roundEven } from './scale.ts';
 import type { RGB } from './scale.ts';
-import { recordTimestamp } from './resolution.ts';
+import { recordTimestamp } from '../parse/resolution.ts';
 
 // Literal CSS colour names from the deployed native adapter.
 const COLOR_NAMES: Record<string, RGB> = {

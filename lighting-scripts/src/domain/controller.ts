@@ -4,7 +4,7 @@ import { typed } from '../runtime/entrypoints.ts';
 import { WARM_END } from './scale.ts';
 import { optionalTimestamp } from './schedule.ts';
 import type { ScheduleEnvelope, TargetEntry } from './schedule.ts';
-import { recordTimestamp } from './resolution.ts';
+import { recordTimestamp } from '../parse/resolution.ts';
 import type { ResolutionResult } from './resolution.ts';
 import type { GradientPlanResult } from './gradient.ts';
 import { requireRgb } from '../parse/scale.ts';

@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+// `resolveEffects` takes parsed arguments. These tests state documents, so they
+// reach it through the parse edge, exactly as the `effects_resolve` handler does.
+async function resolver(): Promise<(args: any) => any> {
+  const { resolveEffects } = await import('../../src/domain/resolution.ts');
+  const { parseResolveArgs } = await import('../../src/parse/resolution.ts');
+  return args => resolveEffects(parseResolveArgs(args));
+}
+
 // A changed interpolation branch or JS Math.round replacing Python round breaks these literals.
 test('scale preserves low anchors, clamps tails, and rounds RGB halves to even', async () => {
   const modulePath = '../../src/domain/scale.ts';
@@ -13,10 +21,8 @@ test('scale preserves low anchors, clamps tails, and rounds RGB halves to even',
 });
 
 test('new invalid channel cancels its old effect without replacing the other channel', async () => {
-  const modulePath = '../../src/domain/resolution.ts';
-  const port = await import(modulePath).catch(() => ({}));
-  assert.equal(typeof port.resolveEffects, 'function', 'the pure resolver is available');
-  const result = port.resolveEffects({
+  const resolveEffects = await resolver();
+  const result = resolveEffects({
     base: { lamp: { area: 'living', period: 'cosy', brightness: 110, color: { kelvin: 2200 } } },
     catalog: { effects: { Pulse: { channels: ['brightness'] } } },
     overrides: {
@@ -47,7 +53,7 @@ test('malformed cached gradient is rebuilt while a valid cached curve retains it
 });
 
 test('room input uses its logical level across lamp profiles and down never brightens a dim Night', async () => {
-  const { resolveEffects } = await import('../../src/domain/resolution.ts');
+  const resolveEffects = await resolver();
   const item = { area: 'living', period: 'night', brightness: 3, color: { kelvin: 2200 }, day: { brightness: 220, color: { kelvin: 4000 } }, cosy: { brightness: 110, color: { kelvin: 2200 } } };
   const args = { base: { 'room:living': { ...item, is_room: true }, lamp: { ...item, day: { brightness: 180, color: { kelvin: 4000 } }, cosy: { brightness: 90, color: { kelvin: 2200 } } } }, catalog: { effects: {} }, overrides: { remote: { kind: 'input', scope: 'room', target: 'living', when: '2026-10-26T23:35:00+01:00', value: { adjustment: { steps: -1, lower: -20, upper: 20, last: 'down', anchor: 'current', updated: 1 } } } } };
   const result = resolveEffects(args);
@@ -60,7 +66,7 @@ test('room input uses its logical level across lamp profiles and down never brig
 });
 
 test('nonfinite and boolean channel claims are invalid, while Candle stays on its designated lamp', async () => {
-  const { resolveEffects } = await import('../../src/domain/resolution.ts');
+  const resolveEffects = await resolver();
   const item = { area: 'living', period: 'cosy', brightness: 110, color: { kelvin: 2200 } };
   for (const value of [NaN, Infinity, -Infinity, true]) {
     const result = resolveEffects({ base: { lamp: item }, catalog: {}, overrides: { invalid: { kind: 'channels', scope: 'lamp', target: 'lamp', value: { channels: { brightness: { kind: 'constant', value } } } } } });
@@ -73,7 +79,7 @@ test('nonfinite and boolean channel claims are invalid, while Candle stays on it
 });
 
 test('explicit null input bounds are rejected instead of being replaced with defaults', async () => {
-  const { resolveEffects } = await import('../../src/domain/resolution.ts');
+  const resolveEffects = await resolver();
   const item = { area: 'living', period: 'day', brightness: 220, color: { kelvin: 4000 }, day: { brightness: 220, color: { kelvin: 4000 } }, cosy: { brightness: 110, color: { kelvin: 2200 } } };
   const result = resolveEffects({ base: { lamp: item }, catalog: {}, overrides: { remote: { kind: 'input', scope: 'room', target: 'living', value: { step_range: null, adjustment: { steps: -5, lower: -20, upper: 20, updated: 1 } } } } });
   assert.equal(result.targets.lamp!.level, 220);
@@ -81,7 +87,7 @@ test('explicit null input bounds are rejected instead of being replaced with def
 });
 
 test('record timestamps retain microseconds so newest remote snapshots win within a millisecond', async () => {
-  const { latestRemoteKey, recordTimestamp } = await import('../../src/domain/resolution.ts');
+  const { latestRemoteKey, recordTimestamp } = await import('../../src/parse/resolution.ts');
   assert.equal(recordTimestamp('2026-10-26T12:00:00.000001+01:00'), 1793012400.000001);
   assert.equal(latestRemoteKey({ z: { kind: 'input', scope: 'room', target: 'living', when: '2026-10-26T12:00:00.000001+01:00' }, a: { kind: 'input', scope: 'room', target: 'living', when: '2026-10-26T12:00:00.000002+01:00' } }, 'living'), 'a');
 });
