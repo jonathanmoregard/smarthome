@@ -19,6 +19,16 @@ interface Batch { calls: ServiceCall[]; events: EventRecord[]; epoch: number; to
 const successFields = ['applied', 'handled_rooms', 'handled_full', 'last_latency'];
 const object = (value: unknown): JsonObject => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as JsonObject : {};
 function ids(call: ServiceCall): string[] { const value = call.target?.entity_id ?? call.data.entity_id; return Array.isArray(value) ? value.map(String) : typeof value === 'string' ? [value] : []; }
+/**
+ * Handlers deleted from the program whose scheduled tasks may still sit in a
+ * journal (or an HA snapshot) written before the deletion. Listed by name, so
+ * a task for any other unknown script still reaches the engine and fails
+ * loudly with `Unsupported script`.
+ *
+ * - `effects_engine_tick`: the frame engine's tick, deleted with the engine
+ *   when the bulbs took over every effect (42b2e77).
+ */
+const RETIRED_SCRIPTS: ReadonlySet<string> = new Set(['effects_engine_tick']);
 function topology(snapshot: Snapshot): unknown {
   return [snapshot.areas, snapshot.members, snapshot.devices, snapshot.entitySources, snapshot.catalog, snapshot.state['binary_sensor.zigbee2mqtt_bridge_connection_state']];
 }
@@ -68,10 +78,20 @@ export class LightingHost {
           if (task) { task.due = Math.max(task.due, host.now()); task.args = { ...task.args, host_completed_at: new Date(host.now()).toISOString(), host_output_success: false }; }
         }
       } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+      host.dropRetired(host.state);
       await host.save(); host.armTimer(); return host;
     } catch (error) { await host.owner.close(); throw error; }
   }
   snapshot(): Snapshot { return structuredClone(this.state); }
+  /** Remove scheduled tasks for {@link RETIRED_SCRIPTS}, logging each. Answers whether any went. */
+  private dropRetired(state: Snapshot): boolean {
+    const scheduled = state.scheduled ?? [];
+    const kept = scheduled.filter(task => !RETIRED_SCRIPTS.has(task.script));
+    if (kept.length === scheduled.length) return false;
+    for (const task of scheduled) if (RETIRED_SCRIPTS.has(task.script)) this.options.report?.(`Dropped a scheduled task for the retired script ${task.script}`);
+    state.scheduled = kept;
+    return true;
+  }
   async refresh(read: (previous: Snapshot) => Promise<Snapshot>): Promise<void> {
     const version = ++this.refreshVersion, previous = this.snapshot(), refreshed = await read(previous);
     await this.update(state => {
@@ -277,6 +297,7 @@ export class LightingHost {
     while (!this.closing && this.connected) {
       const task = (this.snapshot().scheduled ?? []).filter(item => item.due <= this.now() && !this.held.has(JSON.stringify(item))).sort((a, b) => a.due - b.due)[0];
       if (!task) break;
+      if (RETIRED_SCRIPTS.has(task.script)) { await this.update(state => { this.dropRetired(state); }); continue; }
       await this.transaction(task.script, task.args, task);
     }
     this.armTimer();
