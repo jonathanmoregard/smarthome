@@ -19,9 +19,8 @@
  * Reads that the inline code made eagerly are made eagerly here, in the same
  * order.
  *
- * One pre-existing divergence is preserved deliberately, not endorsed: the
- * cache-validity test is tighter than the oracle's (`validCache`). It is
- * behaviour, and this file is a representation change.
+ * The cache-validity test (`validCache`) is the captured script's own cache
+ * sanitiser, check for check; see its comment.
  */
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import { isObject, jinjaTruthy, object, requireNumber, requireObject, requireString } from '../runtime/parse.ts';
@@ -135,11 +134,20 @@ export function parseRoomBaseline(value: JsonValue | undefined, context: string)
  * A cache the plan may consult, or `undefined` for a miss. Never raises: an
  * absent or malformed cache is a miss, as in the oracle.
  *
- * PRE-EXISTING DIVERGENCE, preserved: this requires `schedule_details`,
- * `profiles`, `schedule_details[room]` and `targets['room:' + room]`, which
- * the oracle's validity test does not, so a cache the oracle hits can miss
- * here. Recorded in `tasks/ls-room-plan-design.md`; a behaviour change, so
- * not this file's to make.
+ * This is the captured script's first-step cache sanitiser, which replaces a
+ * cache failing any of its checks with `{}`: `dependencies`, `periods`,
+ * `baseline`, `gradients` and `catalog` are mappings; `valid_from` and
+ * `valid_until` are numbers and not booleans; `baseline.targets`,
+ * `baseline.schedule`, `schedule.schedule_details`, `schedule.profiles` and
+ * `schedule_details[room]` are mappings; and `'room:' + room` is a target.
+ * The later `cache_hit` test re-checks only a subset, which is why it reads
+ * looser. Verified against Home Assistant 2026.7.4 on the same caches.
+ *
+ * One edge is unmatched: Jinja's `is number` admits NaN and the infinities,
+ * which `Number.isFinite` refuses. JSON cannot carry them, Home Assistant's
+ * `to_json` turns them into null before a cache is stored, and the parity
+ * simulator and Home Assistant disagree about what a non-finite cache does
+ * next, so there is no single oracle behaviour to copy.
  */
 function validCache(value: JsonValue | undefined, room: string): RoomCache | undefined {
   if (!isObject(value)) return undefined;
