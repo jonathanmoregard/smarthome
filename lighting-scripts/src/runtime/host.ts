@@ -20,8 +20,7 @@ const successFields = ['applied', 'handled_rooms', 'handled_full', 'last_latency
 const object = (value: unknown): JsonObject => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as JsonObject : {};
 function ids(call: ServiceCall): string[] { const value = call.target?.entity_id ?? call.data.entity_id; return Array.isArray(value) ? value.map(String) : typeof value === 'string' ? [value] : []; }
 function topology(snapshot: Snapshot): unknown {
-  const runtime = snapshot.state['sensor.ls_effects_runtime']?.attributes ?? {};
-  return [snapshot.areas, snapshot.members, snapshot.devices, snapshot.entitySources, snapshot.catalog, runtime.candle_group, runtime.candle_syncing, snapshot.state['binary_sensor.zigbee2mqtt_bridge_connection_state']];
+  return [snapshot.areas, snapshot.members, snapshot.devices, snapshot.entitySources, snapshot.catalog, snapshot.state['binary_sensor.zigbee2mqtt_bridge_connection_state']];
 }
 
 /** One process owns the journal and writer. Ambiguous in-flight calls are never replayed. */

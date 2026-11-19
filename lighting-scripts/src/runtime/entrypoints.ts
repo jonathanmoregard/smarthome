@@ -6,7 +6,7 @@ import type { GradientPlanResult } from '../domain/gradient.ts';
 import type { AssignResult, EmitResult } from '../domain/transport.ts';
 import type { DispatchResult } from '../domain/dispatch-render.ts';
 import type { CommitResult } from '../domain/state-store.ts';
-import type { CandlePlanResult, GroupPlanResult } from '../domain/grouping.ts';
+import type { GroupPlanResult } from '../domain/grouping.ts';
 import type { RemotePlanResult } from '../domain/remote-input.ts';
 import type { ScheduledBaseResult } from '../domain/schedule.ts';
 
@@ -42,7 +42,6 @@ export interface TypedResults {
   // impossible for their results to drift apart.
   effects_group_plan: GroupPlanResult;
   effects_frame_plan: GroupPlanResult;
-  effects_candle_plan: CandlePlanResult;
   ls_remote_plan: RemotePlanResult;
   // One type, two names again: both run `scheduledBase`, which differs only in
   // the `roomLocal` flag, never in the shape it answers.

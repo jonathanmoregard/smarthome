@@ -33,38 +33,6 @@ test('conflicting duplicate endpoints and same-topic membership never leak into 
   assert.deepEqual(plan.rejected, [{ entity: 'a', reason: 'conflicting_endpoint_rows' }]);
 });
 
-test('Candle readiness needs exact fresh acknowledged membership, power and endpoint state', async () => {
-  const { groupingHandlers } = await load();
-  const ctx = context(groupingHandlers);
-  const assignment = { on: true, area: 'studio', brightness: { kind: 'effect', effect: 'Candle' }, color: { kind: 'effect', effect: 'Candle' } };
-  ctx.identifiers = { 'light.a': [['mqtt', 'zigbee2mqtt_0xaaaa']], 'light.b': [['mqtt', 'zigbee2mqtt_0xbbbb']] };
-  const actual = { exists: true, observed_at: 10, members: [{ ieee_address: '0xaaaa', endpoint: 1 }] };
-  ctx.put('sensor.ls_effects_runtime', 'active', { assignments: { 'light.lamp': assignment }, candle_group: actual });
-  ctx.put('sensor.ls_overrides', 'ready', { power: { studio: true } });
-  for (const entity of ['light.lamp', 'light.a', 'binary_sensor.zigbee2mqtt_bridge_connection_state']) ctx.put(entity, 'on');
-  ctx.put('light.b', 'off');
-  ctx.state['binary_sensor.zigbee2mqtt_bridge_connection_state'].last_changed = '1970-01-01T00:00:09Z';
-  const catalog = { members: { 'light.lamp': ['light.a', 'light.b'] } };
-  let plan = ctx.run('effects_candle_plan', { catalog });
-  assert.equal(plan.ready, true);
-  assert.deepEqual(plan.members, [{ ieee_address: '0xaaaa', endpoint: 1 }]);
-  ctx.state['binary_sensor.zigbee2mqtt_bridge_connection_state'].last_changed = '1970-01-01T00:00:11Z';
-  assert.equal(ctx.run('effects_candle_plan', { catalog }).ready, false);
-  ctx.put('sensor.ls_overrides', 'ready', { power: { studio: false } });
-  plan = ctx.run('effects_candle_plan', { catalog });
-  assert.deepEqual(plan.members, []);
-  assert.deepEqual(plan.remove, [{ ieee_address: '0xaaaa', endpoint: 1 }]);
-  assert.equal(plan.ready, false);
-});
-
-test('Candle group existence accepts only a real boolean', async () => {
-  const { groupingHandlers } = await load();
-  const ctx = context(groupingHandlers);
-  ctx.put('sensor.ls_effects_runtime', 'active', { assignments: {}, candle_group: { exists: 'yes', members: [], observed_at: 0 } });
-  ctx.put('sensor.ls_overrides', 'ready', {});
-  assert.throws(() => ctx.run('effects_candle_plan', { catalog: { members: {} } }), /must be true or false/);
-});
-
 test('explicit null group ID survives the deployed planner response', async () => {
   const { groupingHandlers } = await load();
   const ctx = context(groupingHandlers);
@@ -80,18 +48,4 @@ test('group handler lists default only absence and reject malformed present cont
   assert.equal(ctx.run('effects_group_plan', {}).command_count, 0);
   assert.throws(() => ctx.run('effects_group_plan', { rows: 0, groups: [] }), /must be an array/);
   assert.throws(() => ctx.run('effects_group_plan', { rows: [], groups: {} }), /must be an array/);
-  assert.throws(() => ctx.run('effects_candle_plan', { catalog: null }), /catalog must be an object/);
-  assert.throws(() => ctx.run('effects_candle_plan', { catalog: { members: 0 } }), /members must be an object/);
-});
-
-test('Candle plan rejects malformed present runtime fields instead of inventing empty values', async () => {
-  const { groupingHandlers } = await load();
-  const ctx = context(groupingHandlers);
-  ctx.put('sensor.ls_effects_runtime', 'active', { assignments: {}, candle_group: { exists: false, members: [], observed_at: 'hot' } });
-  ctx.put('sensor.ls_overrides', 'ready', {});
-  assert.throws(() => ctx.run('effects_candle_plan', { catalog: { members: {} } }), /finite number/);
-  ctx.put('sensor.ls_effects_runtime', 'active', {
-    assignments: {}, candle_group: { exists: false, members: [{ ieee_address: null, endpoint: 1 }], observed_at: 0 },
-  });
-  assert.throws(() => ctx.run('effects_candle_plan', { catalog: { members: {} } }), /ieee_address must be a string/);
 });

@@ -1,9 +1,7 @@
-import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { jinjaTruthy, optionalBoolean, requireBoolean, requireObject, requireString } from '../runtime/parse.ts';
+import type { ScriptHandlers } from '../runtime/context.ts';
 import { typed } from '../runtime/entrypoints.ts';
-import { jsonEqual, sameDocument } from '../runtime/verbatim.ts';
+import { sameDocument } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
-import { list, num, timestamp } from './schedule.ts';
 import { parseGroupPlanArgs } from '../parse/grouping.ts';
 
 function compare(a: string, b: string): number { return a < b ? -1 : a > b ? 1 : 0; }
@@ -26,17 +24,6 @@ export type EndpointRow = { entity: string; owner: string; topic: string; payloa
 export type MulticastGroup = { id: Verbatim; topic: string; members: string[] };
 /** `undefined` in `rows` is a row that failed to parse; it is rejected by index. */
 export type GroupPlanArgs = { rows: Array<EndpointRow | undefined>; groups: MulticastGroup[] };
-
-function objectOrEmpty(value: JsonValue | undefined, context: string): JsonObject {
-  if (value === undefined) return {};
-  return jinjaTruthy(value) ? requireObject({ value }, 'value', context) : {};
-}
-function objectDefaultAbsent(container: JsonObject, key: string, context: string): JsonObject {
-  return container[key] === undefined ? {} : requireObject(container, key, context);
-}
-function stringList(value: JsonValue | undefined, context: string): string[] {
-  return list(value).map((item, index) => requireString({ item }, 'item', `${context}[${index}]`));
-}
 
 /**
  * One MQTT publish the planner decided on.
@@ -115,130 +102,11 @@ export function planGroups(rows: Array<EndpointRow | undefined>, groups: Multica
   return { commands, rejected, input_count: rows.length, endpoint_count: byEntity.size, command_count: commands.length };
 }
 
-function epoch(value: string | undefined): number { return value === undefined ? 0 : timestamp(value); }
-/** For members this function built: the address is already a string. */
-function byIeee(a: CandleMember, b: CandleMember): number { return compare(a.ieee_address, b.ieee_address); }
-/** For members read out of the runtime attribute, which are still documents. */
-function byAddress(a: JsonValue, b: JsonValue): number {
-  const left = requireObject({ a }, 'a', 'effects_candle_plan.member');
-  const right = requireObject({ b }, 'b', 'effects_candle_plan.member');
-  return compare(
-    requireString(left, 'ieee_address', 'effects_candle_plan.member'),
-    requireString(right, 'ieee_address', 'effects_candle_plan.member'),
-  );
-}
-
-/**
- * One endpoint this plan wants in the Candle group. Both fields are built from
- * the device identifier, so the key order the gate compares is this order.
- */
-export type CandleMember = { ieee_address: string; endpoint: number };
-/**
- * `effects_candle_plan`'s result.
- *
- * Three fields stay JSON, each for its own reason:
- *
- * - `lamps` holds the assignment documents themselves, which are persisted
- *   into `candle_pending` and compared.
- * - `actual` is the runtime sensor's `candle_group` attribute, read raw and
- *   handed back raw.
- * - `remove` is filtered out of `actual.members`, whose entries this function
- *   only *checks* (`requireObject` plus a required `ieee_address`) and never
- *   rebuilds. Narrowing it to `CandleMember` would drop any other field the
- *   real document carries, and the selected member is persisted -- THE
- *   INVARIANT.
- *
- * `members` and `add` are `CandleMember[]` because every field of those is
- * built here, in `endpoints`.
- */
-export type CandlePlanResult = {
-  lamps: Record<string, JsonObject>;
-  entities: string[];
-  members: CandleMember[];
-  actual: JsonObject;
-  remove: JsonObject[];
-  add: CandleMember[];
-  owners: Record<string, string>;
-  fresh: boolean;
-  synchronized: boolean;
-  ready: boolean;
-};
-
-/** Membership uses current runtime assignments and device identifiers, never fixed lamp topology. */
-export function planCandle(ctx: ScriptContext, catalogMembers: JsonObject): CandlePlanResult {
-  const assignments = objectOrEmpty(ctx.attr('sensor.ls_effects_runtime', 'assignments'), 'effects_candle_plan.assignments');
-  const power = objectOrEmpty(ctx.attr('sensor.ls_overrides', 'power'), 'effects_candle_plan.power');
-  const actual = objectOrEmpty(ctx.attr('sensor.ls_effects_runtime', 'candle_group'), 'effects_candle_plan.actual');
-  const endpoints = new Map<string, CandleMember>();
-  const owners: Record<string, string> = {};
-  for (const [lamp, ends] of Object.entries(catalogMembers)) {
-    for (const endpoint of stringList(ends, `effects_candle_plan.catalog.members.${lamp}`)) {
-      for (const pair of ctx.identifiers?.[endpoint] ?? []) {
-        if (!Array.isArray(pair)) continue;
-        const [domain, identifier] = pair;
-        if (domain !== 'mqtt' || typeof identifier !== 'string' || !identifier.startsWith('zigbee2mqtt_0x')) continue;
-        const ieee = identifier.slice(12);
-        endpoints.set(endpoint, { ieee_address: ieee, endpoint: 1 });
-        owners[ieee] = lamp;
-      }
-    }
-  }
-  const lamps: Record<string, JsonObject> = {};
-  const entities: string[] = [];
-  const wanted: CandleMember[] = [];
-  for (const [lamp, assignment] of Object.entries(assignments)) {
-    if (!Object.hasOwn(catalogMembers, lamp) || ctx.get(lamp) !== 'on') continue;
-    const t = requireObject({ assignment }, 'assignment', `effects_candle_plan.assignments.${lamp}`);
-    const on = t.on === undefined ? false : requireBoolean(t.on, `effects_candle_plan.assignments.${lamp}.on`);
-    if (!on) continue;
-    const area = requireString(t, 'area', `effects_candle_plan.assignments.${lamp}`);
-    const powered = power[area] === undefined ? true : requireBoolean(power[area], `effects_candle_plan.power.${area}`);
-    if (!powered) continue;
-    const brightness = objectDefaultAbsent(t, 'brightness', `effects_candle_plan.assignments.${lamp}`);
-    const color = objectDefaultAbsent(t, 'color', `effects_candle_plan.assignments.${lamp}`);
-    if (brightness.kind !== 'effect' || brightness.effect !== 'Candle' || color.kind !== 'effect' || color.effect !== 'Candle') continue;
-    lamps[lamp] = t;
-    for (const endpoint of stringList(catalogMembers[lamp], `effects_candle_plan.catalog.members.${lamp}`)) {
-      const member = endpoints.get(endpoint);
-      if (ctx.get(endpoint) === 'on' && member !== undefined) { entities.push(endpoint); wanted.push(member); }
-    }
-  }
-  wanted.sort(byIeee);
-  const members = list(actual.members).map((member, index) => {
-    const parsed = requireObject({ member }, 'member', `effects_candle_plan.actual.members[${index}]`);
-    requireString(parsed, 'ieee_address', `effects_candle_plan.actual.members[${index}]`);
-    return parsed;
-  }).sort(byAddress);
-  const remove = members.filter(member => !wanted.some(w => jsonEqual(w, member)));
-  const add = wanted.filter(member => !members.some(m => jsonEqual(m, member)));
-  const restarted = Math.max(epoch(ctx.state['binary_sensor.zigbee2mqtt_bridge_connection_state']?.last_changed), epoch(ctx.state['automation.effects_candle_group_state']?.last_changed));
-  const observed = num(actual.observed_at, 0);
-  const fresh = observed >= restarted && observed > 0;
-  // Captured `actual.get('exists', false)` makes an absent first observation
-  // genuinely optional; a present value is still required to be a boolean.
-  const exists = actual.exists === undefined
-    ? false
-    : requireBoolean(actual.exists, 'effects_candle_plan.actual.exists');
-  const synchronized = exists && fresh && jsonEqual(members, wanted);
-  const syncing = optionalBoolean(ctx.attr('sensor.ls_effects_runtime', 'candle_syncing'), 'effects_candle_plan.candle_syncing') ?? false;
-  return {
-    lamps, entities: [...new Set(entities)].sort(compare), members: wanted, actual, remove, add, owners, fresh, synchronized,
-    ready: synchronized && wanted.length > 0 && !syncing && ctx.get('binary_sensor.zigbee2mqtt_bridge_connection_state') === 'on',
-  };
-}
-
 export const groupingHandlers: ScriptHandlers = {
   // Captured rows/groups are iterated, so absence is empty while a malformed
   // present container raises. catalog.members is accessed through .items().
   effects_group_plan: typed('effects_group_plan', {
     parse: parseGroupPlanArgs,
     run: (_ctx, args) => planGroups(args.rows, args.groups),
-  }),
-  effects_candle_plan: typed('effects_candle_plan', {
-    parse: args => {
-      const catalog = requireObject(args, 'catalog', 'effects_candle_plan');
-      return { catalogMembers: requireObject(catalog, 'members', 'effects_candle_plan.catalog') };
-    },
-    run: (ctx, args) => planCandle(ctx, args.catalogMembers),
   }),
 };

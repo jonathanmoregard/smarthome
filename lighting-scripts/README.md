@@ -25,7 +25,7 @@ Bootstrap runs once and refuses to overwrite resident configuration. It has alre
 been run in this workspace. The development process accepts JSON lines on stdin:
 
 ```json
-{"script":"effect_candle_frame","args":{"timestamp":1793000000,"brightness":150,"phase":"example"}}
+{"script":"effect_breathe_frame","args":{"timestamp":1793000000,"brightness":150}}
 ```
 
 Saving TypeScript compiles a candidate and replaces the running domain only after

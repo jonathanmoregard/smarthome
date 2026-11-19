@@ -15,8 +15,15 @@ RETAINED = {
     'wake_light_jonathan': 'Existing wake blueprint writes the wake helper; retain it.',
     'lighting_recover_failed_zigbee_commands': 'Existing infrastructure recovery ledger remains in HA.',
 }
+# Not bridged and not retained: the software candle these drove is gone. The
+# bulb firmware renders Candle now, so cutover disables these in HA rather
+# than pointing them at handlers that no longer exist.
+RETIRED = {
+    'effects_candle_group_state': 'Fed the software candle group reconciliation; the bulb firmware renders Candle.',
+    'effects_candle_membership': 'Started the software candle group reconciliation; the bulb firmware renders Candle.',
+}
 COMMAND_SCRIPTS = {
-    'effects_set', 'effects_ui_catalog', 'effects_ui_sync', 'effects_candle_sync',
+    'effects_set', 'effects_ui_catalog', 'effects_ui_sync',
     'ls_apply', 'ls_clear_overrides', 'ls_override_block', 'ls_remote_command',
     'ls_sara_mode', 'ls_store', 'ls_range_save', 'ls_render',
 }
@@ -74,10 +81,10 @@ def main():
     parser.add_argument('--output', type=Path, default=ROOT / '.runtime/bridge')
     args = parser.parse_args()
     args.output.mkdir(mode=0o700, parents=True, exist_ok=True)
-    manifest = {'bridges': [], 'script_bridges': [], 'retained': RETAINED, 'applied': False,
+    manifest = {'bridges': [], 'script_bridges': [], 'retained': RETAINED, 'retired': RETIRED, 'applied': False,
                 'response_queries': 'Local src/rpc.ts only; HA script bridges are commands, with dry_run suppressed.'}
     for path in sorted(args.source.glob('*.json')):
-        if path.stem in RETAINED:
+        if path.stem in RETAINED or path.stem in RETIRED:
             continue
         envelope = json.loads(path.read_text())
         result = bridge(path.stem, envelope.get('config', envelope))

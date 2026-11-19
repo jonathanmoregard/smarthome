@@ -3,6 +3,8 @@ import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../ru
 import { isObject, jinjaTruthy, object, ParseError, requireArray, requireBoolean, requireNumber, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
 import { typed } from '../runtime/entrypoints.ts';
 import { hasValue, list, strings, timestamp } from './schedule.ts';
+import { FIRMWARE_CANDLE } from './transport.ts';
+import type { AssignResult, EmitResult } from './transport.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
 const overrideSensor = 'sensor.ls_overrides';
@@ -18,7 +20,7 @@ function optionalRevisionAttribute(value: JsonValue | undefined, context: string
 interface DispatchDetails {
   base: JsonObject;
   targets: JsonObject;
-  targetViews: Record<string, { raw: JsonObject; isRoom: boolean; area: JsonValue | undefined }>;
+  targetViews: Record<string, { raw: JsonObject; isRoom: boolean; area: JsonValue | undefined; candle: boolean }>;
   assignments: JsonObject;
   requested: JsonValue[];
   outputTargets: JsonValue[];
@@ -58,7 +60,11 @@ function parseDispatchDetails(plan: JsonObject, lights: JsonValue | undefined): 
   const targets = requireObject(resolved, 'targets', 'ls_dispatch.plan.resolved');
   const targetViews = Object.fromEntries(Object.entries(targets).map(([lamp, raw]) => {
     const target = requireObject({ raw }, 'raw', `ls_dispatch.plan.resolved.targets.${lamp}`);
-    return [lamp, { raw: target, isRoom: jinjaTruthy(target.is_room), area: target.area }];
+    // Read without raising: `effects_frame_plan` parses this target strictly,
+    // and raises there, before anything here acts on the answer.
+    const brightness = isObject(target.brightness) ? target.brightness : {};
+    const candle = jinjaTruthy(target.on) && brightness.kind === 'effect' && brightness.effect === FIRMWARE_CANDLE.effect;
+    return [lamp, { raw: target, isRoom: jinjaTruthy(target.is_room), area: target.area, candle }];
   }));
   return {
     base,
@@ -133,11 +139,12 @@ export function dispatch(ctx: ScriptContext, args: DispatchArgs): DispatchResult
   // every path, so both could only fire for a stub, and `decodeGroupPlan` is
   // where that case is handled now -- strictly, rather than as an empty batch.
   const emission = ctx.call('effects_emit', { commands: batch.commands, revision, generation: assigned.generation });
+  const started = startCandles(ctx, Object.keys(ordinary).filter(lamp => targetViews[lamp]!.candle), revision, assigned.generation);
   // `requireBoolean(emission.completed)`, `?? null` on the generation and
   // `?? []` on published_at are all gone: `emitCommands` builds both fields
   // every time and `assignEffects` already normalises an absent generation to
   // null, so none of the three could fire for the real handlers.
-  const completed = emission.completed;
+  const completed = emission.completed && started.completed;
   const generation = assigned.generation;
   if (revision !== revisionOf(ctx) || generation !== ctx.attr(runtime, 'generation')) return null;
   if (Object.keys(ordinary).length && completed) {
@@ -158,7 +165,26 @@ export function dispatch(ctx: ScriptContext, args: DispatchArgs): DispatchResult
   if (saraMirror === 'on' || saraMirror === 'off') ctx.emit(`input_boolean.turn_${saraMirror}`, {}, { entity_id: 'input_boolean.ls_sara_mode_mirror' }, { revision, generation });
   const parsedStaleKeys = staleKeys();
   if (parsedStaleKeys.length) ctx.fire('ls_override', { op: 'clear', keys: parsedStaleKeys, via: 'rule_next_block', expected_revision: revision });
-  return { completed: completed && revision === revisionOf(ctx) && generation === ctx.attr(runtime, 'generation'), published_at: emission.published_at };
+  return { completed: completed && revision === revisionOf(ctx) && generation === ctx.attr(runtime, 'generation'), published_at: [...emission.published_at, ...started.published_at] };
+}
+
+/**
+ * Start the bulb's own candle on lamps that were just sent their colour and
+ * ceiling. A second emission, after the first, so every bulb receives its
+ * colour before the trigger: the firmware flickers under the level the lamp is
+ * at and keeps whatever colour it shows. Same members and topics the frame
+ * plan addressed, through the same guarded emitter.
+ */
+function startCandles(ctx: ScriptContext, lamps: string[], revision: string, generation: AssignResult['generation']): EmitResult {
+  const commands = lamps.filter(lamp => ctx.get(lamp) === 'on').flatMap(lamp =>
+    (ctx.catalog.members[lamp] ?? []).flatMap(member => {
+      const topic = ctx.catalog.topics[member];
+      return ctx.get(member) === 'on' && topic !== undefined
+        ? [{ topic, payload: { effect: FIRMWARE_CANDLE.start }, members: [member], owners: [lamp], group: null }]
+        : [];
+    }));
+  if (commands.length === 0) return { published_at: [], completed: true };
+  return ctx.call('effects_emit', { commands, revision, generation });
 }
 
 /** Coalesce pending room versions, preserving unrelated rooms and retrying incomplete output. */

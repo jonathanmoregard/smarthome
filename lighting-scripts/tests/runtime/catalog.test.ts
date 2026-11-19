@@ -54,19 +54,6 @@ test('an effect may declare no channels, and that is an empty list', () => {
     { channels: [] });
 });
 
-test('an absent candle_group stays absent rather than becoming an empty mapping', () => {
-  // The live catalog has no candle_group at all. effects_candle_sync branches
-  // on `=== undefined` to choose the 'fx_candle_active' name and id 1100;
-  // handing it {} would keep the branch but is a different statement, and
-  // handing it a default group name would silently create the wrong group.
-  assert.equal(parseCatalog(minimal).candle_group, undefined);
-  assert.deepEqual(parseCatalog({ ...minimal, candle_group: { friendly_name: 'fx_candle_active', id: 1100 } }).candle_group,
-    { friendly_name: 'fx_candle_active', id: 1100 });
-  // Both fields are independently optional: the consumer defaults each one.
-  assert.deepEqual(parseCatalog({ ...minimal, candle_group: {} }).candle_group,
-    { friendly_name: undefined, id: undefined });
-});
-
 test('an absent ui_choices stays absent so the two-choice fallback still fires', () => {
   // effects_ui_catalog publishes ['Normal Light', 'Candle'] when the catalog
   // names no choices. An empty list would publish an empty effect_list and
@@ -171,7 +158,6 @@ test('a missing catalog is an explicit empty catalog, not a parse error', () => 
   const empty = emptyCatalog();
   assert.deepEqual(empty.members, {});
   assert.deepEqual(empty.effects, {});
-  assert.equal(empty.candle_group, undefined);
   assert.equal(empty.ui_choices, undefined);
   assert.equal(empty.ui_rows, undefined);
 });

@@ -1,5 +1,5 @@
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandler, ScriptHandlers } from '../runtime/context.ts';
-import { isObject, jinjaString, jinjaTruthy, object, ParseError, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { jinjaTruthy, object, ParseError, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
 import { list, nativeScalar, num, timestamp } from './schedule.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
@@ -19,7 +19,6 @@ interface NativeControlsArgs {
   sources: () => JsonObject;
 }
 interface WriterArgs { data: JsonObject; who: JsonValue }
-interface CandleGroupArgs { id: JsonValue | undefined; payloadJson: JsonValue | undefined }
 interface TriggerIdArgs { id: JsonValue | undefined }
 interface ScheduleEngineArgs extends TriggerIdArgs { entityId: JsonValue | undefined }
 interface SaraModeArgs extends TriggerIdArgs { who: JsonValue | undefined }
@@ -46,15 +45,6 @@ function lazy<T>(parse: () => T): () => T {
 
 function triggerObject(args: JsonObject, context: string): JsonObject {
   return requireObject(args, 'trigger', context);
-}
-
-/** Jinja `| list`: Undefined is empty; strings and mappings iterate. */
-function jinjaList(value: JsonValue | undefined, context: string): JsonValue[] {
-  if (value === undefined) return [];
-  if (Array.isArray(value)) return [...value];
-  if (typeof value === 'string') return [...value];
-  if (isObject(value)) return Object.keys(value);
-  throw new ParseError(`${context} is not iterable for Jinja's list filter`);
 }
 
 function remote(kind: 'power' | 'directions' | 'preset'): ScriptHandler {
@@ -167,35 +157,6 @@ export const automationHandlers: ScriptHandlers = {
     if (dirty) turnOn(ctx, 'ls_render');
     return null;
   },
-  // Candle group state reads payload_json four times: one iteration, one
-  // mapping guard, one transaction `| string` method chain, and one raw output.
-  // Matched candidate friendly_name/id/members occur once each; members has
-  // `| list`, so missing is empty while strings/mappings retain iteration.
-  'automation.effects_candle_group_state': withParsedArgs({
-    parse: args => {
-      const trigger = triggerObject(args, 'automation.effects_candle_group_state');
-      return { id: trigger.id, payloadJson: trigger.payload_json };
-    },
-    run: (ctx, args: CandleGroupArgs) => {
-    const attributes: JsonObject = {};
-    if (args.id === 'groups') {
-      const name = object(ctx.catalog?.candle_group).friendly_name ?? 'fx_candle_active';
-      let group: JsonObject = { exists: false, members: [], observed_at: timestamp(ctx.now) };
-      for (const raw of jinjaList(args.payloadJson, 'automation.effects_candle_group_state.trigger.payload_json')) {
-        if (!isObject(raw)) continue;
-        if (raw.friendly_name === name) group = { exists: true, id: raw.id ?? null,
-          members: jinjaList(raw.members, 'automation.effects_candle_group_state.trigger.payload_json.members'), observed_at: timestamp(ctx.now) };
-      }
-      attributes.candle_group = group;
-    } else if (args.id === 'response' && isObject(args.payloadJson)
-      && jinjaString(args.payloadJson.transaction).startsWith('candle:')) attributes.candle_response = args.payloadJson;
-    else return null;
-    ctx.emit('variable.update_sensor', { value: nativeScalar(ctx.get(runtime)), replace_attributes: false, attributes }, { entity_id: runtime });
-    ctx.run('effects_candle_sync_resume');
-    return null;
-    },
-  }),
-  'automation.effects_candle_membership': ctx => { turnOn(ctx, 'effects_candle_sync'); return null; },
   'automation.effects_lifecycle': ctx => {
     if (!(ctx.scheduled ?? []).some(task => task.script === 'effects_engine_tick') && ctx.get('script.effects_engine') === 'off' && Object.keys(object(ctx.attr(runtime, 'assignments'))).length) ctx.run('ls_apply', { reason: 'config' });
     return null;

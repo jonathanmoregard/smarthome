@@ -11,7 +11,6 @@ import { controllerHandlers } from '../domain/controller.ts';
 import { uiHandlers } from '../domain/ui-state.ts';
 import { transportHandlers } from '../domain/transport.ts';
 import { dispatchHandlers } from '../domain/dispatch-render.ts';
-import { candleSyncHandlers } from '../domain/candle-sync.ts';
 import { automationHandlers } from '../domain/automations.ts';
 import type { ScriptHandlers } from './context.ts';
 
@@ -29,7 +28,6 @@ export const handlers: ScriptHandlers = {
   ...uiHandlers,
   ...transportHandlers,
   ...dispatchHandlers,
-  ...candleSyncHandlers,
   ...automationHandlers,
   // Serves the unparsed document, deliberately: this is the name-keyed view
   // that HA and the parity harness call, and they compare the whole document

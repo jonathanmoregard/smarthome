@@ -3,7 +3,7 @@ import type { TypedResults } from '../runtime/entrypoints.ts';
 import type { SwitchDecision, SwitchPlanResult } from '../domain/controller.ts';
 import type { AssignResult, EmitResult } from '../domain/transport.ts';
 import type { CommitResult } from '../domain/state-store.ts';
-import type { CandleMember, CandlePlanResult, GroupCommand, GroupPlanResult, RejectedRow } from '../domain/grouping.ts';
+import type { GroupCommand, GroupPlanResult, RejectedRow } from '../domain/grouping.ts';
 import type { RemoteInputRecord, RemoteModeRecord, RemotePlanOp, RemotePlanResult } from '../domain/remote-input.ts';
 import type { LampColor, LampProfile, LampProfileEntry, ScheduleCommand, ScheduleDetails, ScheduleEnvelope, ScheduledBaseResult, TargetEntry } from '../domain/schedule.ts';
 import { optionalBlock } from './blocks.ts';
@@ -155,41 +155,6 @@ function decodeRejectedRow(value: JsonValue, context: string): RejectedRow {
   if (reason === 'invalid_endpoint_row') return { reason, index: requireNumber(row, 'index', context) };
   if (reason === 'conflicting_endpoint_rows') return { reason, entity: requireString(row, 'entity', context) };
   throw new ParseError(`${context}.reason must be invalid_endpoint_row or conflicting_endpoint_rows, got ${JSON.stringify(reason)}`);
-}
-
-function decodeCandleMember(value: JsonValue, context: string): CandleMember {
-  const member = requireObject({ value }, 'value', context);
-  return {
-    ieee_address: requireString(member, 'ieee_address', context),
-    endpoint: requireNumber(member, 'endpoint', context),
-  };
-}
-
-/**
- * `lamps`, `actual` and `remove` are read raw, matching `CandlePlanResult`:
- * `remove`'s entries are documents the planner only checks, and the selected
- * one is persisted into `candle_pending` and compared.
- */
-function decodeCandlePlan(value: JsonValue, context: string): CandlePlanResult {
-  const result = requireObject({ value }, 'value', context);
-  const decodeMembers = (key: 'members' | 'add'): CandleMember[] =>
-    requireArray(result, key, context)
-      .map((member, index) => decodeCandleMember(member, `${context}.${key}.${index}`));
-  return {
-    lamps: Object.fromEntries(Object.entries(requireObject(result, 'lamps', context))
-      .map(([lamp, raw]) => [lamp, requireObject({ raw }, 'raw', `${context}.lamps.${lamp}`)])),
-    entities: decodeStrings(result, 'entities', context),
-    members: decodeMembers('members'),
-    actual: requireObject(result, 'actual', context),
-    remove: requireArray(result, 'remove', context)
-      .map((raw, index) => requireObject({ raw }, 'raw', `${context}.remove.${index}`)),
-    add: decodeMembers('add'),
-    owners: Object.fromEntries(Object.entries(requireObject(result, 'owners', context))
-      .map(([ieee, lamp]) => [ieee, requireString({ lamp }, 'lamp', `${context}.owners.${ieee}`)])),
-    fresh: requireBoolean(result.fresh, `${context}.fresh`),
-    synchronized: requireBoolean(result.synchronized, `${context}.synchronized`),
-    ready: requireBoolean(result.ready, `${context}.ready`),
-  };
 }
 
 /** Every operation but `noop` is tagged `via: 'remote'`; the literal is checked. */
@@ -435,10 +400,6 @@ export const resultCodecs: { [K in keyof TypedResults]: ResultCodec<TypedResults
   // leniency the two call sites used to apply inline.
   effects_group_plan: { encode: result => result, decode: decodeGroupPlan },
   effects_frame_plan: { encode: result => result, decode: decodeGroupPlan },
-  // A decoder because `iterate()` reads seven of the ten fields and drives a
-  // Zigbee group mutation off them, so a drifted stub would publish the wrong
-  // membership rather than fail.
-  effects_candle_plan: { encode: result => result, decode: decodeCandlePlan },
   // A decoder, and it is the most load-bearing one here. `ls_remote_command`
   // used to read this result with `requireString(input_revision)`,
   // `requireBoolean(on)` and `requireArray(targets)`, and

@@ -2,8 +2,7 @@
  * Document values the domain carries to an edge unchanged, and never reads.
  *
  * Some data crosses the lighting domain without being *about* lighting: an MQTT
- * body assembled upstream, the multicast group's own `id`, the runtime sensor's
- * `candle_group` attribute handed back as observed. The gate compares those
+ * body assembled upstream, the multicast group's own `id`. The gate compares those
  * bytes, so parsing them into a narrower type would be a projection (THE
  * INVARIANT in `tasks/mission.md`), and leaving them `JsonValue` would let the
  * domain traverse them -- which is the defect class this mission removes.

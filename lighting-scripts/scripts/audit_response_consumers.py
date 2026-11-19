@@ -9,7 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 REMOTE_PREFIXES = ('ls_remote_gesture_', 'ls_remote_power_quiet_')
 EXPECTED_SHIMMED_ENTRYPOINTS = {
-    'effects_candle_sync', 'effects_set', 'effects_ui_catalog', 'effects_ui_sync',
+    'effects_set', 'effects_ui_catalog', 'effects_ui_sync',
     'ls_apply', 'ls_clear_overrides', 'ls_override_block', 'ls_range_save',
     'ls_remote_command', 'ls_remote_gesture_bedroom', 'ls_remote_gesture_kitchen',
     'ls_remote_gesture_living_room', 'ls_remote_power_quiet_bedroom',

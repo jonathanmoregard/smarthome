@@ -1,15 +1,28 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { JsonObject, JsonValue, OutputGuard, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { jinjaFloat, jinjaTruthy, object, requireArray, requireNumber, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { isObject, jinjaFloat, jinjaTruthy, object, requireArray, requireNumber, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
 import { catalogOf } from '../runtime/catalog.ts';
 import { typed } from '../runtime/entrypoints.ts';
 import { roundEven, clamp } from './scale.ts';
 import { recordTimestamp } from '../parse/resolution.ts';
 import { requireRgb } from '../parse/scale.ts';
+import { warmEndOf } from '../parse/planning.ts';
 import type { GroupCommand, GroupPlanResult } from './grouping.ts';
 
 const list = (v: JsonValue | undefined): JsonValue[] => Array.isArray(v) ? v : [];
 const runtime = 'sensor.ls_effects_runtime';
+
+/**
+ * The effect the bulb renders itself, and the Zigbee2MQTT light `effect` that
+ * starts it. The Innr RB 282 C firmware's Identify TriggerEffect 0x0b flickers
+ * under whatever level the lamp is at, holds the lamp's colour, and stops on
+ * `stop_effect`, Off, or any brightness command. So the port sends a Candle
+ * lamp its colour and ceiling once, then this trigger, and streams nothing.
+ */
+export const FIRMWARE_CANDLE = { effect: 'Candle', start: 'channel_change' } as const;
+function onBulb(source: { kind: string; effect: string | null }): boolean {
+  return source.kind === 'effect' && source.effect === FIRMWARE_CANDLE.effect;
+}
 const revisionNow = (ctx: ScriptContext) => ctx.state['sensor.ls_overrides']?.last_updated ?? ctx.now;
 
 interface FrameSource {
@@ -94,7 +107,7 @@ function parseFrameSource(target: JsonObject, channel: 'brightness' | 'color', c
   return {
     kind,
     effect,
-    // The animation-tick Candle branch skips the color channel entirely.
+    // A frame tick skips every channel the bulb renders, so those are never read here.
     details: lazy(() => ({
       instance: kind === 'effect' ? requireString(source, 'instance', `${context}.${channel}`) : null,
       intensity: kind === 'effect' ? requireNumber(source, 'intensity', `${context}.${channel}`) : null,
@@ -192,12 +205,20 @@ export function framePlan(ctx: ScriptContext, args: FramePlanArgs): GroupPlanRes
     const frames: JsonObject = {};
     let payload: JsonObject = {};
     const color = target.color, brightness = target.brightness;
-    const channels: Array<'brightness' | 'color'> = args.animationTick && color.kind === 'effect' && color.effect === 'Candle' ? ['brightness'] : ['brightness', 'color'];
+    // A frame tick never touches a channel the bulb renders: a brightness
+    // command would end the firmware candle. A lamp left with nothing animated
+    // gets no frame at all.
+    const channels = (['brightness', 'color'] as const).filter(channel => !(args.animationTick && onBulb(target[channel])));
+    if (channels.length < 2 && !channels.some(channel => target[channel].kind === 'effect')) continue;
     for (const channel of channels) {
       const source = target[channel];
       const { instance, intensity, value: sourceValue } = source.details();
       let value = sourceValue;
-      if (source.kind === 'effect' && source.effect !== null && Object.hasOwn(effects, source.effect)) {
+      if (onBulb(source)) {
+        // The candle's ceiling is its intensity; its colour is the warm end the
+        // software renderer used to return on every frame.
+        value = channel === 'brightness' ? intensity : { rgb: warmEndOf(ctx.attr('light.candle_test_rgb_warm_end', 'rgb_color')) };
+      } else if (source.kind === 'effect' && source.effect !== null && Object.hasOwn(effects, source.effect)) {
         const frameKey = `${instance}:${source.effect}`;
         if (!Object.hasOwn(frames, frameKey)) {
           frames[frameKey] = ctx.run(effects[source.effect]!.renderer, {
@@ -293,7 +314,11 @@ export function assignEffects(ctx: ScriptContext, args: AssignArgs): AssignResul
     const commands: JsonValue[] = [];
     for (const [lamp, target] of Object.entries(details.targetViews())) {
       if (target.isRoom) continue;
-      let needed = ['Breathe', 'Colour loop'].includes(String(object(old[lamp]).effect));
+      const previous = object(old[lamp]);
+      let needed = ['Breathe', 'Colour loop'].includes(String(previous.effect));
+      // A lamp leaving the bulb's own candle is told to stop it.
+      const before = isObject(previous.brightness) ? previous.brightness : {};
+      if (before.kind === 'effect' && before.effect === FIRMWARE_CANDLE.effect && !onBulb(target.channels.brightness)) needed = true;
       for (const channel of ['brightness', 'color']) {
         const typedChannel = channel as 'brightness' | 'color';
         const source = target.channels[typedChannel];

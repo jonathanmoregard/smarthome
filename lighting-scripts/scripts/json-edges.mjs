@@ -241,12 +241,22 @@ const DOMAIN = join(ROOT, 'src/domain');
  * where it sat. `recordTimestamp` and `latestRemoteKey` read stored records,
  * so they moved to the parse layer with their callers repointed. The pre-
  * existing `warm_end` cast moved with them, unchanged and marked.
+ *
+ * The software candle is gone, replaced by the bulb firmware's own (a
+ * deliberate behaviour change, not a representation step): `candle-sync.ts`,
+ * `planCandle` and its result type, the two candle-group automations and the
+ * `effect_candle_frame` renderer were deleted rather than converted.
+ * `jsonTypes 287 -> 257`, `lenientAccessors 203 -> 185`,
+ * `rawJsonReturns 29 -> 25`. This is deletion, not parsing: no surviving read
+ * became typed. The new firmware path adds no accessor -- the stop check in
+ * `effects_assign` shares the one lenient read of the old assignment that was
+ * already there.
  */
 const CEILINGS = {
-  jsonTypes: 287,
+  jsonTypes: 257,
   validatedBags: 0,
-  lenientAccessors: 203,
-  rawJsonReturns: 29,
+  lenientAccessors: 185,
+  rawJsonReturns: 25,
 };
 
 /** Comments may legitimately name these types while explaining why they are gone. */

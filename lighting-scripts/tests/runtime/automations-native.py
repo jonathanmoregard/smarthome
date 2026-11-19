@@ -18,7 +18,7 @@ import readline from 'node:readline';
 import {execute} from './src/runtime/engine.ts';
 import {automationHandlers} from './src/domain/automations.ts';
 for await (const line of readline.createInterface({input:process.stdin})) {
- const r=JSON.parse(line), handlers={...automationHandlers,effects_candle_sync_resume:()=>null};
+ const r=JSON.parse(line), handlers={...automationHandlers};
  for (const name of r.dependencies) handlers[name]=(ctx,args)=>{ctx.emit('script.'+name,args);return r.responses[name]??null;};
  try {const out=execute(r,handlers);process.stdout.write(JSON.stringify(out)+'\\n');}
  catch(e) {process.stdout.write(JSON.stringify({error:String(e)})+'\\n');}
@@ -53,11 +53,6 @@ async def main():
  add('effects_native_light_controls',{'topic':'house/v1/effect_preview/ep_home/set/invalid','payload':'OFF'},{'sources':configs['effects_native_light_controls']['variables']['sources']})
  for attribute,payload in [('brightness','87'),('temperature','370'),('rgb','255,100,0'),('effect','Candle')]:
   add('effects_native_light_controls',{'topic':f'house/v1/effect_preview/ep_home/set/{attribute}','payload':payload},{'sources':configs['effects_native_light_controls']['variables']['sources']})
- add('effects_candle_group_state',{'id':'groups','payload_json':[{'friendly_name':'fx_candle_active','id':1100,'members':[{'ieee_address':'0xa','endpoint':1}]}]})
- add('effects_candle_group_state',{'id':'groups','payload_json':[]})
- for token in ['candle:confirmed','unrelated']:
-  add('effects_candle_group_state',{'id':'response','payload_json':{'transaction':token,'status':'ok'}})
- add('effects_candle_membership',{})
  add('effects_lifecycle',{})
  for trigger in ['start','periodic']:add('effects_refresh_native_light_controls',{'id':trigger})
  for trigger in ['tick','config','lamp_on']:add('lighting_schedule_engine',{'id':trigger,'entity_id':'light.a'})

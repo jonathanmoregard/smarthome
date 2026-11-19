@@ -87,13 +87,6 @@ test('lamp capture ignores contexts owned by running scripts', async () => {
   assert.deepEqual(invoked, []);
   assert.deepEqual(ctx.events, []);
 });
-test('Candle group observations store fresh actual state before resuming waiting operation', async () => {
-  const { ctx, invoked } = await driver(); ctx.put('sensor.ls_effects_runtime', '1');
-  ctx.run('automation.effects_candle_group_state', { trigger: { id: 'groups', payload_json: [{ friendly_name: 'fx_candle_active', id: 1100, members: [{ ieee_address: '0xa', endpoint: 1 }] }] } });
-  assert.deepEqual(ctx.calls[0].data.attributes, { candle_group: { exists: true, id: 1100, members: [{ ieee_address: '0xa', endpoint: 1 }], observed_at: Date.parse(ctx.now) / 1000 } });
-  assert.deepEqual(invoked, [{ name: 'effects_candle_sync_resume', args: {} }]);
-  ctx.run('automation.effects_candle_group_state', { trigger: { id: 'response', payload_json: { transaction: 'unrelated', status: 'ok' } } }); assert.equal(ctx.calls.length, 1);
-});
 test('lifecycle does not restart the typed engine while its continuation is pending', async () => {
   const { ctx, invoked } = await driver();
   ctx.put('script.effects_engine', 'off');

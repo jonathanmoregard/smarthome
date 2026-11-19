@@ -168,7 +168,8 @@ still conflicts with the current live Candle restriction and remains reported.
 The settled gate also reruns the native bridge-field, full automation, schedule,
 and UI/range differentials (`native_bridges.py` and the three neighboring
 `tests/runtime/*native*.py` scripts). Their reports cover 72 bridge-field cases,
-38 automation scenarios, 40 schedule comparisons and 26 UI/range comparisons.
+33 automation scenarios (38 before the five candle-group cases were retired), 40
+schedule comparisons and 26 UI/range comparisons.
 The current authoritative verification artifacts are `gate-report.json` and
 `gate-comparison-report.json`. Other comparison JSON files retain exploratory
 results from earlier adapter states and are not release-status claims.
@@ -180,3 +181,16 @@ the original historical catalog. An observed `ls_override` event is delivered to
 the typed commit handler, matching the original simulator's synchronous writer
 sink. Cache instrumentation observes actual TypeScript `Math.log` calls; the
 observer's Python return value is never used by the implementation.
+
+## Retired cases
+
+`retired.py` lists legacy cases retired by a deliberate behaviour change. They
+are removed from the suite on both backends (not skipped, which would count as
+a pass) and listed under `retired_cases` in `gate-report.json` with a reason.
+
+Firmware candle, 2026-11-19: twelve cases that assert the software candle's
+streaming (9 in `test_effect_pacing.py`, 3 in `test_transport.py`). Candle now
+runs on the bulb, so the engine sends it nothing. All twelve were clean on the
+reference backend, so the gate's clean count moved 244 -> 232. The
+`automations-native.py` supplement dropped its five candle-group scenarios with
+the automations they exercised.

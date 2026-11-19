@@ -6,19 +6,26 @@ distinguishes the implemented program from deployment and repository delivery.
 
 ## Scope and design
 
-1. 41 of 45 captured scripts have TypeScript implementations, including the room
-   gesture wrappers, planners, channel resolution, UI actions, fair effect engine,
-   guarded dispatch and asynchronous Candle membership synchronization.
-2. `house_apply_mode` and `house_sunrise` are legacy: their three captured consumer
+1. 38 of 45 captured scripts have TypeScript implementations, including the room
+   gesture wrappers, planners, channel resolution, UI actions, fair effect engine
+   and guarded dispatch.
+2. Candle is rendered by the bulbs' own firmware, a deliberate change from the
+   captured scripts: dispatch sends a Candle lamp its colour and ceiling, then
+   Zigbee2MQTT `effect: channel_change`; leaving Candle sends `stop_effect`. The
+   software candle's three scripts (`effect_candle_frame`, `effects_candle_plan`,
+   `effects_candle_sync`) and its two automations (`effects_candle_group_state`,
+   `effects_candle_membership`) are retired, not ported; `scripts/export-bridge.py`
+   lists the automations under `retired` for cutover to disable.
+3. `house_apply_mode` and `house_sunrise` are legacy: their three captured consumer
    automations have been disabled since 2026-10-14. Current state evidence is
    `reference/live/automation-states.json`.
-3. `effects_route` and `effects_release` have no consumers in the captured scripts
+4. `effects_route` and `effects_release` have no consumers in the captured scripts
    or automations and use obsolete assignment/controller schemas. They are not
    part of the active port. This is a scoped consumer check, not proof about every
    external HA caller.
-4. Twenty-one automation action adapters are typed. Their generated trigger bridges
+5. Twenty-one automation action adapters are typed. Their generated trigger bridges
    retain the current HA conditions/variables and replace actions with one event.
-   Eighteen command-script shims preserve dashboard entrypoints. They remain
+   Seventeen command-script shims preserve dashboard entrypoints. They remain
    command-only and suppress dry-run calls; query and validation clients use the
    local RPC. The 2026-11-02 response-consumer audit found no external response
    consumer among those entrypoints, so cutover does not require a correlated HA
@@ -48,31 +55,31 @@ public outputs as well as original assertions.
 
 ### HA response-consumer audit
 
-Captured evidence dated 2026-11-02 establishes that none of the 18 generated
-command-script shims has a response consumer outside TypeScript. This is a scoped
+Captured evidence dated 2026-11-02 establishes that none of the 17 generated
+command-script shims has a response consumer outside TypeScript
+(18 when audited; `effects_candle_sync` has since been retired). This is a scoped
 cutover finding, not a claim that an unknown future HA caller could consume a reply
 from the command-only event shims.
 
 | # | Shimmed entrypoint | Captured caller evidence | External response consumer |
 |---:|---|---|---|
-| 1 | `effects_candle_sync` | TypeScript-owned candle automation only | None |
-| 2 | `effects_set` | TypeScript-owned native-control automation only | None |
-| 3 | `effects_ui_catalog` | Called only by TypeScript-owned `effects_ui_sync` | None |
-| 4 | `effects_ui_sync` | TypeScript-owned automation callers only | None |
-| 5 | `ls_apply` | Retained recovery calls it without `response_variable`; both response-bearing callers are TypeScript-owned | None |
-| 6 | `ls_clear_overrides` | Captured dashboard actions do not request or consume a response | None |
-| 7 | `ls_override_block` | Captured dashboard actions do not request or consume a response | None |
-| 8 | `ls_range_save` | Generated dashboard candidate reference does not request or consume a response | None |
-| 9 | `ls_remote_command` | TypeScript-owned gesture wrappers only | None |
-| 10 | `ls_remote_gesture_bedroom` | TypeScript-owned trigger automations and quiet-power helper only | None |
-| 11 | `ls_remote_gesture_kitchen` | TypeScript-owned trigger automations and quiet-power helper only | None |
-| 12 | `ls_remote_gesture_living_room` | TypeScript-owned trigger automations and quiet-power helper only | None |
-| 13 | `ls_remote_power_quiet_bedroom` | TypeScript-owned gesture wrapper only | None |
-| 14 | `ls_remote_power_quiet_kitchen` | TypeScript-owned gesture wrapper only | None |
-| 15 | `ls_remote_power_quiet_living_room` | TypeScript-owned gesture wrapper only | None |
-| 16 | `ls_render` | TypeScript-owned automation and `ls_commit`, both asynchronous | None |
-| 17 | `ls_sara_mode` | No captured action caller | None |
-| 18 | `ls_store` | Called only by TypeScript-owned `effects_set` | None |
+| 1 | `effects_set` | TypeScript-owned native-control automation only | None |
+| 2 | `effects_ui_catalog` | Called only by TypeScript-owned `effects_ui_sync` | None |
+| 3 | `effects_ui_sync` | TypeScript-owned automation callers only | None |
+| 4 | `ls_apply` | Retained recovery calls it without `response_variable`; both response-bearing callers are TypeScript-owned | None |
+| 5 | `ls_clear_overrides` | Captured dashboard actions do not request or consume a response | None |
+| 6 | `ls_override_block` | Captured dashboard actions do not request or consume a response | None |
+| 7 | `ls_range_save` | Generated dashboard candidate reference does not request or consume a response | None |
+| 8 | `ls_remote_command` | TypeScript-owned gesture wrappers only | None |
+| 9 | `ls_remote_gesture_bedroom` | TypeScript-owned trigger automations and quiet-power helper only | None |
+| 10 | `ls_remote_gesture_kitchen` | TypeScript-owned trigger automations and quiet-power helper only | None |
+| 11 | `ls_remote_gesture_living_room` | TypeScript-owned trigger automations and quiet-power helper only | None |
+| 12 | `ls_remote_power_quiet_bedroom` | TypeScript-owned gesture wrapper only | None |
+| 13 | `ls_remote_power_quiet_kitchen` | TypeScript-owned gesture wrapper only | None |
+| 14 | `ls_remote_power_quiet_living_room` | TypeScript-owned gesture wrapper only | None |
+| 15 | `ls_render` | TypeScript-owned automation and `ls_commit`, both asynchronous | None |
+| 16 | `ls_sara_mode` | No captured action caller | None |
+| 17 | `ls_store` | Called only by TypeScript-owned `effects_set` | None |
 
 Five shimmed originals return a response: `effects_set`, `effects_ui_sync`,
 `ls_apply`, `ls_range_save` and `ls_remote_command`. Only `ls_apply` has captured
@@ -87,7 +94,7 @@ Reproduce the audit with `npm run audit:responses`. The check derives the shim s
 from `scripts/export-bridge.py` and the captured remote wrappers, structurally scans
 the current script and automation captures plus the captured dashboard snapshots,
 and fails if it finds a response-bearing shim call beyond those two reviewed
-TypeScript-owned consumers, if the documented 18-entrypoint inventory changes, or
+TypeScript-owned consumers, if the documented 17-entrypoint inventory changes, or
 if an unreviewed templated response action cannot be resolved structurally. The one
 reviewed dynamic effect-renderer call is internal, cannot select a shimmed
 entrypoint, and is bound to the audited template fingerprint so a template change

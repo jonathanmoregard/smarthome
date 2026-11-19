@@ -10,7 +10,7 @@
  * Before this module, ten domain files traversed the raw document and four
  * separate partial validators re-checked overlapping subsets of it
  * (`main.ts`'s three `record()` calls, `native-controls`'s `parseCatalog`,
- * `transport`'s `parseFrameCatalog`, `grouping`'s `effects_candle_plan` parse).
+ * `transport`'s `parseFrameCatalog`).
  * Each one checked a shape and then threw the knowledge away by handing on a
  * `JsonObject`, so every consumer re-derived it with a lenient accessor. One
  * parse, one type.
@@ -81,12 +81,6 @@ export interface CatalogRemote {
   source: string;
 }
 
-/** Both fields are independently optional; `effects_candle_sync` defaults each. */
-export interface CatalogCandleGroup {
-  friendly_name: string | undefined;
-  id: number | undefined;
-}
-
 export interface Catalog {
   /** The effect names the registry knows, each with the channels it drives. */
   effects: Record<string, CatalogEffect>;
@@ -105,8 +99,6 @@ export interface Catalog {
   remotes: Record<string, CatalogRemote>;
   /** Absent means "publish the built-in two choices", which is not the same as none. */
   ui_choices: string[] | undefined;
-  /** Absent in every catalog so far; absence selects the built-in group name and id. */
-  candle_group: CatalogCandleGroup | undefined;
   /** Candidate multicast groups, filtered by `effects_group_plan`. */
   multicast: JsonValue[];
   /**
@@ -183,21 +175,6 @@ function parseRemote(remote: JsonObject, context: string): CatalogRemote {
   };
 }
 
-function parseCandleGroup(group: JsonObject, context: string): CatalogCandleGroup {
-  return {
-    friendly_name: group.friendly_name === undefined ? undefined : requireString(group, 'friendly_name', context),
-    id: group.id === undefined ? undefined : requireNumberAt(group, 'id', context),
-  };
-}
-
-function requireNumberAt(container: JsonObject, key: string, context: string): number {
-  const value = container[key];
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new ParseError(`${context}.${key} must be a finite number, got ${describe(value)}`);
-  }
-  return value;
-}
-
 /**
  * The catalog a context holds when no catalog was supplied.
  *
@@ -209,7 +186,7 @@ function requireNumberAt(container: JsonObject, key: string, context: string): n
 export function emptyCatalog(): Catalog {
   return {
     effects: {}, members: {}, groups: {}, baseline_groups: {}, topics: {}, phases: {},
-    processors: {}, remotes: {}, ui_choices: undefined, candle_group: undefined,
+    processors: {}, remotes: {}, ui_choices: undefined,
     multicast: [], ui_rows: undefined, ui_discovery: undefined,
   };
 }
@@ -262,9 +239,6 @@ export function parseCatalog(document: JsonValue | undefined): Catalog {
     ui_choices: document.ui_choices === undefined
       ? undefined
       : stringList(document.ui_choices, `${at}.ui_choices`),
-    candle_group: document.candle_group === undefined
-      ? undefined
-      : parseCandleGroup(requireObject(document, 'candle_group', at), `${at}.candle_group`),
     multicast: valueList(document, 'multicast', at),
     ui_rows: document.ui_rows === undefined ? undefined : requireArray(document, 'ui_rows', at),
     ui_discovery: document.ui_discovery === undefined ? undefined : requireArray(document, 'ui_discovery', at),

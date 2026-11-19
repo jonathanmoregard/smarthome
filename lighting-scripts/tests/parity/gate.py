@@ -6,6 +6,7 @@ import subprocess
 import sys
 from portability import ROOT, dependencies
 from run import ALIASES, inventory
+from retired import retired_cases
 
 SUITES = ['gestures', 'core', 'core-relational', 'grouping', 'input-edges',
           'lighting-algebra/tests/test_room_cache.py',
@@ -135,7 +136,8 @@ def main():
     summary = {'status': 'regression_or_uncovered_seam' if failed else 'selected_scope_compatible',
                'clean_original_assertion_tests': clean, 'baseline_defects_not_counted_as_passes': defects,
                'modules': modules, 'supplements': supplements, 'bridge_test_exit_code': bridge.returncode,
-               'omitted_modules': omissions(), 'complete_legacy_coverage': False}
+               'omitted_modules': omissions(), 'retired_cases': retired_cases(),
+               'complete_legacy_coverage': False}
     (ROOT / 'tests/parity/gate-report.json').write_text(json.dumps(summary, indent=2) + '\n')
     print(json.dumps(summary, indent=2))
     if result.returncode:

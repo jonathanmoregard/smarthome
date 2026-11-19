@@ -18,6 +18,7 @@ import sys
 import types
 import unittest
 from portability import LEGACY, ROOT, Stage, dependencies, live_candidate
+from retired import RETIRED
 
 ALIASES = {
     'gestures': 'smarthome-remote-20261026/test_gestures.py',
@@ -212,6 +213,13 @@ def execute(args, row):
                     return int(outcome.code or 0)
                 return 0
             suite = unittest.defaultTestLoader.loadTestsFromModule(module)
+            retired = RETIRED.get(row['path'], {})
+            if retired:
+                # Removed, not skipped, on both backends: see retired.py.
+                kept = [test for group in suite for test in group if test.id().rsplit('.', 1)[-1] not in retired]
+                found = {test.id().rsplit('.', 1)[-1] for group in suite for test in group} & set(retired)
+                assert found == set(retired), f'Retired cases not found in {row["path"]}: {sorted(set(retired) - found)}'
+                suite = unittest.TestSuite(kept)
             if args.test:
                 suite = unittest.TestSuite(test for group in suite for test in group if args.test in test.id())
             assert suite.countTestCases(), 'No unittest cases discovered; module-level assertions are not an adequate gate'
