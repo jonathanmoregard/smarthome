@@ -112,3 +112,13 @@ test('lamp capture raises on non-list records only after the power events were f
     trigger: { event: { data: { service: 'turn_on' }, context: { user_id: 'person' } } } }), /schedule list/);
   assert.deepEqual(ctx.events.map(e => e.data.area), ['studio', '']);
 });
+test('lamp capture sends an explicit null power area as null, an absent one as empty text', async () => {
+  // Captured event data: `"area": "{{ repeat.item.area }}"`. Home Assistant
+  // 2026.7.4 renders an item area of None as None, and a missing area (or a
+  // non-mapping item) as '' through its logging undefined.
+  const { ctx } = await driver();
+  ctx.run = (orig => (name, args = {}) => name === 'effects_native_plan'
+    ? { power: [{ area: null }, {}, 'bare', { area: 'studio' }], records: [] } : name.startsWith('automation.') ? orig(name, args) : {})(ctx.run);
+  ctx.run('automation.lighting_schedule_lamp_change_detector', { trigger: { event: { data: { service: 'turn_on' }, context: { user_id: 'person' } } } });
+  assert.deepEqual(ctx.events.map(e => e.data.area), [null, '', '', 'studio']);
+});

@@ -162,9 +162,13 @@ export function stateContextId(state: EntityState): StoredFact {
 export function nativeCapture(result: JsonValue): NativeCapture {
   const capture = object(result);
   return {
-    // divergence: the captured template renders `{{ repeat.item.area }}`, so an
-    // explicit null area is sent as null there and as '' here (`??`). Kept.
-    powerAreas: list(capture.power).map(power => storedFact(object(power).area ?? '')),
+    // Captured: `"area": "{{ repeat.item.area }}"`. Home Assistant renders an
+    // explicit None as None, and a missing area (a non-mapping item included)
+    // as '' through its logging undefined.
+    powerAreas: list(capture.power).map(power => {
+      const area = object(power).area;
+      return area === undefined ? '' : storedFact(area);
+    }),
     records: lazy(() => {
       const records = list(capture.records);
       return { document: carry(records), count: records.length };
