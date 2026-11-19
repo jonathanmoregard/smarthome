@@ -86,3 +86,30 @@ test('a gesture payload that is not a mapping is not a preset payload', async ()
   // silently ignored rather than coerced into a dispatch.
   assert.equal(ctx.run('ls_remote_gesture', { room: 'studio', command: 'preset', payload: { action: 'on' } }), null);
 });
+
+test('a numeric-string preset is not a preset: it cancels the chord and keeps the cursor', async () => {
+  // The captured guard is `is number`, so '200' is not one of the five presets.
+  // A preset parser that coerced through Number/float would turn it into 200.
+  const ctx = context(await load());
+  ctx.put('input_number.ls_studio_remote_preset', '4');
+  ctx.put('input_number.ls_studio_remote_chord_step', '1');
+  ctx.put('timer.ls_studio_remote_chord', 'active');
+  ctx.run('ls_remote_gesture', { room: 'studio', command: 'preset', payload: { action: 'color_temperature_move', action_color_temperature: '200' } });
+  assert.equal(ctx.get('input_number.ls_studio_remote_preset'), '4');
+  assert.equal(ctx.get('timer.ls_studio_remote_chord'), 'idle');
+  assert.deepEqual(commandCalls(ctx), []);
+});
+
+test('power quiet schedules every argument verbatim, in order, then room and command', async () => {
+  // The scheduled arguments are compared bytes: unknown keys pass through
+  // unread, a present `room`/`command` keeps its position and takes the new value.
+  const ctx = context(await load());
+  const args = { token: '2026-10-26T12:00:00+01:00', command: 'x', extra: { nested: [1, null] }, room: 'studio' };
+  ctx.run('ls_remote_power_quiet', args);
+  const scheduled = ctx.scheduled ?? [];
+  assert.equal(scheduled.length, 1);
+  assert.equal(scheduled[0]!.script, 'ls_remote_gesture');
+  assert.equal(JSON.stringify(scheduled[0]!.args),
+    JSON.stringify({ token: '2026-10-26T12:00:00+01:00', command: 'power_done', extra: { nested: [1, null] }, room: 'studio' }));
+  assert.throws(() => ctx.run('ls_remote_power_quiet', { room: 'Not A Room' }), /runtime room ID/);
+});

@@ -262,9 +262,18 @@ const DOMAIN = join(ROOT, 'src/domain');
  * exactly the "moving a definition" case the header warns about. Not one call
  * site changed; the domain still imports the accessors (through a temporary
  * re-export in `schedule.ts`) and calls them as often as before.
+ *
+ * U1, `gestures.ts`: `jsonTypes 246 -> 242`, the module's four tokens. Its
+ * parsers moved to `src/parse/gestures.ts`; the preset payload is now a
+ * `PresetPayload` of the two fields the gesture reads (no coercion, so a
+ * string preset stays not-a-preset), and `ls_remote_power_quiet` carries its
+ * forwarded argument document as `Verbatim`. The one lenient call left,
+ * `String(value)` in the helper writer, formats an already-typed
+ * `string | number` into an HA state string; it is not a parse, so it was
+ * left rather than respelled to dodge this regex.
  */
 const CEILINGS = {
-  jsonTypes: 246,
+  jsonTypes: 242,
   validatedBags: 0,
   lenientAccessors: 183,
   rawJsonReturns: 22,

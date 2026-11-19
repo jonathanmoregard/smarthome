@@ -1,43 +1,28 @@
-import type { JsonObject, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { isObject, jinjaInt, lazy, ParseError, requireString, withParsedArgs } from '../runtime/parse.ts';
+import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
+import { jinjaInt, withParsedArgs } from '../runtime/parse.ts';
+import { withFields } from '../runtime/verbatim.ts';
+import type { Verbatim } from '../runtime/verbatim.ts';
+import { parseGestureArgs, parsePowerQuietArgs } from '../parse/gestures.ts';
 
 const presets = [200, 285, 370, 454, 588];
 const directions = ['left', 'right', 'up', 'down'];
 const accepted = ['power', 'power_done', 'preset', 'cancel', ...directions];
-function roomArg(args: JsonObject): string {
-  const room = requireString(args, 'room', 'ls_remote_gesture');
-  if (!/^[a-z0-9_]+$/.test(room)) throw new ParseError('Gesture room must be a runtime room ID');
-  return room;
+/** The two preset-payload fields the gesture reads; any other type is `undefined`. */
+export interface PresetPayload {
+  action: string | undefined;
+  preset: number | undefined;
 }
-interface GestureArgs {
+export interface GestureArgs {
   room: string;
   command: string;
   token: string;
-  payload: () => JsonObject | undefined;
+  payload: () => PresetPayload | undefined;
   delivery: () => { deviceId: string | undefined; source: string };
 }
-function parseGestureArgs(args: JsonObject): GestureArgs {
-  const command = args.command === undefined ? '' : requireString(args, 'command', 'ls_remote_gesture');
-  return {
-    room: roomArg(args),
-    command,
-    // Missing is empty under the captured length/membership operations. A
-    // present value is still typed, and branch-only data stays branch-lazy.
-    token: command === 'power_done'
-      ? args.token === undefined ? '' : requireString(args, 'token', 'ls_remote_gesture')
-      : '',
-    // A remote publishes whatever JSON it likes, and only a mapping can carry
-    // a preset action. The preserved scenario enumerates the real domain --
-    // none, [], {}, and mappings whose action does not match -- and the
-    // captured script dispatches nothing for every one of them without
-    // raising. So a non-mapping payload is not malformed input to reject; it
-    // is an event that is not a preset payload, which is genuine optionality.
-    payload: lazy(() => isObject(args.payload) ? args.payload : undefined),
-    delivery: lazy(() => ({
-      deviceId: args.device_id === undefined ? undefined : requireString(args, 'device_id', 'ls_remote_gesture'),
-      source: args.source === undefined ? '' : requireString(args, 'source', 'ls_remote_gesture'),
-    })),
-  };
+export interface PowerQuietArgs {
+  /** The whole argument document, forwarded into the scheduled `power_done`. */
+  document: Verbatim;
+  room: string;
 }
 
 /** Serialized actor. It never waits for actuator services or the power quiet window. */
@@ -98,8 +83,8 @@ export function remoteGesture(ctx: ScriptContext, args: GestureArgs): null {
     const payload = args.payload();
     if (payload === undefined) return null;
     if (payload.action !== 'color_temperature_move') return null;
-    const preset = payload.action_color_temperature;
-    if (typeof preset !== 'number' || !presets.includes(preset)) { clearChord(); return null; }
+    const preset = payload.preset;
+    if (preset === undefined || !presets.includes(preset)) { clearChord(); return null; }
     const index = presets.indexOf(preset);
     const previous = jinjaInt(ctx.get(helper('preset')), -2);
     if (index === previous) return null;
@@ -124,9 +109,9 @@ export const gestureHandlers: ScriptHandlers = {
   // present values raise, and branch-specific fields retain source order.
   ls_remote_gesture: withParsedArgs({ parse: parseGestureArgs, run: remoteGesture }),
   ls_remote_power_quiet: withParsedArgs({
-    parse: args => ({ raw: args, room: roomArg(args) }),
+    parse: parsePowerQuietArgs,
     run: (ctx, args) => {
-    ctx.schedule('ls_remote_gesture', { ...args.raw, room: args.room, command: 'power_done' }, 600);
+    ctx.schedule('ls_remote_gesture', withFields(args.document, { room: args.room, command: 'power_done' }), 600);
     return null;
     },
   }),
