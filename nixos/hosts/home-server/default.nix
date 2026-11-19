@@ -13,6 +13,10 @@
 
   system.configurationRevision = if self ? rev then self.rev else "standalone-home-server";
 
+  # The Wyse 5070's only wired NIC. Household phones reach Home Assistant here
+  # over plain HTTP, so the house stays usable when Tailscale is not.
+  homeServer.homeAssistantLanInterface = "enp1s0";
+
   services.system-auto-deploy = {
     enable = true;
     healthUnits = lib.mkAfter (

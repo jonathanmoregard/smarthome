@@ -106,6 +106,9 @@
         vm-home-server = import ./nixos/tests/home-server.nix {
           inherit agenix pkgsSystem;
         };
+        home-assistant-lan = import ./nixos/tests/home-assistant-lan.nix {
+          inherit pkgsSystem;
+        };
         vm-home-server-cd = import ./nixos/tests/home-server-cd.nix {
           inherit agenix pkgsSystem;
           inputSources = homeServerCdInputSources;
@@ -122,6 +125,11 @@
         system-activator = import ./nixos/tests/system-activator.nix {
           inherit pkgs;
           script = ./nixos/modules/activate-system.sh;
+        };
+        zigbee2mqtt-watchdog = import ./nixos/tests/zigbee2mqtt-watchdog.nix {
+          inherit pkgs;
+          script = ./nixos/modules/zigbee2mqtt-watchdog.sh;
+          driver = ./nixos/tests/zigbee2mqtt-watchdog.sh;
         };
         hydrator = import ./nixos/tests/hydrator.nix {
           inherit pkgs;

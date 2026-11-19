@@ -245,6 +245,17 @@ pkgsSystem.testers.runNixOSTest {
     # timer, and retain two system generations.
     v2_system_revision = git_commit("system-v2", system_state="v2")
     promote("main", "release/home-server")
+    # Deploy with a health unit already down. The baseline excuses it, so no
+    # part of the gate requires it back; what brings it back is the switch,
+    # which starts every active target and so pulls up anything inactive that
+    # multi-user.target wants. The watchdog next door leans on that -- it leaves
+    # an `inactive` unit alone because only a deliberate stop reaches that
+    # state, so a deploy that could leave an excused unit inactive would strand
+    # it. The required-units loop below is the assertion; the baseline_exempt
+    # check keeps it from passing vacuously by proving the unit was still down
+    # when the baseline was sampled.
+    home_server.succeed("systemctl stop mosquitto.service")
+    assert unit_state("mosquitto.service") == "inactive"
     home_server.succeed("systemctl start system-deploy.service", timeout=600)
     v2_system_generation = current_generation(SYSTEM_PROFILE)
     v2_system = profile_path(SYSTEM_PROFILE)
@@ -267,6 +278,7 @@ pkgsSystem.testers.runNixOSTest {
     assert unit_state("system-deploy.service") == "inactive"
     assert secret_digest_after == secret_digest
     home_server.succeed("grep -F v2 /run/home-server-cd-activation")
+    assert "mosquitto.service" in marker_field(system_last_success, "baseline_exempt")
     for unit in [
         "sshd.service",
         "tailscaled.service",
