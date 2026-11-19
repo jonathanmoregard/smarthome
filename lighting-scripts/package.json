@@ -5,7 +5,7 @@
   "type": "module",
   "engines": { "node": ">=22.18" },
   "scripts": {
-    "check": "tsc --noEmit && node scripts/json-edges.mjs",
+    "check": "tsc --noEmit && node scripts/json-edges.mjs && node scripts/effects-edge.mjs",
     "build": "tsc",
     "test": "node --experimental-strip-types --test --experimental-test-isolation=none tests/runtime/*.test.ts",
     "dev": "node scripts/dev.mjs",
