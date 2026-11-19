@@ -17,7 +17,7 @@ import { list, num } from './accessors.ts';
 import { latestRemoteKey, recordTimestamp } from './resolution.ts';
 import { assembledMap, storedFact } from './overrides.ts';
 import type { Assembled, AssembledMap, StoredFact, StoredValue } from './overrides.ts';
-import type { Adjustment } from '../domain/remote-input.ts';
+import type { Adjustment, RemotePlanArgs } from '../domain/remote-input.ts';
 
 const OVERRIDES = 'sensor.ls_overrides';
 const numeric = (v: JsonValue | undefined): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -193,4 +193,17 @@ export function contextEntries(entry: Assembled | undefined): AssembledMap | und
 export function roomPower(ctx: ScriptContext, room: string): boolean | undefined {
   const saved = object(ctx.attr(OVERRIDES, 'power'))[room];
   return typeof saved === 'boolean' ? saved : undefined;
+}
+
+/**
+ * `ls_remote_plan`'s arguments. Captured source/area/command are raw at
+ * 7/4/15 sites and form identifiers, mapping keys and command branches, so a
+ * missing or malformed value raises.
+ */
+export function parseRemotePlanArgs(args: JsonObject): RemotePlanArgs {
+  return {
+    source: requireString(args, 'source', 'ls_remote_plan'),
+    area: requireString(args, 'area', 'ls_remote_plan'),
+    command: requireString(args, 'command', 'ls_remote_plan'),
+  };
 }

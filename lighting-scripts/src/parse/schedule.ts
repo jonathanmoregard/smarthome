@@ -140,7 +140,23 @@ export function attributeNumber(ctx: ScriptContext, entity: string, key: string)
  * Present optional values are parsed, while null overrides retain the
  * producer's explicit "use the state attribute" spelling.
  */
-export function parseScheduledBaseArgs(args: JsonObject, context: string, roomOnly: string): ScheduledBaseArgs {
+/** `ls_base`'s arguments. `room_only` is read first, as the inline parse read it. */
+export function parseBaseArgs(args: JsonObject): ScheduledBaseArgs {
+  const roomOnly = args.room_only === undefined ? '' : requireString(args, 'room_only', 'ls_base');
+  return parseScheduledBaseArgs(args, 'ls_base', roomOnly);
+}
+
+/**
+ * `ls_room_base`'s arguments. The captured script declaration marks `room`
+ * required, and it drives entity names, comparisons and indexing rather than
+ * iteration or membership; it is read first.
+ */
+export function parseRoomBaseArgs(args: JsonObject): ScheduledBaseArgs {
+  const room = requireString(args, 'room', 'ls_room_base');
+  return parseScheduledBaseArgs(args, 'ls_room_base', room);
+}
+
+function parseScheduledBaseArgs(args: JsonObject, context: string, roomOnly: string): ScheduledBaseArgs {
   return {
     testNow: optionalTimestamp(args.test_now),
     reason: args.reason === undefined ? 'config' : requireString(args, 'reason', context),

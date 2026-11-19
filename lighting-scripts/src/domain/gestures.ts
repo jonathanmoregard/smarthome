@@ -1,8 +1,8 @@
 import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { jinjaInt, withParsedArgs } from '../runtime/parse.ts';
+import { withParsedArgs } from '../runtime/parse.ts';
 import { withFields } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
-import { parseGestureArgs, parsePowerQuietArgs } from '../parse/gestures.ts';
+import { helperInt, parseGestureArgs, parsePowerQuietArgs } from '../parse/gestures.ts';
 import { stateText } from '../runtime/format.ts';
 
 const presets = [200, 285, 370, 454, 588];
@@ -50,9 +50,9 @@ export function remoteGesture(ctx: ScriptContext, args: GestureArgs): null {
     if (area === undefined || area.length === 0) return;
     ctx.emit('script.turn_on', { variables: { source, area, command: logical, dry_run: false } }, { entity_id: 'script.ls_remote_command' });
   };
-  const step = jinjaInt(ctx.get(helper('chord_step')));
+  const step = helperInt(ctx, helper('chord_step'));
   const active = ctx.get(chord) === 'active';
-  let clicks = jinjaInt(ctx.get(helper('power_count')));
+  let clicks = helperInt(ctx, helper('power_count'));
   const saved = ctx.get(helper('power_token'));
   const stored = ['unknown', 'unavailable'].includes(saved) ? '' : saved;
   const quietActive = clicks > 0 && stored.length > 0 && Date.parse(stored) + 600 > Date.parse(ctx.now);
@@ -87,7 +87,7 @@ export function remoteGesture(ctx: ScriptContext, args: GestureArgs): null {
     const preset = payload.preset;
     if (preset === undefined || !presets.includes(preset)) { clearChord(); return null; }
     const index = presets.indexOf(preset);
-    const previous = jinjaInt(ctx.get(helper('preset')), -2);
+    const previous = helperInt(ctx, helper('preset'), -2);
     if (index === previous) return null;
     const delta = previous === -1 ? (index === 0 ? 1 : index === 4 ? 4 : -1)
       : [0, 1, 2, 3, 4].includes(previous) ? (index - previous + 5) % 5 : -1;

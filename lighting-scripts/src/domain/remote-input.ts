@@ -1,5 +1,4 @@
 import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { requireString } from '../runtime/parse.ts';
 import { catalogOf, emptyCatalog } from '../runtime/catalog.ts';
 import { typed } from '../runtime/entrypoints.ts';
 import { recordTimestamp } from '../parse/resolution.ts';
@@ -7,14 +6,14 @@ import { switchRangeEntities } from '../parse/planning.ts';
 import type { AssembledMap } from '../parse/overrides.ts';
 import { overridesRevision } from '../parse/sensors.ts';
 import {
-  contextEntries, noInputRecord, presetSelection, remoteCache, remoteOverrides, remoteRoomPlan, roomPower,
+  contextEntries, noInputRecord, parseRemotePlanArgs, presetSelection, remoteCache, remoteOverrides, remoteRoomPlan, roomPower,
 } from '../parse/remote-input.ts';
 import { clamp } from './scale.ts';
 
 const omit = (v: AssembledMap, keys: string[]): AssembledMap => Object.fromEntries(Object.entries(v).filter(([k]) => !keys.includes(k)));
 const pick = (v: AssembledMap, keys: string[]): AssembledMap => Object.fromEntries(Object.entries(v).filter(([k]) => keys.includes(k)));
 
-interface RemotePlanArgs {
+export interface RemotePlanArgs {
   source: string;
   area: string;
   command: string;
@@ -176,14 +175,5 @@ export function remotePlan(ctx: ScriptContext, args: RemotePlanArgs): RemotePlan
 }
 
 export const remoteInputHandlers: ScriptHandlers = {
-  // Captured source/area/command are raw at 7/4/15 sites and form identifiers,
-  // mapping keys and command branches. Missing or malformed values must raise.
-  ls_remote_plan: typed('ls_remote_plan', {
-    parse: args => ({
-      source: requireString(args, 'source', 'ls_remote_plan'),
-      area: requireString(args, 'area', 'ls_remote_plan'),
-      command: requireString(args, 'command', 'ls_remote_plan'),
-    }),
-    run: remotePlan,
-  }),
+  ls_remote_plan: typed('ls_remote_plan', { parse: parseRemotePlanArgs, run: remotePlan }),
 };

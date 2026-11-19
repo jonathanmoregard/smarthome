@@ -67,11 +67,11 @@ type CatalogEffectNames = () => ReadonlySet<string>;
  * renderer, which the port does not have, and sending it as a plain level
  * would light the lamp at brightness 1.
  */
-function frameEffect(kind: string, source: JsonObject, catalogEffects: CatalogEffectNames, context: string): FrameEffect {
+function frameEffect(kind: string, source: JsonObject, intensity: () => number, catalogEffects: CatalogEffectNames, context: string): FrameEffect {
   if (kind !== 'effect') return { kind: 'not an effect' };
   const name = requireString(source, 'effect', context);
   const bulb = bulbEffectName(name);
-  if (bulb !== undefined) return { kind: 'bulb effect', name: bulb };
+  if (bulb !== undefined) return { kind: 'bulb effect', name: bulb, intensity };
   if (catalogEffects().has(name)) {
     throw new ParseError(`${context}.effect '${name}' is in the catalog but is not an effect the bulbs run (Candle, Breathe, Colour loop)`);
   }
@@ -81,7 +81,8 @@ function frameEffect(kind: string, source: JsonObject, catalogEffects: CatalogEf
 function parseFrameSource(target: JsonObject, channel: Channel, catalogEffects: CatalogEffectNames, context: string): FrameSource {
   const source = requireObject(target, channel, context);
   const kind = requireString(source, 'kind', `${context}.${channel}`);
-  const effect = frameEffect(kind, source, catalogEffects, `${context}.${channel}`);
+  const intensity = lazy(() => requireNumber(source, 'intensity', `${context}.${channel}`));
+  const effect = frameEffect(kind, source, intensity, catalogEffects, `${context}.${channel}`);
   return {
     kind,
     effect,
@@ -91,13 +92,15 @@ function parseFrameSource(target: JsonObject, channel: Channel, catalogEffects: 
     // matching the oracle, which hands `source.intensity` to the effect's
     // renderer for every effect channel. `value` is read as a level here and as
     // a colour only when the colour is sent.
-    details: lazy(() => ({
-      intensity: kind === 'effect' ? requireNumber(source, 'intensity', `${context}.${channel}`) : null,
-      // `value | float`, for the brightness channel.
-      level: jinjaFloat(source.value),
-      // The strict colour read, for the colour channel when it is sent.
-      colour: colourContext => frameColour(source.value, colourContext),
-    })),
+    details: lazy(() => {
+      if (kind === 'effect') intensity();
+      return {
+        // `value | float`, for the brightness channel.
+        level: jinjaFloat(source.value),
+        // The strict colour read, for the colour channel when it is sent.
+        colour: colourContext => frameColour(source.value, colourContext),
+      };
+    }),
   };
 }
 

@@ -1,5 +1,5 @@
 import type { OutputGuard, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { jinjaFloat, withParsedArgs } from '../runtime/parse.ts';
+import { withParsedArgs } from '../runtime/parse.ts';
 import { catalogOf } from '../runtime/catalog.ts';
 import { typed } from '../runtime/entrypoints.ts';
 import { withFields } from '../runtime/verbatim.ts';
@@ -80,8 +80,12 @@ export function runningIn(channel: Channel, stored: StoredChannels): BulbEffectN
  * `source.effect in catalog.effects`.
  */
 export type FrameEffect =
-  /** One the bulbs run: sent as a static light, then started. */
-  | { kind: 'bulb effect'; name: BulbEffectName }
+  /**
+   * One the bulbs run: sent as a static light, then started. `intensity` is
+   * the level it runs at (the candle's ceiling), read when the plan reaches
+   * the channel.
+   */
+  | { kind: 'bulb effect'; name: BulbEffectName; intensity: () => number }
   /**
    * A name the catalog does not list. The oracle's membership test is false,
    * so it sends the source as its value (`value | float` for brightness, the
@@ -93,8 +97,11 @@ export type FrameEffect =
 export interface FrameSource {
   kind: string;
   effect: FrameEffect;
+  /**
+   * Read when the plan reaches the channel. Raises for an effect source with
+   * no finite `intensity`, on either channel.
+   */
   details: () => {
-    intensity: number | null;
     /** The source's `value | float`. */
     level: number;
     /** The source's value read strictly as a colour (raises with `context`). */
@@ -208,7 +215,7 @@ type FrameDetails = ReturnType<FrameSource['details']>;
 /** A brightness source's level: a bulb effect runs at its intensity, anything else is its value. */
 function frameLevel(effect: FrameEffect, details: FrameDetails): number {
   switch (effect.kind) {
-    case 'bulb effect': return jinjaFloat(details.intensity);
+    case 'bulb effect': return effect.intensity();
     case 'uncatalogued effect':
     case 'not an effect': return details.level;
     default: { const unknown: never = effect; throw new Error(`Unhandled frame effect ${JSON.stringify(unknown)}`); }

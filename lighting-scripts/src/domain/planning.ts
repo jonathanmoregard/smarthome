@@ -1,5 +1,5 @@
 import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { jinjaFloat, requireObject, withParsedArgs } from '../runtime/parse.ts';
+import { withParsedArgs } from '../runtime/parse.ts';
 import { storedEquals, withFields } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { BLOCKS, blockOption, DEFAULT_BLOCK } from './blocks.ts';
@@ -11,7 +11,10 @@ import { hasValue, labelled, nextMidnight, privateRooms } from './schedule.ts';
 import { timestamp } from '../parse/accessors.ts';
 import { overridesRevision } from '../parse/sensors.ts';
 import { entityProfile } from '../parse/schedule.ts';
-import { mappingAttribute, parseRoomBaseline, parseRoomPlanArgs, rangeDefaults, roomCatalog, stored, storedList, switchRangeEntities, warmEndOf } from '../parse/planning.ts';
+import {
+  mappingAttribute, parseRoomBaseline, parseRoomPlanArgs, rangeDefaults, roomCatalog, stored, storedList, switchRangeEntities, wakeFadeMinutes,
+  wakeTimestamp, warmEndOf,
+} from '../parse/planning.ts';
 
 /**
  * The oracle's own cache version literal, copied verbatim from
@@ -76,6 +79,7 @@ export type RoomBaseline = {
   targetEntries: Array<{ entity: string; target(): BaselineTarget }>;
   schedule: Verbatim;
   details(room: string, context: string): RoomDetails;
+  /** `profile()` raises when the lamp has no baseline target, then reads the profile. */
   profiles: Array<{ lamp: string; profile(): Verbatim }>;
 };
 export type RoomCache = {
@@ -219,8 +223,7 @@ function refreshBaseline(ctx: ScriptContext, baseline: RoomBaseline, hitFrom: nu
   const mirrors: ScheduleMirror[] = ctx.state[entity] !== undefined && ctx.get(entity) !== option ? [{ entity, option }] : [];
   const profiles: Record<string, Verbatim> = {};
   for (const { lamp, profile: p } of baseline.profiles) {
-    // Raises when a profile names a lamp the baseline has no target for.
-    requireObject(targets, lamp, 'ls_room_plan refreshed targets');
+    // `p()` raises when the profile names a lamp the baseline has no target for.
     profiles[lamp] = withFields(p(), { ignore_overrides: ignoredBy.get(lamp) ?? [] });
   }
   const details = hitFrom === undefined ? S.document : withFields(S.document, {
@@ -237,8 +240,8 @@ function expiry(ctx: ScriptContext, baseline: RoomBaseline, room: string, at: nu
   let moving = S.fadingOrAbsent;
   for (const boundary of [field('next_fs'), at + field('left'), field('cur_ts') + 90]) if (boundary > at) deadlines.push(boundary);
   if (hasValue(ctx, `input_datetime.ls_${room}_wake`)) {
-    const wake = jinjaFloat(ctx.attr(`input_datetime.ls_${room}_wake`, 'timestamp'));
-    const duration = jinjaFloat(ctx.get(`input_number.ls_${room}_wake_fade`), 37.5) * 60;
+    const wake = wakeTimestamp(ctx, room);
+    const duration = wakeFadeMinutes(ctx, room) * 60;
     for (const boundary of [wake, wake + duration, wake + duration + 90, wake + 86400]) if (boundary > at) deadlines.push(boundary);
     if (at - wake >= 0 && at - wake < duration && S.curIsNight && field('cur_ts') <= wake) moving = true;
   }

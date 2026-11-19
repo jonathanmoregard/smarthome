@@ -422,12 +422,25 @@ const DOMAIN = join(ROOT, 'src/domain');
  * conversion, byte for byte. Every ceiling is 0, and `npm run check` fails on
  * any count above it: `src/domain` names no JSON type, extends no JSON bag,
  * calls no lenient accessor and returns no raw JSON.
+ *
+ * `parseHelpers` (added at the close-out review, 2026-11-19) closes the gap the
+ * token counts left: a domain file could name no JSON type and still parse
+ * inferred JSON, by handing a strict or Jinja-coercing parse helper a value
+ * it never typed -- an inline `parse: args => ({ x: requireString(args, ...) })`
+ * in a handler table, `requireObject` on a carried document, `jinjaFloat` or
+ * `jinjaInt` on `ctx.attr`/`ctx.get`. Measured 16 when added: remote-input 3,
+ * schedule 2, planning 3, gestures 3, resolution's `effects_scale` 4,
+ * transport 1. Each moved into a `src/parse` reader returning a typed value;
+ * ceiling 0. Not counted: `jinjaTruthy`, the named
+ * predicate the session rules require for Jinja `or`/`and` (a truth test,
+ * not a parse), and `ParseError` itself.
  */
 const CEILINGS = {
   jsonTypes: 0,
   validatedBags: 0,
   lenientAccessors: 0,
   rawJsonReturns: 0,
+  parseHelpers: 0,
 };
 
 /** Comments may legitimately name these types while explaining why they are gone. */
@@ -442,6 +455,7 @@ const PATTERNS = {
   validatedBags: /\binterface\s+\w+\s+extends\s+Json(?:Object|Value)\b/g,
   lenientAccessors: /(?<![A-Za-z0-9_$.])(?:object|values|list|num|jinjaMappingGet|String)\s*\(/g,
   rawJsonReturns: /\)\s*:\s*Json(?:Object|Value)\b/g,
+  parseHelpers: /(?<![A-Za-z0-9_$.])(?:require(?:Object|Number|String|Array|Boolean|Finite|Range|Rgb)|jinja(?:Int|Float|String)|parseFinite|parsePythonNumeric|optional(?:Finite|Boolean)|anchor)\s*\(/g,
 };
 
 const count = (text, pattern) => (text.match(pattern) ?? []).length;
@@ -465,6 +479,7 @@ const COLUMNS = [
   ['validatedBags', 'extends Json'],
   ['lenientAccessors', 'lenient calls'],
   ['rawJsonReturns', 'raw JSON returns'],
+  ['parseHelpers', 'parse helpers'],
 ];
 
 rows.sort((a, b) => b.jsonTypes - a.jsonTypes);

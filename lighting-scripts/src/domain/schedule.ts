@@ -1,5 +1,4 @@
 import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { requireString } from '../runtime/parse.ts';
 import { BLOCKS, DEFAULT_BLOCK, type Block } from './blocks.ts';
 import { roundEven } from './scale.ts';
 import { isBlock } from '../parse/blocks.ts';
@@ -10,7 +9,7 @@ import type { StoredValue } from '../parse/overrides.ts';
 import { overridesRevision } from '../parse/sensors.ts';
 import { switchRangeEntities } from '../parse/planning.ts';
 import {
-  attributeNumber, entityProfile, entitySample, parseScheduledBaseArgs, rgbComponent, savedProfile, stateNumber, storedScheduleRecords,
+  attributeNumber, entityProfile, entitySample, parseBaseArgs, parseRoomBaseArgs, rgbComponent, savedProfile, stateNumber, storedScheduleRecords,
 } from '../parse/schedule.ts';
 import type { ScheduleRecord, ScheduleRecords } from '../parse/schedule.ts';
 
@@ -451,18 +450,6 @@ export function scheduledBase(ctx: ScriptContext, args: ScheduledBaseArgs, roomL
   return { targets, schedule };
 }
 export const scheduleHandlers: ScriptHandlers = {
-  ls_base: typed('ls_base', {
-    parse: args => parseScheduledBaseArgs(
-      args,
-      'ls_base',
-      args.room_only === undefined ? '' : requireString(args, 'room_only', 'ls_base'),
-    ),
-    run: scheduledBase,
-  }),
-  // The captured script declaration marks room required, and it drives entity
-  // names, comparisons, and indexing rather than iteration or membership.
-  ls_room_base: typed('ls_room_base', {
-    parse: args => parseScheduledBaseArgs(args, 'ls_room_base', requireString(args, 'room', 'ls_room_base')),
-    run: (ctx, args) => scheduledBase(ctx, args, true),
-  }),
+  ls_base: typed('ls_base', { parse: parseBaseArgs, run: scheduledBase }),
+  ls_room_base: typed('ls_room_base', { parse: parseRoomBaseArgs, run: (ctx, args) => scheduledBase(ctx, args, true) }),
 };

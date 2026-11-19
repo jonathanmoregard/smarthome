@@ -6,8 +6,8 @@
  * present values raise, and branch-only fields are thunks so they raise only on
  * the branch that read them, in source order.
  */
-import type { JsonObject, JsonValue } from '../runtime/context.ts';
-import { isObject, lazy, ParseError, requireString } from '../runtime/parse.ts';
+import type { JsonObject, JsonValue, ScriptContext } from '../runtime/context.ts';
+import { isObject, jinjaInt, lazy, ParseError, requireString } from '../runtime/parse.ts';
 import { carry } from '../runtime/verbatim.ts';
 import type { GestureArgs, PowerQuietArgs, PresetPayload } from '../domain/gestures.ts';
 
@@ -63,4 +63,9 @@ export function parseGestureArgs(args: JsonObject): GestureArgs {
  */
 export function parsePowerQuietArgs(args: JsonObject): PowerQuietArgs {
   return { document: carry(args), room: roomArg(args) };
+}
+
+/** A gesture helper's state as the captured script reads it: `states(helper) | int(fallback)`. */
+export function helperInt(ctx: ScriptContext, entity: string, fallback = 0): number {
+  return jinjaInt(ctx.get(entity), fallback);
 }

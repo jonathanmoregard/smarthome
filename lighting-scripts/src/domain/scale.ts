@@ -11,6 +11,8 @@ export type RGB = [number, number, number];
 export type Color = ({ kelvin: number; rgb?: never } | { rgb: RGB; kelvin?: never });
 export type Anchor = { brightness: number; color: Color };
 export type Scaled = Anchor & { position: number };
+/** `effects_scale`'s arguments, parsed in `src/parse/scale.ts`. */
+export type ScaleArgs = { day: Anchor; cosy: Anchor; position: number; warmEnd: RGB };
 export const WARM_END: RGB = [255, 126, 0];
 export const CROSSOVER: Color = { rgb: [255, 134, 7] };
 

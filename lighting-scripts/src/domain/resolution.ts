@@ -1,5 +1,5 @@
 import type { ScriptHandlers } from '../runtime/context.ts';
-import { requireNumber, withParsedArgs } from '../runtime/parse.ts';
+import { withParsedArgs } from '../runtime/parse.ts';
 import { typed } from '../runtime/entrypoints.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { gradientSignature, planGradients, sampleGradient } from './gradient.ts';
@@ -7,7 +7,7 @@ import type { GradientCurve, GradientSignature } from './gradient.ts';
 import { boundedNumber, clamp, scaleValue, WARM_END } from './scale.ts';
 import type { Anchor, Color, RGB, Scaled } from './scale.ts';
 import { parseGradientPlanArgs } from '../parse/gradient.ts';
-import { anchor, requireRgb } from '../parse/scale.ts';
+import { parseScaleArgs } from '../parse/scale.ts';
 import { levelNumber, parseResolveArgs } from '../parse/resolution.ts';
 
 const CHANNELS = ['brightness', 'color'] as const;
@@ -365,19 +365,9 @@ export const resolutionHandlers: ScriptHandlers = {
   // three reads that do raise are thunks the resolver calls where it always
   // did.
   effects_resolve: typed('effects_resolve', { parse: parseResolveArgs, run: (_context, args) => resolveEffects(args) }),
-  // Reference conversion for `withParsedArgs`. Every field's primitive is
-  // chosen from the captured source: `day`, `cosy`, `position` and `warm_end`
-  // are all read raw there (52, 52, 34 and 32 sites, no `| int`, `| float` or
-  // `| default`), so the oracle raises on a malformed value and `require*` is
-  // the faithful choice. A filtered field would use the matching `jinja*`
-  // coercion instead, because its fallback is observable behaviour.
+  // Arguments parsed in `src/parse/scale.ts`.
   effects_scale: withParsedArgs({
-    parse: args => ({
-      day: anchor(args.day),
-      cosy: anchor(args.cosy),
-      position: requireNumber(args, 'position', 'effects_scale'),
-      warmEnd: args.warm_end === undefined ? WARM_END : requireRgb(args.warm_end, 'effects_scale.warm_end'),
-    }),
+    parse: parseScaleArgs,
     run: (_context, a) => scaleValue(a.day, a.cosy, a.position, a.warmEnd),
   }),
   // Arguments parsed in `src/parse/gradient.ts`, which documents the

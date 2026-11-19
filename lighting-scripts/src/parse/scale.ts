@@ -15,10 +15,10 @@
  * string, and `canonicalColor({})` threw an opaque
  * `TypeError: c.rgb is not iterable`. Both fail as a named `ParseError` now.
  */
-import type { JsonValue } from '../runtime/context.ts';
-import { ParseError, isObject, object } from '../runtime/parse.ts';
-import type { Anchor, Color, RGB } from '../domain/scale.ts';
-import { ANCHOR_BRIGHTNESS_MESSAGE, COLOR_SHAPE_MESSAGE, boundedNumber, copyColor } from '../domain/scale.ts';
+import type { JsonObject, JsonValue } from '../runtime/context.ts';
+import { ParseError, isObject, object, requireNumber } from '../runtime/parse.ts';
+import type { Anchor, Color, RGB, ScaleArgs } from '../domain/scale.ts';
+import { ANCHOR_BRIGHTNESS_MESSAGE, COLOR_SHAPE_MESSAGE, WARM_END, boundedNumber, copyColor } from '../domain/scale.ts';
 
 /**
  * Shape of a `Color` without imposing any call-site's kelvin range — exactly
@@ -73,4 +73,20 @@ export function requireRgb(value: JsonValue | undefined, context = 'rgb'): RGB {
     if (boundedNumber(r) && boundedNumber(g) && boundedNumber(b)) return [r, g, b];
   }
   throw new ParseError(`${context} must be [r, g, b] with finite numbers, got ${JSON.stringify(value) ?? 'undefined'}`);
+}
+
+/**
+ * `effects_scale`'s arguments. Every field's primitive is chosen from the
+ * captured source: `day`, `cosy`, `position` and `warm_end` are all read raw
+ * there (52, 52, 34 and 32 sites, no `| int`, `| float` or `| default`), so the
+ * oracle raises on a malformed value and the strict readers are the faithful
+ * choice. `warm_end` falls back to the field default only when absent.
+ */
+export function parseScaleArgs(args: JsonObject): ScaleArgs {
+  return {
+    day: anchor(args.day),
+    cosy: anchor(args.cosy),
+    position: requireNumber(args, 'position', 'effects_scale'),
+    warmEnd: args.warm_end === undefined ? WARM_END : requireRgb(args.warm_end, 'effects_scale.warm_end'),
+  };
 }
