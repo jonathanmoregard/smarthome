@@ -87,3 +87,28 @@ test('lamp capture ignores contexts owned by running scripts', async () => {
   assert.deepEqual(invoked, []);
   assert.deepEqual(ctx.events, []);
 });
+test('end-overrides never expires a stored record that is not a mapping, even at a zero limit', async () => {
+  // The age test reads `when` only off a mapping record. A lenient record view
+  // would read a missing `when` as "now", and age 0 >= limit 0 would expire it.
+  const { ctx } = await driver();
+  ctx.put('sensor.ls_overrides', '1', { overrides: { list: ['x'], text: 'x', nil: null, fresh: { when: ctx.now } } });
+  ctx.put('input_boolean.ls_ovr_after_on', 'on'); ctx.put('input_number.ls_ovr_after_min', '0');
+  ctx.run('automation.lighting_schedule_end_overrides', { trigger: { id: 'after' } });
+  assert.deepEqual(ctx.events, [{ event: 'ls_override', data: { op: 'clear', keys: ['fresh'], via: 'rule_after' } }]);
+});
+test('writer forwards the event data with who replaced in place, keys in stored order', async () => {
+  // `{...data, who}` keeps an existing `who` at its position; the bytes are compared.
+  const { ctx, invoked } = await driver();
+  ctx.run('automation.lighting_schedule_override_store_writer', {
+    trigger: { event: { data: { who: 'ann', op: 'clear', keys: [{ nested: 1 }] }, context: { user_id: 'person' } } },
+  });
+  assert.equal(JSON.stringify(invoked), JSON.stringify([{ name: 'ls_commit', args: { data: { who: 'ann', op: 'clear', keys: [{ nested: 1 }] } } }]));
+});
+test('lamp capture raises on non-list records only after the power events were fired', async () => {
+  const { ctx } = await driver();
+  ctx.run = (orig => (name, args = {}) => name === 'effects_native_plan'
+    ? { power: [{ area: 'studio' }, 'bare'], records: 'not a list' } : name.startsWith('automation.') ? orig(name, args) : {})(ctx.run);
+  assert.throws(() => ctx.run('automation.lighting_schedule_lamp_change_detector', {
+    trigger: { event: { data: { service: 'turn_on' }, context: { user_id: 'person' } } } }), /schedule list/);
+  assert.deepEqual(ctx.events.map(e => e.data.area), ['studio', '']);
+});

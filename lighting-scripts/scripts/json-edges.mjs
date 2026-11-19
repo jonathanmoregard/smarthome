@@ -312,12 +312,22 @@ const DOMAIN = join(ROOT, 'src/domain');
  * `rawJsonReturns` stays 18 because both engine handlers were typed `null`.
  * Deletion again, not parsing. The start/stop checks share one lenient read
  * of an unparsed target (`runningIn`), which replaced the candle's own.
+ *
+ * U5, `automations.ts`, clears the module on every column:
+ * `jsonTypes 186 -> 164`, `lenientAccessors 154 -> 139`,
+ * `rawJsonReturns 18 -> 17`. Trigger fields are `StoredFact`s (compared by
+ * identity, forwarded as stored); the writer's event data and `who`, the
+ * preset payload, the native-control value and the capture's records are
+ * `Verbatim`. `src/parse/automations.ts` holds the trigger parsers, the
+ * lenient `ui_rows` source match, the `effects_native_plan` capture view
+ * (records read after the power events, where the inline read sat) and the
+ * expiry ages, which skip non-mapping records exactly as the inline filter did.
  */
 const CEILINGS = {
-  jsonTypes: 186,
+  jsonTypes: 164,
   validatedBags: 0,
-  lenientAccessors: 154,
-  rawJsonReturns: 18,
+  lenientAccessors: 139,
+  rawJsonReturns: 17,
 };
 
 /** Comments may legitimately name these types while explaining why they are gone. */
