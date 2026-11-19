@@ -45,8 +45,11 @@ const anchors = { day: { brightness: 220, color: { kelvin: 4000 } }, cosy: { bri
 
 test('effects_gradient_plan raises on an explicit null warm_end where the signature lists it', () => {
   // Field `warm_end` has `default: [255,126,0]`, filled only when absent; the
-  // signature's `warm_end|list` then raises on None.
-  assert.throws(() => planGradients({ base: { lamp: anchors }, warm_end: null }), TypeError);
+  // signature's `warm_end|list` then raises on None. Pinned to that read, not
+  // to any TypeError: a TypeError from anywhere else in the plan must fail
+  // this test.
+  assert.throws(() => planGradients({ base: { lamp: anchors }, warm_end: null }),
+    { name: 'TypeError', message: "effects_gradient_plan.warm_end|list: 'NoneType' object is not iterable" });
   assert.deepEqual(planGradients({ base: {}, warm_end: null }), { gradients: {} });
   assert.deepEqual(planGradients({ base: { lamp: anchors } }), planGradients({ base: { lamp: anchors }, warm_end: [255, 126, 0] }));
 });
@@ -56,6 +59,9 @@ test('effects_resolve raises on an explicit null warm_end where a scaled target 
   const args: JsonObject = { base: { 'room:living': { ...item, is_room: true } }, catalog: { effects: {} }, overrides: { remote: {
     kind: 'input', scope: 'room', target: 'living', when: '2026-10-26T23:35:00+01:00',
     value: { adjustment: { steps: 1, lower: -20, upper: 20, last: 'up', anchor: 'current', updated: 1 } } } } };
-  assert.throws(() => resolveEffects(parseResolveArgs({ ...args, warm_end: null })), TypeError);
+  // The resolver's first read of `warm_end` is the scaled target's gradient
+  // signature (`warm_end|list`), pinned the same way.
+  assert.throws(() => resolveEffects(parseResolveArgs({ ...args, warm_end: null })),
+    { name: 'TypeError', message: "effects_resolve.warm_end|list: 'NoneType' object is not iterable" });
   assert.deepEqual(resolveEffects(parseResolveArgs(args)), resolveEffects(parseResolveArgs({ ...args, warm_end: [255, 126, 0] })));
 });
