@@ -3,7 +3,7 @@ import { typed } from '../runtime/entrypoints.ts';
 import { jinjaTruthy } from '../runtime/parse.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { hasValue } from './schedule.ts';
-import { runningIn } from './transport.ts';
+import { bulbEffect, runningIn } from './transport.ts';
 import type { AssignResult, EmitResult } from './transport.ts';
 import { timestamp } from '../parse/accessors.ts';
 import type { OpaqueMap, StoredFact, StoredValue } from '../parse/overrides.ts';
@@ -174,7 +174,7 @@ function bulbStarts(target: DispatchTarget): string[] {
   if (!target.on) return [];
   return (['brightness', 'color'] as const).flatMap(channel => {
     const effect = runningIn(channel, target.channels);
-    return effect === undefined ? [] : [effect.start];
+    return effect === undefined ? [] : [bulbEffect(effect).start];
   });
 }
 

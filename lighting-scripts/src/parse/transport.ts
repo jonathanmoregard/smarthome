@@ -13,7 +13,7 @@
  */
 import { isDeepStrictEqual } from 'node:util';
 import type { JsonObject, JsonValue, ScriptContext } from '../runtime/context.ts';
-import { isObject, jinjaFloat, jinjaTruthy, lazy, object, requireArray, requireNumber, requireObject, requireString } from '../runtime/parse.ts';
+import { isObject, jinjaFloat, jinjaTruthy, lazy, object, ParseError, requireArray, requireNumber, requireObject, requireString } from '../runtime/parse.ts';
 import { carry, reveal } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { requireRgb } from './scale.ts';
@@ -21,7 +21,9 @@ import { warmEndOf } from './planning.ts';
 import { opaqueMap, storedFact } from './overrides.ts';
 import type { OpaqueMap, StoredFact } from './overrides.ts';
 import type { RGB } from '../domain/scale.ts';
-import type { AssignArgs, AssignDetails, Channel, EmitArgs, FilterArgs, FramePlanArgs, FrameSource, FrameTarget } from '../domain/transport.ts';
+import type {
+  AssignArgs, AssignDetails, BulbEffectName, Channel, EmitArgs, FilterArgs, FrameEffect, FramePlanArgs, FrameSource, FrameTarget,
+} from '../domain/transport.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
 
@@ -44,10 +46,42 @@ export function warmEndColour(ctx: ScriptContext, context: string): FrameColour 
   return frameColour({ rgb: reveal(warmEndOf(ctx.attr('light.candle_test_rgb_warm_end', 'rgb_color'))) }, context);
 }
 
-function parseFrameSource(target: JsonObject, channel: Channel, context: string): FrameSource {
+/**
+ * The bulb effect an effect name names, or `undefined` for every other name.
+ * The one place an effect name becomes a {@link BulbEffectName}.
+ */
+export function bulbEffectName(name: string): BulbEffectName | undefined {
+  return name === 'Candle' || name === 'Breathe' || name === 'Colour loop' ? name : undefined;
+}
+
+/**
+ * The names the frame plan's catalog lists, read only when a source names an
+ * effect the bulbs do not run. Absent `effects` lists nothing: the oracle's
+ * `source.effect in catalog.effects` is then false.
+ */
+type CatalogEffectNames = () => ReadonlySet<string>;
+
+/**
+ * A frame source's effect, decided once. A name the catalog lists that the
+ * bulbs cannot run raises: the oracle would hand it to that effect's software
+ * renderer, which the port does not have, and sending it as a plain level
+ * would light the lamp at brightness 1.
+ */
+function frameEffect(kind: string, source: JsonObject, catalogEffects: CatalogEffectNames, context: string): FrameEffect {
+  if (kind !== 'effect') return { kind: 'not an effect' };
+  const name = requireString(source, 'effect', context);
+  const bulb = bulbEffectName(name);
+  if (bulb !== undefined) return { kind: 'bulb effect', name: bulb };
+  if (catalogEffects().has(name)) {
+    throw new ParseError(`${context}.effect '${name}' is in the catalog but is not an effect the bulbs run (Candle, Breathe, Colour loop)`);
+  }
+  return { kind: 'uncatalogued effect', name };
+}
+
+function parseFrameSource(target: JsonObject, channel: Channel, catalogEffects: CatalogEffectNames, context: string): FrameSource {
   const source = requireObject(target, channel, context);
   const kind = requireString(source, 'kind', `${context}.${channel}`);
-  const effect = kind === 'effect' ? requireString(source, 'effect', `${context}.${channel}`) : null;
+  const effect = frameEffect(kind, source, catalogEffects, `${context}.${channel}`);
   return {
     kind,
     effect,
@@ -68,7 +102,8 @@ function parseFrameSource(target: JsonObject, channel: Channel, context: string)
 }
 
 function parseFrameCatalog(args: JsonObject): FramePlanArgs['catalog'] {
-  // `effects` and `phases` are not read: no effect is rendered here any more.
+  // `phases` is not read: no effect is rendered here any more. `effects` is
+  // read by the target parse, and only for a name the bulbs do not run.
   const catalog = requireObject(args, 'catalog', 'effects_frame_plan');
   const membersRaw = requireObject(catalog, 'members', 'effects_frame_plan.catalog');
   const topicsRaw = requireObject(catalog, 'topics', 'effects_frame_plan.catalog');
@@ -85,13 +120,17 @@ function parseFrameCatalog(args: JsonObject): FramePlanArgs['catalog'] {
 
 function parseFrameTargets(args: JsonObject): Record<string, FrameTarget> {
   const targets = requireObject(args, 'targets', 'effects_frame_plan');
+  const catalogEffects: CatalogEffectNames = lazy(() => {
+    const catalog = requireObject(args, 'catalog', 'effects_frame_plan');
+    return new Set(catalog.effects === undefined ? [] : Object.keys(requireObject(catalog, 'effects', 'effects_frame_plan.catalog')));
+  });
   return Object.fromEntries(Object.entries(targets).map(([lamp, raw]) => {
     const context = `effects_frame_plan.targets.${lamp}`;
     const target = requireObject({ raw }, 'raw', context);
     const owners = target.owners === undefined ? {} : requireObject(target, 'owners', context);
     return [lamp, {
-      brightness: parseFrameSource(target, 'brightness', context),
-      color: parseFrameSource(target, 'color', context),
+      brightness: parseFrameSource(target, 'brightness', catalogEffects, context),
+      color: parseFrameSource(target, 'color', catalogEffects, context),
       manual: Object.entries(owners).some(([key, value]) =>
         requireString({ value }, 'value', `${context}.owners.${key}`).startsWith('channels:')),
       on: jinjaTruthy(target.on),
@@ -156,7 +195,9 @@ function parseAssignTargetViews(targets: JsonObject): ReturnType<AssignDetails['
       const kind = requireString(source, 'kind', `${context}.${channel}`);
       return [channel, {
         kind,
-        effect: kind === 'effect' ? requireString(source, 'effect', `${context}.${channel}`) : null,
+        // The stop check only asks which bulb effect a channel runs; any other
+        // name runs nothing on the bulbs, so it reads as none.
+        effect: kind === 'effect' ? bulbEffectName(requireString(source, 'effect', `${context}.${channel}`)) : undefined,
         updated: kind === 'effect' ? requireNumber(source, 'updated', `${context}.${channel}`) : null,
       }];
     })) as ReturnType<AssignDetails['targetViews']>[string]['channels'];
@@ -207,20 +248,20 @@ export function parseFilterArgs(args: JsonObject): FilterArgs {
 
 /**
  * A stored target or assignment's channels, read without raising: a
- * non-mapping target or channel has none. Only a channel running a named
- * effect answers.
+ * non-mapping target or channel has none. Only a channel naming a bulb effect
+ * answers; any other effect name runs nothing on the bulbs.
  */
 export interface StoredChannels {
-  /** The effect a channel runs, when its source is `{kind: 'effect', effect: <string>}`. */
-  effectOn(channel: Channel): string | undefined;
+  /** The bulb effect a channel names, when its source is `{kind: 'effect', effect: <bulb effect>}`. */
+  bulbEffectOn(channel: Channel): BulbEffectName | undefined;
 }
 
 export function storedChannels(value: JsonValue | undefined): StoredChannels {
   const stored = object(value);
   return {
-    effectOn: channel => {
+    bulbEffectOn: channel => {
       const source = isObject(stored[channel]) ? stored[channel] : {};
-      return source.kind === 'effect' && typeof source.effect === 'string' ? source.effect : undefined;
+      return source.kind === 'effect' && typeof source.effect === 'string' ? bulbEffectName(source.effect) : undefined;
     },
   };
 }

@@ -30,6 +30,12 @@ const runtime = 'sensor.ls_effects_runtime';
  *   `colorloop`), stopped by `stop_effect` and `stop_colorloop`.
  */
 export type Channel = 'brightness' | 'color';
+/**
+ * The effects the bulbs run. Closed: the parse edge (`src/parse/transport.ts`)
+ * turns an effect name into one of these, or into {@link FrameEffect}'s other
+ * cases, once; nothing downstream holds an effect name as an open string.
+ */
+export type BulbEffectName = 'Candle' | 'Breathe' | 'Colour loop';
 export type BulbEffect = {
   /** The channel the bulb animates; the start is sent only when this channel runs the effect. */
   readonly channel: Channel;
@@ -41,17 +47,13 @@ export type BulbEffect = {
    */
   readonly colour: 'warm end' | 'none';
 };
-const BULB_EFFECTS: ReadonlyMap<string, BulbEffect> = new Map([
-  ['Candle', { channel: 'brightness', start: 'channel_change', colour: 'warm end' }],
-  ['Breathe', { channel: 'brightness', start: 'breathe', colour: 'none' }],
-  ['Colour loop', { channel: 'color', start: 'colorloop', colour: 'none' }],
-]);
-
-type SourceKind = { kind: string; effect: string | null };
-
-/** The bulb effect a channel source names, wherever it sits, or `undefined`. */
-function bulbEffect(source: SourceKind): BulbEffect | undefined {
-  return source.kind === 'effect' && source.effect !== null ? BULB_EFFECTS.get(source.effect) : undefined;
+export function bulbEffect(name: BulbEffectName): BulbEffect {
+  switch (name) {
+    case 'Candle': return { channel: 'brightness', start: 'channel_change', colour: 'warm end' };
+    case 'Breathe': return { channel: 'brightness', start: 'breathe', colour: 'none' };
+    case 'Colour loop': return { channel: 'color', start: 'colorloop', colour: 'none' };
+    default: { const unknown: never = name; throw new Error(`Unhandled bulb effect ${JSON.stringify(unknown)}`); }
+  }
 }
 
 /**
@@ -59,9 +61,8 @@ function bulbEffect(source: SourceKind): BulbEffect | undefined {
  * channel: a Candle claim on colour alone holds the warm colour and starts
  * nothing, because the flicker is a brightness effect.
  */
-function runningOn(channel: Channel, source: SourceKind): BulbEffect | undefined {
-  const effect = bulbEffect(source);
-  return effect !== undefined && effect.channel === channel ? effect : undefined;
+function runningOn(channel: Channel, name: BulbEffectName | undefined): BulbEffectName | undefined {
+  return name !== undefined && bulbEffect(name).channel === channel ? name : undefined;
 }
 /**
  * {@link runningOn} for an unparsed target: a stored runtime assignment, or a
@@ -69,14 +70,29 @@ function runningOn(channel: Channel, source: SourceKind): BulbEffect | undefined
  * Read without raising, as every other read of those documents is
  * ({@link StoredChannels}).
  */
-export function runningIn(channel: Channel, stored: StoredChannels): BulbEffect | undefined {
-  const effect = stored.effectOn(channel);
-  return effect === undefined ? undefined : runningOn(channel, { kind: 'effect', effect });
+export function runningIn(channel: Channel, stored: StoredChannels): BulbEffectName | undefined {
+  return runningOn(channel, stored.bulbEffectOn(channel));
 }
+
+/**
+ * What a frame source's effect means to the frame plan, decided at the parse
+ * edge against the frame plan's own catalog, as the oracle decides it with
+ * `source.effect in catalog.effects`.
+ */
+export type FrameEffect =
+  /** One the bulbs run: sent as a static light, then started. */
+  | { kind: 'bulb effect'; name: BulbEffectName }
+  /**
+   * A name the catalog does not list. The oracle's membership test is false,
+   * so it sends the source as its value (`value | float` for brightness, the
+   * strict colour read for colour); so does the port, deliberately.
+   */
+  | { kind: 'uncatalogued effect'; name: string }
+  | { kind: 'not an effect' };
 
 export interface FrameSource {
   kind: string;
-  effect: string | null;
+  effect: FrameEffect;
   details: () => {
     intensity: number | null;
     /** The source's `value | float`. */
@@ -135,7 +151,8 @@ export interface AssignDetails {
   targets: Verbatim;
   targetViews: () => Record<string, {
     isRoom: boolean;
-    channels: Record<Channel, { kind: string; effect: string | null; updated: number | null }>;
+    /** `effect` is the bulb effect a channel names, `undefined` for any other source or name. */
+    channels: Record<Channel, { kind: string; effect: BulbEffectName | undefined; updated: number | null }>;
     owners: Record<Channel, string>;
   }>;
   /** The assignments, persisted as given. */
@@ -163,15 +180,12 @@ export function framePlan(ctx: ScriptContext, args: FramePlanArgs): GroupPlanRes
     for (const channel of ['brightness', 'color'] as const) {
       const source = target[channel];
       const details = source.details();
-      const effect = bulbEffect(source);
       if (channel === 'brightness') {
-        const level = effect === undefined ? details.level : jinjaFloat(details.intensity);
-        payload.brightness = roundEven(clamp(level, 1, 254));
+        payload.brightness = roundEven(clamp(frameLevel(source.effect, details), 1, 254));
         continue;
       }
-      if (effect !== undefined && effect.colour !== 'warm end') continue;
-      const context = `effects_frame_plan.targets.${lamp}.color.value`;
-      const colour = effect === undefined ? details.colour(context) : warmEndColour(ctx, context);
+      const colour = frameColourOf(ctx, source.effect, details, `effects_frame_plan.targets.${lamp}.color.value`);
+      if (colour === undefined) continue;
       if (colour.kind === 'kelvin') payload.color_temp = roundEven(1_000_000 / colour.kelvin);
       else payload.color = { rgb: colour.rgb.join(',') };
     }
@@ -187,6 +201,35 @@ export function framePlan(ctx: ScriptContext, args: FramePlanArgs): GroupPlanRes
   // answers, so it must arrive typed. The call itself is unchanged -- same
   // name in `scriptRuns`, same argument bytes in the compared trace.
   return ctx.call('effects_group_plan', { rows, groups: catalog.multicast() });
+}
+
+type FrameDetails = ReturnType<FrameSource['details']>;
+
+/** A brightness source's level: a bulb effect runs at its intensity, anything else is its value. */
+function frameLevel(effect: FrameEffect, details: FrameDetails): number {
+  switch (effect.kind) {
+    case 'bulb effect': return jinjaFloat(details.intensity);
+    case 'uncatalogued effect':
+    case 'not an effect': return details.level;
+    default: { const unknown: never = effect; throw new Error(`Unhandled frame effect ${JSON.stringify(unknown)}`); }
+  }
+}
+
+/** A colour source's colour, or `undefined` when the bulb effect owns the colour and nothing is sent. */
+function frameColourOf(ctx: ScriptContext, effect: FrameEffect, details: FrameDetails, context: string): FrameColour | undefined {
+  switch (effect.kind) {
+    case 'bulb effect': {
+      const held = bulbEffect(effect.name).colour;
+      switch (held) {
+        case 'warm end': return warmEndColour(ctx, context);
+        case 'none': return undefined;
+        default: { const unknown: never = held; throw new Error(`Unhandled bulb effect colour ${JSON.stringify(unknown)}`); }
+      }
+    }
+    case 'uncatalogued effect':
+    case 'not an effect': return details.colour(context);
+    default: { const unknown: never = effect; throw new Error(`Unhandled frame effect ${JSON.stringify(unknown)}`); }
+  }
 }
 
 /**
@@ -259,7 +302,7 @@ export function assignEffects(ctx: ScriptContext, args: AssignArgs): AssignResul
         const source = target.channels[channel];
         // A lamp leaving an effect its bulbs run is told to stop it, before its new light.
         const was = runningIn(channel, previous.channels);
-        if (was !== undefined && runningOn(channel, source) !== was) needed = true;
+        if (was !== undefined && runningOn(channel, source.effect) !== was) needed = true;
         if (source.kind === 'effect' && target.owners[channel].startsWith('channels:native:') && source.updated !== previous.updated(channel)) needed = true;
       }
       if (needed) for (const member of catalog.members[lamp] ?? []) if (ctx.get(member) === 'on') {
