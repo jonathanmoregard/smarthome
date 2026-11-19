@@ -7,6 +7,7 @@ import { typed } from '../runtime/entrypoints.ts';
 import { timestamp } from '../parse/accessors.ts';
 import { pythonFloatText } from '../runtime/format.ts';
 import type { StoredValue } from '../parse/overrides.ts';
+import { overridesRevision } from '../parse/sensors.ts';
 import { switchRangeEntities } from '../parse/planning.ts';
 import {
   attributeNumber, entityProfile, entitySample, parseScheduledBaseArgs, rgbComponent, savedProfile, stateNumber, storedScheduleRecords,
@@ -210,8 +211,8 @@ export type ScheduleCommand = ScheduleOutput & { ids: string[] } | { kind: 'swit
  *
  * - `schedule_details` was ALWAYS `Record<string, ScheduleDetails>`; the type
  *   existed and the field threw it away.
- * - `revision` is `string` because `EntityState.last_updated` is
- *   `string | undefined` and `ctx.now` is a `string`.
+ * - `revision` is `string`: the sensor's `last_updated`, read bare as the
+ *   captured source reads it, so a missing sensor raises (`overridesRevision`).
  * - `sara_mirror` is the literal `'off'` or null, nothing else.
  * - `dbg` is optional because the handler adds it only for `includeDebug`,
  *   and an absent key is not the same bytes as a null one.
@@ -444,7 +445,7 @@ export function scheduledBase(ctx: ScriptContext, args: ScheduledBaseArgs, roomL
     }
     return { ...command, ids };
   });
-  const schedule: ScheduleEnvelope = { cmds: packed, profiles, revision: ctx.state['sensor.ls_overrides']?.last_updated ?? ctx.now, stale_keys: stale, sched, schedule_details: details, mirror,
+  const schedule: ScheduleEnvelope = { cmds: packed, profiles, revision: overridesRevision(ctx, roomLocal ? 'ls_room_base' : 'ls_base'), stale_keys: stale, sched, schedule_details: details, mirror,
     sara_mirror: ctx.state['input_boolean.ls_sara_mode_mirror'] && ctx.get('input_boolean.ls_sara_mode_mirror') !== 'off' ? 'off' : null };
   if (args.includeDebug === true) schedule.dbg = debug;
   return { targets, schedule };

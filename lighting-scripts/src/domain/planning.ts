@@ -9,6 +9,7 @@ import type { ResolutionResult } from './resolution.ts';
 import type { ScheduleMirror } from './schedule.ts';
 import { hasValue, labelled, nextMidnight, privateRooms } from './schedule.ts';
 import { timestamp } from '../parse/accessors.ts';
+import { overridesRevision } from '../parse/sensors.ts';
 import { entityProfile } from '../parse/schedule.ts';
 import { mappingAttribute, parseRoomBaseline, parseRoomPlanArgs, rangeDefaults, roomCatalog, stored, storedList, switchRangeEntities, warmEndOf } from '../parse/planning.ts';
 
@@ -247,6 +248,9 @@ function expiry(ctx: ScriptContext, baseline: RoomBaseline, room: string, at: nu
 export function roomPlan(ctx: ScriptContext, args: RoomPlanArgs): RoomPlanResult {
   const { room, reason, overrides, cache } = args;
   const at = args.testNow.instant(ctx.now);
+  // Captured: the first variables block reads the revision bare, after `at` and
+  // ahead of every action, so a missing sensor raises before any script runs.
+  const revision = overridesRevision(ctx, 'ls_room_plan');
   const warmEnd = warmEndOf(ctx.attr('light.candle_test_rgb_warm_end', 'rgb_color'));
   const deps = dependencies(ctx, room, reason, warmEnd);
   const cachedDetails = cache === undefined ? undefined : cache.baseline.details(room, 'ls_room_plan.cache.baseline.schedule.schedule_details');
@@ -276,12 +280,8 @@ export function roomPlan(ctx: ScriptContext, args: RoomPlanArgs): RoomPlanResult
     ranges: args.ranges ?? mappingAttribute(ctx.attr('sensor.ls_overrides', 'switch_ranges')),
     defaults: args.defaults ?? rangeDefaults(ctx.attr('sensor.ls_overrides', 'range_defaults')) });
   const wanted = Object.hasOwn(active, 'mode:sara') ? 'on' : 'off';
-  // PRE-EXISTING DIVERGENCE, preserved: the captured source reads
-  // `last_updated` bare, with no default, while this falls back to `ctx.now`.
-  // One of four ports of that same expression, each different; recorded in
-  // `tasks/ls-room-plan-design.md` and deliberately left for the user.
   return { plan: withFields(refreshed.schedule, { room, base: refreshed.targets, resolved, gradients, catalog, switches: switches.switches,
-    revision: ctx.state['sensor.ls_overrides']?.last_updated ?? ctx.now, plan_order: timestamp(ctx.now), remote: reason === 'remote',
+    revision, plan_order: timestamp(ctx.now), remote: reason === 'remote',
     sara_mirror: ctx.get('input_boolean.ls_sara_mode_mirror') !== wanted ? wanted : null }), cache_update: update, cache_hit: hit };
 }
 export const planningHandlers: ScriptHandlers = {

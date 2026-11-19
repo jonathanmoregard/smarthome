@@ -6,7 +6,7 @@ import { runningIn } from './transport.ts';
 import type { AssignResult, EmitResult } from './transport.ts';
 import { timestamp } from '../parse/accessors.ts';
 import type { OpaqueMap, StoredFact, StoredValue } from '../parse/overrides.ts';
-import { attributeFact, attributeMapping } from '../parse/sensors.ts';
+import { attributeFact, attributeMapping, overridesRevision } from '../parse/sensors.ts';
 import { mappingAttribute } from '../parse/planning.ts';
 import type { StoredChannels } from '../parse/transport.ts';
 import {
@@ -15,10 +15,6 @@ import {
 
 const runtime = 'sensor.ls_effects_runtime';
 const overrideSensor = 'sensor.ls_overrides';
-// divergence: the captured scripts read `states.sensor.ls_overrides.last_updated`
-// bare and raise when the sensor is missing; this falls back to ''. Kept
-// byte-identical for its own commit.
-function revisionOf(ctx: ScriptContext): string { return ctx.state[overrideSensor]?.last_updated ?? ''; }
 
 /** One resolved target, as `ls_dispatch` reads it before handing it on. */
 export interface DispatchTarget {
@@ -64,7 +60,7 @@ export type DispatchResult = { completed: boolean; published_at: number[] } | nu
 
 export function dispatch(ctx: ScriptContext, args: DispatchArgs): DispatchResult {
   const revision = args.revision;
-  if (revision !== revisionOf(ctx) || args.planOrder < dispatchPlanOrder(ctx)) return null;
+  if (revision !== overridesRevision(ctx, 'ls_dispatch') || args.planOrder < dispatchPlanOrder(ctx)) return null;
   const details = args.details();
   const { targets, targetViews, assignments, requested, outputTargets, remoteRooms,
     remote, switches, mirrors, staleKeys, saraMirror } = details;
@@ -91,7 +87,7 @@ export function dispatch(ctx: ScriptContext, args: DispatchArgs): DispatchResult
   // null, so none of the three could fire for the real handlers.
   const completed = emission.completed && started.completed;
   const generation = assigned.generation;
-  if (revision !== revisionOf(ctx) || generation !== ctx.attr(runtime, 'generation')) return null;
+  if (revision !== overridesRevision(ctx, 'ls_dispatch') || generation !== ctx.attr(runtime, 'generation')) return null;
   if (Object.keys(ordinary).length && completed) {
     ctx.emit('variable.update_sensor', { value: generation, replace_attributes: false,
       attributes: { applied: { ...attributeMapping(ctx, runtime, 'applied'), ...ordinary } } }, { entity_id: runtime },
@@ -100,9 +96,9 @@ export function dispatch(ctx: ScriptContext, args: DispatchArgs): DispatchResult
   for (const parseSwitch of switches()) {
     const { entity, on } = parseSwitch();
     const state = on ? 'on' : 'off';
-    if (revision === revisionOf(ctx) && ctx.get(entity) !== state) ctx.emit(`homeassistant.turn_${state}`, {}, { entity_id: entity }, { revision, generation });
+    if (revision === overridesRevision(ctx, 'ls_dispatch') && ctx.get(entity) !== state) ctx.emit(`homeassistant.turn_${state}`, {}, { entity_id: entity }, { revision, generation });
   }
-  if (revision !== revisionOf(ctx)) return null;
+  if (revision !== overridesRevision(ctx, 'ls_dispatch')) return null;
   for (const parseMirror of mirrors()) {
     const mirror = parseMirror();
     ctx.emit('input_select.select_option', { option: mirror.option }, { entity_id: mirror.entity }, { revision, generation });
@@ -110,7 +106,7 @@ export function dispatch(ctx: ScriptContext, args: DispatchArgs): DispatchResult
   if (saraMirror === 'on' || saraMirror === 'off') ctx.emit(`input_boolean.turn_${saraMirror}`, {}, { entity_id: 'input_boolean.ls_sara_mode_mirror' }, { revision, generation });
   const parsedStaleKeys = staleKeys();
   if (parsedStaleKeys.length) ctx.fire('ls_override', { op: 'clear', keys: parsedStaleKeys, via: 'rule_next_block', expected_revision: revision });
-  return { completed: completed && revision === revisionOf(ctx) && generation === ctx.attr(runtime, 'generation'), published_at: [...emission.published_at, ...started.published_at] };
+  return { completed: completed && revision === overridesRevision(ctx, 'ls_dispatch') && generation === ctx.attr(runtime, 'generation'), published_at: [...emission.published_at, ...started.published_at] };
 }
 
 /**
@@ -165,7 +161,7 @@ type RoomsPlan = {
 
 /** Coalesce pending room versions, preserving unrelated rooms and retrying incomplete output. */
 export function render(ctx: ScriptContext): null {
-  const started = timestamp(ctx.now), revision = revisionOf(ctx);
+  const started = timestamp(ctx.now), revision = overridesRevision(ctx, 'ls_render');
   const received = attributeFact(ctx, overrideSensor, 'received_at') ?? null, request = attributeFact(ctx, overrideSensor, 'last_request') ?? null;
   const pending = attributeMapping(ctx, overrideSensor, 'pending_rooms'), handled = attributeMapping(ctx, runtime, 'handled_rooms');
   const fullVersion = optionalRevisionAttribute(ctx.attr(overrideSensor, 'full_version'), 'ls_render.full_version');
@@ -205,7 +201,7 @@ export function render(ctx: ScriptContext): null {
     plan = { base: bases, resolved: { targets, assignments }, switches, mirror: mirrors, stale_keys: stale, revision, plan_order: started, remote: false, remote_rooms: rooms, sara_mirror: saraMirror ?? null,
       output_targets: Object.keys(bases) };
   }
-  if (revision !== revisionOf(ctx)) return null;
+  if (revision !== overridesRevision(ctx, 'ls_render')) return null;
   for (const [room, cache] of Object.entries(updates)) {
     const entity = `sensor.ls_cache_${room}`;
     if (hasValue(ctx, entity)) ctx.emit('variable.update_sensor', { value: ctx.now, attributes: { cache }, replace_attributes: false }, { entity_id: entity });
@@ -214,7 +210,7 @@ export function render(ctx: ScriptContext): null {
   const emission = ctx.call('ls_dispatch', { plan, lights });
   // `requireObject`, `requireBoolean` and `?? []` below are gone: `null` is in
   // the type, and `dispatch` builds both fields whenever it returns an object.
-  if (emission === null || !emission.completed || revision !== revisionOf(ctx)) return null;
+  if (emission === null || !emission.completed || revision !== overridesRevision(ctx, 'ls_render')) return null;
   const generation = attributeFact(ctx, runtime, 'generation') ?? null;
   ctx.emit('variable.update_sensor', { value: ctx.now, replace_attributes: false, attributes: {
     handled_rooms: pending,

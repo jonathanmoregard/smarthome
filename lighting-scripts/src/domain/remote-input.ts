@@ -5,6 +5,7 @@ import { typed } from '../runtime/entrypoints.ts';
 import { recordTimestamp } from '../parse/resolution.ts';
 import { switchRangeEntities } from '../parse/planning.ts';
 import type { AssembledMap } from '../parse/overrides.ts';
+import { overridesRevision } from '../parse/sensors.ts';
 import {
   contextEntries, noInputRecord, presetSelection, remoteCache, remoteOverrides, remoteRoomPlan, roomPower,
 } from '../parse/remote-input.ts';
@@ -84,10 +85,7 @@ export function remotePlan(ctx: ScriptContext, args: RemotePlanArgs): RemotePlan
   const room = Object.values(ctx.areas).includes(area) ? area : '';
   const overrides = remoteOverrides(ctx, room);
   const stamp = recordTimestamp(ctx.now);
-  // divergence: the captured script reads `states.sensor.ls_overrides.last_updated`
-  // bare and raises when the sensor is missing; this falls back to `ctx.now`.
-  // Kept byte-identical for its own commit.
-  const revision = ctx.state['sensor.ls_overrides']?.last_updated ?? ctx.now;
+  const revision = overridesRevision(ctx, 'ls_remote_plan');
   const inputKey = overrides.inputKey;
   const inputRecord = overrides.input;
   let timingRevision = 0;

@@ -19,10 +19,9 @@
  * Reads that the inline code made eagerly are made eagerly here, in the same
  * order.
  *
- * Two pre-existing divergences are preserved deliberately, not endorsed: the
- * cache-validity test is tighter than the oracle's (`validCache`), and see
- * `roomPlan`'s `revision` for the other. Both are behaviour, and this file is
- * a representation change.
+ * One pre-existing divergence is preserved deliberately, not endorsed: the
+ * cache-validity test is tighter than the oracle's (`validCache`). It is
+ * behaviour, and this file is a representation change.
  */
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import { isObject, jinjaTruthy, object, requireNumber, requireObject, requireString } from '../runtime/parse.ts';

@@ -20,6 +20,7 @@ function configured() {
     ctx.put(`input_text.ls_house_${block}`, JSON.stringify({ on: true, b, m: 'ct', k }));
   }
   ctx.put('light.studio', 'on', { brightness: 100, color_mode: 'color_temp', color_temp_kelvin: 2500 });
+  ctx.put('sensor.ls_overrides', '0', {});
   return ctx;
 }
 function periods(overrides: JsonObject): [unknown, unknown] {

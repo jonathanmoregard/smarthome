@@ -7,6 +7,7 @@ import type { Verbatim } from '../runtime/verbatim.ts';
 import { roundEven, clamp } from './scale.ts';
 import { recordTimestamp } from '../parse/resolution.ts';
 import type { OpaqueMap, StoredFact, StoredValue } from '../parse/overrides.ts';
+import { overridesRevision } from '../parse/sensors.ts';
 import {
   assignedAs, assignedLamps, parseAssignArgs, parseEmitArgs, parseFilterArgs, parseFramePlanArgs, powerClosed,
   runtimeGeneration, runtimePlanOrder, runtimeState, warmEndColour,
@@ -72,10 +73,6 @@ export function runningIn(channel: Channel, stored: StoredChannels): BulbEffect 
   const effect = stored.effectOn(channel);
   return effect === undefined ? undefined : runningOn(channel, { kind: 'effect', effect });
 }
-// divergence: the captured scripts read `states.sensor.ls_overrides.last_updated`
-// bare and raise when the sensor is missing; this falls back to `ctx.now`. Kept
-// byte-identical for its own commit.
-const revisionNow = (ctx: ScriptContext) => ctx.state['sensor.ls_overrides']?.last_updated ?? ctx.now;
 
 export interface FrameSource {
   kind: string;
@@ -212,9 +209,12 @@ export function emitCommands(ctx: ScriptContext, args: EmitArgs): EmitResult {
   let completed = true;
   const published: number[] = [];
   for (const parseCommand of args.commands) {
+    // Captured: `allowed` opens with the bare revision read; the command's
+    // fields are read after it.
+    const current = overridesRevision(ctx, 'effects_emit');
     const command = parseCommand();
     const owners = command.owners, members = command.members;
-    let allowed = revision === revisionNow(ctx) && generation === ctx.attr(runtime, 'generation');
+    let allowed = revision === current && generation === ctx.attr(runtime, 'generation');
     for (const owner of owners) if (ctx.get(owner) !== 'on' || !command.turnsOff && powerClosed(ctx, ctx.areas[owner] ?? '')) allowed = false;
     for (const member of members) if (ctx.get(member) !== 'on') allowed = false;
     const effectTargets = args.effectTargets();
@@ -228,13 +228,13 @@ export function emitCommands(ctx: ScriptContext, args: EmitArgs): EmitResult {
       ctx.emit('mqtt.publish', { topic: command.topic, payload: command.body, qos: 0, retain: false }, undefined, guard);
     } else completed = false;
   }
-  return { published_at: published, completed: completed && revision === revisionNow(ctx) && generation === ctx.attr(runtime, 'generation') };
+  return { published_at: published, completed: completed && revision === overridesRevision(ctx, 'effects_emit') && generation === ctx.attr(runtime, 'generation') };
 }
 
 type StopCommand = { topic: string | null; payload: { effect: string }; members: string[]; owners: string[]; group: false };
 
 export function assignEffects(ctx: ScriptContext, args: AssignArgs): AssignResult {
-  if (args.revision !== revisionNow(ctx)) return { generation: runtimeGeneration(ctx) };
+  if (args.revision !== overridesRevision(ctx, 'effects_assign')) return { generation: runtimeGeneration(ctx) };
   const details = args.details();
   const targets = details.targets, assignments = details.assignments;
   const stored = runtimeState(ctx);

@@ -61,7 +61,8 @@ export function context(handlers: ScriptHandlers = {}): ScriptContext {
     rawCatalog() { return documents.get(this)?.raw ?? {}; },
     get(entity) { return this.state[entity]?.state ?? 'unknown'; },
     attr(entity, key) { return this.state[entity]?.attributes[key]; },
-    put(entity, state, attributes) { this.state[entity] = { state, attributes: attributes ?? this.state[entity]?.attributes ?? {} }; },
+    // Home Assistant stamps last_updated on every write, as the engine's put does.
+    put(entity, state, attributes) { this.state[entity] = { state, attributes: attributes ?? this.state[entity]?.attributes ?? {}, last_updated: this.now }; },
     emit(service, data, target) { this.calls.push({ service, data, ...(target ? { target } : {}) }); },
     fire(event, data) { this.events.push({ event, data }); },
     schedule(script, args, delayMs) { (this.scheduled ??= []).push({ script, args, due: Date.parse(this.now) + delayMs }); },

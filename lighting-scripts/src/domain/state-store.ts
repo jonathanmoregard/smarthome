@@ -8,7 +8,7 @@ import { isAreaId, labelled, privateRooms } from './schedule.ts';
 import { cachedProfile, catalogEffectChannels, parseOverrideBlockArgs, parseStoreProfile, parseViaArgs, roomTarget, scheduledBlocks, storedProfileText } from '../parse/state-store.ts';
 import { affectedRoom, mergedValue, overrideRecord, parseCommitArgs, underlyingOf } from '../parse/overrides.ts';
 import type { OpaqueMap, StoredEntry, StoredFact, StoredValue } from '../parse/overrides.ts';
-import { attributeFact, attributeList, attributeMapping, lenientOverrides } from '../parse/sensors.ts';
+import { attributeFact, attributeList, attributeMapping, lenientOverrides, overridesRevision } from '../parse/sensors.ts';
 
 /** One channel claim of a `channels` record, as written. */
 export interface ChannelClaim {
@@ -101,9 +101,9 @@ export type CommitResult = { accepted: false } | { accepted: true; revision: str
 
 export function commit(ctx: ScriptContext, args: CommitArgs): CommitResult {
   const entity = 'sensor.ls_overrides';
-  // divergence: the captured ls_commit reads `last_updated` bare and raises when
-  // the sensor is missing; this falls back to ctx.now. Scheduled as its own fix.
-  const currentRevision = ctx.state[entity]?.last_updated ?? ctx.now;
+  // Captured: `data.get('expected_revision') in [none, <bare read>]` builds the
+  // list whatever the expected revision is, so the read always happens here.
+  const currentRevision = overridesRevision(ctx, 'ls_commit');
   if (args.expectedRevision != null && args.expectedRevision !== currentRevision) return { accepted: false };
   const parsed = args.details();
   const before = lenientOverrides(ctx);
@@ -185,8 +185,7 @@ export function commit(ctx: ScriptContext, args: CommitArgs): CommitResult {
   }
   ctx.emit('variable.update_sensor', { value: ctx.now, attributes: patch, replace_attributes: false }, { entity_id: entity });
   ctx.emit('script.turn_on', {}, { entity_id: 'script.ls_render' });
-  // divergence: as above, the captured result reads `last_updated` bare.
-  return { accepted: true, revision: ctx.state[entity]?.last_updated ?? ctx.now, committed_at: recordTimestamp(ctx.now) };
+  return { accepted: true, revision: overridesRevision(ctx, 'ls_commit'), committed_at: recordTimestamp(ctx.now) };
 }
 
 export interface StoreProfileArgs {

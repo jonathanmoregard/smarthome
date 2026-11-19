@@ -5,12 +5,14 @@ import { context } from './gestures-context.ts';
 
 test('ls_commit power uses the captured Home Assistant bool filter trimming', () => {
   const ctx = context(stateStoreHandlers);
+  ctx.put('sensor.ls_overrides', '0', {});
   ctx.run('ls_commit', { data: { op: 'power', area: 'studio', on: ' enable ' } });
   assert.equal(ctx.calls[0]?.data.attributes.power.studio, true);
 });
 
 test('ls_commit power rejects values rejected by the captured Home Assistant bool filter', () => {
   const ctx = context(stateStoreHandlers);
+  ctx.put('sensor.ls_overrides', '0', {});
   assert.throws(
     () => ctx.run('ls_commit', { data: { op: 'power', area: 'studio', on: 'hot' } }),
     /ls_commit\.data\.on/,
@@ -25,6 +27,7 @@ test('ls_store profile booleans use the captured Home Assistant bool filter', ()
 
 test('ls_commit rejects unhashable record keys on the shared affected-room lookup', () => {
   const ctx = context(stateStoreHandlers);
+  ctx.put('sensor.ls_overrides', '0', {});
   assert.throws(
     () => ctx.run('ls_commit', { data: { op: 'clear_all', records: [{ key: [] }] } }),
     /ls_commit\.data\.records\[0\]\.key.*unhashable/,
@@ -148,6 +151,7 @@ test('ls_commit clear_room compares raw targets with the raw area, absent includ
 
 test('ls_commit refuses a non-string affected room with the raw value described', () => {
   const ctx = context(stateStoreHandlers);
+  ctx.put('sensor.ls_overrides', '0', {});
   assert.throws(() => ctx.run('ls_commit', { data: { records: [{ key: 'k', scope: 'room', target: 5 }] } }),
     /ls_commit affected\[0\]\.room must be a string, got number 5/);
   ctx.put('sensor.ls_overrides', 'x', { overrides: { k: { scope: 'room', target: [1] } } });
