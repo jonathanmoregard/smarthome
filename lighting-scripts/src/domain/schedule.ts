@@ -446,7 +446,7 @@ export function scheduledBase(ctx: ScriptContext, args: ScheduledBaseArgs, roomL
     return { ...command, ids };
   });
   const schedule: ScheduleEnvelope = { cmds: packed, profiles, revision: overridesRevision(ctx, roomLocal ? 'ls_room_base' : 'ls_base'), stale_keys: stale, sched, schedule_details: details, mirror,
-    sara_mirror: ctx.state['input_boolean.ls_sara_mode_mirror'] && ctx.get('input_boolean.ls_sara_mode_mirror') !== 'off' ? 'off' : null };
+    sara_mirror: ctx.state['input_boolean.ls_sara_mode_mirror'] !== undefined && ctx.get('input_boolean.ls_sara_mode_mirror') !== 'off' ? 'off' : null };
   if (args.includeDebug === true) schedule.dbg = debug;
   return { targets, schedule };
 }
