@@ -24,6 +24,8 @@
 // U1 (parse readers and the pure readers retyped to HouseView, switchPlan on
 // the areas map): domainScriptContext 49 -> 32, domainCtx 236 -> 190.
 //
+// U2 (gestures reducer): domainCtx 190 -> 181, effectCalls 39 -> 32.
+//
 // Raising a ceiling is the regression this guard exists to catch; argue any
 // raise in the commit message.
 import { readdir, readFile } from 'node:fs/promises';
@@ -35,9 +37,9 @@ const SRC = join(ROOT, 'src');
 
 const CEILINGS = {
   domainScriptContext: 32,
-  domainCtx: 190,
+  domainCtx: 181,
   houseViewGenerators: 0,
-  effectCalls: 39,
+  effectCalls: 32,
   longLines: 144,
 };
 

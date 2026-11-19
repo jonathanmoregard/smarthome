@@ -10,7 +10,7 @@ import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { HouseView } from '../runtime/effects.ts';
 import { isObject, jinjaInt, lazy, ParseError, requireString } from '../runtime/parse.ts';
 import { carry } from '../runtime/verbatim.ts';
-import type { GestureArgs, PowerQuietArgs, PresetPayload } from '../domain/gestures.ts';
+import type { GestureArgs, GestureState, PowerQuietArgs, PresetPayload } from '../domain/gestures.ts';
 
 function roomArg(args: JsonObject): string {
   const room = requireString(args, 'room', 'ls_remote_gesture');
@@ -69,4 +69,22 @@ export function parsePowerQuietArgs(args: JsonObject): PowerQuietArgs {
 /** A gesture helper's state as the captured script reads it: `states(helper) | int(fallback)`. */
 export function helperInt(ctx: HouseView, entity: string, fallback = 0): number {
   return jinjaInt(ctx.get(entity), fallback);
+}
+
+/**
+ * The remote's helpers as the gesture reads them, all before its first write.
+ * None of these reads can raise, so reading the preset cursor up front -- the
+ * captured script reads it only on the preset branch, before any write there --
+ * changes nothing observable.
+ */
+export function gestureState(ctx: HouseView, room: string): GestureState {
+  const prefix = `ls_${room}_remote_`;
+  const saved = ctx.get(`input_text.${prefix}power_token`);
+  return {
+    chordStep: helperInt(ctx, `input_number.${prefix}chord_step`),
+    chordActive: ctx.get(`timer.${prefix}chord`) === 'active',
+    powerCount: helperInt(ctx, `input_number.${prefix}power_count`),
+    powerToken: ['unknown', 'unavailable'].includes(saved) ? '' : saved,
+    preset: helperInt(ctx, `input_number.${prefix}preset`, -2),
+  };
 }

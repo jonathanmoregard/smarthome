@@ -1,0 +1,114 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { gesture, launchPowerQuiet, powerQuiet, stampPowerToken } from '../../src/domain/gestures.ts';
+import type { GestureInput, GestureState } from '../../src/domain/gestures.ts';
+import type { Effect, Plan } from '../../src/runtime/effects.ts';
+import { carry } from '../../src/runtime/verbatim.ts';
+
+const idle: GestureState = { chordStep: 0, chordActive: false, powerCount: 0, powerToken: '', preset: -2 };
+const NOW = '2026-10-26T12:00:00+01:00';
+function input(command: string, extra: Partial<GestureInput> = {}): GestureInput {
+  return {
+    room: 'studio', command, token: '',
+    payload: () => undefined,
+    delivery: () => ({ deviceId: undefined, source: 'remote_ieee' }),
+    areas: {}, now: NOW, ...extra,
+  };
+}
+/** Drain a plan: its effects in yield order, and its answer. */
+function drain<R>(plan: Plan<R>): { effects: Effect[]; result: R } {
+  const effects: Effect[] = [];
+  for (;;) {
+    const step = plan.next();
+    if (step.done) return { effects, result: step.value };
+    effects.push(step.value);
+  }
+}
+const helper = (key: string, value: number) => [
+  { kind: 'state', entity: `input_number.ls_studio_remote_${key}`, state: String(value) },
+  { kind: 'service', service: 'input_number.set_value', data: { value }, target: { entity_id: `input_number.ls_studio_remote_${key}` } },
+];
+const token = (value: string) => [
+  { kind: 'state', entity: 'input_text.ls_studio_remote_power_token', state: value },
+  { kind: 'service', service: 'input_text.set_value', data: { value }, target: { entity_id: 'input_text.ls_studio_remote_power_token' } },
+];
+const timer = (start: boolean) => [
+  { kind: 'state', entity: 'timer.ls_studio_remote_chord', state: start ? 'active' : 'idle' },
+  { kind: 'service', service: `timer.${start ? 'start' : 'cancel'}`, data: start ? { duration: '00:00:03' } : {}, target: { entity_id: 'timer.ls_studio_remote_chord' } },
+];
+const command = (logical: string, area = 'studio', source = 'remote_ieee') => ({
+  kind: 'service', service: 'script.turn_on',
+  data: { variables: { source, area, command: logical, dry_run: false } }, target: { entity_id: 'script.ls_remote_command' },
+});
+
+test('a first power press resets the preset, counts one click and arms the chord; the token is the shell\'s', () => {
+  const { effects, result } = drain(gesture(idle, input('power')));
+  assert.deepEqual(effects, [...helper('preset', -1), ...helper('power_count', 1), ...helper('chord_step', -1), ...timer(true)]);
+  assert.deepEqual(result, { chordStep: -1, chordActive: true, powerCount: 1, powerToken: '', preset: -1 });
+});
+
+test('a power press after the quiet window first completes the old burst', () => {
+  const state: GestureState = { ...idle, powerCount: 1, powerToken: '2026-10-26T11:59:00+01:00' };
+  const { effects } = drain(gesture(state, input('power')));
+  assert.deepEqual(effects, [
+    ...helper('preset', -1), ...helper('power_count', 0), ...token(''), ...helper('chord_step', 0), ...timer(false), command('toggle'),
+    ...helper('power_count', 1), ...helper('chord_step', -1), ...timer(true),
+  ]);
+});
+
+test('power_done with the stored token completes a single click as a toggle', () => {
+  const state: GestureState = { ...idle, powerCount: 1, powerToken: NOW };
+  const { effects, result } = drain(gesture(state, input('power_done', { token: NOW })));
+  assert.deepEqual(effects, [...helper('power_count', 0), ...token(''), ...helper('chord_step', 0), ...timer(false), command('toggle')]);
+  assert.deepEqual(result, { ...idle, preset: -2 });
+});
+
+test('power_done with a stale token does nothing', () => {
+  const state: GestureState = { ...idle, powerCount: 1, powerToken: NOW };
+  assert.deepEqual(drain(gesture(state, input('power_done', { token: 'older' }))).effects, []);
+});
+
+test('the delivery thunk raises only where the send happens, after the chord is cleared', () => {
+  const state: GestureState = { ...idle, powerCount: 3, powerToken: NOW };
+  const plan = gesture(state, input('power_done', { token: NOW, delivery: () => { throw new Error('source must be a string'); } }));
+  const seen: Effect[] = [];
+  assert.throws(() => { for (const effect of plan) seen.push(effect); }, /source must be a string/);
+  assert.deepEqual(seen, [...helper('power_count', 0), ...token(''), ...helper('chord_step', 0), ...timer(false)]);
+});
+
+test('a device area resolves through the areas snapshot; an unknown device sends nothing', () => {
+  const at = (deviceId: string) => input('up', { delivery: () => ({ deviceId, source: 's' }), areas: { remote_device: 'kitchen' } });
+  assert.deepEqual(drain(gesture(idle, at('remote_device'))).effects, [command('up', 'kitchen', 's')]);
+  assert.deepEqual(drain(gesture(idle, at('missing'))).effects, []);
+});
+
+test('a canonical preset step to the right navigates right', () => {
+  const state: GestureState = { ...idle, preset: 0 };
+  const payload = () => ({ action: 'color_temperature_move', preset: 285 });
+  const { effects, result } = drain(gesture(state, input('preset', { payload })));
+  assert.deepEqual(effects, [...helper('preset', 1), command('right')]);
+  assert.equal(result.preset, 1);
+});
+
+test('the fourth chord step sends sara_toggle', () => {
+  const state: GestureState = { ...idle, chordStep: 4, chordActive: true };
+  assert.deepEqual(drain(gesture(state, input('right'))).effects, [...helper('chord_step', 0), ...timer(false), command('sara_toggle')]);
+});
+
+test('an unaccepted command does nothing', () => {
+  assert.deepEqual(drain(gesture(idle, input('dance'))).effects, []);
+});
+
+test('the shell stamps the power token and launches the quiet script from a live now', () => {
+  assert.deepEqual([...stampPowerToken('studio', 'T1')], token('T1'));
+  assert.deepEqual([...launchPowerQuiet('studio', 'T2')], [
+    { kind: 'service', service: 'script.turn_on', data: { variables: { token: 'T2' } }, target: { entity_id: 'script.ls_remote_power_quiet_studio' } },
+  ]);
+});
+
+test('the quiet window schedules power_done with the document carried', () => {
+  const document = carry({ token: 'T', command: 'x', room: 'studio' });
+  assert.deepEqual([...powerQuiet({ document, room: 'studio' })], [
+    { kind: 'schedule', script: 'ls_remote_gesture', args: { token: 'T', command: 'power_done', room: 'studio' }, delayMs: 600 },
+  ]);
+});
