@@ -1,6 +1,9 @@
 import type { OutputGuard, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
 import { withParsedArgs } from '../runtime/parse.ts';
 import { catalogOf } from '../runtime/catalog.ts';
+import type { Catalog } from '../runtime/catalog.ts';
+import { perform, run } from '../runtime/effects.ts';
+import type { Effect, HouseView, Plan } from '../runtime/effects.ts';
 import { typed } from '../runtime/entrypoints.ts';
 import { withFields } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
@@ -12,7 +15,7 @@ import {
   assignedAs, assignedLamps, parseAssignArgs, parseEmitArgs, parseFilterArgs, parseFramePlanArgs, powerClosed,
   runtimeGeneration, runtimePlanOrder, runtimeState, warmEndColour,
 } from '../parse/transport.ts';
-import type { FrameColour, StoredChannels } from '../parse/transport.ts';
+import type { FrameColour, RuntimeState, StoredChannels } from '../parse/transport.ts';
 import type { GroupPlanResult } from './grouping.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
@@ -130,7 +133,7 @@ export interface FramePlanArgs {
 }
 /** One lamp's light. Keys are written in the order the captured payload has them. */
 type FramePayload = { brightness?: number; color_temp?: number; color?: { rgb: string }; state?: 'OFF'; transition?: number };
-type FrameRow = { entity: string; owner: string; topic: string | null; payload: FramePayload };
+export type FrameRow = { entity: string; owner: string; topic: string | null; payload: FramePayload };
 
 export interface EmitCommand {
   /** The MQTT body: the command's payload, serialised as given. */
@@ -178,8 +181,20 @@ export interface FilterArgs {
  * value: brightness is the effect's intensity (the level it runs at, and the
  * candle's ceiling); colour is what the effect holds (see {@link BulbEffect}).
  * The start follows in a second emission, so it always lands after the light.
+ *
+ * The rows go to the group planner, an inter-handler call whose result is this
+ * script's answer, so the call stays in the handler.
  */
 export function framePlan(ctx: ScriptContext, args: FramePlanArgs): GroupPlanResult {
+  const rows = frameRows(ctx, args);
+  // `ctx.call`, not `ctx.run`: this result is what `effects_frame_plan`
+  // answers, so it must arrive typed. The call itself is unchanged -- same
+  // name in `scriptRuns`, same argument bytes in the compared trace.
+  return ctx.call('effects_group_plan', { rows, groups: args.catalog.multicast() });
+}
+
+/** One row per on member of each on lamp, carrying that lamp's light. */
+export function frameRows(view: HouseView, args: FramePlanArgs): FrameRow[] {
   const catalog = args.catalog, rows: FrameRow[] = [];
   for (const [lamp, target] of Object.entries(args.targets)) {
     let payload: FramePayload = {};
@@ -191,23 +206,23 @@ export function framePlan(ctx: ScriptContext, args: FramePlanArgs): GroupPlanRes
         payload.brightness = roundEven(clamp(frameLevel(source.effect, details), 1, 254));
         continue;
       }
-      const colour = frameColourOf(ctx, source.effect, details, `effects_frame_plan.targets.${lamp}.color.value`);
+      const colour = frameColourOf(view, source.effect, details, `effects_frame_plan.targets.${lamp}.color.value`);
       if (colour === undefined) continue;
       if (colour.kind === 'kelvin') payload.color_temp = roundEven(1_000_000 / colour.kelvin);
       else payload.color = { rgb: colour.rgb.join(',') };
     }
-    let transition = target.on ? (brightness.kind === 'effect' || color.kind === 'effect' ? 0.4 : target.manual ? 0.2 : target.transition) : target.transition;
-    if (args.transitionCap !== null && (args.transitionRooms === null || args.transitionRooms.includes(target.area ?? null))) transition = Math.min(transition, args.transitionCap);
+    let transition = target.on
+      ? (brightness.kind === 'effect' || color.kind === 'effect' ? 0.4 : target.manual ? 0.2 : target.transition)
+      : target.transition;
+    const capped = args.transitionRooms === null || args.transitionRooms.includes(target.area ?? null);
+    if (args.transitionCap !== null && capped) transition = Math.min(transition, args.transitionCap);
     payload = target.on ? { ...payload, transition } : { state: 'OFF', transition };
-    if (ctx.get(lamp) === 'on') for (const member of catalog.members[lamp] ?? []) {
-      if (ctx.get(member) === 'on') rows.push({ entity: member, owner: lamp,
+    if (view.get(lamp) === 'on') for (const member of catalog.members[lamp] ?? []) {
+      if (view.get(member) === 'on') rows.push({ entity: member, owner: lamp,
         topic: catalog.topics[member] ?? null, payload });
     }
   }
-  // `ctx.call`, not `ctx.run`: this result is what `effects_frame_plan`
-  // answers, so it must arrive typed. The call itself is unchanged -- same
-  // name in `scriptRuns`, same argument bytes in the compared trace.
-  return ctx.call('effects_group_plan', { rows, groups: catalog.multicast() });
+  return rows;
 }
 
 type FrameDetails = ReturnType<FrameSource['details']>;
@@ -223,12 +238,12 @@ function frameLevel(effect: FrameEffect, details: FrameDetails): number {
 }
 
 /** A colour source's colour, or `undefined` when the bulb effect owns the colour and nothing is sent. */
-function frameColourOf(ctx: ScriptContext, effect: FrameEffect, details: FrameDetails, context: string): FrameColour | undefined {
+function frameColourOf(view: HouseView, effect: FrameEffect, details: FrameDetails, context: string): FrameColour | undefined {
   switch (effect.kind) {
     case 'bulb effect': {
       const held = bulbEffect(effect.name).colour;
       switch (held) {
-        case 'warm end': return warmEndColour(ctx, context);
+        case 'warm end': return warmEndColour(view, context);
         case 'none': return undefined;
         default: { const unknown: never = held; throw new Error(`Unhandled bulb effect colour ${JSON.stringify(unknown)}`); }
       }
@@ -254,99 +269,187 @@ export type EmitResult = { published_at: number[]; completed: boolean };
  */
 export type AssignResult = { generation: Verbatim };
 
+/**
+ * Publish each command the house still allows, in order. Each command's gate
+ * is read live, after the publishes before it: the revision first (it raises
+ * on a missing sensor, ahead of the command's own parse), then the command.
+ */
 export function emitCommands(ctx: ScriptContext, args: EmitArgs): EmitResult {
   const revision = args.revision, generation = args.generation;
   let completed = true;
   const published: number[] = [];
   for (const parseCommand of args.commands) {
-    // Captured: `allowed` opens with the bare revision read; the command's
-    // fields are read after it.
     const current = overridesRevision(ctx, 'effects_emit');
     const command = parseCommand();
-    const owners = command.owners, members = command.members;
-    let allowed = revision === current && generation === ctx.attr(runtime, 'generation');
-    for (const owner of owners) if (ctx.get(owner) !== 'on' || !command.turnsOff && powerClosed(ctx, ctx.areas[owner] ?? '')) allowed = false;
-    for (const member of members) if (ctx.get(member) !== 'on') allowed = false;
-    const effectTargets = args.effectTargets();
-    if (Object.keys(effectTargets).length) for (const owner of owners) {
-      if (!Object.hasOwn(effectTargets, owner) || !assignedAs(ctx, owner, effectTargets[owner]!)) allowed = false;
-    }
-    if (allowed && ctx.get('binary_sensor.zigbee2mqtt_bridge_connection_state') === 'on') {
-      published.push(recordTimestamp(ctx.now));
-      const guard: OutputGuard = { revision, generation, owners, members,
-        ...(Object.keys(effectTargets).length ? { effectTargets } : {}) };
-      ctx.emit('mqtt.publish', { topic: command.topic, payload: command.body, qos: 0, retain: false }, undefined, guard);
-    } else completed = false;
+    const publish = publishCommand(ctx, { revision, generation, current, command, effectTargets: args.effectTargets() });
+    if (publish === undefined) { completed = false; continue; }
+    published.push(recordTimestamp(ctx.now));
+    perform(ctx, publish);
   }
-  return { published_at: published, completed: completed && revision === overridesRevision(ctx, 'effects_emit') && generation === ctx.attr(runtime, 'generation') };
+  return { published_at: published, completed: completed && stillCurrent(ctx, 'effects_emit', revision, generation) };
+}
+
+/** One command's gate: the request, the revision read for it, and the command itself. */
+export interface EmitGate {
+  revision: string;
+  generation: string | null;
+  /** The overrides revision as read for this command. */
+  current: string;
+  command: EmitCommand;
+  effectTargets: OpaqueMap;
+}
+
+/**
+ * The guarded publish of a command the house still allows, or `undefined`.
+ * Allowed while the revision and runtime generation are the request's, every
+ * owner and member is on, an owner's area power gate is not closed (an OFF
+ * passes it), each owner is assigned the effect target it carries, and the
+ * MQTT bridge is connected.
+ */
+export function publishCommand(view: HouseView, gate: EmitGate): Effect | undefined {
+  const { revision, generation, command, effectTargets } = gate;
+  const owners = command.owners, members = command.members;
+  let allowed = revision === gate.current && generation === view.attr(runtime, 'generation');
+  for (const owner of owners) if (view.get(owner) !== 'on' || !command.turnsOff && powerClosed(view, view.areas[owner] ?? '')) allowed = false;
+  for (const member of members) if (view.get(member) !== 'on') allowed = false;
+  const targeted = Object.keys(effectTargets).length > 0;
+  if (targeted) for (const owner of owners) {
+    if (!Object.hasOwn(effectTargets, owner) || !assignedAs(view, owner, effectTargets[owner]!)) allowed = false;
+  }
+  if (!allowed || view.get('binary_sensor.zigbee2mqtt_bridge_connection_state') !== 'on') return undefined;
+  const guard: OutputGuard = { revision, generation, owners, members, ...(targeted ? { effectTargets } : {}) };
+  return {
+    kind: 'service', service: 'mqtt.publish',
+    data: { topic: command.topic, payload: command.body, qos: 0, retain: false }, guard,
+  };
+}
+
+/**
+ * Is the request still the house's: the overrides revision (read bare, so a
+ * missing sensor raises) and then the runtime generation, both unchanged?
+ */
+export function stillCurrent(view: HouseView, script: string, revision: string, generation: Verbatim | string | null): boolean {
+  return revision === overridesRevision(view, script) && generation === view.attr(runtime, 'generation');
 }
 
 type StopCommand = { topic: string; payload: { effect: string }; members: string[]; owners: string[]; group: false };
 
+/**
+ * Store the assignment, then stop the bulb effects lamps are leaving. The
+ * stop commands read member states after the store and the catalog run, live,
+ * and the answer re-reads the generation the store left.
+ */
 export function assignEffects(ctx: ScriptContext, args: AssignArgs): AssignResult {
   if (args.revision !== overridesRevision(ctx, 'effects_assign')) return { generation: runtimeGeneration(ctx) };
   const details = args.details();
-  const targets = details.targets, assignments = details.assignments;
-  const stored = runtimeState(ctx);
-  const invalidate = details.invalidate;
-  const changed = !stored.targetsEqual(targets) || args.revision !== ctx.attr(runtime, 'revision') || invalidate.length > 0;
-  let generation: Verbatim | string = runtimeGeneration(ctx);
-  const planOrder = details.planOrder === undefined ? runtimePlanOrder(ctx) : details.planOrder;
-  if (changed) generation = ctx.now;
-  if (changed || planOrder > runtimePlanOrder(ctx)) {
-    const applied = Object.fromEntries(Object.entries(stored.applied).filter(([key]) => !invalidate.includes(key)));
-    ctx.emit('variable.update_sensor', { value: generation, replace_attributes: false,
-      attributes: { targets, assignments, applied, revision: args.revision, generation, plan_order: planOrder } }, { entity_id: runtime });
-  }
-  if (changed) {
+  const decision = assignDecision(ctx, args.revision, details);
+  run(ctx, planAssignUpdate(decision, args.revision, details));
+  if (decision.changed) {
     const catalog = catalogOf(ctx);
-    const commands: StopCommand[] = [];
-    for (const [lamp, target] of Object.entries(details.targetViews())) {
-      if (target.isRoom) continue;
-      const previous = stored.previous(lamp);
-      let needed = ['Breathe', 'Colour loop'].includes(previous.effect);
-      for (const channel of ['brightness', 'color'] as const) {
-        const source = target.channels[channel];
-        // A lamp leaving an effect its bulbs run is told to stop it, before its new light.
-        const was = runningIn(channel, previous.channels);
-        if (was !== undefined && runningOn(channel, source.effect) !== was) needed = true;
-        if (source.kind === 'effect' && target.owners[channel].startsWith('channels:native:') && source.updated !== previous.updated(channel)) needed = true;
-      }
-      if (needed) for (const member of catalog.members[lamp] ?? []) if (ctx.get(member) === 'on') {
-        // A member the catalog gives no topic is skipped, as the light path
-        // skips it: `framePlan` hands its row to `effects_group_plan` with
-        // `topic: null`, which rejects it as an invalid endpoint row. Pushing
-        // the null here instead made `effects_emit`'s command parse raise and
-        // aborted the whole dispatch.
-        const topic = catalog.topics[member];
-        if (topic === undefined) continue;
-        for (const effect of ['stop_colorloop', 'stop_effect']) commands.push({ topic,
-          payload: { effect }, members: [member], owners: [lamp], group: false });
-      }
-    }
-    ctx.run('effects_emit', { commands, revision: args.revision, generation });
+    run(ctx, planStops(stopCommands(ctx, catalog, details.targetViews(), decision.stored), args.revision, decision.generation));
   }
   return { generation: runtimeGeneration(ctx) };
+}
+
+/** What `effects_assign` decides from the runtime as it stood before the store. */
+export interface AssignDecision {
+  /** The runtime as read before the store; the stop check reads the previous assignment from it. */
+  stored: RuntimeState;
+  /** The targets, the stored revision or the invalidations changed: a new generation, and stops. */
+  changed: boolean;
+  generation: Verbatim | string;
+  planOrder: number;
+  /** Store the runtime: on a change, or for a plan order newer than the stored one. */
+  write: boolean;
+}
+
+export function assignDecision(view: HouseView, revision: string, details: AssignDetails): AssignDecision {
+  const stored = runtimeState(view);
+  const changed = !stored.targetsEqual(details.targets) || revision !== view.attr(runtime, 'revision') || details.invalidate.length > 0;
+  const planOrder = details.planOrder === undefined ? runtimePlanOrder(view) : details.planOrder;
+  const generation: Verbatim | string = changed ? view.now : runtimeGeneration(view);
+  return { stored, changed, generation, planOrder, write: changed || planOrder > runtimePlanOrder(view) };
+}
+
+/** The runtime store, keeping the applied entries no invalidation names. */
+export function* planAssignUpdate(decision: AssignDecision, revision: string, details: AssignDetails): Plan<void> {
+  if (!decision.write) return;
+  const invalidate = details.invalidate, generation = decision.generation;
+  const applied = Object.fromEntries(Object.entries(decision.stored.applied).filter(([key]) => !invalidate.includes(key)));
+  yield {
+    kind: 'service', service: 'variable.update_sensor',
+    data: { value: generation, replace_attributes: false, attributes: {
+      targets: details.targets, assignments: details.assignments, applied, revision, generation, plan_order: decision.planOrder,
+    } },
+    target: { entity_id: runtime },
+  };
+}
+
+/**
+ * The stops for each lamp target leaving an effect its bulbs run, or whose
+ * native-owned effect channel was re-stamped: `stop_colorloop` then
+ * `stop_effect`, per on member.
+ */
+export function stopCommands(view: HouseView, catalog: Catalog, targetViews: ReturnType<AssignDetails['targetViews']>, stored: RuntimeState): StopCommand[] {
+  const commands: StopCommand[] = [];
+  for (const [lamp, target] of Object.entries(targetViews)) {
+    if (target.isRoom) continue;
+    const previous = stored.previous(lamp);
+    let needed = ['Breathe', 'Colour loop'].includes(previous.effect);
+    for (const channel of ['brightness', 'color'] as const) {
+      const source = target.channels[channel];
+      // A lamp leaving an effect its bulbs run is told to stop it, before its new light.
+      const was = runningIn(channel, previous.channels);
+      if (was !== undefined && runningOn(channel, source.effect) !== was) needed = true;
+      if (source.kind === 'effect' && target.owners[channel].startsWith('channels:native:') && source.updated !== previous.updated(channel)) needed = true;
+    }
+    if (needed) for (const member of catalog.members[lamp] ?? []) if (view.get(member) === 'on') {
+      // A member the catalog gives no topic is skipped, as the light path
+      // skips it: `framePlan` hands its row to `effects_group_plan` with
+      // `topic: null`, which rejects it as an invalid endpoint row. Pushing
+      // the null here instead made `effects_emit`'s command parse raise and
+      // aborted the whole dispatch.
+      const topic = catalog.topics[member];
+      if (topic === undefined) continue;
+      for (const effect of ['stop_colorloop', 'stop_effect']) commands.push({ topic,
+        payload: { effect }, members: [member], owners: [lamp], group: false });
+    }
+  }
+  return commands;
+}
+
+/** The stops go out through `effects_emit`, an inter-handler run whose answer is not read. */
+export function* planStops(commands: StopCommand[], revision: string, generation: Verbatim | string): Plan<void> {
+  yield { kind: 'script', name: 'effects_emit', args: { commands, revision, generation } };
+}
+
+/**
+ * Drop the assigned lamps from each command: a group id with an assigned
+ * member becomes its unassigned members, and a command left with no id goes.
+ */
+export function filterCommands(catalog: Catalog, active: string[], commands: FilterArgs['commands']): { commands: Verbatim[] } {
+  const kept: Verbatim[] = [];
+  for (const command of commands) {
+    const ids: string[] = [];
+    for (const id of command.ids) {
+      const members = catalog.groups[id] ?? [id];
+      ids.push(...(members.some(x => active.includes(x)) ? members.filter(x => !active.includes(x)) : [id]));
+    }
+    if (ids.length) kept.push(withFields(command.document, { ids: [...new Set(ids)] }));
+  }
+  return { commands: kept };
 }
 
 export const transportHandlers: ScriptHandlers = {
   effects_frame_plan: typed('effects_frame_plan', { parse: parseFramePlanArgs, run: framePlan }),
   effects_emit: typed('effects_emit', { parse: parseEmitArgs, run: emitCommands }),
   effects_assign: typed('effects_assign', { parse: parseAssignArgs, run: assignEffects }),
+  // The catalog run and the assigned-lamp read happen before any command is looked at.
   effects_filter_commands: withParsedArgs({
     parse: parseFilterArgs,
     run: (ctx, args) => {
-    const catalog = catalogOf(ctx), active = assignedLamps(ctx);
-    const commands: Verbatim[] = [];
-    for (const command of args.commands) {
-      const ids: string[] = [];
-      for (const id of command.ids) {
-        const members = catalog.groups[id] ?? [id];
-        ids.push(...(members.some(x => active.includes(x)) ? members.filter(x => !active.includes(x)) : [id]));
-      }
-      if (ids.length) commands.push(withFields(command.document, { ids: [...new Set(ids)] }));
-    }
-    return { commands };
+      const catalog = catalogOf(ctx);
+      return filterCommands(catalog, assignedLamps(ctx), args.commands);
     },
   }),
 };

@@ -32,6 +32,10 @@
 // U4 (automation plans, rangeSave, UI catalog/sync): domainScriptContext
 // 32 -> 30, domainCtx 164 -> 136, effectCalls 24 -> 13, longLines 143 -> 139.
 //
+// U5 (transport: frame rows, the per-command publish gate, the assign
+// decision/store/stops, the command filter): domainScriptContext 30 -> 29,
+// domainCtx 136 -> 122, effectCalls 13 -> 11, longLines 139 -> 137.
+//
 // Raising a ceiling is the regression this guard exists to catch; argue any
 // raise in the commit message.
 import { readdir, readFile } from 'node:fs/promises';
@@ -42,11 +46,11 @@ const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const SRC = join(ROOT, 'src');
 
 const CEILINGS = {
-  domainScriptContext: 30,
-  domainCtx: 136,
+  domainScriptContext: 29,
+  domainCtx: 122,
   houseViewGenerators: 0,
-  effectCalls: 13,
-  longLines: 139,
+  effectCalls: 11,
+  longLines: 137,
 };
 
 function stripComments(source) {
