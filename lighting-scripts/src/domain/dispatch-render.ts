@@ -4,6 +4,7 @@ import { isObject, jinjaTruthy, lazy, object, ParseError, requireArray, requireB
 import { typed } from '../runtime/entrypoints.ts';
 import { hasValue, list, strings, timestamp } from './schedule.ts';
 import { runningIn } from './transport.ts';
+import { storedChannels } from '../parse/transport.ts';
 import type { AssignResult, EmitResult } from './transport.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
@@ -180,7 +181,7 @@ function startBulbEffects(ctx: ScriptContext, lamps: Array<[string, string[]]>, 
 function bulbStarts(target: JsonObject): string[] {
   if (!jinjaTruthy(target.on)) return [];
   return (['brightness', 'color'] as const).flatMap(channel => {
-    const effect = runningIn(channel, target);
+    const effect = runningIn(channel, storedChannels(target));
     return effect === undefined ? [] : [effect.start];
   });
 }

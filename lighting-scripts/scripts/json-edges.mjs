@@ -347,12 +347,26 @@ const DOMAIN = join(ROOT, 'src/domain');
  * of the Jinja readings the checks apply. Pass-through values -- an absolute
  * brightness, a Kelvin value, the underlying colour, the native stamp -- are
  * carried.
+ *
+ * U8, `transport.ts`, clears the module on every column:
+ * `jsonTypes 100 -> 75`, `lenientAccessors 112 -> 102`,
+ * `rawJsonReturns 9 -> 8`. The four handlers' parsers and the runtime
+ * sensor's lenient reads live in `src/parse/transport.ts`. A frame source's
+ * value is read as `value | float` and, for the colour channel only when it is
+ * sent, strictly as a `FrameColour`; frame rows and payloads are constructed
+ * types. Persisted or forwarded documents are carried: the assigned targets
+ * and assignments, the applied map, the multicast groups, a guard's effect
+ * targets, a filtered command's other keys, and `AssignResult.generation`
+ * (its decoder in `results.ts` carries it too). `runningIn` reads a
+ * `StoredChannels` view, so `dispatch-render`'s one call wraps its target in
+ * `storedChannels(...)`; that module's counts do not move. The `revisionNow`
+ * fallback is a known divergence, unchanged and marked.
  */
 const CEILINGS = {
-  jsonTypes: 100,
+  jsonTypes: 75,
   validatedBags: 0,
-  lenientAccessors: 112,
-  rawJsonReturns: 9,
+  lenientAccessors: 102,
+  rawJsonReturns: 8,
 };
 
 /** Comments may legitimately name these types while explaining why they are gone. */

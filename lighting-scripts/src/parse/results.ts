@@ -90,7 +90,7 @@ function decodeEmit(value: JsonValue, context: string): EmitResult {
 function decodeAssign(value: JsonValue, context: string): AssignResult {
   const result = requireObject({ value }, 'value', context);
   if (!Object.hasOwn(result, 'generation')) throw new ParseError(`${context}.generation must be present, got undefined`);
-  return { generation: result.generation ?? null };
+  return { generation: carry(result.generation ?? null) };
 }
 
 /**

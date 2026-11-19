@@ -1,0 +1,283 @@
+/**
+ * Parsing for the transport handlers: `effects_frame_plan`, `effects_emit`,
+ * `effects_assign` and `effects_filter_commands`, plus the lenient reads of
+ * `sensor.ls_effects_runtime` they make.
+ *
+ * Every strict read raises with the message, and at the point, the inline read
+ * did: per-command and per-target parses are thunks the domain calls where the
+ * inline parse sat, and a frame source's colour is read only when its channel
+ * is sent. Documents the handlers persist or forward -- the assigned targets
+ * and assignments, the applied map, the runtime generation, the effect targets
+ * a guard carries, a filtered command's other keys, the multicast groups --
+ * are carried, never narrowed.
+ */
+import { isDeepStrictEqual } from 'node:util';
+import type { JsonObject, JsonValue, ScriptContext } from '../runtime/context.ts';
+import { isObject, jinjaFloat, jinjaTruthy, lazy, object, requireArray, requireNumber, requireObject, requireString } from '../runtime/parse.ts';
+import { carry, reveal } from '../runtime/verbatim.ts';
+import type { Verbatim } from '../runtime/verbatim.ts';
+import { requireRgb } from './scale.ts';
+import { warmEndOf } from './planning.ts';
+import { opaqueMap, storedFact } from './overrides.ts';
+import type { OpaqueMap, StoredFact } from './overrides.ts';
+import type { RGB } from '../domain/scale.ts';
+import type { AssignArgs, AssignDetails, Channel, EmitArgs, FilterArgs, FramePlanArgs, FrameSource, FrameTarget } from '../domain/transport.ts';
+
+const runtime = 'sensor.ls_effects_runtime';
+
+function requireStrings(container: JsonObject, key: string, context: string): string[] {
+  return requireArray(container, key, context).map((value, index) =>
+    requireString({ value }, 'value', `${context}.${key}[${index}]`));
+}
+
+/** A colour a frame sends: Kelvin, or an rgb triple. */
+export type FrameColour = { kind: 'kelvin'; kelvin: number } | { kind: 'rgb'; rgb: RGB };
+
+function frameColour(value: JsonValue | undefined, context: string): FrameColour {
+  const colorValue = requireObject({ value: value ?? null }, 'value', context);
+  if (Object.hasOwn(colorValue, 'kelvin')) return { kind: 'kelvin', kelvin: requireNumber(colorValue, 'kelvin', context) };
+  return { kind: 'rgb', rgb: requireRgb(colorValue.rgb, `${context}.rgb`) };
+}
+
+/** The colour a warm-end effect holds: the candle test lamp's warm end, read as a frame colour. */
+export function warmEndColour(ctx: ScriptContext, context: string): FrameColour {
+  return frameColour({ rgb: reveal(warmEndOf(ctx.attr('light.candle_test_rgb_warm_end', 'rgb_color'))) }, context);
+}
+
+function parseFrameSource(target: JsonObject, channel: Channel, context: string): FrameSource {
+  const source = requireObject(target, channel, context);
+  const kind = requireString(source, 'kind', `${context}.${channel}`);
+  const effect = kind === 'effect' ? requireString(source, 'effect', `${context}.${channel}`) : null;
+  return {
+    kind,
+    effect,
+    // Read where the plan reads them: a bulb effect's colour needs neither.
+    details: lazy(() => ({
+      intensity: kind === 'effect' ? requireNumber(source, 'intensity', `${context}.${channel}`) : null,
+      // `value | float`, for the brightness channel.
+      level: jinjaFloat(source.value),
+      // The strict colour read, for the colour channel when it is sent.
+      colour: colourContext => frameColour(source.value, colourContext),
+    })),
+  };
+}
+
+function parseFrameCatalog(args: JsonObject): FramePlanArgs['catalog'] {
+  // `effects` and `phases` are not read: no effect is rendered here any more.
+  const catalog = requireObject(args, 'catalog', 'effects_frame_plan');
+  const membersRaw = requireObject(catalog, 'members', 'effects_frame_plan.catalog');
+  const topicsRaw = requireObject(catalog, 'topics', 'effects_frame_plan.catalog');
+  return {
+    members: Object.fromEntries(Object.keys(membersRaw).map(lamp =>
+      [lamp, requireStrings(membersRaw, lamp, 'effects_frame_plan.catalog.members')])),
+    topics: Object.fromEntries(Object.keys(topicsRaw).map(member =>
+      [member, requireString(topicsRaw, member, 'effects_frame_plan.catalog.topics')])),
+    // Read only when the group planner is reached, which is where the oracle
+    // reads it; forwarded to it unread.
+    multicast: lazy(() => carry(requireArray(catalog, 'multicast', 'effects_frame_plan.catalog'))),
+  };
+}
+
+function parseFrameTargets(args: JsonObject): Record<string, FrameTarget> {
+  const targets = requireObject(args, 'targets', 'effects_frame_plan');
+  return Object.fromEntries(Object.entries(targets).map(([lamp, raw]) => {
+    const context = `effects_frame_plan.targets.${lamp}`;
+    const target = requireObject({ raw }, 'raw', context);
+    const owners = target.owners === undefined ? {} : requireObject(target, 'owners', context);
+    return [lamp, {
+      brightness: parseFrameSource(target, 'brightness', context),
+      color: parseFrameSource(target, 'color', context),
+      manual: Object.entries(owners).some(([key, value]) =>
+        requireString({ value }, 'value', `${context}.owners.${key}`).startsWith('channels:')),
+      on: jinjaTruthy(target.on),
+      transition: target.transition === undefined ? 3 : requireNumber(target, 'transition', context),
+      // The source reads area only inside the guarded transition-room check,
+      // where it is compared by identity.
+      area: storedFact(target.area),
+    }];
+  }));
+}
+
+// The light half of a dispatch. Captured fields: `catalog` and `targets`
+// are raw (6 and 2 sites); `transition_cap`/`transition_rooms` each have a
+// `default(none)` path plus a raw use. Nested catalog/target fields are also
+// raw: members/topics/multicast/owners/area 1 each, color 5, brightness 7,
+// kind 4, effect 8, intensity 1, kelvin 2, rgb/on 4 each, and transition 10.
+// `value` is raw four times but has one `| float`, so brightness uses
+// jinjaFloat while color uses strict object/color parsers. The captured
+// `timestamp`, `animation_tick`, `effects` and `phases` fed the software
+// renderers and the frame engine, both gone: callers may still pass them,
+// and nothing reads them.
+export function parseFramePlanArgs(args: JsonObject): FramePlanArgs {
+  return {
+    catalog: parseFrameCatalog(args),
+    targets: parseFrameTargets(args),
+    transitionCap: args.transition_cap == null ? null : requireNumber(args, 'transition_cap', 'effects_frame_plan'),
+    transitionRooms: args.transition_rooms == null
+      ? null
+      : requireArray(args, 'transition_rooms', 'effects_frame_plan').map(room => storedFact(room)),
+  };
+}
+
+// Captured `commands`, `revision`, and `generation` are raw (1, 2, and 4
+// sites); `effect_targets` is raw twice with one `| default({})` fallback.
+// Nested payload/owners/members/topic are raw (2/2/1/1), so commands get a
+// strict object/string-array/string parser rather than permissive casts.
+export function parseEmitArgs(args: JsonObject): EmitArgs {
+  return {
+    commands: requireArray(args, 'commands', 'effects_emit').map((raw, index) => lazy(() => {
+      const context = `effects_emit.commands[${index}]`;
+      const command = requireObject({ raw }, 'raw', context);
+      const payload = requireObject(command, 'payload', context);
+      const owners = requireStrings(command, 'owners', context);
+      const members = requireStrings(command, 'members', context);
+      const topic = requireString(command, 'topic', context);
+      return { body: JSON.stringify(payload), turnsOff: payload.state === 'OFF', owners, members, topic };
+    })),
+    revision: requireString(args, 'revision', 'effects_emit'),
+    // The runtime legitimately has no generation before its first assignment.
+    generation: args.generation === null ? null : requireString(args, 'generation', 'effects_emit'),
+    effectTargets: lazy(() => opaqueMap(args.effect_targets === undefined ? {} : requireObject(args, 'effect_targets', 'effects_emit'))),
+  };
+}
+
+function parseAssignTargetViews(targets: JsonObject): ReturnType<AssignDetails['targetViews']> {
+  return Object.fromEntries(Object.entries(targets).map(([lamp, raw]) => {
+    const context = `effects_assign.targets.${lamp}`;
+    const target = requireObject({ raw }, 'raw', context);
+    const owners = target.owners === undefined ? {} : requireObject(target, 'owners', context);
+    const channels = Object.fromEntries((['brightness', 'color'] as const).map(channel => {
+      const source = requireObject(target, channel, context);
+      const kind = requireString(source, 'kind', `${context}.${channel}`);
+      return [channel, {
+        kind,
+        effect: kind === 'effect' ? requireString(source, 'effect', `${context}.${channel}`) : null,
+        updated: kind === 'effect' ? requireNumber(source, 'updated', `${context}.${channel}`) : null,
+      }];
+    })) as ReturnType<AssignDetails['targetViews']>[string]['channels'];
+    return [lamp, {
+      isRoom: jinjaTruthy(target.is_room),
+      channels,
+      owners: Object.fromEntries((['brightness', 'color'] as const).map(channel => [
+        channel,
+        owners[channel] === undefined ? '' : requireString(owners, channel, `${context}.owners`),
+      ])) as ReturnType<AssignDetails['targetViews']>[string]['owners'],
+    }];
+  }));
+}
+
+// Captured `targets`, `assignments`, and `revision` are raw (7, 5, and 7
+// sites); `invalidate` has `| default([])` twice; `plan_order` is raw five
+// times with one runtime-attribute default. Nested is_room/kind are raw once,
+// effect five times, owners twice, brightness/color once, and updated twice;
+// typed target views parse those fields without altering persisted targets.
+export function parseAssignArgs(args: JsonObject): AssignArgs {
+  return {
+    revision: requireString(args, 'revision', 'effects_assign'),
+    // The captured stale-revision stop precedes every other argument read.
+    details: lazy(() => {
+      const targets = requireObject(args, 'targets', 'effects_assign');
+      return {
+        targets: carry(targets),
+        targetViews: lazy(() => parseAssignTargetViews(targets)),
+        assignments: carry(requireObject(args, 'assignments', 'effects_assign')),
+        invalidate: args.invalidate === undefined ? [] : requireArray(args, 'invalidate', 'effects_assign').map(key => storedFact(key)),
+        planOrder: args.plan_order === undefined ? undefined : requireNumber(args, 'plan_order', 'effects_assign'),
+      };
+    }),
+  };
+}
+
+// Captured `commands` is raw at both sites and nested `ids` is raw nine
+// times, so both the command list and each id list are parsed strictly. The
+// rest of each command is forwarded unread.
+export function parseFilterArgs(args: JsonObject): FilterArgs {
+  return {
+    commands: requireArray(args, 'commands', 'effects_filter_commands').map((raw, index) => {
+      const command = requireObject({ raw }, 'raw', `effects_filter_commands.commands[${index}]`);
+      return { document: carry(command), ids: requireStrings(command, 'ids', `effects_filter_commands.commands[${index}]`) };
+    }),
+  };
+}
+
+/**
+ * A stored target or assignment's channels, read without raising: a
+ * non-mapping target or channel has none. Only a channel running a named
+ * effect answers.
+ */
+export interface StoredChannels {
+  /** The effect a channel runs, when its source is `{kind: 'effect', effect: <string>}`. */
+  effectOn(channel: Channel): string | undefined;
+}
+
+export function storedChannels(value: JsonValue | undefined): StoredChannels {
+  const stored = object(value);
+  return {
+    effectOn: channel => {
+      const source = isObject(stored[channel]) ? stored[channel] : {};
+      return source.kind === 'effect' && typeof source.effect === 'string' ? source.effect : undefined;
+    },
+  };
+}
+
+/** One lamp's previous runtime assignment and target, as the stop check reads them. */
+export interface PreviousLamp {
+  /** `String(assignment.effect)`, the captured spelling's JavaScript coercion. */
+  effect: string;
+  channels: StoredChannels;
+  /** The previous target's `channel.updated`, as stored, for an identity comparison. */
+  updated(channel: Channel): StoredFact;
+}
+
+/** `sensor.ls_effects_runtime` as `effects_assign` reads it, once. */
+export interface RuntimeState {
+  /** The stored targets, for the change test and as the applied fallback. */
+  targetsEqual(targets: Verbatim): boolean;
+  /** `applied == null ? targets : object(applied)`, carried entry by entry. */
+  applied: OpaqueMap;
+  previous(lamp: string): PreviousLamp;
+}
+
+export function runtimeState(ctx: ScriptContext): RuntimeState {
+  const old = object(ctx.attr(runtime, 'assignments')), oldTargets = object(ctx.attr(runtime, 'targets'));
+  const priorApplied = ctx.attr(runtime, 'applied');
+  return {
+    targetsEqual: targets => isDeepStrictEqual(reveal(targets), oldTargets),
+    applied: opaqueMap(priorApplied == null ? oldTargets : object(priorApplied)),
+    previous: lamp => {
+      const previous = object(old[lamp]);
+      return {
+        effect: String(previous.effect),
+        channels: storedChannels(previous),
+        updated: channel => storedFact(object(object(oldTargets[lamp])[channel]).updated),
+      };
+    },
+  };
+}
+
+/** The runtime's `generation` as stored; absent reads as null. */
+export function runtimeGeneration(ctx: ScriptContext): Verbatim {
+  const generation = ctx.attr(runtime, 'generation');
+  return carry(generation === undefined || generation === null ? null : generation);
+}
+
+/** The runtime's `plan_order`, absent read as 0; a present non-number raises. */
+export function runtimePlanOrder(ctx: ScriptContext): number {
+  return requireNumber({ plan_order: ctx.attr(runtime, 'plan_order') ?? 0 }, 'plan_order', 'effects_assign runtime');
+}
+
+/** Is a runtime assignment, read leniently, deep-equal to the effect target a command carries? */
+export function assignedAs(ctx: ScriptContext, owner: string, target: Verbatim): boolean {
+  return isDeepStrictEqual(object(ctx.attr(runtime, 'assignments'))[owner], reveal(target));
+}
+
+/** The lamps the runtime currently assigns, in stored order. */
+export function assignedLamps(ctx: ScriptContext): string[] {
+  return Object.keys(object(ctx.attr(runtime, 'assignments')));
+}
+
+/** Has the area's power gate been explicitly closed (`power[area] === false`)? */
+export function powerClosed(ctx: ScriptContext, area: string): boolean {
+  return object(ctx.attr('sensor.ls_overrides', 'power'))[area] === false;
+}
+
