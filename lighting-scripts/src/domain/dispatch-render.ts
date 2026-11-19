@@ -1,97 +1,57 @@
-import { isDeepStrictEqual } from 'node:util';
-import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { isObject, jinjaTruthy, lazy, object, ParseError, requireArray, requireBoolean, requireNumber, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
 import { typed } from '../runtime/entrypoints.ts';
-import { hasValue, list, strings, timestamp } from './schedule.ts';
+import type { Verbatim } from '../runtime/verbatim.ts';
+import { hasValue } from './schedule.ts';
 import { runningIn } from './transport.ts';
-import { storedChannels } from '../parse/transport.ts';
 import type { AssignResult, EmitResult } from './transport.ts';
+import { timestamp } from '../parse/accessors.ts';
+import type { OpaqueMap, StoredFact, StoredValue } from '../parse/overrides.ts';
+import { attributeFact, attributeMapping } from '../parse/sensors.ts';
+import { mappingAttribute } from '../parse/planning.ts';
+import type { StoredChannels } from '../parse/transport.ts';
+import {
+  areaOf, dispatchPlanOrder, dispatchRuntime, fullPlan, optionalRevisionAttribute, parseDispatchArgs, roomCacheGradients, roomPlanView,
+} from '../parse/dispatch-render.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
 const overrideSensor = 'sensor.ls_overrides';
+// divergence: the captured scripts read `states.sensor.ls_overrides.last_updated`
+// bare and raise when the sensor is missing; this falls back to ''. Kept
+// byte-identical for its own commit.
 function revisionOf(ctx: ScriptContext): string { return ctx.state[overrideSensor]?.last_updated ?? ''; }
 
-/** HA uses null for an entity attribute with no value; a present revision is a timestamp token. */
-function optionalRevisionAttribute(value: JsonValue | undefined, context: string): string | undefined {
-  if (value === undefined || value === null) return undefined;
-  if (typeof value !== 'string' || value.length === 0) throw new ParseError(`${context} must be a non-empty string`);
-  return value;
+/** One resolved target, as `ls_dispatch` reads it before handing it on. */
+export interface DispatchTarget {
+  /** The target as resolved, forwarded and stored unchanged. */
+  document: Verbatim;
+  isRoom: boolean;
+  /** Compared by identity with the remote rooms. */
+  area: StoredFact;
+  on: boolean;
+  channels: StoredChannels;
 }
-
-interface DispatchDetails {
-  base: JsonObject;
-  targets: JsonObject;
-  targetViews: Record<string, { raw: JsonObject; isRoom: boolean; area: JsonValue | undefined; starts: string[] }>;
-  assignments: JsonObject;
-  requested: JsonValue[];
-  outputTargets: JsonValue[];
-  remoteRooms: JsonValue[];
+export interface DispatchDetails {
+  /** The resolved targets, forwarded to `effects_assign` unread. */
+  targets: Verbatim;
+  targetViews: Record<string, DispatchTarget>;
+  /** The resolved assignments, forwarded to `effects_assign` unread. */
+  assignments: Verbatim;
+  assigned(lamp: string): boolean;
+  /** The lamp's baseline `send`; raises on a present non-mapping baseline entry. */
+  baselineSend(lamp: string): boolean;
+  requested: StoredValue[];
+  outputTargets: StoredValue[];
+  remoteRooms: StoredValue[];
   remote: boolean;
   switches: () => Array<() => { entity: string; on: boolean }>;
   mirrors: () => Array<() => { option: string; entity: string }>;
-  staleKeys: () => JsonValue[];
-  saraMirror: JsonValue | undefined;
+  staleKeys: () => StoredValue[];
+  saraMirror: StoredFact;
 }
-interface DispatchArgs {
+export interface DispatchArgs {
   revision: string;
   planOrder: number;
   details: () => DispatchDetails;
-}
-
-
-function parseRequestedLights(value: JsonValue | undefined): JsonValue[] {
-  const requested = value === undefined ? null : value; // captured `| default(none)`
-  return Array.isArray(requested) ? requested : jinjaTruthy(requested) ? [requested] : [];
-}
-
-function parseDispatchDetails(plan: JsonObject, lights: JsonValue | undefined): DispatchDetails {
-  const resolved = requireObject(plan, 'resolved', 'ls_dispatch.plan');
-  const base = requireObject(plan, 'base', 'ls_dispatch.plan');
-  const targets = requireObject(resolved, 'targets', 'ls_dispatch.plan.resolved');
-  const targetViews = Object.fromEntries(Object.entries(targets).map(([lamp, raw]) => {
-    const target = requireObject({ raw }, 'raw', `ls_dispatch.plan.resolved.targets.${lamp}`);
-    return [lamp, { raw: target, isRoom: jinjaTruthy(target.is_room), area: target.area, starts: bulbStarts(target) }];
-  }));
-  return {
-    base,
-    targets,
-    targetViews,
-    assignments: requireObject(resolved, 'assignments', 'ls_dispatch.plan.resolved'),
-    requested: parseRequestedLights(lights),
-    // Both are read unfiltered in the captured script, but an unfiltered read
-    // is not the same as a required field: Jinja's Undefined iterates as empty
-    // and reports `| length` 0, raising only in arithmetic or a coercion
-    // filter. These two are iterated, and `ls_render` only sets
-    // `output_targets` on the partial-plan path, so absence is legal and
-    // requiring them broke seven parity modules.
-    outputTargets: plan.output_targets === undefined ? [] : requireArray(plan, 'output_targets', 'ls_dispatch.plan'),
-    remoteRooms: plan.remote_rooms === undefined ? [] : requireArray(plan, 'remote_rooms', 'ls_dispatch.plan'),
-    remote: jinjaTruthy(plan.remote),
-    // These stages run only after effect assignment and publication. All three
-    // collections are iterated rather than used arithmetically, and the
-    // captured script guards them (`switches` has a `| default(...)` site,
-    // `stale_keys` two `is defined` tests), so an absent key is silently empty
-    // in the oracle and must be here too.
-    switches: lazy(() => Object.entries(plan.switches === undefined ? {} : requireObject(plan, 'switches', 'ls_dispatch.plan')).map(([entity, raw]) => lazy(() => {
-        const value = requireObject({ raw }, 'raw', `ls_dispatch.plan.switches.${entity}`);
-        return { entity, on: jinjaTruthy(value.on) };
-      }))),
-    mirrors: lazy(() => (plan.mirror === undefined ? [] : requireArray(plan, 'mirror', 'ls_dispatch.plan')).map((raw, index) => lazy(() => {
-        const value = requireObject({ raw }, 'raw', `ls_dispatch.plan.mirror[${index}]`);
-        return {
-          option: requireString(value, 'option', `ls_dispatch.plan.mirror[${index}]`),
-          entity: requireString(value, 'entity', `ls_dispatch.plan.mirror[${index}]`),
-        };
-      }))),
-    staleKeys: lazy(() => plan.stale_keys === undefined ? [] : requireArray(plan, 'stale_keys', 'ls_dispatch.plan')),
-    saraMirror: plan.sara_mirror,
-  };
-}
-
-function baselineSend(base: JsonObject, lamp: string): boolean {
-  if (base[lamp] === undefined) return true;
-  const baseline = requireObject(base, lamp, 'ls_dispatch.plan.base');
-  return baseline.send === undefined ? true : jinjaTruthy(baseline.send);
 }
 
 /** Delta output actor: invalidate touched lamps before sending, acknowledge only complete batches. */
@@ -104,19 +64,18 @@ export type DispatchResult = { completed: boolean; published_at: number[] } | nu
 
 export function dispatch(ctx: ScriptContext, args: DispatchArgs): DispatchResult {
   const revision = args.revision;
-  if (revision !== revisionOf(ctx) || args.planOrder < requireNumber({ plan_order: ctx.attr(runtime, 'plan_order') ?? 0 }, 'plan_order', 'ls_dispatch runtime')) return null;
-  const { base, targets, targetViews, assignments, requested, outputTargets, remoteRooms,
-    remote, switches, mirrors, staleKeys, saraMirror } = args.details();
+  if (revision !== revisionOf(ctx) || args.planOrder < dispatchPlanOrder(ctx)) return null;
+  const details = args.details();
+  const { targets, targetViews, assignments, requested, outputTargets, remoteRooms,
+    remote, switches, mirrors, staleKeys, saraMirror } = details;
   const catalog = ctx.run('effects_catalog');
-  const applied = ctx.attr(runtime, 'applied');
-  const previous = object(applied === null || applied === undefined ? ctx.attr(runtime, 'targets') : applied);
-  const previousEffects = object(ctx.attr(runtime, 'assignments'));
-  const ordinary: JsonObject = {};
+  const previous = dispatchRuntime(ctx);
+  const ordinary: OpaqueMap = {};
   for (const [lamp, target] of Object.entries(targetViews)) {
     if (target.isRoom || (outputTargets.length && !outputTargets.includes(lamp))) continue;
     if (ctx.get(lamp) !== 'on') continue;
-    if (!(requested.includes(lamp) || remoteRooms.includes(target.area ?? null) || baselineSend(base, lamp))) continue;
-    if (requested.includes(lamp) || (Object.hasOwn(previousEffects, lamp) && !Object.hasOwn(assignments, lamp)) || !isDeepStrictEqual(target.raw, previous[lamp])) ordinary[lamp] = target.raw;
+    if (!(requested.includes(lamp) || remoteRooms.includes(target.area ?? null) || details.baselineSend(lamp))) continue;
+    if (requested.includes(lamp) || (previous.hadEffect(lamp) && !details.assigned(lamp)) || !previous.applied(lamp, target.document)) ordinary[lamp] = target.document;
   }
   const assigned = ctx.call('effects_assign', { targets, assignments, revision, invalidate: Object.keys(ordinary), plan_order: args.planOrder });
   const batch = ctx.call('effects_frame_plan', { targets: ordinary, catalog, timestamp: timestamp(ctx.now),
@@ -125,7 +84,7 @@ export function dispatch(ctx: ScriptContext, args: DispatchArgs): DispatchResult
   // every path, so both could only fire for a stub, and `decodeGroupPlan` is
   // where that case is handled now -- strictly, rather than as an empty batch.
   const emission = ctx.call('effects_emit', { commands: batch.commands, revision, generation: assigned.generation });
-  const started = startBulbEffects(ctx, Object.keys(ordinary).map(lamp => [lamp, targetViews[lamp]!.starts]), revision, assigned.generation);
+  const started = startBulbEffects(ctx, Object.keys(ordinary).map(lamp => [lamp, bulbStarts(targetViews[lamp]!)]), revision, assigned.generation);
   // `requireBoolean(emission.completed)`, `?? null` on the generation and
   // `?? []` on published_at are all gone: `emitCommands` builds both fields
   // every time and `assignEffects` already normalises an absent generation to
@@ -135,7 +94,7 @@ export function dispatch(ctx: ScriptContext, args: DispatchArgs): DispatchResult
   if (revision !== revisionOf(ctx) || generation !== ctx.attr(runtime, 'generation')) return null;
   if (Object.keys(ordinary).length && completed) {
     ctx.emit('variable.update_sensor', { value: generation, replace_attributes: false,
-      attributes: { applied: { ...object(ctx.attr(runtime, 'applied')), ...ordinary } } }, { entity_id: runtime },
+      attributes: { applied: { ...attributeMapping(ctx, runtime, 'applied'), ...ordinary } } }, { entity_id: runtime },
     { revision, generation, requiresOutputSuccess: true });
   }
   for (const parseSwitch of switches()) {
@@ -178,90 +137,93 @@ function startBulbEffects(ctx: ScriptContext, lamps: Array<[string, string[]]>, 
  * raising: `effects_frame_plan` parses this target strictly, and raises there,
  * before anything here acts on the answer.
  */
-function bulbStarts(target: JsonObject): string[] {
-  if (!jinjaTruthy(target.on)) return [];
+function bulbStarts(target: DispatchTarget): string[] {
+  if (!target.on) return [];
   return (['brightness', 'color'] as const).flatMap(channel => {
-    const effect = runningIn(channel, storedChannels(target));
+    const effect = runningIn(channel, target.channels);
     return effect === undefined ? [] : [effect.start];
   });
 }
 
+/**
+ * The plan `ls_render` builds from the room plans it merged. Every field is
+ * constructed here; the stored and planned documents inside it are carried.
+ */
+type RoomsPlan = {
+  base: OpaqueMap;
+  resolved: { targets: OpaqueMap; assignments: OpaqueMap };
+  switches: OpaqueMap;
+  mirror: Verbatim[];
+  stale_keys: string[];
+  revision: string;
+  plan_order: number;
+  remote: false;
+  remote_rooms: string[];
+  sara_mirror: StoredValue;
+  output_targets: string[];
+};
+
 /** Coalesce pending room versions, preserving unrelated rooms and retrying incomplete output. */
 export function render(ctx: ScriptContext): null {
   const started = timestamp(ctx.now), revision = revisionOf(ctx);
-  const received = ctx.attr(overrideSensor, 'received_at') ?? null, request = ctx.attr(overrideSensor, 'last_request') ?? null;
-  const pending = object(ctx.attr(overrideSensor, 'pending_rooms')), handled = object(ctx.attr(runtime, 'handled_rooms'));
+  const received = attributeFact(ctx, overrideSensor, 'received_at') ?? null, request = attributeFact(ctx, overrideSensor, 'last_request') ?? null;
+  const pending = attributeMapping(ctx, overrideSensor, 'pending_rooms'), handled = attributeMapping(ctx, runtime, 'handled_rooms');
   const fullVersion = optionalRevisionAttribute(ctx.attr(overrideSensor, 'full_version'), 'ls_render.full_version');
-  const full = fullVersion !== undefined && fullVersion !== ctx.attr(runtime, 'handled_full');
+  const full = fullVersion !== undefined && fullVersion !== attributeFact(ctx, runtime, 'handled_full');
   const rooms = Object.keys(pending).filter(room => pending[room] !== handled[room]);
   if (!full && !rooms.length) return null;
-  let plan: JsonObject, lights: JsonValue = [], updates: JsonObject = {};
+  let plan: Verbatim | RoomsPlan, lights: StoredValue | StoredValue[] = [];
+  const updates: OpaqueMap = {};
   if (full) {
-    const planned = object(ctx.run('ls_plan', { reason: ctx.attr(overrideSensor, 'full_reason') || 'config' }));
-    plan = { ...object(planned.plan), remote_rooms: rooms };
-    lights = ctx.attr(overrideSensor, 'full_lights') || [];
-    const bases = object(plan.base), gradients = object(plan.gradients);
-    const areas = [...new Set(Object.values(bases).map(t => object(t).area).filter((area): area is string => typeof area === 'string' && area.length > 0))];
-    for (const room of areas) {
-      const old = object(ctx.attr(`sensor.ls_cache_${room}`, 'cache'));
-      const values = Object.fromEntries(Object.entries(bases).filter(([key, t]) => object(t).area === room && Object.hasOwn(gradients, key)).map(([key]) => [key, gradients[key]!]));
-      if (!isDeepStrictEqual(values, old.gradients)) updates[room] = { ...old, gradients: values };
+    // divergence: JS `||` on the raw attribute; the captured `... or 'config'`
+    // is Jinja truthiness (`[]`/`{}` fall back there, not here). Kept
+    // byte-identical for its own commit.
+    const planned = fullPlan(ctx.run('ls_plan', { reason: attributeFact(ctx, overrideSensor, 'full_reason') || 'config' }), rooms);
+    plan = planned.document;
+    // divergence: JS `||`, as above, against the captured `... or []`.
+    lights = attributeFact(ctx, overrideSensor, 'full_lights') || [];
+    for (const room of planned.areas) {
+      const old = roomCacheGradients(ctx.attr(`sensor.ls_cache_${room}`, 'cache'));
+      const values = planned.gradientsIn(room);
+      if (!old.holds(values)) updates[room] = old.withGradients(values);
     }
   } else {
-    let targets = object(ctx.attr(runtime, 'targets')), assignments = object(ctx.attr(runtime, 'assignments'));
-    let bases: JsonObject = {}, switches: JsonObject = {}, mirrors: JsonValue[] = [], stale: string[] = [];
-    let lastPlan: JsonObject = {};
+    let targets = attributeMapping(ctx, runtime, 'targets'), assignments = attributeMapping(ctx, runtime, 'assignments');
+    let bases: OpaqueMap = {}, switches: OpaqueMap = {}, stale: string[] = [];
+    let saraMirror: StoredFact = undefined;
+    const mirrors: Verbatim[] = [];
     for (const room of rooms) {
-      const planned = object(ctx.run('ls_room_plan', { room, overrides: object(ctx.attr(overrideSensor, 'overrides')), cache: object(ctx.attr(`sensor.ls_cache_${room}`, 'cache')), reason: 'remote' }));
-      lastPlan = object(planned.plan);
-      const resolved = object(lastPlan.resolved);
-      targets = { ...Object.fromEntries(Object.entries(targets).filter(([, t]) => object(t).area !== room)), ...object(resolved.targets) };
-      assignments = { ...Object.fromEntries(Object.entries(assignments).filter(([, t]) => object(t).area !== room)), ...object(resolved.assignments) };
-      bases = { ...bases, ...object(lastPlan.base) }; switches = { ...switches, ...object(lastPlan.switches) };
-      mirrors.push(...list(lastPlan.mirror)); stale = [...new Set([...stale, ...strings(lastPlan.stale_keys)])];
-      if (isObject(planned.cache_update)) updates[room] = planned.cache_update;
+      const planned = roomPlanView(ctx.run('ls_room_plan', { room, overrides: mappingAttribute(ctx.attr(overrideSensor, 'overrides')),
+        cache: mappingAttribute(ctx.attr(`sensor.ls_cache_${room}`, 'cache')), reason: 'remote' }));
+      targets = { ...Object.fromEntries(Object.entries(targets).filter(([, t]) => areaOf(t) !== room)), ...planned.targets };
+      assignments = { ...Object.fromEntries(Object.entries(assignments).filter(([, t]) => areaOf(t) !== room)), ...planned.assignments };
+      bases = { ...bases, ...planned.base }; switches = { ...switches, ...planned.switches };
+      mirrors.push(...planned.mirror); stale = [...new Set([...stale, ...planned.staleKeys])];
+      if (planned.cacheUpdate !== undefined) updates[room] = planned.cacheUpdate;
+      saraMirror = planned.saraMirror;
     }
-    plan = { base: bases, resolved: { targets, assignments }, switches, mirror: mirrors, stale_keys: stale, revision, plan_order: started, remote: false, remote_rooms: rooms, sara_mirror: lastPlan.sara_mirror ?? null };
+    plan = { base: bases, resolved: { targets, assignments }, switches, mirror: mirrors, stale_keys: stale, revision, plan_order: started, remote: false, remote_rooms: rooms, sara_mirror: saraMirror ?? null,
+      output_targets: Object.keys(bases) };
   }
   if (revision !== revisionOf(ctx)) return null;
   for (const [room, cache] of Object.entries(updates)) {
     const entity = `sensor.ls_cache_${room}`;
     if (hasValue(ctx, entity)) ctx.emit('variable.update_sensor', { value: ctx.now, attributes: { cache }, replace_attributes: false }, { entity_id: entity });
   }
-  if (!full) plan = { ...plan, output_targets: Object.keys(object(plan.base)) };
   const plannedAt = timestamp(ctx.now);
   const emission = ctx.call('ls_dispatch', { plan, lights });
   // `requireObject`, `requireBoolean` and `?? []` below are gone: `null` is in
   // the type, and `dispatch` builds both fields whenever it returns an object.
   if (emission === null || !emission.completed || revision !== revisionOf(ctx)) return null;
-  const generation = ctx.attr(runtime, 'generation') ?? null;
+  const generation = attributeFact(ctx, runtime, 'generation') ?? null;
   ctx.emit('variable.update_sensor', { value: ctx.now, replace_attributes: false, attributes: {
     handled_rooms: pending,
-    handled_full: fullVersion === undefined ? ctx.attr(runtime, 'handled_full') ?? null : fullVersion,
+    handled_full: fullVersion === undefined ? attributeFact(ctx, runtime, 'handled_full') ?? null : fullVersion,
     last_latency: { request_id: request, received_at: received, started_at: started, planned_at: plannedAt, published_at: emission.published_at, completed_at: timestamp(ctx.now), rooms, full },
   } }, { entity_id: runtime }, { revision, generation, requiresOutputSuccess: true });
   return null;
 }
 export const dispatchHandlers: ScriptHandlers = {
-  // Captured `plan` is raw at 20 sites. Its revision/resolved/base/plan_order,
-  // assignments/output_targets/remote_rooms/targets/switches/mirror/stale_keys
-  // fields are all raw (9/5/1/3/3/2/3/5/2/3/2 sites), so they use strict
-  // object/number/array parsers. Nested area/option/entity/sara_mirror are raw
-  // (1/1/1/2); option/entity are required strings while comparison-only area
-  // and sara_mirror retain their raw values. Boolean-context fields is_room,
-  // send, remote, on use Python truthiness (1/1/2/5 raw sites). `lights` has
-  // four raw uses and one `| default(none)`, preserved by its domain parser.
-  ls_dispatch: typed('ls_dispatch', {
-    parse: args => {
-      const plan = requireObject(args, 'plan', 'ls_dispatch');
-      return {
-        revision: requireString(plan, 'revision', 'ls_dispatch.plan'),
-        planOrder: requireNumber(plan, 'plan_order', 'ls_dispatch.plan'),
-        // Keep captured early-return evaluation order for the remaining fields.
-        details: () => parseDispatchDetails(plan, args.lights),
-      };
-    },
-    run: dispatch,
-  }),
+  ls_dispatch: typed('ls_dispatch', { parse: parseDispatchArgs, run: dispatch }),
   ls_render: ctx => render(ctx),
 };

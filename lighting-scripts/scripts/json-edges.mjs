@@ -361,12 +361,26 @@ const DOMAIN = join(ROOT, 'src/domain');
  * `StoredChannels` view, so `dispatch-render`'s one call wraps its target in
  * `storedChannels(...)`; that module's counts do not move. The `revisionNow`
  * fallback is a known divergence, unchanged and marked.
+ *
+ * U9, `dispatch-render.ts`, clears the module on every column:
+ * `jsonTypes 75 -> 48`, `lenientAccessors 102 -> 82`,
+ * `rawJsonReturns 8 -> 7`. `src/parse/dispatch-render.ts` holds the dispatch
+ * plan parser (a baseline entry is still required only when its lamp reaches
+ * the baseline check; switches, mirrors and stale keys still after
+ * assignment), the runtime reads `ls_dispatch` makes before assigning, and
+ * lenient views of the `ls_plan` / `ls_room_plan` results `ls_render` merges,
+ * read in the inline order so `list()`/`strings()` raise where they did.
+ * Resolved targets and assignments, the merged plans, room-cache updates and
+ * the applied map are carried; areas, requested lights, remote rooms, stale
+ * keys and `sara_mirror` are stored facts, compared by identity. The `''`
+ * revision fallback and the `|| 'config'` / `|| []` truthiness are known
+ * divergences, unchanged and marked.
  */
 const CEILINGS = {
-  jsonTypes: 75,
+  jsonTypes: 48,
   validatedBags: 0,
-  lenientAccessors: 102,
-  rawJsonReturns: 8,
+  lenientAccessors: 82,
+  rawJsonReturns: 7,
 };
 
 /** Comments may legitimately name these types while explaining why they are gone. */
