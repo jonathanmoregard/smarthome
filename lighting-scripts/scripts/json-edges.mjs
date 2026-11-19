@@ -221,12 +221,23 @@ const DOMAIN = join(ROOT, 'src/domain');
  * which the user has taken out of the port ("no need to port old candle, use
  * the new firmware", 2026-11-19); `candle-sync.ts` reads that result as JSON
  * and is to be left untouched, so those tokens stay until the code is removed.
+ *
+ * `ls_room_plan` then clears `planning.ts` to zero on every column:
+ * `jsonTypes 363 -> 324`, `lenientAccessors 234 -> 226`,
+ * `rawJsonReturns 36 -> 32`. The room cache is treated as the on-disk edge
+ * it is -- `cacheVersion` is the oracle's own literal, so a cache the live
+ * Jinja script wrote hits here -- and its baseline, schedule and the plan
+ * built over them are carried, with `withFields` doing the `{...doc, ...}`
+ * spreads at the edge. Every raise the inline reads made is a thunk in
+ * `src/parse/planning.ts`, called where the inline read sat, so none moves.
+ * The two pre-existing divergences (`validCache` tighter than the oracle, the
+ * bare `last_updated` read) are preserved and marked at their sites.
  */
 const CEILINGS = {
-  jsonTypes: 363,
+  jsonTypes: 324,
   validatedBags: 0,
-  lenientAccessors: 234,
-  rawJsonReturns: 36,
+  lenientAccessors: 226,
+  rawJsonReturns: 32,
 };
 
 /** Comments may legitimately name these types while explaining why they are gone. */

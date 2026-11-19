@@ -184,6 +184,48 @@ test('room cache skips baseline recomputation while updating observations and po
   assert.deepEqual(cosy.plan.mirror, [{ entity: 'input_select.ls_studio_override', option: 'Cosy' }]);
 });
 
+async function roomPlanner() {
+  const ctx = await configured();
+  const { planningHandlers } = await import('../../src/domain/planning.ts');
+  const { resolutionHandlers } = await import('../../src/domain/resolution.ts');
+  const { controllerHandlers } = await import('../../src/domain/controller.ts');
+  const { nativeHandlers } = await import('../../src/domain/native-controls.ts');
+  const { scheduleHandlers } = await import('../../src/domain/schedule.ts');
+  setHandlers(ctx, { ...scheduleHandlers, ...resolutionHandlers, ...controllerHandlers, ...nativeHandlers, ...planningHandlers });
+  ctx.now = '2026-10-23T12:00:00+02:00';
+  setCatalog(ctx, { effects: {}, processors: {} });
+  return ctx;
+}
+
+// THE INVARIANT on the room cache: a hit spreads the cached schedule into the
+// plan, and that schedule may have been written by the live Jinja script. A
+// key this port has never heard of must reach the plan as stored. Parsing the
+// cached schedule into a typed shape would drop it.
+test('a room cache hit carries keys of the cached schedule it does not know into the plan', async () => {
+  const ctx = await roomPlanner();
+  const first = ctx.run('ls_room_plan', { room: 'studio', overrides: {}, reason: 'remote' });
+  const cache = structuredClone(first.cache_update);
+  cache.baseline.schedule.written_by = { jinja: [1, 'two', null] };
+  const hit = ctx.run('ls_room_plan', { room: 'studio', overrides: {}, reason: 'remote', cache });
+  assert.equal(hit.cache_hit, true);
+  assert.deepEqual(hit.plan.written_by, { jinja: [1, 'two', null] });
+});
+
+// Record checks interleave with planning: the period scan visits records in
+// key order and parses a matched record's `when` before it looks at the next
+// record at all. Parsing every record up front would raise on the later
+// non-mapping record first.
+test('room planning raises on an earlier malformed record before a later non-mapping one', async () => {
+  const ctx = await roomPlanner();
+  const overrides = {
+    'a:block': { kind: 'block', target: 'studio', value: 'cosy', when: 'not-a-date' },
+    'b:broken': 7,
+  };
+  assert.throws(() => ctx.run('ls_room_plan', { room: 'studio', overrides, reason: 'remote' }), /schedule timestamp/);
+  assert.throws(() => ctx.run('ls_room_plan', { room: 'studio', overrides: { 'b:broken': 7 }, reason: 'remote' }),
+    /ls_room_plan\.overrides\.b:broken must be an object/);
+});
+
 test('scheduled baseline packs only explicitly configured complete command groups', async () => {
   const ctx = await configured();
   ctx.members.push('light.other'); ctx.areas['light.other'] = 'studio';

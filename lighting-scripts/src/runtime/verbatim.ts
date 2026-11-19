@@ -16,7 +16,8 @@
  * keeps it assignable to `JsonValue`: putting it into an output document needs
  * no ceremony, while getting JSON *in* goes through {@link carry}, at the edge.
  */
-import type { JsonValue } from './context.ts';
+import { isDeepStrictEqual } from 'node:util';
+import type { JsonObject, JsonValue } from './context.ts';
 
 declare const verbatim: unique symbol;
 
@@ -50,6 +51,25 @@ export function jsonEqual(a: JsonValue | undefined, b: JsonValue | undefined): b
 /** {@link jsonEqual} over two carried documents. */
 export function sameDocument(a: Verbatim, b: Verbatim): boolean {
   return jsonEqual(reveal(a), reveal(b));
+}
+
+/**
+ * `isDeepStrictEqual(stored, value)`: is a stored document exactly what the
+ * domain would store now? For cache validity, where the stored side may have
+ * been written by another implementation and is never read field by field.
+ */
+export function storedEquals(stored: Verbatim, value: unknown): boolean {
+  return isDeepStrictEqual(reveal(stored), value);
+}
+
+/**
+ * `{ ...document, ...fields }`: a carried document with some keys decided by
+ * the domain. Spread semantics exactly, so a key the document already holds
+ * keeps its position and takes the new value, and every key the domain did not
+ * name passes through unread.
+ */
+export function withFields(document: Verbatim, fields: { readonly [key: string]: JsonValue }): Verbatim {
+  return carry({ ...(reveal(document) as JsonObject), ...fields });
 }
 
 function isMapping(value: JsonValue | undefined): value is { [key: string]: JsonValue } {
