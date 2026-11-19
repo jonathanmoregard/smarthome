@@ -333,12 +333,26 @@ const DOMAIN = join(ROOT, 'src/domain');
  * `ls_range_save` parses its arguments up front (nothing between the reads can
  * raise). The two `String(...)` calls left format already-typed numbers into
  * MQTT payloads; they are not parses.
+ *
+ * U7, `native-controls.ts`, clears the module on every column:
+ * `jsonTypes 153 -> 100`, `lenientAccessors 117 -> 112`,
+ * `rawJsonReturns 15 -> 9`. Both results are constructed, so both are real
+ * unions now: `ChannelRecord` with `Record<string, ChannelClaim>`,
+ * `PowerEvent`/`SetEvent`, and `ControlCommand`, which is what lets
+ * `setControls` dispatch on `command.action` with no `String()`/`object()`.
+ * Service data is a `ServiceData` of requests chosen by the first key held
+ * (components read per scope item, where the inline reads sat); the catalog's
+ * `groups`/`effects` keep their `in` tests; plan targets are read leniently or
+ * strictly where each inline read was; the control value is a `ControlValue`
+ * of the Jinja readings the checks apply. Pass-through values -- an absolute
+ * brightness, a Kelvin value, the underlying colour, the native stamp -- are
+ * carried.
  */
 const CEILINGS = {
-  jsonTypes: 153,
+  jsonTypes: 100,
   validatedBags: 0,
-  lenientAccessors: 117,
-  rawJsonReturns: 15,
+  lenientAccessors: 112,
+  rawJsonReturns: 9,
 };
 
 /** Comments may legitimately name these types while explaining why they are gone. */

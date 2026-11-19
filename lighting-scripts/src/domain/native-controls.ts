@@ -1,8 +1,17 @@
-import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { jinjaFloat, jinjaInt, jinjaString, jinjaTruthy, lazy, object, ParseError, parsePythonNumeric, requireArray, requireNumber, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
+import { withParsedArgs } from '../runtime/parse.ts';
+import type { Verbatim } from '../runtime/verbatim.ts';
 import { rgbValue, roundEven } from './scale.ts';
 import type { RGB } from './scale.ts';
 import { recordTimestamp } from '../parse/resolution.ts';
+import { attributeMapping } from '../parse/sensors.ts';
+import {
+  groupChildren, lampKelvinRange, parseNativeCatalog, parseNativeCurrent, parseNativePlanArgs, parseSetArgs,
+  underlyingColour,
+} from '../parse/native-controls.ts';
+import type {
+  BrightnessRequest, ColourRequest, NativeCatalog, NativeCurrent, NativePlanArgs, PlanTarget, SetArgs,
+} from '../parse/native-controls.ts';
 
 // Literal CSS colour names from the deployed native adapter.
 const COLOR_NAMES: Record<string, RGB> = {
@@ -157,128 +166,34 @@ const COLOR_NAMES: Record<string, RGB> = {
 };
 
 interface ScopeItem { scope: 'room' | 'lamp'; target: string; base: string; suffix?: string }
-type NativePlan = { records: JsonObject[]; power: JsonObject[] };
-type ControlPlan = { valid: boolean; errors: string[]; events: JsonObject[]; commands: JsonObject[]; records: JsonObject[] };
-interface NativeCatalog {
-  members: Record<string, string[]>;
-  groups: JsonObject;
-  effects: JsonObject;
-}
-interface NativeCurrent {
-  baseTargets: JsonObject;
-  resolvedTargets: JsonObject;
-}
-interface LazyNativeCurrent {
-  baseTargets: JsonObject;
-  resolvedTargets: () => JsonObject;
-}
-interface NativePlanArgs {
-  sd: JsonObject;
-  areas: string[];
-  devices: string[];
-  labels: string[];
-  requested: string[];
-  catalog: NativeCatalog;
-  current: () => LazyNativeCurrent;
-  stamp: () => JsonValue;
-}
-interface SetArgs {
+
+/** A claim's `updated`: the native call's raw stamp, or the UI's own epoch. */
+type Stamp = Verbatim | number;
+/** A colour a claim holds: what a native call or the UI asked for, or the colour a reset returns to. */
+export type ClaimColour = { kelvin: Verbatim | number } | { rgb: number[] } | Verbatim;
+export type ConstantClaim = { kind: 'constant'; value: number | boolean | ClaimColour; updated: Stamp };
+export type EffectClaim = { kind: 'effect'; effect: string; instance: string; updated: Stamp; intensity?: number | boolean };
+export type ChannelClaim = ConstantClaim | EffectClaim;
+/** One `channels` override record, as `ls_override` stores it. */
+export type ChannelRecord = {
+  kind: 'channels';
+  key: string;
   source: string;
-  attribute: string;
-  value: JsonValue | undefined;
-  dryRun: boolean;
-}
-function selector(container: JsonObject, key: string, split = false): string[] {
-  const value = container[key];
-  if (value === undefined) return [];
-  const values = typeof value === 'string' ? (split ? value.split(',') : [value]) : requireArray(container, key, 'effects_native_plan.sd');
-  return values.map((item, index) => requireString({ item }, 'item', `effects_native_plan.sd.${key}[${index}]`));
-}
-function stringArray(value: JsonValue | undefined, context: string): string[] {
-  return requireArray({ value: value ?? [] }, 'value', context).map((item, index) =>
-    requireString({ item }, 'item', `${context}[${index}]`));
-}
-function numberArray(container: JsonObject, key: string, length: 2, context: string): [number, number];
-function numberArray(container: JsonObject, key: string, length: 3, context: string): RGB;
-function numberArray(container: JsonObject, key: string, length: 4 | 5, context: string): number[];
-function numberArray(container: JsonObject, key: string, length: number, context: string): number[] {
-  const values = requireArray(container, key, context);
-  if (values.length !== length) throw new ParseError(`${context}.${key} must contain ${length} values`);
-  const parsed = values.map((value, index) => requireNumber({ value }, 'value', `${context}.${key}[${index}]`));
-  if (length === 2) return [parsed[0]!, parsed[1]!];
-  if (length === 3) return [parsed[0]!, parsed[1]!, parsed[2]!];
-  return parsed;
-}
-function optionalObject(container: JsonObject, key: string, context: string): JsonObject {
-  return container[key] === undefined ? {} : requireObject(container, key, context);
-}
-function parseCatalog(value: JsonValue | undefined, context: string): NativeCatalog {
-  const catalog = value === undefined ? requireObject({}, 'value', context) : requireObject({ value }, 'value', context);
-  const members = requireObject(catalog, 'members', context);
-  return {
-    members: Object.fromEntries(Object.entries(members).map(([lamp, physical]) =>
-      [lamp, stringArray(physical, `${context}.members.${lamp}`)])),
-    groups: requireObject(catalog, 'groups', context),
-    effects: requireObject(catalog, 'effects', context),
-  };
-}
-function parseCurrent(value: JsonValue | undefined, context: string): NativeCurrent {
-  const current = value === undefined ? requireObject({}, 'value', context) : requireObject({ value }, 'value', context);
-  const plan = requireObject(current, 'plan', context);
-  const resolved = requireObject(plan, 'resolved', `${context}.plan`);
-  return {
-    baseTargets: requireObject(plan, 'base', `${context}.plan`),
-    resolvedTargets: requireObject(resolved, 'targets', `${context}.plan.resolved`),
-  };
-}
-function parseLazyCurrent(value: JsonValue | undefined, context: string): LazyNativeCurrent {
-  const current = value === undefined ? requireObject({}, 'value', context) : requireObject({ value }, 'value', context);
-  const plan = requireObject(current, 'plan', context);
-  return {
-    baseTargets: requireObject(plan, 'base', `${context}.plan`),
-    resolvedTargets: lazy(() => {
-      const resolved = requireObject(plan, 'resolved', `${context}.plan`);
-      return requireObject(resolved, 'targets', `${context}.plan.resolved`);
-    }),
-  };
-}
-function group(catalog: NativeCatalog, source: string): string[] {
-  return catalog.groups[source] === undefined ? [] : stringArray(catalog.groups[source], `catalog.groups.${source}`);
-}
-function effectChannels(catalog: NativeCatalog, effect: string): string[] {
-  const definition = requireObject(catalog.effects, effect, 'catalog.effects');
-  return stringArray(definition.channels, `catalog.effects.${effect}.channels`);
-}
-function requiredStringValue(value: JsonValue | undefined, context: string): string {
-  return value === undefined ? requireString({}, 'value', context) : requireString({ value }, 'value', context);
-}
-function requiredValue(container: JsonObject, key: string, context: string): JsonValue {
-  const value = container[key];
-  if (value === undefined) throw new ParseError(`${context}.${key} is required`);
-  return value;
-}
-/**
- * Is `value` a finite number within `[low, high]`?
- *
- * A non-numeric input is simply out of range rather than being coerced to a
- * sentinel first. `optionalFinite` is not used here because an un-parseable
- * *string* must answer `false` rather than raise: this is a validation that
- * collects error messages, so rejecting is the job.
- *
- * `parsePythonNumeric` rather than `parseFinite` because the oracle accepts
- * `value: true` as brightness 1 — `bool` is an `int` subclass in Python — and
- * a parity test covers it. That is the only inherited numeric quirk left here.
- */
-function inRange(value: JsonValue | undefined, low: number, high: number): boolean {
-  const parsed = parsePythonNumeric(value);
-  return parsed !== undefined && low <= parsed && parsed <= high;
-}
+  scope: 'room' | 'lamp';
+  target: string;
+  value: { channels: Record<string, ChannelClaim>; selection?: string };
+};
+export type PowerEvent = { op: 'power'; area: string; on: boolean; via: string };
+export type SetEvent = { op: 'set'; records: ChannelRecord[]; via: string };
+type LightData = Record<string, never> | { brightness: number } | { rgb_color: number[] } | { color_temp_kelvin: number };
+export type ControlCommand =
+  | { action: 'script.ls_store'; data: { store: string; effect: string }; target: Record<string, never> }
+  | { action: 'light.turn_off' | 'light.turn_on' | 'homeassistant.turn_on' | 'homeassistant.turn_off'; target: { entity_id: string | string[] }; data: LightData };
+export type NativePlan = { records: ChannelRecord[]; power: PowerEvent[] };
+export type ControlPlan = { valid: boolean; errors: string[]; events: Array<PowerEvent | SetEvent>; commands: ControlCommand[]; records: ChannelRecord[] };
 
 function unique(values: string[]): string[] { return [...new Set(values)]; }
-function numeric(value: JsonValue | undefined): value is number | boolean { return typeof value === 'number' || typeof value === 'boolean'; }
-function populated(value: JsonObject): boolean { return Object.keys(value).length > 0; }
-function get(value: JsonObject, key: string, fallback: JsonValue): JsonValue { return value[key] === undefined ? fallback : value[key]; }
-function constant(value: JsonValue, stamp: JsonValue): JsonObject { return { kind: 'constant', value, updated: stamp }; }
+function constant(value: ConstantClaim['value'], stamp: Stamp): ConstantClaim { return { kind: 'constant', value, updated: stamp }; }
 function areasOf(ctx: ScriptContext, entities: string[]): string[] { return unique(entities.map(entity => ctx.areas[entity] ?? '').filter(Boolean)); }
 function expandedEntities(ctx: ScriptContext, entities: string[]): string[] {
   const pending = [...entities], seen = new Set<string>(), result: string[] = [];
@@ -290,32 +205,26 @@ function expandedEntities(ctx: ScriptContext, entities: string[]): string[] {
     const sources = (ctx as ScriptContext & { entitySources?: Record<string, string> }).entitySources;
     const group = entity.startsWith('group.') || sources?.[entity] === 'group';
     const zone = entity.startsWith('zone.');
-    const children = ctx.attr(entity, zone ? 'persons' : 'entity_id');
-    if (group || zone) { if (Array.isArray(children)) pending.push(...children.map(String)); }
+    if (group || zone) { const children = groupChildren(ctx, entity, zone); if (children !== undefined) pending.push(...children); }
     else result.push(entity);
   }
   return result;
 }
-function underlyingColor(base: JsonObject, resolved: JsonObject): JsonValue {
-  const color = requireObject(resolved, 'color', 'resolved target');
-  return color.policy === 'sara' ? base.color! : color.kind === 'effect' ? get(color, 'base', base.color!) : color.value!;
-}
 
-/** Convert native HA colour payloads to the existing logical RGB/Kelvin form. */
-export function nativeColor(ctx: ScriptContext, data: JsonObject, lamp: string): JsonObject {
-  if ('color_temp_kelvin' in data) return { kelvin: data.color_temp_kelvin! };
-  if ('kelvin' in data) return { kelvin: data.kelvin! };
-  if ('rgb_color' in data) return { rgb: numberArray(data, 'rgb_color', 3, 'effects_native_plan.sd') };
-  if ('hs_color' in data) {
-    const [hue, saturation] = numberArray(data, 'hs_color', 2, 'effects_native_plan.sd');
+/** Convert native HA colour payloads to the existing logical RGB/Kelvin form; `undefined` when none is asked for. */
+export function nativeColor(ctx: ScriptContext, request: ColourRequest, lamp: string): ClaimColour | undefined {
+  if (request.kind === 'kelvin') return { kelvin: request.kelvin };
+  if (request.kind === 'rgb') return { rgb: request.rgb() };
+  if (request.kind === 'hs') {
+    const [hue, saturation] = request.hs();
     const wrapped = hue % 360;
     const h = (wrapped < 0 ? wrapped + 360 : wrapped) / 60, c = saturation / 100;
     const x = c * (1 - Math.abs(h % 2 - 1)), m = 1 - c;
     const triplet = h < 1 ? [c, x, 0] : h < 2 ? [x, c, 0] : h < 3 ? [0, c, x] : h < 4 ? [0, x, c] : h < 5 ? [x, 0, c] : [c, 0, x];
     return { rgb: triplet.map(component => roundEven((component + m) * 255)) };
   }
-  if ('xy_color' in data) {
-    const [x, y] = numberArray(data, 'xy_color', 2, 'effects_native_plan.sd');
+  if (request.kind === 'xy') {
+    const [x, y] = request.xy();
     if (y <= 0) return { rgb: [0, 0, 0] };
     const X = x / y, Z = (1 - x - y) / y;
     const linear = [X * 1.656492 - 0.354851 - Z * 0.255038, -X * 0.707196 + 1.655397 + Z * 0.036152, X * 0.051713 - 0.121364 + Z * 1.011530];
@@ -323,25 +232,35 @@ export function nativeColor(ctx: ScriptContext, data: JsonObject, lamp: string):
     const peak = Math.max(1, ...gamma);
     return { rgb: gamma.map(v => roundEven(v / peak * 255)) };
   }
-  if ('rgbw_color' in data || 'rgbww_color' in data) {
-    const key = 'rgbw_color' in data ? 'rgbw_color' : 'rgbww_color';
-    const channels = numberArray(data, key, key === 'rgbw_color' ? 4 : 5, 'effects_native_plan.sd');
+  if (request.kind === 'rgbw' || request.kind === 'rgbww') {
+    const channels = request.channels();
     let white: number[];
     if (channels.length === 4) white = [channels[3]!, channels[3]!, channels[3]!];
     else {
-      const cold = rgbValue({ kelvin: jinjaInt(ctx.attr(lamp, 'max_color_temp_kelvin'), 6500) });
-      const warm = rgbValue({ kelvin: jinjaInt(ctx.attr(lamp, 'min_color_temp_kelvin'), 2000) });
+      const range = lampKelvinRange(ctx, lamp);
+      const cold = rgbValue({ kelvin: range.max });
+      const warm = rgbValue({ kelvin: range.min });
       white = [0, 1, 2].map(i => (cold[i]! * channels[3]! + warm[i]! * channels[4]!) / 255);
     }
     const mixed = [0, 1, 2].map(i => channels[i]! + white[i]!);
     const peak = Math.max(1, ...mixed), brightness = Math.max(...channels);
     return { rgb: mixed.map(v => roundEven(v / peak * brightness)) };
   }
-  if ('color_name' in data) {
-    const color = COLOR_NAMES[jinjaString(data.color_name).toLowerCase().replaceAll(' ', '')];
-    return color ? { rgb: [...color] } : {};
+  if (request.kind === 'name') {
+    const color = COLOR_NAMES[request.name.toLowerCase().replaceAll(' ', '')];
+    return color ? { rgb: [...color] } : undefined;
   }
-  return 'white' in data ? { rgb: [255, 255, 255] } : {};
+  return request.kind === 'white' ? { rgb: [255, 255, 255] } : undefined;
+}
+
+/** The brightness a call asks of one scope item; a computed kind reads the item's resolved level first. */
+function requestedBrightness(request: BrightnessRequest, resolved: PlanTarget): number | boolean | undefined {
+  const context = 'effects_native_plan resolved target';
+  if (request.kind === 'absolute') return request.value;
+  if (request.kind === 'percent') return request.percent() * 255 / 100;
+  if (request.kind === 'step') return resolved.level(context) + request.step();
+  if (request.kind === 'step percent') return resolved.level(context) + request.step() * 255 / 100;
+  return undefined;
 }
 
 export function planNativeControls(ctx: ScriptContext, args: NativePlanArgs): NativePlan {
@@ -351,63 +270,58 @@ export function planNativeControls(ctx: ScriptContext, args: NativePlanArgs): Na
   for (const device of devices) requested.push(...ctx.devices?.[device] ?? []);
   for (const label of labels) requested.push(...ctx.labels?.[label] ?? []);
   const expanded = [...requested];
-  for (const source of requested) expanded.push(...group(catalog, source));
+  for (const source of requested) expanded.push(...catalog.groups.members(source));
   expanded.push(...expandedEntities(ctx, requested));
   const lamps = Object.entries(members).filter(([lamp, physical]) => expanded.includes(lamp) || physical.some(entity => expanded.includes(entity))).map(([lamp]) => lamp);
   const roomScopes = [...areas];
   for (const source of requested) {
-    if (!(source in catalog.groups)) continue;
-    const membersOfGroup = group(catalog, source);
+    if (!catalog.groups.has(source)) continue;
+    const membersOfGroup = catalog.groups.members(source);
     for (const area of areasOf(ctx, membersOfGroup)) if (Object.keys(members).filter(lamp => ctx.areas[lamp] === area).every(lamp => membersOfGroup.includes(lamp))) roomScopes.push(area);
   }
   if (!roomScopes.length && !lamps.length) return { records: [], power: [] };
   const { baseTargets, resolvedTargets } = args.current();
-  const items: ScopeItem[] = unique(roomScopes).sort().filter(area => populated(object(baseTargets[`room:${area}`]))).map(area => ({ scope: 'room', target: area, base: `room:${area}` }));
+  const items: ScopeItem[] = unique(roomScopes).sort().filter(area => baseTargets.populatedLeniently(`room:${area}`)).map(area => ({ scope: 'room', target: area, base: `room:${area}` }));
   for (const lamp of lamps) if (!roomScopes.includes(ctx.areas[lamp] ?? '')) items.push({ scope: 'lamp', target: lamp, base: lamp });
-  const power = areasOf(ctx, lamps).sort().map(area => ({ op: 'power', area, on: true, via: 'app' }));
+  const power: PowerEvent[] = areasOf(ctx, lamps).sort().map(area => ({ op: 'power', area, on: true, via: 'app' }));
   if (!items.length) return { records: [], power };
   const resolvedTargetMap = resolvedTargets();
-  const records: JsonObject[] = [];
+  const records: ChannelRecord[] = [];
   for (const item of items) {
-    const base = optionalObject(baseTargets, item.base, 'effects_native_plan.current.plan.base');
-    const resolved = optionalObject(resolvedTargetMap, item.base, 'effects_native_plan.current.plan.resolved.targets');
-    if (!populated(base) || !populated(resolved)) continue;
-    let brightness: JsonValue = null, channels: JsonObject = {};
-    if ('brightness' in sd) brightness = sd.brightness!;
-    else if ('brightness_pct' in sd) brightness = requireNumber(sd, 'brightness_pct', 'effects_native_plan.sd') * 255 / 100;
-    else if ('brightness_step' in sd) brightness = requireNumber(resolved, 'level', 'effects_native_plan resolved target') + requireNumber(sd, 'brightness_step', 'effects_native_plan.sd');
-    else if ('brightness_step_pct' in sd) brightness = requireNumber(resolved, 'level', 'effects_native_plan resolved target') + requireNumber(sd, 'brightness_step_pct', 'effects_native_plan.sd') * 255 / 100;
-    else if ('white' in sd) brightness = sd.white!;
-    if (numeric(brightness)) {
+    const base = baseTargets.target(item.base, 'effects_native_plan.current.plan.base');
+    const resolved = resolvedTargetMap.target(item.base, 'effects_native_plan.current.plan.resolved.targets');
+    if (!base.populated || !resolved.populated) continue;
+    let channels: Record<string, ChannelClaim> = {};
+    let brightness = requestedBrightness(sd.brightness, resolved);
+    if (brightness !== undefined) {
       if (Number(brightness) < 0) brightness = 0;
       else if (Number(brightness) > 255) brightness = 255;
       channels.brightness = constant(brightness, args.stamp());
     }
-    const color = nativeColor(ctx, sd, item.target);
-    if (populated(color)) channels.color = constant(color, args.stamp());
-    if ('effect' in sd) {
-      const requestedEffect = jinjaString(sd.effect).toLowerCase();
+    const color = nativeColor(ctx, sd.colour, item.target);
+    if (color !== undefined) channels.color = constant(color, args.stamp());
+    if (sd.effect !== undefined) {
+      const requestedEffect = sd.effect.toLowerCase();
       let selected: string | undefined;
-      for (const effect of Object.keys(catalog.effects)) if (effect.toLowerCase() === requestedEffect || (effect === 'Colour loop' && requestedEffect === 'colorloop')) selected = effect;
+      for (const effect of catalog.effects.names) if (effect.toLowerCase() === requestedEffect || (effect === 'Colour loop' && requestedEffect === 'colorloop')) selected = effect;
       if (selected) {
-        for (const channel of effectChannels(catalog, selected)) channels[channel] = { kind: 'effect', effect: selected, instance: `native:${[...requested, ...areas, ...devices, ...labels].sort().join('|')}:${selected}`, updated: args.stamp(), ...(numeric(brightness) ? { intensity: brightness } : {}) };
-      } else if (['none', 'normal light', 'off'].includes(requestedEffect)) channels = { brightness: constant(requireNumber(resolved, 'level', 'effects_native_plan resolved target'), args.stamp()), color: constant(underlyingColor(base, resolved), args.stamp()), ...channels };
+        for (const channel of catalog.effects.channels(selected)) channels[channel] = { kind: 'effect', effect: selected, instance: `native:${[...requested, ...areas, ...devices, ...labels].sort().join('|')}:${selected}`, updated: args.stamp(), ...(brightness !== undefined ? { intensity: brightness } : {}) };
+      } else if (['none', 'normal light', 'off'].includes(requestedEffect)) channels = { brightness: constant(resolved.level('effects_native_plan resolved target'), args.stamp()), color: constant(underlyingColour(base, resolved), args.stamp()), ...channels };
     }
-    if (populated(channels)) records.push({ kind: 'channels', key: `channels:native:${item.base}`, source: `native:${item.base}`, scope: item.scope, target: item.target, value: { channels } });
+    if (Object.keys(channels).length > 0) records.push({ kind: 'channels', key: `channels:native:${item.base}`, source: `native:${item.base}`, scope: item.scope, target: item.target, value: { channels } });
   }
   return { records, power };
 }
 
 export function planUIControls(ctx: ScriptContext, args: SetArgs, catalog: NativeCatalog, current: NativeCurrent | undefined): ControlPlan {
-  const { source, attribute } = args;
-  const value = attribute === 'effect' && args.value === 'Normal Light' ? 'Normal light' : args.value;
+  const { source, attribute, value } = args;
   const profile = source.startsWith('light.ls_'), members = catalog.members;
-  const targets = source in catalog.groups ? group(catalog, source) : [source];
+  const targets = catalog.groups.has(source) ? catalog.groups.members(source) : [source];
   const stamp = recordTimestamp(ctx.now);
-  const errors: string[] = [], events: JsonObject[] = [], commands: JsonObject[] = [], records: JsonObject[] = [];
+  const errors: string[] = [], events: Array<PowerEvent | SetEvent> = [], commands: ControlCommand[] = [], records: ChannelRecord[] = [];
   if (!['power', 'brightness', 'rgb', 'temperature', 'effect'].includes(attribute)) errors.push('Unsupported control attribute.');
-  if (attribute === 'effect' && value !== 'Normal light' && !(jinjaString(value) in catalog.effects)) errors.push('Unknown effect.');
-  if (attribute === 'power' && value !== 'ON' && value !== 'OFF') errors.push('Power must be ON or OFF.');
+  if (attribute === 'effect' && value.raw !== 'Normal light' && !catalog.effects.has(value.text)) errors.push('Unknown effect.');
+  if (attribute === 'power' && value.raw !== 'ON' && value.raw !== 'OFF') errors.push('Power must be ON or OFF.');
   // These were `jinjaFloat(value, -1)` range checks: a non-numeric input took
   // the -1 fallback and so failed the bound, which is how the captured
   // `| float(-1)` reports it. `inRange` keeps that outcome — the same error
@@ -415,28 +329,30 @@ export function planUIControls(ctx: ScriptContext, args: SetArgs, catalog: Nativ
   // number". The parity probe found all 14 of the gate's coercion-fallback
   // hits here, every one of them a `null` value, so this is the only site
   // where the leniency was load-bearing at all.
-  if (attribute === 'brightness' && !inRange(value, 0, 255)) errors.push('Brightness must be 0–255.');
-  if (attribute === 'temperature' && !inRange(value, 100, 1000)) errors.push('Temperature must be 100–1000 mireds.');
-  const rgb = typeof value === 'string' ? value.split(',') : value;
+  if (attribute === 'brightness' && !value.inRange(0, 255)) errors.push('Brightness must be 0–255.');
+  if (attribute === 'temperature' && !value.inRange(100, 1000)) errors.push('Temperature must be 100–1000 mireds.');
+  const rgb = value.components;
   if (attribute === 'rgb') {
-    if (!Array.isArray(rgb) || rgb.length !== 3) errors.push('RGB needs three components.');
-    else for (const component of rgb) if (!inRange(component, 0, 255)) errors.push('RGB components must be 0–255.');
+    if (rgb === undefined || rgb.length !== 3) errors.push('RGB needs three components.');
+    else for (const component of rgb) if (!component.inRange(0, 255)) errors.push('RGB components must be 0–255.');
   }
+  // Reached only with no errors, so an rgb control's three components are there.
+  const rgbInts = () => rgb!.map(component => component.int);
   if (profile) {
     const store = source.replace('light.', 'input_text.');
     if (!ctx.state[store]) errors.push('Unknown schedule profile.');
     if (!errors.length) {
-      if (attribute === 'effect') commands.push({ action: 'script.ls_store', data: { store, effect: requiredStringValue(value, 'effects_set') }, target: {} });
-      else if (attribute === 'power' && value === 'OFF') commands.push({ action: 'light.turn_off', target: { entity_id: source }, data: {} });
+      if (attribute === 'effect') commands.push({ action: 'script.ls_store', data: { store, effect: value.string('effects_set') }, target: {} });
+      else if (attribute === 'power' && value.raw === 'OFF') commands.push({ action: 'light.turn_off', target: { entity_id: source }, data: {} });
       else {
-        const data = attribute === 'brightness' ? { brightness: jinjaInt(value) } : attribute === 'rgb' ? { rgb_color: (rgb as JsonValue[]).map(v => jinjaInt(v)) } : attribute === 'temperature' ? { color_temp_kelvin: roundEven(1000000 / jinjaFloat(value)) } : {};
+        const data: LightData = attribute === 'brightness' ? { brightness: value.int } : attribute === 'rgb' ? { rgb_color: rgbInts() } : attribute === 'temperature' ? { color_temp_kelvin: roundEven(1000000 / value.float) } : {};
         commands.push({ action: 'light.turn_on', target: { entity_id: source }, data });
       }
     }
   } else {
     if (targets.length === 0 || targets.some(target => !(target in members))) errors.push('Unknown logical lamp or room.');
     const scopes: ScopeItem[] = [], scopeAreas: string[] = [];
-    if (source in catalog.groups) {
+    if (catalog.groups.has(source)) {
       const areas = areasOf(ctx, targets).sort();
       for (const area of areas) {
         if (Object.keys(members).filter(lamp => ctx.areas[lamp] === area).every(lamp => targets.includes(lamp))) {
@@ -447,26 +363,26 @@ export function planUIControls(ctx: ScriptContext, args: SetArgs, catalog: Nativ
     }
     for (const lamp of targets) if (!scopeAreas.includes(ctx.areas[lamp] ?? '')) scopes.push({ scope: 'lamp', target: lamp, base: lamp, suffix: targets.length > 1 ? `:${lamp}` : '' });
     if (!errors.length && attribute === 'power') {
-      const powerAreas = value === 'ON' ? areasOf(ctx, targets) : scopeAreas;
-      for (const area of powerAreas) events.push({ op: 'power', area, on: value === 'ON', via: 'effects-house' });
-      const ids = [...targets, ...Object.keys(object(ctx.attr('sensor.ls_overrides', 'switch_ranges'))).filter(lamp => scopeAreas.includes(ctx.areas[lamp] ?? ''))];
-      commands.push({ action: value === 'ON' ? 'homeassistant.turn_on' : 'homeassistant.turn_off', target: { entity_id: unique(ids) }, data: {} });
+      const powerAreas = value.raw === 'ON' ? areasOf(ctx, targets) : scopeAreas;
+      for (const area of powerAreas) events.push({ op: 'power', area, on: value.raw === 'ON', via: 'effects-house' });
+      const ids = [...targets, ...Object.keys(attributeMapping(ctx, 'sensor.ls_overrides', 'switch_ranges')).filter(lamp => scopeAreas.includes(ctx.areas[lamp] ?? ''))];
+      commands.push({ action: value.raw === 'ON' ? 'homeassistant.turn_on' : 'homeassistant.turn_off', target: { entity_id: unique(ids) }, data: {} });
     } else if (!errors.length) {
       if (current === undefined) throw new Error('effects_set current plan is required for channel controls');
       const { baseTargets, resolvedTargets } = current;
-      const effectValue = attribute === 'effect' ? requiredStringValue(value, 'effects_set') : undefined;
+      const effectValue = attribute === 'effect' ? value.string('effects_set') : undefined;
       for (const item of scopes) {
-        const base = optionalObject(baseTargets, item.base, 'effects_set.current.plan.base');
-        const resolved = optionalObject(resolvedTargets, item.base, 'effects_set.current.plan.resolved.targets');
-        if (!populated(base) || !populated(resolved)) { errors.push(`Missing resolved lighting state for ${item.target}`); continue; }
-        let channels: JsonObject = {};
-        if (attribute === 'effect' && value !== 'Normal light') {
+        const base = baseTargets.target(item.base, 'effects_set.current.plan.base');
+        const resolved = resolvedTargets.target(item.base, 'effects_set.current.plan.resolved.targets');
+        if (!base.populated || !resolved.populated) { errors.push(`Missing resolved lighting state for ${item.target}`); continue; }
+        let channels: Record<string, ChannelClaim> = {};
+        if (attribute === 'effect' && value.raw !== 'Normal light') {
           const effect = effectValue!;
-          for (const channel of effectChannels(catalog, effect)) channels[channel] = { kind: 'effect', effect, instance: `ui:${source}:${effect}`, updated: stamp };
-        } else if (attribute === 'effect') channels = { brightness: constant(requireNumber(resolved, 'level', 'effects_set resolved target'), stamp), color: constant(underlyingColor(base, resolved), stamp) };
-        else if (attribute === 'brightness') channels = { brightness: constant(jinjaInt(value), stamp) };
-        else if (attribute === 'rgb') channels = { color: constant({ rgb: (rgb as JsonValue[]).map(v => jinjaInt(v)) }, stamp) };
-        else if (attribute === 'temperature') channels = { color: constant({ kelvin: roundEven(1000000 / jinjaFloat(value)) }, stamp) };
+          for (const channel of catalog.effects.channels(effect)) channels[channel] = { kind: 'effect', effect, instance: `ui:${source}:${effect}`, updated: stamp };
+        } else if (attribute === 'effect') channels = { brightness: constant(resolved.level('effects_set resolved target'), stamp), color: constant(underlyingColour(base, resolved), stamp) };
+        else if (attribute === 'brightness') channels = { brightness: constant(value.int, stamp) };
+        else if (attribute === 'rgb') channels = { color: constant({ rgb: rgbInts() }, stamp) };
+        else if (attribute === 'temperature') channels = { color: constant({ kelvin: roundEven(1000000 / value.float) }, stamp) };
         records.push({ kind: 'channels', key: `channels:ui:${source}${item.suffix ?? ''}`, source: `ui:${source}`, scope: item.scope, target: item.target, value: { channels, ...(attribute === 'effect' ? { selection: effectValue! } : {}) } });
       }
       if (records.length && !errors.length) events.push({ op: 'set', records, via: 'effects-house' });
@@ -476,56 +392,19 @@ export function planUIControls(ctx: ScriptContext, args: SetArgs, catalog: Nativ
 }
 
 function setControls(ctx: ScriptContext, args: SetArgs): ControlPlan {
-  const catalog = parseCatalog(ctx.run('effects_catalog'), 'effects_set.catalog');
-  const current = !args.source.startsWith('light.ls_') && args.attribute !== 'power' ? parseCurrent(ctx.run('ls_plan', { reason: 'config' }), 'effects_set.current') : undefined;
+  const catalog = parseNativeCatalog(ctx.run('effects_catalog'), 'effects_set.catalog');
+  const current = !args.source.startsWith('light.ls_') && args.attribute !== 'power' ? parseNativeCurrent(ctx.run('ls_plan', { reason: 'config' }), 'effects_set.current') : undefined;
   const result = planUIControls(ctx, args, catalog, current);
   if (args.dryRun) return result;
   if (!result.valid) throw new Error(result.errors.join(' '));
   for (const event of result.events) ctx.fire('ls_override', event);
   for (const command of result.commands) {
-    const action = String(command.action), data = object(command.data), target = object(command.target);
-    if (action === 'script.ls_store') ctx.run('ls_store', data);
-    else ctx.emit(action, data, target);
+    if (command.action === 'script.ls_store') ctx.run('ls_store', command.data);
+    else ctx.emit(command.action, command.data, command.target);
   }
   return result;
 }
 export const nativeHandlers: ScriptHandlers = {
-  // Captured effects_native_plan reads sd/catalog/current/stamp raw (19/8/3/5
-  // sites). Selector fields entity_id/area_id/device_id/label_id use missing
-  // empty-list fallbacks before iteration; brightness_pct/brightness_step/
-  // brightness_step_pct and hs/xy/rgbw/rgbww components are raw arithmetic or
-  // indexed values, so they parse strictly. color_temp_kelvin/kelvin are raw
-  // pass-through payloads. The two HA Kelvin attributes use `| int(6500)` /
-  // `| int(2000)`. Nested members/groups/effects and plan/base/resolved/targets
-  // are indexed raw structures. Stamp is a raw pass-through payload; current,
-  // its resolved subtree, and stamp stay lazy until selected work needs them.
-  effects_native_plan: withParsedArgs({
-    parse: args => {
-      const sd = requireObject(args, 'sd', 'effects_native_plan');
-      return {
-        sd,
-        areas: selector(sd, 'area_id'),
-        devices: selector(sd, 'device_id'),
-        labels: selector(sd, 'label_id'),
-        requested: selector(sd, 'entity_id', true),
-        catalog: parseCatalog(args.catalog, 'effects_native_plan.catalog'),
-        current: lazy(() => parseLazyCurrent(args.current, 'effects_native_plan.current')),
-        stamp: lazy(() => requiredValue(args, 'stamp', 'effects_native_plan')),
-      };
-    },
-    run: planNativeControls,
-  }),
-  // Captured effects_set reads source/attribute raw (11/20 sites), value raw
-  // 18 times plus `| float(-1)` four times and `| int` twice, and dry_run once
-  // through `| default(false)`. Preserve both numeric filters: float for range
-  // checks/temperature arithmetic, int for emitted brightness/RGB values.
-  effects_set: withParsedArgs({
-    parse: args => ({
-      source: requireString(args, 'source', 'effects_set'),
-      attribute: requireString(args, 'attribute', 'effects_set'),
-      value: args.value,
-      dryRun: jinjaTruthy(args.dry_run),
-    }),
-    run: setControls,
-  }),
+  effects_native_plan: withParsedArgs({ parse: parseNativePlanArgs, run: planNativeControls }),
+  effects_set: withParsedArgs({ parse: parseSetArgs, run: setControls }),
 };

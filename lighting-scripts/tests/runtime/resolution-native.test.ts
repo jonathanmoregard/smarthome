@@ -70,3 +70,41 @@ test('registered group integration expands its bulbs through the runtime snapsho
   const result = execute({ script: 'effects_native_plan', snapshot: s, args: { sd: { entity_id: 'light.group', brightness: 80 }, catalog, current, stamp: 5 } }, nativeHandlers);
   assert.equal(result.result.records[0]?.target, 'light.logical');
 });
+
+test('a boolean native brightness is claimed as given, intensity included', async () => {
+  // `bool` is an `int` in Python, so `true` passes the numeric test and is stored
+  // as `true`, not as 1. A brightness parse that coerced would store 1.
+  const { nativeHandlers } = await import('../../src/domain/native-controls.ts');
+  const result = execute({ script: 'effects_native_plan', snapshot, args: { sd: { entity_id: 'light.bulb', brightness: true, effect: 'pulse' }, catalog, current, stamp: 5 } }, nativeHandlers);
+  assert.equal(JSON.stringify(result.result.records[0].value.channels), JSON.stringify({
+    brightness: { kind: 'effect', effect: 'Pulse', instance: 'native:light.bulb:Pulse', updated: 5, intensity: true },
+  }));
+});
+
+test('a native brightness step reads the resolved level before the step', async () => {
+  const { nativeHandlers } = await import('../../src/domain/native-controls.ts');
+  const levelless = structuredClone(current);
+  delete (levelless.plan.resolved.targets['light.logical'] as { level?: number }).level;
+  assert.throws(() => execute({ script: 'effects_native_plan', snapshot, args: { sd: { entity_id: 'light.bulb', brightness_step: 'up' }, catalog, current: levelless, stamp: 5 } }, nativeHandlers),
+    /resolved target\.level must be a finite number/);
+});
+
+test('a reset to normal light with no base colour under Sara writes no colour value at all', async () => {
+  // The underlying colour is carried as read: absent stays absent (no `value` key), not null.
+  const { nativeHandlers } = await import('../../src/domain/native-controls.ts');
+  const sara = structuredClone(current);
+  delete (sara.plan.base['light.logical'] as { color?: unknown }).color;
+  sara.plan.resolved.targets['light.logical'].color = { kind: 'constant', value: { rgb: [1, 2, 3] }, policy: 'sara' };
+  const handlers = { ...nativeHandlers, effects_catalog: () => catalog, ls_plan: () => sara };
+  const result = execute({ script: 'effects_set', snapshot, args: { source: 'light.logical', attribute: 'effect', value: 'Normal Light', dry_run: true } }, handlers);
+  assert.deepEqual(Object.keys(JSON.parse(JSON.stringify(result.result.records[0].value.channels.color))), ['kind', 'updated']);
+});
+
+test('an effect name the catalog mapping inherits is not unknown; its channels then fail to parse', async () => {
+  // `name in effects` finds inherited names, so the control is not refused as
+  // 'Unknown effect.'; the channel lookup then raises on the non-mapping.
+  const { nativeHandlers } = await import('../../src/domain/native-controls.ts');
+  const handlers = { ...nativeHandlers, effects_catalog: () => catalog, ls_plan: () => current };
+  assert.throws(() => execute({ script: 'effects_set', snapshot, args: { source: 'light.logical', attribute: 'effect', value: 'toString', dry_run: true } }, handlers),
+    /catalog\.effects\.toString must be an object/);
+});
