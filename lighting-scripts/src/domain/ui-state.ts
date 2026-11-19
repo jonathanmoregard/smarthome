@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import type { HouseView } from '../runtime/effects.ts';
+import { perform, run } from '../runtime/effects.ts';
+import type { Effect, HouseView, Plan } from '../runtime/effects.ts';
 import { withParsedArgs } from '../runtime/parse.ts';
 import { storedEquals, withFields } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
@@ -10,7 +11,7 @@ import {
   discoveryRows, displayOfColour, lampReading, onOffOnly, parseRangeSaveArgs, parseUiSyncArgs, proxyKelvin,
   proxyShowsRgb, runtimeTargets, storedRangeBounds, uiProfile, uiRows,
 } from '../parse/ui-state.ts';
-import type { Display, RangeSaveArgs } from '../parse/ui-state.ts';
+import type { DiscoveryRow, Display, RangeSaveArgs } from '../parse/ui-state.ts';
 import { payloadNumber } from '../runtime/format.ts';
 
 /**
@@ -79,18 +80,35 @@ export function uiMessages(view: HouseView, force: boolean): UiMessage[] {
   }
   return messages;
 }
+/** The UI's effect choices: the catalog's, or these two when it names none (a malformed list was already rejected). */
+export function uiChoices(view: HouseView): string[] {
+  return view.catalog.ui_choices === undefined ? ['Normal Light', 'Candle'] : view.catalog.ui_choices;
+}
+/** Republish one discovery row's config with the choices as its effect list. */
+export function discoveryPublish(row: DiscoveryRow, choices: string[]): Effect {
+  return {
+    kind: 'service', service: 'mqtt.publish',
+    data: {
+      topic: `homeassistant/light/${row.uniqueId}/config`,
+      payload: JSON.stringify(withFields(row.config, { effect_list: choices })), qos: 0, retain: true,
+    },
+  };
+}
+/**
+ * A shell: each row's current effect list is read live, after the previous
+ * row's publish, as the captured loop reads it.
+ */
 function uiCatalog(ctx: ScriptContext): null {
-  ctx.run('effects_catalog');
-  // Absent means the catalog names no choices, which selects these two; the
-  // catalog parse already rejected a present-but-malformed list.
-  const choices = ctx.catalog.ui_choices === undefined
-    ? ['Normal Light', 'Candle']
-    : ctx.catalog.ui_choices;
+  perform(ctx, { kind: 'script', name: 'effects_catalog', args: {} });
+  const choices = uiChoices(ctx);
   for (const row of discoveryRows(ctx)) {
-    if (!isDeepStrictEqual(ctx.attr(row.entity, 'effect_list'), choices)) {
-      ctx.emit('mqtt.publish', { topic: `homeassistant/light/${row.uniqueId}/config`, payload: JSON.stringify(withFields(row.config, { effect_list: choices })), qos: 0, retain: true });
-    }
+    if (!isDeepStrictEqual(ctx.attr(row.entity, 'effect_list'), choices)) perform(ctx, discoveryPublish(row, choices));
   }
+  return null;
+}
+/** Publish the UI mirror's messages, retained. */
+export function* publishUi(messages: UiMessage[]): Plan<null> {
+  for (const message of messages) yield { kind: 'service', service: 'mqtt.publish', data: { ...message, qos: 0, retain: true } };
   return null;
 }
 /**
@@ -106,49 +124,60 @@ export type RangeSaveResult = {
   config: RangeConfig;
 };
 
-export function rangeSave(ctx: ScriptContext, args: RangeSaveArgs): RangeSaveResult {
-  const { entity, profile, dryRun } = args;
+/**
+ * Decide a switch's range rule. Not a generator: it reads the house through
+ * the view, and the colour-mode read raises on a malformed list, so it is read
+ * only on the branch that needs it.
+ */
+export function decideRangeSave(view: HouseView, args: RangeSaveArgs): RangeSaveResult {
+  const { entity, profile } = args;
   const e = entity;
-  const previous = storedRangeBounds(ctx, e);
+  const previous = storedRangeBounds(view, e);
   const lo = args.minimum === undefined ? previous.min : args.minimum;
   const hi = args.maximum === undefined ? previous.max : args.maximum;
   const errors: string[] = [], config: RangeConfig = { profile };
   const domain = e.split('.')[0];
   const supportedDomain = domain !== undefined && ['switch', 'light'].includes(domain);
   const blocked = /^(switch|light)\.(ls_|ep_)/.test(e) || e.includes('permit_join');
-  const devices = ctx.devices === undefined ? {} : ctx.devices;
+  const devices = view.devices === undefined ? {} : view.devices;
   const hasDevice = Object.values(devices).some(entities => entities.includes(e));
-  if (!supportedDomain || !ctx.state[e] || !hasDevice || blocked) errors.push('Choose a physical on/off lamp or smart plug.');
+  if (!supportedDomain || !view.state[e] || !hasDevice || blocked) errors.push('Choose a physical on/off lamp or smart plug.');
   else if (domain === 'light') {
-    if (!onOffOnly(ctx, e)) errors.push('Choose an on/off lamp; dimmable lamps use the normal lighting settings.');
+    if (!onOffOnly(view, e)) errors.push('Choose an on/off lamp; dimmable lamps use the normal lighting settings.');
   }
-  if (supportedDomain && ctx.state[e] && ctx.areas[e] === undefined) errors.push('Assign this lamp to a room before configuring its range.');
+  if (supportedDomain && view.state[e] && view.areas[e] === undefined) errors.push('Assign this lamp to a room before configuring its range.');
   // `profile` is already a string from the parse above, so the String() this
   // read used to carry converted nothing.
   if (!['bright', 'cosy', 'custom'].includes(profile)) errors.push('Choose Bright Default, Cosy Default, or Own Range.');
   else if (profile === 'custom') {
-    if (typeof lo !== 'number' || typeof hi !== 'number' || !(0 <= lo && lo <= hi && hi <= 100)) errors.push('Enter both ends of Own Range: 0–100%, with From no higher than Through.');
-    else { config.min = lo; config.max = hi; }
+    if (typeof lo !== 'number' || typeof hi !== 'number' || !(0 <= lo && lo <= hi && hi <= 100)) {
+      errors.push('Enter both ends of Own Range: 0–100%, with From no higher than Through.');
+    } else { config.min = lo; config.max = hi; }
   }
-  const result: RangeSaveResult = { valid: errors.length === 0, errors, entity, config };
-  if (dryRun) return result;
-  if (errors.length) throw new Error(errors.join(' '));
-  ctx.fire('ls_override', { op: 'range_set', entity, profile,
+  return { valid: errors.length === 0, errors, entity, config };
+}
+/** Save a decided rule: refuse an invalid one, else fire the range override. */
+export function* saveRange(result: RangeSaveResult): Plan<RangeSaveResult> {
+  if (result.errors.length) throw new Error(result.errors.join(' '));
+  const config = result.config;
+  yield { kind: 'event', event: 'ls_override', data: { op: 'range_set', entity: result.entity, profile: config.profile,
     min: config.min === undefined ? null : config.min,
     max: config.max === undefined ? null : config.max,
-    via: 'schedule-ui' });
+    via: 'schedule-ui' } };
   return result;
+}
+export function rangeSave(ctx: ScriptContext, args: RangeSaveArgs): RangeSaveResult {
+  const result = decideRangeSave(ctx, args);
+  return args.dryRun ? result : run(ctx, saveRange(result));
 }
 export const uiHandlers: ScriptHandlers = {
   effects_ui_catalog: ctx => uiCatalog(ctx),
   effects_ui_sync: withParsedArgs({
     parse: parseUiSyncArgs,
     run: (ctx, args) => {
-    if (!args.dryRun) ctx.run('effects_ui_catalog');
+    if (!args.dryRun) perform(ctx, { kind: 'script', name: 'effects_ui_catalog', args: {} });
     const messages = uiMessages(ctx, args.force);
-    if (args.dryRun) return { messages };
-    for (const message of messages) ctx.emit('mqtt.publish', { ...message, qos: 0, retain: true });
-    return null;
+    return args.dryRun ? { messages } : run(ctx, publishUi(messages));
     },
   }),
   // Every argument read is eager in the captured script and none can raise
