@@ -3,6 +3,9 @@ import { isObject, jinjaFloat, jinjaInt, jinjaString, jinjaTruthy, lazy, object,
 import { typed } from '../runtime/entrypoints.ts';
 import { recordTimestamp } from '../parse/resolution.ts';
 import { isAreaId, labelled, privateRooms } from './schedule.ts';
+import type { Verbatim } from '../runtime/verbatim.ts';
+import { parseOverrideBlockArgs, parseViaArgs, roomTarget, scheduledBlocks } from '../parse/state-store.ts';
+import { lenientOverrides } from '../parse/sensors.ts';
 
 const values = (value: JsonValue | undefined): JsonValue[] => Array.isArray(value) ? value : [];
 
@@ -35,8 +38,22 @@ interface CommitArgs {
   expectedRevision: JsonValue | undefined;
   details: () => CommitData;
 }
-interface OverrideBlockArgs { scope: JsonValue | undefined; block: string; via: JsonValue }
-interface ViaArgs { via: JsonValue }
+/**
+ * The `ls_override_block` scope, or a room the house scope expanded to. `record`
+ * is the raw scope as the set record stores it (`target ?? null`), `keyText` its
+ * `~` spelling for the clear key, and `key` the schedule lookup, which raises for
+ * an unhashable scope -- called where the lookup happens, after the dry run.
+ */
+export interface BlockTarget {
+  isHouse: boolean;
+  record: Verbatim;
+  keyText: string;
+  key: () => string | undefined;
+}
+export interface OverrideBlockArgs { scope: BlockTarget; block: string; via: Verbatim }
+export interface ViaArgs { via: Verbatim }
+/** The string each schedule key is scheduled to in the dry-run plan, if any. */
+export type ScheduledBlocks = (key: string | undefined) => string | undefined;
 
 
 /** Jinja `~` uses an empty string for Undefined, unlike the `| string` filter. */
@@ -415,27 +432,22 @@ export const stateStoreHandlers: ScriptHandlers = {
   // `dict.get`, so an explicit null is a value and not a fallback trigger.
   ls_store: withParsedArgs({ parse: parseStoreProfile, run: storeProfile }),
   // Captured scope is raw twice (list construction and comparison), block has
-  // one `| lower`, and via has two `| default('app')` sites. Raw scope remains
-  // raw; the case filter coerces through Jinja string spelling.
+  // one `| lower`, and via has two `| default('app')` sites.
   ls_override_block: withParsedArgs({
-    parse: args => ({
-      scope: args.scope,
-      block: jinjaString(args.block).toLowerCase(),
-      via: args.via === undefined ? 'app' : args.via,
-    }),
-    run: (ctx, args: OverrideBlockArgs) => {
-    const current = object(ctx.run('ls_apply', { dry_run: true }));
-    const schedule = object(object(current.plan).sched), scope = args.scope, block = args.block;
-    const targets: Array<JsonValue | undefined> = [scope];
-    if (scope === 'house') {
+    parse: parseOverrideBlockArgs,
+    run: (ctx, args) => {
+    const scheduledTo = scheduledBlocks(ctx.run('ls_apply', { dry_run: true }));
+    const scope = args.scope, block = args.block;
+    const targets: BlockTarget[] = [scope];
+    if (scope.isHouse) {
       const privateAreas = privateRooms(ctx);
       const entities = [...labelled(ctx, 'house_schedule'), ...labelled(ctx, 'on_off')];
       const rooms = entities.map(entity => ctx.areas[entity]).filter(isAreaId).filter(area => !privateAreas.includes(area));
-      targets.push(...new Set(rooms));
+      targets.push(...[...new Set(rooms)].map(roomTarget));
     }
-    const scheduled = (target: JsonValue | undefined) => jinjaMappingGet(schedule, target, 'ls_override_block.scope');
-    const set = targets.filter(target => scheduled(target) !== block).map(target => ({ kind: 'block', target: target ?? null, value: block }));
-    const clear = targets.filter(target => scheduled(target) === block).map(target => `block:${concatString(target)}`);
+    const scheduled = (target: BlockTarget) => scheduledTo(target.key());
+    const set = targets.filter(target => scheduled(target) !== block).map(target => ({ kind: 'block', target: target.record, value: block }));
+    const clear = targets.filter(target => scheduled(target) === block).map(target => `block:${target.keyText}`);
     if (set.length) ctx.fire('ls_override', { op: 'set', records: set, via: args.via });
     if (clear.length) ctx.fire('ls_override', { op: 'clear', keys: clear, via: args.via });
     return null;
@@ -444,14 +456,14 @@ export const stateStoreHandlers: ScriptHandlers = {
   // Captured via has one `| default('app')` site; explicit null/falsy values
   // survive because Jinja default only replaces Undefined.
   ls_clear_overrides: withParsedArgs({
-    parse: args => ({ via: args.via === undefined ? 'app' : args.via }),
-    run: (ctx, args: ViaArgs) => { ctx.fire('ls_override', { op: 'clear_all', via: args.via }); return null; },
+    parse: parseViaArgs,
+    run: (ctx, args) => { ctx.fire('ls_override', { op: 'clear_all', via: args.via }); return null; },
   }),
   // Captured via has two `| default('app')` sites with the same semantics.
   ls_sara_mode: withParsedArgs({
-    parse: args => ({ via: args.via === undefined ? 'app' : args.via }),
-    run: (ctx, args: ViaArgs) => {
-    ctx.fire('ls_override', Object.hasOwn(object(ctx.attr('sensor.ls_overrides', 'overrides')), 'mode:sara')
+    parse: parseViaArgs,
+    run: (ctx, args) => {
+    ctx.fire('ls_override', lenientOverrides(ctx).has('mode:sara')
       ? { op: 'clear', keys: ['mode:sara'], via: args.via }
       : { op: 'set', records: [{ kind: 'mode', target: 'sara', value: 'on' }], via: args.via });
     return null;

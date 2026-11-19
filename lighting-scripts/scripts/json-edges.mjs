@@ -271,11 +271,20 @@ const DOMAIN = join(ROOT, 'src/domain');
  * `String(value)` in the helper writer, formats an already-typed
  * `string | number` into an HA state string; it is not a parse, so it was
  * left rather than respelled to dodge this regex.
+ *
+ * U2, the override documents' types and their first consumers
+ * (`ls_override_block`, `ls_clear_overrides`, `ls_sara_mode`):
+ * `jsonTypes 242 -> 237`, `lenientAccessors 183 -> 178`. `StoredFact`
+ * (`src/parse/overrides.ts`) is a stored value typed so it cannot be traversed:
+ * scalars as themselves, containers as `Verbatim`, the same reference at
+ * runtime, so every `===` and `??` on it is the raw value's. The override-block
+ * scope's unhashable raise is a thunk, still thrown after the `ls_apply` dry
+ * run. `src/parse/sensors.ts` holds the lenient `overrides` reader.
  */
 const CEILINGS = {
-  jsonTypes: 242,
+  jsonTypes: 237,
   validatedBags: 0,
-  lenientAccessors: 183,
+  lenientAccessors: 178,
   rawJsonReturns: 22,
 };
 
