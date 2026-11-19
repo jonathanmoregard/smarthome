@@ -1,17 +1,20 @@
-import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { isObject, object, requireBoolean, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
+import { requireString } from '../runtime/parse.ts';
 import { BLOCKS, DEFAULT_BLOCK, type Block } from './blocks.ts';
 import { roundEven } from './scale.ts';
 import { isBlock } from '../parse/blocks.ts';
 import { typed } from '../runtime/entrypoints.ts';
-import { list, nativeScalar, num, optionalTimestamp, saved, strings, timestamp } from '../parse/accessors.ts';
+import { timestamp } from '../parse/accessors.ts';
+import { pythonFloatText } from '../runtime/format.ts';
+import type { StoredValue } from '../parse/overrides.ts';
+import { switchRangeEntities } from '../parse/planning.ts';
+import {
+  attributeNumber, entityProfile, entitySample, parseScheduledBaseArgs, rgbComponent, savedProfile, stateNumber, storedScheduleRecords,
+} from '../parse/schedule.ts';
+import type { ScheduleRecord, ScheduleRecords } from '../parse/schedule.ts';
 
 export const blocks: readonly string[] = BLOCKS;
-// Temporary re-export: the accessors moved to the parse layer
-// (`src/parse/accessors.ts`). Removed once every importer is repointed.
-export { list, nativeScalar, num, optionalTimestamp, saved, strings, timestamp };
 export function isAreaId(value: string | undefined): value is string { return value !== undefined && value.length > 0; }
-const timestampOrZero = (value: JsonValue | undefined): number => optionalTimestamp(value) ?? 0;
 export function hasValue(ctx: ScriptContext, entity: string): boolean { return !['unknown', 'unavailable'].includes(ctx.get(entity)); }
 export function labelled(ctx: ScriptContext, label: string): string[] {
   // Registry snapshots supply label members, including device-expanded entities.
@@ -19,42 +22,36 @@ export function labelled(ctx: ScriptContext, label: string): string[] {
   return [...new Set(entities.flatMap(e => ctx.devices?.[e] ?? [e]))];
 }
 export function privateRooms(ctx: ScriptContext): string[] { return ctx.labels?.private_room ?? []; }
-export function latestRemote(records: JsonObject, room: string): string {
+export function latestRemote(records: ScheduleRecords, room: string): string {
   let key = '', stamp = -1;
-  for (const k of Object.keys(records).sort()) {
-    const r = object(records[k]);
+  for (const k of [...records.keys].sort()) {
+    const r = records.get(k);
     if (r.scope !== 'room' || r.target !== room || !isRemote(r)) continue;
-    const ts = timestampOrZero(r.when);
+    const ts = r.when();
     if (ts >= stamp) { key = k; stamp = ts; }
   }
   return key;
 }
-export function isRemote(r: JsonObject): boolean { return r.kind === 'input' || (r.kind === 'channels' && r.via === 'remote'); }
+export function isRemote(r: ScheduleRecord): boolean { return r.kind === 'input' || (r.kind === 'channels' && r.via === 'remote'); }
 /**
  * A lamp's colour as the schedule carries it.
  *
- * `rgb` stays an unparsed list **by design, not by omission**. Home Assistant's
- * `rgb_color` attribute is read raw and handed straight to the command payload,
- * which the parity harness compares byte for byte, so the elements must survive
- * uncoerced. Parsing them into an `RGB` triple here would raise where the
- * oracle passes the value through — a divergence. The elements are coerced only
- * where the captured source coerces them, by `num()` inside
- * {@link interpolate}.
+ * `rgb` stays a list of stored values **by design, not by omission**. Home
+ * Assistant's `rgb_color` attribute is read raw and handed straight to the
+ * command payload, which the parity harness compares byte for byte, so the
+ * elements must survive uncoerced. Parsing them into an `RGB` triple here would
+ * raise where the oracle passes the value through — a divergence. The elements
+ * are coerced only where the captured source coerces them, by
+ * `rgbComponent()` inside {@link interpolate}.
  */
-export type LampColor = { kelvin: number; rgb?: never } | { rgb: JsonValue[]; kelvin?: never };
+export type LampColor = { kelvin: number; rgb?: never } | { rgb: StoredValue[]; kelvin?: never };
 /** What {@link profile} reads off a lamp or schedule entity. */
 export type LampProfile = { brightness: number; color: LampColor };
 /** A profile plus its on/off state. {@link interpolate} returns this. */
 export type LampTarget = LampProfile & { on: boolean };
 /** A target plus the raw rgb triple {@link interpolate} mixes with. */
-export type LampSample = LampTarget & { rgb: JsonValue[] };
+export type LampSample = LampTarget & { rgb: StoredValue[] };
 
-export function profile(ctx: ScriptContext, entity: string): LampProfile {
-  const rgb = list(ctx.attr(entity, 'rgb_color'));
-  return { brightness: Math.trunc(num(ctx.attr(entity, 'brightness'), 255)), color: ctx.attr(entity, 'color_mode') === 'color_temp'
-    ? { kelvin: Math.trunc(num(ctx.attr(entity, 'color_temp_kelvin'), 3000)) }
-    : { rgb: rgb.length > 0 ? rgb : [255, 255, 255] } };
-}
 const formatters = new Map<string, Intl.DateTimeFormat>();
 export function localParts(at: number, timezone: string): number[] {
   let formatter = formatters.get(timezone);
@@ -94,25 +91,12 @@ export type ScheduleDetails = {
   left: number;
   cur_ts: number;
 };
-interface ScheduledBaseArgs {
+export interface ScheduledBaseArgs {
   testNow: number | undefined;
   reason: string;
-  overrides: JsonObject | undefined;
+  overrides: ScheduleRecords | undefined;
   roomOnly: string;
   includeDebug: boolean;
-}
-function parseScheduledBaseArgs(args: JsonObject, context: string, roomOnly: string): ScheduledBaseArgs {
-  return {
-    testNow: optionalTimestamp(args.test_now),
-    reason: args.reason === undefined ? 'config' : requireString(args, 'reason', context),
-    overrides: args.overrides === undefined || args.overrides === null
-      ? undefined
-      : requireObject(args, 'overrides', context),
-    roomOnly,
-    // The captured template tests definition, not truthiness. The raw value is
-    // never otherwise consumed, so the typed domain only carries the decision.
-    includeDebug: Object.hasOwn(args, 'debug'),
-  };
 }
 export function scheduleDetails(ctx: ScriptContext, scope: string, at: number): ScheduleDetails {
   const zone = ctx.timezone ?? 'Europe/Stockholm';
@@ -131,7 +115,7 @@ export function scheduleDetails(ctx: ScriptContext, scope: string, at: number): 
       const hour = Number(time.slice(0, 2)), minute = Number(time.slice(3, 5));
       if (hour > 23 || minute > 59) continue;
       const ts = localTime(eve.getUTCFullYear(), eve.getUTCMonth() + 1, eve.getUTCDate() + (isDay || hour < 12 ? 1 : 0), hour, minute, zone);
-      const fade = num(ctx.get(`input_number.ls_${src}_${block}_fade`), 20) * 60;
+      const fade = stateNumber(ctx, `input_number.ls_${src}_${block}_fade`, 20) * 60;
       if (ts <= at && ts > curTs) { cur = block; curTs = ts; }
       if (ts > at && (nxt === null || ts < nextTs)) { nxt = block; nextTs = ts; nextFade = fade; }
       if (ts - fade > at && (nextFs === 0 || ts - fade < nextFs)) nextFs = ts - fade;
@@ -146,15 +130,17 @@ interface Stage { from: string; to: string; p: number; moving: boolean; edge: bo
 function initialStage(S: ScheduleDetails): Stage {
   const cur = S.cur === null ? DEFAULT_BLOCK : S.cur;
   const next = S.fading ? S.nxt : S.cur;
-  return { from: cur, to: next === null ? DEFAULT_BLOCK : next, p: num(S.p), moving: S.fading, edge: S.edge, source: 'schedule' };
+  // `S.p` is computed finite by `scheduleDetails`, so the `num()` that used to
+  // re-read it here could never raise or change it.
+  return { from: cur, to: next === null ? DEFAULT_BLOCK : next, p: S.p, moving: S.fading, edge: S.edge, source: 'schedule' };
 }
-function wakeStage(ctx: ScriptContext, area: string, S: JsonObject, at: number, stage: Stage): Stage {
+function wakeStage(ctx: ScriptContext, area: string, S: ScheduleDetails, at: number, stage: Stage): Stage {
   const entity = `input_datetime.ls_${area}_wake`;
   if (!hasValue(ctx, entity)) return stage;
-  const wake = num(ctx.attr(entity, 'timestamp'));
-  const duration = num(ctx.get(`input_number.ls_${area}_wake_fade`), 37.5) * 60;
+  const wake = attributeNumber(ctx, entity, 'timestamp');
+  const duration = stateNumber(ctx, `input_number.ls_${area}_wake_fade`, 37.5) * 60;
   const elapsed = at - wake;
-  if (S.cur !== 'night' || num(S.cur_ts) > wake) return stage;
+  if (S.cur !== 'night' || S.cur_ts > wake) return stage;
   if (elapsed >= 0 && elapsed < duration) return { ...stage, from: 'night', to: 'day', p: elapsed / duration, moving: true, source: 'wake' };
   const hour = localParts(wake, ctx.timezone ?? 'Europe/Stockholm')[3]!;
   // This is the deployed completed-wake hold, separate from the alarm's 05–12 input window.
@@ -167,31 +153,22 @@ function scopeFor(ctx: ScriptContext, area: string, block: string): string { ret
 function sourceEntity(ctx: ScriptContext, lamp: string | null, area: string, block: string, fallback = true): string {
   if (block === 'lamp' && lamp) return lamp;
   const scope = scopeFor(ctx, area, block);
-  const lampProfile = lamp === null ? undefined : saved(ctx, `input_text.ls_lamp_${lamp.split('.')[1]}_${block}`);
-  const own = lampProfile === undefined || lampProfile.own === undefined
-    ? false
-    : requireBoolean(lampProfile.own, `ls_base.saved.${lamp}.${block}.own`);
+  const lampProfile = lamp === null ? undefined : savedProfile(ctx, `input_text.ls_lamp_${lamp.split('.')[1]}_${block}`);
+  const own = lampProfile === undefined ? false : lampProfile.own(`ls_base.saved.${lamp}.${block}.own`);
   const candidates = [...(own && lamp !== null ? [`light.ls_lamp_${lamp.split('.')[1]}_${block}`] : []), `light.ls_${scope}_${block}`, ...(fallback ? [`light.ls_house_${block}`] : [])];
   return (fallback ? candidates.find(e => hasValue(ctx, e)) : candidates[0]) ?? candidates[0]!;
-}
-function sample(ctx: ScriptContext, entity: string): LampSample {
-  const rgb = list(ctx.attr(entity, 'rgb_color'));
-  // `on` is `=== 'on'`, so it is always a real boolean — never absent, never a
-  // falsy stand-in. That is what lets every downstream `target.on` read be a
-  // boolean test by construction rather than a truthiness gamble.
-  return { ...profile(ctx, entity), on: ctx.get(entity) === 'on', rgb: rgb.length > 0 ? rgb : [255, 255, 255] };
 }
 function interpolate(A: LampSample, B: LampSample, stage: Stage): LampTarget {
   if (!stage.moving || !A.on) return B;
   if (!B.on) return { ...A, brightness: Math.max(1, roundEven(A.brightness * (1 - stage.p))) };
   const a = A.color, b = B.color;
   const color: LampColor = 'kelvin' in a && 'kelvin' in b ? { kelvin: roundEven(a.kelvin + (b.kelvin - a.kelvin) * stage.p) }
-    : { rgb: [0, 1, 2].map(i => roundEven(num(A.rgb[i]) + (num(B.rgb[i]) - num(A.rgb[i])) * stage.p)) };
+    : { rgb: [0, 1, 2].map(i => roundEven(rgbComponent(A.rgb, i) + (rgbComponent(B.rgb, i) - rgbComponent(A.rgb, i)) * stage.p)) };
   return { on: true, brightness: roundEven(A.brightness + (B.brightness - A.brightness) * stage.p), color };
 }
-function applies(r: JsonObject, key: string, lamp: string | null, room: string, privateRoom: boolean): boolean {
+function applies(r: ScheduleRecord, key: string, lamp: string | null, room: string, privateRoom: boolean): boolean {
   return (r.kind === 'light' && r.target === lamp && lamp !== null)
-    || (['channels', 'input'].includes(String(r.kind)) && ((r.scope === 'lamp' && lamp !== null && r.target === lamp) || (r.scope === 'room' && r.target === room) || (r.scope === 'house' && !privateRoom)))
+    || (['channels', 'input'].includes(r.kindText()) && ((r.scope === 'lamp' && lamp !== null && r.target === lamp) || (r.scope === 'room' && r.target === room) || (r.scope === 'house' && !privateRoom)))
     || (key === 'mode:sara' && !privateRoom);
 }
 
@@ -201,9 +178,9 @@ export type ScheduleMirror = { entity: string; option: string };
  * One output the schedule decided on, before the lamps that share it are
  * attached. Discriminated on `kind`.
  *
- * `rgb` is `JsonValue[]` and must stay so: it comes off `LampColor`, which
- * `profile` fills from `list(ctx.attr(entity, 'rgb_color'))` -- a raw Home
- * Assistant attribute that is handed into compared JSON unchanged. Narrowing
+ * `rgb` is a list of stored values and must stay so: it comes off
+ * `LampColor`, which `entityProfile` fills from the `rgb_color` attribute --
+ * a raw Home Assistant value that is handed into compared JSON unchanged. Narrowing
  * it to the three-element `RGB` would be a projection, and it is also simply
  * not what the attribute guarantees. `kelvin` is a real number because
  * `interpolate` computes it.
@@ -211,7 +188,7 @@ export type ScheduleMirror = { entity: string; option: string };
 export type ScheduleOutput =
   | { kind: 'off'; transition: number }
   | { kind: 'ct'; brightness: number; kelvin: number; transition: number }
-  | { kind: 'rgb'; brightness: number; rgb: JsonValue[]; transition: number };
+  | { kind: 'rgb'; brightness: number; rgb: StoredValue[]; transition: number };
 /**
  * The same output with its lamps. `ids` is rewritten once more in `packed`,
  * where a baseline group that covers every member replaces them by its own
@@ -253,9 +230,8 @@ export type ScheduleEnvelope = {
 /**
  * One lamp's scheduled profile, as `schedule.profiles` carries it.
  *
- * `effect` and `effect_channels` stay `JsonValue`: both come from
- * `saved(ctx, ...)`, which parses a stored `input_text` document, and both are
- * handed on untouched -- `ls_store` round-trips `effect_channels` and
+ * `effect` and `effect_channels` are stored values: both come from a saved
+ * `input_text` document (`savedProfile`), and both are handed on untouched -- `ls_store` round-trips `effect_channels` and
  * `effects_ui_sync` reads `effect` back out. The `=== undefined` defaults are
  * absence-only on purpose; a stored null is not the same as a missing key.
  *
@@ -265,12 +241,13 @@ export type ScheduleEnvelope = {
  * spelling stays.
  */
 export type LampProfileEntry = {
-  effect: JsonValue;
+  effect: StoredValue;
   brightness: number;
   on: boolean;
   period: string;
   area: string | null;
-  effect_channels: JsonValue;
+  /** As stored, or both channels when the profile names none. */
+  effect_channels: StoredValue | string[];
   send: boolean;
   ignore_overrides: string[];
 };
@@ -300,7 +277,7 @@ export type RoomTargetEntry = {
   area: string;
   is_room: true;
   period: string;
-  effect: JsonValue;
+  effect: StoredValue;
   on: boolean;
   day: LampProfile;
   cosy: LampProfile;
@@ -312,16 +289,21 @@ export type ScheduledBaseResult = {
   schedule: ScheduleEnvelope;
 };
 
+/** The override a lamp follows: its value's text, and its `when` read where the record's was. */
+type Chosen = { present: boolean; text: () => string; when: () => number };
+const NOTHING_CHOSEN: Chosen = { present: false, text: () => 'undefined', when: () => 0 };
+
 export function scheduledBase(ctx: ScriptContext, args: ScheduledBaseArgs, roomLocal = false): ScheduledBaseResult {
   const at = args.testNow === undefined ? timestamp(ctx.now) : args.testNow;
   const why = args.reason;
   const records = args.overrides === undefined
-    ? object(ctx.attr('sensor.ls_overrides', 'overrides'))
+    ? storedScheduleRecords(ctx.attr('sensor.ls_overrides', 'overrides'))
     : args.overrides;
+  const keys = records.keys, sortedKeys = [...keys].sort();
   const expiry = ctx.get('input_boolean.ls_ovr_next_block_on') === 'on';
   const dimmables = labelled(ctx, 'house_schedule').filter(e => e.startsWith('light.'));
   const plugs = labelled(ctx, 'on_off').filter(e => /^(light|switch)\./.test(e));
-  const all = [...dimmables, ...plugs, ...Object.keys(object(ctx.attr('sensor.ls_overrides', 'switch_ranges')))];
+  const all = [...dimmables, ...plugs, ...switchRangeEntities(ctx.attr('sensor.ls_overrides', 'switch_ranges'))];
   const roomOnly = args.roomOnly;
   const rooms = [...new Set(all.map(e => ctx.areas[e]).filter(isAreaId))].sort().filter(a => !roomOnly || roomOnly === a);
   const details = Object.fromEntries(['house', ...rooms].map(room => [room, scheduleDetails(ctx, room, at)])) as Record<string, ScheduleDetails>;
@@ -335,42 +317,43 @@ export function scheduledBase(ctx: ScriptContext, args: ScheduledBaseArgs, roomL
     const S = details[room]!;
     const privateRoom = privateRooms(ctx).includes(area);
     const newest = latestRemote(records, room);
-    let chosen = object(records[`block:${room}`]);
-    let chosenStamp = timestampOrZero(chosen.when);
-    for (const key of Object.keys(records).sort()) {
-      const r = object(records[key]), value = object(r.value);
-      if (!['channels', 'input'].includes(String(r.kind)) || !applies(r, key, lamp, room, privateRoom)) continue;
+    const blockRecord = records.get(`block:${room}`);
+    // The block override, or the newest applying period claim. Its `when` is
+    // read through the record it came from, so it raises where it did.
+    let chosen: Chosen = { present: blockRecord.present, text: blockRecord.valueText, when: blockRecord.when };
+    let chosenStamp = chosen.when();
+    for (const key of sortedKeys) {
+      const r = records.get(key);
+      if (!['channels', 'input'].includes(r.kindText()) || !applies(r, key, lamp, room, privateRoom)) continue;
       if (r.scope === 'room' && isRemote(r) && key !== newest) continue;
-      const stamp = value.period_updated === undefined ? timestampOrZero(r.when) : num(value.period_updated);
-      if (isBlock(value.period) && stamp >= chosenStamp && !(expiry && timestampOrZero(r.when) <= num(S.last_fs))) {
-        chosen = { value: value.period, when: r.when ?? null }; chosenStamp = stamp;
+      const stamp = r.periodStamp();
+      if (r.period !== undefined && stamp >= chosenStamp && !(expiry && r.when() <= S.last_fs)) {
+        const period = r.period;
+        chosen = { present: true, text: () => period, when: r.when }; chosenStamp = stamp;
       }
     }
-    if (expiry && !S.fading && timestampOrZero(chosen.when) <= num(S.last_fs)) chosen = {};
-    const ignored = Object.keys(records).sort().filter(key => expiry && applies(object(records[key]), key, lamp, room, privateRoom) && timestampOrZero(object(records[key]).when) <= num(S.last_fs));
+    if (expiry && !S.fading && chosen.when() <= S.last_fs) chosen = NOTHING_CHOSEN;
+    const ignored = sortedKeys.filter(key => expiry && applies(records.get(key), key, lamp, room, privateRoom) && records.get(key).when() <= S.last_fs);
     let stage = initialStage(S);
-    if (S.fading && (ignored.length || (Object.keys(chosen).length > 0 && timestampOrZero(chosen.when) <= num(S.last_fs)))) {
-      stage = { from: 'lamp', to: String(S.nxt), p: Math.min(1, (why === 'tick' ? 60 : 3) / Math.max(num(S.left), 1)), moving: true, edge: false, source: 'fadeout' };
-    } else if (blocks.includes(String(chosen.value).toLowerCase())) {
-      stage = { ...stage, from: String(chosen.value).toLowerCase(), to: String(chosen.value).toLowerCase(), p: 0, moving: false, source: 'override' };
+    if (S.fading && (ignored.length || (chosen.present && chosen.when() <= S.last_fs))) {
+      // `String(S.nxt)`: fading implies a next block, so the null arm is unreachable.
+      stage = { from: 'lamp', to: S.nxt === null ? 'null' : S.nxt, p: Math.min(1, (why === 'tick' ? 60 : 3) / Math.max(S.left, 1)), moving: true, edge: false, source: 'fadeout' };
+    } else if (blocks.includes(chosen.text())) {
+      stage = { ...stage, from: chosen.text(), to: chosen.text(), p: 0, moving: false, source: 'override' };
     } else if (room !== 'house') stage = wakeStage(ctx, room, S, at, stage);
     const block = stage.from === 'lamp' ? stage.to : stage.from;
     const scope = scopeFor(ctx, area, block);
-    const lampSaved = saved(ctx, `input_text.ls_lamp_${lamp.split('.')[1]}_${block}`);
-    const lampOwn = lampSaved.own === undefined
-      ? false
-      : requireBoolean(lampSaved.own, `ls_base.saved.${lamp}.${block}.own`);
-    const pr = lampOwn ? lampSaved : saved(ctx, `input_text.ls_${scope}_${block}`);
+    const lampSaved = savedProfile(ctx, `input_text.ls_lamp_${lamp.split('.')[1]}_${block}`);
+    const lampOwn = lampSaved.own(`ls_base.saved.${lamp}.${block}.own`);
+    const pr = lampOwn ? lampSaved : savedProfile(ctx, `input_text.ls_${scope}_${block}`);
     if (plugs.includes(lamp)) {
       const selectedBlock = !stage.moving || stage.p >= 1 ? stage.to : stage.from;
       const selectedScope = scopeFor(ctx, area, selectedBlock);
-      const lp = saved(ctx, `input_text.ls_lamp_${lamp.split('.')[1]}_${selectedBlock}`);
+      const lp = savedProfile(ctx, `input_text.ls_lamp_${lamp.split('.')[1]}_${selectedBlock}`);
       const src = [`input_boolean.ls_${selectedScope}_${selectedBlock}_on_off`, `input_boolean.ls_house_${selectedBlock}_on_off`].find(e => hasValue(ctx, e));
-      const ownsPower = lp.own === undefined
-        ? false
-        : requireBoolean(lp.own, `ls_base.saved.${lamp}.${selectedBlock}.own`);
+      const ownsPower = lp.own(`ls_base.saved.${lamp}.${selectedBlock}.own`);
       const want = ownsPower
-        ? requireBoolean(lp.on, `ls_base.saved.${lamp}.${selectedBlock}.on`)
+        ? lp.on(`ls_base.saved.${lamp}.${selectedBlock}.on`)
         : src ? ctx.get(src) === 'on' : null;
       if (!stage.moving && want !== null && ctx.get(lamp) !== (want ? 'on' : 'off')) {
         const service = `homeassistant.turn_${want ? 'on' : 'off'}`;
@@ -379,8 +362,8 @@ export function scheduledBase(ctx: ScriptContext, args: ScheduledBaseArgs, roomL
       }
       continue;
     }
-    const from = sample(ctx, sourceEntity(ctx, lamp, area, stage.from));
-    const to = sample(ctx, sourceEntity(ctx, lamp, area, stage.to));
+    const from = entitySample(ctx, sourceEntity(ctx, lamp, area, stage.from));
+    const to = entitySample(ctx, sourceEntity(ctx, lamp, area, stage.to));
     const target = interpolate(from, to, stage);
     const transition = stage.moving && why === 'tick' ? 60 : 3;
     const color = target.color;
@@ -391,7 +374,7 @@ export function scheduledBase(ctx: ScriptContext, args: ScheduledBaseArgs, roomL
     // produce a number, while `sample` sets `on` from `=== 'on'`. A brightness
     // of 0 kept its 0 before and keeps it now.
     const p: LampProfileEntry = { effect: pr.effect === undefined ? 'Normal light' : pr.effect, brightness: target.brightness, on: target.on, period: block, area: area || null,
-      effect_channels: pr.effect_channels === undefined ? ['brightness', 'color'] : pr.effect_channels, send: why !== 'tick' || stage.moving || stage.edge, ignore_overrides: ignored };
+      effect_channels: pr.effectChannels === undefined ? ['brightness', 'color'] : pr.effectChannels, send: why !== 'tick' || stage.moving || stage.edge, ignore_overrides: ignored };
     profiles[lamp] = p;
     const command: ScheduleOutput = !target.on ? { kind: 'off', transition } : 'kelvin' in color
       ? { kind: 'ct', brightness: Math.max(target.brightness, 1), kelvin: color.kelvin, transition }
@@ -399,63 +382,64 @@ export function scheduledBase(ctx: ScriptContext, args: ScheduledBaseArgs, roomL
     const key = JSON.stringify(command), previous = commands.get(key);
     commands.set(key, { ...command, ids: [...(previous?.ids ?? []), lamp] });
     targets[lamp] = { ...p, is_room: false, brightness: target.on ? Math.max(target.brightness, 1) : target.brightness, color: target.on ? color : { kelvin: 3000 },
-      day: profile(ctx, sourceEntity(ctx, lamp, area, 'day', false)), cosy: profile(ctx, sourceEntity(ctx, lamp, area, 'cosy', false)), transition, observed: profile(ctx, lamp) };
+      day: entityProfile(ctx, sourceEntity(ctx, lamp, area, 'day', false)), cosy: entityProfile(ctx, sourceEntity(ctx, lamp, area, 'cosy', false)), transition, observed: entityProfile(ctx, lamp) };
     // Scaling first loses the original binary error (0.005 * 100 becomes
     // exactly 0.5). toFixed preserves it; exact binary half-cent values are /8.
     const rounded = Number.isInteger(stage.p * 8) ? roundEven(stage.p * 100) / 100 : Number(stage.p.toFixed(2));
-    const debugP = Number.isInteger(rounded) ? rounded.toFixed(1) : String(rounded);
+    const debugP = pythonFloatText(rounded);
     debug.push(`${lamp} ${room}/${room} ${stage.source} ${stage.from}>${stage.to} p=${debugP} send=True`);
   }
   for (const area of rooms) {
     const S = details[area]!, privateRoom = privateRooms(ctx).includes(area);
-    const ignored = Object.keys(records).filter(key => {
-      const r = object(records[key]);
+    const ignored = keys.filter(key => {
+      const r = records.get(key);
       const match = (r.scope === 'room' && r.target === area) || (r.scope === 'house' && !privateRoom) || (key === 'mode:sara' && !privateRoom) || (r.kind === 'block' && r.target === area);
-      return expiry && match && timestampOrZero(r.when) <= num(S.last_fs);
+      return expiry && match && r.when() <= S.last_fs;
     });
     let period: Block = S.cur === null ? DEFAULT_BLOCK : S.cur;
     let stamp = 0, explicit = false;
     const newest = latestRemote(records, area);
-    for (const key of Object.keys(records).sort()) {
-      const r = object(records[key]);
+    for (const key of sortedKeys) {
+      const r = records.get(key);
       if (ignored.includes(key)) continue;
-      const match = (r.kind === 'block' && r.target === area) || (['channels', 'input'].includes(String(r.kind)) && ((r.scope === 'room' && r.target === area) || (r.scope === 'house' && !privateRoom)));
+      const match = (r.kind === 'block' && r.target === area) || (['channels', 'input'].includes(r.kindText()) && ((r.scope === 'room' && r.target === area) || (r.scope === 'house' && !privateRoom)));
       if (!match || (r.scope === 'room' && isRemote(r) && key !== newest)) continue;
-      const value = object(r.value), selected = r.kind === 'block' ? r.value : value.period;
-      const updated = value.period_updated === undefined ? timestampOrZero(r.when) : num(value.period_updated);
-      if (isBlock(selected) && updated >= stamp) { period = selected; stamp = updated; explicit = true; }
+      const selected = r.kind === 'block' ? r.valueBlock : r.period;
+      const updated = r.periodStamp();
+      if (selected !== undefined && updated >= stamp) { period = selected; stamp = updated; explicit = true; }
     }
     let stage = explicit ? { ...initialStage(S), from: period, to: period, p: 0, moving: false } : wakeStage(ctx, area, S, at, initialStage(S));
-    const from = sample(ctx, sourceEntity(ctx, null, area, stage.from, false));
-    const to = sample(ctx, sourceEntity(ctx, null, area, stage.to, false));
+    const from = entitySample(ctx, sourceEntity(ctx, null, area, stage.from, false));
+    const to = entitySample(ctx, sourceEntity(ctx, null, area, stage.to, false));
     const target = interpolate(from, to, stage);
-    const pr = saved(ctx, `input_text.ls_${scopeFor(ctx, area, stage.from)}_${stage.from}`);
+    const pr = savedProfile(ctx, `input_text.ls_${scopeFor(ctx, area, stage.from)}_${stage.from}`);
     // The `!` on brightness/color/on is gone: `interpolate` returns
     // `LampTarget`, where none of the three is optional, so the assertions
     // were asserting something the signature already guaranteed.
     targets[`room:${area}`] = { brightness: target.brightness, color: target.color, area, is_room: true, period: stage.from, effect: pr.effect === undefined ? 'Normal light' : pr.effect, on: target.on,
-      day: profile(ctx, sourceEntity(ctx, null, area, 'day', false)), cosy: profile(ctx, sourceEntity(ctx, null, area, 'cosy', false)), ignore_overrides: ignored };
+      day: entityProfile(ctx, sourceEntity(ctx, null, area, 'day', false)), cosy: entityProfile(ctx, sourceEntity(ctx, null, area, 'cosy', false)), ignore_overrides: ignored };
   }
-  const stale = Object.keys(records).filter(key => {
+  const stale = keys.filter(key => {
     if (!expiry) return false;
-    const r = object(records[key]);
-    const area = r.kind === 'light' || r.scope === 'lamp' ? ctx.areas[String(r.target)] : String(r.target);
+    const r = records.get(key);
+    const area = r.kind === 'light' || r.scope === 'lamp' ? ctx.areas[r.targetText()] : r.targetText();
     const scope = rooms.includes(area ?? '') ? area! : 'house';
     const scopes = r.scope === 'house' || key === 'mode:sara' ? rooms.filter(a => !privateRooms(ctx).includes(a)) : [scope];
-    return scopes.length > 0 && scopes.every(a => timestampOrZero(r.when) <= num(details[a]!.last_fs) && !details[a]!.fading);
+    return scopes.length > 0 && scopes.every(a => r.when() <= details[a]!.last_fs && !details[a]!.fading);
   });
   const sched: Record<string, Block | null> = {}, mirror: ScheduleMirror[] = [];
   for (const scope of ['house', ...rooms]) {
     const S = details[scope]!; sched[scope] = S.cur;
-    const override = String(object(records[`block:${scope}`]).value).toLowerCase();
+    const override = records.get(`block:${scope}`).valueText();
     const effective = isBlock(override) && !stale.includes(`block:${scope}`) ? override : S.cur === null ? DEFAULT_BLOCK : S.cur;
     const option = effective[0]!.toUpperCase() + effective.slice(1), entity = `input_select.ls_${scope}_override`;
     if (ctx.state[entity] && ctx.get(entity) !== option) mirror.push({ entity, option });
   }
   const packed = [...commands.values()].map(command => {
     let ids = command.ids;
-    for (const [entity, value] of Object.entries(object(ctx.catalog?.baseline_groups))) {
-      const members = strings(value);
+    // The parsed catalog's groups are already string lists, so the `strings()`
+    // and `object()` that used to re-read them here only copied them.
+    for (const [entity, members] of Object.entries(ctx.catalog.baseline_groups)) {
       if (members.length > 0 && members.every(member => ids.includes(member))) ids = [entity, ...ids.filter(id => !members.includes(id))];
     }
     return { ...command, ids };
@@ -466,10 +450,6 @@ export function scheduledBase(ctx: ScriptContext, args: ScheduledBaseArgs, roomL
   return { targets, schedule };
 }
 export const scheduleHandlers: ScriptHandlers = {
-  // Captured test_now/overrides are guarded by definition before use; reason
-  // and room_only use Undefined-only defaults; debug is definition-tested.
-  // Present optional values are parsed, while null overrides retain the
-  // producer's explicit "use the state attribute" spelling.
   ls_base: typed('ls_base', {
     parse: args => parseScheduledBaseArgs(
       args,

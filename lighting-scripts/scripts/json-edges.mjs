@@ -399,11 +399,25 @@ const DOMAIN = join(ROOT, 'src/domain');
  * overrides, the cached gradients, the power and switch-range mappings and the
  * range defaults are carried. `ls_apply` answers `Verbatim | null`: whatever
  * answered to `ls_plan` is still forwarded verbatim (`test_bridge.py`).
+ *
+ * U12, `schedule.ts`, clears the module on every column:
+ * `jsonTypes 15 -> 0`, `lenientAccessors 49 -> 3`. The accessor
+ * re-exports are gone; every importer reads `src/parse/accessors.ts`.
+ * `src/parse/schedule.ts` reads the stored override records (each field a
+ * thunk or a typed view, a record's `when` read only where the schedule reads
+ * it, its kind and value spelled with the `String(...)` they always were),
+ * the saved profiles (`own`/`on` required only where read), a lamp's live
+ * profile and sample (rgb carried as stored), and the state and attribute
+ * numbers. `latestRemote`, `isRemote` and `applies` take typed records. The
+ * `num()` re-reads of `scheduleDetails`' own finite numbers are dropped, and
+ * `pythonFloatText` (`src/runtime/format.ts`) spells the debug floats. The
+ * three lenient calls left are the text formatting in `gestures.ts` and
+ * `ui-state.ts`.
  */
 const CEILINGS = {
-  jsonTypes: 15,
+  jsonTypes: 0,
   validatedBags: 0,
-  lenientAccessors: 49,
+  lenientAccessors: 3,
   rawJsonReturns: 0,
 };
 

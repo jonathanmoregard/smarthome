@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { list, num, saved, strings, timestamp } from '../../src/domain/schedule.ts';
+import { list, num, saved, strings, timestamp } from '../../src/parse/accessors.ts';
 import { context, setCatalog, setHandlers } from './gestures-context.ts';
 
 test('schedule numeric parsing uses explicit absence and rejects malformed present values', () => {

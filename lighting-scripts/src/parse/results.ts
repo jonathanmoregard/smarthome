@@ -9,7 +9,7 @@ import type { LampColor, LampProfile, LampProfileEntry, ScheduleCommand, Schedul
 import { optionalBlock } from './blocks.ts';
 import { ParseError, requireArray, requireBoolean, requireFinite, requireNumber, requireObject, requireString } from '../runtime/parse.ts';
 import { carry } from '../runtime/verbatim.ts';
-import { assembledMap } from './overrides.ts';
+import { assembledMap, storedFact } from './overrides.ts';
 
 function decodeStrings(container: JsonObject, key: string, context: string): string[] {
   return requireArray(container, key, context)
@@ -228,10 +228,10 @@ function decodeRemotePlan(value: JsonValue, context: string): RemotePlanResult {
 
 function decodeLampColor(container: JsonObject, key: string, context: string): LampColor {
   const color = requireObject(container, key, `${context}.${key}`);
-  // `kelvin` discriminates, and the rgb arm stays raw: `LampColor.rgb` is
-  // `JsonValue[]` because it comes from an `rgb_color` attribute.
+  // `kelvin` discriminates, and the rgb arm stays as stored: `LampColor.rgb`
+  // is a list of stored values because it comes from an `rgb_color` attribute.
   if (Object.hasOwn(color, 'kelvin')) return { kelvin: requireNumber(color, 'kelvin', `${context}.${key}`) };
-  return { rgb: requireArray(color, 'rgb', `${context}.${key}`) };
+  return { rgb: requireArray(color, 'rgb', `${context}.${key}`).map(value => storedFact(value)) };
 }
 
 function decodeLampProfile(container: JsonObject, key: string, context: string): LampProfile {
@@ -249,12 +249,12 @@ function decodeProfileEntry(value: JsonValue, context: string): LampProfileEntry
     if (!Object.hasOwn(entry, key)) throw new ParseError(`${context}.${key} must be present, got undefined`);
   }
   return {
-    effect: entry.effect ?? null,
+    effect: storedFact(entry.effect ?? null),
     brightness: requireNumber(entry, 'brightness', context),
     on: requireBoolean(entry.on, `${context}.on`),
     period: requireString(entry, 'period', context),
     area: entry.area === null ? null : requireString(entry, 'area', context),
-    effect_channels: entry.effect_channels ?? null,
+    effect_channels: storedFact(entry.effect_channels ?? null),
     send: requireBoolean(entry.send, `${context}.send`),
     ignore_overrides: decodeStrings(entry, 'ignore_overrides', context),
   };
@@ -271,7 +271,7 @@ function decodeTargetEntry(value: JsonValue, context: string): TargetEntry {
       area: requireString(entry, 'area', context),
       is_room: true,
       period: requireString(entry, 'period', context),
-      effect: entry.effect ?? null,
+      effect: storedFact(entry.effect ?? null),
       on: requireBoolean(entry.on, `${context}.on`),
       day: decodeLampProfile(entry, 'day', context),
       cosy: decodeLampProfile(entry, 'cosy', context),
@@ -298,7 +298,7 @@ function decodeScheduleCommand(value: JsonValue, context: string): ScheduleComma
   if (kind === 'off') return { kind, transition, ids };
   const brightness = requireNumber(command, 'brightness', context);
   if (kind === 'ct') return { kind, brightness, kelvin: requireNumber(command, 'kelvin', context), transition, ids };
-  if (kind === 'rgb') return { kind, brightness, rgb: requireArray(command, 'rgb', context), transition, ids };
+  if (kind === 'rgb') return { kind, brightness, rgb: requireArray(command, 'rgb', context).map(value => storedFact(value)), transition, ids };
   throw new ParseError(`${context}.kind must be one of switch, off, ct, rgb, got ${JSON.stringify(kind)}`);
 }
 

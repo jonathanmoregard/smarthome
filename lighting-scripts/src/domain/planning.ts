@@ -7,7 +7,9 @@ import type { Block } from './blocks.ts';
 import type { GradientPlanResult } from './gradient.ts';
 import type { ResolutionResult } from './resolution.ts';
 import type { ScheduleMirror } from './schedule.ts';
-import { hasValue, labelled, nextMidnight, privateRooms, profile, timestamp } from './schedule.ts';
+import { hasValue, labelled, nextMidnight, privateRooms } from './schedule.ts';
+import { timestamp } from '../parse/accessors.ts';
+import { entityProfile } from '../parse/schedule.ts';
 import { mappingAttribute, parseRoomBaseline, parseRoomPlanArgs, rangeDefaults, roomCatalog, stored, storedList, switchRangeEntities, warmEndOf } from '../parse/planning.ts';
 
 /**
@@ -192,7 +194,7 @@ function refreshBaseline(ctx: ScriptContext, baseline: RoomBaseline, hitFrom: nu
         || (!t.isRoom && ((r.scope === 'lamp' && r.target === entity) || (r.kind === 'light' && r.target === entity)));
       if (match && (r.when() ?? 0) <= lastFs()) ignored.push(key);
     }
-    const observed = t.isRoom ? undefined : profile(ctx, entity);
+    const observed = t.isRoom ? undefined : entityProfile(ctx, entity);
     targets[entity] = withFields(t.document, observed === undefined ? { ignore_overrides: ignored } : { ignore_overrides: ignored, observed });
     ignoredBy.set(entity, ignored);
   }
