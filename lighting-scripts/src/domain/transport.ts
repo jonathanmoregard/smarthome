@@ -231,7 +231,7 @@ export function emitCommands(ctx: ScriptContext, args: EmitArgs): EmitResult {
   return { published_at: published, completed: completed && revision === overridesRevision(ctx, 'effects_emit') && generation === ctx.attr(runtime, 'generation') };
 }
 
-type StopCommand = { topic: string | null; payload: { effect: string }; members: string[]; owners: string[]; group: false };
+type StopCommand = { topic: string; payload: { effect: string }; members: string[]; owners: string[]; group: false };
 
 export function assignEffects(ctx: ScriptContext, args: AssignArgs): AssignResult {
   if (args.revision !== overridesRevision(ctx, 'effects_assign')) return { generation: runtimeGeneration(ctx) };
@@ -263,7 +263,14 @@ export function assignEffects(ctx: ScriptContext, args: AssignArgs): AssignResul
         if (source.kind === 'effect' && target.owners[channel].startsWith('channels:native:') && source.updated !== previous.updated(channel)) needed = true;
       }
       if (needed) for (const member of catalog.members[lamp] ?? []) if (ctx.get(member) === 'on') {
-        for (const effect of ['stop_colorloop', 'stop_effect']) commands.push({ topic: catalog.topics[member] ?? null,
+        // A member the catalog gives no topic is skipped, as the light path
+        // skips it: `framePlan` hands its row to `effects_group_plan` with
+        // `topic: null`, which rejects it as an invalid endpoint row. Pushing
+        // the null here instead made `effects_emit`'s command parse raise and
+        // aborted the whole dispatch.
+        const topic = catalog.topics[member];
+        if (topic === undefined) continue;
+        for (const effect of ['stop_colorloop', 'stop_effect']) commands.push({ topic,
           payload: { effect }, members: [member], owners: [lamp], group: false });
       }
     }
