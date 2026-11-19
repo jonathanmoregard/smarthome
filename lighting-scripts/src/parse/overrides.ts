@@ -232,7 +232,8 @@ function parseCommitData(data: JsonObject): CommitData {
     }),
     ranges: lazy(() => {
       const ranges = data.ranges === undefined ? {} : requireObject(data, 'ranges', 'ls_commit.data');
-      return validRangePair(ranges.bright, 'ls_commit.data.ranges.bright') && validRangePair(ranges.cosy, 'ls_commit.data.ranges.cosy') ? carry(ranges) : undefined;
+      return validRangePair(ranges.bright, 'ls_commit.data.ranges.bright') && validRangePair(ranges.cosy, 'ls_commit.data.ranges.cosy') ?
+        carry(ranges) : undefined;
     }),
     remoteAck: lazy(() => {
       const requestId = data.request_id;

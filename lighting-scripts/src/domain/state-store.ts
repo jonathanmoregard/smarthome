@@ -133,7 +133,8 @@ export function* planCommit(snapshot: CommitSnapshot, parsed: CommitData): Plan<
   }
   else if (op === 'clear_room') overrides = kept(before.entries.filter(({ record: r }) => {
     const targetArea = typeof r.target === 'string' ? snapshot.areas[r.target] : undefined;
-    return !(r.scope === 'room' && r.target === parsed.area || (r.scope === 'lamp' || r.kind === 'light') && targetArea === parsed.area || r.kind === 'block' && r.target === parsed.area);
+    return !(r.scope === 'room' && r.target === parsed.area || (r.scope === 'lamp' || r.kind === 'light') && targetArea === parsed.area ||
+      r.kind === 'block' && r.target === parsed.area);
   }));
   else if (op === 'set') for (const record of parsed.records) {
     const key = record.writeKey(), old = overrideRecord(overrides[key]);
@@ -180,7 +181,8 @@ export function* planCommit(snapshot: CommitSnapshot, parsed: CommitData): Plan<
   }
   patch = { ...patch, pending_rooms: pending, last_request: now,
     received_at: parsed.receivedAt === undefined ? recordTimestamp(now) : parsed.receivedAt };
-  const full = parsed.via !== 'remote' || ['render_request', 'clear', 'clear_all'].includes(parsed.opText) || parsed.records.some(r => r.kind === 'mode');
+  const full = parsed.via !== 'remote' || ['render_request', 'clear', 'clear_all'].includes(parsed.opText) || parsed.records.some(r =>
+    r.kind === 'mode');
   if (full) {
     // Captured: `old != (state_attr(runtime,'handled_full') or none)`. Jinja `or`
     // fires on every falsy value, `[]` and `{}` included, so an empty container

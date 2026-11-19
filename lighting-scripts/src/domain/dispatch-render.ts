@@ -149,7 +149,8 @@ export function dispatchStep(phase: DispatchPhase, msg: DispatchMsg): Transition
     case 'framing': {
       if (msg.tag !== 'framed') return unexpected(phase, msg);
       const run = phase.run;
-      return [{ tag: 'emitting', run }, [{ tag: 'emit', args: { commands: msg.batch.commands, revision: run.revision, generation: run.generation } }]];
+      return [{ tag: 'emitting', run }, [{ tag: 'emit', args: { commands: msg.batch.commands, revision: run.revision,
+        generation: run.generation } }]];
     }
     case 'emitting': {
       if (msg.tag !== 'emitted') return unexpected(phase, msg);
@@ -269,7 +270,8 @@ export function* tailEffects(details: DispatchDetails, revision: string, generat
       guard: { revision, generation } };
   }
   const staleKeys = details.staleKeys();
-  if (staleKeys.length > 0) yield { kind: 'event', event: 'ls_override', data: { op: 'clear', keys: staleKeys, via: 'rule_next_block', expected_revision: revision } };
+  if (staleKeys.length > 0) yield { kind: 'event', event: 'ls_override', data: { op: 'clear', keys: staleKeys, via: 'rule_next_block',
+    expected_revision: revision } };
 }
 
 

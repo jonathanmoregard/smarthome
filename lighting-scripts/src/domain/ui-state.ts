@@ -57,7 +57,8 @@ export function uiMessages(view: HouseView, force: boolean): UiMessage[] {
       else if (levels.length === members.length && levels.length) b = roundEven(levels.reduce((sum, level) => sum + level, 0) / levels.length);
       let display: Display = { kind: 'neither' };
       if (target.display !== undefined) display = target.display;
-      else if (!target.populated && colors.length === members.length && colors.length > 0 && colors.every(c => storedEquals(c, colors[0]))) display = displayOfColour(colors[0]!);
+      else if (!target.populated && colors.length === members.length && colors.length > 0 && colors.every(c => storedEquals(c,
+        colors[0]))) display = displayOfColour(colors[0]!);
       if (display.kind === 'kelvin') { colourTemp = true; k = display.kelvin; }
       else if (display.kind === 'rgb') { colourTemp = false; rgb = display.rgb; }
     }

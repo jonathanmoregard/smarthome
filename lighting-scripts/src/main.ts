@@ -18,7 +18,8 @@ export async function loadProgram(directory?: string): Promise<Program> {
   const base = directory ? pathToFileURL(resolve(directory) + '/').href : new URL('./', import.meta.url).href;
   const extension = directory ? 'js' : 'ts';
   const [engine, registry] = await Promise.all([
-    import(new URL(`runtime/engine.${extension}`, base).href) as Promise<{ execute: (request: ExecutionRequest, handlers: ScriptHandlers) => ExecutionResult }>,
+    import(new URL(`runtime/engine.${extension}`, base).href) as Promise<{ execute: (request: ExecutionRequest, handlers: ScriptHandlers) =>
+      ExecutionResult }>,
     import(new URL(`runtime/registry.${extension}`, base).href) as Promise<{ handlers: ScriptHandlers }>,
   ]);
   if (typeof engine.execute !== 'function' || !registry.handlers) throw new Error('Candidate does not export its execution boundary');
@@ -38,10 +39,13 @@ export function watchRuntimeCatalog(path: string, accept: (catalog: JsonObject) 
   });
 }
 export async function main(argv = process.argv.slice(2)): Promise<void> {
-  const option = (name: string) => { const index = argv.indexOf(name); if (index < 0) return undefined; const value = argv[index + 1]; if (!value || value.startsWith('--')) throw new Error(`Missing value for ${name}`); return value; };
+  const option = (name: string) =>
+    { const index = argv.indexOf(name); if (index < 0) return undefined; const value = argv[index + 1]; if (!value ||
+    value.startsWith('--')) throw new Error(`Missing value for ${name}`); return value; };
   const configuration = option('--config'), fixture = option('--snapshot');
   const statePath = resolve(option('--state') ?? '.runtime/state.json');
-  let initial: Snapshot = fixture ? JSON.parse(await readFile(fixture, 'utf8')) as Snapshot : { state: {}, areas: {}, members: [], now: new Date().toISOString() };
+  let initial: Snapshot = fixture ? JSON.parse(await readFile(fixture, 'utf8')) as Snapshot : { state: {}, areas: {}, members: [],
+    now: new Date().toISOString() };
   if (configuration) initial.catalog = await readRuntimeCatalog(configuration);
   const program = await loadProgram(option('--program'));
   let live: HomeAssistantTransport | undefined;
@@ -54,7 +58,8 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     live = await HomeAssistantTransport.connect(url, await readFile(tokenFile, 'utf8'));
     transport = live;
   }
-  const host = await LightingHost.open({ path: statePath, initial, program, transport, connected: !live, report: message => console.error(message) }).catch(async error => { await transport.close(); throw error; });
+  const host = await LightingHost.open({ path: statePath, initial, program, transport, connected: !live, report: message =>
+    console.error(message) }).catch(async error => { await transport.close(); throw error; });
   let watcher: FSWatcher | undefined;
   try {
   if (configuration) await host.update(state => { state.catalog = initial.catalog!; });
@@ -71,11 +76,14 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     })().catch(error => console.error(String(error))); });
     await live.subscribe('state_changed', event => { void (async () => {
       const entity = String(event.data.entity_id), state = event.data.new_state;
-      if (state === null || (state && typeof state === 'object' && !Array.isArray(state))) await host.ingestState(entity, state as unknown as Snapshot['state'][string] | null);
+      if (state === null || (state && typeof state === 'object' && !Array.isArray(state))) await host.ingestState(entity,
+        state as unknown as Snapshot['state'][string] | null);
     })().catch(error => console.error(String(error))); });
     // HA retains triggers only; all decision/actions run in the typed process.
-    await live.subscribe('smarthome_script', event => { void host.dispatch(String(event.data.script), record(event.data.args ?? {})).catch(error => console.error(String(error))); });
-    for (const event of ['entity_registry_updated', 'device_registry_updated', 'area_registry_updated', 'label_registry_updated']) await live.subscribe(event, () => { void refresh().catch(error => console.error(String(error))); });
+    await live.subscribe('smarthome_script', event => { void host.dispatch(String(event.data.script),
+      record(event.data.args ?? {})).catch(error => console.error(String(error))); });
+    for (const event of ['entity_registry_updated', 'device_registry_updated', 'area_registry_updated',
+      'label_registry_updated']) await live.subscribe(event, () => { void refresh().catch(error => console.error(String(error))); });
     await host.connectionChanged(true);
     await host.dispatch('ls_apply', { reason: 'config' });
   }
@@ -109,4 +117,5 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   }
   } catch (error) { watcher?.close(); await host.close(); throw error; }
 }
-if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) void main().catch(error => { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; });
+if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) void main().catch(error =>
+  { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; });

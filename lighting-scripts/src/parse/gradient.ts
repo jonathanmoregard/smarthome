@@ -22,7 +22,8 @@ export function validGradient(entry: unknown, signature: GradientSignature): ent
   if (!isObject(entry) || !isDeepStrictEqual(entry.signature, signature) || !isObject(entry.curve)) return false;
   const c = entry.curve;
   if (c.version !== 1 || !isObject(c.day) || !isObject(c.cosy) || !isObject(c.brightness) || !isObject(c.colors)) return false;
-  if (c.day.brightness !== signature[1] || !isDeepStrictEqual(c.day.color, signature[2]) || c.cosy.brightness !== signature[3] || !isDeepStrictEqual(c.cosy.color, signature[4])) return false;
+  if (c.day.brightness !== signature[1] || !isDeepStrictEqual(c.day.color, signature[2]) || c.cosy.brightness !== signature[3] ||
+    !isDeepStrictEqual(c.cosy.color, signature[4])) return false;
   if (!['floor', 'lower', 'middle', 'upper'].every(name => boundedNumber(object(c.brightness)[name]))) return false;
   for (const name of ['lower', 'middle', 'upper', 'tail']) {
     const p = c.colors[name];

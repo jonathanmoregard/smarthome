@@ -14,7 +14,8 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { HouseView } from '../runtime/effects.ts';
-import { isObject, jinjaFloat, jinjaTruthy, lazy, object, ParseError, requireArray, requireNumber, requireObject, requireString } from '../runtime/parse.ts';
+import { isObject, jinjaFloat, jinjaTruthy, lazy, object, ParseError, requireArray, requireNumber, requireObject,
+  requireString } from '../runtime/parse.ts';
 import { carry, reveal } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { requireRgb } from './scale.ts';

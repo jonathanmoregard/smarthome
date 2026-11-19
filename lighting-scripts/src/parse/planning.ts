@@ -28,7 +28,8 @@ import { isObject, jinjaFloat, jinjaTruthy, object, requireNumber, requireObject
 import { carry } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { list, optionalTimestamp, timestamp } from './accessors.ts';
-import type { BaselineTarget, DetailField, OverrideFacts, Overrides, RoomBaseline, RoomCache, RoomDetails, RoomPlanArgs, TestNow } from '../domain/planning.ts';
+import type { BaselineTarget, DetailField, OverrideFacts, Overrides, RoomBaseline, RoomCache, RoomDetails, RoomPlanArgs,
+  TestNow } from '../domain/planning.ts';
 import { isBlock, savedBlock } from './blocks.ts';
 
 function requiredObjectValue(value: JsonValue | undefined, context: string): JsonObject {

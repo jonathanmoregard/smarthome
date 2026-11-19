@@ -85,10 +85,12 @@ export function planGroups(rows: Array<EndpointRow | undefined>, groups: Multica
   const used = new Set<string>();
   const commands: GroupCommand[] = [];
   for (const group of candidates) {
-    if (candidates.some(other => other.topic === group.topic && !sameStrings([...other.members].sort(compare), [...group.members].sort(compare)))) continue;
+    if (candidates.some(other => other.topic === group.topic && !sameStrings([...other.members].sort(compare),
+      [...group.members].sort(compare)))) continue;
     const members = group.members.map(e => byEntity.get(e));
     const first = members[0];
-    if (first === undefined || group.members.some(e => used.has(e)) || members.some(row => row === undefined || !sameDocument(row.payload, first.payload))) continue;
+    if (first === undefined || group.members.some(e => used.has(e)) || members.some(row => row === undefined || !sameDocument(row.payload,
+      first.payload))) continue;
     const owners = [...new Set(members.flatMap(row => row === undefined ? [] : [row.owner]))].sort(compare);
     commands.push({ topic: group.topic, payload: first.payload, members: [...group.members].sort(compare), owners, group: group.id });
     group.members.forEach(e => used.add(e));

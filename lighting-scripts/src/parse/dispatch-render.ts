@@ -80,7 +80,8 @@ function parseDispatchDetails(plan: JsonObject, lights: JsonValue | undefined): 
     // captured script guards them (`switches` has a `| default(...)` site,
     // `stale_keys` two `is defined` tests), so an absent key is silently empty
     // in the oracle and must be here too.
-    switches: lazy(() => Object.entries(plan.switches === undefined ? {} : requireObject(plan, 'switches', 'ls_dispatch.plan')).map(([entity, raw]) => lazy(() => {
+    switches: lazy(() => Object.entries(plan.switches === undefined ? {} : requireObject(plan, 'switches',
+      'ls_dispatch.plan')).map(([entity, raw]) => lazy(() => {
         const value = requireObject({ raw }, 'raw', `ls_dispatch.plan.switches.${entity}`);
         return { entity, on: jinjaTruthy(value.on) };
       }))),

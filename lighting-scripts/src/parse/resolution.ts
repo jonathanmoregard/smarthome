@@ -35,7 +35,8 @@ import type { Verbatim } from '../runtime/verbatim.ts';
 import { boundedNumber } from '../domain/scale.ts';
 import type { Color } from '../domain/scale.ts';
 import { latestStream, lexical } from '../domain/resolution.ts';
-import type { BaseItem, Channel, ChannelValue, Claim, InputAnchor, InputClaim, InputFacts, LightValue, OverrideRecord, Patch, ResolveArgs, Stamp } from '../domain/resolution.ts';
+import type { BaseItem, Channel, ChannelValue, Claim, InputAnchor, InputClaim, InputFacts, LightValue, OverrideRecord, Patch, ResolveArgs,
+  Stamp } from '../domain/resolution.ts';
 import { anchor, canonicalColor, validColor } from './scale.ts';
 import { validGradient, warmEndArgument } from './gradient.ts';
 
@@ -54,7 +55,8 @@ export function recordTimestamp(value: JsonValue | undefined): number {
 
 function defaulted(o: JsonObject, key: string, fallback: JsonValue): JsonValue { return o[key] === undefined ? fallback : o[key]; }
 function optionalString(value: JsonValue | undefined): string | undefined { return typeof value === 'string' ? value : undefined; }
-function nonEmptyString(value: JsonValue | undefined): string | undefined { return typeof value === 'string' && value.length > 0 ? value : undefined; }
+function nonEmptyString(value: JsonValue | undefined): string | undefined { return typeof value === 'string' && value.length > 0 ?
+  value : undefined; }
 function isChannel(value: JsonValue): value is Channel { return value === 'brightness' || value === 'color'; }
 
 /** The number JavaScript arithmetic reads from a raw value: `Number(value)`. */
@@ -181,7 +183,8 @@ function inputClaims(value: JsonObject, key: string, stamp: number): InputClaim[
       updated: rawStamp(defaulted(value, 'selection_updated', stamp)),
     });
   }
-  if (isObject(value.adjustment) && (preset || !isDeepStrictEqual(value.adjustment, value.selection_input))) claims.push(claimInput(value.adjustment));
+  if (isObject(value.adjustment) && (preset || !isDeepStrictEqual(value.adjustment,
+    value.selection_input))) claims.push(claimInput(value.adjustment));
   return claims;
 }
 
@@ -239,7 +242,8 @@ function baseItem(raw: JsonValue): BaseItem {
     transition: carry(defaulted(item, 'transition', 3)),
     effect: optionalString(effect),
     effectInstance: item.effect_instance === undefined ? undefined : carry(item.effect_instance),
-    effectChannels: item.effect_channels === undefined ? undefined : Array.isArray(item.effect_channels) ? item.effect_channels.filter(isChannel) : [],
+    effectChannels: item.effect_channels === undefined ? undefined : Array.isArray(item.effect_channels) ?
+      item.effect_channels.filter(isChannel) : [],
     anchorsPresent: isObject(item.day) && isObject(item.cosy),
     day: () => anchor(item.day),
     cosy: () => anchor(item.cosy),
@@ -276,7 +280,8 @@ export function parseResolveArgs(args: JsonObject): ResolveArgs {
     targets: Object.entries(base).map(([target, item]) => ({ target, item: baseItem(item) })),
     records: overrideRecords(overrides),
     channelsOf: name => effectChannels(catalog, name),
-    adjustsByGradient: processor => defaulted(object(object(catalog.processors)[processor]), 'remote_adjustment', processor === 'Normal light' ? 'gradient' : 'ignore') === 'gradient',
+    adjustsByGradient: processor => defaulted(object(object(catalog.processors)[processor]), 'remote_adjustment',
+      processor === 'Normal light' ? 'gradient' : 'ignore') === 'gradient',
     private: privateRooms.filter((room): room is string => typeof room === 'string'),
     power: area => carry(defaulted(power, area, true)),
     gradient: (target, signature) => {

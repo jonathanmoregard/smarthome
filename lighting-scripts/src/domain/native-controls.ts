@@ -184,9 +184,14 @@ export type SetEvent = { op: 'set'; records: ChannelRecord[]; via: string };
 type LightData = Record<string, never> | { brightness: number } | { rgb_color: number[] } | { color_temp_kelvin: number };
 export type ControlCommand =
   | { action: 'script.ls_store'; data: { store: string; effect: string }; target: Record<string, never> }
-  | { action: 'light.turn_off' | 'light.turn_on' | 'homeassistant.turn_on' | 'homeassistant.turn_off'; target: { entity_id: string | string[] }; data: LightData };
+  | {
+    action: 'light.turn_off' | 'light.turn_on' | 'homeassistant.turn_on' | 'homeassistant.turn_off';
+    target: { entity_id: string | string[] }; data: LightData;
+  };
 export type NativePlan = { records: ChannelRecord[]; power: PowerEvent[] };
-export type ControlPlan = { valid: boolean; errors: string[]; events: Array<PowerEvent | SetEvent>; commands: ControlCommand[]; records: ChannelRecord[] };
+export type ControlPlan = {
+  valid: boolean; errors: string[]; events: Array<PowerEvent | SetEvent>; commands: ControlCommand[]; records: ChannelRecord[];
+};
 
 function unique(values: string[]): string[] { return [...new Set(values)]; }
 function constant(value: ConstantClaim['value'], stamp: Stamp): ConstantClaim { return { kind: 'constant', value, updated: stamp }; }
@@ -268,16 +273,19 @@ export function planNativeControls(view: HouseView, args: NativePlanArgs): Nativ
   const expanded = [...requested];
   for (const source of requested) expanded.push(...catalog.groups.members(source));
   expanded.push(...expandedEntities(view, requested));
-  const lamps = Object.entries(members).filter(([lamp, physical]) => expanded.includes(lamp) || physical.some(entity => expanded.includes(entity))).map(([lamp]) => lamp);
+  const lamps = Object.entries(members).filter(([lamp, physical]) => expanded.includes(lamp) || physical.some(entity =>
+    expanded.includes(entity))).map(([lamp]) => lamp);
   const roomScopes = [...areas];
   for (const source of requested) {
     if (!catalog.groups.has(source)) continue;
     const membersOfGroup = catalog.groups.members(source);
-    for (const area of areasOf(view, membersOfGroup)) if (Object.keys(members).filter(lamp => view.areas[lamp] === area).every(lamp => membersOfGroup.includes(lamp))) roomScopes.push(area);
+    for (const area of areasOf(view, membersOfGroup)) if (Object.keys(members).filter(lamp => view.areas[lamp] === area).every(lamp =>
+      membersOfGroup.includes(lamp))) roomScopes.push(area);
   }
   if (!roomScopes.length && !lamps.length) return { records: [], power: [] };
   const { baseTargets, resolvedTargets } = args.current();
-  const items: ScopeItem[] = unique(roomScopes).sort().filter(area => baseTargets.populatedLeniently(`room:${area}`)).map(area => ({ scope: 'room', target: area, base: `room:${area}` }));
+  const items: ScopeItem[] = unique(roomScopes).sort().filter(area => baseTargets.populatedLeniently(`room:${area}`)).map(area =>
+    ({ scope: 'room', target: area, base: `room:${area}` }));
   for (const lamp of lamps) if (!roomScopes.includes(view.areas[lamp] ?? '')) items.push({ scope: 'lamp', target: lamp, base: lamp });
   const power: PowerEvent[] = areasOf(view, lamps).sort().map(area => ({ op: 'power', area, on: true, via: 'app' }));
   if (!items.length) return { records: [], power };
@@ -299,12 +307,18 @@ export function planNativeControls(view: HouseView, args: NativePlanArgs): Nativ
     if (sd.effect !== undefined) {
       const requestedEffect = sd.effect.toLowerCase();
       let selected: string | undefined;
-      for (const effect of catalog.effects.names) if (effect.toLowerCase() === requestedEffect || (effect === 'Colour loop' && requestedEffect === 'colorloop')) selected = effect;
+      for (const effect of catalog.effects.names) if (effect.toLowerCase() === requestedEffect || (effect === 'Colour loop' &&
+        requestedEffect === 'colorloop')) selected = effect;
       if (selected) {
-        for (const channel of catalog.effects.channels(selected)) channels[channel] = { kind: 'effect', effect: selected, instance: `native:${[...requested, ...areas, ...devices, ...labels].sort().join('|')}:${selected}`, updated: args.stamp(), ...(brightness !== undefined ? { intensity: brightness } : {}) };
-      } else if (['none', 'normal light', 'off'].includes(requestedEffect)) channels = { brightness: constant(resolved.level('effects_native_plan resolved target'), args.stamp()), color: constant(underlyingColour(base, resolved), args.stamp()), ...channels };
+        for (const channel of catalog.effects.channels(selected)) channels[channel] = { kind: 'effect', effect: selected,
+          instance: `native:${[...requested, ...areas, ...devices, ...labels].sort().join('|')}:${selected}`, updated: args.stamp(),
+          ...(brightness !== undefined ? { intensity: brightness } : {}) };
+      } else if (['none', 'normal light',
+        'off'].includes(requestedEffect)) channels = { brightness: constant(resolved.level('effects_native_plan resolved target'),
+        args.stamp()), color: constant(underlyingColour(base, resolved), args.stamp()), ...channels };
     }
-    if (Object.keys(channels).length > 0) records.push({ kind: 'channels', key: `channels:native:${item.base}`, source: `native:${item.base}`, scope: item.scope, target: item.target, value: { channels } });
+    if (Object.keys(channels).length > 0) records.push({ kind: 'channels', key: `channels:native:${item.base}`,
+      source: `native:${item.base}`, scope: item.scope, target: item.target, value: { channels } });
   }
   return { records, power };
 }
@@ -341,7 +355,8 @@ export function planUIControls(view: HouseView, args: SetArgs, catalog: NativeCa
       if (attribute === 'effect') commands.push({ action: 'script.ls_store', data: { store, effect: value.string('effects_set') }, target: {} });
       else if (attribute === 'power' && value.raw === 'OFF') commands.push({ action: 'light.turn_off', target: { entity_id: source }, data: {} });
       else {
-        const data: LightData = attribute === 'brightness' ? { brightness: value.int } : attribute === 'rgb' ? { rgb_color: rgbInts() } : attribute === 'temperature' ? { color_temp_kelvin: roundEven(1000000 / value.float) } : {};
+        const data: LightData = attribute === 'brightness' ? { brightness: value.int } : attribute === 'rgb' ?
+          { rgb_color: rgbInts() } : attribute === 'temperature' ? { color_temp_kelvin: roundEven(1000000 / value.float) } : {};
         commands.push({ action: 'light.turn_on', target: { entity_id: source }, data });
       }
     }
@@ -357,12 +372,15 @@ export function planUIControls(view: HouseView, args: SetArgs, catalog: NativeCa
         }
       }
     }
-    for (const lamp of targets) if (!scopeAreas.includes(view.areas[lamp] ?? '')) scopes.push({ scope: 'lamp', target: lamp, base: lamp, suffix: targets.length > 1 ? `:${lamp}` : '' });
+    for (const lamp of targets) if (!scopeAreas.includes(view.areas[lamp] ?? '')) scopes.push({ scope: 'lamp', target: lamp, base: lamp,
+      suffix: targets.length > 1 ? `:${lamp}` : '' });
     if (!errors.length && attribute === 'power') {
       const powerAreas = value.raw === 'ON' ? areasOf(view, targets) : scopeAreas;
       for (const area of powerAreas) events.push({ op: 'power', area, on: value.raw === 'ON', via: 'effects-house' });
-      const ids = [...targets, ...Object.keys(attributeMapping(view, 'sensor.ls_overrides', 'switch_ranges')).filter(lamp => scopeAreas.includes(view.areas[lamp] ?? ''))];
-      commands.push({ action: value.raw === 'ON' ? 'homeassistant.turn_on' : 'homeassistant.turn_off', target: { entity_id: unique(ids) }, data: {} });
+      const ids = [...targets, ...Object.keys(attributeMapping(view, 'sensor.ls_overrides', 'switch_ranges')).filter(lamp =>
+        scopeAreas.includes(view.areas[lamp] ?? ''))];
+      commands.push({ action: value.raw === 'ON' ? 'homeassistant.turn_on' : 'homeassistant.turn_off', target: { entity_id: unique(ids) },
+        data: {} });
     } else if (!errors.length) {
       if (current === undefined) throw new Error('effects_set current plan is required for channel controls');
       const { baseTargets, resolvedTargets } = current;
@@ -374,17 +392,21 @@ export function planUIControls(view: HouseView, args: SetArgs, catalog: NativeCa
         let channels: Record<string, ChannelClaim> = {};
         if (attribute === 'effect' && value.raw !== 'Normal light') {
           const effect = effectValue!;
-          for (const channel of catalog.effects.channels(effect)) channels[channel] = { kind: 'effect', effect, instance: `ui:${source}:${effect}`, updated: stamp };
-        } else if (attribute === 'effect') channels = { brightness: constant(resolved.level('effects_set resolved target'), stamp), color: constant(underlyingColour(base, resolved), stamp) };
+          for (const channel of catalog.effects.channels(effect)) channels[channel] = { kind: 'effect', effect,
+            instance: `ui:${source}:${effect}`, updated: stamp };
+        } else if (attribute === 'effect') channels = { brightness: constant(resolved.level('effects_set resolved target'), stamp),
+          color: constant(underlyingColour(base, resolved), stamp) };
         else if (attribute === 'brightness') channels = { brightness: constant(value.int, stamp) };
         else if (attribute === 'rgb') channels = { color: constant({ rgb: rgbInts() }, stamp) };
         else if (attribute === 'temperature') channels = { color: constant({ kelvin: roundEven(1000000 / value.float) }, stamp) };
-        records.push({ kind: 'channels', key: `channels:ui:${source}${item.suffix ?? ''}`, source: `ui:${source}`, scope: item.scope, target: item.target, value: { channels, ...(attribute === 'effect' ? { selection: effectValue! } : {}) } });
+        records.push({ kind: 'channels', key: `channels:ui:${source}${item.suffix ?? ''}`, source: `ui:${source}`, scope: item.scope,
+          target: item.target, value: { channels, ...(attribute === 'effect' ? { selection: effectValue! } : {}) } });
       }
       if (records.length && !errors.length) events.push({ op: 'set', records, via: 'effects-house' });
     }
   }
-  return { valid: errors.length === 0, errors, events: errors.length ? [] : events, commands: errors.length ? [] : commands, records: errors.length ? [] : records };
+  return { valid: errors.length === 0, errors, events: errors.length ? [] : events, commands: errors.length ? [] : commands,
+    records: errors.length ? [] : records };
 }
 
 

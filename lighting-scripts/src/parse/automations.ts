@@ -95,7 +95,8 @@ export function nativeControlValue(payload: Verbatim, attribute: string): Verbat
     // MQTT RGB triplets render as a Python tuple in HA's native templates.
     // Preserve that JSON array boundary without executing template source.
     const text = value.trim();
-    try { value = JSON.parse(text.startsWith('[') ? text : `[${text.replace(/^\(|\)$/g, '')}]`) as JsonValue; } catch { /* Preserve malformed text for the normal validation path. */ }
+    try { value = JSON.parse(text.startsWith('[') ?
+      text : `[${text.replace(/^\(|\)$/g, '')}]`) as JsonValue; } catch { /* Preserve malformed text for the normal validation path. */ }
   }
   return carry(value);
 }

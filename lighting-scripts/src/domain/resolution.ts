@@ -153,7 +153,10 @@ export type ResolutionResult = { targets: Record<string, ResolvedTarget>; assign
 
 type Candidate = { key: string; updated: Stamp; claim: Claim; baselineOnly: boolean };
 type InputPosition = { position: number; level: number };
-type ClampedInput = { steps: number; lower: number; upper: number; anchor: InputAnchor; legacyPosition: number | undefined; last: string | undefined; hasUp: boolean };
+type ClampedInput = {
+  steps: number; lower: number; upper: number; anchor: InputAnchor;
+  legacyPosition: number | undefined; last: string | undefined; hasUp: boolean;
+};
 type Selected = { kind: 'none' } | { kind: 'scale'; position: number } | { kind: 'effect'; source: ResolvedSource };
 
 export function lexical(a: string, b: string): number {
@@ -191,7 +194,8 @@ function normalPosition(input: ClampedInput, day: Anchor, cosy: Anchor, level: n
 function remoteInput(claim: Extract<Claim, { kind: 'scale' }>): Claim {
   return {
     kind: 'input',
-    input: { steps: 0, lower: -20, upper: 20, bounds: { min: -20, max: 20 }, anchor: 'current', legacyPosition: claim.legacyPosition, last: undefined, hasUp: false },
+    input: { steps: 0, lower: -20, upper: 20, bounds: { min: -20, max: 20 }, anchor: 'current', legacyPosition: claim.legacyPosition,
+      last: undefined, hasUp: false },
     updated: claim.updated,
   };
 }
@@ -244,7 +248,8 @@ export function resolveEffects(args: ResolveArgs): ResolutionResult {
         patch = record.input.legacy;
         for (const { claim, updated } of record.input.claims) {
           for (const channel of CHANNELS) {
-            if (claim.kind === 'input' || (claim.kind === 'effect' && args.channelsOf(claim.effect).includes(channel))) candidates[channel].push({ key: record.key, updated, claim, baselineOnly: false });
+            if (claim.kind === 'input' || (claim.kind === 'effect' &&
+              args.channelsOf(claim.effect).includes(channel))) candidates[channel].push({ key: record.key, updated, claim, baselineOnly: false });
           }
         }
       } else if (record.channels !== undefined) patch = record.channels;
@@ -255,22 +260,26 @@ export function resolveEffects(args: ResolveArgs): ResolutionResult {
         if (record.via === 'remote' && claim.kind === 'scale') claim = remoteInput(claim);
         const updated = claim.updated === undefined ? stamp : claim.updated;
         candidates[channel].push({ key: record.key, updated: numericStamp(updated), claim, baselineOnly: false });
-        if (claim.kind === 'effect' && args.channelsOf(claim.effect).includes(channel) && claim.instance !== undefined && claim.carried !== undefined && claim.carried.updated <= updated) {
+        if (claim.kind === 'effect' && args.channelsOf(claim.effect).includes(channel) && claim.instance !== undefined &&
+          claim.carried !== undefined && claim.carried.updated <= updated) {
           candidates[channel].push({ key: record.key, updated: numericStamp(claim.carried.updated), claim: claim.carried.claim, baselineOnly: true });
         }
       }
     }
     const baselineEffect = item.effect, declared = args.channelsOf(baselineEffect);
     const enabled = item.effectChannels === undefined ? declared : item.effectChannels;
-    const sources: Record<Channel, ResolvedSource> = { brightness: { kind: 'constant', value: 0, updated: -1 }, color: { kind: 'constant', value: 0, updated: -1 } };
+    const sources: Record<Channel, ResolvedSource> = { brightness: { kind: 'constant', value: 0, updated: -1 }, color: { kind: 'constant',
+      value: 0, updated: -1 } };
     const owners = { brightness: 'base', color: 'base' };
     const underlying: Record<Channel, ChannelValue> = { brightness: 0, color: 0 };
     for (const channel of CHANNELS) {
       const initial: ChannelValue = channel === 'color' ? item.color() : item.brightness;
       let currentUnderlying: ChannelValue = initial;
       let current: ResolvedSource = { kind: 'constant', value: initial, updated: -1 }, owner = 'base';
-      if (baselineEffect !== undefined && declared.includes(channel) && enabled.includes(channel) && (baselineEffect !== 'Candle' || target === CANDLE_LAMP)) {
-        current = { kind: 'effect', effect: baselineEffect, instance: item.effectInstance === undefined ? `base:${target}:${baselineEffect}` : item.effectInstance, updated: -1 };
+      if (baselineEffect !== undefined && declared.includes(channel) && enabled.includes(channel) && (baselineEffect !== 'Candle' ||
+        target === CANDLE_LAMP)) {
+        current = { kind: 'effect', effect: baselineEffect, instance: item.effectInstance === undefined ?
+          `base:${target}:${baselineEffect}` : item.effectInstance, updated: -1 };
         owner = `base:${baselineEffect}`;
       }
       candidates[channel].sort((a, b) => lexical(a.key, b.key)).sort((a, b) => a.updated.numeric - b.updated.numeric);
@@ -288,7 +297,8 @@ export function resolveEffects(args: ResolveArgs): ResolutionResult {
           let input: ClampedInput | undefined, position: InputPosition | undefined;
           if (claim.kind === 'input') {
             const facts = claim.input;
-            if (facts !== undefined && item.anchorsPresent && facts.steps !== undefined && facts.lower !== undefined && facts.upper !== undefined && facts.bounds !== undefined
+            if (facts !== undefined && item.anchorsPresent && facts.steps !== undefined && facts.lower !== undefined &&
+              facts.upper !== undefined && facts.bounds !== undefined
               && facts.lower >= -20 && facts.lower <= facts.upper && facts.upper <= 20) {
               input = { steps: facts.steps, anchor: facts.anchor, legacyPosition: facts.legacyPosition, last: facts.last, hasUp: facts.hasUp,
                 lower: clamp(facts.lower, facts.bounds.min, facts.bounds.max), upper: clamp(facts.upper, facts.bounds.min, facts.bounds.max) };
@@ -312,13 +322,17 @@ export function resolveEffects(args: ResolveArgs): ResolutionResult {
             }
             const coordinate = clamp(p, -2, 2);
             let sample = samples.get(coordinate);
-            if (sample === undefined) { sample = curve !== undefined ? sampleGradient(curve, coordinate) : scaleValue(day, cosy, coordinate, args.warmEnd()); samples.set(coordinate, sample); }
+            if (sample === undefined) { sample = curve !== undefined ? sampleGradient(curve, coordinate) : scaleValue(day, cosy, coordinate,
+              args.warmEnd()); samples.set(coordinate, sample); }
             valid = true; value = channel === 'brightness' ? sample.brightness : sample.color;
-            if (claim.kind === 'input' && channel === 'brightness' && input !== undefined && input.last === 'down' && !input.hasUp && position !== undefined
-              && position.level < Math.min(76.5, cosy.brightness) && input.anchor === 'current' && input.steps <= 0) value = Math.min(levelNumber(currentUnderlying), sample.brightness);
+            if (claim.kind === 'input' && channel === 'brightness' && input !== undefined && input.last === 'down' && !input.hasUp &&
+              position !== undefined
+              && position.level < Math.min(76.5, cosy.brightness) && input.anchor === 'current' &&
+                input.steps <= 0) value = Math.min(levelNumber(currentUnderlying), sample.brightness);
             selected = { kind: 'scale', position: sample.position };
           }
-        } else if (claim.kind === 'effect' && claim.effect !== undefined && args.channelsOf(claim.effect).includes(channel) && claim.instance !== undefined) {
+        } else if (claim.kind === 'effect' && claim.effect !== undefined && args.channelsOf(claim.effect).includes(channel) &&
+          claim.instance !== undefined) {
           valid = true;
           selected = { kind: 'effect', source: { kind: 'effect', effect: claim.effect, instance: claim.instance, updated: candidate.updated.value } };
           if (channel === 'brightness' && claim.intensity !== undefined) currentUnderlying = claim.intensity;

@@ -8,7 +8,8 @@
 import { clamp, copyAnchor, copyColor, CROSSOVER, rgbValue, roundEven } from './scale.ts';
 import type { Anchor, Color, RGB, Scaled } from './scale.ts';
 
-export type GradientPiece = ({ kind: 'kelvin'; start: number; delta: number } | { kind: 'rgb'; start: RGB; delta: RGB }) & { left: Color; right: Color };
+export type GradientPiece = ({ kind: 'kelvin'; start: number; delta: number } | { kind: 'rgb'; start: RGB; delta: RGB })
+  & { left: Color; right: Color };
 export type GradientCurve = {
   version: number;
   day: Anchor;
@@ -64,8 +65,10 @@ export function compileGradient(day: Anchor, cosy: Anchor, warmEnd: RGB): Gradie
   const lower = cosy.color.kelvin !== undefined && cosy.color.kelvin >= 1950 ? { kelvin: 1950 } : CROSSOVER;
   return {
     version: 1, day: copyAnchor(day), cosy: copyAnchor(cosy),
-    brightness: { floor, lower: Math.max(0, day.brightness - cosy.brightness, (cosy.brightness - floor) / 2), middle: day.brightness - cosy.brightness, upper: 255 - day.brightness },
-    colors: { lower: compilePiece(cosy.color, lower), middle: compilePiece(cosy.color, day.color), upper: compilePiece(day.color, { kelvin: 6500 }), tail: compilePiece(CROSSOVER, { rgb: warmEnd }) },
+    brightness: { floor, lower: Math.max(0, day.brightness - cosy.brightness, (cosy.brightness - floor) / 2),
+      middle: day.brightness - cosy.brightness, upper: 255 - day.brightness },
+    colors: { lower: compilePiece(cosy.color, lower), middle: compilePiece(cosy.color, day.color), upper: compilePiece(day.color,
+      { kelvin: 6500 }), tail: compilePiece(CROSSOVER, { rgb: warmEnd }) },
   };
 }
 function samplePiece(piece: GradientPiece, amount: number): Color {

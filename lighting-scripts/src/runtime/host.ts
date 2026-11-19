@@ -9,16 +9,22 @@ import type { ExecutionRequest, ExecutionResult } from './engine.ts';
 
 export type Program = (request: ExecutionRequest) => ExecutionResult;
 export interface OutputAcknowledgement { states?: Record<string, EntityState> }
-export interface OutputTransport { send(call: ServiceCall): Promise<void | OutputAcknowledgement>; close(): Promise<void>; event?(event: EventRecord): Promise<void> }
+export interface OutputTransport {
+  send(call: ServiceCall): Promise<void | OutputAcknowledgement>;
+  close(): Promise<void>;
+  event?(event: EventRecord): Promise<void>;
+}
 export interface HostOptions {
   path: string; initial: Snapshot; program: Program; transport: OutputTransport;
   autoTimers?: boolean; connected?: boolean; now?: () => number; report?: (message: string) => void;
 }
 interface Journal { version: 1; snapshot: Snapshot; uncertain: boolean; pending: number; held?: ScheduledTask[] }
-interface Batch { calls: ServiceCall[]; events: EventRecord[]; epoch: number; topology: unknown; deferred: Map<string, JsonObject>; tasks: ScheduledTask[]; started: number; versions: Map<ServiceCall, Map<string, number>>; revision?: string }
+interface Batch { calls: ServiceCall[]; events: EventRecord[]; epoch: number; topology: unknown; deferred: Map<string,
+  JsonObject>; tasks: ScheduledTask[]; started: number; versions: Map<ServiceCall, Map<string, number>>; revision?: string }
 const successFields = ['applied', 'bulb_effects', 'handled_rooms', 'handled_full', 'last_latency'];
 const object = (value: unknown): JsonObject => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as JsonObject : {};
-function ids(call: ServiceCall): string[] { const value = call.target?.entity_id ?? call.data.entity_id; return Array.isArray(value) ? value.map(String) : typeof value === 'string' ? [value] : []; }
+function ids(call: ServiceCall): string[] { const value = call.target?.entity_id ?? call.data.entity_id; return Array.isArray(value) ?
+  value.map(String) : typeof value === 'string' ? [value] : []; }
 /**
  * Handlers deleted from the program whose scheduled tasks may still sit in a
  * journal (or an HA snapshot) written before the deletion. Listed by name, so
@@ -30,7 +36,8 @@ function ids(call: ServiceCall): string[] { const value = call.target?.entity_id
  */
 const RETIRED_SCRIPTS: ReadonlySet<string> = new Set(['effects_engine_tick']);
 function topology(snapshot: Snapshot): unknown {
-  return [snapshot.areas, snapshot.members, snapshot.devices, snapshot.entitySources, snapshot.catalog, snapshot.state['binary_sensor.zigbee2mqtt_bridge_connection_state']];
+  return [snapshot.areas, snapshot.members, snapshot.devices, snapshot.entitySources, snapshot.catalog,
+    snapshot.state['binary_sensor.zigbee2mqtt_bridge_connection_state']];
 }
 
 /** One process owns the journal and writer. Ambiguous in-flight calls are never replayed. */
@@ -56,7 +63,10 @@ export class LightingHost {
   private timer: ReturnType<typeof setTimeout> | undefined;
   recoveryRequired = false;
 
-  private constructor(options: HostOptions) { this.options = options; this.state = structuredClone(options.initial); this.program = options.program; this.connected = options.connected ?? true; }
+  private constructor(options: HostOptions) {
+    this.options = options; this.state = structuredClone(options.initial); this.program = options.program;
+    this.connected = options.connected ?? true;
+  }
   static async open(options: HostOptions): Promise<LightingHost> {
     const host = new LightingHost(options);
     await mkdir(dirname(options.path), { recursive: true, mode: 0o700 });
@@ -65,17 +75,20 @@ export class LightingHost {
     // Keep the lock inode permanently: deleting it can create two independent owners.
     host.owner = await open(lock, 'a+', 0o600);
     const locked = spawnSync('flock', ['--nonblock', '3'], { stdio: ['ignore', 'pipe', 'pipe', host.owner.fd] });
-    if (locked.error || locked.status !== 0) { await host.owner.close(); throw new Error(locked.error ? `Runtime needs flock: ${locked.error.message}` : 'Runtime already has an owner (locked)'); }
+    if (locked.error || locked.status !== 0) { await host.owner.close(); throw new Error(locked.error ?
+      `Runtime needs flock: ${locked.error.message}` : 'Runtime already has an owner (locked)'); }
     await host.owner.truncate(0); await host.owner.writeFile(String(process.pid)); await host.owner.sync();
     try {
       try {
         const data = JSON.parse(await readFile(options.path, 'utf8')) as Journal;
-        if (data.version !== 1 || !data.snapshot?.state || !Number.isFinite(Date.parse(data.snapshot.now))) throw new Error('Invalid runtime journal');
+        if (data.version !== 1 || !data.snapshot?.state ||
+          !Number.isFinite(Date.parse(data.snapshot.now))) throw new Error('Invalid runtime journal');
         host.state = data.snapshot;
         host.recoveryRequired = data.uncertain || data.pending > 0;
         for (const held of data.held ?? []) {
           const task = host.state.scheduled?.find(item => isDeepStrictEqual(item, held));
-          if (task) { task.due = Math.max(task.due, host.now()); task.args = { ...task.args, host_completed_at: new Date(host.now()).toISOString(), host_output_success: false }; }
+          if (task) { task.due = Math.max(task.due, host.now()); task.args = { ...task.args,
+            host_completed_at: new Date(host.now()).toISOString(), host_output_success: false }; }
         }
       } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
       host.dropRetired(host.state);
@@ -88,7 +101,9 @@ export class LightingHost {
     const scheduled = state.scheduled ?? [];
     const kept = scheduled.filter(task => !RETIRED_SCRIPTS.has(task.script));
     if (kept.length === scheduled.length) return false;
-    for (const task of scheduled) if (RETIRED_SCRIPTS.has(task.script)) this.options.report?.(`Dropped a scheduled task for the retired script ${task.script}`);
+    for (const task of scheduled) {
+      if (RETIRED_SCRIPTS.has(task.script)) this.options.report?.(`Dropped a scheduled task for the retired script ${task.script}`);
+    }
     state.scheduled = kept;
     return true;
   }
@@ -116,7 +131,8 @@ export class LightingHost {
     const temporary = `${this.options.path}.${randomUUID()}.tmp`;
     const file = await open(temporary, 'wx', 0o600);
     try {
-      await file.writeFile(JSON.stringify({ version: 1, snapshot: this.state, uncertain: this.recoveryRequired, pending: this.pending, held: [...this.held.values()] } satisfies Journal));
+      await file.writeFile(JSON.stringify({ version: 1, snapshot: this.state, uncertain: this.recoveryRequired, pending: this.pending,
+        held: [...this.held.values()] } satisfies Journal));
       await file.sync();
     } finally { await file.close(); }
     await rename(temporary, this.options.path);
@@ -139,7 +155,8 @@ export class LightingHost {
     if (incoming) state.state[entity] = structuredClone(incoming); else delete state.state[entity];
   }
   async update(change: (snapshot: Snapshot) => void): Promise<void> {
-    await this.mutation(async () => { if (this.closing) return; const next = this.snapshot(); change(next); this.state = next; await this.save(); this.armTimer(); });
+    await this.mutation(async () =>
+      { if (this.closing) return; const next = this.snapshot(); change(next); this.state = next; await this.save(); this.armTimer(); });
   }
   dispatch(script: string, args: JsonObject = {}): Promise<JsonValue> { return this.transaction(script, args); }
   private async transaction(script: string, args: JsonObject, task?: ScheduledTask): Promise<JsonValue> {
@@ -178,7 +195,8 @@ export class LightingHost {
         }
       }
       this.state = next;
-      const tasks = (next.scheduled ?? []).filter(item => item.args.host_timer_deadline === undefined && !(previous.scheduled ?? []).some(old => isDeepStrictEqual(old, item)));
+      const tasks = (next.scheduled ?? []).filter(item => item.args.host_timer_deadline === undefined &&
+        !(previous.scheduled ?? []).some(old => isDeepStrictEqual(old, item)));
       const versions = new Map<ServiceCall, Map<string, number>>();
       for (const call of result.calls) if (/^(variable|input_text|input_number|input_boolean|timer)\./.test(call.service)) {
         const callVersions = new Map<string, number>();
@@ -189,7 +207,9 @@ export class LightingHost {
         }
         versions.set(call, callVersions);
       }
-      const batch: Batch = { calls: result.calls, events: result.events, epoch: this.epoch, topology: structuredClone(topology(next)), deferred, tasks: structuredClone(tasks), started: this.now(), versions, ...(next.state['sensor.ls_overrides']?.last_updated ? { revision: next.state['sensor.ls_overrides']!.last_updated! } : {}) };
+      const batch: Batch = { calls: result.calls, events: result.events, epoch: this.epoch, topology: structuredClone(topology(next)),
+        deferred, tasks: structuredClone(tasks), started: this.now(), versions, ...(next.state['sensor.ls_overrides']?.last_updated ?
+        { revision: next.state['sensor.ls_overrides']!.last_updated! } : {}) };
       if (batch.calls.length || batch.events.length) for (const task of tasks) this.held.set(JSON.stringify(task), task);
       if (batch.calls.length || batch.events.length) this.pending++;
       try { await this.save(); } catch (error) { this.state = previous; this.closing = true; throw error; }
@@ -203,17 +223,20 @@ export class LightingHost {
     await this.mutation(async () => { this.epoch++; this.program = program; this.armTimer(); await this.save(); });
   }
   async connectionChanged(connected: boolean): Promise<void> {
-    await this.mutation(async () => { this.connected = connected; this.epoch++; if (!connected && this.pending) this.recoveryRequired = true; await this.save(); this.armTimer(); });
+    await this.mutation(async () => { this.connected = connected; this.epoch++; if (!connected &&
+      this.pending) this.recoveryRequired = true; await this.save(); this.armTimer(); });
   }
   private allowed(call: ServiceCall, batch: Batch): boolean {
     if (this.closing || !this.connected || batch.epoch !== this.epoch) return false;
     const guard = call.guard;
     if (!guard) return true;
     const runtime = this.state.state['sensor.ls_effects_runtime']?.attributes ?? {};
-    if (this.state.state['sensor.ls_overrides']?.last_updated !== (this.revisionAliases.get(guard.revision) ?? guard.revision) || !isDeepStrictEqual(runtime.generation, guard.generation) || !isDeepStrictEqual(topology(this.state), batch.topology)) return false;
+    if (this.state.state['sensor.ls_overrides']?.last_updated !== (this.revisionAliases.get(guard.revision) ?? guard.revision) ||
+      !isDeepStrictEqual(runtime.generation, guard.generation) || !isDeepStrictEqual(topology(this.state), batch.topology)) return false;
     for (const owner of guard.owners ?? []) if (this.state.state[owner]?.state !== 'on') return false;
     for (const member of guard.members ?? []) if (this.state.state[member]?.state !== 'on') return false;
-    for (const [entity, target] of Object.entries(guard.effectTargets ?? {})) if (!isDeepStrictEqual(object(runtime.assignments)[entity], target)) return false;
+    for (const [entity, target] of Object.entries(guard.effectTargets ?? {})) if (!isDeepStrictEqual(object(runtime.assignments)[entity],
+      target)) return false;
     let payload: JsonObject = {};
     try { payload = object(typeof call.data.payload === 'string' ? JSON.parse(call.data.payload) : call.data.payload); } catch { return false; }
     if (payload.state !== 'OFF') for (const owner of guard.owners ?? []) {
@@ -239,14 +262,16 @@ export class LightingHost {
           else throw new Error(`Unsupported external event: ${event.event}`);
         }
         // Completion writes always follow every physical command, irrespective of template order.
-        const calls = [...batch.calls.filter(call => !call.guard?.requiresOutputSuccess), ...batch.calls.filter(call => call.guard?.requiresOutputSuccess)];
+        const calls = [...batch.calls.filter(call => !call.guard?.requiresOutputSuccess), ...batch.calls.filter(call =>
+          call.guard?.requiresOutputSuccess)];
         for (const call of calls) {
           if (!this.allowed(call, batch) || (call.guard?.requiresOutputSuccess && !succeeded)) { succeeded = false; continue; }
           if (call.service === 'script.turn_on') {
             for (const entity of ids(call)) await this.dispatch(entity.replace(/^script\./, ''), object(call.data.variables));
           } else if (call.service === 'script.turn_off') {
             const names = ids(call).map(entity => entity.replace(/^script\./, ''));
-            await this.update(state => { state.scheduled = (state.scheduled ?? []).filter(task => !names.some(name => task.script === name || task.script.startsWith(name + '_'))); });
+            await this.update(state => { state.scheduled = (state.scheduled ?? []).filter(task => !names.some(name =>
+              task.script === name || task.script.startsWith(name + '_'))); });
           } else {
             const acknowledgement = await this.options.transport.send(call);
             await this.mutation(async () => {
@@ -254,7 +279,8 @@ export class LightingHost {
                 const version = batch.versions.get(call)?.get(entity);
                 if (version === undefined || version !== this.writeVersions.get(entity)) continue;
                 if (call.guard?.requiresOutputSuccess) continue;
-                if (entity === 'sensor.ls_overrides' && batch.revision && state.last_updated) this.revisionAliases.set(batch.revision, state.last_updated);
+                if (entity === 'sensor.ls_overrides' && batch.revision && state.last_updated) this.revisionAliases.set(batch.revision,
+                  state.last_updated);
                 this.state.state[entity] = structuredClone(state);
               }
               for (const [entity, version] of batch.versions.get(call) ?? []) this.pendingWrites.get(entity)?.delete(version);
@@ -275,7 +301,8 @@ export class LightingHost {
         for (const held of batch.tasks) {
           this.held.delete(JSON.stringify(held));
           const task = this.state.scheduled?.find(item => isDeepStrictEqual(item, held));
-          if (task) { task.due += Math.max(0, this.now() - batch.started); task.args = { ...task.args, host_completed_at: new Date(this.now()).toISOString(), host_output_success: succeeded }; }
+          if (task) { task.due += Math.max(0, this.now() - batch.started); task.args = { ...task.args,
+            host_completed_at: new Date(this.now()).toISOString(), host_output_success: succeeded }; }
         }
         for (const versions of batch.versions.values()) for (const [entity, version] of versions) this.pendingWrites.get(entity)?.delete(version);
         const referenced = new Set(this.batches.flatMap(item => item.calls.map(call => call.guard?.revision)));
@@ -291,11 +318,13 @@ export class LightingHost {
     if (this.options.autoTimers === false || this.closing || !this.connected) return;
     const due = Math.min(...(this.state.scheduled ?? []).filter(task => !this.held.has(JSON.stringify(task))).map(task => task.due));
     if (!Number.isFinite(due)) return;
-    this.timer = setTimeout(() => { void this.runDue().catch(error => this.options.report?.(String(error))); }, Math.max(0, Math.min(2_147_483_647, due - this.now())));
+    this.timer = setTimeout(() => { void this.runDue().catch(error => this.options.report?.(String(error))); }, Math.max(0,
+      Math.min(2_147_483_647, due - this.now())));
   }
   async runDue(): Promise<void> {
     while (!this.closing && this.connected) {
-      const task = (this.snapshot().scheduled ?? []).filter(item => item.due <= this.now() && !this.held.has(JSON.stringify(item))).sort((a, b) => a.due - b.due)[0];
+      const task = (this.snapshot().scheduled ?? []).filter(item => item.due <= this.now() && !this.held.has(JSON.stringify(item))).sort((a,
+        b) => a.due - b.due)[0];
       if (!task) break;
       if (RETIRED_SCRIPTS.has(task.script)) { await this.update(state => { this.dropRetired(state); }); continue; }
       await this.transaction(task.script, task.args, task);

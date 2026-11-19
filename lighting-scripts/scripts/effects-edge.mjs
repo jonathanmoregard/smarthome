@@ -53,6 +53,11 @@
 // extended to src/handlers at 0): domainScriptContext 25 -> 0,
 // domainCtx 55 -> 0, longLines 131 -> 126 (the moved import blocks wrapped).
 //
+// U8c (every remaining line over 150 characters wrapped; code changes are
+// whitespace only, except PYTHON_FLOAT, rebuilt from two String.raw halves
+// with an identical source and flags): longLines 126 -> 0. Every ceiling is
+// now at its final state of 0.
+//
 // Raising a ceiling is the regression this guard exists to catch; argue any
 // raise in the commit message.
 import { readdir, readFile } from 'node:fs/promises';
@@ -67,7 +72,7 @@ const CEILINGS = {
   domainCtx: 0,
   houseViewGenerators: 0,
   effectCalls: 0,
-  longLines: 126,
+  longLines: 0,
 };
 
 function stripComments(source) {

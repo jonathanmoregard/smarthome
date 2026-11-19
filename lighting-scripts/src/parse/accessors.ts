@@ -41,7 +41,9 @@ export function nativeScalar(value: JsonValue): JsonValue {
 export function timestamp(value: JsonValue | undefined): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   const ts = typeof value === 'string' ? Date.parse(value) / 1000 : NaN;
-  if (!Number.isFinite(ts)) throw new ParseError(`schedule timestamp must be a finite epoch or date string, got ${JSON.stringify(value) ?? 'undefined'}`);
+  if (!Number.isFinite(ts)) {
+    throw new ParseError(`schedule timestamp must be a finite epoch or date string, got ${JSON.stringify(value) ?? 'undefined'}`);
+  }
   return ts;
 }
 export function optionalTimestamp(value: JsonValue | undefined): number | undefined {

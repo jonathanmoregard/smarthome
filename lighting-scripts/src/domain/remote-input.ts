@@ -35,7 +35,8 @@ export interface Adjustment {
 
 /** An adjustment the planner builds itself; it has no `has_up`. */
 function built(fields: AssembledMap & { updated: number; lower: number; upper: number; steps: number }): Adjustment {
-  return { fields, updated: () => fields.updated, lower: () => fields.lower, upper: () => fields.upper, steps: () => fields.steps, hasUp: () => false };
+  return { fields, updated: () => fields.updated, lower: () => fields.lower, upper: () => fields.upper, steps: () => fields.steps,
+    hasUp: () => false };
 }
 
 /** A mode flip carries its own value; `sara_toggle` is the only producer. */
@@ -117,7 +118,8 @@ export function remoteOpening(view: HouseView, args: RemotePlanArgs): RemoteOpen
 }
 
 /** The command's operation, from the opening reads, the room plan and the catalog, on the house after both runs. */
-export function remoteDecision(view: HouseView, args: RemotePlanArgs, opening: RemoteOpening, plan: RemoteRoomPlan, catalog: Catalog): RemotePlanResult {
+export function remoteDecision(view: HouseView, args: RemotePlanArgs, opening: RemoteOpening, plan: RemoteRoomPlan,
+  catalog: Catalog): RemotePlanResult {
   const source = args.source, command = args.command;
   const { room, overrides, stamp, revision, timingRevision } = opening;
   const inputKey = overrides.inputKey;
@@ -150,7 +152,8 @@ export function remoteDecision(view: HouseView, args: RemotePlanArgs, opening: R
       for (const other of overrides.others) {
         if (other.key === key) continue;
         // A non-mapping record has no scope or target, so it never applies.
-        const applies = other.scope === 'room' && other.target === room || other.scope === 'house' && other.target === 'house' && !(view.labels?.private_room ?? []).includes(room);
+        const applies = other.scope === 'room' && other.target === room || other.scope === 'house' && other.target === 'house' &&
+          !(view.labels?.private_room ?? []).includes(room);
         if (!applies || !other.valueIsMapping) continue;
         const newer = other.newer();
         if (newer > adjustment.updated()) restart = true;
@@ -169,7 +172,8 @@ export function remoteDecision(view: HouseView, args: RemotePlanArgs, opening: R
           updated: stamp, last: command, has_up: hasUp || command === 'up' };
         next.adjustment = fields;
       } else {
-        const choices = ['day', 'cosy', 'Candle', ...Object.keys(catalog.effects).filter(k => !['Candle', 'Colour loop', 'Breathe', 'Normal light'].includes(k))];
+        const choices = ['day', 'cosy', 'Candle', ...Object.keys(catalog.effects).filter(k => !['Candle', 'Colour loop', 'Breathe',
+          'Normal light'].includes(k))];
         let selected = presetSelection(value.selection, plan.roomPeriod(room));
         const names = ['period', 'period_updated', 'selection_updated', 'selection_input', 'selection_instance', 'legacy_channels'];
         const contexts: AssembledMap = { ...value.presetContexts, [selected]: pick(next, names) };
@@ -178,7 +182,8 @@ export function remoteDecision(view: HouseView, args: RemotePlanArgs, opening: R
         const stored = contextEntries(contexts[selected]);
         const saved: AssembledMap = stored !== undefined ? stored : ['day', 'cosy'].includes(selected)
           ? { period: selected, period_updated: stamp, selection_updated: stamp }
-          : { ...pick(next, ['period', 'period_updated']), selection_updated: stamp, selection_input: fields, selection_instance: `${source}:${selected}` };
+          : { ...pick(next, ['period', 'period_updated']), selection_updated: stamp, selection_input: fields,
+            selection_instance: `${source}:${selected}` };
         next = { ...omit(next, names), selection: selected, adjustment: fields, preset_contexts: contexts, ...saved };
       }
       const schedule = plan.scheduleDetails(room);

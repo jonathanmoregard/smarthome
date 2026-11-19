@@ -1,4 +1,5 @@
-import type { EntityState, EventRecord, JsonObject, JsonValue, OutputGuard, ScheduledTask, ScriptContext, ScriptHandlers, ServiceCall, Snapshot } from './context.ts';
+import type { EntityState, EventRecord, JsonObject, JsonValue, OutputGuard, ScheduledTask, ScriptContext, ScriptHandlers, ServiceCall,
+  Snapshot } from './context.ts';
 import type { Catalog } from './catalog.ts';
 import type { TypedResults } from './entrypoints.ts';
 import { emptyCatalog, parseCatalog } from './catalog.ts';
@@ -162,7 +163,8 @@ class Context implements ScriptContext {
     for (const entity of entities) {
       if (service === 'variable.update_sensor') {
         const attributes = data.attributes && typeof data.attributes === 'object' && !Array.isArray(data.attributes) ? data.attributes : {};
-        this.put(entity, String(data.value ?? this.get(entity)), { ...(data.replace_attributes ? {} : this.state[entity]?.attributes), ...attributes });
+        this.put(entity, String(data.value ?? this.get(entity)), { ...(data.replace_attributes ? {} : this.state[entity]?.attributes),
+          ...attributes });
       } else if (['input_text.set_value', 'input_number.set_value'].includes(service)) this.put(entity, String(data.value));
       else if (service === 'input_select.select_option') this.put(entity, String(data.option));
       else if (/^(input_boolean|homeassistant)\.turn_(on|off)$/.test(service)) this.put(entity, service.endsWith('_on') ? 'on' : 'off');

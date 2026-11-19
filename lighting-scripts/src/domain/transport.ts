@@ -330,7 +330,8 @@ export function* planAssignUpdate(decision: AssignDecision, revision: string, de
  * native-owned effect channel was re-stamped: `stop_colorloop` then
  * `stop_effect`, per on member.
  */
-export function stopCommands(view: HouseView, catalog: Catalog, targetViews: ReturnType<AssignDetails['targetViews']>, stored: RuntimeState): StopCommand[] {
+export function stopCommands(view: HouseView, catalog: Catalog, targetViews: ReturnType<AssignDetails['targetViews']>,
+  stored: RuntimeState): StopCommand[] {
   const commands: StopCommand[] = [];
   for (const [lamp, target] of Object.entries(targetViews)) {
     if (target.isRoom) continue;
@@ -341,7 +342,8 @@ export function stopCommands(view: HouseView, catalog: Catalog, targetViews: Ret
       // A lamp leaving an effect its bulbs run is told to stop it, before its new light.
       const was = runningIn(channel, previous.channels);
       if (was !== undefined && runningOn(channel, source.effect) !== was) needed = true;
-      if (source.kind === 'effect' && target.owners[channel].startsWith('channels:native:') && source.updated !== previous.updated(channel)) needed = true;
+      if (source.kind === 'effect' && target.owners[channel].startsWith('channels:native:') &&
+        source.updated !== previous.updated(channel)) needed = true;
     }
     if (needed) for (const member of catalog.members[lamp] ?? []) if (view.get(member) === 'on') {
       // A member the catalog gives no topic is skipped, as the light path

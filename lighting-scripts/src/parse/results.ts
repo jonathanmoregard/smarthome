@@ -5,7 +5,8 @@ import type { AssignResult, EmitResult } from '../domain/transport.ts';
 import type { CommitResult } from '../domain/state-store.ts';
 import type { GroupCommand, GroupPlanResult, RejectedRow } from '../domain/grouping.ts';
 import type { RemoteInputRecord, RemoteModeRecord, RemotePlanOp, RemotePlanResult } from '../domain/remote-input.ts';
-import type { LampColor, LampProfile, LampProfileEntry, ScheduleCommand, ScheduleDetails, ScheduleEnvelope, ScheduledBaseResult, TargetEntry } from '../domain/schedule.ts';
+import type { LampColor, LampProfile, LampProfileEntry, ScheduleCommand, ScheduleDetails, ScheduleEnvelope, ScheduledBaseResult,
+  TargetEntry } from '../domain/schedule.ts';
 import { optionalBlock } from './blocks.ts';
 import { ParseError, requireArray, requireBoolean, requireFinite, requireNumber, requireObject, requireString } from '../runtime/parse.ts';
 import { carry } from '../runtime/verbatim.ts';

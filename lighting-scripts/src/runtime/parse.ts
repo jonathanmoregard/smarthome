@@ -43,7 +43,8 @@ export function isObject(value: unknown): value is JsonObject {
 export function object(value: unknown): JsonObject { return isObject(value) ? value : {}; }
 
 /** Python `float(str)` grammar: no hex, no thousands separators, inf/nan allowed. */
-const PYTHON_FLOAT = /^[+-]?(?:(?:\d(?:_?\d)*)?\.?(?:\d(?:_?\d)*)(?:[eE][+-]?\d(?:_?\d)*)?|(?:\d(?:_?\d)*)\.(?:\d(?:_?\d)*)?(?:[eE][+-]?\d(?:_?\d)*)?|inf(?:inity)?|nan)$/i;
+const PYTHON_FLOAT = new RegExp(String.raw`^[+-]?(?:(?:\d(?:_?\d)*)?\.?(?:\d(?:_?\d)*)(?:[eE][+-]?\d(?:_?\d)*)?`
+  + String.raw`|(?:\d(?:_?\d)*)\.(?:\d(?:_?\d)*)?(?:[eE][+-]?\d(?:_?\d)*)?|inf(?:inity)?|nan)$`, 'i');
 /** Python `int(str, 10)` grammar: digits only, so `"1e3"` and `"0x10"` fail here. */
 const PYTHON_INT = /^[+-]?\d(?:_?\d)*$/;
 

@@ -30,7 +30,9 @@ export function lenientOverrides(ctx: HouseView): StoredOverrides {
  */
 export function overridesRevision(ctx: HouseView, script: string): string {
   const sensor = ctx.state[OVERRIDES_SENSOR];
-  if (sensor === undefined) throw new ParseError(`${script}.revision: ${OVERRIDES_SENSOR} is missing, and the captured script reads its last_updated bare`);
+  if (sensor === undefined) {
+    throw new ParseError(`${script}.revision: ${OVERRIDES_SENSOR} is missing, and the captured script reads its last_updated bare`);
+  }
   if (sensor.last_updated === undefined) throw new ParseError(`${script}.revision: ${OVERRIDES_SENSOR} has no last_updated`);
   return sensor.last_updated;
 }
