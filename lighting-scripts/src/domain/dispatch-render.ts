@@ -1,9 +1,13 @@
 import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
 import { typed } from '../runtime/entrypoints.ts';
 import { jinjaTruthy } from '../runtime/parse.ts';
+import { carry } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
+import { drive, perform, run } from '../runtime/effects.ts';
+import type { Effect, HouseView, Plan } from '../runtime/effects.ts';
+import type { GroupCommand, GroupPlanResult } from './grouping.ts';
 import { hasValue } from './schedule.ts';
-import { bulbEffect, runningIn } from './transport.ts';
+import { bulbEffect, runningIn, stillCurrent } from './transport.ts';
 import type { AssignResult, EmitResult } from './transport.ts';
 import { timestamp } from '../parse/accessors.ts';
 import type { OpaqueMap, StoredFact, StoredValue } from '../parse/overrides.ts';
@@ -13,6 +17,7 @@ import type { StoredChannels } from '../parse/transport.ts';
 import {
   areaOf, dispatchPlanOrder, dispatchRuntime, fullPlan, optionalRevisionAttribute, parseDispatchArgs, roomCacheGradients, roomPlanView,
 } from '../parse/dispatch-render.ts';
+import type { DispatchRuntime, FullPlan, RoomPlanView } from '../parse/dispatch-render.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
 const overrideSensor = 'sensor.ls_overrides';
@@ -51,7 +56,6 @@ export interface DispatchArgs {
   details: () => DispatchDetails;
 }
 
-/** Delta output actor: invalidate touched lamps before sending, acknowledge only complete batches. */
 /**
  * `ls_dispatch`'s result. `null` is one of its real answers -- every
  * revision-moved and stale-plan guard returns it -- so it is in the type rather
@@ -59,58 +63,240 @@ export interface DispatchArgs {
  */
 export type DispatchResult = { completed: boolean; published_at: number[] } | null;
 
-export function dispatch(ctx: ScriptContext, args: DispatchArgs): DispatchResult {
-  const revision = args.revision;
-  if (revision !== overridesRevision(ctx, 'ls_dispatch') || args.planOrder < dispatchPlanOrder(ctx)) return null;
-  const details = args.details();
-  const { targets, targetViews, assignments, requested, outputTargets, remoteRooms,
-    remote, switches, mirrors, staleKeys, saraMirror } = details;
-  const catalog = ctx.run('effects_catalog');
-  const previous = dispatchRuntime(ctx);
+/** What a dispatch carries once its plan is accepted. */
+type Accepted = { revision: string; planOrder: number; details: DispatchDetails };
+/** ...once the catalog is fetched and the lamps to send are chosen against the runtime as it stood. */
+type Chosen = Accepted & { catalog: Verbatim; previous: DispatchRuntime; ordinary: OpaqueMap };
+/** ...once the assignment answered its generation. */
+type Assigned = Chosen & { generation: AssignResult['generation'] };
+/** ...once the light went out. */
+type Lit = Assigned & { emission: EmitResult };
+/** ...once every publish is done: whether all completed, and when each went out. */
+type Settled = Assigned & { completed: boolean; publishedAt: number[] };
+
+/**
+ * `ls_dispatch` as a state machine, one phase per answer it waits for. The
+ * order is the captured script's: revision and plan-order stop, details,
+ * catalog, the lamps to send, `effects_assign`, `effects_frame_plan`,
+ * `effects_emit` (the light), `effects_emit` again (the bulb-effect starts),
+ * then the guarded runtime record, the switches one by one, and the tail.
+ */
+export type DispatchPhase =
+  | { tag: 'opening'; args: DispatchArgs }
+  | { tag: 'cataloguing'; run: Accepted }
+  | { tag: 'assigning'; run: Chosen }
+  | { tag: 'framing'; run: Assigned }
+  | { tag: 'emitting'; run: Assigned }
+  | { tag: 'starting'; run: Lit }
+  /** The switches from `next` on are still to be checked. */
+  | { tag: 'switching'; run: Settled; next: number }
+  | { tag: 'finishing'; run: Settled }
+  | { tag: 'done'; answer: DispatchResult };
+/**
+ * Every message carries the house as it stands after the command that
+ * answered: a step's reads are made on it, and never cross the commands that
+ * step returns.
+ */
+export type DispatchMsg =
+  | { tag: 'start'; house: HouseView }
+  | { tag: 'catalog'; catalog: Verbatim; house: HouseView }
+  | { tag: 'assigned'; result: AssignResult; house: HouseView }
+  | { tag: 'framed'; batch: GroupPlanResult; house: HouseView }
+  | { tag: 'emitted'; result: EmitResult; house: HouseView }
+  | { tag: 'performed'; house: HouseView };
+type StartCommand = { topic: string; payload: { effect: string }; members: string[]; owners: string[]; group: null };
+export type DispatchCmd =
+  /** Run `effects_catalog`; answers `catalog`. */
+  | { tag: 'catalog' }
+  /** Call `effects_assign`; answers `assigned`. */
+  | { tag: 'assign'; args: { targets: Verbatim; assignments: Verbatim; revision: string; invalidate: string[]; plan_order: number } }
+  /** Call `effects_frame_plan`; answers `framed`. */
+  | { tag: 'frame'; args: {
+    targets: OpaqueMap; catalog: Verbatim; timestamp: number; transition_cap: number | null; transition_rooms: StoredValue[] | null;
+  } }
+  /** Call `effects_emit`; answers `emitted`. */
+  | { tag: 'emit'; args: { commands: GroupCommand[] | StartCommand[]; revision: string; generation: AssignResult['generation'] } }
+  /** Perform one effect; answers `performed`. */
+  | { tag: 'effect'; effect: Effect }
+  /** Perform a lazy plan, whose raising reads sit between its effects; answers `performed`. */
+  | { tag: 'plan'; plan: Plan<void> };
+type Transition = [DispatchPhase, DispatchCmd[]];
+
+export function dispatchStart(args: DispatchArgs): DispatchPhase {
+  return { tag: 'opening', args };
+}
+
+export function dispatchStep(phase: DispatchPhase, msg: DispatchMsg): Transition {
+  switch (phase.tag) {
+    case 'opening': {
+      if (msg.tag !== 'start') return unexpected(phase, msg);
+      const { args } = phase, revision = args.revision, house = msg.house;
+      if (revision !== overridesRevision(house, 'ls_dispatch') || args.planOrder < dispatchPlanOrder(house)) return done(null);
+      return [{ tag: 'cataloguing', run: { revision, planOrder: args.planOrder, details: args.details() } }, [{ tag: 'catalog' }]];
+    }
+    case 'cataloguing': {
+      if (msg.tag !== 'catalog') return unexpected(phase, msg);
+      const { revision, planOrder, details } = phase.run;
+      const previous = dispatchRuntime(msg.house);
+      const ordinary = ordinaryTargets(msg.house, details, previous);
+      return [{ tag: 'assigning', run: { ...phase.run, catalog: msg.catalog, previous, ordinary } }, [{ tag: 'assign', args: {
+        targets: details.targets, assignments: details.assignments, revision, invalidate: Object.keys(ordinary), plan_order: planOrder,
+      } }]];
+    }
+    case 'assigning': {
+      if (msg.tag !== 'assigned') return unexpected(phase, msg);
+      const run = { ...phase.run, generation: msg.result.generation };
+      const { remote, remoteRooms } = run.details;
+      return [{ tag: 'framing', run }, [{ tag: 'frame', args: {
+        targets: run.ordinary, catalog: run.catalog, timestamp: timestamp(msg.house.now),
+        transition_cap: remote || remoteRooms.length > 0 ? 0.5 : null, transition_rooms: remote ? null : remoteRooms,
+      } }]];
+    }
+    case 'framing': {
+      if (msg.tag !== 'framed') return unexpected(phase, msg);
+      const run = phase.run;
+      return [{ tag: 'emitting', run }, [{ tag: 'emit', args: { commands: msg.batch.commands, revision: run.revision, generation: run.generation } }]];
+    }
+    case 'emitting': {
+      if (msg.tag !== 'emitted') return unexpected(phase, msg);
+      const run = { ...phase.run, emission: msg.result };
+      const commands = bulbStartCommands(msg.house, sentStarts(run));
+      if (commands.length === 0) return settle(msg.house, run, { published_at: [], completed: true });
+      return [{ tag: 'starting', run }, [{ tag: 'emit', args: { commands, revision: run.revision, generation: run.generation } }]];
+    }
+    case 'starting': {
+      if (msg.tag !== 'emitted') return unexpected(phase, msg);
+      return settle(msg.house, phase.run, msg.result);
+    }
+    case 'switching': {
+      if (msg.tag !== 'performed') return unexpected(phase, msg);
+      return switching(msg.house, phase.run, phase.next);
+    }
+    case 'finishing': {
+      if (msg.tag !== 'performed') return unexpected(phase, msg);
+      const { revision, generation, completed, publishedAt } = phase.run;
+      return done({ completed: completed && stillCurrent(msg.house, 'ls_dispatch', revision, generation), published_at: publishedAt });
+    }
+    case 'done':
+      return unexpected(phase, msg);
+    default: {
+      const unknown: never = phase;
+      throw new Error(`Unhandled ls_dispatch phase ${JSON.stringify(unknown)}`);
+    }
+  }
+}
+
+function done(answer: DispatchResult): Transition {
+  return [{ tag: 'done', answer }, []];
+}
+function unexpected(phase: DispatchPhase, msg: DispatchMsg): never {
+  throw new Error(`ls_dispatch: phase ${phase.tag} cannot take ${msg.tag}`);
+}
+
+/**
+ * The lamps to send: on, not rooms, inside the output targets, sendable
+ * (requested, in a remote room, or the baseline sends it), and not already
+ * showing what the target needs.
+ */
+export function ordinaryTargets(view: HouseView, details: DispatchDetails, previous: DispatchRuntime): OpaqueMap {
+  const { targetViews, requested, outputTargets, remoteRooms } = details;
   const ordinary: OpaqueMap = {};
   for (const [lamp, target] of Object.entries(targetViews)) {
-    if (target.isRoom || (outputTargets.length && !outputTargets.includes(lamp))) continue;
-    if (ctx.get(lamp) !== 'on') continue;
+    if (target.isRoom || (outputTargets.length > 0 && !outputTargets.includes(lamp))) continue;
+    if (view.get(lamp) !== 'on') continue;
     if (!(requested.includes(lamp) || remoteRooms.includes(target.area ?? null) || details.baselineSend(lamp))) continue;
     if (requested.includes(lamp) || (previous.hadEffect(lamp) && !details.assigned(lamp)) || !previous.applied(lamp, target.document)
       || !sameStarts(recordedStarts(previous.bulbEffects, lamp), bulbStarts(target))) ordinary[lamp] = target.document;
   }
-  const assigned = ctx.call('effects_assign', { targets, assignments, revision, invalidate: Object.keys(ordinary), plan_order: args.planOrder });
-  const batch = ctx.call('effects_frame_plan', { targets: ordinary, catalog, timestamp: timestamp(ctx.now),
-    transition_cap: remote || remoteRooms.length ? 0.5 : null, transition_rooms: remote ? null : remoteRooms });
-  // `object(...)` and `?? []` are gone: `planGroups` builds all five fields on
-  // every path, so both could only fire for a stub, and `decodeGroupPlan` is
-  // where that case is handled now -- strictly, rather than as an empty batch.
-  const emission = ctx.call('effects_emit', { commands: batch.commands, revision, generation: assigned.generation });
-  const started = startBulbEffects(ctx, Object.keys(ordinary).map(lamp => [lamp, bulbStarts(targetViews[lamp]!)]), revision, assigned.generation);
+  return ordinary;
+}
+
+/** Each sent lamp with the starts its bulbs need. */
+function sentStarts(run: Chosen): Array<[string, string[]]> {
+  return Object.keys(run.ordinary).map(lamp => [lamp, bulbStarts(run.details.targetViews[lamp]!)]);
+}
+
+/**
+ * Every publish is done. Stop if the revision or the generation moved;
+ * otherwise record a complete output's applied lights (and bulb-effect
+ * starts) under the generation, then go on to the switches.
+ */
+function settle(house: HouseView, run: Lit, started: EmitResult): Transition {
+  const { revision, generation, ordinary } = run;
   // `requireBoolean(emission.completed)`, `?? null` on the generation and
   // `?? []` on published_at are all gone: `emitCommands` builds both fields
   // every time and `assignEffects` already normalises an absent generation to
   // null, so none of the three could fire for the real handlers.
-  const completed = emission.completed && started.completed;
-  const generation = assigned.generation;
-  if (revision !== overridesRevision(ctx, 'ls_dispatch') || generation !== ctx.attr(runtime, 'generation')) return null;
-  if (Object.keys(ordinary).length && completed) {
-    const bulbEffects = recordStarts(previous.bulbEffects, Object.keys(ordinary).map(lamp => [lamp, bulbStarts(targetViews[lamp]!)]));
-    ctx.emit('variable.update_sensor', { value: generation, replace_attributes: false,
-      attributes: { applied: { ...attributeMapping(ctx, runtime, 'applied'), ...ordinary },
-        ...(bulbEffects === undefined ? {} : { bulb_effects: bulbEffects }) } }, { entity_id: runtime },
-    { revision, generation, requiresOutputSuccess: true });
-  }
-  for (const parseSwitch of switches()) {
-    const { entity, on } = parseSwitch();
+  const completed = run.emission.completed && started.completed;
+  if (!stillCurrent(house, 'ls_dispatch', revision, generation)) return done(null);
+  const settled: Settled = { ...run, completed, publishedAt: [...run.emission.published_at, ...started.published_at] };
+  if (Object.keys(ordinary).length === 0 || !completed) return switching(house, settled, 0);
+  const bulbEffects = recordStarts(run.previous.bulbEffects, sentStarts(run));
+  return [{ tag: 'switching', run: settled, next: 0 }, [{ tag: 'effect', effect: {
+    kind: 'service', service: 'variable.update_sensor',
+    data: { value: generation, replace_attributes: false,
+      attributes: { applied: { ...attributeMapping(house, runtime, 'applied'), ...ordinary },
+        ...(bulbEffects === undefined ? {} : { bulb_effects: bulbEffects }) } },
+    target: { entity_id: runtime }, guard: { revision, generation, requiresOutputSuccess: true },
+  } }]];
+}
+
+/**
+ * The switches from `next` on: each is parsed, then switched when the
+ * revision still holds and its state differs. One switch per step, so the
+ * house is re-read after each switch. Then, if the revision still holds, the tail.
+ */
+function switching(house: HouseView, run: Settled, next: number): Transition {
+  const { revision, generation, details } = run;
+  const switches = details.switches();
+  for (let index = next; index < switches.length; index++) {
+    const { entity, on } = switches[index]!();
     const state = on ? 'on' : 'off';
-    if (revision === overridesRevision(ctx, 'ls_dispatch') && ctx.get(entity) !== state) ctx.emit(`homeassistant.turn_${state}`, {}, { entity_id: entity }, { revision, generation });
+    if (revision === overridesRevision(house, 'ls_dispatch') && house.get(entity) !== state) {
+      return [{ tag: 'switching', run, next: index + 1 }, [{ tag: 'effect', effect: {
+        kind: 'service', service: `homeassistant.turn_${state}`, data: {}, target: { entity_id: entity }, guard: { revision, generation },
+      } }]];
+    }
   }
-  if (revision !== overridesRevision(ctx, 'ls_dispatch')) return null;
-  for (const parseMirror of mirrors()) {
+  if (revision !== overridesRevision(house, 'ls_dispatch')) return done(null);
+  return [{ tag: 'finishing', run }, [{ tag: 'plan', plan: tailEffects(details, revision, generation) }]];
+}
+
+/** The room selects, the Sara mirror and the stale-key clear. Each mirror parses where it is sent. */
+export function* tailEffects(details: DispatchDetails, revision: string, generation: AssignResult['generation']): Plan<void> {
+  for (const parseMirror of details.mirrors()) {
     const mirror = parseMirror();
-    ctx.emit('input_select.select_option', { option: mirror.option }, { entity_id: mirror.entity }, { revision, generation });
+    yield { kind: 'service', service: 'input_select.select_option', data: { option: mirror.option }, target: { entity_id: mirror.entity },
+      guard: { revision, generation } };
   }
-  if (saraMirror === 'on' || saraMirror === 'off') ctx.emit(`input_boolean.turn_${saraMirror}`, {}, { entity_id: 'input_boolean.ls_sara_mode_mirror' }, { revision, generation });
-  const parsedStaleKeys = staleKeys();
-  if (parsedStaleKeys.length) ctx.fire('ls_override', { op: 'clear', keys: parsedStaleKeys, via: 'rule_next_block', expected_revision: revision });
-  return { completed: completed && revision === overridesRevision(ctx, 'ls_dispatch') && generation === ctx.attr(runtime, 'generation'), published_at: [...emission.published_at, ...started.published_at] };
+  const saraMirror = details.saraMirror;
+  if (saraMirror === 'on' || saraMirror === 'off') {
+    yield { kind: 'service', service: `input_boolean.turn_${saraMirror}`, data: {}, target: { entity_id: 'input_boolean.ls_sara_mode_mirror' },
+      guard: { revision, generation } };
+  }
+  const staleKeys = details.staleKeys();
+  if (staleKeys.length > 0) yield { kind: 'event', event: 'ls_override', data: { op: 'clear', keys: staleKeys, via: 'rule_next_block', expected_revision: revision } };
+}
+
+/** Delta output actor: invalidate touched lamps before sending, acknowledge only complete batches. */
+export function dispatch(ctx: ScriptContext, args: DispatchArgs): DispatchResult {
+  return drive(dispatchStep, dispatchStart(args), { tag: 'start', house: ctx }, (cmd: DispatchCmd): DispatchMsg => {
+    switch (cmd.tag) {
+      case 'catalog': return { tag: 'catalog', catalog: carry(ctx.run('effects_catalog')), house: ctx };
+      case 'assign': return { tag: 'assigned', result: ctx.call('effects_assign', cmd.args), house: ctx };
+      case 'frame': return { tag: 'framed', batch: ctx.call('effects_frame_plan', cmd.args), house: ctx };
+      // `object(...)` and `?? []` are gone: `planGroups` builds all five fields on
+      // every path, so both could only fire for a stub, and `decodeGroupPlan` is
+      // where that case is handled now -- strictly, rather than as an empty batch.
+      case 'emit': return { tag: 'emitted', result: ctx.call('effects_emit', cmd.args), house: ctx };
+      case 'effect': perform(ctx, cmd.effect); return { tag: 'performed', house: ctx };
+      case 'plan': run(ctx, cmd.plan); return { tag: 'performed', house: ctx };
+      default: {
+        const unknown: never = cmd;
+        throw new Error(`Unhandled ls_dispatch command ${JSON.stringify(unknown)}`);
+      }
+    }
+  }, phase => phase.tag === 'done' ? { value: phase.answer } : undefined);
 }
 
 /**
@@ -120,16 +306,14 @@ export function dispatch(ctx: ScriptContext, args: DispatchArgs): DispatchResult
  * lamp is at and keeps whatever colour it shows. Same members and topics the
  * frame plan addressed, through the same guarded emitter.
  */
-function startBulbEffects(ctx: ScriptContext, lamps: Array<[string, string[]]>, revision: string, generation: AssignResult['generation']): EmitResult {
-  const commands = lamps.filter(([lamp, starts]) => starts.length > 0 && ctx.get(lamp) === 'on').flatMap(([lamp, starts]) =>
-    (ctx.catalog.members[lamp] ?? []).flatMap(member => {
-      const topic = ctx.catalog.topics[member];
-      return ctx.get(member) === 'on' && topic !== undefined
+export function bulbStartCommands(view: HouseView, lamps: Array<[string, string[]]>): StartCommand[] {
+  return lamps.filter(([lamp, starts]) => starts.length > 0 && view.get(lamp) === 'on').flatMap(([lamp, starts]) =>
+    (view.catalog.members[lamp] ?? []).flatMap(member => {
+      const topic = view.catalog.topics[member];
+      return view.get(member) === 'on' && topic !== undefined
         ? starts.map(effect => ({ topic, payload: { effect }, members: [member], owners: [lamp], group: null }))
         : [];
     }));
-  if (commands.length === 0) return { published_at: [], completed: true };
-  return ctx.call('effects_emit', { commands, revision, generation });
 }
 
 /**
@@ -196,65 +380,160 @@ type RoomsPlan = {
   output_targets: string[];
 };
 
-/** Coalesce pending room versions, preserving unrelated rooms and retrying incomplete output. */
+/**
+ * Coalesce pending room versions, preserving unrelated rooms and retrying
+ * incomplete output. Read, then the planning runs (`ls_plan` for a full
+ * render, one `ls_room_plan` per pending room otherwise), the cache writes,
+ * `ls_dispatch`, and the acknowledgement; every read after a run is live.
+ */
 export function render(ctx: ScriptContext): null {
-  const started = timestamp(ctx.now), revision = overridesRevision(ctx, 'ls_render');
-  const received = attributeFact(ctx, overrideSensor, 'received_at') ?? null, request = attributeFact(ctx, overrideSensor, 'last_request') ?? null;
-  const pending = attributeMapping(ctx, overrideSensor, 'pending_rooms'), handled = attributeMapping(ctx, runtime, 'handled_rooms');
-  const fullVersion = optionalRevisionAttribute(ctx.attr(overrideSensor, 'full_version'), 'ls_render.full_version');
-  const full = fullVersion !== undefined && fullVersion !== attributeFact(ctx, runtime, 'handled_full');
-  const rooms = Object.keys(pending).filter(room => pending[room] !== handled[room]);
-  if (!full && !rooms.length) return null;
-  let plan: Verbatim | RoomsPlan, lights: StoredValue | StoredValue[] = [];
-  const updates: OpaqueMap = {};
-  if (full) {
-    // Captured: `full_reason or 'config'` and `full_lights or []`, Jinja's `or`
-    // (`[]`/`{}` fall back, NaN does not).
-    const storedReason = attributeFact(ctx, overrideSensor, 'full_reason');
-    const planned = fullPlan(ctx.run('ls_plan', { reason: storedReason !== undefined && jinjaTruthy(storedReason) ? storedReason : 'config' }), rooms);
+  const opening = renderOpening(ctx);
+  if (opening === undefined) return null;
+  const { revision, rooms } = opening;
+  let plan: Verbatim | RoomsPlan, lights: StoredValue | StoredValue[] = [], updates: OpaqueMap;
+  if (opening.full) {
+    const planned = fullPlan(ctx.run('ls_plan', { reason: fullReason(ctx) }), rooms);
     plan = planned.document;
-    const storedLights = attributeFact(ctx, overrideSensor, 'full_lights');
-    lights = storedLights !== undefined && jinjaTruthy(storedLights) ? storedLights : [];
-    for (const room of planned.areas) {
-      const old = roomCacheGradients(ctx.attr(`sensor.ls_cache_${room}`, 'cache'));
-      const values = planned.gradientsIn(room);
-      if (!old.holds(values)) updates[room] = old.withGradients(values);
-    }
+    lights = fullLights(ctx);
+    updates = gradientUpdates(ctx, planned);
   } else {
-    let targets = attributeMapping(ctx, runtime, 'targets'), assignments = attributeMapping(ctx, runtime, 'assignments');
-    let bases: OpaqueMap = {}, switches: OpaqueMap = {}, stale: string[] = [];
-    let saraMirror: StoredFact = undefined;
-    const mirrors: Verbatim[] = [];
-    for (const room of rooms) {
-      const planned = roomPlanView(ctx.run('ls_room_plan', { room, overrides: mappingAttribute(ctx.attr(overrideSensor, 'overrides')),
-        cache: mappingAttribute(ctx.attr(`sensor.ls_cache_${room}`, 'cache')), reason: 'remote' }));
-      targets = { ...Object.fromEntries(Object.entries(targets).filter(([, t]) => areaOf(t) !== room)), ...planned.targets };
-      assignments = { ...Object.fromEntries(Object.entries(assignments).filter(([, t]) => areaOf(t) !== room)), ...planned.assignments };
-      bases = { ...bases, ...planned.base }; switches = { ...switches, ...planned.switches };
-      mirrors.push(...planned.mirror); stale = [...new Set([...stale, ...planned.staleKeys])];
-      if (planned.cacheUpdate !== undefined) updates[room] = planned.cacheUpdate;
-      saraMirror = planned.saraMirror;
-    }
-    plan = { base: bases, resolved: { targets, assignments }, switches, mirror: mirrors, stale_keys: stale, revision, plan_order: started, remote: false, remote_rooms: rooms, sara_mirror: saraMirror ?? null,
-      output_targets: Object.keys(bases) };
+    let merged = roomsStart(ctx);
+    for (const room of rooms) merged = mergeRoomPlan(merged, room, roomPlanView(ctx.run('ls_room_plan', roomPlanRequest(ctx, room))));
+    plan = roomsPlan(merged, opening);
+    updates = merged.updates;
   }
   if (revision !== overridesRevision(ctx, 'ls_render')) return null;
   for (const [room, cache] of Object.entries(updates)) {
-    const entity = `sensor.ls_cache_${room}`;
-    if (hasValue(ctx, entity)) ctx.emit('variable.update_sensor', { value: ctx.now, attributes: { cache }, replace_attributes: false }, { entity_id: entity });
+    const write = cacheWrite(ctx, room, cache);
+    if (write !== undefined) perform(ctx, write);
   }
   const plannedAt = timestamp(ctx.now);
   const emission = ctx.call('ls_dispatch', { plan, lights });
-  // `requireObject`, `requireBoolean` and `?? []` below are gone: `null` is in
-  // the type, and `dispatch` builds both fields whenever it returns an object.
-  if (emission === null || !emission.completed || revision !== overridesRevision(ctx, 'ls_render')) return null;
-  const generation = attributeFact(ctx, runtime, 'generation') ?? null;
-  ctx.emit('variable.update_sensor', { value: ctx.now, replace_attributes: false, attributes: {
-    handled_rooms: pending,
-    handled_full: fullVersion === undefined ? attributeFact(ctx, runtime, 'handled_full') ?? null : fullVersion,
-    last_latency: { request_id: request, received_at: received, started_at: started, planned_at: plannedAt, published_at: emission.published_at, completed_at: timestamp(ctx.now), rooms, full },
-  } }, { entity_id: runtime }, { revision, generation, requiresOutputSuccess: true });
+  const ack = renderAck(ctx, opening, plannedAt, emission);
+  if (ack !== undefined) perform(ctx, ack);
   return null;
+}
+
+/** What `ls_render` reads first: the clock, the bare revision, and what is pending. */
+export interface RenderOpening {
+  started: number;
+  revision: string;
+  received: StoredValue;
+  request: StoredValue;
+  pending: OpaqueMap;
+  fullVersion: string | undefined;
+  /** A full render is pending that the runtime has not handled. */
+  full: boolean;
+  /** The rooms whose pending version the runtime has not handled. */
+  rooms: string[];
+}
+
+/** The opening reads, or `undefined` when nothing is pending. */
+export function renderOpening(view: HouseView): RenderOpening | undefined {
+  const started = timestamp(view.now), revision = overridesRevision(view, 'ls_render');
+  const received = attributeFact(view, overrideSensor, 'received_at') ?? null, request = attributeFact(view, overrideSensor, 'last_request') ?? null;
+  const pending = attributeMapping(view, overrideSensor, 'pending_rooms'), handled = attributeMapping(view, runtime, 'handled_rooms');
+  const fullVersion = optionalRevisionAttribute(view.attr(overrideSensor, 'full_version'), 'ls_render.full_version');
+  const full = fullVersion !== undefined && fullVersion !== attributeFact(view, runtime, 'handled_full');
+  const rooms = Object.keys(pending).filter(room => pending[room] !== handled[room]);
+  if (!full && rooms.length === 0) return undefined;
+  return { started, revision, received, request, pending, fullVersion, full, rooms };
+}
+
+/** Captured: `full_reason or 'config'`, Jinja's `or` (`[]`/`{}` fall back, NaN does not). */
+export function fullReason(view: HouseView): StoredValue {
+  const storedReason = attributeFact(view, overrideSensor, 'full_reason');
+  return storedReason !== undefined && jinjaTruthy(storedReason) ? storedReason : 'config';
+}
+
+/** Captured: `full_lights or []`, Jinja's `or`. */
+export function fullLights(view: HouseView): StoredValue | StoredValue[] {
+  const storedLights = attributeFact(view, overrideSensor, 'full_lights');
+  return storedLights !== undefined && jinjaTruthy(storedLights) ? storedLights : [];
+}
+
+/** Each baseline room's cache whose gradients the full plan changed, with the new gradients. */
+export function gradientUpdates(view: HouseView, planned: FullPlan): OpaqueMap {
+  const updates: OpaqueMap = {};
+  for (const room of planned.areas) {
+    const old = roomCacheGradients(view.attr(`sensor.ls_cache_${room}`, 'cache'));
+    const values = planned.gradientsIn(room);
+    if (!old.holds(values)) updates[room] = old.withGradients(values);
+  }
+  return updates;
+}
+
+/** The room plans merged so far over the runtime's stored targets and assignments. */
+export type MergedRooms = {
+  targets: OpaqueMap;
+  assignments: OpaqueMap;
+  bases: OpaqueMap;
+  switches: OpaqueMap;
+  mirrors: Verbatim[];
+  stale: string[];
+  saraMirror: StoredFact;
+  updates: OpaqueMap;
+};
+
+/** The runtime's stored targets and assignments, read before any room is planned. */
+export function roomsStart(view: HouseView): MergedRooms {
+  return { targets: attributeMapping(view, runtime, 'targets'), assignments: attributeMapping(view, runtime, 'assignments'),
+    bases: {}, switches: {}, mirrors: [], stale: [], saraMirror: undefined, updates: {} };
+}
+
+/** `ls_room_plan`'s arguments for one room, read as the previous room's plan left the house. */
+export function roomPlanRequest(view: HouseView, room: string): { room: string; overrides: Verbatim; cache: Verbatim; reason: 'remote' } {
+  return { room, overrides: mappingAttribute(view.attr(overrideSensor, 'overrides')),
+    cache: mappingAttribute(view.attr(`sensor.ls_cache_${room}`, 'cache')), reason: 'remote' };
+}
+
+/** One room's plan over the merge: its stored targets replaced in place, the rest accumulated. */
+export function mergeRoomPlan(merged: MergedRooms, room: string, planned: RoomPlanView): MergedRooms {
+  const elsewhere = (map: OpaqueMap) => Object.fromEntries(Object.entries(map).filter(([, t]) => areaOf(t) !== room));
+  return {
+    targets: { ...elsewhere(merged.targets), ...planned.targets },
+    assignments: { ...elsewhere(merged.assignments), ...planned.assignments },
+    bases: { ...merged.bases, ...planned.base },
+    switches: { ...merged.switches, ...planned.switches },
+    mirrors: [...merged.mirrors, ...planned.mirror],
+    stale: [...new Set([...merged.stale, ...planned.staleKeys])],
+    saraMirror: planned.saraMirror,
+    updates: planned.cacheUpdate === undefined ? merged.updates : { ...merged.updates, [room]: planned.cacheUpdate },
+  };
+}
+
+/** The plan `ls_dispatch` gets from merged room plans. */
+export function roomsPlan(merged: MergedRooms, opening: Pick<RenderOpening, 'revision' | 'started' | 'rooms'>): RoomsPlan {
+  return { base: merged.bases, resolved: { targets: merged.targets, assignments: merged.assignments }, switches: merged.switches,
+    mirror: merged.mirrors, stale_keys: merged.stale, revision: opening.revision, plan_order: opening.started, remote: false,
+    remote_rooms: opening.rooms, sara_mirror: merged.saraMirror ?? null, output_targets: Object.keys(merged.bases) };
+}
+
+/** A room cache write, when the room's cache sensor has a value. */
+export function cacheWrite(view: HouseView, room: string, cache: Verbatim): Effect | undefined {
+  const entity = `sensor.ls_cache_${room}`;
+  if (!hasValue(view, entity)) return undefined;
+  return { kind: 'service', service: 'variable.update_sensor', data: { value: view.now, attributes: { cache }, replace_attributes: false },
+    target: { entity_id: entity } };
+}
+
+/**
+ * The runtime's acknowledgement of a complete dispatch under an unchanged
+ * revision: the handled versions and the latency record, guarded on output
+ * success. `undefined` for a stale plan, incomplete output or a moved revision.
+ */
+export function renderAck(view: HouseView, opening: RenderOpening, plannedAt: number, emission: DispatchResult): Effect | undefined {
+  // `requireObject`, `requireBoolean` and `?? []` are gone: `null` is in the
+  // type, and `dispatch` builds both fields whenever it returns an object.
+  if (emission === null || !emission.completed || opening.revision !== overridesRevision(view, 'ls_render')) return undefined;
+  const { revision, fullVersion } = opening;
+  const generation = attributeFact(view, runtime, 'generation') ?? null;
+  return { kind: 'service', service: 'variable.update_sensor', data: { value: view.now, replace_attributes: false, attributes: {
+    handled_rooms: opening.pending,
+    handled_full: fullVersion === undefined ? attributeFact(view, runtime, 'handled_full') ?? null : fullVersion,
+    last_latency: { request_id: opening.request, received_at: opening.received, started_at: opening.started, planned_at: plannedAt,
+      published_at: emission.published_at, completed_at: timestamp(view.now), rooms: opening.rooms, full: opening.full },
+  } }, target: { entity_id: runtime }, guard: { revision, generation, requiresOutputSuccess: true } };
 }
 export const dispatchHandlers: ScriptHandlers = {
   ls_dispatch: typed('ls_dispatch', { parse: parseDispatchArgs, run: dispatch }),

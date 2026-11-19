@@ -24,6 +24,7 @@ test('the opening reads the room, the revision and the stamp, and asks for conte
   const view = house({ 'sensor.ls_overrides': sensor() }, { areas });
   const left = remoteOpening(view, { source: 'remote', area: 'studio', command: 'left' });
   assert.deepEqual([left.room, left.revision, left.stamp, left.timingRevision, left.needsContext], ['studio', REVISION, STAMP, 0, true]);
+  assert.equal(remoteOpening(view, { source: 'remote', area: 'studio', command: 'right' }).needsContext, true);
   assert.equal(remoteOpening(view, { source: 'remote', area: 'studio', command: 'toggle' }).needsContext, false);
   assert.equal(remoteOpening(view, { source: 'remote', area: 'attic', command: 'toggle' }).room, '');
 });

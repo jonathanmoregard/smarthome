@@ -12,6 +12,8 @@ import {
 import type { ResolutionResult } from './resolution.ts';
 import type { GradientPlanResult } from './gradient.ts';
 import type { RemotePlanResult } from './remote-input.ts';
+import { drive, perform } from '../runtime/effects.ts';
+import type { Effect, HouseView } from '../runtime/effects.ts';
 
 export interface SwitchPlanArgs {
   /** Each switch-range rule, its interval read at its turn: `[low, high]`, or `undefined` unless valid. */
@@ -162,12 +164,33 @@ export function plan(ctx: ScriptContext, args: PlanArgs): PlanResult {
   const ranges = planMapping(ctx.attr('sensor.ls_overrides', 'switch_ranges'), 'ls_plan.switch_ranges');
   const defaults = planRangeDefaults(ctx.attr('sensor.ls_overrides', 'range_defaults'));
   const switches = ctx.call('ls_switch_plan', { targets: resolvedTargets, ranges, defaults });
-  const revision = planRevision(ctx.state['sensor.ls_overrides']?.last_updated);
-  const wanted = Object.hasOwn(active, 'mode:sara') ? 'on' : 'off';
-  return { plan: { ...schedule, base: baselineTargets, resolved, gradients,
-    switches: switches.switches, revision,
-    plan_order: recordTimestamp(ctx.now), remote: args.reason === 'remote',
-    sara_mirror: ctx.get('input_boolean.ls_sara_mode_mirror') !== wanted ? wanted : null } };
+  return planAnswer(ctx, { schedule, base: baselineTargets, resolved, gradients, switches: switches.switches, active, reason: args.reason });
+}
+
+/** The parts `ls_plan` answers with, once every call is done. */
+export interface PlanParts {
+  schedule: ScheduleEnvelope;
+  base: Record<string, TargetEntry>;
+  resolved: ResolutionResult;
+  gradients: GradientPlanResult['gradients'];
+  switches: Record<string, SwitchDecision>;
+  /** The overrides the baseline did not mark stale. */
+  active: OpaqueMap;
+  reason: string;
+}
+
+/**
+ * The plan document: the schedule with the plan's fields over it. The
+ * revision, the plan order and the Sara mirror are read here, after the last
+ * call, where the captured script reads them.
+ */
+export function planAnswer(view: HouseView, parts: PlanParts): PlanResult {
+  const revision = planRevision(view.state['sensor.ls_overrides']?.last_updated);
+  const wanted = Object.hasOwn(parts.active, 'mode:sara') ? 'on' : 'off';
+  return { plan: { ...parts.schedule, base: parts.base, resolved: parts.resolved, gradients: parts.gradients,
+    switches: parts.switches, revision,
+    plan_order: recordTimestamp(view.now), remote: parts.reason === 'remote',
+    sara_mirror: view.get('input_boolean.ls_sara_mode_mirror') !== wanted ? wanted : null } };
 }
 
 /**
@@ -188,31 +211,109 @@ function apply(ctx: ScriptContext, args: ApplyArgs): Verbatim | null {
   return null;
 }
 
-function remoteCommand(ctx: ScriptContext, args: RemoteCommandArgs): RemotePlanResult | null {
-  const input = { source: args.source, area: args.area, command: args.command };
-  if (args.dryRun) return ctx.call('ls_remote_plan', input);
-  let result: RemotePlanResult | undefined, accepted = false;
-  for (let attempt = 0; attempt < 1_000 && !accepted; attempt++) {
-    result = ctx.call('ls_remote_plan', input);
-    if (result.op === 'noop') accepted = true;
-    else {
-      accepted = ctx.call('ls_commit', { data: { ...result,
-        expected_revision: result.input_revision, area: input.area, via: 'remote', source: input.source } }).accepted;
+/** The remote command `ls_remote_plan` plans. */
+export type RemoteInput = { source: string; area: string; command: string };
+/** A planned change, committed against the revision it was planned at. */
+export type RemoteCommit = RemotePlanResult & { expected_revision: string; area: string; via: 'remote'; source: string };
+
+/** The captured script's retry budget for a revision that keeps moving under the commit. */
+const REMOTE_ATTEMPTS = 1_000;
+
+/**
+ * `ls_remote_command` as a state machine. It plans, commits the plan against
+ * the revision it was planned at, and plans again while a commit is refused,
+ * up to {@link REMOTE_ATTEMPTS} times; `attempt` is that loop's counter.
+ */
+export type RemoteCommandPhase =
+  | { tag: 'idle'; input: RemoteInput; dryRun: boolean }
+  | { tag: 'planning'; input: RemoteInput; dryRun: boolean; attempt: number }
+  | { tag: 'committing'; input: RemoteInput; attempt: number; plan: RemotePlanResult }
+  | { tag: 'done'; answer: RemotePlanResult | null }
+  /** Every attempt's commit was refused. */
+  | { tag: 'exhausted' };
+export type RemoteCommandMsg =
+  | { tag: 'start' }
+  | { tag: 'planned'; result: RemotePlanResult }
+  | { tag: 'committed'; accepted: boolean };
+export type RemoteCommandCmd =
+  /** Run `ls_remote_plan`; answers `planned`. */
+  | { tag: 'plan'; input: RemoteInput }
+  /** Run `ls_commit`; answers `committed`. */
+  | { tag: 'commit'; data: RemoteCommit }
+  | { tag: 'effect'; effect: Effect };
+
+export function remoteCommandStart(args: RemoteCommandArgs): RemoteCommandPhase {
+  return { tag: 'idle', input: { source: args.source, area: args.area, command: args.command }, dryRun: args.dryRun };
+}
+
+export function remoteCommandStep(phase: RemoteCommandPhase, msg: RemoteCommandMsg): [RemoteCommandPhase, RemoteCommandCmd[]] {
+  switch (phase.tag) {
+    case 'idle': {
+      if (msg.tag !== 'start') return unexpected(phase, msg);
+      return planAgain(phase.input, phase.dryRun, 0);
+    }
+    case 'planning': {
+      if (msg.tag !== 'planned') return unexpected(phase, msg);
+      const result = msg.result;
+      if (phase.dryRun) return [{ tag: 'done', answer: result }, []];
+      if (result.op === 'noop') return accepted(result);
+      const input = phase.input;
+      const data: RemoteCommit = { ...result, expected_revision: result.input_revision, area: input.area, via: 'remote', source: input.source };
+      return [{ tag: 'committing', input, attempt: phase.attempt, plan: result }, [{ tag: 'commit', data }]];
+    }
+    case 'committing': {
+      if (msg.tag !== 'committed') return unexpected(phase, msg);
+      if (msg.accepted) return accepted(phase.plan);
+      const attempt = phase.attempt + 1;
+      return attempt < REMOTE_ATTEMPTS ? planAgain(phase.input, false, attempt) : [{ tag: 'exhausted' }, []];
+    }
+    case 'done':
+    case 'exhausted':
+      return unexpected(phase, msg);
+    default: {
+      const unknown: never = phase;
+      throw new Error(`Unhandled ls_remote_command phase ${JSON.stringify(unknown)}`);
     }
   }
-  if (!accepted) throw new Error('Override revision kept changing; retry budget exhausted');
-  // `accepted` starts false, so the loop body always runs and assigns this.
-  // TypeScript cannot prove definite assignment through a loop, and widening
-  // the throw above to cover `undefined` would change a condition the gate
-  // compares, so the assertion stays here instead.
-  // `requireBoolean(result.on)` and `requireArray(result, 'targets')` are gone:
-  // the `op` discriminant narrows both, and `remotePlan` builds them.
-  if (result!.op === 'power') {
-    const { on, targets } = result!;
-    ctx.emit(on ? 'homeassistant.turn_on' : 'homeassistant.turn_off', {}, { entity_id: targets });
-    if (on) ctx.run('ls_apply', { reason: 'lamp_on', lights: targets });
-  }
-  return null;
+}
+
+function planAgain(input: RemoteInput, dryRun: boolean, attempt: number): [RemoteCommandPhase, RemoteCommandCmd[]] {
+  return [{ tag: 'planning', input, dryRun, attempt }, [{ tag: 'plan', input }]];
+}
+
+/** An accepted power plan switches its targets, then a power-on renders them as a lamp-on apply. */
+function accepted(plan: RemotePlanResult): [RemoteCommandPhase, RemoteCommandCmd[]] {
+  const done: RemoteCommandPhase = { tag: 'done', answer: null };
+  if (plan.op !== 'power') return [done, []];
+  const { on, targets } = plan;
+  const cmds: RemoteCommandCmd[] = [{ tag: 'effect', effect: {
+    kind: 'service', service: on ? 'homeassistant.turn_on' : 'homeassistant.turn_off', data: {}, target: { entity_id: targets },
+  } }];
+  if (on) cmds.push({ tag: 'effect', effect: { kind: 'script', name: 'ls_apply', args: { reason: 'lamp_on', lights: targets } } });
+  return [done, cmds];
+}
+
+function unexpected(phase: RemoteCommandPhase, msg: RemoteCommandMsg): never {
+  throw new Error(`ls_remote_command: phase ${phase.tag} cannot take ${msg.tag}`);
+}
+
+/** The interpreter: each command is one inter-handler call or one effect. */
+function remoteCommand(ctx: ScriptContext, args: RemoteCommandArgs): RemotePlanResult | null {
+  return drive(remoteCommandStep, remoteCommandStart(args), { tag: 'start' }, (cmd: RemoteCommandCmd): RemoteCommandMsg | undefined => {
+    switch (cmd.tag) {
+      case 'plan': return { tag: 'planned', result: ctx.call('ls_remote_plan', cmd.input) };
+      case 'commit': return { tag: 'committed', accepted: ctx.call('ls_commit', { data: cmd.data }).accepted };
+      case 'effect': perform(ctx, cmd.effect); return undefined;
+      default: {
+        const unknown: never = cmd;
+        throw new Error(`Unhandled ls_remote_command command ${JSON.stringify(unknown)}`);
+      }
+    }
+  }, phase => {
+    if (phase.tag === 'done') return { value: phase.answer };
+    if (phase.tag === 'exhausted') throw new Error('Override revision kept changing; retry budget exhausted');
+    return undefined;
+  });
 }
 
 export const controllerHandlers: ScriptHandlers = {

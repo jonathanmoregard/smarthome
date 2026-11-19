@@ -40,6 +40,11 @@
 // refresh, expiry and answer read through HouseView; the inter-handler runs
 // stay in the handlers): domainScriptContext 29 -> 26, domainCtx 122 -> 89.
 //
+// U7 (ls_remote_command and ls_dispatch as reducers driven by `drive`;
+// planAnswer; ls_render's opening, merge, cache writes and acknowledgement):
+// domainScriptContext 26 -> 25, domainCtx 89 -> 58, effectCalls 11 -> 3,
+// longLines 137 -> 131.
+//
 // Raising a ceiling is the regression this guard exists to catch; argue any
 // raise in the commit message.
 import { readdir, readFile } from 'node:fs/promises';
@@ -50,11 +55,11 @@ const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const SRC = join(ROOT, 'src');
 
 const CEILINGS = {
-  domainScriptContext: 26,
-  domainCtx: 89,
+  domainScriptContext: 25,
+  domainCtx: 58,
   houseViewGenerators: 0,
-  effectCalls: 11,
-  longLines: 137,
+  effectCalls: 3,
+  longLines: 131,
 };
 
 function stripComments(source) {
