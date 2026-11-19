@@ -7,8 +7,11 @@ import { recordTimestamp } from '../parse/resolution.ts';
 import { isAreaId, labelled, privateRooms } from './schedule.ts';
 import { cachedProfile, catalogEffectChannels, parseOverrideBlockArgs, parseStoreProfile, parseViaArgs, roomTarget, scheduledBlocks, storedProfileText } from '../parse/state-store.ts';
 import { affectedRoom, mergedValue, overrideRecord, parseCommitArgs, underlyingOf } from '../parse/overrides.ts';
-import type { OpaqueMap, StoredEntry, StoredFact, StoredValue } from '../parse/overrides.ts';
-import { attributeFact, attributeList, attributeMapping, lenientOverrides, overridesRevision } from '../parse/sensors.ts';
+import type { OpaqueMap, StoredEntry, StoredFact, StoredOverrides, StoredValue } from '../parse/overrides.ts';
+import { commitSnapshot } from '../parse/state-store.ts';
+import { lenientOverrides, overridesRevision } from '../parse/sensors.ts';
+import { run } from '../runtime/effects.ts';
+import type { HouseView, Plan } from '../runtime/effects.ts';
 
 /** One channel claim of a `channels` record, as written. */
 export interface ChannelClaim {
@@ -99,14 +102,45 @@ export type ScheduledBlocks = (key: string | undefined) => string | undefined;
  */
 export type CommitResult = { accepted: false } | { accepted: true; revision: string; committed_at: number };
 
+/**
+ * What a commit reads of the house, all lenient (none of these reads can
+ * raise), taken after the revision check and the details parse, before any
+ * write. `sensor.ls_overrides`'s attributes as stored, and the runtime's
+ * `handled_full`.
+ */
+export interface CommitSnapshot {
+  now: string;
+  areas: Readonly<Record<string, string>>;
+  before: StoredOverrides;
+  power: OpaqueMap;
+  switchRanges: OpaqueMap;
+  remoteAck: OpaqueMap;
+  pendingRooms: OpaqueMap;
+  handledFull: StoredFact;
+  fullVersion: StoredFact;
+  fullLights: StoredValue[];
+  fullReason: StoredFact;
+}
+
+/**
+ * The single override writer: stale-revision stop, then the decision, then a
+ * live re-read. The answer's revision and `committed_at` are read after the
+ * writes, where the captured script reads them; the clock is live.
+ */
 export function commit(ctx: ScriptContext, args: CommitArgs): CommitResult {
-  const entity = 'sensor.ls_overrides';
   // Captured: `data.get('expected_revision') in [none, <bare read>]` builds the
   // list whatever the expected revision is, so the read always happens here.
   const currentRevision = overridesRevision(ctx, 'ls_commit');
   if (args.expectedRevision != null && args.expectedRevision !== currentRevision) return { accepted: false };
   const parsed = args.details();
-  const before = lenientOverrides(ctx);
+  run(ctx, planCommit(commitSnapshot(ctx), parsed));
+  return { accepted: true, revision: overridesRevision(ctx, 'ls_commit'), committed_at: recordTimestamp(ctx.now) };
+}
+
+/** The sensor patch a commit writes, then the render request. Preserves unrelated attributes and channel timestamps. */
+export function* planCommit(snapshot: CommitSnapshot, parsed: CommitData): Plan<void> {
+  const entity = 'sensor.ls_overrides';
+  const now = snapshot.now, before = snapshot.before;
   let overrides = before.clone();
   let patch: OverridesPatch = {};
   const op = parsed.op;
@@ -117,7 +151,7 @@ export function commit(ctx: ScriptContext, args: CommitArgs): CommitResult {
     overrides = kept(before.entries.filter(({ key }) => !contains(key)));
   }
   else if (op === 'clear_room') overrides = kept(before.entries.filter(({ record: r }) => {
-    const targetArea = typeof r.target === 'string' ? ctx.areas[r.target] : undefined;
+    const targetArea = typeof r.target === 'string' ? snapshot.areas[r.target] : undefined;
     return !(r.scope === 'room' && r.target === parsed.area || (r.scope === 'lamp' || r.kind === 'light') && targetArea === parsed.area || r.kind === 'block' && r.target === parsed.area);
   }));
   else if (op === 'set') for (const record of parsed.records) {
@@ -137,34 +171,34 @@ export function commit(ctx: ScriptContext, args: CommitArgs): CommitResult {
     }
     // Captured: `old.get('created', old.get('when', now))`, which falls back only
     // on an absent key; an explicit null is kept.
-    const created = old.created !== undefined ? old.created : old.when !== undefined ? old.when : ctx.now;
-    overrides[key] = withFields(record.document, { value, when: ctx.now, created, who: parsed.who, via: parsed.via ?? null });
+    const created = old.created !== undefined ? old.created : old.when !== undefined ? old.when : now;
+    overrides[key] = withFields(record.document, { value, when: now, created, who: parsed.who, via: parsed.via ?? null });
   }
   else if (op === 'power') {
     const power = parsed.power();
-    patch.power = { ...attributeMapping(ctx, entity, 'power'), [power.area]: power.on };
+    patch.power = { ...snapshot.power, [power.area]: power.on };
   }
   else if (op === 'range_set') {
     const range = parsed.range();
-    if (range !== undefined) patch.switch_ranges = { ...attributeMapping(ctx, entity, 'switch_ranges'), [range.entity]: range.rule };
+    if (range !== undefined) patch.switch_ranges = { ...snapshot.switchRanges, [range.entity]: range.rule };
   } else if (op === 'range_defaults') {
     const ranges = parsed.ranges();
     if (ranges !== undefined) patch.range_defaults = ranges;
   }
   const remoteAck = parsed.remoteAck();
-  if (remoteAck !== undefined) patch.remote_ack = { ...attributeMapping(ctx, entity, 'remote_ack'), [remoteAck.source]: remoteAck.requestId };
+  if (remoteAck !== undefined) patch.remote_ack = { ...snapshot.remoteAck, [remoteAck.source]: remoteAck.requestId };
   patch = { ...patch, overrides, last_via: parsed.via ?? null };
-  const pending: Record<string, StoredValue> = { ...attributeMapping(ctx, entity, 'pending_rooms') };
+  const pending: Record<string, StoredValue> = { ...snapshot.pendingRooms };
   const affected: StoredFact[] = [];
   if (jinjaTruthy(parsed.area)) affected.push(parsed.area);
   for (const record of parsed.records) for (const item of [before.lookup(record.lookupKey()), record]) {
     if (item.scope === 'room') affected.push(item.target);
   }
   for (const [index, room] of affected.entries()) {
-    pending[affectedRoom(room, index)] = ctx.now;
+    pending[affectedRoom(room, index)] = now;
   }
-  patch = { ...patch, pending_rooms: pending, last_request: ctx.now,
-    received_at: parsed.receivedAt === undefined ? recordTimestamp(ctx.now) : parsed.receivedAt };
+  patch = { ...patch, pending_rooms: pending, last_request: now,
+    received_at: parsed.receivedAt === undefined ? recordTimestamp(now) : parsed.receivedAt };
   const full = parsed.via !== 'remote' || ['render_request', 'clear', 'clear_all'].includes(parsed.opText) || parsed.records.some(r => r.kind === 'mode');
   if (full) {
     // Captured: `old != (state_attr(runtime,'handled_full') or none)`. Jinja `or`
@@ -173,20 +207,22 @@ export function commit(ctx: ScriptContext, args: CommitArgs): CommitResult {
     // container as itself, and a reference comparison against it is always
     // unequal -- which marked the last full render unhandled and resurrected its
     // stale light list.
-    const handled = attributeFact(ctx, 'sensor.ls_effects_runtime', 'handled_full');
-    const unhandled = (attributeFact(ctx, entity, 'full_version') ?? null) !== (jinjaTruthy(handled) ? handled : null);
-    const previousLights = unhandled ? attributeList(ctx, entity, 'full_lights') : [];
-    const previousReason = unhandled ? attributeFact(ctx, entity, 'full_reason') : null;
+    const handled = snapshot.handledFull;
+    const unhandled = (snapshot.fullVersion ?? null) !== (jinjaTruthy(handled) ? handled : null);
+    const previousLights = unhandled ? snapshot.fullLights : [];
+    const previousReason = unhandled ? snapshot.fullReason : null;
     const fullData = parsed.full();
     let reason = fullData.reason;
     // Captured: `reason=='tick' and previous_reason and previous_reason!='tick'`,
     // Jinja's `and` (`[]`/`{}` falsy, NaN truthy).
     if (reason === 'tick' && jinjaTruthy(previousReason) && previousReason !== 'tick') reason = 'config';
-    patch = { ...patch, full_version: ctx.now, full_reason: reason, full_lights: [...new Set([...previousLights, ...fullData.lights])] };
+    patch = { ...patch, full_version: now, full_reason: reason, full_lights: [...new Set([...previousLights, ...fullData.lights])] };
   }
-  ctx.emit('variable.update_sensor', { value: ctx.now, attributes: patch, replace_attributes: false }, { entity_id: entity });
-  ctx.emit('script.turn_on', {}, { entity_id: 'script.ls_render' });
-  return { accepted: true, revision: overridesRevision(ctx, 'ls_commit'), committed_at: recordTimestamp(ctx.now) };
+  yield {
+    kind: 'service', service: 'variable.update_sensor',
+    data: { value: now, attributes: patch, replace_attributes: false }, target: { entity_id: entity },
+  };
+  yield { kind: 'service', service: 'script.turn_on', data: {}, target: { entity_id: 'script.ls_render' } };
 }
 
 export interface StoreProfileArgs {
@@ -231,11 +267,16 @@ export type ProfilePatch = {
 
 /** Writes the profile store and answers nothing; every path returns null. */
 export function storeProfile(ctx: ScriptContext, args: StoreProfileArgs): null {
-  const entity = args.entity;
-  const current = cachedProfile(ctx.get(entity), entity);
+  // The saved profile raises on a non-mapping cache before the catalog is fetched.
+  const current = cachedProfile(ctx.get(args.entity), args.entity);
   // `catalog.effects.get(key, {}).get('channels', [])`, over the raw result:
   // the `effects_catalog` call is recorded in `scriptRuns`, so it stays a call.
-  const catalogChannels = catalogEffectChannels(ctx.run('effects_catalog'));
+  return run(ctx, planStore(args, current, catalogEffectChannels(ctx.run('effects_catalog'))));
+}
+
+/** The profile store write, then the lamp-store change event for a lamp's store. */
+export function* planStore(args: StoreProfileArgs, current: StoredProfile, catalogChannels: EffectChannels): Plan<null> {
+  const entity = args.entity;
   const patch: ProfilePatch = {};
   if (args.on !== undefined) patch.on = args.on;
   if (args.own !== undefined) patch.own = args.own;
@@ -258,8 +299,45 @@ export function storeProfile(ctx: ScriptContext, args: StoreProfileArgs): null {
   }
   patch.effect_channels = channels;
   const value = storedProfileText(current, patch);
-  ctx.emit('input_text.set_value', { value }, { entity_id: entity });
-  if (entity.startsWith('input_text.ls_lamp_')) ctx.fire('ls_lamp_store_changed', { store: entity });
+  yield { kind: 'service', service: 'input_text.set_value', data: { value }, target: { entity_id: entity } };
+  if (entity.startsWith('input_text.ls_lamp_')) yield { kind: 'event', event: 'ls_lamp_store_changed', data: { store: entity } };
+  return null;
+}
+
+/** The rooms a house-scope block override expands to: labelled lamps' areas, unique, private rooms excluded. */
+export function houseRooms(view: HouseView): string[] {
+  const privateAreas = privateRooms(view);
+  const entities = [...labelled(view, 'house_schedule'), ...labelled(view, 'on_off')];
+  const rooms = entities.map(entity => view.areas[entity]).filter(isAreaId).filter(area => !privateAreas.includes(area));
+  return [...new Set(rooms)];
+}
+
+/**
+ * Set the block on every target not already scheduled to it, and clear it
+ * where the schedule already says so. A target's schedule key raises for an
+ * unhashable scope, here, where the lookup happens.
+ */
+export function* planOverrideBlock(args: OverrideBlockArgs, rooms: string[], scheduledTo: ScheduledBlocks): Plan<null> {
+  const block = args.block;
+  const targets: BlockTarget[] = [args.scope, ...rooms.map(roomTarget)];
+  const scheduled = (target: BlockTarget) => scheduledTo(target.key());
+  const set = targets.filter(target => scheduled(target) !== block).map(target => ({ kind: 'block', target: target.record, value: block }));
+  const clear = targets.filter(target => scheduled(target) === block).map(target => 'block:' + target.keyText);
+  if (set.length) yield { kind: 'event', event: 'ls_override', data: { op: 'set', records: set, via: args.via } };
+  if (clear.length) yield { kind: 'event', event: 'ls_override', data: { op: 'clear', keys: clear, via: args.via } };
+  return null;
+}
+
+export function* clearAllOverrides(via: Verbatim): Plan<null> {
+  yield { kind: 'event', event: 'ls_override', data: { op: 'clear_all', via } };
+  return null;
+}
+
+/** Sara mode flips the stored `mode:sara` override. */
+export function* toggleSaraMode(active: boolean, via: Verbatim): Plan<null> {
+  yield { kind: 'event', event: 'ls_override', data: active
+    ? { op: 'clear', keys: ['mode:sara'], via }
+    : { op: 'set', records: [{ kind: 'mode', target: 'sara', value: 'on' }], via } };
   return null;
 }
 
@@ -286,37 +364,16 @@ export const stateStoreHandlers: ScriptHandlers = {
   ls_override_block: withParsedArgs({
     parse: parseOverrideBlockArgs,
     run: (ctx, args) => {
-    const scheduledTo = scheduledBlocks(ctx.run('ls_apply', { dry_run: true }));
-    const scope = args.scope, block = args.block;
-    const targets: BlockTarget[] = [scope];
-    if (scope.isHouse) {
-      const privateAreas = privateRooms(ctx);
-      const entities = [...labelled(ctx, 'house_schedule'), ...labelled(ctx, 'on_off')];
-      const rooms = entities.map(entity => ctx.areas[entity]).filter(isAreaId).filter(area => !privateAreas.includes(area));
-      targets.push(...[...new Set(rooms)].map(roomTarget));
-    }
-    const scheduled = (target: BlockTarget) => scheduledTo(target.key());
-    const set = targets.filter(target => scheduled(target) !== block).map(target => ({ kind: 'block', target: target.record, value: block }));
-    const clear = targets.filter(target => scheduled(target) === block).map(target => `block:${target.keyText}`);
-    if (set.length) ctx.fire('ls_override', { op: 'set', records: set, via: args.via });
-    if (clear.length) ctx.fire('ls_override', { op: 'clear', keys: clear, via: args.via });
-    return null;
+      const scheduledTo = scheduledBlocks(ctx.run('ls_apply', { dry_run: true }));
+      return run(ctx, planOverrideBlock(args, args.scope.isHouse ? houseRooms(ctx) : [], scheduledTo));
     },
   }),
   // Captured via has one `| default('app')` site; explicit null/falsy values
   // survive because Jinja default only replaces Undefined.
-  ls_clear_overrides: withParsedArgs({
-    parse: parseViaArgs,
-    run: (ctx, args) => { ctx.fire('ls_override', { op: 'clear_all', via: args.via }); return null; },
-  }),
+  ls_clear_overrides: withParsedArgs({ parse: parseViaArgs, run: (ctx, args) => run(ctx, clearAllOverrides(args.via)) }),
   // Captured via has two `| default('app')` sites with the same semantics.
   ls_sara_mode: withParsedArgs({
     parse: parseViaArgs,
-    run: (ctx, args) => {
-    ctx.fire('ls_override', lenientOverrides(ctx).has('mode:sara')
-      ? { op: 'clear', keys: ['mode:sara'], via: args.via }
-      : { op: 'set', records: [{ kind: 'mode', target: 'sara', value: 'on' }], via: args.via });
-    return null;
-    },
+    run: (ctx, args) => run(ctx, toggleSaraMode(lenientOverrides(ctx).has('mode:sara'), args.via)),
   }),
 };

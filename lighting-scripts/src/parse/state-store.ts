@@ -11,8 +11,12 @@ import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import { isObject, jinjaFloat, jinjaInt, jinjaString, object, ParseError, requireString } from '../runtime/parse.ts';
 import { carry } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
-import type { BlockTarget, EffectChannels, OverrideBlockArgs, ProfilePatch, ScheduledBlocks, StoredProfile, StoreProfileArgs, ViaArgs } from '../domain/state-store.ts';
+import type {
+  BlockTarget, CommitSnapshot, EffectChannels, OverrideBlockArgs, ProfilePatch, ScheduledBlocks, StoredProfile, StoreProfileArgs, ViaArgs,
+} from '../domain/state-store.ts';
 import { opaqueMap, storedFact } from './overrides.ts';
+import { attributeFact, attributeList, attributeMapping, lenientOverrides } from './sensors.ts';
+import type { HouseView } from '../runtime/effects.ts';
 
 /** Jinja `~` uses an empty string for Undefined, unlike the `| string` filter. */
 export function concatString(value: JsonValue | undefined): string {
@@ -197,4 +201,28 @@ export function catalogEffectChannels(result: JsonValue): EffectChannels {
 /** The profile as the store entity holds it: `{...current, ...patch}`, serialised. */
 export function storedProfileText(profile: StoredProfile, patch: ProfilePatch): string {
   return JSON.stringify({ ...profile.document, ...patch });
+}
+
+/**
+ * Everything `ls_commit` reads of the house once the revision check and the
+ * details parse have passed. Every reader here is lenient and cannot raise, so
+ * reading the power, range, ack and full-render attributes up front -- the
+ * captured script reads each only on its own branch -- changes nothing
+ * observable. All of it is read before the commit's first write.
+ */
+export function commitSnapshot(ctx: HouseView): CommitSnapshot {
+  const sensor = 'sensor.ls_overrides';
+  return {
+    now: ctx.now,
+    areas: ctx.areas,
+    before: lenientOverrides(ctx),
+    power: attributeMapping(ctx, sensor, 'power'),
+    switchRanges: attributeMapping(ctx, sensor, 'switch_ranges'),
+    remoteAck: attributeMapping(ctx, sensor, 'remote_ack'),
+    pendingRooms: attributeMapping(ctx, sensor, 'pending_rooms'),
+    handledFull: attributeFact(ctx, 'sensor.ls_effects_runtime', 'handled_full'),
+    fullVersion: attributeFact(ctx, sensor, 'full_version'),
+    fullLights: attributeList(ctx, sensor, 'full_lights'),
+    fullReason: attributeFact(ctx, sensor, 'full_reason'),
+  };
 }

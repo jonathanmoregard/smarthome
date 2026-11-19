@@ -26,6 +26,9 @@
 //
 // U2 (gestures reducer): domainCtx 190 -> 181, effectCalls 39 -> 32.
 //
+// U3 (state-store plans): domainCtx 181 -> 164, effectCalls 32 -> 24,
+// longLines 144 -> 143.
+//
 // Raising a ceiling is the regression this guard exists to catch; argue any
 // raise in the commit message.
 import { readdir, readFile } from 'node:fs/promises';
@@ -37,10 +40,10 @@ const SRC = join(ROOT, 'src');
 
 const CEILINGS = {
   domainScriptContext: 32,
-  domainCtx: 181,
+  domainCtx: 164,
   houseViewGenerators: 0,
-  effectCalls: 32,
-  longLines: 144,
+  effectCalls: 24,
+  longLines: 143,
 };
 
 function stripComments(source) {
