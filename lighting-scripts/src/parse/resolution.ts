@@ -264,12 +264,14 @@ function effectChannels(catalog: JsonObject, name: string | undefined): Channel[
  * `effects_resolve`'s arguments. Every container is read leniently (`object`,
  * `Array.isArray`), as the inline reads did, so nothing raises here.
  *
- * `warm_end` keeps its known rough edge, moved here unchanged from the domain:
- * `args.warm_end ?? WARM_END` is a cast, not a parse. A malformed `warm_end`
- * raises where the resolver spreads it (`gradientSignature`), exactly as
- * before; replacing the cast with `requireRgb` would raise earlier, and a
- * fallback's trigger is observable behaviour. `src/parse/gradient.ts` notes the
- * same edge for `effects_gradient_plan`.
+ * `warm_end` is the script field with `default: [255,126,0]`, which Home
+ * Assistant fills only when the caller leaves the field out; an explicit null
+ * stays None. A present value keeps its known rough edge: it is a cast, not a
+ * parse, so a malformed `warm_end` (null included) raises where the resolver
+ * spreads it (`gradientSignature`), as the captured `warm_end|list` raises
+ * there. Replacing the cast with `requireRgb` would raise earlier, and a
+ * fallback's trigger is observable behaviour. `src/parse/gradient.ts` reads
+ * `effects_gradient_plan`'s field the same way.
  */
 export function parseResolveArgs(args: JsonObject): ResolveArgs {
   const base = object(args.base), overrides = object(args.overrides), catalog = object(args.catalog);
@@ -286,7 +288,7 @@ export function parseResolveArgs(args: JsonObject): ResolveArgs {
       const cached = gradients[target];
       return validGradient(cached, signature) ? cached.curve : undefined;
     },
-    warmEnd: (args.warm_end ?? WARM_END) as RGB,
+    warmEnd: args.warm_end === undefined ? WARM_END : args.warm_end as RGB,
     sara: jinjaTruthy(args.sara),
   };
 }

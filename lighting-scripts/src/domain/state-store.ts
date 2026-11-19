@@ -135,9 +135,10 @@ export function commit(ctx: ScriptContext, args: CommitArgs): CommitResult {
       }
       value = mergedValue(old.value, value, channels);
     }
-    // divergence: `??` also falls back on an explicit null, where the captured
-    // `old.get('created', old.get('when', now))` falls back only on an absent key.
-    overrides[key] = withFields(record.document, { value, when: ctx.now, created: old.created ?? old.when ?? ctx.now, who: parsed.who, via: parsed.via ?? null });
+    // Captured: `old.get('created', old.get('when', now))`, which falls back only
+    // on an absent key; an explicit null is kept.
+    const created = old.created !== undefined ? old.created : old.when !== undefined ? old.when : ctx.now;
+    overrides[key] = withFields(record.document, { value, when: ctx.now, created, who: parsed.who, via: parsed.via ?? null });
   }
   else if (op === 'power') {
     const power = parsed.power();

@@ -45,7 +45,10 @@ export function validGradient(entry: unknown, signature: GradientSignature): ent
  *
  * - The `continue` skips a target whose `day`/`cosy` is not a mapping rather
  *   than raising. A baseline mid-compile legitimately holds incomplete targets.
- * - `args.warm_end ?? WARM_END` is a cast, not a parse. Replacing it with
+ * - `warm_end` falls back to the field's `default: [255,126,0]` only when
+ *   absent, as Home Assistant fills field defaults; an explicit null stays and
+ *   raises where the signature spreads it, as the captured `warm_end|list`
+ *   raises on None. A present value is a cast, not a parse: replacing it with
  *   `requireRgb` would raise where the captured source coerces, and a
  *   fallback's trigger is observable behaviour. It is a known rough edge, left
  *   for whichever criterion owns this handler's argument boundary.
@@ -53,7 +56,7 @@ export function validGradient(entry: unknown, signature: GradientSignature): ent
 export function planGradients(args: JsonObject): GradientPlanResult {
   const gradients: Record<string, GradientEntry> = {};
   const cache = object(args.cached);
-  const warmEnd = (args.warm_end ?? WARM_END) as RGB;
+  const warmEnd = args.warm_end === undefined ? WARM_END : args.warm_end as RGB;
   for (const [target, item] of Object.entries(object(args.base))) {
     if (!isObject(item) || !isObject(item.day) || !isObject(item.cosy)) continue;
     const day = anchor(item.day), cosy = anchor(item.cosy);
