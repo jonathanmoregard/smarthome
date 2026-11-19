@@ -178,9 +178,9 @@ export function commit(ctx: ScriptContext, args: CommitArgs): CommitResult {
     const previousReason = unhandled ? attributeFact(ctx, entity, 'full_reason') : null;
     const fullData = parsed.full();
     let reason = fullData.reason;
-    // divergence: JS truthiness on previousReason, where the captured
-    // `previous_reason and ...` is Jinja's (`[]`/`{}` falsy, NaN truthy).
-    if (reason === 'tick' && previousReason && previousReason !== 'tick') reason = 'config';
+    // Captured: `reason=='tick' and previous_reason and previous_reason!='tick'`,
+    // Jinja's `and` (`[]`/`{}` falsy, NaN truthy).
+    if (reason === 'tick' && jinjaTruthy(previousReason) && previousReason !== 'tick') reason = 'config';
     patch = { ...patch, full_version: ctx.now, full_reason: reason, full_lights: [...new Set([...previousLights, ...fullData.lights])] };
   }
   ctx.emit('variable.update_sensor', { value: ctx.now, attributes: patch, replace_attributes: false }, { entity_id: entity });

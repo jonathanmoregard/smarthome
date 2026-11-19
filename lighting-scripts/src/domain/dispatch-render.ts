@@ -1,5 +1,6 @@
 import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
 import { typed } from '../runtime/entrypoints.ts';
+import { jinjaTruthy } from '../runtime/parse.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { hasValue } from './schedule.ts';
 import { runningIn } from './transport.ts';
@@ -171,13 +172,13 @@ export function render(ctx: ScriptContext): null {
   let plan: Verbatim | RoomsPlan, lights: StoredValue | StoredValue[] = [];
   const updates: OpaqueMap = {};
   if (full) {
-    // divergence: JS `||` on the raw attribute; the captured `... or 'config'`
-    // is Jinja truthiness (`[]`/`{}` fall back there, not here). Kept
-    // byte-identical for its own commit.
-    const planned = fullPlan(ctx.run('ls_plan', { reason: attributeFact(ctx, overrideSensor, 'full_reason') || 'config' }), rooms);
+    // Captured: `full_reason or 'config'` and `full_lights or []`, Jinja's `or`
+    // (`[]`/`{}` fall back, NaN does not).
+    const storedReason = attributeFact(ctx, overrideSensor, 'full_reason');
+    const planned = fullPlan(ctx.run('ls_plan', { reason: storedReason !== undefined && jinjaTruthy(storedReason) ? storedReason : 'config' }), rooms);
     plan = planned.document;
-    // divergence: JS `||`, as above, against the captured `... or []`.
-    lights = attributeFact(ctx, overrideSensor, 'full_lights') || [];
+    const storedLights = attributeFact(ctx, overrideSensor, 'full_lights');
+    lights = storedLights !== undefined && jinjaTruthy(storedLights) ? storedLights : [];
     for (const room of planned.areas) {
       const old = roomCacheGradients(ctx.attr(`sensor.ls_cache_${room}`, 'cache'));
       const values = planned.gradientsIn(room);
