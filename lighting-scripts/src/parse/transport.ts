@@ -51,7 +51,12 @@ function parseFrameSource(target: JsonObject, channel: Channel, context: string)
   return {
     kind,
     effect,
-    // Read where the plan reads them: a bulb effect's colour needs neither.
+    // Read when the plan reaches the channel, which it does for both. An
+    // effect source's `intensity` is required on either channel -- a bulb
+    // effect's colour included, though nothing on the colour channel uses it --
+    // matching the oracle, which hands `source.intensity` to the effect's
+    // renderer for every effect channel. `value` is read as a level here and as
+    // a colour only when the colour is sent.
     details: lazy(() => ({
       intensity: kind === 'effect' ? requireNumber(source, 'intensity', `${context}.${channel}`) : null,
       // `value | float`, for the brightness channel.
