@@ -1,5 +1,8 @@
 import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
 import { catalogOf, emptyCatalog } from '../runtime/catalog.ts';
+import type { Catalog } from '../runtime/catalog.ts';
+import type { HouseView } from '../runtime/effects.ts';
+import type { Verbatim } from '../runtime/verbatim.ts';
 import { typed } from '../runtime/entrypoints.ts';
 import { recordTimestamp } from '../parse/resolution.ts';
 import { switchRangeEntities } from '../parse/planning.ts';
@@ -8,6 +11,7 @@ import { overridesRevision } from '../parse/sensors.ts';
 import {
   contextEntries, noInputRecord, parseRemotePlanArgs, presetSelection, remoteCache, remoteOverrides, remoteRoomPlan, roomPower,
 } from '../parse/remote-input.ts';
+import type { RemoteOverrides, RemoteRoomPlan } from '../parse/remote-input.ts';
 import { clamp } from './scale.ts';
 
 const omit = (v: AssembledMap, keys: string[]): AssembledMap => Object.fromEntries(Object.entries(v).filter(([k]) => !keys.includes(k)));
@@ -78,33 +82,66 @@ export type RemotePlanResult = RemotePlanOp & {
   request_id: string;
 };
 
-/** Store button-domain intent; rendered brightness/color belong to the resolver. */
+/**
+ * Store button-domain intent; rendered brightness/color belong to the resolver.
+ *
+ * Read, then the two inter-handler runs the command needs (the room plan for
+ * its context, the catalog for three commands), then decide on the house as
+ * it stands after them.
+ */
 export function remotePlan(ctx: ScriptContext, args: RemotePlanArgs): RemotePlanResult {
-  const source = args.source, command = args.command, area = args.area;
-  const room = Object.values(ctx.areas).includes(area) ? area : '';
-  const overrides = remoteOverrides(ctx, room);
-  const stamp = recordTimestamp(ctx.now);
-  const revision = overridesRevision(ctx, 'ls_remote_plan');
-  const inputKey = overrides.inputKey;
-  const inputRecord = overrides.input;
+  const opening = remoteOpening(ctx, args);
+  const plan = remoteRoomPlan(opening.needsContext ? ctx.run('ls_room_plan', { room: opening.room, overrides: opening.overrides.document,
+    cache: opening.cache, reason: 'remote' }) : undefined);
+  // The captured script calls effects_catalog only for these three commands.
+  const catalog = ['toggle', 'left', 'right'].includes(args.command) ? catalogOf(ctx) : emptyCatalog();
+  return remoteDecision(ctx, args, opening, plan, catalog);
+}
+
+/** What `ls_remote_plan` reads before it may ask `ls_room_plan` for the room's context. */
+export interface RemoteOpening {
+  /** The area, when some entity is in it; else `''`. */
+  room: string;
+  overrides: RemoteOverrides;
+  stamp: number;
+  revision: string;
+  /** The newest timing-helper update, for a dimming press under next-block expiry; else 0. */
+  timingRevision: number;
+  /** Does the decision need the room plan? */
+  needsContext: boolean;
+  /** The room cache forwarded to the room plan. */
+  cache: Verbatim;
+}
+
+export function remoteOpening(view: HouseView, args: RemotePlanArgs): RemoteOpening {
+  const command = args.command, area = args.area;
+  const room = Object.values(view.areas).includes(area) ? area : '';
+  const overrides = remoteOverrides(view, room);
+  const stamp = recordTimestamp(view.now);
+  const revision = overridesRevision(view, 'ls_remote_plan');
   let timingRevision = 0;
-  const expiry = ctx.get('input_boolean.ls_ovr_next_block_on') === 'on';
+  const expiry = view.get('input_boolean.ls_ovr_next_block_on') === 'on';
   if (['up', 'down'].includes(command) && expiry) {
     const ids = ['input_boolean.ls_ovr_next_block_on'];
     for (const scope of ['house', room]) for (const block of ['day', 'cosy', 'night']) {
       ids.push(`input_boolean.ls_${scope}_${block}_own_timing`, `input_datetime.ls_${scope}_${block}_start`,
         `input_datetime.ls_${scope}_${block}_weekend`, `input_number.ls_${scope}_${block}_fade`);
     }
-    timingRevision = Math.max(0, ...ids.map(id => recordTimestamp(ctx.state[id]?.last_updated)));
+    timingRevision = Math.max(0, ...ids.map(id => recordTimestamp(view.state[id]?.last_updated)));
   }
-  const inputValue = inputRecord.value;
+  const inputValue = overrides.input.value;
   const needsContext = ['left', 'right'].includes(command) || (['up', 'down'].includes(command) && expiry
     && (inputValue.validUntil() <= stamp || inputValue.timingRevision !== timingRevision));
-  const cache = remoteCache(ctx.attr(`sensor.ls_cache_${room}`, 'cache'));
-  const plan = remoteRoomPlan(needsContext ? ctx.run('ls_room_plan', { room, overrides: overrides.document,
-    cache, reason: 'remote' }) : undefined);
-  // The captured script calls effects_catalog only for these three commands.
-  const catalog = ['toggle', 'left', 'right'].includes(command) ? catalogOf(ctx) : emptyCatalog();
+  const cache = remoteCache(view.attr(`sensor.ls_cache_${room}`, 'cache'));
+  return { room, overrides, stamp, revision, timingRevision, needsContext, cache };
+}
+
+/** The command's operation, from the opening reads, the room plan and the catalog, on the house after both runs. */
+export function remoteDecision(view: HouseView, args: RemotePlanArgs, opening: RemoteOpening, plan: RemoteRoomPlan, catalog: Catalog): RemotePlanResult {
+  const source = args.source, command = args.command;
+  const { room, overrides, stamp, revision, timingRevision } = opening;
+  const inputKey = overrides.inputKey;
+  const inputRecord = overrides.input;
   const key = `channels:${source}`;
   const old = inputRecord.scope !== 'room' || inputRecord.target !== room || plan.stale(inputKey) ? noInputRecord() : inputRecord;
   const value = old.value;
@@ -116,10 +153,10 @@ export function remotePlan(ctx: ScriptContext, args: RemotePlanArgs): RemotePlan
       result = overrides.has('mode:sara') ? { op: 'clear', keys: ['mode:sara'], via: 'remote' }
         : { op: 'set', records: [{ kind: 'mode', target: 'sara', value: 'on' }], via: 'remote' };
     } else if (command === 'toggle') {
-      const targets = [...Object.keys(catalog.members), ...switchRangeEntities(ctx.attr('sensor.ls_overrides', 'switch_ranges'))]
-        .filter(id => ctx.areas[id] === room);
-      const saved = roomPower(ctx, room);
-      result = { op: 'power', area: room, on: saved !== undefined ? !saved : !targets.some(id => ctx.get(id) === 'on'), targets, via: 'remote' };
+      const targets = [...Object.keys(catalog.members), ...switchRangeEntities(view.attr('sensor.ls_overrides', 'switch_ranges'))]
+        .filter(id => view.areas[id] === room);
+      const saved = roomPower(view, room);
+      result = { op: 'power', area: room, on: saved !== undefined ? !saved : !targets.some(id => view.get(id) === 'on'), targets, via: 'remote' };
     } else if (command === 'reset') result = { op: 'clear_room', area: room, via: 'remote' };
     else {
       if (bounds === undefined) throw Error('Invalid remote input bounds');
@@ -133,7 +170,7 @@ export function remotePlan(ctx: ScriptContext, args: RemotePlanArgs): RemotePlan
       for (const other of overrides.others) {
         if (other.key === key) continue;
         // A non-mapping record has no scope or target, so it never applies.
-        const applies = other.scope === 'room' && other.target === room || other.scope === 'house' && other.target === 'house' && !(ctx.labels?.private_room ?? []).includes(room);
+        const applies = other.scope === 'room' && other.target === room || other.scope === 'house' && other.target === 'house' && !(view.labels?.private_room ?? []).includes(room);
         if (!applies || !other.valueIsMapping) continue;
         const newer = other.newer();
         if (newer > adjustment.updated()) restart = true;

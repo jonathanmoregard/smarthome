@@ -36,6 +36,10 @@
 // decision/store/stops, the command filter): domainScriptContext 30 -> 29,
 // domainCtx 136 -> 122, effectCalls 13 -> 11, longLines 139 -> 137.
 //
+// U6 (remote plan opening/decision and the room plan's opening, miss update,
+// refresh, expiry and answer read through HouseView; the inter-handler runs
+// stay in the handlers): domainScriptContext 29 -> 26, domainCtx 122 -> 89.
+//
 // Raising a ceiling is the regression this guard exists to catch; argue any
 // raise in the commit message.
 import { readdir, readFile } from 'node:fs/promises';
@@ -46,8 +50,8 @@ const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const SRC = join(ROOT, 'src');
 
 const CEILINGS = {
-  domainScriptContext: 29,
-  domainCtx: 122,
+  domainScriptContext: 26,
+  domainCtx: 89,
   houseViewGenerators: 0,
   effectCalls: 11,
   longLines: 137,
