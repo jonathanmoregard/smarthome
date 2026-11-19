@@ -124,6 +124,25 @@ export interface DispatchRuntime {
   applied(lamp: string, target: Verbatim): boolean;
   /** Did the previous assignments name this lamp? */
   hadEffect(lamp: string): boolean;
+  /**
+   * The bulb-effect starts last sent to each lamp's bulbs after its light, in
+   * a dispatch whose output succeeded (`bulb_effects`). A lamp with no entry
+   * has none running that the port started.
+   */
+  bulbEffects: Record<string, string[]>;
+}
+
+/**
+ * `bulb_effects`, which only the port writes: absent means nothing recorded
+ * yet (the original scripts never wrote it); anything present must be a
+ * mapping of lamp to a list of start names.
+ */
+function parseBulbEffects(value: JsonValue | undefined): Record<string, string[]> {
+  if (value === undefined) return {};
+  const recorded = requireObject({ value }, 'value', 'ls_dispatch runtime.bulb_effects');
+  return Object.fromEntries(Object.keys(recorded).map(lamp => [lamp,
+    requireArray(recorded, lamp, 'ls_dispatch runtime.bulb_effects').map((start, index) =>
+      requireString({ start }, 'start', `ls_dispatch runtime.bulb_effects.${lamp}[${index}]`))]));
 }
 
 export function dispatchRuntime(ctx: ScriptContext): DispatchRuntime {
@@ -133,6 +152,7 @@ export function dispatchRuntime(ctx: ScriptContext): DispatchRuntime {
   return {
     applied: (lamp, target) => isDeepStrictEqual(reveal(target), previous[lamp]),
     hadEffect: lamp => Object.hasOwn(previousEffects, lamp),
+    bulbEffects: parseBulbEffects(ctx.attr(runtime, 'bulb_effects')),
   };
 }
 

@@ -72,7 +72,8 @@ export function dispatch(ctx: ScriptContext, args: DispatchArgs): DispatchResult
     if (target.isRoom || (outputTargets.length && !outputTargets.includes(lamp))) continue;
     if (ctx.get(lamp) !== 'on') continue;
     if (!(requested.includes(lamp) || remoteRooms.includes(target.area ?? null) || details.baselineSend(lamp))) continue;
-    if (requested.includes(lamp) || (previous.hadEffect(lamp) && !details.assigned(lamp)) || !previous.applied(lamp, target.document)) ordinary[lamp] = target.document;
+    if (requested.includes(lamp) || (previous.hadEffect(lamp) && !details.assigned(lamp)) || !previous.applied(lamp, target.document)
+      || !sameStarts(recordedStarts(previous.bulbEffects, lamp), bulbStarts(target))) ordinary[lamp] = target.document;
   }
   const assigned = ctx.call('effects_assign', { targets, assignments, revision, invalidate: Object.keys(ordinary), plan_order: args.planOrder });
   const batch = ctx.call('effects_frame_plan', { targets: ordinary, catalog, timestamp: timestamp(ctx.now),
@@ -90,8 +91,10 @@ export function dispatch(ctx: ScriptContext, args: DispatchArgs): DispatchResult
   const generation = assigned.generation;
   if (revision !== overridesRevision(ctx, 'ls_dispatch') || generation !== ctx.attr(runtime, 'generation')) return null;
   if (Object.keys(ordinary).length && completed) {
+    const bulbEffects = recordStarts(previous.bulbEffects, Object.keys(ordinary).map(lamp => [lamp, bulbStarts(targetViews[lamp]!)]));
     ctx.emit('variable.update_sensor', { value: generation, replace_attributes: false,
-      attributes: { applied: { ...attributeMapping(ctx, runtime, 'applied'), ...ordinary } } }, { entity_id: runtime },
+      attributes: { applied: { ...attributeMapping(ctx, runtime, 'applied'), ...ordinary },
+        ...(bulbEffects === undefined ? {} : { bulb_effects: bulbEffects }) } }, { entity_id: runtime },
     { revision, generation, requiresOutputSuccess: true });
   }
   for (const parseSwitch of switches()) {
@@ -127,6 +130,39 @@ function startBulbEffects(ctx: ScriptContext, lamps: Array<[string, string[]]>, 
     }));
   if (commands.length === 0) return { published_at: [], completed: true };
   return ctx.call('effects_emit', { commands, revision, generation });
+}
+
+/**
+ * Is a lamp's bulb running what its target needs? `applied` cannot answer
+ * that for a bulb effect: the original engine wrote `applied` too, after
+ * streaming software candle frames, so at cutover a Candle lamp reads as
+ * applied while its bulbs run nothing. Only the port's own record of the
+ * starts it sent (`bulb_effects`) says the firmware effect is running; a lamp
+ * whose target needs a start that record lacks is sent its light and start.
+ * A lamp whose record matches is left alone, so an unchanged candle is never
+ * restarted. A lamp with no bulb effect and no record compares `[]` with `[]`.
+ */
+function recordedStarts(recorded: Record<string, string[]>, lamp: string): string[] {
+  return Object.hasOwn(recorded, lamp) ? recorded[lamp]! : [];
+}
+function sameStarts(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((start, index) => start === b[index]);
+}
+/**
+ * `bulb_effects` after a completed dispatch sent these lamps their light (and
+ * starts): a lamp with starts records them, a lamp with none drops its entry.
+ * `undefined` when nothing changed, so a dispatch that touches no bulb effect
+ * writes exactly what it wrote before the record existed.
+ */
+function recordStarts(recorded: Record<string, string[]>, sent: Array<[string, string[]]>): Record<string, string[]> | undefined {
+  const next = { ...recorded };
+  let changed = false;
+  for (const [lamp, starts] of sent) {
+    if (starts.length > 0) {
+      if (!sameStarts(recordedStarts(next, lamp), starts)) { next[lamp] = starts; changed = true; }
+    } else if (Object.hasOwn(next, lamp)) { delete next[lamp]; changed = true; }
+  }
+  return changed ? next : undefined;
 }
 
 /**
