@@ -1,5 +1,5 @@
 import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { jinjaTruthy, ParseError, withParsedArgs } from '../runtime/parse.ts';
+import { jinjaTruthy, withParsedArgs } from '../runtime/parse.ts';
 import { typed } from '../runtime/entrypoints.ts';
 import { withFields } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
@@ -206,13 +206,13 @@ export interface StoreProfileArgs {
 
 /**
  * The saved profile: the document as stored, `current.get('effect', 'Normal
- * light')`, and `current.get('effect_channels', ...)` -- `'absent'` when the key
- * is, `'non-list'` when it holds something that is not a list.
+ * light')`, and the saved channel list -- `'absent'` when the key is absent or
+ * holds anything that is not a list.
  */
 export interface StoredProfile {
   document: OpaqueMap;
   activeEffect: StoredValue;
-  effectChannels: StoredValue[] | 'absent' | 'non-list';
+  effectChannels: StoredValue[] | 'absent';
 }
 /** An effect's catalog channel list; raises for an unhashable effect key. */
 export type EffectChannels = (effect: StoredValue) => StoredValue[];
@@ -244,19 +244,11 @@ export function storeProfile(ctx: ScriptContext, args: StoreProfileArgs): null {
   // the preceding block set still in the patch.
   if (args.kelvin !== undefined) { patch.m = 'ct'; patch.k = args.kelvin; }
   if (args.hs !== undefined) { patch.m = 'hs'; patch.h = args.hs.h; patch.s = args.hs.s; }
-  // Both reads are `dict.get`, which falls back only on an ABSENT key. `??` also
-  // fired on an explicit null, so a cached null effect claimed Normal light's
-  // channels where the oracle resolves none and yields an empty list.
-  let channels: StoredValue[];
-  if (current.effectChannels === 'absent') channels = catalogChannels(current.activeEffect);
-  else if (current.effectChannels !== 'non-list') channels = current.effectChannels;
-  else {
-    // Deliberate divergence, under "rework so it's typed and correct instead".
-    // The oracle stores a present non-list verbatim when no release filter runs
-    // and raises inside `reject` when one does, so the same malformed cache
-    // behaves two ways depending on which fields the caller supplied.
-    throw new ParseError(`ls_store.store entity ${entity} holds a non-list effect_channels`);
-  }
+  // The saved effect is a `dict.get`, which falls back only on an ABSENT key, so
+  // a cached null effect resolves no catalog channels and yields an empty list.
+  // The saved channel list arrives parsed: a list, or 'absent' when the key is
+  // missing or holds a non-list, which takes the active effect's channels.
+  let channels: StoredValue[] = current.effectChannels === 'absent' ? catalogChannels(current.activeEffect) : current.effectChannels;
   if (args.effect !== undefined) {
     patch.effect = args.effect;
     channels = catalogChannels(args.effect);

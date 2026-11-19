@@ -156,9 +156,12 @@ export function parseStoreProfile(args: JsonObject): StoreProfileArgs {
  * cache that parses to a non-mapping is a different case: the captured
  * `current.get(...)` raises on it, here, before the catalog is fetched.
  *
- * Both reads fall back only on an ABSENT key: an explicit null effect is a
- * value (it resolves no channels), and a present `effect_channels` that is not
- * a list is reported as such for the domain to refuse.
+ * The `effect` read falls back only on an ABSENT key: an explicit null effect
+ * is a value (it resolves no channels). The saved `effect_channels` is read
+ * leniently with a default (user directive 2026-11-19, "typed with parser
+ * that is flexible and has default"): a list is kept as stored, and anything
+ * else, explicit null included, is treated as absent, so the domain takes the
+ * active effect's catalog channels.
  */
 export function cachedProfile(text: string, entity: string): StoredProfile {
   let parsed: JsonValue;
@@ -172,8 +175,7 @@ export function cachedProfile(text: string, entity: string): StoredProfile {
   return {
     document: opaqueMap(parsed),
     activeEffect: Object.hasOwn(parsed, 'effect') && effect !== undefined ? storedFact(effect) : 'Normal light',
-    effectChannels: !Object.hasOwn(parsed, 'effect_channels') ? 'absent'
-      : Array.isArray(channels) ? channels.map(channel => storedFact(channel)) : 'non-list',
+    effectChannels: Array.isArray(channels) ? channels.map(channel => storedFact(channel)) : 'absent',
   };
 }
 

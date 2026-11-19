@@ -107,24 +107,39 @@ test('ls_store resolves the saved effect with dict.get, which ignores an explici
   assert.deepEqual(written(ctx).effect_channels, []);
 });
 
-test('ls_store rejects a cached channel list that is present but not a list', () => {
-  // DELIBERATE DIVERGENCE, under "rework so it's typed and correct instead".
-  // `current.get('effect_channels', <default>)` returns the key's value when the
-  // key exists, so a cached explicit null leaves `channels` as None. The oracle
-  // then either stores `"effect_channels": null` verbatim (when no release
-  // filter runs) or raises TypeError inside `reject` (when one does) -- the same
-  // malformed cache behaves two different ways depending on which fields the
-  // caller happened to supply. A present non-list is ill-typed input, so it
-  // raises here in both cases instead.
-  const explicitNull = store('{"effect":"Candle","effect_channels":null}');
-  assert.throws(() => explicitNull.run('ls_store', { store: STORE, on: true }),
-    /ls_store.*effect_channels/);
-
-  // An ABSENT key still takes the catalog default, which is the distinction `??`
-  // was erasing.
+// A saved channel list is read by a lenient parser with a default (user
+// directive 2026-11-19: "typed with parser that is flexible and has default"):
+// a present non-list is treated as absent, i.e. the active effect's catalog
+// channels. One test per input class.
+test('saved effect_channels: an absent key takes the active effect\'s catalog channels', () => {
   const absent = store('{"effect":"Candle"}');
   absent.run('ls_store', { store: STORE, on: true });
   assert.deepEqual(written(absent).effect_channels, ['brightness']);
+});
+
+test('saved effect_channels: an explicit null is treated as absent', () => {
+  for (const args of [{ on: true }, { brightness: 3 }]) {
+    const ctx = store('{"effect":"Candle","effect_channels":null}');
+    ctx.run('ls_store', { store: STORE, ...args });
+    const expected = 'brightness' in args ? [] : ['brightness'];
+    assert.deepEqual(written(ctx).effect_channels, expected, `with ${JSON.stringify(args)}`);
+  }
+});
+
+test('saved effect_channels: any other present non-list is treated as absent', () => {
+  for (const bad of ['"x"', '""', '0', '5', 'false', '{}', '{"a":1}']) {
+    const ctx = store(`{"effect":"Candle","effect_channels":${bad}}`);
+    ctx.run('ls_store', { store: STORE, on: true });
+    assert.deepEqual(written(ctx).effect_channels, ['brightness'], `effect_channels ${bad}`);
+  }
+});
+
+test('saved effect_channels: a list, empty included, is kept as stored', () => {
+  for (const [saved, expected] of [['[]', []], ['["color"]', ['color']]] as const) {
+    const ctx = store(`{"effect":"Candle","effect_channels":${saved}}`);
+    ctx.run('ls_store', { store: STORE, on: true });
+    assert.deepEqual(written(ctx).effect_channels, expected, `effect_channels ${saved}`);
+  }
 });
 
 test('ls_store treats an unparseable cache as empty but a non-mapping cache as malformed', () => {
@@ -155,7 +170,7 @@ test('ls_store release filters drop only the literal channel names', () => {
   assert.equal(JSON.stringify(written(ctx).effect_channels), '[1,{"a":1},null]');
 });
 
-test('ls_store raises a malformed cache before the catalog call and a non-list after it', () => {
+test('ls_store raises a malformed cache before the catalog call', () => {
   const runs: string[] = [];
   const counting = (cached: string) => {
     const ctx = context({ ...stateStoreHandlers, effects_catalog: () => { runs.push('catalog'); return catalog(); } });
@@ -164,8 +179,6 @@ test('ls_store raises a malformed cache before the catalog call and a non-list a
   };
   assert.throws(() => counting('[1]').run('ls_store', { store: STORE, on: true }), /non-mapping/);
   assert.deepEqual(runs, []);
-  assert.throws(() => counting('{"effect_channels":"x"}').run('ls_store', { store: STORE, on: true }), /non-list/);
-  assert.deepEqual(runs, ['catalog']);
 });
 
 test('ls_store looks effects up by hashable key only, raising for a container', () => {
