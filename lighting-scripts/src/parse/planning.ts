@@ -28,7 +28,7 @@ import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import { isObject, jinjaTruthy, object, requireNumber, requireObject, requireString } from '../runtime/parse.ts';
 import { carry } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
-import { list, optionalTimestamp, timestamp } from '../domain/schedule.ts';
+import { list, optionalTimestamp, timestamp } from './accessors.ts';
 import type { BaselineTarget, DetailField, OverrideFacts, Overrides, RoomBaseline, RoomCache, RoomDetails, RoomPlanArgs, TestNow } from '../domain/planning.ts';
 import { isBlock, optionalBlock } from './blocks.ts';
 

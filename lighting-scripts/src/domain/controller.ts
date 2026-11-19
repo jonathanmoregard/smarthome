@@ -1,5 +1,5 @@
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { object, requireArray, requireBoolean, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { lazy, object, requireArray, requireBoolean, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
 import { typed } from '../runtime/entrypoints.ts';
 import { WARM_END } from './scale.ts';
 import { optionalTimestamp } from './schedule.ts';
@@ -59,17 +59,6 @@ interface RemoteCommandArgs {
   dryRun: boolean;
 }
 
-function lazy<T>(parse: () => T): () => T {
-  let parsed = false;
-  let value: T;
-  return () => {
-    if (!parsed) {
-      value = parse();
-      parsed = true;
-    }
-    return value;
-  };
-}
 
 function optionalScriptBoolean(value: JsonValue | undefined, context: string): boolean {
   return value === undefined ? false : requireBoolean(value, context);

@@ -298,6 +298,26 @@ export function withParsedArgs<A>(handler: {
   return (context, args) => handler.run(context, handler.parse(args));
 }
 
+/**
+ * A parse deferred to its first read, then remembered.
+ *
+ * This is how a handler parses its whole argument document up front without
+ * moving a raise: a field the captured source reads only on some path, or only
+ * after an observable call, is a thunk here and the domain calls it exactly
+ * where the inline read sat. The first call's raise (or value) is the read.
+ */
+export function lazy<T>(parse: () => T): () => T {
+  let parsed = false;
+  let value: T;
+  return () => {
+    if (!parsed) {
+      value = parse();
+      parsed = true;
+    }
+    return value;
+  };
+}
+
 /** One error vocabulary for every boundary parser, this module's and the catalog's. */
 export function describe(value: JsonValue | undefined): string {
   if (value === undefined) return 'undefined';

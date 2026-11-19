@@ -1,5 +1,5 @@
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { isObject, jinjaFloat, jinjaInt, jinjaString, jinjaTruthy, object, ParseError, requireArray, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { isObject, jinjaFloat, jinjaInt, jinjaString, jinjaTruthy, lazy, object, ParseError, requireArray, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
 import { typed } from '../runtime/entrypoints.ts';
 import { recordTimestamp } from '../parse/resolution.ts';
 import { isAreaId, labelled, privateRooms } from './schedule.ts';
@@ -38,17 +38,6 @@ interface CommitArgs {
 interface OverrideBlockArgs { scope: JsonValue | undefined; block: string; via: JsonValue }
 interface ViaArgs { via: JsonValue }
 
-function lazy<T>(parse: () => T): () => T {
-  let parsed = false;
-  let value: T;
-  return () => {
-    if (!parsed) {
-      value = parse();
-      parsed = true;
-    }
-    return value;
-  };
-}
 
 /** Jinja `~` uses an empty string for Undefined, unlike the `| string` filter. */
 function concatString(value: JsonValue | undefined): string {

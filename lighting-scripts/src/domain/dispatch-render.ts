@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { isObject, jinjaTruthy, object, ParseError, requireArray, requireBoolean, requireNumber, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { isObject, jinjaTruthy, lazy, object, ParseError, requireArray, requireBoolean, requireNumber, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
 import { typed } from '../runtime/entrypoints.ts';
 import { hasValue, list, strings, timestamp } from './schedule.ts';
 import { FIRMWARE_CANDLE } from './transport.ts';
@@ -37,17 +37,6 @@ interface DispatchArgs {
   details: () => DispatchDetails;
 }
 
-function lazy<T>(parse: () => T): () => T {
-  let parsed = false;
-  let value: T;
-  return () => {
-    if (!parsed) {
-      value = parse();
-      parsed = true;
-    }
-    return value;
-  };
-}
 
 function parseRequestedLights(value: JsonValue | undefined): JsonValue[] {
   const requested = value === undefined ? null : value; // captured `| default(none)`

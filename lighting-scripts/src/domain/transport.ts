@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { JsonObject, JsonValue, OutputGuard, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { isObject, jinjaFloat, jinjaTruthy, object, requireArray, requireNumber, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { isObject, jinjaFloat, jinjaTruthy, lazy, object, requireArray, requireNumber, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
 import { catalogOf } from '../runtime/catalog.ts';
 import { typed } from '../runtime/entrypoints.ts';
 import { roundEven, clamp } from './scale.ts';
@@ -83,17 +83,6 @@ interface EngineTickArgs {
   catalog: JsonObject;
 }
 
-function lazy<T>(parse: () => T): () => T {
-  let parsed = false;
-  let value: T;
-  return () => {
-    if (!parsed) {
-      value = parse();
-      parsed = true;
-    }
-    return value;
-  };
-}
 
 function requireStrings(container: JsonObject, key: string, context: string): string[] {
   return requireArray(container, key, context).map((value, index) =>

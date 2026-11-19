@@ -251,12 +251,23 @@ const DOMAIN = join(ROOT, 'src/domain');
  * became typed. The new firmware path adds no accessor -- the stop check in
  * `effects_assign` shares the one lenient read of the old assignment that was
  * already there.
+
+ *
+ * Criterion 7 U0 moved the accessors (`list`, `strings`, `num`,
+ * `nativeScalar`, `timestamp`, `optionalTimestamp`, `saved`) out of
+ * `schedule.ts` into `src/parse/accessors.ts`, and folded the seven private
+ * copies of `lazy()` into `runtime/parse.ts`. `jsonTypes 257 -> 246`,
+ * `lenientAccessors 185 -> 183`, `rawJsonReturns 25 -> 22`, and **every one of
+ * those is a definition's own signature or body leaving the directory** --
+ * exactly the "moving a definition" case the header warns about. Not one call
+ * site changed; the domain still imports the accessors (through a temporary
+ * re-export in `schedule.ts`) and calls them as often as before.
  */
 const CEILINGS = {
-  jsonTypes: 257,
+  jsonTypes: 246,
   validatedBags: 0,
-  lenientAccessors: 185,
-  rawJsonReturns: 25,
+  lenientAccessors: 183,
+  rawJsonReturns: 22,
 };
 
 /** Comments may legitimately name these types while explaining why they are gone. */

@@ -1,60 +1,18 @@
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { isObject, object, ParseError, requireArray, requireBoolean, requireFinite, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { isObject, object, requireBoolean, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
 import { BLOCKS, DEFAULT_BLOCK, type Block } from './blocks.ts';
 import { roundEven } from './scale.ts';
 import { isBlock } from '../parse/blocks.ts';
 import { typed } from '../runtime/entrypoints.ts';
+import { list, nativeScalar, num, optionalTimestamp, saved, strings, timestamp } from '../parse/accessors.ts';
 
 export const blocks: readonly string[] = BLOCKS;
-export const list = (value: JsonValue | undefined): JsonValue[] =>
-  value === undefined ? [] : requireArray({ value }, 'value', 'schedule list');
-export const strings = (value: JsonValue | undefined): string[] => list(value).map((item, index) =>
-  requireString({ item }, 'item', `schedule string list[${index}]`));
+// Temporary re-export: the accessors moved to the parse layer
+// (`src/parse/accessors.ts`). Removed once every importer is repointed.
+export { list, nativeScalar, num, optionalTimestamp, saved, strings, timestamp };
 export function isAreaId(value: string | undefined): value is string { return value !== undefined && value.length > 0; }
-export function num(value: JsonValue | undefined, fallback?: number): number {
-  // `null` is Home Assistant's no-value spelling for entity attributes. A
-  // caller that has a real default must state it; malformed present values do
-  // not get to take that default.
-  if ((value === undefined || value === null || value === 'unknown' || value === 'unavailable') && fallback !== undefined) return fallback;
-  return requireFinite(value, 'schedule number');
-}
-/**
- * Home Assistant native-template output coercion at the render/re-entry
- * boundary. This is deliberately not a general parser: HA turns a template's
- * exact scalar output back into a native value before a script or variable
- * sensor receives it, so confining that behavior here models the transport
- * boundary without weakening lighting-domain numbers or strings.
- */
-export function nativeScalar(value: JsonValue): JsonValue {
-  if (typeof value !== 'string') return value;
-  const text = value.trim();
-  if (text === 'True') return true;
-  if (text === 'False') return false;
-  if (text === 'None') return null;
-  const numeric = /^[+-]?(?!0\d)\d*(?:\.\d*)?$/.test(text) && /\d/.test(text);
-  return numeric && Number.isFinite(Number(text)) ? Number(text) : value;
-}
-export function timestamp(value: JsonValue | undefined): number {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  const ts = typeof value === 'string' ? Date.parse(value) / 1000 : NaN;
-  if (!Number.isFinite(ts)) throw new ParseError(`schedule timestamp must be a finite epoch or date string, got ${JSON.stringify(value) ?? 'undefined'}`);
-  return ts;
-}
-export function optionalTimestamp(value: JsonValue | undefined): number | undefined {
-  return value === undefined || value === null ? undefined : timestamp(value);
-}
 const timestampOrZero = (value: JsonValue | undefined): number => optionalTimestamp(value) ?? 0;
 export function hasValue(ctx: ScriptContext, entity: string): boolean { return !['unknown', 'unavailable'].includes(ctx.get(entity)); }
-export function saved(ctx: ScriptContext, entity: string): JsonObject {
-  const state = ctx.get(entity);
-  // Home Assistant uses these sentinel states when an input_text has no value;
-  // malformed present JSON is a corrupt profile, not another absence spelling.
-  if (state === 'unknown' || state === 'unavailable') return {};
-  let parsed: JsonValue;
-  try { parsed = JSON.parse(state) as JsonValue; }
-  catch { throw new ParseError(`${entity} must contain a valid JSON object`); }
-  return requireObject({ parsed }, 'parsed', entity);
-}
 export function labelled(ctx: ScriptContext, label: string): string[] {
   // Registry snapshots supply label members, including device-expanded entities.
   const entities = ctx.labels?.[label] ?? (label === 'house_schedule' ? ctx.members : []);

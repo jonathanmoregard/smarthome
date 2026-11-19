@@ -13,7 +13,7 @@
  */
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import { carry } from '../runtime/verbatim.ts';
-import { list } from '../domain/schedule.ts';
+import { list } from './accessors.ts';
 import type { EndpointRow, GroupPlanArgs, MulticastGroup } from '../domain/grouping.ts';
 
 function mapping(value: JsonValue | undefined): value is JsonObject {

@@ -1,5 +1,5 @@
 import type { JsonObject, ScriptContext, ScriptHandlers } from '../runtime/context.ts';
-import { isObject, jinjaInt, ParseError, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { isObject, jinjaInt, lazy, ParseError, requireString, withParsedArgs } from '../runtime/parse.ts';
 
 const presets = [200, 285, 370, 454, 588];
 const directions = ['left', 'right', 'up', 'down'];
@@ -8,17 +8,6 @@ function roomArg(args: JsonObject): string {
   const room = requireString(args, 'room', 'ls_remote_gesture');
   if (!/^[a-z0-9_]+$/.test(room)) throw new ParseError('Gesture room must be a runtime room ID');
   return room;
-}
-function lazy<T>(parse: () => T): () => T {
-  let parsed = false;
-  let value: T;
-  return () => {
-    if (!parsed) {
-      value = parse();
-      parsed = true;
-    }
-    return value;
-  };
 }
 interface GestureArgs {
   room: string;

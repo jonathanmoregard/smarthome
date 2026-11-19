@@ -1,5 +1,5 @@
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandler, ScriptHandlers } from '../runtime/context.ts';
-import { jinjaTruthy, object, ParseError, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
+import { jinjaTruthy, lazy, object, ParseError, requireObject, requireString, withParsedArgs } from '../runtime/parse.ts';
 import { list, nativeScalar, num, timestamp } from './schedule.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
@@ -31,17 +31,6 @@ interface LampChangeArgs {
   };
 }
 
-function lazy<T>(parse: () => T): () => T {
-  let parsed = false;
-  let value: T;
-  return () => {
-    if (!parsed) {
-      value = parse();
-      parsed = true;
-    }
-    return value;
-  };
-}
 
 function triggerObject(args: JsonObject, context: string): JsonObject {
   return requireObject(args, 'trigger', context);
