@@ -16,6 +16,8 @@ import { isObject, jinjaList, jinjaOr, jinjaTruthy, object, requireBoolean, requ
 import { carry, reveal } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { num, saved, strings } from './accessors.ts';
+import { toSwitchId } from './ids.ts';
+import type { SwitchId } from '../domain/types/ids.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
 
@@ -273,7 +275,8 @@ function bound(value: JsonValue | undefined): RangeBound {
 }
 
 export interface RangeSaveArgs {
-  entity: string;
+  /** The switch to configure; `''` when the request names none (a sentinel until V3). */
+  entity: SwitchId | '';
   profile: string;
   dryRun: boolean;
   minimum: RangeBound;
@@ -282,7 +285,7 @@ export interface RangeSaveArgs {
 
 export function parseRangeSaveArgs(args: JsonObject): RangeSaveArgs {
   return {
-    entity: args.entity === undefined ? '' : requireString(args, 'entity', 'ls_range_save'),
+    entity: args.entity === undefined ? '' : toSwitchId(requireString(args, 'entity', 'ls_range_save')),
     profile: args.profile === undefined ? 'bright' : requireString(args, 'profile', 'ls_range_save'),
     dryRun: args.dry_run === undefined ? false : requireBoolean(args.dry_run, 'ls_range_save.dry_run'),
     minimum: bound(args.minimum),

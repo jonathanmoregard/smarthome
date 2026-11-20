@@ -24,7 +24,7 @@ import { requireRgb, warmEndOr } from './scale.ts';
 import { savedMappingOr } from './accessors.ts';
 import { BUILT_IN_RANGES } from './planning.ts';
 import type { ApplyArgs, PlanArgs, PlanOverrides, RemoteCommandArgs, SwitchInterval, SwitchPlanArgs } from '../domain/controller.ts';
-import { toRoomId } from './ids.ts';
+import { toRoomId, toSwitchId } from './ids.ts';
 
 const lenientList = (v: JsonValue | undefined): JsonValue[] => Array.isArray(v) ? v : [];
 
@@ -77,7 +77,7 @@ export function parseSwitchPlanArgs(args: JsonObject): SwitchPlanArgs {
   const defaults = requireObject(args, 'defaults', 'ls_switch_plan');
   return {
     // Each rule's interval is read at its turn.
-    rules: Object.entries(ranges).map(([entity, raw]) => ({ entity, range: () => switchRange(object(raw), defaults) })),
+    rules: Object.entries(ranges).map(([entity, raw]) => ({ entity: toSwitchId(entity), range: () => switchRange(object(raw), defaults) })),
     roomTarget: room => {
       const group = room === undefined ? {} : object(targets[`room:${room}`]);
       return {

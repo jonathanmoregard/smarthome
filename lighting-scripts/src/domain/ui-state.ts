@@ -8,6 +8,7 @@ import {
 } from '../parse/ui-state.ts';
 import type { DiscoveryRow, Display, RangeSaveArgs } from '../parse/ui-state.ts';
 import { payloadNumber } from '../runtime/format.ts';
+import type { SwitchId } from './types/ids.ts';
 
 /**
  * One MQTT message for the UI proxy. Both fields are built here -- the topic
@@ -103,7 +104,8 @@ export type RangeConfig = { profile: string; min?: number; max?: number };
 export type RangeSaveResult = {
   valid: boolean;
   errors: string[];
-  entity: string;
+  /** The switch the request names; `''` when it names none (a sentinel until V3). */
+  entity: SwitchId | '';
   config: RangeConfig;
 };
 

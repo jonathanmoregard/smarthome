@@ -13,7 +13,7 @@ import { overridesRevision } from '../parse/sensors.ts';
 import { entityProfile } from '../parse/schedule.ts';
 import type { StoredFact, StoredValue } from '../parse/overrides.ts';
 import { stored, storedList, switchRangeEntities, wakeFadeMinutes, wakeTimestamp, warmEndOf } from '../parse/planning.ts';
-import type { RoomId } from './types/ids.ts';
+import type { RoomId, SwitchId } from './types/ids.ts';
 import type { LampOrRoom } from './types/lighting-state.ts';
 import { byOverlayKeyText, overlayKeyText, sameOverlayKey, SARA_MODE } from './types/overlay.ts';
 import type { OverlayKey } from './types/overlay.ts';
@@ -329,7 +329,7 @@ export interface RoomPlanParts {
   resolved: ResolutionResult;
   gradients: Gradients;
   catalog: Verbatim;
-  switches: Record<string, SwitchDecision>;
+  switches: Record<SwitchId, SwitchDecision>;
   update: CacheUpdate | null;
   hit: boolean;
 }

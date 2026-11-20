@@ -11,7 +11,7 @@ import { optionalBlock } from './blocks.ts';
 import { ParseError, requireArray, requireBoolean, requireFinite, requireNumber, requireObject, requireString } from '../runtime/parse.ts';
 import { carry } from '../runtime/verbatim.ts';
 import { assembledMap, storedFact } from './overrides.ts';
-import { toRoomId } from './ids.ts';
+import { toRoomId, toSwitchId } from './ids.ts';
 
 function decodeStrings(container: JsonObject, key: string, context: string): string[] {
   return requireArray(container, key, context)
@@ -78,7 +78,7 @@ function decodeSwitchPlan(value: JsonValue, context: string): SwitchPlanResult {
   const switches = requireObject(result, 'switches', context);
   return {
     switches: Object.fromEntries(Object.entries(switches)
-      .map(([entity, entry]) => [entity, decodeSwitchDecision(entry, `${context}.switches.${entity}`)])),
+      .map(([entity, entry]) => [toSwitchId(entity), decodeSwitchDecision(entry, `${context}.switches.${entity}`)])),
   };
 }
 

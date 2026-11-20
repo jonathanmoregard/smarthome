@@ -7,7 +7,7 @@ import { roomTarget, storedProfileText } from '../parse/state-store.ts';
 import { affectedRoom, mergedValue, overrideRecord, sameFact, underlyingOf } from '../parse/overrides.ts';
 import type { OpaqueMap, StoredEntry, StoredFact, StoredOverrides, StoredValue } from '../parse/overrides.ts';
 import type { HouseView, Plan } from '../runtime/effects.ts';
-import type { RoomId } from './types/ids.ts';
+import type { RoomId, SwitchId } from './types/ids.ts';
 import type { Rooms } from './types/rooms.ts';
 import type { OverlayKey } from './types/overlay.ts';
 import { overlayKeyText, SARA_MODE } from './types/overlay.ts';
@@ -50,7 +50,7 @@ export interface CommitData {
   receivedAt: StoredFact;
   clearContains: () => (key: OverlayKey) => boolean;
   power: () => { area: RoomId; on: boolean };
-  range: () => { entity: string; rule: RangeRule } | undefined;
+  range: () => { entity: SwitchId; rule: RangeRule } | undefined;
   ranges: () => Verbatim | undefined;
   remoteAck: () => { source: string; requestId: StoredValue } | undefined;
   full: () => { reason: StoredValue; lights: StoredValue[] };
@@ -62,7 +62,7 @@ export interface CommitArgs {
 /** The attributes `ls_commit` writes, in the order it writes them. */
 export type OverridesPatch = {
   power?: Record<string, Verbatim | boolean>;
-  switch_ranges?: Record<string, Verbatim | RangeRule>;
+  switch_ranges?: Record<SwitchId, Verbatim | RangeRule>;
   range_defaults?: Verbatim;
   remote_ack?: Record<string, StoredValue>;
   overrides?: OpaqueMap;

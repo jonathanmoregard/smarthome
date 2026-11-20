@@ -7,7 +7,7 @@ import type { ResolutionResult } from './resolution.ts';
 import type { GradientPlanResult } from './gradient.ts';
 import type { RemotePlanResult } from './remote-input.ts';
 import type { Effect, HouseView } from '../runtime/effects.ts';
-import type { RoomId } from './types/ids.ts';
+import type { RoomId, SwitchId } from './types/ids.ts';
 import { overlayKeyText, SARA_MODE } from './types/overlay.ts';
 
 /**
@@ -18,7 +18,7 @@ export interface SwitchInterval { low: number; high: number; stored: [number | b
 
 export interface SwitchPlanArgs {
   /** Each switch-range rule, its interval read at its turn, or `undefined` unless valid. */
-  rules: Array<{ entity: string; range: () => SwitchInterval | undefined }>;
+  rules: Array<{ entity: SwitchId; range: () => SwitchInterval | undefined }>;
   /** The resolved room target a rule follows, read leniently; `on` is required once read. */
   roomTarget(room: RoomId | undefined): { populated: boolean; level: () => number | undefined; on: () => boolean };
 }
@@ -75,10 +75,10 @@ export type SwitchDecision = {
   brightness?: number;
   range: [number | boolean, number | boolean];
 };
-export type SwitchPlanResult = { switches: Record<string, SwitchDecision> };
+export type SwitchPlanResult = { switches: Record<SwitchId, SwitchDecision> };
 
 export function switchPlan(areas: Readonly<Record<string, RoomId>>, args: SwitchPlanArgs): SwitchPlanResult {
-  const switches: Record<string, SwitchDecision> = {};
+  const switches: Record<SwitchId, SwitchDecision> = {};
   for (const { entity, range } of args.rules) {
     const room = areas[entity];
     const group = args.roomTarget(room);
@@ -114,7 +114,7 @@ export type PlanDocument = Omit<ScheduleEnvelope, 'revision' | 'sara_mirror'> & 
   base: Record<string, TargetEntry>;
   resolved: ResolutionResult;
   gradients: GradientPlanResult['gradients'];
-  switches: Record<string, SwitchDecision>;
+  switches: Record<SwitchId, SwitchDecision>;
   revision: string;
   plan_order: number;
   remote: boolean;
@@ -129,7 +129,7 @@ export interface PlanParts {
   base: Record<string, TargetEntry>;
   resolved: ResolutionResult;
   gradients: GradientPlanResult['gradients'];
-  switches: Record<string, SwitchDecision>;
+  switches: Record<SwitchId, SwitchDecision>;
   /** The overrides the baseline did not mark stale. */
   active: OpaqueMap;
   reason: string;

@@ -20,7 +20,7 @@ import { carry, jsonEqual, reveal } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import type { CommitArgs, CommitData, CommitRecord } from '../domain/state-store.ts';
 import { concatString, haBoolean, mappingKey } from './state-store.ts';
-import { toRoomId } from './ids.ts';
+import { toRoomId, toSwitchId } from './ids.ts';
 import type { OverlayKey } from '../domain/types/overlay.ts';
 import { overlayKeyText } from '../domain/types/overlay.ts';
 import { parseOverlayKey } from './overlay-key.ts';
@@ -240,12 +240,12 @@ function parseCommitData(data: JsonObject): CommitData {
     range: lazy(() => {
       const profile = data.profile;
       if (profile === 'bright' || profile === 'cosy') {
-        return { entity: requireString(data, 'entity', 'ls_commit.data'), rule: { profile } };
+        return { entity: toSwitchId(requireString(data, 'entity', 'ls_commit.data')), rule: { profile } };
       }
       if (profile !== 'custom') return undefined;
       const min = testedNumber(data.min), max = testedNumber(data.max);
       if (min === undefined || max === undefined || min.numeric < 0 || min.numeric > max.numeric || max.numeric > 100) return undefined;
-      return { entity: requireString(data, 'entity', 'ls_commit.data'), rule: { profile, min: min.raw, max: max.raw } };
+      return { entity: toSwitchId(requireString(data, 'entity', 'ls_commit.data')), rule: { profile, min: min.raw, max: max.raw } };
     }),
     ranges: lazy(() => {
       const ranges = data.ranges === undefined ? {} : requireObject(data, 'ranges', 'ls_commit.data');
