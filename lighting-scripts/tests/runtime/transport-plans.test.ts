@@ -110,7 +110,7 @@ test('an unchanged assignment keeps its generation and writes only for a newer p
   const same = assignView({ targets: { 'light.lamp': steady } });
   const older = assignDecision(same, REVISION, details({ targets: { 'light.lamp': steady }, plan_order: 5 }));
   assert.deepEqual([older.changed, older.write, older.generation], [false, false, 'g0']);
-  assert.deepEqual([...planAssignUpdate(older, REVISION, details({}))], []);
+  assert.deepEqual([...planAssignUpdate(older, REVISION, details({}), [])], []);
   const newer = assignDecision(same, REVISION, details({ targets: { 'light.lamp': steady }, plan_order: 6 }));
   assert.deepEqual([newer.changed, newer.write, newer.planOrder], [false, true, 6]);
 });
@@ -120,7 +120,7 @@ test('a changed assignment takes now as its generation and writes the runtime in
   const parsed = details({ targets: { 'light.lamp': steady }, assignments: { 'light.lamp': {} }, invalidate: ['light.lamp'] });
   const decision = assignDecision(view, REVISION, parsed);
   assert.deepEqual([decision.changed, decision.generation, decision.planOrder], [true, NOW, 5]);
-  const effects = [...planAssignUpdate(decision, REVISION, parsed)];
+  const effects = [...planAssignUpdate(decision, REVISION, parsed, [])];
   assert.deepEqual(effects, [{
     kind: 'service', service: 'variable.update_sensor', target: { entity_id: runtime },
     data: { value: NOW, replace_attributes: false, attributes: {

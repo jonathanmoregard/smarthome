@@ -319,11 +319,18 @@ export function assignDecision(view: HouseView, revision: string, details: Assig
   return { stored, changed, generation, planOrder, write: changed || planOrder > runtimePlanOrder(view) };
 }
 
-/** The runtime store, keeping the applied entries no invalidation names. */
-export function* planAssignUpdate(decision: AssignDecision, revision: string, details: AssignDetails): Plan<void> {
+/**
+ * The runtime store, keeping the applied entries no invalidation names and no
+ * lamp {@link stoppedLamps} tells to stop. A stopped lamp's bulbs no longer
+ * show its applied light, sent by ls_dispatch or not (a baseline `send: false`
+ * lamp is stopped and skipped), so it leaves `applied` and the next dispatch
+ * that asks for that light sends it, a bulb-effect start included.
+ */
+export function* planAssignUpdate(decision: AssignDecision, revision: string, details: AssignDetails, stopped: string[]): Plan<void> {
   if (!decision.write) return;
   const invalidate = details.invalidate, generation = decision.generation;
-  const applied = Object.fromEntries(Object.entries(decision.stored.applied).filter(([key]) => !invalidate.includes(key)));
+  const applied = Object.fromEntries(Object.entries(decision.stored.applied).filter(([key]) =>
+    !invalidate.includes(key) && !stopped.includes(key)));
   yield {
     kind: 'service', service: 'variable.update_sensor',
     data: { value: generation, replace_attributes: false, attributes: {
@@ -334,13 +341,11 @@ export function* planAssignUpdate(decision: AssignDecision, revision: string, de
 }
 
 /**
- * The stops for each lamp target leaving an effect its bulbs run, or whose
- * native-owned effect channel was re-stamped: `stop_colorloop` then
- * `stop_effect`, per on member.
+ * The lamps told to stop: each lamp target leaving an effect its bulbs run,
+ * or whose native-owned effect channel was re-stamped, in target order.
  */
-export function stopCommands(view: HouseView, catalog: Catalog, targetViews: ReturnType<AssignDetails['targetViews']>,
-  stored: RuntimeState): StopCommand[] {
-  const commands: StopCommand[] = [];
+export function stoppedLamps(targetViews: ReturnType<AssignDetails['targetViews']>, stored: RuntimeState): string[] {
+  const lamps: string[] = [];
   for (const [lamp, target] of Object.entries(targetViews)) {
     if (target.isRoom) continue;
     const previous = stored.previous(lamp);
@@ -353,7 +358,17 @@ export function stopCommands(view: HouseView, catalog: Catalog, targetViews: Ret
       if (source.kind === 'effect' && target.owners[channel].startsWith('channels:native:') &&
         source.updated !== previous.updated(channel)) needed = true;
     }
-    if (needed) for (const member of catalog.members[lamp] ?? []) if (view.get(member) === 'on') {
+    if (needed) lamps.push(lamp);
+  }
+  return lamps;
+}
+
+/** The stops for each {@link stoppedLamps} lamp: `stop_colorloop` then `stop_effect`, per on member. */
+export function stopCommands(view: HouseView, catalog: Catalog, targetViews: ReturnType<AssignDetails['targetViews']>,
+  stored: RuntimeState): StopCommand[] {
+  const commands: StopCommand[] = [];
+  for (const lamp of stoppedLamps(targetViews, stored)) {
+    for (const member of catalog.members[lamp] ?? []) if (view.get(member) === 'on') {
       // A member the catalog gives no topic is skipped, as the light path
       // skips it: `framePlan` hands its row to `effects_group_plan` with
       // `topic: null`, which rejects it as an invalid endpoint row. Pushing

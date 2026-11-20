@@ -205,14 +205,10 @@ test('an ordinary light lost in transit leaves the lamp out of applied, so going
   }
 });
 
-// A known gap of the stateless rule, reproduced and left open (close-out
-// review round 3): a lamp whose bulbs no longer run the candle while
-// `applied` still says Candle, so the next Candle dispatch skips it.
-
-test('GAP (was review2 R3): a candle stopped on a lamp ls_dispatch skipped is started again when the lamp returns to Candle', {
-  todo: 'effects_assign stops every lamp leaving a bulb effect, sent or not, but invalidates applied only for the lamps '
-    + 'ls_dispatch sends; a baseline send:false lamp keeps applied = Candle',
-}, () => {
+// effects_assign stops every lamp leaving a bulb effect, including one
+// ls_dispatch then skips (baseline `send: false`). A stopped lamp is taken out
+// of `applied` too, so it is not left recorded as running the candle.
+test('a candle stopped on a lamp ls_dispatch skipped is started again when the lamp returns to Candle (was review2 R3)', () => {
   const skipped = { revision: now, plan_order: 1, base: { 'light.lamp': { send: false } },
     resolved: { targets: { 'light.lamp': steady }, assignments: {} } };
   const left = execute({ script: 'ls_dispatch', args: { plan: skipped, lights: [] }, snapshot: snapshot(holding(candle)) }, handlers);

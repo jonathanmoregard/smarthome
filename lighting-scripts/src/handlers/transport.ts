@@ -15,7 +15,7 @@ import {
 } from '../parse/transport.ts';
 import type { GroupPlanResult } from '../domain/grouping.ts';
 import {
-  assignDecision, filterCommands, frameRows, planAssignUpdate, planStops, publishCommand, stillCurrent, stopCommands,
+  assignDecision, filterCommands, frameRows, planAssignUpdate, planStops, publishCommand, stillCurrent, stopCommands, stoppedLamps,
 } from '../domain/transport.ts';
 import type { AssignArgs, AssignResult, EmitArgs, EmitResult, FramePlanArgs } from '../domain/transport.ts';
 
@@ -63,7 +63,11 @@ export function assignEffects(ctx: ScriptContext, args: AssignArgs): AssignResul
   if (args.revision !== overridesRevision(ctx, 'effects_assign')) return { generation: runtimeGeneration(ctx) };
   const details = args.details();
   const decision = assignDecision(ctx, args.revision, details);
-  run(ctx, planAssignUpdate(decision, args.revision, details));
+  // The target views are parsed ahead of the store so it can drop the lamps
+  // told to stop from `applied`. A parse that raises aborts the whole request
+  // either way, so the earlier raise has no observable effect.
+  const stopped = decision.changed ? stoppedLamps(details.targetViews(), decision.stored) : [];
+  run(ctx, planAssignUpdate(decision, args.revision, details, stopped));
   if (decision.changed) {
     const catalog = catalogOf(ctx);
     const stops = stopCommands(ctx, catalog, details.targetViews(), decision.stored);
