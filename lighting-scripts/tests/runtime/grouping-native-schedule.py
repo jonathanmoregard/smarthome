@@ -32,6 +32,69 @@ def without_off_light(actual,expected):
     if field in entry and field not in mine:del entry[field];dropped+=1
  return dropped
 
+def wake_progress(state,at):
+ """Each room's wake-fade progress at `at`, for the rooms whose wake fade is running."""
+ out={}
+ for entity,value in state.items():
+  if not (entity.startswith('input_datetime.ls_') and entity.endswith('_wake')):continue
+  room=entity[len('input_datetime.ls_'):-len('_wake')];start=value.get('attributes',{}).get('timestamp')
+  fade=float(state.get(f'input_number.ls_{room}_wake_fade',{}).get('state',37.5))*60
+  if isinstance(start,(int,float)) and 0<=at-start<fade:out[room]=(at-start)/fade
+ return out
+
+def off_on_ramp(actual,expected,state,wake_p):
+ """Named divergence "scheduled fades are gradual in both directions": in a moving stage whose start is off and
+ whose end is lit, the Jinja oracle jumps to the lit end's level; the port ramps max(1, round(1 + (level - 1) * p)).
+ Rewrite the oracle's level to that ramp only where both sides are lit in the same colour, the stage's start is
+ off (its scene, or for a fade-out the lamp itself), and the port's level is exactly the ramp of the oracle's at the
+ stage's p. Commands follow their lamps' rewritten profiles. Returns how many levels were rewritten."""
+ details=expected.get('schedule',{}).get('schedule_details',{})
+ def is_off(entity):return state.get(entity,{}).get('state')=='off'
+ def own(lamp,block):
+  try:saved=json.loads(state.get(f'input_text.ls_lamp_{lamp.split(".")[1]}_{block}',{}).get('state',''))
+  except ValueError:return False
+  return isinstance(saved,dict) and saved.get('own') is True
+ def scene_off(lamp,room,block):
+  # The scene the stage starts from, chosen as the schedule chooses it (lamp's own, room's own, house).
+  scope=room if state.get(f'input_boolean.ls_{room}_{block}_own_light',{}).get('state')=='on' else 'house'
+  if lamp is None:return is_off(f'light.ls_{scope}_{block}')
+  for entity in ([f'light.ls_lamp_{lamp.split(".")[1]}_{block}'] if own(lamp,block) else [])+[f'light.ls_{scope}_{block}',f'light.ls_house_{block}']:
+   if state.get(entity,{}).get('state','') not in ('unknown','unavailable'):return is_off(entity)
+  return False
+ stages={}
+ for line in expected.get('schedule',{}).get('dbg',[]):
+  lamp,rooms,source,move=line.split(' ')[:4];room=rooms.split('/')[0];start=move.split('>')[0];S=details.get(room,{})
+  if source=='schedule' and S.get('fading') and scene_off(lamp,room,start):stages[lamp]=S['p']
+  elif source=='wake' and room in wake_p and scene_off(lamp,room,start):stages[lamp]=wake_p[room]
+  elif source=='fadeout' and is_off(lamp):stages[lamp]=min(1,3/max(S.get('left',1),1))
+ for area,S in details.items():
+  if S.get('fading') and scene_off(None,area,S['cur']):stages[f'room:{area}']=S['p']
+  elif area in wake_p and not S.get('fading') and S.get('cur')=='night' and scene_off(None,area,'night'):stages[f'room:{area}']=wake_p[area]
+ rewritten=0;levels={}
+ for ours,theirs in [(actual.get('targets',{}),expected.get('targets',{})),
+   (actual.get('schedule',{}).get('profiles',{}),expected.get('schedule',{}).get('profiles',{}))]:
+  for key,entry in theirs.items():
+   mine=ours.get(key);p=stages.get(key)
+   if p is None or not isinstance(mine,dict) or not isinstance(entry,dict) or mine.get('on') is False or entry.get('on') is False:continue
+   if entry.get('color')!=mine.get('color') or not isinstance(entry.get('brightness'),(int,float)):continue
+   ramp=max(1,round(1+(entry['brightness']-1)*p))
+   if mine.get('brightness')!=entry['brightness'] and mine.get('brightness')==ramp:entry['brightness']=ramp;rewritten+=1;levels[key]=ramp
+ return rewritten,levels
+
+def ramped_commands(expected,levels,groups):
+ """The oracle's lit commands at their lamps' rewritten levels, regrouped by the same key the schedule uses."""
+ cmds=expected.get('schedule',{}).get('cmds')
+ if not isinstance(cmds,list) or not levels:return
+ out={}
+ for cmd in cmds:
+  ids=cmd.get('ids',[]);members=[m for i in ids for m in groups.get(i,[i])]
+  wanted={levels[m] for m in members if m in levels}
+  if 'brightness' in cmd and len(wanted)==1 and all(m in levels for m in members):cmd={**cmd,'brightness':max(wanted.pop(),1)}
+  key=json.dumps({k:v for k,v in cmd.items() if k!='ids'})
+  if key in out:out[key]['ids']+=ids
+  else:out[key]={**cmd,'ids':list(ids)}
+ expected['schedule']['cmds']=list(out.values())
+
 async def main():
  with Stage() as stage, tempfile.TemporaryDirectory(prefix='schedule-native-') as temporary:
   sys.path[:0]=[str(stage.path/'lighting-algebra/tests'),str(stage.path/'effects-promotion/tests')]
@@ -52,7 +115,8 @@ async def main():
   configs={n:json.loads((ROOT/'reference/live/scripts'/f'{n}.json').read_text())['config'] for n in ['ls_base','ls_room_base']}
   catalog=sim.run('effects_catalog')
   catalog['baseline_groups']={'light.kitchen_all':['light.kitchen_pendant','light.kitchen_spots_1','light.kitchen_spots_2']}
-  comparisons=0;off_light_dropped=0
+  comparisons=0;off_light_dropped=0;ramp_rewritten=0
+  from datetime import datetime
   for variant in ['ordinary','wake','custom','expired']:
    records={}
    if variant=='wake':
@@ -81,11 +145,14 @@ async def main():
      snapshot['state']['sensor.ls_overrides']['last_updated']=hass.states.get('sensor.ls_overrides').last_updated.isoformat()
      actual=rpc.call(name,args,snapshot)['result']
      off_light_dropped+=without_off_light(actual,expected)
+     rewritten,levels=off_on_ramp(actual,expected,snapshot['state'],wake_progress(snapshot['state'],datetime.fromisoformat(args['test_now']).timestamp()))
+     ramped_commands(expected,levels,catalog['baseline_groups']);ramp_rewritten+=rewritten
      try:equal_results(actual,expected)
      except AssertionError as e:
       print(name,time,e)
       Path('/tmp/schedule-expected.json').write_text(json.dumps(expected,indent=2));Path('/tmp/schedule-actual.json').write_text(json.dumps(actual,indent=2));raise
      comparisons+=1
-  print(json.dumps({'native_full_schedule_comparisons':comparisons,'failures':0,'off_has_no_colour_keys_dropped':off_light_dropped}))
+  print(json.dumps({'native_full_schedule_comparisons':comparisons,'failures':0,'off_has_no_colour_keys_dropped':off_light_dropped,
+   'off_to_on_ramp_levels_rewritten':ramp_rewritten}))
   rpc.close(); await hass.async_stop()
 asyncio.run(main())

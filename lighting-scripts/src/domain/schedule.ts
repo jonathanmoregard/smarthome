@@ -1,6 +1,6 @@
 import type { HouseView } from '../runtime/effects.ts';
 import { BLOCKS, DEFAULT_BLOCK, type Block } from './blocks.ts';
-import { roundEven } from './scale.ts';
+import { OFF_END_LEVEL, ramp, roundEven } from './scale.ts';
 import { timestamp } from '../parse/accessors.ts';
 import { pythonFloatText } from '../runtime/format.ts';
 import type { StoredValue } from '../parse/overrides.ts';
@@ -193,12 +193,24 @@ function mixedColour(A: Extract<LampSample, { on: true }>, B: Extract<LampSample
   return b !== undefined ? b : a;
 }
 /**
- * The light part way through a stage. Off -> on jumps to the lit end (the fade
- * starts from nothing it could dim up from); on -> off dims the lit end towards
- * level 1 and switches off when the stage ends; on -> on mixes level and colour.
+ * The light part way through a stage. Off -> on switches the lamp on at
+ * {@link OFF_END_LEVEL} in the lit end's colour and ramps the level up to the
+ * lit end's over the stage (the remote blend's {@link ramp}, rounded); on -> off
+ * dims the lit end towards level 1 and switches off when the stage ends; on -> on
+ * mixes level and colour. Both off, or not moving: the destination.
+ *
+ * Divergence from today's scripts, named (2026-11-20, "Scheduled fades are
+ * gradual in both directions"): they jump an off -> on fade straight to the lit
+ * end. Unlike the remote blend, which is off AT its off end, a moving fade is lit
+ * from p = 0, mirroring on -> off staying lit until the stage ends.
  */
 function interpolate(A: LampSample, B: LampSample, stage: Stage): LampLight {
-  if (!stage.moving || !A.on) return lightOf(B);
+  if (!stage.moving) return lightOf(B);
+  if (!A.on) {
+    if (!B.on) return lightOf(B);
+    const brightness = Math.max(OFF_END_LEVEL, roundEven(ramp(B.brightness, stage.p)));
+    return B.color === undefined ? { on: true, brightness } : { on: true, brightness, color: B.color };
+  }
   if (!B.on) return { ...lightOf(A), on: true, brightness: Math.max(1, roundEven(A.brightness * (1 - stage.p))) };
   const color = mixedColour(A, B, stage.p), brightness = roundEven(A.brightness + (B.brightness - A.brightness) * stage.p);
   return color === undefined ? { on: true, brightness } : { on: true, brightness, color };

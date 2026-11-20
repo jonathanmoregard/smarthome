@@ -28,6 +28,17 @@ assert behaviour the port still has: the two `effects_emit` cases left in
 test_effect_pacing.py, the ten emitter/grouping cases left in test_transport.py,
 and all fifteen cases of test_performance_pipeline.py (the commit/render/ack
 pipeline, which does not stream).
+
+Gradual off -> on fade (2026-11-20, "Scheduled fades are gradual in both
+directions"). A moving stage that starts off and ends lit now switches the lamp
+on at level 1 in the lit end's colour and ramps to the lit end's level; today's
+scripts jump straight to the lit end. One case asserts that jump: its wake fade
+from an off night at 06:15 (p = 0.5) expects the day level 250 where the port
+now gives 126. It passed on the reference backend, so the clean count moves
+226 -> 225. Its other two rows (both ends lit, lit night to off day) still pass
+on the port, but a retirement removes the whole case. The wake cases with a lit
+night, the explicit-period case and the regular-fade case in the same module are
+unchanged and still compared.
 """
 
 _STREAMED = 'Asserts the engine streams software Candle frames; the bulb firmware renders Candle and the engine sends it nothing.'
@@ -56,6 +67,10 @@ RETIRED = {
     } | {
         'test_transform_does_not_mutate_input_and_supports_controller_override':
             'Pins that the legacy pacing transform emits an effects_engine script; the port has no engine.',
+    },
+    'lighting-algebra/tests/test_room_wake_baseline.py': {
+        'test_rgb_and_profile_off_fades_match_existing_planner':
+            'Asserts a wake fade from an off night jumps to the day level; the port ramps up from level 1 (scheduled fades are gradual in both directions).',
     },
     'lighting-algebra/tests/test_transport.py': {
         'test_engine_uses_bounded_shared_transport': _STREAMED,

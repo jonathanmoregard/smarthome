@@ -137,8 +137,11 @@ export type Blended = { on: false; position: number } | ({ on: true } & Scaled);
  */
 export const OFF_END_LEVEL = 1;
 
-/** Up from {@link OFF_END_LEVEL} towards `level`, `t` of the way (0 at the off end, 1 at the lit end). */
-function ramp(level: number, t: number): number { return OFF_END_LEVEL + (level - OFF_END_LEVEL) * t; }
+/**
+ * Up from {@link OFF_END_LEVEL} towards `level`, `t` of the way (0 at the off end, 1 at the lit end).
+ * Shared by the remote blend (unrounded) and a scheduled off -> on fade (rounded), so the two agree.
+ */
+export function ramp(level: number, t: number): number { return OFF_END_LEVEL + (level - OFF_END_LEVEL) * t; }
 
 /**
  * The cosy <-> day blend at `position` (cosy at 0, day at 1).
