@@ -82,6 +82,16 @@ export function withFields(document: Verbatim, fields: { readonly [key: string]:
   return carry({ ...(reveal(document) as JsonObject), ...fields });
 }
 
+/**
+ * A carried document without `key`: the domain decided the key is absent now
+ * (a reading that is no longer there). Every other key passes through unread,
+ * in place.
+ */
+export function withoutField(document: Verbatim, key: string): Verbatim {
+  const { [key]: _absent, ...rest } = reveal(document) as JsonObject;
+  return carry(rest);
+}
+
 function isMapping(value: JsonValue | undefined): value is { [key: string]: JsonValue } {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }

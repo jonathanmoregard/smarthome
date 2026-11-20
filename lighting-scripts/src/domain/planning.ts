@@ -1,4 +1,4 @@
-import { storedEquals, withFields } from '../runtime/verbatim.ts';
+import { storedEquals, withFields, withoutField } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { BLOCKS, blockOption } from './blocks.ts';
 import type { Block } from './blocks.ts';
@@ -16,11 +16,14 @@ import { stored, storedList, switchRangeEntities, wakeFadeMinutes, wakeTimestamp
 
 /**
  * The oracle's own cache version literal, copied verbatim from
- * `reference/live/scripts/ls_room_plan.json` -- not a hash of this code. A
- * cache the live Jinja script wrote hits here too, which is why every cached
- * document is carried rather than parsed into a narrower type.
+ * `reference/live/scripts/ls_room_plan.json` -- not a hash of this code --
+ * with `:off-lamp-v1` appended (2026-11-20). A cached baseline from before
+ * then holds off lamps as a made-up white 255 (`{kelvin: 3000}` targets, white
+ * observed and anchors); the new suffix makes every such cache miss once and
+ * be rebuilt in the honest shape. A cache the live Jinja script wrote misses
+ * for the same reason. Cached documents are still carried rather than parsed.
  */
-const cacheVersion = 'db7981f72ee868e8d33ff1481dffb34e5e26570e8bf949a3cb2c505d7c3f37e1:input-processors-v1:preset-stream-v1';
+const cacheVersion = 'db7981f72ee868e8d33ff1481dffb34e5e26570e8bf949a3cb2c505d7c3f37e1:input-processors-v1:preset-stream-v1:off-lamp-v1';
 
 /**
  * One stored override record, as far as room planning reads it.
@@ -209,8 +212,14 @@ export function refreshBaseline(view: HouseView, baseline: RoomBaseline, hitFrom
         || (!t.isRoom && ((r.scope === 'lamp' && r.target === entity) || (r.kind === 'light' && r.target === entity)));
       if (match && r.when <= lastFs()) ignored.push(key);
     }
-    const observed = t.isRoom ? undefined : entityProfile(view, entity);
-    targets[entity] = withFields(t.document, observed === undefined ? { ignore_overrides: ignored } : { ignore_overrides: ignored, observed });
+    // A lamp's reading is re-taken now: off is `{on: false}`, and a lamp that is
+    // missing or unavailable has no reading, so a cached one is dropped.
+    const refreshed = withFields(t.document, { ignore_overrides: ignored });
+    if (t.isRoom) targets[entity] = refreshed;
+    else {
+      const observed = entityProfile(view, entity);
+      targets[entity] = observed === undefined ? withoutField(refreshed, 'observed') : withFields(refreshed, { observed });
+    }
     ignoredBy.set(entity, ignored);
   }
   if (deps.expiry === 'on' && !S.fading) for (const { key, record } of overrides.entries) {

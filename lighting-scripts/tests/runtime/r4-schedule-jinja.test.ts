@@ -10,8 +10,10 @@ import { context } from './gestures-context.ts';
  * itself in Home Assistant 2026.7.4 on the same house (round-4 differential).
  *
  * - `(rgb_color or [255,255,255]) | list`: Home Assistant reports
- *   `rgb_color: null` for a lamp that is off, so the falsy default is the
- *   ordinary path, not an edge.
+ *   `rgb_color: null` for a lamp that is off, so the falsy default was the
+ *   ordinary path. The port no longer invents the white (2026-11-20, off is a
+ *   state that cannot carry a colour): falsy is no colour; truthy still goes
+ *   through Jinja's `list`.
  * - `test_now is defined and test_now`: a Jinja-falsy test_now is "now".
  */
 const cosy = '2026-10-23T19:00:00+02:00';
@@ -36,22 +38,22 @@ const base = (ctx: ReturnType<typeof configured>, args: JsonObject = {}) =>
 const roomBase = (ctx: ReturnType<typeof configured>, args: JsonObject = {}) =>
   ctx.run('ls_room_base', { test_now: cosy, overrides: {}, room: 'studio', ...args }) as unknown as Result;
 
-test('a lamp that is off, with every colour attribute null, is observed as the default white', () => {
+test('a lamp that is off, with every colour attribute null, is observed as off (the oracle invented white 255)', () => {
   const ctx = configured();
   ctx.put('light.studio', 'off', NULL_LIGHT);
   for (const run of [base, roomBase]) {
-    assert.deepEqual(run(ctx).targets['light.studio']!.observed, { brightness: 255, color: { rgb: [255, 255, 255] } });
+    assert.deepEqual(run(ctx).targets['light.studio']!.observed, { on: false });
   }
 });
 
-test('an rgb source whose rgb_color is Jinja-falsy samples the default white', () => {
+test('an rgb source whose rgb_color is Jinja-falsy has no colour (the oracle invented white)', () => {
   for (const value of [null, [], {}, '', 0, false] as JsonValue[]) {
     const ctx = configured();
     ctx.put('light.ls_house_cosy', 'on', { brightness: 90, color_mode: 'rgb', color_temp_kelvin: null, rgb_color: value });
     const cmds = base(ctx).schedule.cmds;
-    assert.deepEqual(cmds, [{ kind: 'rgb', brightness: 90, rgb: [255, 255, 255], transition: 3, ids: ['light.studio'] }], JSON.stringify(value));
+    assert.deepEqual(cmds, [{ kind: 'brightness', brightness: 90, transition: 3, ids: ['light.studio'] }], JSON.stringify(value));
     const room = roomBase(ctx).targets['room:studio']!;
-    assert.deepEqual(room.color, { rgb: [255, 255, 255] }, JSON.stringify(value));
+    assert.equal(Object.hasOwn(room, 'color'), false, JSON.stringify(value));
   }
 });
 

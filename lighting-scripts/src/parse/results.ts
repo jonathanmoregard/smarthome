@@ -5,7 +5,7 @@ import type { AssignResult, EmitResult } from '../domain/transport.ts';
 import type { CommitResult } from '../domain/state-store.ts';
 import type { GroupCommand, GroupPlanResult, RejectedRow } from '../domain/grouping.ts';
 import type { RemoteInputRecord, RemoteModeRecord, RemotePlanOp, RemotePlanResult } from '../domain/remote-input.ts';
-import type { LampColor, LampProfile, LampProfileEntry, ScheduleCommand, ScheduleDetails, ScheduleEnvelope, ScheduledBaseResult,
+import type { LampColor, LampProfile, LampProfileEntry, ProfileLevel, ScheduleCommand, ScheduleDetails, ScheduleEnvelope, ScheduledBaseResult,
   TargetEntry } from '../domain/schedule.ts';
 import { optionalBlock } from './blocks.ts';
 import { ParseError, requireArray, requireBoolean, requireFinite, requireNumber, requireObject, requireString } from '../runtime/parse.ts';
@@ -237,12 +237,37 @@ function decodeLampColor(container: JsonObject, key: string, context: string): L
   return { rgb: requireArray(color, 'rgb', `${context}.${key}`).map(value => storedFact(value)) };
 }
 
-function decodeLampProfile(container: JsonObject, key: string, context: string): LampProfile {
+/** A colour that may be absent: a lit lamp whose light reports none carries no `color` key. */
+function decodeOptionalColor(container: JsonObject, context: string): { color?: LampColor } {
+  return container.color === undefined ? {} : { color: decodeLampColor(container, 'color', context) };
+}
+
+/**
+ * A scene or observed light (`day`, `cosy`, `observed`): absent is no key;
+ * `{on: false}` is off and carries nothing else; lit is `{brightness, color?}`.
+ */
+function decodeLampProfile(container: JsonObject, key: string, context: string): { [k: string]: LampProfile } {
+  if (container[key] === undefined) return {};
   const entry = requireObject(container, key, `${context}.${key}`);
-  return {
-    brightness: requireNumber(entry, 'brightness', `${context}.${key}`),
-    color: decodeLampColor(entry, 'color', `${context}.${key}`),
-  };
+  if (entry.on !== undefined) {
+    if (entry.on !== false) throw new ParseError(`${context}.${key}.on must be false when present, got ${JSON.stringify(entry.on)}`);
+    return { [key]: { on: false } };
+  }
+  return { [key]: { brightness: requireNumber(entry, 'brightness', `${context}.${key}`), ...decodeOptionalColor(entry, `${context}.${key}`) } };
+}
+
+/** An off entry carries no level or colour; a stub that gives it one has drifted from the shape. */
+function requireNothingShown(entry: JsonObject, context: string): void {
+  for (const key of ['brightness', 'color']) {
+    if (entry[key] !== undefined) throw new ParseError(`${context}.${key} must be absent when off, got ${JSON.stringify(entry[key])}`);
+  }
+}
+
+/** `on`, and the level only a lit lamp has: an off lamp's entry carries no `brightness`. */
+function decodeProfileLevel(entry: JsonObject, context: string): ProfileLevel {
+  if (requireBoolean(entry.on, `${context}.on`)) return { brightness: requireNumber(entry, 'brightness', context), on: true };
+  requireNothingShown(entry, context);
+  return { on: false };
 }
 
 /** `effect` and `effect_channels` must be PRESENT, and stay raw once they are. */
@@ -253,8 +278,7 @@ function decodeProfileEntry(value: JsonValue, context: string): LampProfileEntry
   }
   return {
     effect: storedFact(entry.effect ?? null),
-    brightness: requireNumber(entry, 'brightness', context),
-    on: requireBoolean(entry.on, `${context}.on`),
+    ...decodeProfileLevel(entry, context),
     period: requireString(entry, 'period', context),
     area: entry.area === null ? null : requireString(entry, 'area', context),
     effect_channels: storedFact(entry.effect_channels ?? null),
@@ -263,33 +287,34 @@ function decodeProfileEntry(value: JsonValue, context: string): LampProfileEntry
   };
 }
 
-/** Discriminated on `is_room`, exactly as every consumer of `targets` does. */
+/** Discriminated on `is_room`, exactly as every consumer of `targets` does; an off target carries no level or colour. */
 function decodeTargetEntry(value: JsonValue, context: string): TargetEntry {
   const entry = requireObject({ value }, 'value', context);
   if (requireBoolean(entry.is_room, `${context}.is_room`)) {
     if (!Object.hasOwn(entry, 'effect')) throw new ParseError(`${context}.effect must be present, got undefined`);
-    return {
-      brightness: requireNumber(entry, 'brightness', context),
-      color: decodeLampColor(entry, 'color', context),
+    const lit = requireBoolean(entry.on, `${context}.on`);
+    const room = {
       area: requireString(entry, 'area', context),
-      is_room: true,
+      is_room: true as const,
       period: requireString(entry, 'period', context),
       effect: storedFact(entry.effect ?? null),
-      on: requireBoolean(entry.on, `${context}.on`),
-      day: decodeLampProfile(entry, 'day', context),
-      cosy: decodeLampProfile(entry, 'cosy', context),
-      ignore_overrides: decodeStrings(entry, 'ignore_overrides', context),
     };
+    const scenes = { ...decodeLampProfile(entry, 'day', context), ...decodeLampProfile(entry, 'cosy', context),
+      ignore_overrides: decodeStrings(entry, 'ignore_overrides', context) };
+    if (!lit) requireNothingShown(entry, context);
+    return lit
+      ? { brightness: requireNumber(entry, 'brightness', context), ...decodeOptionalColor(entry, context), ...room, on: true, ...scenes }
+      : { ...room, on: false, ...scenes };
   }
-  return {
-    ...decodeProfileEntry(value, context),
-    is_room: false,
-    color: decodeLampColor(entry, 'color', context),
-    day: decodeLampProfile(entry, 'day', context),
-    cosy: decodeLampProfile(entry, 'cosy', context),
+  const profile = decodeProfileEntry(value, context);
+  const colour = profile.on ? decodeOptionalColor(entry, context) : {};
+  const rest = {
+    ...decodeLampProfile(entry, 'day', context),
+    ...decodeLampProfile(entry, 'cosy', context),
     transition: requireNumber(entry, 'transition', context),
-    observed: decodeLampProfile(entry, 'observed', context),
+    ...decodeLampProfile(entry, 'observed', context),
   };
+  return profile.on ? { ...profile, is_room: false, ...colour, ...rest } : { ...profile, is_room: false, ...rest };
 }
 
 function decodeScheduleCommand(value: JsonValue, context: string): ScheduleCommand {
@@ -300,9 +325,10 @@ function decodeScheduleCommand(value: JsonValue, context: string): ScheduleComma
   const transition = requireNumber(command, 'transition', context);
   if (kind === 'off') return { kind, transition, ids };
   const brightness = requireNumber(command, 'brightness', context);
+  if (kind === 'brightness') return { kind, brightness, transition, ids };
   if (kind === 'ct') return { kind, brightness, kelvin: requireNumber(command, 'kelvin', context), transition, ids };
   if (kind === 'rgb') return { kind, brightness, rgb: requireArray(command, 'rgb', context).map(value => storedFact(value)), transition, ids };
-  throw new ParseError(`${context}.kind must be one of switch, off, ct, rgb, got ${JSON.stringify(kind)}`);
+  throw new ParseError(`${context}.kind must be one of switch, off, brightness, ct, rgb, got ${JSON.stringify(kind)}`);
 }
 
 function decodeScheduleDetails(container: JsonObject, key: string, context: string): ScheduleDetails {

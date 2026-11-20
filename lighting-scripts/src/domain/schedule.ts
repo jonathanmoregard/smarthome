@@ -43,12 +43,23 @@ export function isRemote(r: ScheduleRecord): boolean { return r.kind === 'input'
  * `rgbComponent()` inside {@link interpolate}.
  */
 export type LampColor = { kelvin: number; rgb?: never } | { rgb: StoredValue[]; kelvin?: never };
-/** What {@link profile} reads off a lamp or schedule entity. */
-export type LampProfile = { brightness: number; color: LampColor };
-/** A profile plus its on/off state. {@link interpolate} returns this. */
-export type LampTarget = LampProfile & { on: boolean };
-/** A target plus the raw rgb triple {@link interpolate} mixes with. */
-export type LampSample = LampTarget & { rgb: StoredValue[] };
+/**
+ * A light as Home Assistant reports it, and as the schedule decides it: lit
+ * with a level (and a colour, when one is reported -- an on light in a
+ * brightness-only mode reports none), or off. Off carries neither: off is a
+ * state that cannot carry a colour (2026-11-20). A light that is missing or
+ * unavailable is not a `LampLight` at all; readers say `undefined`.
+ */
+export type LampLight = { on: false } | { on: true; brightness: number; color?: LampColor };
+/**
+ * A {@link LampLight} as a target document spells a scene (`day`, `cosy`) or
+ * the observed lamp (`observed`): off is `{on: false}`; lit keeps its
+ * `{brightness, color}` spelling with no `on` key, so a lit document is
+ * byte-for-byte what it always was. Absent is no key at all.
+ */
+export type LampProfile = { on: false } | { on?: never; brightness: number; color?: LampColor };
+/** A light plus the raw rgb triple {@link interpolate} mixes with, read only for a lit light. */
+export type LampSample = { on: false } | { on: true; brightness: number; color?: LampColor; rgb: StoredValue[] | undefined };
 
 const formatters = new Map<string, Intl.DateTimeFormat>();
 export function localParts(at: number, timezone: string): number[] {
@@ -159,13 +170,38 @@ function sourceEntity(view: HouseView, lamp: string | null, area: string, block:
     ...(fallback ? [`light.ls_house_${block}`] : [])];
   return (fallback ? candidates.find(e => hasValue(view, e)) : candidates[0]) ?? candidates[0]!;
 }
-function interpolate(A: LampSample, B: LampSample, stage: Stage): LampTarget {
-  if (!stage.moving || !A.on) return B;
-  if (!B.on) return { ...A, brightness: Math.max(1, roundEven(A.brightness * (1 - stage.p))) };
-  const a = A.color, b = B.color;
-  const color: LampColor = 'kelvin' in a && 'kelvin' in b ? { kelvin: roundEven(a.kelvin + (b.kelvin - a.kelvin) * stage.p) }
-    : { rgb: [0, 1, 2].map(i => roundEven(rgbComponent(A.rgb, i) + (rgbComponent(B.rgb, i) - rgbComponent(A.rgb, i)) * stage.p)) };
-  return { on: true, brightness: roundEven(A.brightness + (B.brightness - A.brightness) * stage.p), color };
+/** A sample's light, without the rgb it carried for mixing. */
+function lightOf(sample: LampSample): LampLight {
+  if (!sample.on) return { on: false };
+  return sample.color === undefined ? { on: true, brightness: sample.brightness }
+    : { on: true, brightness: sample.brightness, color: sample.color };
+}
+/**
+ * The colour part way between two lit samples. Two colour temperatures mix in
+ * kelvin; otherwise the reported rgb triples mix. An end that reports no colour
+ * (or no rgb to mix in) gives the fade nothing to mix from: it shows the colour
+ * there is, the destination's first.
+ */
+function mixedColour(A: Extract<LampSample, { on: true }>, B: Extract<LampSample, { on: true }>, p: number): LampColor | undefined {
+  const a = A.color, b = B.color, ra = A.rgb, rb = B.rgb;
+  if (a !== undefined && b !== undefined && a.kelvin !== undefined && b.kelvin !== undefined) {
+    return { kelvin: roundEven(a.kelvin + (b.kelvin - a.kelvin) * p) };
+  }
+  if (a !== undefined && b !== undefined && ra !== undefined && rb !== undefined) {
+    return { rgb: [0, 1, 2].map(i => roundEven(rgbComponent(ra, i) + (rgbComponent(rb, i) - rgbComponent(ra, i)) * p)) };
+  }
+  return b !== undefined ? b : a;
+}
+/**
+ * The light part way through a stage. Off -> on jumps to the lit end (the fade
+ * starts from nothing it could dim up from); on -> off dims the lit end towards
+ * level 1 and switches off when the stage ends; on -> on mixes level and colour.
+ */
+function interpolate(A: LampSample, B: LampSample, stage: Stage): LampLight {
+  if (!stage.moving || !A.on) return lightOf(B);
+  if (!B.on) return { ...lightOf(A), on: true, brightness: Math.max(1, roundEven(A.brightness * (1 - stage.p))) };
+  const color = mixedColour(A, B, stage.p), brightness = roundEven(A.brightness + (B.brightness - A.brightness) * stage.p);
+  return color === undefined ? { on: true, brightness } : { on: true, brightness, color };
 }
 function applies(r: ScheduleRecord, key: string, lamp: string | null, room: string, privateRoom: boolean): boolean {
   return (r.kind === 'light' && r.target === lamp && lamp !== null)
@@ -189,6 +225,8 @@ export type ScheduleMirror = { entity: string; option: string };
  */
 export type ScheduleOutput =
   | { kind: 'off'; transition: number }
+  /** A lit lamp whose scene reports no colour: its level only. */
+  | { kind: 'brightness'; brightness: number; transition: number }
   | { kind: 'ct'; brightness: number; kelvin: number; transition: number }
   | { kind: 'rgb'; brightness: number; rgb: StoredValue[]; transition: number };
 /**
@@ -242,10 +280,7 @@ export type ScheduleEnvelope = {
  * fallback on a string, so the empty-string case is load-bearing and the
  * spelling stays.
  */
-export type LampProfileEntry = {
-  effect: StoredValue;
-  brightness: number;
-  on: boolean;
+export type LampProfileEntry = { effect: StoredValue } & ProfileLevel & {
   period: string;
   area: string | null;
   /** As stored, or both channels when the profile names none. */
@@ -253,18 +288,21 @@ export type LampProfileEntry = {
   send: boolean;
   ignore_overrides: string[];
 };
+/** A scheduled lamp's level, as `schedule.profiles` carries it: an off lamp has none. */
+export type ProfileLevel = { on: false } | { brightness: number; on: true };
 /**
  * A lamp's entry in `targets`: its profile plus what the renderer needs.
  * `color` is a `LampColor`, so its `rgb` arm is still raw -- see
- * {@link ScheduleOutput}. The off case substitutes `{kelvin: 3000}`.
+ * {@link ScheduleOutput}. An off target has no `brightness` and no `color`;
+ * a lit one has `color` when its scene reports one. `day`, `cosy` and
+ * `observed` are absent when the light behind them is missing or unavailable.
  */
-export type LampTargetEntry = LampProfileEntry & {
+export type LampTargetEntry = LampProfileEntry & ({ on: false } | { on: true; color?: LampColor }) & {
   is_room: false;
-  color: LampColor;
-  day: LampProfile;
-  cosy: LampProfile;
+  day?: LampProfile;
+  cosy?: LampProfile;
   transition: number;
-  observed: LampProfile;
+  observed?: LampProfile;
 };
 /**
  * A room's entry in `targets`. **Not** a superset or subset of the lamp entry:
@@ -273,16 +311,13 @@ export type LampTargetEntry = LampProfileEntry & {
  * union rather than one optional-heavy shape is what stops a reader assuming
  * a field exists on both.
  */
-export type RoomTargetEntry = {
-  brightness: number;
-  color: LampColor;
+export type RoomTargetEntry = ({ on: false } | { on: true; brightness: number; color?: LampColor }) & {
   area: string;
   is_room: true;
   period: string;
   effect: StoredValue;
-  on: boolean;
-  day: LampProfile;
-  cosy: LampProfile;
+  day?: LampProfile;
+  cosy?: LampProfile;
   ignore_overrides: string[];
 };
 export type TargetEntry = LampTargetEntry | RoomTargetEntry;
@@ -369,27 +404,26 @@ export function scheduledBase(view: HouseView, args: ScheduledBaseArgs, roomLoca
     const to = entitySample(view, sourceEntity(view, lamp, area, stage.to));
     const target = interpolate(from, to, stage);
     const transition = stage.moving && why === 'tick' ? 60 : 3;
-    const color = target.color;
-    // `target.brightness` is `number` and `target.on` is `boolean`, so the
-    // `?? 1` and `?? false` that used to guard these two reads are unreachable
-    // and are dropped rather than left as decoration. Neither ever fired:
-    // `??` only catches null/undefined, and `profile`/`interpolate` always
-    // produce a number, while `sample` sets `on` from `=== 'on'`. A brightness
-    // of 0 kept its 0 before and keeps it now.
-    const p: LampProfileEntry = { effect: pr.effect === undefined ? 'Normal light' : pr.effect, brightness: target.brightness,
-      on: target.on, period: block, area: area || null,
-      effect_channels: pr.effectChannels === undefined ? ['brightness', 'color'] : pr.effectChannels, send: why !== 'tick' ||
-        stage.moving || stage.edge, ignore_overrides: ignored };
+    // An off target has no level: the entry, the command and the target say off
+    // and nothing else (no invented 255, no 3000 K).
+    const level: ProfileLevel = target.on ? { brightness: target.brightness, on: true } : { on: false };
+    const p: LampProfileEntry = { effect: pr.effect === undefined ? 'Normal light' : pr.effect, ...level, period: block,
+      area: area || null, effect_channels: pr.effectChannels === undefined ? ['brightness', 'color'] : pr.effectChannels,
+      send: why !== 'tick' || stage.moving || stage.edge, ignore_overrides: ignored };
     profiles[lamp] = p;
-    const command: ScheduleOutput = !target.on ? { kind: 'off', transition } : 'kelvin' in color
-      ? { kind: 'ct', brightness: Math.max(target.brightness, 1), kelvin: color.kelvin, transition }
-      : { kind: 'rgb', brightness: Math.max(target.brightness, 1), rgb: color.rgb, transition };
+    const command: ScheduleOutput = !target.on ? { kind: 'off', transition }
+      : target.color === undefined ? { kind: 'brightness', brightness: Math.max(target.brightness, 1), transition }
+        : target.color.kelvin !== undefined ? { kind: 'ct', brightness: Math.max(target.brightness, 1), kelvin: target.color.kelvin, transition }
+          : { kind: 'rgb', brightness: Math.max(target.brightness, 1), rgb: target.color.rgb, transition };
     const key = JSON.stringify(command), previous = commands.get(key);
     commands.set(key, { ...command, ids: [...(previous?.ids ?? []), lamp] });
-    targets[lamp] = { ...p, is_room: false, brightness: target.on ? Math.max(target.brightness, 1) : target.brightness, color: target.on ?
-      color : { kelvin: 3000 },
-      day: entityProfile(view, sourceEntity(view, lamp, area, 'day', false)), cosy: entityProfile(view, sourceEntity(view, lamp, area,
-        'cosy', false)), transition, observed: entityProfile(view, lamp) };
+    const lit = !target.on ? {} : target.color === undefined ? { brightness: Math.max(target.brightness, 1) }
+      : { brightness: Math.max(target.brightness, 1), color: target.color };
+    // A scene or lamp that is missing or unavailable has no reading: no key.
+    const day = entityProfile(view, sourceEntity(view, lamp, area, 'day', false));
+    const cosy = entityProfile(view, sourceEntity(view, lamp, area, 'cosy', false)), observed = entityProfile(view, lamp);
+    targets[lamp] = { ...p, is_room: false, ...lit, ...(day === undefined ? {} : { day }), ...(cosy === undefined ? {} : { cosy }), transition,
+      ...(observed === undefined ? {} : { observed }) };
     // Scaling first loses the original binary error (0.005 * 100 becomes
     // exactly 0.5). toFixed preserves it; exact binary half-cent values are /8.
     const rounded = Number.isInteger(stage.p * 8) ? roundEven(stage.p * 100) / 100 : Number(stage.p.toFixed(2));
@@ -422,13 +456,14 @@ export function scheduledBase(view: HouseView, args: ScheduledBaseArgs, roomLoca
     const to = entitySample(view, sourceEntity(view, null, area, stage.to, false));
     const target = interpolate(from, to, stage);
     const pr = savedProfile(view, `input_text.ls_${scopeFor(view, area, stage.from)}_${stage.from}`);
-    // The `!` on brightness/color/on is gone: `interpolate` returns
-    // `LampTarget`, where none of the three is optional, so the assertions
-    // were asserting something the signature already guaranteed.
-    targets[`room:${area}`] = { brightness: target.brightness, color: target.color, area, is_room: true, period: stage.from,
-      effect: pr.effect === undefined ? 'Normal light' : pr.effect, on: target.on,
-      day: entityProfile(view, sourceEntity(view, null, area, 'day', false)), cosy: entityProfile(view, sourceEntity(view, null, area,
-        'cosy', false)), ignore_overrides: ignored };
+    // An off room carries no level and no colour, like an off lamp.
+    const room = { area, is_room: true as const, period: stage.from, effect: pr.effect === undefined ? 'Normal light' : pr.effect };
+    const day = entityProfile(view, sourceEntity(view, null, area, 'day', false));
+    const cosy = entityProfile(view, sourceEntity(view, null, area, 'cosy', false));
+    const scenes = { ...(day === undefined ? {} : { day }), ...(cosy === undefined ? {} : { cosy }), ignore_overrides: ignored };
+    targets[`room:${area}`] = !target.on ? { ...room, on: false, ...scenes }
+      : target.color === undefined ? { brightness: target.brightness, ...room, on: true, ...scenes }
+        : { brightness: target.brightness, color: target.color, ...room, on: true, ...scenes };
   }
   const stale = keys.filter(key => {
     if (!expiry) return false;

@@ -15,9 +15,9 @@
  */
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { HouseView } from '../runtime/effects.ts';
-import { jinjaList, jinjaOr, jinjaTruthy, object, parsePythonNumeric, requireObject, requireString } from '../runtime/parse.ts';
+import { jinjaList, jinjaTruthy, object, parsePythonNumeric, requireObject, requireString } from '../runtime/parse.ts';
 import type { Block } from '../domain/blocks.ts';
-import type { LampProfile, LampSample, ScheduledBaseArgs } from '../domain/schedule.ts';
+import type { LampColor, LampLight, LampProfile, LampSample, ScheduledBaseArgs } from '../domain/schedule.ts';
 import { isBlock } from './blocks.ts';
 import { asTimestampOr, num, saved, testNow } from './accessors.ts';
 import { haBooleanOr } from './state-store.ts';
@@ -125,32 +125,80 @@ export function savedProfile(ctx: HouseView, entity: string): SavedProfile {
   };
 }
 
-/**
- * A light's `rgb_color`, read as the captured `(rgb_color or [255,255,255]) | list`.
- * Home Assistant reports `null` for a lamp that is off, so the Jinja-falsy
- * default is the ordinary path; a truthy value goes through Jinja's `list`.
- */
-function sampledRgb(ctx: HouseView, entity: string): StoredValue[] {
-  return jinjaList(jinjaOr(ctx.attr(entity, 'rgb_color'), [255, 255, 255]), `${entity}.rgb_color`).map(value => storedFact(value));
+/** Home Assistant's spellings of "no value" for an attribute: absent, `null`, `unknown`, `unavailable`. */
+function reported(value: JsonValue | undefined): value is JsonValue {
+  return value !== undefined && value !== null && value !== 'unknown' && value !== 'unavailable';
 }
 
 /**
- * A light entity's brightness and colour, as the schedule samples it. The
- * captured profile macro reads `rgb_color` only in its non-colour-temp arm.
+ * A lit light's `rgb_color`, when it reports one. The captured read was
+ * `(rgb_color or [255,255,255]) | list`; the white stand-in is gone (2026-11-20:
+ * no invented colour), so a Jinja-falsy value is no rgb. A truthy value still
+ * goes through Jinja's `list`, as captured.
  */
-export function entityProfile(ctx: HouseView, entity: string): LampProfile {
-  return { brightness: Math.trunc(num(ctx.attr(entity, 'brightness'), 255)), color: ctx.attr(entity, 'color_mode') === 'color_temp'
-    ? { kelvin: Math.trunc(num(ctx.attr(entity, 'color_temp_kelvin'), 3000)) }
-    : { rgb: sampledRgb(ctx, entity) } };
+function sampledRgb(ctx: HouseView, entity: string): StoredValue[] | undefined {
+  const value = ctx.attr(entity, 'rgb_color');
+  return value === undefined || !jinjaTruthy(value) ? undefined
+    : jinjaList(value, `${entity}.rgb_color`).map(element => storedFact(element));
 }
 
-/** {@link entityProfile}, plus the entity's on state and its rgb, which the captured sample always reads. */
+/**
+ * A lit light's colour, when it reports one. The captured profile macro reads
+ * `color_temp_kelvin` in the colour-temperature mode and `rgb_color` otherwise;
+ * either one missing is no colour (it used to be 3000 K or white).
+ */
+function lampColour(ctx: HouseView, entity: string): LampColor | undefined {
+  if (ctx.attr(entity, 'color_mode') === 'color_temp') {
+    const kelvin = ctx.attr(entity, 'color_temp_kelvin');
+    return reported(kelvin) ? { kelvin: Math.trunc(num(kelvin)) } : undefined;
+  }
+  const rgb = sampledRgb(ctx, entity);
+  return rgb === undefined ? undefined : { rgb };
+}
+
+/**
+ * A light entity as Home Assistant reports it now.
+ *
+ * - `off`: off, and nothing else is read (an off light reports no level or colour).
+ * - `on` with a level: lit, with its colour when it reports one.
+ * - Anything else -- missing, `unknown`, `unavailable` -- is `undefined`: the
+ *   light is absent, which is not the same as off.
+ * - `on` with no level (an on/off-only light, or a level not yet reported):
+ *   there is no honest level to schedule or blend with, so it is absent too.
+ *   It used to read as 255. A present level that is not a number still raises.
+ */
+export function entityLight(ctx: HouseView, entity: string): LampLight | undefined {
+  const state = ctx.get(entity);
+  if (state === 'off') return { on: false };
+  if (state !== 'on') return undefined;
+  const level = ctx.attr(entity, 'brightness');
+  if (!reported(level)) return undefined;
+  const brightness = Math.trunc(num(level)), color = lampColour(ctx, entity);
+  return color === undefined ? { on: true, brightness } : { on: true, brightness, color };
+}
+
+/** A light as a target document spells it (see {@link LampProfile}); `undefined` when absent. */
+export function profileOf(light: LampLight | undefined): LampProfile | undefined {
+  if (light === undefined) return undefined;
+  if (!light.on) return { on: false };
+  return light.color === undefined ? { brightness: light.brightness } : { brightness: light.brightness, color: light.color };
+}
+
+/** {@link entityLight}, spelled as a target document's profile. */
+export function entityProfile(ctx: HouseView, entity: string): LampProfile | undefined {
+  return profileOf(entityLight(ctx, entity));
+}
+
+/**
+ * A scene the schedule fades between, with the rgb the fade mixes in. A scene
+ * that is missing or unavailable has no light to show, so the schedule reads it
+ * as off -- what the captured `state == 'on'` test did, now without the
+ * made-up level and colour that came with it.
+ */
 export function entitySample(ctx: HouseView, entity: string): LampSample {
-  const profile = entityProfile(ctx, entity);
-  // `on` is `=== 'on'`, so it is always a real boolean — never absent, never a
-  // falsy stand-in. That is what lets every downstream `target.on` read be a
-  // boolean test by construction rather than a truthiness gamble.
-  return { ...profile, on: ctx.get(entity) === 'on', rgb: sampledRgb(ctx, entity) };
+  const light = entityLight(ctx, entity);
+  if (light === undefined || !light.on) return { on: false };
+  return { ...light, rgb: sampledRgb(ctx, entity) };
 }
 
 /** One component of a sampled rgb triple, as a schedule number. */
