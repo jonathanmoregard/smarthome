@@ -67,10 +67,9 @@ function received(calls: ServiceCall[], topic: string): JsonObject[] {
 
 
 /**
- * Round-4 candle findings. A member whose light row the frame plan rejected
- * (a conflicting row for a bulb two lamps share) got the start without its
- * colour; it now gets neither, and its lamp stays out of `applied`. A member
- * that was off when its lamp was sent is the other case, and stays recorded.
+ * Round-4 candle findings. A bulb two lamps share is rejected with the catalog
+ * (a bulb belongs to at most one lamp), so no dispatch sees conflicting rows. A
+ * member that was off when its lamp was sent stays recorded.
  */
 
 /** A snapshot whose member `bulb` is in `state`. */
@@ -80,41 +79,18 @@ function withMember(runtime: JsonObject, bulb: string, state: string): Snapshot 
   return s;
 }
 
-/** Two lamps sharing `light.bulb_2`: `light.lamp` runs `target`, `light.other` a steady light, so bulb_2's rows conflict. */
-function sharedSnapshot(runtime: JsonObject = {}): Snapshot {
-  const s = snapshot(runtime);
+/** Two lamps sharing `light.bulb_2`. */
+function sharedSnapshot(): Snapshot {
+  const s = snapshot({});
   s.catalog = { ...catalog, members: { 'light.lamp': ['light.bulb_1', 'light.bulb_2'], 'light.other': ['light.bulb_2'] } };
-  s.members = ['light.lamp', 'light.other'];
-  s.areas = { 'light.lamp': 'room', 'light.other': 'room' };
-  s.state['light.other'] = { state: 'on', attributes: {} };
   return s;
 }
-function sharedDispatch(state: Snapshot, target: JsonObject) {
-  const plan = { revision: now, plan_order: 1, base: {}, resolved: { targets: { 'light.lamp': target, 'light.other': steady },
-    assignments: { 'light.lamp': target } } };
-  return execute({ script: 'ls_dispatch', args: { plan, lights: ['light.lamp', 'light.other'] }, snapshot: state }, handlers);
-}
 
-test('a member whose light row was rejected gets no start, and its lamp is not recorded as applied', () => {
-  const result = sharedDispatch(sharedSnapshot(), candle);
-  assert.deepEqual(received(result.calls, topics['light.bulb_1']), started, 'precondition: bulb_1 started');
-  assert.deepEqual(received(result.calls, topics['light.bulb_2']), []);
-  const applied = result.snapshot.state['sensor.ls_effects_runtime']!.attributes.applied as JsonObject;
-  assert.equal(Object.hasOwn(applied, 'light.lamp'), false);
-});
-
-test('a rejected row that persists sends its lamp again on each sendable dispatch, never on a steady tick', () => {
-  // The cost of not recording a lamp with a rejected member, measured: while
-  // the conflict lasts, a dispatch the baseline sends restarts the candle on the
-  // members that did get it; a steady tick (baseline send:false) does not.
-  const first = sharedDispatch(sharedSnapshot(), candle);
-  const plan = { revision: now, plan_order: 2, base: {}, resolved: { targets: { 'light.lamp': candle, 'light.other': steady },
+test('a dispatch over a catalog where two lamps share a bulb is refused before anything is sent', () => {
+  const plan = { revision: now, plan_order: 1, base: {}, resolved: { targets: { 'light.lamp': candle, 'light.other': steady },
     assignments: { 'light.lamp': candle } } };
-  const second = execute({ script: 'ls_dispatch', args: { plan, lights: [] }, snapshot: first.snapshot }, handlers);
-  assert.deepEqual(received(second.calls, topics['light.bulb_1']), started);
-  const steadyTick = { ...plan, plan_order: 3, base: { 'light.lamp': { send: false }, 'light.other': { send: false } } };
-  const third = execute({ script: 'ls_dispatch', args: { plan: steadyTick, lights: [] }, snapshot: second.snapshot }, handlers);
-  assert.deepEqual(received(third.calls, topics['light.bulb_1']), []);
+  assert.throws(() => execute({ script: 'ls_dispatch', args: { plan, lights: ['light.lamp', 'light.other'] }, snapshot: sharedSnapshot() },
+    handlers), /light\.bulb_2 belongs to both light\.lamp and light\.other/);
 });
 
 test('a lamp sent while a member was unavailable is recorded, so its live members are not restarted', () => {

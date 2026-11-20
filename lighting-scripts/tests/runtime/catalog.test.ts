@@ -166,3 +166,17 @@ test('a non-mapping document is rejected', () => {
   assert.throws(() => parseCatalog('{}'), /catalog must be an object/);
   assert.throws(() => parseCatalog(null), /catalog must be an object/);
 });
+
+test('a bulb listed under two lamps rejects the catalog, naming the bulb and both lamps', () => {
+  // Break: accepting shared membership lets two lamps send one bulb different
+  // lights in the same dispatch; the group planner then drops the bulb's row as
+  // a conflict and the bulb gets nothing. A bulb belongs to at most one lamp.
+  assert.throws(() => parseCatalog({ ...minimal, members: { 'light.a': ['light.bulb_1'], 'light.b': ['light.b_1', 'light.bulb_1'] } }),
+    /light\.bulb_1.*light\.a.*light\.b/);
+});
+
+test('a lamp listing the same bulb twice still owns it alone', () => {
+  // The bulb still belongs to one lamp; only membership across lamps is rejected.
+  assert.deepEqual(parseCatalog({ ...minimal, members: { 'light.a': ['light.a_1', 'light.a_1'] } }).members,
+    { 'light.a': ['light.a_1', 'light.a_1'] });
+});

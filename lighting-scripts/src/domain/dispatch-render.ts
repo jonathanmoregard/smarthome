@@ -63,10 +63,8 @@ type Accepted = { revision: string; planOrder: number; details: DispatchDetails 
 type Chosen = Accepted & { catalog: Verbatim; previous: DispatchRuntime; ordinary: OpaqueMap };
 /** ...once the assignment answered its generation. */
 type Assigned = Chosen & { generation: AssignResult['generation'] };
-/** ...once the frame answered: the members whose light row it rejected get no light, so no start either. */
-type Framed = Assigned & { rejected: string[] };
 /** ...once the light went out. */
-type Lit = Framed & { emission: EmitResult };
+type Lit = Assigned & { emission: EmitResult };
 /** ...once every publish is done: whether all completed, and when each went out. */
 type Settled = Assigned & { completed: boolean; publishedAt: number[] };
 
@@ -82,7 +80,7 @@ export type DispatchPhase =
   | { tag: 'cataloguing'; run: Accepted }
   | { tag: 'assigning'; run: Chosen }
   | { tag: 'framing'; run: Assigned }
-  | { tag: 'emitting'; run: Framed }
+  | { tag: 'emitting'; run: Assigned }
   | { tag: 'starting'; run: Lit }
   /** The switches from `next` on are still to be checked. */
   | { tag: 'switching'; run: Settled; next: number }
@@ -150,13 +148,13 @@ export function dispatchStep(phase: DispatchPhase, msg: DispatchMsg): Transition
     }
     case 'framing': {
       if (msg.tag !== 'framed') return unexpected(phase, msg);
-      const run: Framed = { ...phase.run, rejected: rejectedMembers(msg.batch) };
+      const run = phase.run;
       return [{ tag: 'emitting', run }, [{ tag: 'emit', args: { commands: msg.batch.commands, revision: run.revision,
         generation: run.generation } }]];
     }
     case 'emitting': {
       if (msg.tag !== 'emitted') return unexpected(phase, msg);
-      const commands = bulbStartCommands(msg.house, sentStarts(phase.run), phase.run.rejected);
+      const commands = bulbStartCommands(msg.house, sentStarts(phase.run));
       const run: Lit = { ...phase.run, emission: msg.result };
       if (commands.length === 0) return settle(msg.house, run, { published_at: [], completed: true });
       return [{ tag: 'starting', run }, [{ tag: 'emit', args: { commands, revision: run.revision, generation: run.generation } }]];
@@ -222,9 +220,17 @@ function sentStarts(run: Chosen): Array<[string, string[]]> {
  * then go on to the switches. An incomplete output records nothing, so
  * `applied` keeps what `effects_assign` left: the lamps it sent are not in it,
  * and the next dispatch sends them again, bulb-effect starts included.
+ *
+ * A member that was off (or unavailable) when its lamp was sent got nothing,
+ * but its lamp is recorded: a lamp whose member is permanently dead would
+ * otherwise never be recorded, and every sendable dispatch -- each tick of a
+ * fade, every non-tick render -- would send the lamp again and restart the
+ * candle on its live members. Known gap: such a member, back on while its lamp
+ * stays on, waits for the lamp's next send (a target change, a request, or the
+ * lamp itself coming back on, which `lamp_on` requests).
  */
 function settle(house: HouseView, run: Lit, started: EmitResult): Transition {
-  const { revision, generation, ordinary, rejected } = run;
+  const { revision, generation, ordinary } = run;
   // `requireBoolean(emission.completed)`, `?? null` on the generation and
   // `?? []` on published_at are all gone: `emitCommands` builds both fields
   // every time and `assignEffects` already normalises an absent generation to
@@ -236,7 +242,7 @@ function settle(house: HouseView, run: Lit, started: EmitResult): Transition {
   return [{ tag: 'switching', run: settled, next: 0 }, [{ tag: 'effect', effect: {
     kind: 'service', service: 'variable.update_sensor',
     data: { value: generation, replace_attributes: false,
-      attributes: { applied: { ...attributeMapping(house, runtime, 'applied'), ...reached(house, ordinary, rejected) } } },
+      attributes: { applied: { ...attributeMapping(house, runtime, 'applied'), ...ordinary } } },
     target: { entity_id: runtime }, guard: { revision, generation, requiresOutputSuccess: true },
   } }]];
 }
@@ -287,37 +293,10 @@ export function* tailEffects(details: DispatchDetails, revision: string, generat
  * lamp is at and keeps whatever colour it shows. Same members and topics the
  * frame plan addressed, through the same guarded emitter.
  */
-export function bulbStartCommands(view: HouseView, lamps: Array<[string, string[]]>, rejected: string[]): StartCommand[] {
+export function bulbStartCommands(view: HouseView, lamps: Array<[string, string[]]>): StartCommand[] {
   return lamps.filter(([lamp, starts]) => starts.length > 0 && view.get(lamp) === 'on').flatMap(([lamp, starts]) =>
-    startableMembers(view, lamp).filter(({ member }) => !rejected.includes(member)).flatMap(({ member, topic }) =>
+    startableMembers(view, lamp).flatMap(({ member, topic }) =>
       starts.map(effect => ({ topic, payload: { effect }, members: [member], owners: [lamp], group: null }))));
-}
-
-/**
- * The members the frame plan rejected a light row for. A conflicting row names
- * its entity; an unparsable row is rejected by index only, and the frame plan
- * builds such a row only for a member with no topic, which no start reaches
- * either ({@link startableMembers}).
- */
-function rejectedMembers(batch: GroupPlanResult): string[] {
-  return batch.rejected.flatMap(row => 'entity' in row ? [row.entity] : []);
-}
-
-/**
- * The sent lamps `applied` records: each one but a lamp with a member whose
- * light row was rejected. That member got neither its light nor its start, so
- * the lamp stays out of `applied` and the next dispatch sends it again.
- *
- * A member that was off (or unavailable) when its lamp was sent is not
- * excluded, though it got nothing either: a lamp whose member is permanently
- * dead would then never be recorded, and every sendable dispatch -- each tick
- * of a fade, every non-tick render -- would send the lamp again and restart
- * the candle on its live members. Known gap: such a member, back on while its
- * lamp stays on, waits for the lamp's next send (a target change, a request,
- * or the lamp itself coming back on, which `lamp_on` requests).
- */
-function reached(view: HouseView, ordinary: OpaqueMap, rejected: string[]): OpaqueMap {
-  return Object.fromEntries(Object.entries(ordinary).filter(([lamp]) => !membersOf(view, lamp).some(member => rejected.includes(member))));
 }
 
 /** A lamp's catalog members; a lamp the catalog does not list has none. */

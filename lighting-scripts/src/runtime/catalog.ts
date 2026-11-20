@@ -130,6 +130,24 @@ function stringListMap(document: JsonObject, key: string, context: string): Reco
     [name, stringList(value, `${context}.${key}.${name}`)]));
 }
 
+/**
+ * Logical lamp to its physical members. A bulb belongs to at most one lamp:
+ * two lamps naming the same bulb would send it two lights in one dispatch, so
+ * shared membership is a configuration error, rejected here. A lamp that lists
+ * one of its own bulbs twice still owns it alone.
+ */
+function lampMembers(document: JsonObject, context: string): Record<string, string[]> {
+  const members = stringListMap(document, 'members', context), owner = new Map<string, string>();
+  for (const [lamp, bulbs] of Object.entries(members)) for (const bulb of bulbs) {
+    const other = owner.get(bulb);
+    if (other !== undefined && other !== lamp) {
+      throw new ParseError(`${context}.members: bulb ${bulb} belongs to both ${other} and ${lamp}; a bulb belongs to at most one lamp`);
+    }
+    owner.set(bulb, lamp);
+  }
+  return members;
+}
+
 function stringMap(document: JsonObject, key: string, context: string): Record<string, string> {
   if (document[key] === undefined) return {};
   const mapping = requireObject(document, key, context);
@@ -225,7 +243,7 @@ export function parseCatalog(document: JsonValue | undefined): Catalog {
   // iterate or look up, so absent and empty are the same to them.
   return {
     effects: recordMap(document, 'effects', at, parseEffect),
-    members: stringListMap(document, 'members', at),
+    members: lampMembers(document, at),
     groups: stringListMap(document, 'groups', at),
     baseline_groups: stringListMap(document, 'baseline_groups', at),
     topics: stringMap(document, 'topics', at),
