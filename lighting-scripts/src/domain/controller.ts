@@ -8,13 +8,14 @@ import type { GradientPlanResult } from './gradient.ts';
 import type { RemotePlanResult } from './remote-input.ts';
 import type { Effect, HouseView } from '../runtime/effects.ts';
 import type { RoomId, SwitchId } from './types/ids.ts';
+import type { Percent } from './types/light.ts';
 import { overlayKeyText, SARA_MODE } from './types/overlay.ts';
 
 /**
  * A valid switch interval: its bounds as numbers (a boolean bound is Python's
  * 0 or 1, since captured `is number` admits it) and as stored, for the report.
  */
-export interface SwitchInterval { low: number; high: number; stored: [number | boolean, number | boolean] }
+export interface SwitchInterval { low: Percent; high: Percent; stored: [number | boolean, number | boolean] }
 
 export interface SwitchPlanArgs {
   /** Each switch-range rule, its interval read at its turn, or `undefined` unless valid. */

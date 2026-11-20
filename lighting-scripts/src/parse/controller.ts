@@ -24,7 +24,7 @@ import { requireRgb, warmEndOr } from './scale.ts';
 import { savedMappingOr } from './accessors.ts';
 import { BUILT_IN_RANGES } from './planning.ts';
 import type { ApplyArgs, PlanArgs, PlanOverrides, RemoteCommandArgs, SwitchInterval, SwitchPlanArgs } from '../domain/controller.ts';
-import { toRoomId, toSwitchId } from './ids.ts';
+import { toPercent, toRoomId, toSwitchId } from './ids.ts';
 
 const lenientList = (v: JsonValue | undefined): JsonValue[] => Array.isArray(v) ? v : [];
 
@@ -64,7 +64,7 @@ function switchRange(rule: JsonObject, defaults: JsonObject): SwitchInterval | u
   if (interval.length !== 2 || !jinjaNumber(first) || !jinjaNumber(second)) return undefined;
   const low = asNumber(first), high = asNumber(second);
   if (!(0 <= low && low <= high && high <= 100)) return undefined;
-  return { low, high, stored: [first, second] };
+  return { low: toPercent(low), high: toPercent(high), stored: [first, second] };
 }
 
 // Captured targets/defaults each use mapping.get once and ranges uses
