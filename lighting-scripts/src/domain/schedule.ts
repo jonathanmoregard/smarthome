@@ -1,7 +1,6 @@
 import type { HouseView } from '../runtime/effects.ts';
 import { BLOCKS, DEFAULT_BLOCK, type Block } from './blocks.ts';
 import { roundEven } from './scale.ts';
-import { isBlock } from '../parse/blocks.ts';
 import { timestamp } from '../parse/accessors.ts';
 import { pythonFloatText } from '../runtime/format.ts';
 import type { StoredValue } from '../parse/overrides.ts';
@@ -29,6 +28,8 @@ export function latestRemote(records: ScheduleRecords, room: string): string {
   }
   return key;
 }
+/** The captured `kind in ['channels','input']`, compared as stored. */
+function isClaim(r: ScheduleRecord): boolean { return r.kind === 'channels' || r.kind === 'input'; }
 export function isRemote(r: ScheduleRecord): boolean { return r.kind === 'input' || (r.kind === 'channels' && r.via === 'remote'); }
 /**
  * A lamp's colour as the schedule carries it.
@@ -168,7 +169,7 @@ function interpolate(A: LampSample, B: LampSample, stage: Stage): LampTarget {
 }
 function applies(r: ScheduleRecord, key: string, lamp: string | null, room: string, privateRoom: boolean): boolean {
   return (r.kind === 'light' && r.target === lamp && lamp !== null)
-    || (['channels', 'input'].includes(r.kindText()) && ((r.scope === 'lamp' && lamp !== null && r.target === lamp) ||
+    || (isClaim(r) && ((r.scope === 'lamp' && lamp !== null && r.target === lamp) ||
       (r.scope === 'room' && r.target === room) || (r.scope === 'house' && !privateRoom)))
     || (key === 'mode:sara' && !privateRoom);
 }
@@ -290,9 +291,9 @@ export type ScheduledBaseResult = {
   schedule: ScheduleEnvelope;
 };
 
-/** The override a lamp follows: its value's text, and its `when` read where the record's was. */
-type Chosen = { present: boolean; text: () => string; when: () => number };
-const NOTHING_CHOSEN: Chosen = { present: false, text: () => 'undefined', when: () => 0 };
+/** The override a lamp follows: the block it names, if any, and its record's `when`. */
+type Chosen = { present: boolean; block: Block | undefined; when: () => number };
+const NOTHING_CHOSEN: Chosen = { present: false, block: undefined, when: () => 0 };
 
 export function scheduledBase(view: HouseView, args: ScheduledBaseArgs, roomLocal = false): ScheduledBaseResult {
   const at = args.testNow === undefined ? timestamp(view.now) : args.testNow;
@@ -321,16 +322,16 @@ export function scheduledBase(view: HouseView, args: ScheduledBaseArgs, roomLoca
     const blockRecord = records.get(`block:${room}`);
     // The block override, or the newest applying period claim. Its `when` is
     // read through the record it came from, so it raises where it did.
-    let chosen: Chosen = { present: blockRecord.present, text: blockRecord.valueText, when: blockRecord.when };
+    let chosen: Chosen = { present: blockRecord.present, block: blockRecord.valueFolded, when: blockRecord.when };
     let chosenStamp = chosen.when();
     for (const key of sortedKeys) {
       const r = records.get(key);
-      if (!['channels', 'input'].includes(r.kindText()) || !applies(r, key, lamp, room, privateRoom)) continue;
+      if (!isClaim(r) || !applies(r, key, lamp, room, privateRoom)) continue;
       if (r.scope === 'room' && isRemote(r) && key !== newest) continue;
       const stamp = r.periodStamp();
       if (r.period !== undefined && stamp >= chosenStamp && !(expiry && r.when() <= S.last_fs)) {
         const period = r.period;
-        chosen = { present: true, text: () => period, when: r.when }; chosenStamp = stamp;
+        chosen = { present: true, block: period, when: r.when }; chosenStamp = stamp;
       }
     }
     if (expiry && !S.fading && chosen.when() <= S.last_fs) chosen = NOTHING_CHOSEN;
@@ -341,8 +342,8 @@ export function scheduledBase(view: HouseView, args: ScheduledBaseArgs, roomLoca
       // `String(S.nxt)`: fading implies a next block, so the null arm is unreachable.
       stage = { from: 'lamp', to: S.nxt === null ? 'null' : S.nxt, p: Math.min(1, (why === 'tick' ? 60 : 3) / Math.max(S.left, 1)),
         moving: true, edge: false, source: 'fadeout' };
-    } else if (blocks.includes(chosen.text())) {
-      stage = { ...stage, from: chosen.text(), to: chosen.text(), p: 0, moving: false, source: 'override' };
+    } else if (chosen.block !== undefined) {
+      stage = { ...stage, from: chosen.block, to: chosen.block, p: 0, moving: false, source: 'override' };
     } else if (room !== 'house') stage = wakeStage(view, room, S, at, stage);
     const block = stage.from === 'lamp' ? stage.to : stage.from;
     const scope = scopeFor(view, area, block);
@@ -355,7 +356,7 @@ export function scheduledBase(view: HouseView, args: ScheduledBaseArgs, roomLoca
       const src = [`input_boolean.ls_${selectedScope}_${selectedBlock}_on_off`, `input_boolean.ls_house_${selectedBlock}_on_off`].find(e =>
         hasValue(view, e));
       const want = lp.own
-        ? lp.on(`ls_base.saved.${lamp}.${selectedBlock}.on`)
+        ? lp.on
         : src ? view.get(src) === 'on' : null;
       if (!stage.moving && want !== null && view.get(lamp) !== (want ? 'on' : 'off')) {
         const service = `homeassistant.turn_${want ? 'on' : 'off'}`;
@@ -409,7 +410,7 @@ export function scheduledBase(view: HouseView, args: ScheduledBaseArgs, roomLoca
     for (const key of sortedKeys) {
       const r = records.get(key);
       if (ignored.includes(key)) continue;
-      const match = (r.kind === 'block' && r.target === area) || (['channels', 'input'].includes(r.kindText()) && ((r.scope === 'room' &&
+      const match = (r.kind === 'block' && r.target === area) || (isClaim(r) && ((r.scope === 'room' &&
         r.target === area) || (r.scope === 'house' && !privateRoom)));
       if (!match || (r.scope === 'room' && isRemote(r) && key !== newest)) continue;
       const selected = r.kind === 'block' ? r.valueBlock : r.period;
@@ -432,7 +433,8 @@ export function scheduledBase(view: HouseView, args: ScheduledBaseArgs, roomLoca
   const stale = keys.filter(key => {
     if (!expiry) return false;
     const r = records.get(key);
-    const area = r.kind === 'light' || r.scope === 'lamp' ? view.areas[r.targetText()] : r.targetText();
+    const target = r.targetName;
+    const area = target === undefined ? undefined : r.kind === 'light' || r.scope === 'lamp' ? view.areas[target] : target;
     const scope = rooms.includes(area ?? '') ? area! : 'house';
     const scopes = r.scope === 'house' || key === 'mode:sara' ? rooms.filter(a => !privateRooms(view).includes(a)) : [scope];
     return scopes.length > 0 && scopes.every(a => r.when() <= details[a]!.last_fs && !details[a]!.fading);
@@ -440,8 +442,8 @@ export function scheduledBase(view: HouseView, args: ScheduledBaseArgs, roomLoca
   const sched: Record<string, Block | null> = {}, mirror: ScheduleMirror[] = [];
   for (const scope of ['house', ...rooms]) {
     const S = details[scope]!; sched[scope] = S.cur;
-    const override = records.get(`block:${scope}`).valueText();
-    const effective = isBlock(override) && !stale.includes(`block:${scope}`) ? override : S.cur === null ? DEFAULT_BLOCK : S.cur;
+    const override = records.get(`block:${scope}`).valueFolded;
+    const effective = override !== undefined && !stale.includes(`block:${scope}`) ? override : S.cur === null ? DEFAULT_BLOCK : S.cur;
     const option = effective[0]!.toUpperCase() + effective.slice(1), entity = `input_select.ls_${scope}_override`;
     if (view.state[entity] && view.get(entity) !== option) mirror.push({ entity, option });
   }

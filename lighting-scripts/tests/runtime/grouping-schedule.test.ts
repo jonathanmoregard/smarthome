@@ -50,11 +50,12 @@ test('a saved profile that is not JSON reads as the captured from_json default, 
   }
 });
 
-test('a saved profile that parses to a non-mapping still raises, as the captured .get on it does', () => {
+test('a saved profile that parses to a non-mapping reads as no saved profile (lenient saved-value directive)', () => {
+  // The captured `.get` on it raises; saved values take a named default instead.
   const ctx = context();
   for (const text of ['[]', '5', '"x"', 'null']) {
     ctx.put('input_text.profile', text);
-    assert.throws(() => saved(ctx, 'input_text.profile'), /object/, text);
+    assert.deepEqual(saved(ctx, 'input_text.profile'), {}, text);
   }
 });
 

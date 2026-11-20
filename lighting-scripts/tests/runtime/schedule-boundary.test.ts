@@ -6,8 +6,8 @@ import { context } from './gestures-context.ts';
 
 /**
  * Boundary characterization for `ls_base`'s reads of stored override records:
- * the JavaScript `String(...)` coercions it applies to stored values, and a
- * record's `when` read only where the schedule reads it.
+ * stored facts compare as stored (no `String(...)` coercion), and a record's
+ * `when` is the captured `as_timestamp(when, 0)`, never a raise.
  */
 const noon = '2026-10-23T12:00:00+02:00';
 function configured() {
@@ -29,19 +29,19 @@ function periods(overrides: JsonObject): [unknown, unknown] {
   return [targets['light.studio']!.period, targets['room:studio']!.period];
 }
 
-test('a stored kind that is a one-element list still counts as a period claim', () => {
-  // `['channels', 'input'].includes(String(kind))`: String(['channels']) is 'channels'.
+test('a stored kind that is a one-element list is not a period claim', () => {
+  // Captured `kind in ['channels','input']`: ['channels'] is not equal to 'channels'.
   assert.deepEqual(periods({ claim: { kind: ['channels'], scope: 'room', target: 'studio', when: noon, value: { period: 'cosy' } } }),
-    ['cosy', 'cosy']);
+    ['day', 'day']);
 });
 
-test('a block override is matched through String(value).toLowerCase() for the lamp, but must be a block for the room', () => {
+test('a block override is matched as lower-cased text for the lamp, but must be a block for the room', () => {
   assert.deepEqual(periods({ 'block:studio': { kind: 'block', target: 'studio', when: noon, value: 'COSY' } }), ['cosy', 'day']);
 });
 
-test('a stored when is read only where the schedule reads it', () => {
+test('an unreadable stored when is as_timestamp(when, 0), never a raise', () => {
   const unread = { other: { kind: 'light', target: 'light.elsewhere', when: 'not a time' } };
   assert.deepEqual(periods(unread), ['day', 'day']);
   const read = { claim: { kind: 'channels', scope: 'room', target: 'studio', when: 'not a time', value: { period: 'cosy' } } };
-  assert.throws(() => periods(read), /schedule timestamp/);
+  assert.deepEqual(periods(read), ['cosy', 'cosy']);
 });

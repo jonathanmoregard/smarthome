@@ -98,6 +98,12 @@ export function haBoolean(value: JsonValue | undefined, context: string): boolea
   throw new ParseError(`${context} is not accepted by Home Assistant's bool filter`);
 }
 
+/** {@link haBoolean} for a saved value: what the filter rejects is `fallback` instead of a raise. */
+export function haBooleanOr(value: JsonValue | undefined, fallback: boolean): boolean {
+  try { return haBoolean(value, 'saved value'); }
+  catch (error) { if (error instanceof ParseError) return fallback; throw error; }
+}
+
 /**
  * `is defined and is not none` -- the captured guard on every optional `ls_store`
  * field. Absent and explicit none are indistinguishable to it, and both leave

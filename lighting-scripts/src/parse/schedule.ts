@@ -15,55 +15,69 @@
  */
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { HouseView } from '../runtime/effects.ts';
-import { jinjaList, jinjaOr, jinjaTruthy, object, requireObject, requireString } from '../runtime/parse.ts';
+import { jinjaList, jinjaOr, jinjaTruthy, object, parsePythonNumeric, requireObject, requireString } from '../runtime/parse.ts';
 import type { Block } from '../domain/blocks.ts';
 import type { LampProfile, LampSample, ScheduledBaseArgs } from '../domain/schedule.ts';
 import { isBlock } from './blocks.ts';
-import { num, optionalTimestamp, saved, testNow } from './accessors.ts';
-import { haBoolean } from './state-store.ts';
+import { asTimestampOr, num, saved, testNow } from './accessors.ts';
+import { haBooleanOr } from './state-store.ts';
 import { storedFact } from './overrides.ts';
 import type { StoredFact, StoredValue } from './overrides.ts';
 
-/** A stored override record as the schedule reads it. */
+/**
+ * A stored override record as the schedule reads it. Saved state, so every
+ * read is lenient and typed with a named default (directive 2026-11-19) and
+ * none raises. Facts compared with `==` stay stored facts, so they compare as
+ * the stored value does: a one-element list is never equal to a string.
+ */
 export interface ScheduleRecord {
   /** Does the stored record hold any key? */
   present: boolean;
   kind: StoredFact;
-  /** `String(kind)`, computed when read, as the inline coercion was. */
-  kindText(): string;
   scope: StoredFact;
   target: StoredFact;
-  /** `String(target)`, computed when read. */
-  targetText(): string;
+  /** `target` when it is text, which is all an area lookup or room match can use; else no target. */
+  targetName: string | undefined;
   via: StoredFact;
-  /** `when` as a timestamp; 0 when absent or null, and a present unreadable value raises. */
+  /** The captured `as_timestamp(when, 0)`: {@link NO_WHEN} for anything but date text. */
   when(): number;
   /** `value.period`, when it is a block. */
   period: Block | undefined;
   /** `value` itself, when it is a block. */
   valueBlock: Block | undefined;
-  /** `String(value).toLowerCase()`, computed when read. */
-  valueText(): string;
-  /** `value.period_updated` (strict), else {@link when}. */
+  /** The captured `value | string | lower` where it can match a block: text whose lower case is a block. */
+  valueFolded: Block | undefined;
+  /**
+   * The captured `value.get('period_updated', as_timestamp(when, 0)) | float`:
+   * absent is {@link when}; a value Python's `float()` reads is that number;
+   * anything else (where the captured filter raises) takes the named default,
+   * the absent spelling -- the record's own {@link when}.
+   */
   periodStamp(): number;
 }
 
+/** A saved `when` that is not date text: the captured `as_timestamp(when, 0)` default. */
+export const NO_WHEN = 0;
+
 function scheduleRecord(raw: JsonValue | undefined): ScheduleRecord {
   const r = object(raw), value = object(r.value);
-  const when = (): number => optionalTimestamp(r.when) ?? 0;
+  const when = (): number => asTimestampOr(r.when, NO_WHEN);
+  const folded = typeof r.value === 'string' ? r.value.toLowerCase() : undefined;
   return {
     present: Object.keys(r).length > 0,
     kind: storedFact(r.kind),
-    kindText: () => String(r.kind),
     scope: storedFact(r.scope),
     target: storedFact(r.target),
-    targetText: () => String(r.target),
+    targetName: typeof r.target === 'string' ? r.target : undefined,
     via: storedFact(r.via),
     when,
     period: isBlock(value.period) ? value.period : undefined,
     valueBlock: isBlock(r.value) ? r.value : undefined,
-    valueText: () => String(r.value).toLowerCase(),
-    periodStamp: () => value.period_updated === undefined ? when() : num(value.period_updated),
+    valueFolded: isBlock(folded) ? folded : undefined,
+    periodStamp: () => {
+      const stamp = value.period_updated === undefined ? undefined : parsePythonNumeric(value.period_updated);
+      return stamp === undefined ? when() : stamp;
+    },
   };
 }
 
@@ -84,25 +98,28 @@ export function storedScheduleRecords(value: JsonValue | undefined): ScheduleRec
   return scheduleRecords(object(value));
 }
 
-/** A saved `input_text` lamp profile; raises where `saved()` does. */
+/** A saved `input_text` lamp profile; never raises (see `saved()`). */
 export interface SavedProfile {
   /** Captured `.get('own', false)` used as a condition: Jinja truthiness, absent read as false. */
   own: boolean;
   /**
    * A plug's power, captured `.get('on', false) | bool`: absent is false,
-   * otherwise Home Assistant's bool filter, which raises (with `context`) on a
-   * value it rejects. Read only where the captured script reads it.
+   * otherwise Home Assistant's bool filter. A value the filter rejects (where
+   * the captured filter raises) takes the named default {@link PLUG_OFF}.
    */
-  on(context: string): boolean;
+  on: boolean;
   effect: StoredFact;
   effectChannels: StoredFact;
 }
+
+/** A saved plug power the bool filter rejects: off (lenient saved-value directive). */
+export const PLUG_OFF = false;
 
 export function savedProfile(ctx: HouseView, entity: string): SavedProfile {
   const profile = saved(ctx, entity);
   return {
     own: profile.own === undefined ? false : jinjaTruthy(profile.own),
-    on: context => profile.on === undefined ? false : haBoolean(profile.on, context),
+    on: profile.on === undefined ? false : haBooleanOr(profile.on, PLUG_OFF),
     effect: storedFact(profile.effect),
     effectChannels: storedFact(profile.effect_channels),
   };

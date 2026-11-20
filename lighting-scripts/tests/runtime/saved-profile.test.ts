@@ -8,10 +8,10 @@ import { house } from './house-view.ts';
 // `lp.get('own', false)` (and `(... | from_json(default={})).get('own', false)`),
 // used as a condition: Jinja truthiness, absent read as false. A plug's power
 // is `lj.get('on', false) | bool`: Home Assistant's bool filter, absent read as
-// false; a value the filter rejects raises, as the filter does.
+// false; a value the filter rejects is off (lenient saved-value directive,
+// 2026-11-19), where the captured filter raises.
 const entity = 'input_text.ls_lamp_plug_day';
 const profile = (fields: Record<string, JsonValue>) => savedProfile(house({ [entity]: JSON.stringify(fields) }), entity);
-const context = 'ls_base.saved.light.plug.day';
 
 test('a saved profile owns its light by Jinja truthiness, absent read as false', () => {
   assert.equal(profile({}).own, false);
@@ -20,17 +20,17 @@ test('a saved profile owns its light by Jinja truthiness, absent read as false',
 });
 
 test("a saved plug's power reads through Home Assistant's bool filter, absent read as false", () => {
-  assert.equal(profile({}).on(context), false);
+  assert.equal(profile({}).on, false);
   for (const value of [true, 1, 'on', 'TRUE', ' yes ', '1', 'enable'] as JsonValue[]) {
-    assert.equal(profile({ on: value }).on(context), true, JSON.stringify(value));
+    assert.equal(profile({ on: value }).on, true, JSON.stringify(value));
   }
   for (const value of [false, 0, 'off', 'no', '0', 'disable'] as JsonValue[]) {
-    assert.equal(profile({ on: value }).on(context), false, JSON.stringify(value));
+    assert.equal(profile({ on: value }).on, false, JSON.stringify(value));
   }
 });
 
-test("a saved plug's power the bool filter rejects still raises", () => {
+test("a saved plug's power the bool filter rejects is off, never a raise", () => {
   for (const value of [null, 'maybe', [], {}] as JsonValue[]) {
-    assert.throws(() => profile({ on: value }).on(context), /bool filter/, JSON.stringify(value));
+    assert.equal(profile({ on: value }).on, false, JSON.stringify(value));
   }
 });
