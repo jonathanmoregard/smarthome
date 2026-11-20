@@ -27,15 +27,17 @@ test('dynamic remote area, canonical preset, and helper call ordering survive po
 
 test('stale power completion cannot consume a newer burst and expired burst flushes first', async () => {
   const ctx = context(await load());
-  const args = { room: 'studio', command: 'power' };
+  ctx.areas.studio_remote = 'studio';
+  const remote = { room: 'studio', device_id: 'studio_remote' };
+  const args = { ...remote, command: 'power' };
   ctx.run('ls_remote_gesture', args);
   const old = ctx.get('input_text.ls_studio_remote_power_token');
   ctx.now = '2026-10-26T12:00:01+01:00';
   ctx.run('ls_remote_gesture', args);
-  ctx.run('ls_remote_gesture', { room: 'studio', command: 'power_done', token: old });
+  ctx.run('ls_remote_gesture', { ...remote, command: 'power_done', token: old });
   assert.equal(ctx.get('input_number.ls_studio_remote_power_count'), '1');
   assert.deepEqual(commandCalls(ctx).map(c => c.command), ['toggle']);
-  ctx.run('ls_remote_gesture', { room: 'studio', command: 'power_done', token: ctx.get('input_text.ls_studio_remote_power_token') });
+  ctx.run('ls_remote_gesture', { ...remote, command: 'power_done', token: ctx.get('input_text.ls_studio_remote_power_token') });
   assert.deepEqual(commandCalls(ctx).map(c => c.command), ['toggle', 'toggle']);
 });
 

@@ -11,8 +11,8 @@ function input(command: string, extra: Partial<GestureInput> = {}): GestureInput
   return {
     room: 'studio', command, token: '',
     payload: () => undefined,
-    delivery: () => ({ deviceId: undefined, source: 'remote_ieee' }),
-    areas: {}, now: NOW, ...extra,
+    delivery: () => ({ deviceId: 'studio_remote', source: 'remote_ieee' }),
+    areas: { studio_remote: 'studio' }, now: NOW, ...extra,
   };
 }
 /** Drain a plan: its effects in yield order, and its answer. */
@@ -80,6 +80,14 @@ test('a device area resolves through the areas snapshot; an unknown device sends
   const at = (deviceId: string) => input('up', { delivery: () => ({ deviceId, source: 's' }), areas: { remote_device: 'kitchen' } });
   assert.deepEqual(drain(gesture(idle, at('remote_device'))).effects, [command('up', 'kitchen', 's')]);
   assert.deepEqual(drain(gesture(idle, at('missing'))).effects, []);
+});
+
+test('a remote with no device has no area, so its gesture sends nothing', () => {
+  // Break: falling back to the gesture's room (the generalised form of the
+  // oracle kitchen remote's `area_id(device) or 'kitchen'`) sends a command
+  // for an area the remote's configuration never named.
+  const plan = gesture(idle, input('up', { delivery: () => ({ deviceId: undefined, source: 's' }) }));
+  assert.deepEqual(drain(plan).effects, []);
 });
 
 test('a canonical preset step to the right navigates right', () => {

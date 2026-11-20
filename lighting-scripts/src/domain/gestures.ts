@@ -60,6 +60,17 @@ function* chordTimer(room: string, start: boolean): Plan<void> {
 }
 
 /**
+ * The area a remote's commands go to: its device's area, or none. A remote
+ * with no device, or whose device has no area (an empty area id is none),
+ * has no area, and its gestures send nothing. There is no fallback room.
+ */
+export function remoteArea(deviceId: string | undefined, areas: Readonly<Record<string, string>>): string | undefined {
+  if (deviceId === undefined) return undefined;
+  const area = areas[deviceId];
+  return area === undefined || area.length === 0 ? undefined : area;
+}
+
+/**
  * The gesture reducer: one remote command against the helper state, as the
  * effects it causes and the state they leave.
  *
@@ -92,8 +103,8 @@ export function* gesture(state: GestureState, input: GestureInput): Plan<Gesture
   const send = function* (logical: string): Plan<void> {
     // The delivery fields raise only here, after the writes that precede the send.
     const { deviceId, source } = input.delivery();
-    const area = deviceId === undefined ? room : input.areas[deviceId];
-    if (area === undefined || area.length === 0) return;
+    const area = remoteArea(deviceId, input.areas);
+    if (area === undefined) return;
     yield {
       kind: 'service', service: 'script.turn_on',
       data: { variables: { source, area, command: logical, dry_run: false } }, target: { entity_id: 'script.ls_remote_command' },
