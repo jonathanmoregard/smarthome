@@ -19,9 +19,9 @@ import { isObject, jinjaFloat, jinjaTruthy, lazy, object, ParseError, requireArr
 import { carry, reveal } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { requireRgb } from './scale.ts';
-import { warmEndOf } from './planning.ts';
 import { opaqueMap, storedFact } from './overrides.ts';
 import type { OpaqueMap, StoredFact } from './overrides.ts';
+import { WARM_END } from '../domain/scale.ts';
 import type { RGB } from '../domain/scale.ts';
 import type {
   AssignArgs, AssignDetails, BulbEffectName, Channel, EmitArgs, FilterArgs, FrameEffect, FramePlanArgs, FrameSource, FrameTarget,
@@ -43,9 +43,16 @@ function frameColour(value: JsonValue | undefined, context: string): FrameColour
   return { kind: 'rgb', rgb: requireRgb(colorValue.rgb, `${context}.rgb`) };
 }
 
-/** The colour a warm-end effect holds: the candle test lamp's warm end, read as a frame colour. */
+/**
+ * The colour a warm-end effect holds: the candle test lamp's warm end, read as
+ * a frame colour. Read as the candle renderer read it
+ * (`state_attr('light.candle_test_rgb_warm_end','rgb_color') or [255,126,0]`):
+ * Jinja's `or`, so an absent attribute, Home Assistant's null, or any other
+ * falsy value takes {@link WARM_END}; a truthy value must be an rgb triple.
+ */
 export function warmEndColour(ctx: HouseView, context: string): FrameColour {
-  return frameColour({ rgb: reveal(warmEndOf(ctx.attr('light.candle_test_rgb_warm_end', 'rgb_color'))) }, context);
+  const warm = ctx.attr('light.candle_test_rgb_warm_end', 'rgb_color');
+  return frameColour({ rgb: warm !== undefined && jinjaTruthy(warm) ? warm : [...WARM_END] }, context);
 }
 
 /**
