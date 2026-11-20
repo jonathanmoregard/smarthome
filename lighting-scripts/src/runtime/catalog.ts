@@ -74,6 +74,17 @@ export interface CatalogProcessor {
   remote_adjustment: string | undefined;
 }
 
+/**
+ * What the catalog declares about one physical bulb.
+ *
+ * `candle`: the bulb runs the candle firmware (Innr custom firmware; Candle
+ * flickers on the bulb itself). It is declared, never derived: the model
+ * number says nothing about what was flashed. Absent is not flashed.
+ */
+export interface CatalogBulb {
+  candle: boolean;
+}
+
 export interface CatalogRemote {
   device_id: string;
   source: string;
@@ -90,6 +101,8 @@ export interface Catalog {
   baseline_groups: Record<string, string[]>;
   /** Member entity to its MQTT topic. */
   topics: Record<string, string>;
+  /** Member entity to what is declared about the bulb; absent from the document is `{}`. */
+  bulbs: Record<string, CatalogBulb>;
   processors: Record<string, CatalogProcessor>;
   /** Room to the remote that controls it; spread into the gesture arguments. */
   remotes: Record<string, CatalogRemote>;
@@ -182,6 +195,10 @@ function parseProcessor(processor: JsonObject, context: string): CatalogProcesso
   };
 }
 
+function parseBulb(bulb: JsonObject, context: string): CatalogBulb {
+  return { candle: bulb.candle === undefined ? false : requireBoolean(bulb.candle, `${context}.candle`) };
+}
+
 function parseRemote(remote: JsonObject, context: string): CatalogRemote {
   return {
     device_id: requireString(remote, 'device_id', context),
@@ -199,7 +216,7 @@ function parseRemote(remote: JsonObject, context: string): CatalogRemote {
  */
 export function emptyCatalog(): Catalog {
   return {
-    effects: {}, members: {}, groups: {}, baseline_groups: {}, topics: {},
+    effects: {}, members: {}, groups: {}, baseline_groups: {}, topics: {}, bulbs: {},
     processors: {}, remotes: {}, ui_choices: undefined,
     multicast: [], ui_rows: undefined, ui_discovery: undefined,
   };
@@ -247,6 +264,7 @@ export function parseCatalog(document: JsonValue | undefined): Catalog {
     groups: stringListMap(document, 'groups', at),
     baseline_groups: stringListMap(document, 'baseline_groups', at),
     topics: stringMap(document, 'topics', at),
+    bulbs: recordMap(document, 'bulbs', at, parseBulb),
     processors: recordMap(document, 'processors', at, parseProcessor),
     remotes: recordMap(document, 'remotes', at, parseRemote),
     ui_choices: document.ui_choices === undefined

@@ -5,6 +5,7 @@ import { readSync, writeSync } from 'node:fs';
 import { StringDecoder } from 'node:string_decoder';
 import { execute, type ExecutionHooks, type ExecutionRequest } from '../../src/runtime/engine.ts';
 import { handlers } from '../../src/runtime/registry.ts';
+import { effectsResolve } from '../../src/handlers/resolution.ts';
 import type { JsonObject, JsonValue, ScriptContext, ServiceCall, Snapshot } from '../../src/runtime/context.ts';
 
 type PathPart = string | number;
@@ -66,6 +67,8 @@ function readMessage(): unknown {
   return 'nonfinite' in value ? decode(value as Envelope) : value;
 }
 function send(value: unknown): void { writeSync(1, JSON.stringify(encode(value)) + '\n'); }
+/** The one lamp the preserved fixtures let run Candle (the port's former hard-coded `CANDLE_LAMP`). */
+const FIXTURE_CANDLE_LAMPS: ReadonlySet<string> = new Set(['light.living_room_yellow_retro_lamp']);
 const nativeLog = Math.log;
 function isJsonLiteral(value: unknown): value is JsonValue {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
@@ -125,7 +128,11 @@ function perform(value: unknown): void {
         if (--depth > 0 && request.parityHooks === 'all') callback('after', { service: 'script.' + name, data: args }, ctx);
       },
     } : {};
-    const requestHandlers = { ...handlers };
+    // The preserved fixtures predate the catalog's per-bulb `candle` flag: in
+    // them, one lamp ran Candle by name. That lamp stays capable here, and the
+    // flag is NOT written into any catalog document, since `effects_catalog`
+    // output is compared byte for byte. Production reads the flag instead.
+    const requestHandlers = { ...handlers, effects_resolve: effectsResolve(() => FIXTURE_CANDLE_LAMPS) };
     const dependencyCalls: string[] = [];
     for (const [name, result] of Object.entries(request.parityDependencies ?? {})) {
       if (name !== 'ls_plan') throw new Error(`Unsupported parity literal dependency: ${name}`);

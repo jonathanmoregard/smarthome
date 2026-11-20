@@ -100,7 +100,12 @@ reference, not silently invoked by TypeScript.
 
 Cutover checklist:
 
-1. Clear `runtime.applied` once at cutover so every lamp is re-sent (starts the
+1. Set `candle: true` on every bulb flashed with the candle firmware in `.runtime/catalog.json` — until then no lamp runs Candle (including the retro lamp that does today).
+   The flag lives under `bulbs`, keyed by the bulb's member entity, e.g.
+   `"bulbs": { "light.<bulb>": { "candle": true } }`. A lamp runs Candle only
+   when it has at least one bulb and every one of its bulbs is flagged; a
+   malformed flag rejects the file and the previous config is kept.
+2. Clear `runtime.applied` once at cutover so every lamp is re-sent (starts the
    firmware candle). Set the `applied` attribute of `sensor.ls_effects_runtime`
    to an empty mapping `{}`: an absent or null `applied` is read as `targets`,
    which the old engine also wrote, so removing it re-sends nothing.

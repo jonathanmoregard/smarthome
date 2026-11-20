@@ -11,14 +11,26 @@ import { scaleValue } from '../domain/scale.ts';
 import { parseGradientPlanArgs } from '../parse/gradient.ts';
 import { parseScaleArgs } from '../parse/scale.ts';
 import { parseResolveArgs } from '../parse/resolution.ts';
-import { resolveEffects } from '../domain/resolution.ts';
+import { candleLamps, resolveEffects } from '../domain/resolution.ts';
+import type { ScriptContext } from '../runtime/context.ts';
+
+/**
+ * `effects_resolve`, given where the Candle-capable lamps come from. Production
+ * reads them from the runtime catalog the call runs with ({@link candleLamps});
+ * the parity bridge supplies its fixtures' own set, since those fixtures
+ * predate the declared flag. The `catalog` argument (the `effects_catalog`
+ * document) is not consulted for this.
+ */
+export function effectsResolve(candle: (ctx: ScriptContext) => ReadonlySet<string>): ScriptHandlers[string] {
+  return typed('effects_resolve', { parse: parseResolveArgs, run: (ctx, args) => resolveEffects(args, candle(ctx)) });
+}
 
 export const resolutionHandlers: ScriptHandlers = {
   // Arguments parsed in `src/parse/resolution.ts`. Every read there is as
   // lenient as the traversal it replaces, so the parse raises nowhere; the
   // three reads that do raise are thunks the resolver calls where it always
   // did.
-  effects_resolve: typed('effects_resolve', { parse: parseResolveArgs, run: (_context, args) => resolveEffects(args) }),
+  effects_resolve: effectsResolve(ctx => candleLamps(ctx.catalog)),
   // Arguments parsed in `src/parse/scale.ts`.
   effects_scale: withParsedArgs({
     parse: parseScaleArgs,

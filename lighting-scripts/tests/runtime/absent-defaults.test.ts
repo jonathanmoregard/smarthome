@@ -61,7 +61,7 @@ test('effects_resolve raises on an explicit null warm_end where a scaled target 
     value: { adjustment: { steps: 1, lower: -20, upper: 20, last: 'up', anchor: 'current', updated: 1 } } } } };
   // The resolver's first read of `warm_end` is the scaled target's gradient
   // signature (`warm_end|list`), pinned the same way.
-  assert.throws(() => resolveEffects(parseResolveArgs({ ...args, warm_end: null })),
+  assert.throws(() => resolveEffects(parseResolveArgs({ ...args, warm_end: null }), new Set()),
     { name: 'TypeError', message: "effects_resolve.warm_end|list: 'NoneType' object is not iterable" });
-  assert.deepEqual(resolveEffects(parseResolveArgs(args)), resolveEffects(parseResolveArgs({ ...args, warm_end: [255, 126, 0] })));
+  assert.deepEqual(resolveEffects(parseResolveArgs(args), new Set()), resolveEffects(parseResolveArgs({ ...args, warm_end: [255, 126, 0] }), new Set()));
 });

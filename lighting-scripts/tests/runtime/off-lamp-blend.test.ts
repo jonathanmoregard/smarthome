@@ -51,7 +51,7 @@ test('two lit ends blend exactly as the scale always has', () => {
   assert.deepEqual(blend(DAY, COSY, 0.5), { on: true, brightness: 140, color: { kelvin: 3100 }, position: 0.5 });
 });
 
-const resolve = (args: JsonObject) => resolveEffects(parseResolveArgs(args));
+const resolve = (args: JsonObject) => resolveEffects(parseResolveArgs(args), new Set());
 const scaleClaim = (position: number): JsonObject => ({ kind: 'channels', scope: 'lamp', target: 'lamp', when: '2026-10-26T12:00:00+01:00',
   value: { channels: { brightness: { kind: 'scale', position, updated: 1 }, color: { kind: 'scale', position, updated: 1 } } } });
 const offInCosy: JsonObject = { area: 'living', period: 'cosy', on: false, day: { brightness: 200, color: { kelvin: 4000 } }, cosy: { on: false } };

@@ -1,4 +1,5 @@
 import type { Verbatim } from '../runtime/verbatim.ts';
+import type { Catalog } from '../runtime/catalog.ts';
 import { gradientSignature, sampleGradient } from './gradient.ts';
 import type { GradientCurve, GradientSignature } from './gradient.ts';
 import { OFF_END_LEVEL, blend, boundedNumber, clamp } from './scale.ts';
@@ -7,8 +8,18 @@ import { levelNumber } from '../parse/resolution.ts';
 
 const CHANNELS = ['brightness', 'color'] as const;
 export type Channel = typeof CHANNELS[number];
-/** The one lamp that may run the Candle effect from a baseline or an override. */
-const CANDLE_LAMP = 'light.living_room_yellow_retro_lamp';
+
+/**
+ * The lamps that may run Candle: Candle runs on the bulb's own firmware, so a
+ * lamp may run it iff it has at least one bulb and every bulb is declared
+ * flashed with that firmware (`bulbs.<entity>.candle`). A lamp with no bulbs
+ * has nothing to run it on.
+ */
+export function candleLamps(catalog: Pick<Catalog, 'members' | 'bulbs'>): ReadonlySet<string> {
+  return new Set(Object.entries(catalog.members)
+    .filter(([, bulbs]) => bulbs.length > 0 && bulbs.every(bulb => catalog.bulbs[bulb]?.candle === true))
+    .map(([lamp]) => lamp));
+}
 
 /**
  * A value a channel can hold. A colour is always parsed. A brightness is a
@@ -268,8 +279,12 @@ function lightPatch(light: LightValue, key: string, item: BaseItem, args: Resolv
   return light.hasBrightness ? { brightness: light.brightness } : {};
 }
 
-/** Pure resolution of independent channel claims, room input and effect ownership. */
-export function resolveEffects(args: ResolveArgs): ResolutionResult {
+/**
+ * Pure resolution of independent channel claims, room input and effect
+ * ownership. `candle` is the lamps that may run Candle ({@link candleLamps});
+ * Candle from a baseline or a claim is dropped on every other lamp.
+ */
+export function resolveEffects(args: ResolveArgs, candle: ReadonlySet<string>): ResolutionResult {
   const targets: Record<string, ResolvedTarget> = {}, assignments: Record<string, ResolvedTarget> = {};
   const inputs = new Map<string, InputPosition>(), streams = new Map<string, string>();
   const entries = [...args.targets].sort((a, b) => lexical(a.target, b.target));
@@ -325,7 +340,7 @@ export function resolveEffects(args: ResolveArgs): ResolutionResult {
       let currentUnderlying: ChannelValue | undefined = initial;
       let current: ResolvedSource = holding(initial, -1), owner = 'base';
       if (baselineEffect !== undefined && declared.includes(channel) && enabled.includes(channel) && (baselineEffect !== 'Candle' ||
-        target === CANDLE_LAMP)) {
+        candle.has(target))) {
         current = { kind: 'effect', effect: baselineEffect, instance: item.effectInstance === undefined ?
           `base:${target}:${baselineEffect}` : item.effectInstance, updated: -1 };
         owner = `base:${baselineEffect}`;
@@ -333,7 +348,7 @@ export function resolveEffects(args: ResolveArgs): ResolutionResult {
       candidates[channel].sort((a, b) => lexical(a.key, b.key)).sort((a, b) => a.updated.numeric - b.updated.numeric);
       for (const candidate of candidates[channel]) {
         const claim = candidate.claim;
-        if (target !== CANDLE_LAMP && claim.kind === 'effect' && claim.effect === 'Candle') continue;
+        if (!candle.has(target) && claim.kind === 'effect' && claim.effect === 'Candle') continue;
         let valid = false, ignore = false, value: ChannelValue | undefined = initial;
         let selected: Selected = { kind: 'none' };
         if (claim.kind === 'constant') {

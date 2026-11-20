@@ -3,10 +3,12 @@ import test from 'node:test';
 
 // `resolveEffects` takes parsed arguments. These tests state documents, so they
 // reach it through the parse edge, exactly as the `effects_resolve` handler does.
+// The retro lamp is the one lamp these cases treat as able to run Candle; in
+// production that comes from the catalog's per-bulb `candle` flag.
 async function resolver(): Promise<(args: any) => any> {
   const { resolveEffects } = await import('../../src/domain/resolution.ts');
   const { parseResolveArgs } = await import('../../src/parse/resolution.ts');
-  return args => resolveEffects(parseResolveArgs(args));
+  return args => resolveEffects(parseResolveArgs(args), new Set(['light.living_room_yellow_retro_lamp']));
 }
 
 // A changed interpolation branch or JS Math.round replacing Python round breaks these literals.
@@ -67,7 +69,7 @@ test('room input uses its logical level across lamp profiles and down never brig
   assert.equal(raised.targets.lamp!.brightness.position, raised.targets['room:living']!.brightness.position);
 });
 
-test('nonfinite and boolean channel claims are invalid, while Candle stays on its designated lamp', async () => {
+test('nonfinite and boolean channel claims are invalid, while Candle stays on a capable lamp', async () => {
   const resolveEffects = await resolver();
   const item = { area: 'living', period: 'cosy', brightness: 110, color: { kelvin: 2200 } };
   for (const value of [NaN, Infinity, -Infinity, true]) {
