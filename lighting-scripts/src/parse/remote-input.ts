@@ -19,11 +19,12 @@ import { latestRemoteKey, savedWhen } from './resolution.ts';
 import { assembledMap, storedFact } from './overrides.ts';
 import type { Assembled, AssembledMap, StoredFact, StoredValue } from './overrides.ts';
 import type { Adjustment, RemotePlanArgs } from '../domain/remote-input.ts';
-import { toRoomId } from './ids.ts';
+import { toRoomId, toStep } from './ids.ts';
 import type { OverlayKey } from '../domain/types/overlay.ts';
 import { overlayKeyText } from '../domain/types/overlay.ts';
 import { parseOverlayKey } from './overlay-key.ts';
 import type { RoomId } from '../domain/types/ids.ts';
+import type { Step } from '../domain/types/remote.ts';
 
 const OVERRIDES = 'sensor.ls_overrides';
 const numeric = (v: JsonValue | undefined): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -54,7 +55,7 @@ export interface RemoteInputValue {
   /** The stored entries, in stored order. */
   fields: AssembledMap;
   /** `step_range` as stored (or the default), and its bounds when they are valid. */
-  stepRange: { document: Assembled; bounds: { min: number; max: number } | undefined };
+  stepRange: { document: Assembled; bounds: { min: Step; max: Step } | undefined };
   /** `adjustment`, else `selection_input`, when a mapping. */
   adjustment: Adjustment | undefined;
   /** `position`, when a Jinja number (booleans included). */
@@ -73,7 +74,7 @@ function inputValue(raw: JsonValue | undefined): RemoteInputValue {
   const value = object(raw);
   const range = Object.hasOwn(value, 'step_range') ? value.step_range : { ...DEFAULT_STEP_RANGE };
   const bounds = isObject(range) && numeric(range.min) && numeric(range.max)
-    && -20 <= range.min && range.min <= range.max && range.max <= 20 ? { min: range.min, max: range.max } : undefined;
+    && -20 <= range.min && range.min <= range.max && range.max <= 20 ? { min: toStep(range.min), max: toStep(range.max) } : undefined;
   const adjustment = isObject(value.adjustment) ? value.adjustment : isObject(value.selection_input) ? value.selection_input : undefined;
   return {
     fields: assembledMap(value),
