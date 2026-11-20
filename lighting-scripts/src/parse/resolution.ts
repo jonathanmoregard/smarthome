@@ -43,6 +43,7 @@ import type { BaseItem, Channel, ChannelValue, Claim, InputAnchor, InputClaim, I
   Stamp } from '../domain/resolution.ts';
 import { blendEnd, canonicalColor, validColor } from './scale.ts';
 import { validGradient, warmEndArgument } from './gradient.ts';
+import { lampOrRoom } from './lighting-state.ts';
 
 /**
  * A record or input timestamp in seconds, `0` when absent or unparseable.
@@ -239,13 +240,13 @@ function overrideRecords(overrides: JsonObject): OverrideRecord[] {
   return Object.entries(overrides).flatMap(([key, record]) => isObject(record) ? [overrideRecord(key, record)] : []);
 }
 
-function baseItem(raw: JsonValue): BaseItem {
+function baseItem(target: string, raw: JsonValue): BaseItem {
   const item = object(raw), observed = object(item.observed);
   const isRoom = defaulted(item, 'is_room', false), on = defaulted(item, 'on', true), effect = defaulted(item, 'effect', 'Normal light');
   const brightness = item.brightness, color = item.color;
   return {
-    isRoom: carry(isRoom),
-    isRoomTruthy: jinjaTruthy(isRoom),
+    isRoomAsStored: carry(isRoom),
+    lampOrRoom: lampOrRoom(target, isRoom),
     area: String(item.area),
     ignored: Array.isArray(item.ignore_overrides) ? item.ignore_overrides.filter((key): key is string => typeof key === 'string') : [],
     period: carryOptional(item.period),
@@ -294,7 +295,7 @@ export function parseResolveArgs(args: JsonObject): ResolveArgs {
   const privateRooms = Array.isArray(args.private) ? args.private : [];
   const power = object(args.power), gradients = object(args.gradients);
   return {
-    targets: Object.entries(base).map(([target, item]) => ({ target, item: baseItem(item) })),
+    targets: Object.entries(base).map(([target, item]) => ({ target, item: baseItem(target, item) })),
     records: overrideRecords(overrides),
     channelsOf: name => effectChannels(catalog, name),
     adjustsByGradient: processor => defaulted(object(object(catalog.processors)[processor]), 'remote_adjustment',

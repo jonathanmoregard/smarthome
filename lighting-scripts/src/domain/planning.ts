@@ -14,6 +14,7 @@ import { entityProfile } from '../parse/schedule.ts';
 import type { StoredFact, StoredValue } from '../parse/overrides.ts';
 import { stored, storedList, switchRangeEntities, wakeFadeMinutes, wakeTimestamp, warmEndOf } from '../parse/planning.ts';
 import type { RoomId } from './types/ids.ts';
+import type { LampOrRoom } from './types/lighting-state.ts';
 
 /**
  * The oracle's own cache version literal, copied verbatim from
@@ -73,7 +74,7 @@ export type RoomDetails = {
   /** The field; raises when absent or not a number. */
   required(key: DetailField, context: string): number;
 };
-export type BaselineTarget = { document: Verbatim; isRoom: boolean };
+export type BaselineTarget = { document: Verbatim; lampOrRoom: LampOrRoom };
 /**
  * A room baseline: `ls_room_base`'s document on a miss, the cached one on a
  * hit. The documents are carried, and only what planning decides on is parsed.
@@ -210,13 +211,13 @@ export function refreshBaseline(view: HouseView, baseline: RoomBaseline, hitFrom
       const r = record;
       const match = (r.scope === 'room' && r.target === room) || (r.scope === 'house' && !deps.private) || (key === 'mode:sara' &&
         !deps.private) || (r.kind === 'block' && r.target === room)
-        || (!t.isRoom && ((r.scope === 'lamp' && r.target === entity) || (r.kind === 'light' && r.target === entity)));
+        || (t.lampOrRoom.kind === 'lamp' && ((r.scope === 'lamp' && r.target === entity) || (r.kind === 'light' && r.target === entity)));
       if (match && r.when <= lastFs()) ignored.push(key);
     }
     // A lamp's reading is re-taken now: off is `{on: false}`, and a lamp that is
     // missing or unavailable has no reading, so a cached one is dropped.
     const refreshed = withFields(t.document, { ignore_overrides: ignored });
-    if (t.isRoom) targets[entity] = refreshed;
+    if (t.lampOrRoom.kind === 'room') targets[entity] = refreshed;
     else {
       const observed = entityProfile(view, entity);
       targets[entity] = observed === undefined ? withoutField(refreshed, 'observed') : withFields(refreshed, { observed });

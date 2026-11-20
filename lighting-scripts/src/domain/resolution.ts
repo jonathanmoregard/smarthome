@@ -5,6 +5,7 @@ import type { GradientCurve, GradientSignature } from './gradient.ts';
 import { OFF_END_LEVEL, blend, boundedNumber, clamp } from './scale.ts';
 import type { BlendEnd, Blended, Color, RGB } from './scale.ts';
 import { levelNumber } from '../parse/resolution.ts';
+import type { LampOrRoom } from './types/lighting-state.ts';
 
 const CHANNELS = ['brightness', 'color'] as const;
 export type Channel = typeof CHANNELS[number];
@@ -116,8 +117,9 @@ export type BlendEnds = { day: BlendEnd; cosy: BlendEnd };
  * values are optional: `undefined` is "nothing to show on this channel".
  */
 export type BaseItem = {
-  isRoom: Verbatim;
-  isRoomTruthy: boolean;
+  /** `is_room` as stored, echoed on the resolved target unread. */
+  isRoomAsStored: Verbatim;
+  lampOrRoom: LampOrRoom;
   area: string;
   ignored: string[];
   period: Verbatim;
@@ -289,9 +291,10 @@ export function resolveEffects(args: ResolveArgs, candle: ReadonlySet<string>): 
   const inputs = new Map<string, InputPosition>(), streams = new Map<string, string>();
   const entries = [...args.targets].sort((a, b) => lexical(a.target, b.target));
   const records = [...args.records].sort((a, b) => lexical(a.key, b.key));
-  const order = [...entries.filter(entry => entry.item.isRoomTruthy), ...entries.filter(entry => !entry.item.isRoomTruthy)];
+  const order = [...entries.filter(entry => entry.item.lampOrRoom.kind === 'room'),
+    ...entries.filter(entry => entry.item.lampOrRoom.kind === 'lamp')];
   for (const { target, item } of order) {
-    const area = item.area, isRoom = item.isRoomTruthy;
+    const area = item.area, isRoom = item.lampOrRoom.kind === 'room';
     if (!streams.has(area)) streams.set(area, latestStream(records, area));
     const candidates: Record<Channel, Candidate[]> = { brightness: [], color: [] };
     let gradientChecked = false, curve: GradientCurve | undefined;
@@ -450,7 +453,7 @@ export function resolveEffects(args: ResolveArgs, candle: ReadonlySet<string>): 
     const lit = blendLit === undefined ? item.onTruthy : blendLit;
     const level = underlying.brightness;
     const resolved: ResolvedTarget = { brightness: sources.brightness, color: sources.color, period: item.period,
-      on: lit ? args.power(area) : blendLit === undefined ? item.on : false, area, is_room: item.isRoom,
+      on: lit ? args.power(area) : blendLit === undefined ? item.on : false, area, is_room: item.isRoomAsStored,
       ...(level === undefined ? {} : { level }), owners, transition: item.transition };
     targets[target] = resolved;
     if (!isRoom && (resolved.brightness.kind === 'effect' || resolved.color.kind === 'effect')) assignments[target] = resolved;

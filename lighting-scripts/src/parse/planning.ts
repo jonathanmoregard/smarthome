@@ -35,6 +35,7 @@ import type { BaselineTarget, DetailField, OverrideFacts, Overrides, RoomBaselin
 import { isBlock, savedBlock } from './blocks.ts';
 import { warmEndOr } from './scale.ts';
 import { toRoomId } from './ids.ts';
+import { lampOrRoom } from './lighting-state.ts';
 
 function requiredObjectValue(value: JsonValue | undefined, context: string): JsonObject {
   return value === undefined ? requireObject({}, 'value', context) : requireObject({ value }, 'value', context);
@@ -98,7 +99,7 @@ function roomDetails(details: JsonObject, room: string, context: string): RoomDe
 
 function baselineTarget(entity: string, value: JsonValue): BaselineTarget {
   const t = requiredObjectValue(value, `ls_room_plan.baseline.targets.${entity}`);
-  return { document: carry(t), isRoom: jinjaTruthy(t.is_room) };
+  return { document: carry(t), lampOrRoom: lampOrRoom(entity, t.is_room) };
 }
 
 /**

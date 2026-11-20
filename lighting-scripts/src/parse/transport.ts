@@ -26,6 +26,7 @@ import type { RGB } from '../domain/scale.ts';
 import type {
   AssignArgs, AssignDetails, BulbEffectName, Channel, EmitArgs, FilterArgs, FrameEffect, FramePlanArgs, FrameSource, FrameTarget,
 } from '../domain/transport.ts';
+import { lampOrRoom } from './lighting-state.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
 
@@ -213,7 +214,7 @@ function parseAssignTargetViews(targets: JsonObject): ReturnType<AssignDetails['
       }];
     })) as ReturnType<AssignDetails['targetViews']>[string]['channels'];
     return [lamp, {
-      isRoom: jinjaTruthy(target.is_room),
+      lampOrRoom: lampOrRoom(lamp, target.is_room),
       channels,
       owners: Object.fromEntries((['brightness', 'color'] as const).map(channel => [
         channel,

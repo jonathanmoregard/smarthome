@@ -9,6 +9,7 @@ import { overridesRevision } from '../parse/sensors.ts';
 import { assignedAs, powerClosed, runtimeGeneration, runtimeGenerationIs, runtimePlanOrder, runtimeState, warmEndColour }
   from '../parse/transport.ts';
 import type { FrameColour, RuntimeState, StoredChannels } from '../parse/transport.ts';
+import type { LampOrRoom } from './types/lighting-state.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
 
@@ -165,7 +166,7 @@ export interface AssignDetails {
   /** The assigned targets, persisted as given. */
   targets: Verbatim;
   targetViews: () => Record<string, {
-    isRoom: boolean;
+    lampOrRoom: LampOrRoom;
     /** `effect` is the bulb effect a channel names, `undefined` for any other source or name. */
     channels: Record<Channel, { kind: string; effect: BulbEffectName | undefined; updated: number | null }>;
     owners: Record<Channel, string>;
@@ -356,7 +357,7 @@ export function* planAssignUpdate(decision: AssignDecision, revision: string, de
 export function stoppedLamps(targetViews: ReturnType<AssignDetails['targetViews']>, stored: RuntimeState): string[] {
   const lamps: string[] = [];
   for (const [lamp, target] of Object.entries(targetViews)) {
-    if (target.isRoom) continue;
+    if (target.lampOrRoom.kind === 'room') continue;
     const previous = stored.previous(lamp);
     let needed = previous.effect !== undefined && bulbEffect(previous.effect).stoppedByName;
     for (const channel of ['brightness', 'color'] as const) {

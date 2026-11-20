@@ -13,6 +13,7 @@ import { mappingAttribute } from '../parse/planning.ts';
 import type { StoredChannels } from '../parse/transport.ts';
 import { areaOf, dispatchPlanOrder, dispatchRuntime, dueFullVersion, roomCacheGradients } from '../parse/dispatch-render.ts';
 import type { DispatchRuntime, FullPlan, RoomPlanView } from '../parse/dispatch-render.ts';
+import type { LampOrRoom } from './types/lighting-state.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
 const overrideSensor = 'sensor.ls_overrides';
@@ -21,7 +22,7 @@ const overrideSensor = 'sensor.ls_overrides';
 export interface DispatchTarget {
   /** The target as resolved, forwarded and stored unchanged. */
   document: Verbatim;
-  isRoom: boolean;
+  lampOrRoom: LampOrRoom;
   /** Compared by identity with the remote rooms. */
   area: StoredFact;
   on: boolean;
@@ -201,7 +202,7 @@ export function ordinaryTargets(view: HouseView, details: DispatchDetails, previ
   const { targetViews, requested, outputTargets, remoteRooms } = details;
   const ordinary: OpaqueMap = {};
   for (const [lamp, target] of Object.entries(targetViews)) {
-    if (target.isRoom || (outputTargets.length > 0 && !outputTargets.includes(lamp))) continue;
+    if (target.lampOrRoom.kind === 'room' || (outputTargets.length > 0 && !outputTargets.includes(lamp))) continue;
     if (view.get(lamp) !== 'on') continue;
     if (!(requested.includes(lamp) || remoteRooms.includes(target.area ?? null) || details.baselineSend(lamp))) continue;
     if (requested.includes(lamp) || (previous.hadEffect(lamp) && !details.assigned(lamp))

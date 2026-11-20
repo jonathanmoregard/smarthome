@@ -26,6 +26,7 @@ import type { OpaqueMap, StoredFact, StoredValue } from './overrides.ts';
 import { storedChannels } from './transport.ts';
 import { savedPlanOrder } from './sensors.ts';
 import type { DispatchArgs, DispatchDetails, DispatchTarget } from '../domain/dispatch-render.ts';
+import { lampOrRoom } from './lighting-state.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
 
@@ -48,7 +49,7 @@ function dispatchTarget(lamp: string, raw: JsonValue): DispatchTarget {
   const target = requireObject({ raw }, 'raw', `ls_dispatch.plan.resolved.targets.${lamp}`);
   return {
     document: carry(target),
-    isRoom: jinjaTruthy(target.is_room),
+    lampOrRoom: lampOrRoom(lamp, target.is_room),
     area: storedFact(target.area),
     on: jinjaTruthy(target.on),
     channels: storedChannels(target),
