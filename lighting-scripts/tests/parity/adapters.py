@@ -519,6 +519,11 @@ def gestures(module, rpc, compare=False):
                   'bedroom': '0e973e9202acb5ace9a8e6a8b336891d',
                   'living_room': '0752f2b4e9a0992ac8efc2af1f53c62a'}[room]
         snapshot['areas'][remote] = room
+        # Production binds each remote to its device through the catalog's
+        # `remotes`; the TypeScript gesture resolves its area from that device
+        # and, with no device, sends nothing (no fallback room). Bind it the
+        # same way here, from the captured script itself.
+        snapshot['catalog'] = {'remotes': {room: {'device_id': remote, 'source': remote_binding(config)[1]}}}
         prefix = 'ls_' + room + '_remote_'
         for entity, value in {'input_number.' + prefix + 'preset': initial_cursor,
                               'input_number.' + prefix + 'chord_step': 0,
