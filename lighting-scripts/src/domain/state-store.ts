@@ -4,7 +4,7 @@ import type { Verbatim } from '../runtime/verbatim.ts';
 import { recordTimestamp } from '../parse/resolution.ts';
 import { isAreaId, labelled, privateRooms } from './schedule.ts';
 import { roomTarget, storedProfileText } from '../parse/state-store.ts';
-import { affectedRoom, mergedValue, overrideRecord, underlyingOf } from '../parse/overrides.ts';
+import { affectedRoom, mergedValue, overrideRecord, sameFact, underlyingOf } from '../parse/overrides.ts';
 import type { OpaqueMap, StoredEntry, StoredFact, StoredOverrides, StoredValue } from '../parse/overrides.ts';
 import type { HouseView, Plan } from '../runtime/effects.ts';
 
@@ -173,8 +173,13 @@ export function* planCommit(snapshot: CommitSnapshot, parsed: CommitData): Plan<
   const pending: Record<string, StoredValue> = { ...snapshot.pendingRooms };
   const affected: StoredFact[] = [];
   if (jinjaTruthy(parsed.area)) affected.push(parsed.area);
-  for (const record of parsed.records) for (const item of [before.lookup(record.lookupKey()), record]) {
-    if (item.scope === 'room') affected.push(item.target);
+  for (const record of parsed.records) {
+    // The saved previous record is read leniently (round 4): a room target that
+    // is not text, where the captured `**{room: stamp}` raises, marks no room.
+    // The record being committed is an argument and still raises there.
+    const previous = before.lookup(record.lookupKey());
+    if (previous.scope === 'room' && typeof previous.target === 'string') affected.push(previous.target);
+    if (record.scope === 'room') affected.push(record.target);
   }
   for (const [index, room] of affected.entries()) {
     pending[affectedRoom(room, index)] = now;
@@ -190,8 +195,10 @@ export function* planCommit(snapshot: CommitSnapshot, parsed: CommitData): Plan<
     // container as itself, and a reference comparison against it is always
     // unequal -- which marked the last full render unhandled and resurrected its
     // stale light list.
+    // Python `!=` compares containers by value, so the comparison is structural.
     const handled = snapshot.handledFull;
-    const unhandled = (snapshot.fullVersion ?? null) !== (jinjaTruthy(handled) ? handled : null);
+    const version = snapshot.fullVersion === undefined ? null : snapshot.fullVersion;
+    const unhandled = !sameFact(version, jinjaTruthy(handled) ? handled : null);
     const previousLights = unhandled ? snapshot.fullLights : [];
     const previousReason = unhandled ? snapshot.fullReason : null;
     const fullData = parsed.full();

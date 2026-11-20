@@ -16,7 +16,7 @@
  */
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import { isObject, jinjaTruthy, lazy, object, ParseError, requireArray, requireObject, requireString } from '../runtime/parse.ts';
-import { carry } from '../runtime/verbatim.ts';
+import { carry, jsonEqual, reveal } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import type { CommitArgs, CommitData, CommitRecord } from '../domain/state-store.ts';
 import { concatString, haBoolean, mappingKey } from './state-store.ts';
@@ -108,6 +108,15 @@ export interface StoredOverrides {
   clone(): OpaqueMap;
 }
 
+/** Python `==` over two stored facts: containers by value (an absent fact equals only another). */
+export function sameFact(a: StoredFact, b: StoredFact): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  return jsonEqual(factDocument(a), factDocument(b));
+}
+function factDocument(fact: StoredValue): JsonValue {
+  return fact === null || typeof fact !== 'object' ? fact : reveal(fact);
+}
+
 export function storedOverrides(value: JsonObject): StoredOverrides {
   return {
     document: opaqueMap(value),
@@ -121,12 +130,13 @@ export function storedOverrides(value: JsonObject): StoredOverrides {
 /**
  * What an effect claim with no `underlying` of its own inherits from the
  * claim it replaces: that claim itself when it is a constant or a scale, else
- * its own `underlying` -- only ever a mapping. `String(kind)` is the captured
- * spelling's JavaScript coercion and is kept, so `['constant']` still counts.
+ * its own `underlying` -- only ever a mapping. Captured `previous.get('kind') in
+ * ['constant','scale']` is Python list membership, so only the two texts count
+ * (`['constant']` is neither).
  */
 export function underlyingOf(previous: Verbatim | undefined): Verbatim | undefined {
   const p = object(previous);
-  const underlying = ['constant', 'scale'].includes(String(p.kind)) ? p : p.underlying;
+  const underlying = p.kind === 'constant' || p.kind === 'scale' ? p : p.underlying;
   return isObject(underlying) ? carry(underlying) : undefined;
 }
 

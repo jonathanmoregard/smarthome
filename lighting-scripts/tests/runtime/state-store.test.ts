@@ -149,14 +149,17 @@ test('ls_commit clear_room compares raw targets with the raw area, absent includ
   assert.deepEqual(Object.keys(sensorUpdate(ctx).overrides as object), ['b', 'd', 'e', 'f']);
 });
 
-test('ls_commit refuses a non-string affected room with the raw value described', () => {
+// The committed record's room is an argument and is refused; a SAVED previous
+// record's non-text room target marks no room (round 4, lenient saved values).
+test('ls_commit refuses a non-string affected room argument; a saved one marks no room', () => {
   const ctx = context(stateStoreHandlers);
   ctx.put('sensor.ls_overrides', '0', {});
   assert.throws(() => ctx.run('ls_commit', { data: { records: [{ key: 'k', scope: 'room', target: 5 }] } }),
     /ls_commit affected\[0\]\.room must be a string, got number 5/);
   ctx.put('sensor.ls_overrides', 'x', { overrides: { k: { scope: 'room', target: [1] } } });
-  assert.throws(() => ctx.run('ls_commit', { data: { op: 'clear', records: [{ key: 'k' }] } }),
-    /ls_commit affected\[0\]\.room must be a string, got array\(1\)/);
+  ctx.state['sensor.ls_overrides']!.last_updated = ctx.now;
+  ctx.run('ls_commit', { data: { op: 'clear', records: [{ key: 'k' }] } });
+  assert.deepEqual(sensorUpdate(ctx).pending_rooms, {});
 });
 
 test('ls_commit carries stored maps and raw request values through', () => {
