@@ -80,9 +80,8 @@ export function plan(ctx: ScriptContext, args: PlanArgs): PlanResult {
  * forwarded unread and is still the very same document.
  */
 function apply(ctx: ScriptContext, args: ApplyArgs): Verbatim | null {
-  if (!args.dryRun && (args.testNow !== undefined || args.hasTestOverrides || args.forceAll)) return null;
-  if (args.dryRun) return planPassThrough(ctx.run('ls_plan', { reason: args.reason, test_now: args.testNow === undefined ? null : args.testNow,
-    test_overrides: args.testOverrides === undefined ? null : args.testOverrides }));
+  if (!args.dryRun && (args.testNowGiven || args.hasTestOverrides || args.forceAll)) return null;
+  if (args.dryRun) return planPassThrough(ctx.run('ls_plan', { reason: args.reason, test_now: args.testNow, test_overrides: args.testOverrides }));
   ctx.run('ls_commit', { data: { op: 'render_request', via: 'render_request', reason: args.reason, lights: args.lights() } });
   return null;
 }

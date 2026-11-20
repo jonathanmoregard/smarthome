@@ -14,11 +14,10 @@
  * `tasks/ls-plan-design.md`).
  */
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
-import { jinjaOr, lazy, object, requireArray, requireBoolean, requireObject, requireString } from '../runtime/parse.ts';
+import { isObject, jinjaOr, jinjaTruthy, lazy, object, requireArray, requireBoolean, requireObject, requireString } from '../runtime/parse.ts';
 import { carry } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import type { RGB } from '../domain/scale.ts';
-import { optionalTimestamp } from './accessors.ts';
 import { opaqueMap } from './overrides.ts';
 import type { OpaqueMap } from './overrides.ts';
 import { requireRgb, warmEndOr } from './scale.ts';
@@ -26,14 +25,13 @@ import type { ApplyArgs, PlanArgs, PlanOverrides, RemoteCommandArgs, SwitchPlanA
 
 const lenientList = (v: JsonValue | undefined): JsonValue[] => Array.isArray(v) ? v : [];
 
-function optionalScriptBoolean(value: JsonValue | undefined, context: string): boolean {
-  return value === undefined ? false : requireBoolean(value, context);
+/** Captured `{{ value|default(none) }}` forwarded to another script: the value unread, none when absent. */
+function forwardedOrNone(value: JsonValue | undefined): Verbatim {
+  return carry(value === undefined ? null : value);
 }
 
-/** Script callers use null for an explicitly empty optional payload. */
-function optionalScriptObject(value: JsonValue | undefined, context: string): JsonObject | undefined {
-  if (value === undefined || value === null) return undefined;
-  return requireObject({ value }, 'value', context);
+function optionalScriptBoolean(value: JsonValue | undefined, context: string): boolean {
+  return value === undefined ? false : requireBoolean(value, context);
 }
 
 /**
@@ -83,13 +81,13 @@ export function parseSwitchPlanArgs(args: JsonObject): SwitchPlanArgs {
 // Captured test_now has one default(none), reason two default('config')
 // sites, room one default(''), and test_overrides is optional at two sites.
 export function parsePlanArgs(args: JsonObject): PlanArgs {
-  const testOverrides = optionalScriptObject(args.test_overrides, 'ls_plan.test_overrides');
+  // Captured `test_overrides if test_overrides|default(none) is mapping else
+  // <stored overrides>`: anything that is not a mapping takes the fallback.
+  const testOverrides = args.test_overrides;
   return {
-    testOverrides: testOverrides === undefined ? undefined : planOverridesOf(testOverrides),
-    // Captured ls_plan reads test_now raw behind default(none); a numeric
-    // epoch is as legal as a date string, and ls_base parses the same field
-    // with optionalTimestamp. requireString here rejected a valid value.
-    testNow: optionalTimestamp(args.test_now) ?? null,
+    testOverrides: isObject(testOverrides) ? planOverridesOf(testOverrides) : undefined,
+    // Captured `{{ test_now|default(none) }}`: forwarded unread; ls_base parses it.
+    testNow: forwardedOrNone(args.test_now),
     reason: args.reason === undefined ? 'config' : requireString(args, 'reason', 'ls_plan'),
     room: args.room === undefined ? '' : requireString(args, 'room', 'ls_plan'),
   };
@@ -101,16 +99,16 @@ export function parsePlanArgs(args: JsonObject): PlanArgs {
 export function parseApplyArgs(args: JsonObject): ApplyArgs {
   const dryRun = optionalScriptBoolean(args.dry_run, 'ls_apply.dry_run');
   const forceAll = optionalScriptBoolean(args.force_all, 'ls_apply.force_all');
-  // Same as ls_plan: captured source reads test_now raw.
-  const testNow = optionalTimestamp(args.test_now);
   const hasTestOverrides = Object.hasOwn(args, 'test_overrides');
-  const testOverrides = optionalScriptObject(args.test_overrides, 'ls_apply.test_overrides');
   return {
     dryRun,
     forceAll,
-    testNow,
+    // Captured gate `not (test_now is not defined or not test_now)`: a
+    // Jinja-truthiness test, nothing parsed.
+    testNowGiven: args.test_now !== undefined && jinjaTruthy(args.test_now),
+    testNow: forwardedOrNone(args.test_now),
     hasTestOverrides,
-    testOverrides: testOverrides === undefined ? undefined : carry(testOverrides),
+    testOverrides: forwardedOrNone(args.test_overrides),
     reason: args.reason === undefined ? 'config' : requireString(args, 'reason', 'ls_apply'),
     lights: lazy(() => carry(args.lights === undefined ? [] : requireArray(args, 'lights', 'ls_apply'))),
   };

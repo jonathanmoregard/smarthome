@@ -23,7 +23,8 @@ export interface PlanOverrides {
 
 export interface PlanArgs {
   testOverrides: PlanOverrides | undefined;
-  testNow: number | null;
+  /** Forwarded to `ls_base` unread (`null` when absent); `ls_base` parses it. */
+  testNow: Verbatim;
   reason: string;
   room: string;
 }
@@ -31,10 +32,13 @@ export interface PlanArgs {
 export interface ApplyArgs {
   dryRun: boolean;
   forceAll: boolean;
-  testNow: number | undefined;
+  /** Is test_now defined and Jinja-truthy? */
+  testNowGiven: boolean;
+  /** Forwarded to `ls_plan` unread (`null` when absent). */
+  testNow: Verbatim;
   hasTestOverrides: boolean;
-  /** Forwarded to `ls_plan` unread. */
-  testOverrides: Verbatim | undefined;
+  /** Forwarded to `ls_plan` unread (`null` when absent). */
+  testOverrides: Verbatim;
   reason: string;
   /** Forwarded to `ls_commit` unread. */
   lights: () => Verbatim;

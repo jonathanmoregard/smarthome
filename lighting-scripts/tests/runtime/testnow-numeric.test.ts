@@ -1,17 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { controllerHandlers } from '../../src/handlers/controller.ts';
+import { scheduleHandlers } from '../../src/handlers/schedule.ts';
 import { context, stub } from './gestures-context.ts';
 
-// The captured ls_plan, ls_apply, ls_base and ls_room_base all read test_now
-// raw behind a default(...) guard; nothing coerces it to a string. ls_base and
-// ls_room_base parse the field with optionalTimestamp, which accepts a numeric
-// epoch, and a prior round specifically fixed `test_now: 0` being swallowed as
-// absent. A boundary that rejected a number therefore rejected a legal value.
+// The captured ls_plan and ls_apply forward test_now unread
+// (`{{ test_now|default(none) }}`); ls_base and ls_room_base parse it behind
+// `test_now is defined and test_now`, so a numeric epoch is legal and a
+// Jinja-falsy value (0 included) is "now" (round 4; r4-controller-jinja and
+// r4-schedule-jinja tests). Nothing coerces it to a string.
 //
 // The parity gate cannot observe this: no preserved suite passes a numeric
-// test_now to ls_plan or ls_apply, so the over-strict reading stayed green.
-// These assertions are the only guard.
+// test_now to ls_plan or ls_apply. These assertions are the only guard.
 
 function planContext() {
   const ctx = context({
@@ -40,9 +40,10 @@ test('ls_plan accepts a numeric epoch test_now, including zero', () => {
   }
 });
 
-test('ls_plan still rejects a malformed present test_now', () => {
-  assert.throws(() => planContext().run('ls_plan', { test_now: 'not a date' }), /timestamp/);
-  assert.throws(() => planContext().run('ls_plan', { test_now: {} }), /timestamp/);
+test('a malformed present test_now is rejected by ls_base, the script that parses it', () => {
+  for (const test_now of ['not a date', [1]]) {
+    assert.throws(() => context(scheduleHandlers).run('ls_base', { test_now, overrides: {} }), /timestamp/, JSON.stringify(test_now));
+  }
 });
 
 test('ls_plan treats an absent or null test_now as absent', () => {
@@ -50,10 +51,7 @@ test('ls_plan treats an absent or null test_now as absent', () => {
   assert.throws(() => planContext().run('ls_plan', { test_now: null }), /ls_base\.targets/);
 });
 
-test('ls_apply accepts a numeric epoch test_now without treating zero as absent', () => {
-  // ls_apply returns null for a non-dry-run call that carries test_now; that
-  // guard is a presence test, so epoch zero must still count as present.
-  const ctx = planContext();
-  assert.equal(ctx.run('ls_apply', { test_now: 0 }), null);
-  assert.equal(ctx.run('ls_apply', { test_now: 1762000000 }), null);
+test('ls_apply accepts a numeric epoch test_now', () => {
+  // ls_apply returns null for a non-dry-run call that carries a truthy test_now.
+  assert.equal(planContext().run('ls_apply', { test_now: 1762000000 }), null);
 });
