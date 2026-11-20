@@ -11,6 +11,7 @@ import { privateRooms } from '../domain/schedule.ts';
 import { mappingAttribute, parseRoomBaseline, parseRoomPlanArgs, rangeDefaults, roomCatalog } from '../parse/planning.ts';
 import { activeOverrides, missUpdate, refreshBaseline, roomOpening, roomPlanAnswer } from '../domain/planning.ts';
 import type { CacheUpdate, Gradients, RoomBaseline, RoomPlanArgs, RoomPlanResult } from '../domain/planning.ts';
+import { overlayKeyText, SARA_MODE } from '../domain/types/overlay.ts';
 
 /**
  * Plan one room: the opening reads, then the cache hit or the miss's three
@@ -36,7 +37,7 @@ export function roomPlan(ctx: ScriptContext, args: RoomPlanArgs): RoomPlanResult
   const refreshed = refreshBaseline(ctx, baseline, hit === undefined ? undefined : hit.validFrom, room, opening.deps, overrides, at);
   const active = activeOverrides(overrides, refreshed.stale);
   const resolved: ResolutionResult = ctx.call('effects_resolve', { base: refreshed.targets, overrides: active, catalog,
-    sara: Object.hasOwn(active, 'mode:sara'), private: privateRooms(ctx),
+    sara: Object.hasOwn(active, overlayKeyText(SARA_MODE)), private: privateRooms(ctx),
     power: args.power ?? mappingAttribute(ctx.attr('sensor.ls_overrides', 'power')), warm_end: warmEnd, gradients });
   // `?? {}` on both results is gone, not dropped as decoration: `switchPlan`
   // and `resolveEffects` always return their key, so the fallbacks were

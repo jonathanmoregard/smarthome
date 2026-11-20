@@ -9,6 +9,8 @@ import { switchRangeIterable } from '../parse/planning.ts';
 import type { RemoteOverrides, RemoteRoomPlan } from '../parse/remote-input.ts';
 import { clamp } from './scale.ts';
 import type { RoomId } from './types/ids.ts';
+import type { OverlayKey } from './types/overlay.ts';
+import { overlayKeyText, sameOverlayKey, SARA_MODE } from './types/overlay.ts';
 
 const omit = (v: AssembledMap, keys: string[]): AssembledMap => Object.fromEntries(Object.entries(v).filter(([k]) => !keys.includes(k)));
 const pick = (v: AssembledMap, keys: string[]): AssembledMap => Object.fromEntries(Object.entries(v).filter(([k]) => keys.includes(k)));
@@ -126,7 +128,7 @@ export function remoteDecision(view: HouseView, args: RemotePlanArgs, opening: R
   const { room, overrides, stamp, revision, timingRevision } = opening;
   const inputKey = overrides.inputKey;
   const inputRecord = overrides.input;
-  const key = `channels:${source}`;
+  const key: OverlayKey = { kind: 'remote input', source };
   const old = inputRecord.scope !== 'room' || inputRecord.target !== room || plan.stale(inputKey) ? noInputRecord() : inputRecord;
   const value = old.value;
   const bounds = value.stepRange.bounds;
@@ -134,7 +136,7 @@ export function remoteDecision(view: HouseView, args: RemotePlanArgs, opening: R
   if (room !== '' && ['up', 'down', 'left', 'right', 'toggle', 'reset', 'sara_toggle'].includes(command)
     && (bounds !== undefined || ['toggle', 'reset', 'sara_toggle'].includes(command))) {
     if (command === 'sara_toggle') {
-      result = overrides.has('mode:sara') ? { op: 'clear', keys: ['mode:sara'], via: 'remote' }
+      result = overrides.has(SARA_MODE) ? { op: 'clear', keys: [overlayKeyText(SARA_MODE)], via: 'remote' }
         : { op: 'set', records: [{ kind: 'mode', target: 'sara', value: 'on' }], via: 'remote' };
     } else if (command === 'toggle') {
       const targets = [...Object.keys(catalog.members), ...switchRangeIterable(view.attr('sensor.ls_overrides', 'switch_ranges'))]
@@ -152,7 +154,7 @@ export function remoteDecision(view: HouseView, args: RemotePlanArgs, opening: R
         : value.adjustment;
       let restart = false;
       for (const other of overrides.others) {
-        if (other.key === key) continue;
+        if (sameOverlayKey(other.key, key)) continue;
         // A non-mapping record has no scope or target, so it never applies.
         const applies = other.scope === 'room' && other.target === room || other.scope === 'house' && other.target === 'house' &&
           !(view.labels?.private_room ?? []).includes(room);
@@ -192,7 +194,7 @@ export function remoteDecision(view: HouseView, args: RemotePlanArgs, opening: R
       if (schedule.present) next = { ...next,
         remote_valid_until: schedule.nextFs(),
         remote_timing_revision: timingRevision };
-      result = { op: 'set', records: [{ kind: 'input', key, source, scope: 'room', target: room, value: next }], via: 'remote' };
+      result = { op: 'set', records: [{ kind: 'input', key: overlayKeyText(key), source, scope: 'room', target: room, value: next }], via: 'remote' };
     }
   }
   return { ...result, input_revision: revision, received_at: stamp, request_id: `${source}:${stamp}` };

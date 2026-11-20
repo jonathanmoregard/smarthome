@@ -23,6 +23,7 @@ import type {
   TriggerIdArgs, WriterArgs,
 } from '../domain/automations.ts';
 import { toRemoteId, toRoomId } from './ids.ts';
+import type { OverlayKey } from '../domain/types/overlay.ts';
 
 function triggerObject(args: JsonObject, context: string): JsonObject {
   return requireObject(args, 'trigger', context);
@@ -189,7 +190,7 @@ export function inputNumber(ctx: HouseView, entity: string, fallback: number): n
  * reads it: date text parses, anything else (numeric Unix seconds included) is
  * `undefined`. A record that is not a mapping is not listed, so it never ages.
  */
-export function overrideAges(entries: StoredEntry[]): Array<{ key: string; when: number | undefined }> {
+export function overrideAges(entries: StoredEntry[]): Array<{ key: OverlayKey; when: number | undefined }> {
   return entries.flatMap(({ key, document }) => {
     const raw = reveal(document);
     if (!isObject(raw)) return [];

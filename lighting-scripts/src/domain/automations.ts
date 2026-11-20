@@ -7,6 +7,7 @@ import { inputNumber, overrideAges } from '../parse/automations.ts';
 import type { Effect, HouseView, Plan } from '../runtime/effects.ts';
 import { entriesOf } from './types/ids.ts';
 import type { RemoteId, RoomId } from './types/ids.ts';
+import { overlayKeyText, SARA_MODE } from './types/overlay.ts';
 
 function turnOn(script: string): Effect {
   return { kind: 'service', service: 'script.turn_on', data: {}, target: { entity_id: `script.${script}` } };
@@ -123,7 +124,7 @@ export function endOverrides(view: HouseView, args: TriggerIdArgs): Effect[] {
     const now = timestamp(view.now), limit = inputNumber(view, 'input_number.ls_ovr_after_min', 180) * 60;
     // An unreadable `when` ages from now, so it is never older than the limit unless the limit is 0.
     const expired = overrideAges(overrides.entries)
-      .filter(({ when }) => now - (when === undefined ? now : when) >= limit).map(({ key }) => key);
+      .filter(({ when }) => now - (when === undefined ? now : when) >= limit).map(({ key }) => overlayKeyText(key));
     return expired.length ? [{ kind: 'event', event: 'ls_override', data: { op: 'clear', keys: expired, via: 'rule_after' } }] : [];
   }
   if (args.id === 'at' && view.get('input_boolean.ls_ovr_at_on') === 'on' && overrides.entries.length > 0) {
@@ -138,7 +139,9 @@ export function* saraModeSwitch(args: SaraModeArgs, active: boolean): Plan<null>
   if (who === null || who === undefined) return null;
   if (args.id === 'on' && !active) {
     yield { kind: 'event', event: 'ls_override', data: { op: 'set', records: [{ kind: 'mode', target: 'sara', value: 'on' }], via: 'app', who } };
-  } else if (args.id === 'off' && active) yield { kind: 'event', event: 'ls_override', data: { op: 'clear', keys: ['mode:sara'], via: 'app', who } };
+  } else if (args.id === 'off' && active) {
+    yield { kind: 'event', event: 'ls_override', data: { op: 'clear', keys: [overlayKeyText(SARA_MODE)], via: 'app', who } };
+  }
   return null;
 }
 

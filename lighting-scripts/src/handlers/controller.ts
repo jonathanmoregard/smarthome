@@ -16,6 +16,7 @@ import type { RemotePlanResult } from '../domain/remote-input.ts';
 import { drive, perform } from '../runtime/effects.ts';
 import { planAnswer, remoteCommandStart, remoteCommandStep, switchPlan } from '../domain/controller.ts';
 import type { ApplyArgs, PlanArgs, PlanResult, RemoteCommandArgs, RemoteCommandCmd, RemoteCommandMsg } from '../domain/controller.ts';
+import { overlayKeyText, SARA_MODE } from '../domain/types/overlay.ts';
 
 /**
  * `ls_plan` is deliberately NOT in `TypedResults`, so no decoder exists for it
@@ -61,7 +62,7 @@ export function plan(ctx: ScriptContext, args: PlanArgs): PlanResult {
   const privateRooms = ctx.labels?.private_room;
   const power = planMapping(ctx.attr('sensor.ls_overrides', 'power'));
   const resolved = ctx.call('effects_resolve', { base: baselineTargets, overrides: active, catalog,
-    sara: Object.hasOwn(active, 'mode:sara'), private: privateRooms === undefined ? [] : privateRooms,
+    sara: Object.hasOwn(active, overlayKeyText(SARA_MODE)), private: privateRooms === undefined ? [] : privateRooms,
     power, warm_end: warmEnd, gradients });
   const resolvedTargets = resolved.targets;
   const ranges = planMapping(ctx.attr('sensor.ls_overrides', 'switch_ranges'));

@@ -9,6 +9,8 @@ import type { OpaqueMap, StoredEntry, StoredFact, StoredOverrides, StoredValue }
 import type { HouseView, Plan } from '../runtime/effects.ts';
 import type { RoomId } from './types/ids.ts';
 import type { Rooms } from './types/rooms.ts';
+import type { OverlayKey } from './types/overlay.ts';
+import { overlayKeyText, SARA_MODE } from './types/overlay.ts';
 
 /** One channel claim of a `channels` record, as written. */
 export interface ChannelClaim {
@@ -21,9 +23,9 @@ export interface ChannelClaim {
 export interface CommitRecord {
   document: Verbatim;
   /** The key the affected-room scan looks up; raises for an unhashable key. */
-  lookupKey: () => string | undefined;
+  lookupKey: () => OverlayKey | undefined;
   /** The key the record is written under; raises for a present non-string key. */
-  writeKey: () => string;
+  writeKey: () => OverlayKey;
   kind: StoredFact;
   scope: StoredFact;
   target: StoredFact;
@@ -46,7 +48,7 @@ export interface CommitData {
   who: StoredValue;
   area: StoredFact;
   receivedAt: StoredFact;
-  clearContains: () => (key: string) => boolean;
+  clearContains: () => (key: OverlayKey) => boolean;
   power: () => { area: RoomId; on: boolean };
   range: () => { entity: string; rule: RangeRule } | undefined;
   ranges: () => Verbatim | undefined;
@@ -127,7 +129,7 @@ export function* planCommit(snapshot: CommitSnapshot, parsed: CommitData): Plan<
   let overrides = before.clone();
   let patch: OverridesPatch = {};
   const op = parsed.op;
-  const kept = (entries: StoredEntry[]): OpaqueMap => Object.fromEntries(entries.map(entry => [entry.key, entry.document]));
+  const kept = (entries: StoredEntry[]): OpaqueMap => Object.fromEntries(entries.map(entry => [overlayKeyText(entry.key), entry.document]));
   if (op === 'clear_all') overrides = {};
   else if (op === 'clear') {
     const contains = parsed.clearContains();
@@ -139,7 +141,7 @@ export function* planCommit(snapshot: CommitSnapshot, parsed: CommitData): Plan<
       r.kind === 'block' && r.target === parsed.area);
   }));
   else if (op === 'set') for (const record of parsed.records) {
-    const key = record.writeKey(), old = overrideRecord(overrides[key]);
+    const key = overlayKeyText(record.writeKey()), old = overrideRecord(overrides[key]);
     let value: StoredValue = record.value === undefined ? null : record.value;
     if (record.kind === 'channels' && record.valueIsMapping) {
       const channels = { ...old.channels };
@@ -306,7 +308,7 @@ export function* planOverrideBlock(args: OverrideBlockArgs, rooms: string[], sch
   const targets: BlockTarget[] = [args.scope, ...rooms.map(roomTarget)];
   const scheduled = (target: BlockTarget) => scheduledTo(target.key());
   const set = targets.filter(target => scheduled(target) !== block).map(target => ({ kind: 'block', target: target.record, value: block }));
-  const clear = targets.filter(target => scheduled(target) === block).map(target => 'block:' + target.keyText);
+  const clear = targets.filter(target => scheduled(target) === block).map(target => overlayKeyText({ kind: 'block', scope: target.keyText }));
   if (set.length) yield { kind: 'event', event: 'ls_override', data: { op: 'set', records: set, via: args.via } };
   if (clear.length) yield { kind: 'event', event: 'ls_override', data: { op: 'clear', keys: clear, via: args.via } };
   return null;
@@ -320,7 +322,7 @@ export function* clearAllOverrides(via: Verbatim): Plan<null> {
 /** Sara mode flips the stored `mode:sara` override. */
 export function* toggleSaraMode(active: boolean, via: Verbatim): Plan<null> {
   yield { kind: 'event', event: 'ls_override', data: active
-    ? { op: 'clear', keys: ['mode:sara'], via }
+    ? { op: 'clear', keys: [overlayKeyText(SARA_MODE)], via }
     : { op: 'set', records: [{ kind: 'mode', target: 'sara', value: 'on' }], via } };
   return null;
 }

@@ -21,6 +21,9 @@ import type { Verbatim } from '../runtime/verbatim.ts';
 import type { CommitArgs, CommitData, CommitRecord } from '../domain/state-store.ts';
 import { concatString, haBoolean, mappingKey } from './state-store.ts';
 import { toRoomId } from './ids.ts';
+import type { OverlayKey } from '../domain/types/overlay.ts';
+import { overlayKeyText } from '../domain/types/overlay.ts';
+import { parseOverlayKey } from './overlay-key.ts';
 
 /** A stored value compared by identity: scalars as themselves, containers opaque. */
 export type StoredValue = string | number | boolean | null | Verbatim;
@@ -93,18 +96,18 @@ function recordView(entry: unknown): OverrideRecord {
   };
 }
 
-export interface StoredEntry { key: string; document: Verbatim; record: OverrideRecord }
+export interface StoredEntry { key: OverlayKey; document: Verbatim; record: OverrideRecord }
 
 /** The `overrides` attribute as one mapping of records. */
 export interface StoredOverrides {
   /** The mapping as stored. */
   document: OpaqueMap;
   /** `key in overrides`: an own key, as `Object.hasOwn` tests it. */
-  has(key: string): boolean;
+  has(key: OverlayKey): boolean;
   /** Every stored entry, in stored order, with its lenient record view. */
   entries: StoredEntry[];
   /** `overrides.get(key)` read as a record; a miss (or no key) is `{}`. */
-  lookup(key: string | undefined): OverrideRecord;
+  lookup(key: OverlayKey | undefined): OverrideRecord;
   /** A deep copy of the mapping, for a writer that replaces entries. */
   clone(): OpaqueMap;
 }
@@ -121,9 +124,9 @@ function factDocument(fact: StoredValue): JsonValue {
 export function storedOverrides(value: JsonObject): StoredOverrides {
   return {
     document: opaqueMap(value),
-    has: key => Object.hasOwn(value, key),
-    entries: Object.entries(value).map(([key, entry]) => ({ key, document: carry(entry), record: recordView(entry) })),
-    lookup: key => recordView(key === undefined ? undefined : value[key]),
+    has: key => Object.hasOwn(value, overlayKeyText(key)),
+    entries: Object.entries(value).map(([key, entry]) => ({ key: parseOverlayKey(key), document: carry(entry), record: recordView(entry) })),
+    lookup: key => recordView(key === undefined ? undefined : value[overlayKeyText(key)]),
     clone: () => opaqueMap(structuredClone(value)),
   };
 }
@@ -166,8 +169,11 @@ function parseRecords(value: JsonValue | undefined, context: string): CommitReco
     const value = record.value;
     return {
       document: carry(record),
-      lookupKey: () => mappingKey(key, `${recordContext}.key`),
-      writeKey: lazy(() => record.key === undefined ? fallbackKey : requireString(record, 'key', recordContext)),
+      lookupKey: () => {
+        const text = mappingKey(key, `${recordContext}.key`);
+        return text === undefined ? undefined : parseOverlayKey(text);
+      },
+      writeKey: lazy(() => parseOverlayKey(record.key === undefined ? fallbackKey : requireString(record, 'key', recordContext))),
       kind: storedFact(record.kind),
       scope: storedFact(record.scope),
       target: storedFact(record.target),
@@ -185,11 +191,11 @@ function parseRecords(value: JsonValue | undefined, context: string): CommitReco
   });
 }
 
-function membership(value: JsonValue | undefined, context: string): (key: string) => boolean {
+function membership(value: JsonValue | undefined, context: string): (key: OverlayKey) => boolean {
   const container = value === undefined ? [] : value;
-  if (Array.isArray(container)) return key => container.includes(key);
-  if (typeof container === 'string') return key => container.includes(key);
-  if (isObject(container)) return key => Object.hasOwn(container, key);
+  if (Array.isArray(container)) return key => container.includes(overlayKeyText(key));
+  if (typeof container === 'string') return key => container.includes(overlayKeyText(key));
+  if (isObject(container)) return key => Object.hasOwn(container, overlayKeyText(key));
   throw new ParseError(`${context} must support Jinja membership`);
 }
 

@@ -10,6 +10,7 @@ import { assignedAs, powerClosed, runtimeGeneration, runtimeGenerationIs, runtim
   from '../parse/transport.ts';
 import type { FrameColour, RuntimeState, StoredChannels } from '../parse/transport.ts';
 import type { LampOrRoom } from './types/lighting-state.ts';
+import type { OverlayKey } from './types/overlay.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
 
@@ -169,7 +170,8 @@ export interface AssignDetails {
     lampOrRoom: LampOrRoom;
     /** `effect` is the bulb effect a channel names, `undefined` for any other source or name. */
     channels: Record<Channel, { kind: string; effect: BulbEffectName | undefined; updated: number | null }>;
-    owners: Record<Channel, string>;
+    /** The overlay owning each channel; `base` (the schedule) and an absent owner read as saved keys. */
+    owners: Record<Channel, OverlayKey>;
   }>;
   /** The assignments, persisted as given. */
   assignments: Verbatim;
@@ -365,7 +367,7 @@ export function stoppedLamps(targetViews: ReturnType<AssignDetails['targetViews'
       // A lamp leaving an effect its bulbs run is told to stop it, before its new light.
       const was = runningIn(channel, previous.channels);
       if (was !== undefined && runningOn(channel, source.effect) !== was) needed = true;
-      if (source.kind === 'effect' && target.owners[channel].startsWith('channels:native:') &&
+      if (source.kind === 'effect' && target.owners[channel].kind === 'native control' &&
         source.updated !== previous.updated(channel)) needed = true;
     }
     if (needed) lamps.push(lamp);

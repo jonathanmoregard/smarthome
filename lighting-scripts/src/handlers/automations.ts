@@ -19,6 +19,7 @@ import {
 import type {
   LampChangeArgs, NativeControlsArgs, RemoteArgs, RemoteKind, SaraModeArgs, ScheduleEngineArgs, TriggerIdArgs, WriterArgs,
 } from '../domain/automations.ts';
+import { SARA_MODE } from '../domain/types/overlay.ts';
 
 function remote(kind: RemoteKind): ScriptHandler {
   return withParsedArgs({ parse: args => parseRemoteArgs(kind, args), run: (ctx, args: RemoteArgs) => run(ctx, forwardRemote(kind, args)) });
@@ -96,7 +97,7 @@ export const automationHandlers: ScriptHandlers = {
   // the nested attribute chain is strict, while trigger.id is branch-only.
   'automation.lighting_schedule_sara_mode_switch': withParsedArgs({
     parse: parseSaraModeArgs,
-    run: (ctx, args: SaraModeArgs) => run(ctx, saraModeSwitch(args, lenientOverrides(ctx).has('mode:sara'))),
+    run: (ctx, args: SaraModeArgs) => run(ctx, saraModeSwitch(args, lenientOverrides(ctx).has(SARA_MODE))),
   }),
   // Lamp change detection reads event.context.user_id/id raw 3/1 times,
   // event.data.service raw once, and service_data once through `default({})`.

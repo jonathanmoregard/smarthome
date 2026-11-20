@@ -8,6 +8,8 @@ import { overridesRevision } from '../parse/sensors.ts';
 import { switchRangeEntities } from '../parse/planning.ts';
 import { attributeNumber, entityProfile, entitySample, rgbComponent, savedProfile, stateNumber, storedScheduleRecords } from '../parse/schedule.ts';
 import type { ScheduleRecord, ScheduleRecords } from '../parse/schedule.ts';
+import type { OverlayKey } from './types/overlay.ts';
+import { byOverlayKeyText, overlayKeyText, sameOverlayKey } from './types/overlay.ts';
 
 export const blocks: readonly string[] = BLOCKS;
 export function isAreaId<Room extends string>(value: Room | undefined): value is Room { return value !== undefined && value.length > 0; }
@@ -18,9 +20,10 @@ export function labelled(view: HouseView, label: string): string[] {
   return [...new Set(entities.flatMap(e => view.devices?.[e] ?? [e]))];
 }
 export function privateRooms(view: HouseView): string[] { return view.labels?.private_room ?? []; }
-export function latestRemote(records: ScheduleRecords, room: string): string {
-  let key = '', stamp = -1;
-  for (const k of [...records.keys].sort()) {
+export function latestRemote(records: ScheduleRecords, room: string): OverlayKey {
+  // The scripts start from the empty key and keep it when no remote record applies.
+  let key: OverlayKey = { kind: 'saved', key: '' }, stamp = -1;
+  for (const k of [...records.keys].sort(byOverlayKeyText)) {
     const r = records.get(k);
     if (r.scope !== 'room' || r.target !== room || !isRemote(r)) continue;
     const ts = r.when();
@@ -215,11 +218,11 @@ function interpolate(A: LampSample, B: LampSample, stage: Stage): LampLight {
   const color = mixedColour(A, B, stage.p), brightness = roundEven(A.brightness + (B.brightness - A.brightness) * stage.p);
   return color === undefined ? { on: true, brightness } : { on: true, brightness, color };
 }
-function applies(r: ScheduleRecord, key: string, lamp: string | null, room: string, privateRoom: boolean): boolean {
+function applies(r: ScheduleRecord, key: OverlayKey, lamp: string | null, room: string, privateRoom: boolean): boolean {
   return (r.kind === 'light' && r.target === lamp && lamp !== null)
     || (isClaim(r) && ((r.scope === 'lamp' && lamp !== null && r.target === lamp) ||
       (r.scope === 'room' && r.target === room) || (r.scope === 'house' && !privateRoom)))
-    || (key === 'mode:sara' && !privateRoom);
+    || (key.kind === 'sara mode' && !privateRoom);
 }
 
 /** One `input_select` the schedule wants moved to match the effective block. */
@@ -348,7 +351,7 @@ export function scheduledBase(view: HouseView, args: ScheduledBaseArgs, roomLoca
   const records = args.overrides === undefined
     ? storedScheduleRecords(view.attr('sensor.ls_overrides', 'overrides'))
     : args.overrides;
-  const keys = records.keys, sortedKeys = [...keys].sort();
+  const keys = records.keys, sortedKeys = [...keys].sort(byOverlayKeyText);
   const expiry = view.get('input_boolean.ls_ovr_next_block_on') === 'on';
   const dimmables = labelled(view, 'house_schedule').filter(e => e.startsWith('light.'));
   const plugs = labelled(view, 'on_off').filter(e => /^(light|switch)\./.test(e));
@@ -366,7 +369,7 @@ export function scheduledBase(view: HouseView, args: ScheduledBaseArgs, roomLoca
     const S = details[room]!;
     const privateRoom = privateRooms(view).includes(area);
     const newest = latestRemote(records, room);
-    const blockRecord = records.get(`block:${room}`);
+    const blockRecord = records.get({ kind: 'block', scope: room });
     // The block override, or the newest applying period claim. Its `when` is
     // read through the record it came from, so it raises where it did.
     let chosen: Chosen = { present: blockRecord.present, block: blockRecord.valueFolded, when: blockRecord.when };
@@ -374,7 +377,7 @@ export function scheduledBase(view: HouseView, args: ScheduledBaseArgs, roomLoca
     for (const key of sortedKeys) {
       const r = records.get(key);
       if (!isClaim(r) || !applies(r, key, lamp, room, privateRoom)) continue;
-      if (r.scope === 'room' && isRemote(r) && key !== newest) continue;
+      if (r.scope === 'room' && isRemote(r) && !sameOverlayKey(key, newest)) continue;
       const stamp = r.periodStamp();
       if (r.period !== undefined && stamp >= chosenStamp && !(expiry && r.when() <= S.last_fs)) {
         const period = r.period;
@@ -421,7 +424,7 @@ export function scheduledBase(view: HouseView, args: ScheduledBaseArgs, roomLoca
     const level: ProfileLevel = target.on ? { brightness: target.brightness, on: true } : { on: false };
     const p: LampProfileEntry = { effect: pr.effect === undefined ? 'Normal light' : pr.effect, ...level, period: block,
       area: area || null, effect_channels: pr.effectChannels === undefined ? ['brightness', 'color'] : pr.effectChannels,
-      send: why !== 'tick' || stage.moving || stage.edge, ignore_overrides: ignored };
+      send: why !== 'tick' || stage.moving || stage.edge, ignore_overrides: ignored.map(overlayKeyText) };
     profiles[lamp] = p;
     const command: ScheduleOutput = !target.on ? { kind: 'off', transition }
       : target.color === undefined ? { kind: 'brightness', brightness: Math.max(target.brightness, 1), transition }
@@ -446,7 +449,7 @@ export function scheduledBase(view: HouseView, args: ScheduledBaseArgs, roomLoca
     const S = details[area]!, privateRoom = privateRooms(view).includes(area);
     const ignored = keys.filter(key => {
       const r = records.get(key);
-      const match = (r.scope === 'room' && r.target === area) || (r.scope === 'house' && !privateRoom) || (key === 'mode:sara' &&
+      const match = (r.scope === 'room' && r.target === area) || (r.scope === 'house' && !privateRoom) || (key.kind === 'sara mode' &&
         !privateRoom) || (r.kind === 'block' && r.target === area);
       return expiry && match && r.when() <= S.last_fs;
     });
@@ -455,10 +458,10 @@ export function scheduledBase(view: HouseView, args: ScheduledBaseArgs, roomLoca
     const newest = latestRemote(records, area);
     for (const key of sortedKeys) {
       const r = records.get(key);
-      if (ignored.includes(key)) continue;
+      if (ignored.some(other => sameOverlayKey(other, key))) continue;
       const match = (r.kind === 'block' && r.target === area) || (isClaim(r) && ((r.scope === 'room' &&
         r.target === area) || (r.scope === 'house' && !privateRoom)));
-      if (!match || (r.scope === 'room' && isRemote(r) && key !== newest)) continue;
+      if (!match || (r.scope === 'room' && isRemote(r) && !sameOverlayKey(key, newest))) continue;
       const selected = r.kind === 'block' ? r.valueBlock : r.period;
       const updated = r.periodStamp();
       if (selected !== undefined && updated >= stamp) { period = selected; stamp = updated; explicit = true; }
@@ -472,7 +475,7 @@ export function scheduledBase(view: HouseView, args: ScheduledBaseArgs, roomLoca
     const room = { area, is_room: true as const, period: stage.from, effect: pr.effect === undefined ? 'Normal light' : pr.effect };
     const day = entityProfile(view, sourceEntity(view, null, area, 'day', false));
     const cosy = entityProfile(view, sourceEntity(view, null, area, 'cosy', false));
-    const scenes = { ...(day === undefined ? {} : { day }), ...(cosy === undefined ? {} : { cosy }), ignore_overrides: ignored };
+    const scenes = { ...(day === undefined ? {} : { day }), ...(cosy === undefined ? {} : { cosy }), ignore_overrides: ignored.map(overlayKeyText) };
     targets[`room:${area}`] = !target.on ? { ...room, on: false, ...scenes }
       : target.color === undefined ? { brightness: target.brightness, ...room, on: true, ...scenes }
         : { brightness: target.brightness, color: target.color, ...room, on: true, ...scenes };
@@ -483,14 +486,15 @@ export function scheduledBase(view: HouseView, args: ScheduledBaseArgs, roomLoca
     const target = r.targetName;
     const area = target === undefined ? undefined : r.kind === 'light' || r.scope === 'lamp' ? view.rooms.ofId[target] : target;
     const scope = rooms.includes(area ?? '') ? area! : 'house';
-    const scopes = r.scope === 'house' || key === 'mode:sara' ? rooms.filter(a => !privateRooms(view).includes(a)) : [scope];
+    const scopes = r.scope === 'house' || key.kind === 'sara mode' ? rooms.filter(a => !privateRooms(view).includes(a)) : [scope];
     return scopes.length > 0 && scopes.every(a => r.when() <= details[a]!.last_fs && !details[a]!.fading);
   });
   const sched: Record<string, Block | null> = {}, mirror: ScheduleMirror[] = [];
   for (const scope of ['house', ...rooms]) {
     const S = details[scope]!; sched[scope] = S.cur;
-    const override = records.get(`block:${scope}`).valueFolded;
-    const effective = override !== undefined && !stale.includes(`block:${scope}`) ? override : S.cur === null ? DEFAULT_BLOCK : S.cur;
+    const blockKey: OverlayKey = { kind: 'block', scope };
+    const override = records.get(blockKey).valueFolded;
+    const effective = override !== undefined && !stale.some(key => sameOverlayKey(key, blockKey)) ? override : S.cur === null ? DEFAULT_BLOCK : S.cur;
     const option = effective[0]!.toUpperCase() + effective.slice(1), entity = `input_select.ls_${scope}_override`;
     if (view.state[entity] && view.get(entity) !== option) mirror.push({ entity, option });
   }
@@ -504,7 +508,7 @@ export function scheduledBase(view: HouseView, args: ScheduledBaseArgs, roomLoca
     return { ...command, ids };
   });
   const schedule: ScheduleEnvelope = { cmds: packed, profiles, revision: overridesRevision(view, roomLocal ? 'ls_room_base' : 'ls_base'),
-    stale_keys: stale, sched, schedule_details: details, mirror,
+    stale_keys: stale.map(overlayKeyText), sched, schedule_details: details, mirror,
     sara_mirror: view.state['input_boolean.ls_sara_mode_mirror'] !== undefined && view.get('input_boolean.ls_sara_mode_mirror') !== 'off' ?
       'off' : null };
   if (args.includeDebug === true) schedule.dbg = debug;

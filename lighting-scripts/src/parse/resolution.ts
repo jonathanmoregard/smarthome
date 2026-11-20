@@ -44,6 +44,9 @@ import type { BaseItem, Channel, ChannelValue, Claim, InputAnchor, InputClaim, I
 import { blendEnd, canonicalColor, validColor } from './scale.ts';
 import { validGradient, warmEndArgument } from './gradient.ts';
 import { lampOrRoom } from './lighting-state.ts';
+import type { OverlayKey } from '../domain/types/overlay.ts';
+import { overlayKeyText } from '../domain/types/overlay.ts';
+import { parseOverlayKey } from './overlay-key.ts';
 
 /**
  * A record or input timestamp in seconds, `0` when absent or unparseable.
@@ -220,7 +223,7 @@ function overrideRecord(key: string, record: JsonObject): OverrideRecord {
   const value = record.value;
   const stamp = savedWhen(record.when);
   return {
-    key,
+    key: parseOverlayKey(key),
     scope: optionalString(defaulted(record, 'scope', record.kind === 'light' ? 'lamp' : '')),
     storedScope: optionalString(record.scope),
     target: optionalString(record.target),
@@ -248,7 +251,8 @@ function baseItem(target: string, raw: JsonValue): BaseItem {
     isRoomAsStored: carry(isRoom),
     lampOrRoom: lampOrRoom(target, isRoom),
     area: String(item.area),
-    ignored: Array.isArray(item.ignore_overrides) ? item.ignore_overrides.filter((key): key is string => typeof key === 'string') : [],
+    ignored: Array.isArray(item.ignore_overrides)
+      ? item.ignore_overrides.filter((key): key is string => typeof key === 'string').map(parseOverlayKey) : [],
     period: carryOptional(item.period),
     periodIsNight: item.period === 'night',
     on: carry(on),
@@ -316,6 +320,6 @@ export function parseResolveArgs(args: JsonObject): ResolveArgs {
  * `ls_remote_plan`, whose records are not parsed yet; the resolver itself
  * calls `latestStream` with the records it parsed.
  */
-export function latestRemoteKey(records: JsonObject, room: string): string {
-  return latestStream(overrideRecords(records).sort((a, b) => lexical(a.key, b.key)), room);
+export function latestRemoteKey(records: JsonObject, room: string): OverlayKey {
+  return latestStream(overrideRecords(records).sort((a, b) => lexical(overlayKeyText(a.key), overlayKeyText(b.key))), room);
 }

@@ -6,6 +6,8 @@ import { OFF_END_LEVEL, blend, boundedNumber, clamp } from './scale.ts';
 import type { BlendEnd, Blended, Color, RGB } from './scale.ts';
 import { levelNumber } from '../parse/resolution.ts';
 import type { LampOrRoom } from './types/lighting-state.ts';
+import type { OverlayKey } from './types/overlay.ts';
+import { overlayKeyText, sameOverlayKey, SARA_MODE } from './types/overlay.ts';
 
 const CHANNELS = ['brightness', 'color'] as const;
 export type Channel = typeof CHANNELS[number];
@@ -93,7 +95,7 @@ export type LightValue =
   };
 /** One mapping override record. Only the field the record's `kind` uses is set. */
 export type OverrideRecord = {
-  key: string;
+  key: OverlayKey;
   /** `scope`, defaulting to `lamp` for a light record and `''` otherwise. */
   scope: string | undefined;
   /** `scope` exactly as stored, for the remote-stream test. */
@@ -121,7 +123,7 @@ export type BaseItem = {
   isRoomAsStored: Verbatim;
   lampOrRoom: LampOrRoom;
   area: string;
-  ignored: string[];
+  ignored: OverlayKey[];
   period: Verbatim;
   periodIsNight: boolean;
   on: Verbatim;
@@ -188,7 +190,7 @@ export type ResolvedTarget = {
 };
 export type ResolutionResult = { targets: Record<string, ResolvedTarget>; assignments: Record<string, ResolvedTarget> };
 
-type Candidate = { key: string; updated: Stamp; claim: Claim; baselineOnly: boolean };
+type Candidate = { key: OverlayKey; updated: Stamp; claim: Claim; baselineOnly: boolean };
 type InputPosition = { position: number; level: number };
 type ClampedInput = {
   steps: number; lower: number; upper: number; anchor: InputAnchor;
@@ -210,8 +212,9 @@ function numericStamp(n: number): Stamp { return { value: n, numeric: n, text: `
 function isRemoteStream(r: OverrideRecord): boolean { return r.kind === 'input' || (r.kind === 'channels' && r.via === 'remote'); }
 
 /** The newest remote input stream for a room, over records already in lexical key order. */
-export function latestStream(records: OverrideRecord[], room: string): string {
-  let key = '', stamp = -1;
+export function latestStream(records: OverrideRecord[], room: string): OverlayKey {
+  // The scripts start from the empty key and keep it when no remote record applies.
+  let key: OverlayKey = { kind: 'saved', key: '' }, stamp = -1;
   for (const record of records) {
     if (record.storedScope !== 'room' || record.target !== room || !isRemoteStream(record)) continue;
     if (record.stamp >= stamp) { key = record.key; stamp = record.stamp; }
@@ -288,9 +291,9 @@ function lightPatch(light: LightValue, key: string, item: BaseItem, args: Resolv
  */
 export function resolveEffects(args: ResolveArgs, candle: ReadonlySet<string>): ResolutionResult {
   const targets: Record<string, ResolvedTarget> = {}, assignments: Record<string, ResolvedTarget> = {};
-  const inputs = new Map<string, InputPosition>(), streams = new Map<string, string>();
+  const inputs = new Map<string, InputPosition>(), streams = new Map<string, OverlayKey>();
   const entries = [...args.targets].sort((a, b) => lexical(a.target, b.target));
-  const records = [...args.records].sort((a, b) => lexical(a.key, b.key));
+  const records = [...args.records].sort((a, b) => lexical(overlayKeyText(a.key), overlayKeyText(b.key)));
   const order = [...entries.filter(entry => entry.item.lampOrRoom.kind === 'room'),
     ...entries.filter(entry => entry.item.lampOrRoom.kind === 'lamp')];
   for (const { target, item } of order) {
@@ -300,11 +303,14 @@ export function resolveEffects(args: ResolveArgs, candle: ReadonlySet<string>): 
     let gradientChecked = false, curve: GradientCurve | undefined;
     const samples = new Map<number, Blended>();
     for (const record of records) {
-      if (item.ignored.includes(record.key)) continue;
+      if (item.ignored.some(key => sameOverlayKey(key, record.key))) continue;
       const scope = record.scope;
       let applies = (scope === 'house' && record.target === 'house' && !args.private.includes(area)) ||
         (scope === 'room' && record.target === area) || (scope === 'lamp' && !isRoom && record.target === target);
-      if (record.storedScope === 'room' && isRemoteStream(record) && record.key !== streams.get(area)) applies = false;
+      const stream = streams.get(area);
+      if (record.storedScope === 'room' && isRemoteStream(record) && (stream === undefined || !sameOverlayKey(record.key, stream))) {
+        applies = false;
+      }
       if (!applies) continue;
       const stamp = record.stamp;
       let patch: Patch = {};
@@ -317,7 +323,7 @@ export function resolveEffects(args: ResolveArgs, candle: ReadonlySet<string>): 
           }
         }
       } else if (record.channels !== undefined) patch = record.channels;
-      else if (record.light !== undefined) patch = lightPatch(record.light, record.key, item, args);
+      else if (record.light !== undefined) patch = lightPatch(record.light, overlayKeyText(record.key), item, args);
       for (const channel of CHANNELS) {
         let claim = patch[channel];
         if (claim === undefined) continue;
@@ -348,7 +354,7 @@ export function resolveEffects(args: ResolveArgs, candle: ReadonlySet<string>): 
           `base:${target}:${baselineEffect}` : item.effectInstance, updated: -1 };
         owner = `base:${baselineEffect}`;
       }
-      candidates[channel].sort((a, b) => lexical(a.key, b.key)).sort((a, b) => a.updated.numeric - b.updated.numeric);
+      candidates[channel].sort((a, b) => lexical(overlayKeyText(a.key), overlayKeyText(b.key))).sort((a, b) => a.updated.numeric - b.updated.numeric);
       for (const candidate of candidates[channel]) {
         const claim = candidate.claim;
         if (!candle.has(target) && claim.kind === 'effect' && claim.effect === 'Candle') continue;
@@ -368,7 +374,7 @@ export function resolveEffects(args: ResolveArgs, candle: ReadonlySet<string>): 
               && facts.lower >= -20 && facts.lower <= facts.upper && facts.upper <= 20) {
               input = { steps: facts.steps, anchor: facts.anchor, legacyPosition: facts.legacyPosition, last: facts.last, hasUp: facts.hasUp,
                 lower: clamp(facts.lower, facts.bounds.min, facts.bounds.max), upper: clamp(facts.upper, facts.bounds.min, facts.bounds.max) };
-              const ref = `${candidate.key}:${candidate.updated.text}`;
+              const ref = `${overlayKeyText(candidate.key)}:${candidate.updated.text}`;
               position = inputs.get(ref);
               if (position === undefined) {
                 const level = positionLevel(channel === 'brightness' ? currentUnderlying : underlying.brightness);
@@ -434,7 +440,7 @@ export function resolveEffects(args: ResolveArgs, candle: ReadonlySet<string>): 
                 : holding(currentUnderlying, updated);
             if (channel === 'brightness') blendLit = valid && selected.kind === 'scale' ? selected.lit : undefined;
           }
-          if (!candidate.baselineOnly) owner = candidate.key;
+          if (!candidate.baselineOnly) owner = overlayKeyText(candidate.key);
         }
       }
       sources[channel] = current; owners[channel] = owner; underlying[channel] = currentUnderlying;
@@ -445,9 +451,9 @@ export function resolveEffects(args: ResolveArgs, candle: ReadonlySet<string>): 
         sources[channel] = { ...source, ...(base === undefined ? {} : { base }), ...(intensity === undefined ? {} : { intensity }) };
       }
     }
-    if (args.sara && !item.ignored.includes('mode:sara') && !args.private.includes(area) && !item.periodIsNight) {
+    if (args.sara && !item.ignored.some(key => key.kind === 'sara mode') && !args.private.includes(area) && !item.periodIsNight) {
       sources.color = { kind: 'constant', value: { rgb: [255, 105, 180] }, updated: 0, policy: 'sara' };
-      owners.color = 'mode:sara';
+      owners.color = overlayKeyText(SARA_MODE);
     }
     // A blend with an off end decides whether the lamp is lit; otherwise the schedule does, as before.
     const lit = blendLit === undefined ? item.onTruthy : blendLit;

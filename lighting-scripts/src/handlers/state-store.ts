@@ -16,6 +16,7 @@ import { overridesRevision, savedOverridesContain } from '../parse/sensors.ts';
 import { run } from '../runtime/effects.ts';
 import { clearAllOverrides, houseRooms, planCommit, planOverrideBlock, planStore, toggleSaraMode } from '../domain/state-store.ts';
 import type { CommitArgs, CommitResult, StoreProfileArgs } from '../domain/state-store.ts';
+import { SARA_MODE } from '../domain/types/overlay.ts';
 
 /**
  * The single override writer: stale-revision stop, then the decision, then a
@@ -72,6 +73,6 @@ export const stateStoreHandlers: ScriptHandlers = {
   // Captured via has two `| default('app')` sites with the same semantics.
   ls_sara_mode: withParsedArgs({
     parse: parseViaArgs,
-    run: (ctx, args) => run(ctx, toggleSaraMode(savedOverridesContain(ctx, 'mode:sara'), args.via)),
+    run: (ctx, args) => run(ctx, toggleSaraMode(savedOverridesContain(ctx, SARA_MODE), args.via)),
   }),
 };

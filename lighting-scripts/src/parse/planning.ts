@@ -36,6 +36,7 @@ import { isBlock, savedBlock } from './blocks.ts';
 import { warmEndOr } from './scale.ts';
 import { toRoomId } from './ids.ts';
 import { lampOrRoom } from './lighting-state.ts';
+import { parseOverlayKey } from './overlay-key.ts';
 
 function requiredObjectValue(value: JsonValue | undefined, context: string): JsonObject {
   return value === undefined ? requireObject({}, 'value', context) : requireObject({ value }, 'value', context);
@@ -71,7 +72,7 @@ function parseOverrides(records: JsonObject): Overrides {
   return {
     document: carry(records),
     entries: Object.entries(records).map(([key, value]) => ({
-      key, document: carry(value), record: isObject(value) ? overrideFacts(value) : undefined,
+      key: parseOverlayKey(key), document: carry(value), record: isObject(value) ? overrideFacts(value) : undefined,
     })),
   };
 }

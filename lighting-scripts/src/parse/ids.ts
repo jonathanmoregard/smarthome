@@ -6,7 +6,7 @@
  * already checked about the string still holds, and nothing is added. Whether
  * an id names something the registry knows is a later, named unit.
  */
-import type { BulbId, EffectName, LampId, OverlayKey, RemoteId, RoomId, SwitchId, UserId } from '../domain/types/ids.ts';
+import type { BulbId, EffectName, LampId, RemoteId, RoomId, SwitchId, UserId } from '../domain/types/ids.ts';
 
 export function toRoomId(raw: string): RoomId {
   // Cast: the edge read this string as a room; this is the one place that says so.
@@ -31,11 +31,6 @@ export function toSwitchId(raw: string): SwitchId {
 export function toRemoteId(raw: string): RemoteId {
   // Cast: the edge read this string as a remote; this is the one place that says so.
   return raw as RemoteId;
-}
-
-export function toOverlayKey(raw: string): OverlayKey {
-  // Cast: the edge read this string as an overlay key; this is the one place that says so.
-  return raw as OverlayKey;
 }
 
 export function toUserId(raw: string): UserId {

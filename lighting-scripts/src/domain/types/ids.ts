@@ -19,8 +19,6 @@ export type BulbId = Id<'BulbId'>;
 export type SwitchId = Id<'SwitchId'>;
 /** A remote: the remote control's Home Assistant device id. */
 export type RemoteId = Id<'RemoteId'>;
-/** An overlay's key in the overlay store (`mode:sara`, `room:<room>`). */
-export type OverlayKey = Id<'OverlayKey'>;
 /** A Home Assistant user, as an event's `user_id` names them. */
 export type UserId = Id<'UserId'>;
 /** An effect the catalog names (`Candle`). */

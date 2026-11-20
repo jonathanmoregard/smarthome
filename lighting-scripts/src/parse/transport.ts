@@ -27,6 +27,7 @@ import type {
   AssignArgs, AssignDetails, BulbEffectName, Channel, EmitArgs, FilterArgs, FrameEffect, FramePlanArgs, FrameSource, FrameTarget,
 } from '../domain/transport.ts';
 import { lampOrRoom } from './lighting-state.ts';
+import { parseOverlayKey } from './overlay-key.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
 
@@ -218,7 +219,7 @@ function parseAssignTargetViews(targets: JsonObject): ReturnType<AssignDetails['
       channels,
       owners: Object.fromEntries((['brightness', 'color'] as const).map(channel => [
         channel,
-        owners[channel] === undefined ? '' : requireString(owners, channel, `${context}.owners`),
+        parseOverlayKey(owners[channel] === undefined ? '' : requireString(owners, channel, `${context}.owners`)),
       ])) as ReturnType<AssignDetails['targetViews']>[string]['owners'],
     }];
   }));

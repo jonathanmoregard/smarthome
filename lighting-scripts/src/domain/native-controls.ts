@@ -8,6 +8,8 @@ import { groupChildren, lampKelvinRange, underlyingColour } from '../parse/nativ
 import type {
   BrightnessRequest, ColourRequest, NativeCatalog, NativeCurrent, NativePlanArgs, PlanTarget, SetArgs,
 } from '../parse/native-controls.ts';
+import { overlayKeyText } from './types/overlay.ts';
+import type { OverlayKey } from './types/overlay.ts';
 
 // Literal CSS colour names from the deployed native adapter.
 const COLOR_NAMES: Record<string, RGB> = {
@@ -345,7 +347,7 @@ export function planNativeControls(view: HouseView, args: NativePlanArgs): Nativ
       } else if (['none', 'normal light',
         'off'].includes(requestedEffect)) channels = { ...held(base, resolved, 'effects_native_plan resolved target', args.stamp()), ...channels };
     }
-    if (Object.keys(channels).length > 0) records.push({ kind: 'channels', key: `channels:native:${item.base}`,
+    if (Object.keys(channels).length > 0) records.push({ kind: 'channels', key: overlayKeyText({ kind: 'native control', base: item.base }),
       source: `native:${item.base}`, scope: item.scope, target: item.target, value: { channels } });
   }
   return { records, power };
@@ -429,7 +431,8 @@ export function planUIControls(view: HouseView, args: SetArgs, catalog: NativeCa
         else if (attribute === 'brightness') channels = { brightness: constant(value.int, stamp) };
         else if (attribute === 'rgb') channels = { color: constant({ rgb: rgbInts() }, stamp) };
         else if (attribute === 'temperature') channels = { color: constant({ kelvin: roundEven(1000000 / value.float) }, stamp) };
-        records.push({ kind: 'channels', key: `channels:ui:${source}${item.suffix ?? ''}`, source: `ui:${source}`, scope: item.scope,
+        const key: OverlayKey = { kind: 'dashboard control', control: `${source}${item.suffix ?? ''}` };
+        records.push({ kind: 'channels', key: overlayKeyText(key), source: `ui:${source}`, scope: item.scope,
           target: item.target, value: { channels, ...(attribute === 'effect' ? { selection: effectValue! } : {}) } });
       }
       if (records.length && !errors.length) events.push({ op: 'set', records, via: 'effects-house' });

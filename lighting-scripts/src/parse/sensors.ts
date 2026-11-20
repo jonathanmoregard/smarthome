@@ -10,6 +10,8 @@ import type { HouseView } from '../runtime/effects.ts';
 import { isObject, object, ParseError } from '../runtime/parse.ts';
 import { opaqueMap, storedFact, storedOverrides } from './overrides.ts';
 import type { OpaqueMap, StoredFact, StoredOverrides, StoredValue } from './overrides.ts';
+import type { OverlayKey } from '../domain/types/overlay.ts';
+import { overlayKeyText } from '../domain/types/overlay.ts';
 
 export const OVERRIDES_SENSOR = 'sensor.ls_overrides';
 
@@ -24,8 +26,8 @@ export function lenientOverrides(ctx: HouseView): StoredOverrides {
  * keys, a list's elements, a string's substrings. A truthy value `in` raises on
  * (a number, `true`) reads as the `or {}` default (lenient saved-value directive).
  */
-export function savedOverridesContain(ctx: HouseView, key: string): boolean {
-  const value = ctx.attr(OVERRIDES_SENSOR, 'overrides');
+export function savedOverridesContain(ctx: HouseView, overlay: OverlayKey): boolean {
+  const value = ctx.attr(OVERRIDES_SENSOR, 'overrides'), key = overlayKeyText(overlay);
   if (isObject(value)) return Object.hasOwn(value, key);
   if (Array.isArray(value)) return value.includes(key);
   if (typeof value === 'string') return value.includes(key);

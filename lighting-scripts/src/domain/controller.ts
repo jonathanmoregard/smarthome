@@ -8,6 +8,7 @@ import type { GradientPlanResult } from './gradient.ts';
 import type { RemotePlanResult } from './remote-input.ts';
 import type { Effect, HouseView } from '../runtime/effects.ts';
 import type { RoomId } from './types/ids.ts';
+import { overlayKeyText, SARA_MODE } from './types/overlay.ts';
 
 /**
  * A valid switch interval: its bounds as numbers (a boolean bound is Python's
@@ -140,7 +141,7 @@ export interface PlanParts {
  */
 export function planAnswer(view: HouseView, parts: PlanParts): PlanResult {
   const revision = planRevision(view.state['sensor.ls_overrides']?.last_updated);
-  const wanted = Object.hasOwn(parts.active, 'mode:sara') ? 'on' : 'off';
+  const wanted = Object.hasOwn(parts.active, overlayKeyText(SARA_MODE)) ? 'on' : 'off';
   return { plan: { ...parts.schedule, base: parts.base, resolved: parts.resolved, gradients: parts.gradients,
     switches: parts.switches, revision,
     plan_order: recordTimestamp(view.now), remote: parts.reason === 'remote',

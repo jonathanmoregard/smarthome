@@ -15,6 +15,8 @@ import type { StoredFact, StoredValue } from '../parse/overrides.ts';
 import { stored, storedList, switchRangeEntities, wakeFadeMinutes, wakeTimestamp, warmEndOf } from '../parse/planning.ts';
 import type { RoomId } from './types/ids.ts';
 import type { LampOrRoom } from './types/lighting-state.ts';
+import { byOverlayKeyText, overlayKeyText, sameOverlayKey, SARA_MODE } from './types/overlay.ts';
+import type { OverlayKey } from './types/overlay.ts';
 
 /**
  * The oracle's own cache version literal, copied verbatim from
@@ -52,7 +54,7 @@ export type OverrideFacts = {
   when: number;
 };
 /** A stored record; `record` is `undefined` for one that is not a mapping, which every captured loop skips. */
-export type OverrideEntry = { key: string; document: Verbatim; record: OverrideFacts | undefined };
+export type OverrideEntry = { key: OverlayKey; document: Verbatim; record: OverrideFacts | undefined };
 /** The records in stored order, plus the mapping itself, which is forwarded unchanged. */
 export type Overrides = { document: Verbatim; entries: OverrideEntry[] };
 
@@ -145,11 +147,12 @@ export type RoomPlanResult = { plan: Verbatim; cache_update: CacheUpdate | null;
 
 function isRemote(r: OverrideFacts): boolean { return r.kind === 'input' || (r.kind === 'channels' && r.via === 'remote'); }
 function byKey(entries: OverrideEntry[]): OverrideEntry[] {
-  return [...entries].sort((a, b) => a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
+  return [...entries].sort((a, b) => byOverlayKeyText(a.key, b.key));
 }
 /** The newest remote stream for the room, reading records leniently. */
-function latestRemote(sorted: OverrideEntry[], room: RoomId): string {
-  let key = '', stamp = -1;
+function latestRemote(sorted: OverrideEntry[], room: RoomId): OverlayKey {
+  // The scripts start from the empty key and keep it when no remote record applies.
+  let key: OverlayKey = { kind: 'saved', key: '' }, stamp = -1;
   for (const entry of sorted) {
     const r = entry.record;
     if (r === undefined || r.scope !== 'room' || r.target !== room || !isRemote(r)) continue;
@@ -189,34 +192,34 @@ function periods(overrides: Overrides, room: RoomId, deps: Dependencies, boundar
       ((r.scope === 'room' && r.target === room) || (r.scope === 'lamp' && r.target !== undefined && deps.lamps.includes(r.target)) ||
         (r.scope === 'house' && !deps.private)));
     const period = r.period;
-    if (!match || (r.scope === 'room' && isRemote(r) && entry.key !== newest) || period === undefined) continue;
+    if (!match || (r.scope === 'room' && isRemote(r) && !sameOverlayKey(entry.key, newest)) || period === undefined) continue;
     const when = r.when;
     const stamp = r.periodUpdated === undefined ? when : r.periodUpdated;
-    result[r.scope === 'room' && isRemote(r) ? `remote-input:${room}` : entry.key] = [r.stored.kind, r.stored.scope, r.stored.target,
+    result[r.scope === 'room' && isRemote(r) ? `remote-input:${room}` : overlayKeyText(entry.key)] = [r.stored.kind, r.stored.scope, r.stored.target,
       period, stamp, deps.expiry === 'on' && when <= boundary];
   }
   return result;
 }
-export type Refreshed = { targets: Record<string, Verbatim>; schedule: Verbatim; stale: string[] };
+export type Refreshed = { targets: Record<string, Verbatim>; schedule: Verbatim; stale: OverlayKey[] };
 /** `hitFrom` is the cache's `valid_from` on a hit, `undefined` on a miss. */
 export function refreshBaseline(view: HouseView, baseline: RoomBaseline, hitFrom: number | undefined, room: RoomId, deps: Dependencies,
   overrides: Overrides, at: number): Refreshed {
   const S = baseline.details(room, 'ls_room_plan.baseline.schedule.schedule_details');
   const lastFs = (): number => S.number('last_fs', 'ls_room_plan schedule details');
-  const targets: Record<string, Verbatim> = {}, ignoredBy = new Map<string, string[]>(), stale: string[] = [];
+  const targets: Record<string, Verbatim> = {}, ignoredBy = new Map<string, OverlayKey[]>(), stale: OverlayKey[] = [];
   for (const { entity, target } of baseline.targetEntries) {
-    const t = target(), ignored: string[] = [];
+    const t = target(), ignored: OverlayKey[] = [];
     if (deps.expiry === 'on') for (const { key, record } of overrides.entries) {
       if (record === undefined) continue;
       const r = record;
-      const match = (r.scope === 'room' && r.target === room) || (r.scope === 'house' && !deps.private) || (key === 'mode:sara' &&
+      const match = (r.scope === 'room' && r.target === room) || (r.scope === 'house' && !deps.private) || (key.kind === 'sara mode' &&
         !deps.private) || (r.kind === 'block' && r.target === room)
         || (t.lampOrRoom.kind === 'lamp' && ((r.scope === 'lamp' && r.target === entity) || (r.kind === 'light' && r.target === entity)));
       if (match && r.when <= lastFs()) ignored.push(key);
     }
     // A lamp's reading is re-taken now: off is `{on: false}`, and a lamp that is
     // missing or unavailable has no reading, so a cached one is dropped.
-    const refreshed = withFields(t.document, { ignore_overrides: ignored });
+    const refreshed = withFields(t.document, { ignore_overrides: ignored.map(overlayKeyText) });
     if (t.lampOrRoom.kind === 'room') targets[entity] = refreshed;
     else {
       const observed = entityProfile(view, entity);
@@ -231,28 +234,28 @@ export function refreshBaseline(view: HouseView, baseline: RoomBaseline, hitFrom
       deps.lamps.includes(r.target)) || (r.kind === 'block' && r.target === room);
     if (local && r.when <= lastFs()) stale.push(key);
   }
-  const blockKey = `block:${room}`;
-  const chosen = overrides.entries.find(entry => entry.key === blockKey)?.record?.valueBlock;
+  const blockKey: OverlayKey = { kind: 'block', scope: room };
+  const chosen = overrides.entries.find(entry => sameOverlayKey(entry.key, blockKey))?.record?.valueBlock;
   // The captured source spells this `(S.get('cur') or 'night') | capitalize`.
   // The saved `cur` arrives already parsed by the lenient `savedBlock`: absent
   // or Jinja-falsy means Night, a block name in any case is that block, and
   // anything else falls back to Night. It never raises. The option label comes
   // from the union, so there is no string transformation left to get wrong.
-  const override = chosen !== undefined && !stale.includes(blockKey) ? chosen : undefined;
+  const override = chosen !== undefined && !stale.some(key => sameOverlayKey(key, blockKey)) ? chosen : undefined;
   const effective = override ?? S.block;
   const entity = `input_select.ls_${room}_override`, option = blockOption(effective);
   const mirrors: ScheduleMirror[] = view.state[entity] !== undefined && view.get(entity) !== option ? [{ entity, option }] : [];
   const profiles: Record<string, Verbatim> = {};
   for (const { lamp, profile: p } of baseline.profiles) {
     // `p()` raises when the profile names a lamp the baseline has no target for.
-    profiles[lamp] = withFields(p(), { ignore_overrides: ignoredBy.get(lamp) ?? [] });
+    profiles[lamp] = withFields(p(), { ignore_overrides: (ignoredBy.get(lamp) ?? []).map(overlayKeyText) });
   }
   const details = hitFrom === undefined ? S.document : withFields(S.document, {
     left: hitFrom + S.required('left', 'ls_room_plan schedule details') - at,
     edge: at - S.required('cur_ts', 'ls_room_plan schedule details') < 90,
   });
   const schedule = withFields(baseline.schedule, { profiles, sched: { [room]: S.cur }, schedule_details: { [room]: details },
-    stale_keys: stale, mirror: mirrors });
+    stale_keys: stale.map(overlayKeyText), mirror: mirrors });
   return { targets, schedule, stale };
 }
 /** When the room's cache stops being valid: now while the room is moving, else its next boundary. */
@@ -311,8 +314,9 @@ export function missUpdate(view: HouseView, args: RoomPlanArgs, opening: RoomOpe
 }
 
 /** The stored overrides the refresh did not mark stale, as stored. */
-export function activeOverrides(overrides: Overrides, stale: string[]): Record<string, Verbatim> {
-  return Object.fromEntries(overrides.entries.filter(entry => !stale.includes(entry.key)).map(entry => [entry.key, entry.document]));
+export function activeOverrides(overrides: Overrides, stale: OverlayKey[]): Record<string, Verbatim> {
+  return Object.fromEntries(overrides.entries.filter(entry => !stale.some(key => sameOverlayKey(key, entry.key)))
+    .map(entry => [overlayKeyText(entry.key), entry.document]));
 }
 
 /** The parts `ls_room_plan` answers with, once every run is done. */
@@ -333,7 +337,7 @@ export interface RoomPlanParts {
 /** The answer: the refreshed schedule with the plan over it, stamped with `now` as read last. */
 export function roomPlanAnswer(view: HouseView, parts: RoomPlanParts): RoomPlanResult {
   const { room, reason, refreshed, active } = parts;
-  const wanted = Object.hasOwn(active, 'mode:sara') ? 'on' : 'off';
+  const wanted = Object.hasOwn(active, overlayKeyText(SARA_MODE)) ? 'on' : 'off';
   return { plan: withFields(refreshed.schedule, { room, base: refreshed.targets, resolved: parts.resolved, gradients: parts.gradients,
     catalog: parts.catalog, switches: parts.switches,
     revision: parts.revision, plan_order: timestamp(view.now), remote: reason === 'remote',

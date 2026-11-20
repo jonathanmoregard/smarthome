@@ -20,6 +20,9 @@ import { assembledMap, storedFact } from './overrides.ts';
 import type { Assembled, AssembledMap, StoredFact, StoredValue } from './overrides.ts';
 import type { Adjustment, RemotePlanArgs } from '../domain/remote-input.ts';
 import { toRoomId } from './ids.ts';
+import type { OverlayKey } from '../domain/types/overlay.ts';
+import { overlayKeyText } from '../domain/types/overlay.ts';
+import { parseOverlayKey } from './overlay-key.ts';
 
 const OVERRIDES = 'sensor.ls_overrides';
 const numeric = (v: JsonValue | undefined): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -114,7 +117,7 @@ export function noInputRecord(): RemoteInputRecordView {
 
 /** Another stored record, as the restart check reads it. */
 export interface OtherRecord {
-  key: string;
+  key: OverlayKey;
   scope: StoredFact;
   target: StoredFact;
   valueIsMapping: boolean;
@@ -125,7 +128,7 @@ export interface OtherRecord {
 function otherRecord(key: string, raw: JsonValue): OtherRecord {
   const r = object(raw);
   return {
-    key,
+    key: parseOverlayKey(key),
     scope: storedFact(r.scope),
     target: storedFact(r.target),
     valueIsMapping: isObject(r.value),
@@ -147,9 +150,9 @@ export interface RemoteOverrides {
   /** The mapping as stored, forwarded to `ls_room_plan`. */
   document: Verbatim;
   /** The room's latest remote input record's key. */
-  inputKey: string;
+  inputKey: OverlayKey;
   input: RemoteInputRecordView;
-  has(key: string): boolean;
+  has(key: OverlayKey): boolean;
   /** Every stored record, in stored order; a non-mapping has no facts. */
   others: OtherRecord[];
 }
@@ -160,8 +163,8 @@ export function remoteOverrides(ctx: HouseView, room: string): RemoteOverrides {
   return {
     document: carry(overrides),
     inputKey,
-    input: inputRecord(overrides[inputKey]),
-    has: key => Object.hasOwn(overrides, key),
+    input: inputRecord(overrides[overlayKeyText(inputKey)]),
+    has: key => Object.hasOwn(overrides, overlayKeyText(key)),
     others: Object.entries(overrides).map(([key, raw]) => otherRecord(key, raw)),
   };
 }
@@ -174,7 +177,7 @@ export function remoteCache(value: JsonValue | undefined): Verbatim {
 /** `ls_room_plan`'s answer, or none, as the remote planner reads it. */
 export interface RemoteRoomPlan {
   /** `key in plan.stale_keys`; raises on a present non-list. */
-  stale(key: string): boolean;
+  stale(key: OverlayKey): boolean;
   /** The room target's `period`, as stored. */
   roomPeriod(room: string): StoredFact;
   /** The room's schedule details: present when a non-empty mapping. */
@@ -184,7 +187,7 @@ export interface RemoteRoomPlan {
 export function remoteRoomPlan(result: JsonValue | undefined): RemoteRoomPlan {
   const plan = object(object(result).plan);
   return {
-    stale: key => list(plan.stale_keys).includes(key),
+    stale: key => list(plan.stale_keys).includes(overlayKeyText(key)),
     roomPeriod: room => storedFact(object(object(object(plan.resolved).targets)[`room:${room}`]).period),
     scheduleDetails: room => {
       const schedule = object(object(plan.schedule_details)[room]);

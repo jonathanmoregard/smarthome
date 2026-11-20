@@ -23,6 +23,9 @@ import { asTimestampOr, num, saved, testNow } from './accessors.ts';
 import { haBooleanOr } from './state-store.ts';
 import { storedFact } from './overrides.ts';
 import type { StoredFact, StoredValue } from './overrides.ts';
+import type { OverlayKey } from '../domain/types/overlay.ts';
+import { overlayKeyText } from '../domain/types/overlay.ts';
+import { parseOverlayKey } from './overlay-key.ts';
 
 /**
  * A stored override record as the schedule reads it. Saved state, so every
@@ -84,13 +87,13 @@ function scheduleRecord(raw: JsonValue | undefined): ScheduleRecord {
 /** The stored override records. */
 export interface ScheduleRecords {
   /** The keys, in stored order. */
-  keys: string[];
+  keys: OverlayKey[];
   /** A record by key, read leniently: a missing key is an empty record. */
-  get(key: string): ScheduleRecord;
+  get(key: OverlayKey): ScheduleRecord;
 }
 
 function scheduleRecords(records: JsonObject): ScheduleRecords {
-  return { keys: Object.keys(records), get: key => scheduleRecord(records[key]) };
+  return { keys: Object.keys(records).map(parseOverlayKey), get: key => scheduleRecord(records[overlayKeyText(key)]) };
 }
 
 /** `sensor.ls_overrides`'s `overrides`, read leniently: a non-mapping is `{}`. */
