@@ -132,10 +132,15 @@ test('saved profile get fallbacks preserve explicit null values', async () => {
   assert.equal(result.targets['room:studio'].effect, null);
 });
 
-test('saved profile ownership accepts only a real optional boolean', async () => {
-  const ctx = await configured();
-  ctx.put('input_text.ls_lamp_studio_day', JSON.stringify({ own: [], on: true, b: 100, m: 'ct', k: 3000 }));
-  assert.throws(() => ctx.run('ls_base', { test_now: '2026-10-23T12:00:00+02:00', overrides: {} }), /must be true or false/);
+test("a saved lamp profile's ownership is the captured `.get('own', false)` truthiness", async () => {
+  // A falsy `own` leaves the lamp on its scope's profile; a truthy one makes the lamp's own profile the source.
+  for (const [own, effect] of [[[], 'House'], [0, 'House'], [[0], 'Lamp'], ['yes', 'Lamp']] as const) {
+    const ctx = await configured();
+    ctx.put('input_text.ls_house_day', JSON.stringify({ on: true, b: 240, m: 'ct', k: 4500, effect: 'House' }));
+    ctx.put('input_text.ls_lamp_studio_day', JSON.stringify({ own, on: true, b: 100, m: 'ct', k: 3000, effect: 'Lamp' }));
+    const result = ctx.run('ls_base', { test_now: '2026-10-23T12:00:00+02:00', overrides: {} });
+    assert.equal(result.schedule.profiles['light.studio'].effect, effect, `own ${JSON.stringify(own)}`);
+  }
 });
 
 test('room cache skips baseline recomputation while updating observations and power', async () => {

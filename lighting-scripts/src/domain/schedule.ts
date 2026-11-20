@@ -153,7 +153,7 @@ function sourceEntity(view: HouseView, lamp: string | null, area: string, block:
   if (block === 'lamp' && lamp) return lamp;
   const scope = scopeFor(view, area, block);
   const lampProfile = lamp === null ? undefined : savedProfile(view, `input_text.ls_lamp_${lamp.split('.')[1]}_${block}`);
-  const own = lampProfile === undefined ? false : lampProfile.own(`ls_base.saved.${lamp}.${block}.own`);
+  const own = lampProfile === undefined ? false : lampProfile.own;
   const candidates = [...(own && lamp !== null ? [`light.ls_lamp_${lamp.split('.')[1]}_${block}`] : []), `light.ls_${scope}_${block}`,
     ...(fallback ? [`light.ls_house_${block}`] : [])];
   return (fallback ? candidates.find(e => hasValue(view, e)) : candidates[0]) ?? candidates[0]!;
@@ -347,16 +347,14 @@ export function scheduledBase(view: HouseView, args: ScheduledBaseArgs, roomLoca
     const block = stage.from === 'lamp' ? stage.to : stage.from;
     const scope = scopeFor(view, area, block);
     const lampSaved = savedProfile(view, `input_text.ls_lamp_${lamp.split('.')[1]}_${block}`);
-    const lampOwn = lampSaved.own(`ls_base.saved.${lamp}.${block}.own`);
-    const pr = lampOwn ? lampSaved : savedProfile(view, `input_text.ls_${scope}_${block}`);
+    const pr = lampSaved.own ? lampSaved : savedProfile(view, `input_text.ls_${scope}_${block}`);
     if (plugs.includes(lamp)) {
       const selectedBlock = !stage.moving || stage.p >= 1 ? stage.to : stage.from;
       const selectedScope = scopeFor(view, area, selectedBlock);
       const lp = savedProfile(view, `input_text.ls_lamp_${lamp.split('.')[1]}_${selectedBlock}`);
       const src = [`input_boolean.ls_${selectedScope}_${selectedBlock}_on_off`, `input_boolean.ls_house_${selectedBlock}_on_off`].find(e =>
         hasValue(view, e));
-      const ownsPower = lp.own(`ls_base.saved.${lamp}.${selectedBlock}.own`);
-      const want = ownsPower
+      const want = lp.own
         ? lp.on(`ls_base.saved.${lamp}.${selectedBlock}.on`)
         : src ? view.get(src) === 'on' : null;
       if (!stage.moving && want !== null && view.get(lamp) !== (want ? 'on' : 'off')) {

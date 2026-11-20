@@ -15,11 +15,12 @@
  */
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { HouseView } from '../runtime/effects.ts';
-import { object, requireBoolean, requireObject, requireString } from '../runtime/parse.ts';
+import { jinjaTruthy, object, requireObject, requireString } from '../runtime/parse.ts';
 import type { Block } from '../domain/blocks.ts';
 import type { LampProfile, LampSample, ScheduledBaseArgs } from '../domain/schedule.ts';
 import { isBlock } from './blocks.ts';
 import { list, num, optionalTimestamp, saved } from './accessors.ts';
+import { haBoolean } from './state-store.ts';
 import { storedFact } from './overrides.ts';
 import type { StoredFact, StoredValue } from './overrides.ts';
 
@@ -85,9 +86,13 @@ export function storedScheduleRecords(value: JsonValue | undefined): ScheduleRec
 
 /** A saved `input_text` lamp profile; raises where `saved()` does. */
 export interface SavedProfile {
-  /** `own`, absent read as false; a present non-boolean raises with `context`. */
-  own(context: string): boolean;
-  /** `on`, required boolean. */
+  /** Captured `.get('own', false)` used as a condition: Jinja truthiness, absent read as false. */
+  own: boolean;
+  /**
+   * A plug's power, captured `.get('on', false) | bool`: absent is false,
+   * otherwise Home Assistant's bool filter, which raises (with `context`) on a
+   * value it rejects. Read only where the captured script reads it.
+   */
   on(context: string): boolean;
   effect: StoredFact;
   effectChannels: StoredFact;
@@ -96,8 +101,8 @@ export interface SavedProfile {
 export function savedProfile(ctx: HouseView, entity: string): SavedProfile {
   const profile = saved(ctx, entity);
   return {
-    own: context => profile.own === undefined ? false : requireBoolean(profile.own, context),
-    on: context => requireBoolean(profile.on, context),
+    own: profile.own === undefined ? false : jinjaTruthy(profile.own),
+    on: context => profile.on === undefined ? false : haBoolean(profile.on, context),
     effect: storedFact(profile.effect),
     effectChannels: storedFact(profile.effect_channels),
   };
