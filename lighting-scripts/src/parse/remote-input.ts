@@ -23,6 +23,7 @@ import { toRoomId } from './ids.ts';
 import type { OverlayKey } from '../domain/types/overlay.ts';
 import { overlayKeyText } from '../domain/types/overlay.ts';
 import { parseOverlayKey } from './overlay-key.ts';
+import type { RoomId } from '../domain/types/ids.ts';
 
 const OVERRIDES = 'sensor.ls_overrides';
 const numeric = (v: JsonValue | undefined): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -157,7 +158,7 @@ export interface RemoteOverrides {
   others: OtherRecord[];
 }
 
-export function remoteOverrides(ctx: HouseView, room: string): RemoteOverrides {
+export function remoteOverrides(ctx: HouseView, room: RoomId | ''): RemoteOverrides {
   const overrides = object(ctx.attr(OVERRIDES, 'overrides'));
   const inputKey = latestRemoteKey(overrides, room);
   return {
@@ -179,9 +180,9 @@ export interface RemoteRoomPlan {
   /** `key in plan.stale_keys`; raises on a present non-list. */
   stale(key: OverlayKey): boolean;
   /** The room target's `period`, as stored. */
-  roomPeriod(room: string): StoredFact;
+  roomPeriod(room: RoomId | ''): StoredFact;
   /** The room's schedule details: present when a non-empty mapping. */
-  scheduleDetails(room: string): { present: boolean; nextFs(): number };
+  scheduleDetails(room: RoomId | ''): { present: boolean; nextFs(): number };
 }
 
 export function remoteRoomPlan(result: JsonValue | undefined): RemoteRoomPlan {

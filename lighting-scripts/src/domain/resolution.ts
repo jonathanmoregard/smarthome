@@ -8,6 +8,7 @@ import { levelNumber } from '../parse/resolution.ts';
 import type { LampOrRoom } from './types/lighting-state.ts';
 import type { OverlayKey } from './types/overlay.ts';
 import { overlayKeyText, sameOverlayKey, SARA_MODE } from './types/overlay.ts';
+import type { RoomId } from './types/ids.ts';
 
 const CHANNELS = ['brightness', 'color'] as const;
 export type Channel = typeof CHANNELS[number];
@@ -122,7 +123,7 @@ export type BaseItem = {
   /** `is_room` as stored, echoed on the resolved target unread. */
   isRoomAsStored: Verbatim;
   lampOrRoom: LampOrRoom;
-  area: string;
+  area: RoomId;
   ignored: OverlayKey[];
   period: Verbatim;
   periodIsNight: boolean;
@@ -147,7 +148,7 @@ export type ResolveArgs = {
   channelsOf(effect: string | undefined): Channel[];
   adjustsByGradient(processor: string): boolean;
   private: string[];
-  power(area: string): Verbatim;
+  power(area: RoomId): Verbatim;
   gradient(target: string, signature: GradientSignature): GradientCurve | undefined;
   /** Read where the signature lists it (`warm_end|list`); see `warmEndArgument`. */
   warmEnd: () => RGB;
@@ -182,7 +183,7 @@ export type ResolvedTarget = {
   period: Verbatim;
   /** As the schedule and room power give it, or `false` where a blend with an off end is at or past that end. */
   on: Verbatim | boolean;
-  area: string;
+  area: RoomId;
   is_room: Verbatim;
   level?: ChannelValue;
   owners: { brightness: string; color: string };
@@ -212,7 +213,7 @@ function numericStamp(n: number): Stamp { return { value: n, numeric: n, text: `
 function isRemoteStream(r: OverrideRecord): boolean { return r.kind === 'input' || (r.kind === 'channels' && r.via === 'remote'); }
 
 /** The newest remote input stream for a room, over records already in lexical key order. */
-export function latestStream(records: OverrideRecord[], room: string): OverlayKey {
+export function latestStream(records: OverrideRecord[], room: RoomId | ''): OverlayKey {
   // The scripts start from the empty key and keep it when no remote record applies.
   let key: OverlayKey = { kind: 'saved', key: '' }, stamp = -1;
   for (const record of records) {

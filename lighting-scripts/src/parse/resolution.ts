@@ -47,6 +47,8 @@ import { lampOrRoom } from './lighting-state.ts';
 import type { OverlayKey } from '../domain/types/overlay.ts';
 import { overlayKeyText } from '../domain/types/overlay.ts';
 import { parseOverlayKey } from './overlay-key.ts';
+import { toRoomId } from './ids.ts';
+import type { RoomId } from '../domain/types/ids.ts';
 
 /**
  * A record or input timestamp in seconds, `0` when absent or unparseable.
@@ -250,7 +252,7 @@ function baseItem(target: string, raw: JsonValue): BaseItem {
   return {
     isRoomAsStored: carry(isRoom),
     lampOrRoom: lampOrRoom(target, isRoom),
-    area: String(item.area),
+    area: toRoomId(String(item.area)),
     ignored: Array.isArray(item.ignore_overrides)
       ? item.ignore_overrides.filter((key): key is string => typeof key === 'string').map(parseOverlayKey) : [],
     period: carryOptional(item.period),
@@ -320,6 +322,6 @@ export function parseResolveArgs(args: JsonObject): ResolveArgs {
  * `ls_remote_plan`, whose records are not parsed yet; the resolver itself
  * calls `latestStream` with the records it parsed.
  */
-export function latestRemoteKey(records: JsonObject, room: string): OverlayKey {
+export function latestRemoteKey(records: JsonObject, room: RoomId | ''): OverlayKey {
   return latestStream(overrideRecords(records).sort((a, b) => lexical(overlayKeyText(a.key), overlayKeyText(b.key))), room);
 }
