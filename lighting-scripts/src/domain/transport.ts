@@ -11,6 +11,7 @@ import { assignedAs, powerClosed, runtimeGeneration, runtimeGenerationIs, runtim
 import type { FrameColour, RuntimeState, StoredChannels } from '../parse/transport.ts';
 import type { LampOrRoom } from './types/lighting-state.ts';
 import type { OverlayKey } from './types/overlay.ts';
+import type { BulbId } from './types/ids.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
 
@@ -379,8 +380,10 @@ export function stoppedLamps(targetViews: ReturnType<AssignDetails['targetViews'
 export function stopCommands(view: HouseView, catalog: Catalog, targetViews: ReturnType<AssignDetails['targetViews']>,
   stored: RuntimeState): StopCommand[] {
   const commands: StopCommand[] = [];
+  // The lamps are lighting-state entry keys, plain text until those lists are parsed; look them up as text.
+  const membersByText: Readonly<Record<string, BulbId[] | undefined>> = catalog.members;
   for (const lamp of stoppedLamps(targetViews, stored)) {
-    for (const member of catalog.members[lamp] ?? []) if (view.get(member) === 'on') {
+    for (const member of membersByText[lamp] ?? []) if (view.get(member) === 'on') {
       // A member the catalog gives no topic is skipped, as the light path
       // skips it: `framePlan` hands its row to `effects_group_plan` with
       // `topic: null`, which rejects it as an invalid endpoint row. Pushing

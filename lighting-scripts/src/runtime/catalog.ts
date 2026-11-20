@@ -41,8 +41,8 @@
  */
 import { ParseError, describe, requireArray, requireBoolean, requireObject, requireString } from './parse.ts';
 import type { JsonObject, JsonValue, ScriptContext } from './context.ts';
-import type { BulbId, EffectName, RemoteId } from '../domain/types/ids.ts';
-import { toBulbId, toRemoteId } from '../parse/ids.ts';
+import type { BulbId, EffectName, LampId, RemoteId } from '../domain/types/ids.ts';
+import { toBulbId, toLampId, toRemoteId } from '../parse/ids.ts';
 
 /**
  * The channels an effect drives.
@@ -96,7 +96,7 @@ export interface Catalog {
   /** The effect names the registry knows, each with the channels it drives. */
   effects: Record<EffectName, CatalogEffect>;
   /** Logical lamp to its physical member entities. Required. */
-  members: Record<string, BulbId[]>;
+  members: Record<LampId, BulbId[]>;
   /** Group name to its member entities. Required. */
   groups: Record<string, string[]>;
   /** Group entity to the members it stands in for, when packing commands. */
@@ -151,7 +151,7 @@ function stringListMap(document: JsonObject, key: string, context: string): Reco
  * shared membership is a configuration error, rejected here. A lamp that lists
  * one of its own bulbs twice still owns it alone.
  */
-function lampMembers(document: JsonObject, context: string): Record<string, BulbId[]> {
+function lampMembers(document: JsonObject, context: string): Record<LampId, BulbId[]> {
   const members = stringListMap(document, 'members', context), owner = new Map<string, string>();
   for (const [lamp, bulbs] of Object.entries(members)) for (const bulb of bulbs) {
     const other = owner.get(bulb);
@@ -160,7 +160,7 @@ function lampMembers(document: JsonObject, context: string): Record<string, Bulb
     }
     owner.set(bulb, lamp);
   }
-  return Object.fromEntries(Object.entries(members).map(([lamp, bulbs]) => [lamp, bulbs.map(toBulbId)]));
+  return Object.fromEntries(Object.entries(members).map(([lamp, bulbs]) => [toLampId(lamp), bulbs.map(toBulbId)]));
 }
 
 function stringMap(document: JsonObject, key: string, context: string): Record<string, string> {

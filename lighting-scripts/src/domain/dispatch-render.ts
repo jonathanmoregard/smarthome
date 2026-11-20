@@ -303,7 +303,9 @@ export function bulbStartCommands(view: HouseView, lamps: Array<[string, string[
 
 /** A lamp's catalog members; a lamp the catalog does not list has none. */
 function membersOf(view: HouseView, lamp: string): BulbId[] {
-  const members = view.catalog.members[lamp];
+  // The lamp is a lighting-state entry key, plain text until those lists are parsed; look it up as text.
+  const byText: Readonly<Record<string, BulbId[] | undefined>> = view.catalog.members;
+  const members = byText[lamp];
   return members === undefined ? [] : members;
 }
 /** The members a start can reach now: on, with a topic. */
