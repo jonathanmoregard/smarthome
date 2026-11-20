@@ -215,7 +215,8 @@ function sentStarts(run: Chosen): Array<[string, string[]]> {
 /**
  * Every publish is done. Stop if the revision or the generation moved;
  * otherwise record a complete output's applied lights (and bulb-effect
- * starts) under the generation, then go on to the switches.
+ * starts) under the generation, then go on to the switches. Without such an
+ * output, only a bulb-effect record that names a bulb no longer on is written.
  */
 function settle(house: HouseView, run: Lit, started: EmitResult): Transition {
   const { revision, generation, ordinary } = run;
@@ -226,10 +227,19 @@ function settle(house: HouseView, run: Lit, started: EmitResult): Transition {
   const completed = run.emission.completed && started.completed;
   if (!stillCurrent(house, 'ls_dispatch', revision, generation)) return done(null);
   const settled: Settled = { ...run, completed, publishedAt: [...run.emission.published_at, ...started.published_at] };
-  if (Object.keys(ordinary).length === 0 || !completed) return switching(house, settled, 0);
   // The record as it stands now, not as read before the assignment:
-  // `effects_assign` drops the entry of every bulb it sent a stop.
-  const bulbEffects = recordStarts(bulbEffectsRecord(house), house, Object.keys(ordinary), run.starts);
+  // `effects_assign` drops the entry of every bulb it sent a stop. Every bulb
+  // that is not on goes too, whatever this dispatch sent.
+  const recorded = bulbEffectsRecord(house), lit = litRecord(recorded, house);
+  if (Object.keys(ordinary).length === 0 || !completed) {
+    if (lit === undefined) return switching(house, settled, 0);
+    return [{ tag: 'switching', run: settled, next: 0 }, [{ tag: 'effect', effect: {
+      kind: 'service', service: 'variable.update_sensor',
+      data: { value: generation, replace_attributes: false, attributes: { bulb_effects: lit } },
+      target: { entity_id: runtime }, guard: { revision, generation },
+    } }]];
+  }
+  const bulbEffects = recordStarts(lit ?? recorded, house, Object.keys(ordinary), run.starts) ?? lit;
   return [{ tag: 'switching', run: settled, next: 0 }, [{ tag: 'effect', effect: {
     kind: 'service', service: 'variable.update_sensor',
     data: { value: generation, replace_attributes: false,
@@ -324,6 +334,18 @@ function recordedStarts(recorded: Record<string, string[]>, member: string): str
 }
 function sameStarts(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((start, index) => start === b[index]);
+}
+/**
+ * `bulb_effects` without the bulbs that are not on now. The firmware ends the
+ * candle when a bulb is switched off (and a bulb that lost power runs nothing),
+ * so such a bulb runs no start the port sent: its entry goes, and once it is on
+ * again its lamp reads as not running and is sent its colour, then the start.
+ * A bulb that stays on keeps its entry, so a steady effect is never restarted.
+ * `undefined` when every recorded bulb is on, so nothing is written.
+ */
+function litRecord(recorded: Record<string, string[]>, view: HouseView): Record<string, string[]> | undefined {
+  const lit = Object.fromEntries(Object.entries(recorded).filter(([bulb]) => view.get(bulb) === 'on'));
+  return Object.keys(lit).length === Object.keys(recorded).length ? undefined : lit;
 }
 /**
  * `bulb_effects` after a completed dispatch sent these lamps their light, and
