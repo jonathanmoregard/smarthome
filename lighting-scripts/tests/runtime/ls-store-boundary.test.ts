@@ -39,6 +39,9 @@ const written = (ctx: ReturnType<typeof store>): Record<string, unknown> => {
   return JSON.parse(String(call.data.value));
 };
 
+const storedText = (ctx: ReturnType<typeof store>): string =>
+  String(ctx.calls.find(c => c.service === 'input_text.set_value')?.data.value);
+
 test('ls_store rejects a mireds value the captured division cannot convert', () => {
   // `1000000 / (mireds | float)` is Python division. `| float` yields 0.0 for a
   // zero and for anything unparseable, so the oracle raises ZeroDivisionError.
@@ -142,19 +145,17 @@ test('saved effect_channels: a list, empty included, is kept as stored', () => {
   }
 });
 
-test('ls_store treats an unparseable cache as empty but a non-mapping cache as malformed', () => {
+test('ls_store reads an unparseable or non-mapping cache as the empty profile', () => {
   // `from_json(default={})` swallows a parse failure, so this fallback is
-  // faithful and must stay. A cache that parses to a non-mapping is different:
-  // the captured `current.get(...)` raises on it.
-  const garbage = store('not json at all');
-  garbage.run('ls_store', { store: STORE, on: true });
-  assert.equal(written(garbage).on, true);
-
-  assert.throws(() => store('5').run('ls_store', { store: STORE, on: true }), /ls_store\.store entity/);
+  // faithful and must stay. A cache that parses to a non-mapping makes the
+  // captured `current.get(...)` raise; by the lenient saved-value directive
+  // (2026-11-19, round 4) it takes the same named default, the empty profile.
+  for (const cached of ['not json at all', '5', '[1]', '"x"', 'null']) {
+    const ctx = store(cached);
+    ctx.run('ls_store', { store: STORE, on: true });
+    assert.equal(storedText(ctx), '{"on":true,"effect_channels":["brightness","color"]}', cached);
+  }
 });
-
-const storedText = (ctx: ReturnType<typeof store>): string =>
-  String(ctx.calls.find(c => c.service === 'input_text.set_value')?.data.value);
 
 test('ls_store writes the cached profile first, in its order, then the patch', () => {
   // `{...current, ...patch}`: an existing key keeps its position and takes the
@@ -170,19 +171,15 @@ test('ls_store release filters drop only the literal channel names', () => {
   assert.equal(JSON.stringify(written(ctx).effect_channels), '[1,{"a":1},null]');
 });
 
-test('ls_store raises a malformed cache before the catalog call', () => {
-  const runs: string[] = [];
-  const counting = (cached: string) => {
-    const ctx = context({ ...stateStoreHandlers, effects_catalog: () => { runs.push('catalog'); return catalog(); } });
-    ctx.put(STORE, cached);
-    return ctx;
-  };
-  assert.throws(() => counting('[1]').run('ls_store', { store: STORE, on: true }), /non-mapping/);
-  assert.deepEqual(runs, []);
-});
-
-test('ls_store looks effects up by hashable key only, raising for a container', () => {
-  assert.throws(() => store('{"effect":{"a":1}}').run('ls_store', { store: STORE, on: true }), /ls_store\.effect.*unhashable/);
+test('ls_store looks effects up by hashable key only: a saved container reads as absent, an argument raises', () => {
+  // The saved effect is lenient (round 4): a container the captured
+  // `catalog.effects.get(active,{})` cannot hash reads as the absent spelling,
+  // `'Normal light'`. The effect argument is not saved state and still raises.
+  for (const cached of ['{"effect":{"a":1}}', '{"effect":[]}']) {
+    const saved = store(cached);
+    saved.run('ls_store', { store: STORE, on: true });
+    assert.deepEqual(written(saved).effect_channels, ['brightness', 'color'], cached);
+  }
   assert.throws(() => store().run('ls_store', { store: STORE, effect: [] }), /ls_store\.effect.*unhashable/);
   const numeric = store();
   numeric.run('ls_store', { store: STORE, effect: 5 });

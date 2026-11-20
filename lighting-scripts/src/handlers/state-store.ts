@@ -34,7 +34,7 @@ export function commit(ctx: ScriptContext, args: CommitArgs): CommitResult {
 /** Writes the profile store and answers nothing; every path returns null. */
 export function storeProfile(ctx: ScriptContext, args: StoreProfileArgs): null {
   // The saved profile raises on a non-mapping cache before the catalog is fetched.
-  const current = cachedProfile(ctx.get(args.entity), args.entity);
+  const current = cachedProfile(ctx.get(args.entity));
   // `catalog.effects.get(key, {}).get('channels', [])`, over the raw result:
   // the `effects_catalog` call is recorded in `scriptRuns`, so it stays a call.
   return run(ctx, planStore(args, current, catalogEffectChannels(ctx.run('effects_catalog'))));

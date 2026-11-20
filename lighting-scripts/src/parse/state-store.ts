@@ -163,28 +163,30 @@ export function parseStoreProfile(args: JsonObject): StoreProfileArgs {
  *
  * The `default={}` genuinely swallows a parse failure -- an unset or non-JSON
  * store reads as an empty profile -- so that fallback is faithful and stays. A
- * cache that parses to a non-mapping is a different case: the captured
- * `current.get(...)` raises on it, here, before the catalog is fetched.
+ * cache that parses to a non-mapping, where the captured `current.get(...)`
+ * raises, takes the same named default, {@link EMPTY_PROFILE} (lenient
+ * saved-value directive, 2026-11-19).
  *
  * The `effect` read falls back only on an ABSENT key: an explicit null effect
- * is a value (it resolves no channels). The saved `effect_channels` is read
+ * is a value (it resolves no channels). A saved container, which the captured
+ * `catalog.effects.get(active,{})` cannot hash, reads as absent too. The saved `effect_channels` is read
  * leniently with a default (user directive 2026-11-19, "typed with parser
  * that is flexible and has default"): a list is kept as stored, and anything
  * else, explicit null included, is treated as absent, so the domain takes the
  * active effect's catalog channels.
  */
-export function cachedProfile(text: string, entity: string): StoredProfile {
-  let parsed: JsonValue;
-  try { parsed = JSON.parse(text) as JsonValue; } catch { parsed = {}; }
-  if (!isObject(parsed)) {
-    throw new ParseError(`ls_store.store entity ${entity} holds a non-mapping saved profile`);
-  }
+const EMPTY_PROFILE: Readonly<JsonObject> = {};
+export function cachedProfile(text: string): StoredProfile {
+  let document: JsonValue;
+  try { document = JSON.parse(text) as JsonValue; } catch { document = { ...EMPTY_PROFILE }; }
+  const parsed = isObject(document) ? document : { ...EMPTY_PROFILE };
   // An own key of a parsed JSON document is never undefined; the explicit test
   // only tells the compiler what `hasOwn` already established.
   const effect = parsed.effect, channels = parsed.effect_channels;
+  const hashable = effect !== undefined && !Array.isArray(effect) && !isObject(effect);
   return {
     document: opaqueMap(parsed),
-    activeEffect: Object.hasOwn(parsed, 'effect') && effect !== undefined ? storedFact(effect) : 'Normal light',
+    activeEffect: Object.hasOwn(parsed, 'effect') && hashable ? storedFact(effect) : 'Normal light',
     effectChannels: Array.isArray(channels) ? channels.map(channel => storedFact(channel)) : 'absent',
   };
 }
