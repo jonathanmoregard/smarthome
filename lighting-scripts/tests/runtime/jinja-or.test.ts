@@ -10,6 +10,7 @@ import { house } from './house-view.ts';
 import { reveal } from '../../src/runtime/verbatim.ts';
 import { dispatchPlanOrder } from '../../src/parse/dispatch-render.ts';
 import { runtimePlanOrder } from '../../src/parse/transport.ts';
+import { planMapping, planOverrides } from '../../src/parse/controller.ts';
 
 /**
  * Captured Jinja `or` / `and` over stored attributes. Jinja's falsy set holds
@@ -97,5 +98,21 @@ test('a truthy non-number runtime plan order still raises', () => {
   for (const value of ['x', [1], { a: 1 }] as JsonValue[]) {
     assert.throws(() => dispatchPlanOrder(runtimeView(value)), /plan_order/, `ls_dispatch ${JSON.stringify(value)}`);
     assert.throws(() => runtimePlanOrder(runtimeView(value)), /plan_order/, `effects_assign ${JSON.stringify(value)}`);
+  }
+});
+
+test("ls_plan reads overrides, power and switch_ranges as `attr or {}`: every falsy value is the empty mapping", () => {
+  for (const value of [...falsy, undefined]) {
+    assert.deepEqual(planOverrides(value).entries, {}, `overrides ${JSON.stringify(value)}`);
+    assert.deepEqual(reveal(planMapping(value, 'ls_plan.power')), {}, `power ${JSON.stringify(value)}`);
+  }
+  assert.deepEqual(reveal(planMapping({ room: true }, 'ls_plan.power')), { room: true });
+});
+
+test('ls_plan still raises on a truthy non-mapping overrides, power or switch_ranges', () => {
+  // Captured `overrides.items()` and the callees' `.get`/`.items()` raise on it.
+  for (const value of ['x', [1], 5, true] as JsonValue[]) {
+    assert.throws(() => planOverrides(value), /ls_plan\.overrides/, JSON.stringify(value));
+    assert.throws(() => planMapping(value, 'ls_plan.power'), /ls_plan\.power/, JSON.stringify(value));
   }
 });

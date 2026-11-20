@@ -4,7 +4,7 @@
  * attributes `ls_plan` reads.
  *
  * `ls_plan`'s attribute reads are strict where the inline reads were
- * (`optionalAttributeObject`: absent or null is `{}`, any other non-mapping
+ * (`attributeMappingOr`: absent or Jinja-falsy is `{}`, any other non-mapping
  * raises), and each is a function the domain calls exactly where the inline
  * read sat, between the inter-handler calls. The documents `ls_plan` forwards
  * -- the override mapping, the active overrides, the cached gradients, the
@@ -14,7 +14,7 @@
  * `tasks/ls-plan-design.md`).
  */
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
-import { lazy, object, requireArray, requireBoolean, requireObject, requireString } from '../runtime/parse.ts';
+import { jinjaOr, lazy, object, requireArray, requireBoolean, requireObject, requireString } from '../runtime/parse.ts';
 import { carry } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import type { RGB } from '../domain/scale.ts';
@@ -36,10 +36,13 @@ function optionalScriptObject(value: JsonValue | undefined, context: string): Js
   return requireObject({ value }, 'value', context);
 }
 
-/** HA entity attributes use null for no value; present values must be objects. */
-function optionalAttributeObject(value: JsonValue | undefined, context: string): JsonObject {
-  if (value === undefined || value === null) return {};
-  return requireObject({ value }, 'value', context);
+/**
+ * An attribute mapping read as the captured `attr or {}`: absent or
+ * Jinja-falsy is `{}`; a truthy non-mapping raises, as the `.items()`/`.get`
+ * it reaches does.
+ */
+function attributeMappingOr(value: JsonValue | undefined, context: string): JsonObject {
+  return requireObject({ value: jinjaOr(value, {}) }, 'value', context);
 }
 
 function planOverridesOf(value: JsonObject): PlanOverrides {
@@ -124,14 +127,14 @@ export function parseRemoteCommandArgs(args: JsonObject): RemoteCommandArgs {
   };
 }
 
-/** `sensor.ls_overrides`'s `overrides`, read strictly: absent or null is `{}`, another non-mapping raises. */
+/** `sensor.ls_overrides`'s `overrides`, as captured `overrides or {}`; a truthy non-mapping raises. */
 export function planOverrides(value: JsonValue | undefined): PlanOverrides {
-  return planOverridesOf(optionalAttributeObject(value, 'ls_plan.overrides'));
+  return planOverridesOf(attributeMappingOr(value, 'ls_plan.overrides'));
 }
 
-/** An attribute mapping `ls_plan` forwards, read strictly: absent or null is `{}`, another non-mapping raises. */
+/** An attribute mapping `ls_plan` forwards, as captured `attr or {}`; a truthy non-mapping raises. */
 export function planMapping(value: JsonValue | undefined, context: string): Verbatim {
-  return carry(optionalAttributeObject(value, context));
+  return carry(attributeMappingOr(value, context));
 }
 
 /**
