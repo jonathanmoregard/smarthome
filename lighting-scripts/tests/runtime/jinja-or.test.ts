@@ -10,7 +10,8 @@ import { house } from './house-view.ts';
 import { reveal } from '../../src/runtime/verbatim.ts';
 import { dispatchPlanOrder } from '../../src/parse/dispatch-render.ts';
 import { runtimePlanOrder } from '../../src/parse/transport.ts';
-import { planMapping, planOverrides } from '../../src/parse/controller.ts';
+import { planMapping, planOverrides, planRangeDefaults } from '../../src/parse/controller.ts';
+import { rangeDefaults } from '../../src/parse/planning.ts';
 
 /**
  * Captured Jinja `or` / `and` over stored attributes. Jinja's falsy set holds
@@ -115,4 +116,24 @@ test('ls_plan still raises on a truthy non-mapping overrides, power or switch_ra
     assert.throws(() => planOverrides(value), /ls_plan\.overrides/, JSON.stringify(value));
     assert.throws(() => planMapping(value, 'ls_plan.power'), /ls_plan\.power/, JSON.stringify(value));
   }
+});
+
+const builtInRanges = { bright: [90, 100], cosy: [30, 60] };
+test('range_defaults takes the built-in ranges for every Jinja-falsy value (ls_plan and ls_room_plan)', () => {
+  for (const value of [...falsy, undefined]) {
+    assert.deepEqual(reveal(planRangeDefaults(value)), builtInRanges, `ls_plan ${JSON.stringify(value)}`);
+    assert.deepEqual(reveal(rangeDefaults(value)), builtInRanges, `ls_room_plan ${JSON.stringify(value)}`);
+  }
+  assert.deepEqual(reveal(planRangeDefaults({ bright: [80, 90] })), { bright: [80, 90] });
+  assert.deepEqual(reveal(rangeDefaults({ bright: [80, 90] })), { bright: [80, 90] });
+});
+
+test('ls_plan still raises on a truthy non-mapping range_defaults', () => {
+  for (const value of ['x', [1], 5, true] as JsonValue[]) {
+    assert.throws(() => planRangeDefaults(value), /ls_plan\.range_defaults/, JSON.stringify(value));
+  }
+});
+
+test('ls_room_plan hands a truthy non-mapping range_defaults on, where ls_switch_plan raises on it', () => {
+  assert.deepEqual(reveal(rangeDefaults([1])), [1]);
 });

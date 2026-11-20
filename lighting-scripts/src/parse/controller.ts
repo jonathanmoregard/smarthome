@@ -151,11 +151,9 @@ export function cachedGradients(value: JsonValue | undefined): OpaqueMap {
   return opaqueMap(object(value).gradients);
 }
 
-/** `range_defaults`, or the built-in ranges when the attribute is absent or null; another non-mapping raises. */
+/** `range_defaults` as captured `range_defaults or {bright, cosy}`: absent or Jinja-falsy is the built-in ranges; a truthy non-mapping raises. */
 export function planRangeDefaults(value: JsonValue | undefined): Verbatim {
-  return carry(value === undefined || value === null
-    ? { bright: [90, 100], cosy: [30, 60] }
-    : requireObject({ value }, 'value', 'ls_plan.range_defaults'));
+  return carry(requireObject({ value: jinjaOr(value, { bright: [90, 100], cosy: [30, 60] }) }, 'value', 'ls_plan.range_defaults'));
 }
 
 /** The override sensor's `last_updated`, required. */

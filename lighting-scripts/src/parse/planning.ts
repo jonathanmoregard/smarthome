@@ -24,7 +24,7 @@
  */
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { HouseView } from '../runtime/effects.ts';
-import { isObject, jinjaFloat, jinjaTruthy, object, requireNumber, requireObject, requireString } from '../runtime/parse.ts';
+import { isObject, jinjaFloat, jinjaOr, jinjaTruthy, object, requireNumber, requireObject, requireString } from '../runtime/parse.ts';
 import { carry } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { list, optionalTimestamp, timestamp } from './accessors.ts';
@@ -239,9 +239,13 @@ export function switchRangeEntities(value: JsonValue | undefined): string[] {
   return Object.keys(object(value));
 }
 
-/** `range_defaults`, or the built-in ranges when the attribute is absent or null. */
+/**
+ * `range_defaults` as captured `range_defaults or {bright, cosy}`: absent or
+ * Jinja-falsy is the built-in ranges. A truthy value is carried, and
+ * `ls_switch_plan` raises on one that is not a mapping.
+ */
 export function rangeDefaults(value: JsonValue | undefined): Verbatim {
-  return carry(value ?? { bright: [90, 100], cosy: [30, 60] });
+  return carry(jinjaOr(value, { bright: [90, 100], cosy: [30, 60] }));
 }
 
 /**
