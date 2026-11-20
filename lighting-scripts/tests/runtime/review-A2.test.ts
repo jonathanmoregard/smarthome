@@ -15,7 +15,7 @@ import type { JsonObject, ServiceCall, Snapshot } from '../../src/runtime/contex
 // Directive: starting the firmware candle sends the colour, then
 // `effect: channel_change`, and nothing with On or a brightness after it.
 //
-// The signal: the runtime records, per lamp, the bulb-effect starts the port
+// The signal: the runtime records, per bulb, the bulb-effect starts the port
 // sent after the lamp's light (`bulb_effects`, written with `applied` once
 // the output succeeded). A lamp whose target runs a bulb effect the record
 // does not show is sent its light and start; an unchanged lamp whose record
@@ -98,7 +98,7 @@ for (const delivered of [true, false]) {
       await host.dispatch('ls_dispatch', { plan, lights: [] });
       await host.drain();
       const recorded = host.snapshot().state['sensor.ls_effects_runtime']?.attributes.bulb_effects;
-      assert.deepEqual(recorded, delivered ? { 'light.lamp': ['channel_change'] } : undefined);
+      assert.deepEqual(recorded, delivered ? { 'light.bulb_1': ['channel_change'], 'light.bulb_2': ['channel_change'] } : undefined);
     } finally { await host.close(); }
   });
 }

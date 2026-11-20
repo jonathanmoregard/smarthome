@@ -63,8 +63,8 @@ type Accepted = { revision: string; planOrder: number; details: DispatchDetails 
 type Chosen = Accepted & { catalog: Verbatim; previous: DispatchRuntime; ordinary: OpaqueMap };
 /** ...once the assignment answered its generation. */
 type Assigned = Chosen & { generation: AssignResult['generation'] };
-/** ...once the light went out. */
-type Lit = Assigned & { emission: EmitResult };
+/** ...once the light went out, with the bulb-effect starts built for each member after it. */
+type Lit = Assigned & { emission: EmitResult; starts: StartCommand[] };
 /** ...once every publish is done: whether all completed, and when each went out. */
 type Settled = Assigned & { completed: boolean; publishedAt: number[] };
 
@@ -154,8 +154,8 @@ export function dispatchStep(phase: DispatchPhase, msg: DispatchMsg): Transition
     }
     case 'emitting': {
       if (msg.tag !== 'emitted') return unexpected(phase, msg);
-      const run = { ...phase.run, emission: msg.result };
-      const commands = bulbStartCommands(msg.house, sentStarts(run));
+      const commands = bulbStartCommands(msg.house, sentStarts(phase.run));
+      const run: Lit = { ...phase.run, emission: msg.result, starts: commands };
       if (commands.length === 0) return settle(msg.house, run, { published_at: [], completed: true });
       return [{ tag: 'starting', run }, [{ tag: 'emit', args: { commands, revision: run.revision, generation: run.generation } }]];
     }
@@ -201,7 +201,7 @@ export function ordinaryTargets(view: HouseView, details: DispatchDetails, previ
     if (view.get(lamp) !== 'on') continue;
     if (!(requested.includes(lamp) || remoteRooms.includes(target.area ?? null) || details.baselineSend(lamp))) continue;
     if (requested.includes(lamp) || (previous.hadEffect(lamp) && !details.assigned(lamp)) || !previous.applied(lamp, target.document)
-      || !sameStarts(recordedStarts(previous.bulbEffects, lamp), bulbStarts(target))) ordinary[lamp] = target.document;
+      || !bulbsRunning(view, previous.bulbEffects, lamp, bulbStarts(target))) ordinary[lamp] = target.document;
   }
   return ordinary;
 }
@@ -226,7 +226,7 @@ function settle(house: HouseView, run: Lit, started: EmitResult): Transition {
   if (!stillCurrent(house, 'ls_dispatch', revision, generation)) return done(null);
   const settled: Settled = { ...run, completed, publishedAt: [...run.emission.published_at, ...started.published_at] };
   if (Object.keys(ordinary).length === 0 || !completed) return switching(house, settled, 0);
-  const bulbEffects = recordStarts(run.previous.bulbEffects, sentStarts(run));
+  const bulbEffects = recordStarts(run.previous.bulbEffects, house, Object.keys(ordinary), run.starts);
   return [{ tag: 'switching', run: settled, next: 0 }, [{ tag: 'effect', effect: {
     kind: 'service', service: 'variable.update_sensor',
     data: { value: generation, replace_attributes: false,
@@ -284,43 +284,67 @@ export function* tailEffects(details: DispatchDetails, revision: string, generat
  */
 export function bulbStartCommands(view: HouseView, lamps: Array<[string, string[]]>): StartCommand[] {
   return lamps.filter(([lamp, starts]) => starts.length > 0 && view.get(lamp) === 'on').flatMap(([lamp, starts]) =>
-    (view.catalog.members[lamp] ?? []).flatMap(member => {
-      const topic = view.catalog.topics[member];
-      return view.get(member) === 'on' && topic !== undefined
-        ? starts.map(effect => ({ topic, payload: { effect }, members: [member], owners: [lamp], group: null }))
-        : [];
-    }));
+    startableMembers(view, lamp).flatMap(({ member, topic }) =>
+      starts.map(effect => ({ topic, payload: { effect }, members: [member], owners: [lamp], group: null }))));
+}
+
+/** A lamp's catalog members; a lamp the catalog does not list has none. */
+function membersOf(view: HouseView, lamp: string): string[] {
+  const members = view.catalog.members[lamp];
+  return members === undefined ? [] : members;
+}
+/** The members a start can reach now: on, with a topic. */
+function startableMembers(view: HouseView, lamp: string): Array<{ member: string; topic: string }> {
+  return membersOf(view, lamp).flatMap(member => {
+    const topic = view.catalog.topics[member];
+    return view.get(member) === 'on' && topic !== undefined ? [{ member, topic }] : [];
+  });
 }
 
 /**
- * Is a lamp's bulb running what its target needs? `applied` cannot answer
+ * Are a lamp's bulbs running what its target needs? `applied` cannot answer
  * that for a bulb effect: the original engine wrote `applied` too, after
  * streaming software candle frames, so at cutover a Candle lamp reads as
  * applied while its bulbs run nothing. Only the port's own record of the
- * starts it sent (`bulb_effects`) says the firmware effect is running; a lamp
- * whose target needs a start that record lacks is sent its light and start.
- * A lamp whose record matches is left alone, so an unchanged candle is never
- * restarted. A lamp with no bulb effect and no record compares `[]` with `[]`.
+ * starts it sent (`bulb_effects`, per bulb) says the firmware effect is
+ * running. Every member a start can reach now must hold exactly the lamp's
+ * starts; one that lacks them (it was off, or was stopped, when the candle
+ * started) gets the lamp sent its light and starts. A lamp whose members all
+ * match is left alone, so an unchanged candle is never restarted. A lamp with
+ * no bulb effect and no record compares `[]` with `[]`.
  */
-function recordedStarts(recorded: Record<string, string[]>, lamp: string): string[] {
-  return Object.hasOwn(recorded, lamp) ? recorded[lamp]! : [];
+function bulbsRunning(view: HouseView, recorded: Record<string, string[]>, lamp: string, starts: string[]): boolean {
+  return startableMembers(view, lamp).every(({ member }) => sameStarts(recordedStarts(recorded, member), starts));
+}
+function recordedStarts(recorded: Record<string, string[]>, member: string): string[] {
+  return Object.hasOwn(recorded, member) ? recorded[member]! : [];
 }
 function sameStarts(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((start, index) => start === b[index]);
 }
 /**
- * `bulb_effects` after a completed dispatch sent these lamps their light (and
- * starts): a lamp with starts records them, a lamp with none drops its entry.
- * `undefined` when nothing changed, so a dispatch that touches no bulb effect
- * writes exactly what it wrote before the record existed.
+ * `bulb_effects` after a completed dispatch sent these lamps their light, and
+ * then these start commands. The record holds, per bulb, only the starts that
+ * were sent to that bulb: each member of a sent lamp records the starts built
+ * for it, and every other member of a sent lamp drops its entry (its light
+ * ended any effect, or it was off and runs none). `undefined` when nothing
+ * changed, so a dispatch that touches no bulb effect writes exactly what it
+ * wrote before the record existed.
  */
-function recordStarts(recorded: Record<string, string[]>, sent: Array<[string, string[]]>): Record<string, string[]> | undefined {
+function recordStarts(recorded: Record<string, string[]>, view: HouseView, lamps: string[],
+  commands: StartCommand[]): Record<string, string[]> | undefined {
+  const sent = new Map<string, string[]>();
+  for (const command of commands) for (const member of command.members) {
+    const before = sent.get(member);
+    sent.set(member, before === undefined ? [command.payload.effect] : [...before, command.payload.effect]);
+  }
   const next = { ...recorded };
   let changed = false;
-  for (const [lamp, starts] of sent) {
-    if (starts.length > 0) {
-      if (!sameStarts(recordedStarts(next, lamp), starts)) { next[lamp] = starts; changed = true; }
-    } else if (Object.hasOwn(next, lamp)) { delete next[lamp]; changed = true; }
+  for (const member of new Set(lamps.flatMap(lamp => membersOf(view, lamp)))) {
+    const starts = sent.get(member);
+    if (starts !== undefined) {
+      if (!Object.hasOwn(next, member) || !sameStarts(next[member]!, starts)) { next[member] = starts; changed = true; }
+    } else if (Object.hasOwn(next, member)) { delete next[member]; changed = true; }
   }
   return changed ? next : undefined;
 }
