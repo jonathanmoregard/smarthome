@@ -27,6 +27,8 @@ import { storedChannels } from './transport.ts';
 import { savedPlanOrder } from './sensors.ts';
 import type { DispatchArgs, DispatchDetails, DispatchTarget } from '../domain/dispatch-render.ts';
 import { lampOrRoom } from './lighting-state.ts';
+import { toRoomId } from './ids.ts';
+import type { RoomId } from '../domain/types/ids.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
 
@@ -154,18 +156,24 @@ export function areaOf(document: Verbatim): StoredFact {
 export interface FullPlan {
   /** `{ ...object(result.plan), remote_rooms: rooms }`, forwarded to `ls_dispatch`. */
   document: Verbatim;
-  /** The distinct non-empty string areas the plan's baseline names, in order. */
-  areas: string[];
+  /** The distinct non-empty string areas the plan's baseline names, in order: its rooms. */
+  areas: RoomId[];
   /** The plan's gradients for the baseline lamps in a room, keyed by lamp. */
-  gradientsIn(room: string): OpaqueMap;
+  gradientsIn(room: RoomId): OpaqueMap;
 }
 
-export function fullPlan(result: JsonValue, rooms: string[]): FullPlan {
+/** A saved room-keyed map's keys (`pending_rooms`, `handled_rooms`): the rooms it names. */
+export function roomKeys(map: Readonly<Record<string, unknown>>): RoomId[] {
+  return Object.keys(map).map(toRoomId);
+}
+
+export function fullPlan(result: JsonValue, rooms: RoomId[]): FullPlan {
   const plan: JsonObject = { ...object(object(result).plan), remote_rooms: rooms };
   const bases = object(plan.base), gradients = object(plan.gradients);
   return {
     document: carry(plan),
-    areas: [...new Set(Object.values(bases).map(t => object(t).area).filter((area): area is string => typeof area === 'string' && area.length > 0))],
+    areas: [...new Set(Object.values(bases).map(t => object(t).area)
+      .filter((area): area is string => typeof area === 'string' && area.length > 0).map(toRoomId))],
     gradientsIn: room => Object.fromEntries(Object.entries(bases)
       .filter(([key, t]) => object(t).area === room && Object.hasOwn(gradients, key))
       .map(([key]) => [key, carry(gradients[key]!)])),

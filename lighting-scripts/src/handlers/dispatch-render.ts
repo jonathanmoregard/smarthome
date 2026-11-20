@@ -9,7 +9,7 @@ import { carry } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { drive, perform, run } from '../runtime/effects.ts';
 import { timestamp } from '../parse/accessors.ts';
-import type { OpaqueMap, StoredValue } from '../parse/overrides.ts';
+import type { StoredValue } from '../parse/overrides.ts';
 import { overridesRevision } from '../parse/sensors.ts';
 import { fullPlan, parseDispatchArgs, roomPlanView } from '../parse/dispatch-render.ts';
 import {
@@ -17,6 +17,8 @@ import {
     roomPlanRequest, roomsPlan, roomsStart,
 } from '../domain/dispatch-render.ts';
 import type { DispatchArgs, DispatchCmd, DispatchMsg, DispatchResult, RoomsPlan } from '../domain/dispatch-render.ts';
+import { entriesOf } from '../domain/types/ids.ts';
+import type { RoomId } from '../domain/types/ids.ts';
 
 /** Delta output actor: invalidate touched lamps before sending, acknowledge only complete batches. */
 export function dispatch(ctx: ScriptContext, args: DispatchArgs): DispatchResult {
@@ -48,7 +50,7 @@ export function render(ctx: ScriptContext): null {
   const opening = renderOpening(ctx);
   if (opening === undefined) return null;
   const { revision, rooms } = opening;
-  let plan: Verbatim | RoomsPlan, lights: StoredValue | StoredValue[] = [], updates: OpaqueMap;
+  let plan: Verbatim | RoomsPlan, lights: StoredValue | StoredValue[] = [], updates: Record<RoomId, Verbatim>;
   if (opening.full) {
     const planned = fullPlan(ctx.run('ls_plan', { reason: fullReason(ctx) }), rooms);
     plan = planned.document;
@@ -61,7 +63,7 @@ export function render(ctx: ScriptContext): null {
     updates = merged.updates;
   }
   if (revision !== overridesRevision(ctx, 'ls_render')) return null;
-  for (const [room, cache] of Object.entries(updates)) {
+  for (const [room, cache] of entriesOf(updates)) {
     const write = cacheWrite(ctx, room, cache);
     if (write !== undefined) perform(ctx, write);
   }

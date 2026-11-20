@@ -1,7 +1,7 @@
 import { jinjaTruthy } from '../runtime/parse.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import type { Effect, HouseView, Plan } from '../runtime/effects.ts';
-import type { BulbId } from './types/ids.ts';
+import type { BulbId, RoomId } from './types/ids.ts';
 import type { GroupCommand, GroupPlanResult } from './grouping.ts';
 import { hasValue } from './schedule.ts';
 import { bulbEffect, runningIn, stillCurrent } from './transport.ts';
@@ -11,7 +11,7 @@ import type { OpaqueMap, StoredFact, StoredValue } from '../parse/overrides.ts';
 import { attributeFact, attributeMapping, overridesRevision } from '../parse/sensors.ts';
 import { mappingAttribute } from '../parse/planning.ts';
 import type { StoredChannels } from '../parse/transport.ts';
-import { areaOf, dispatchPlanOrder, dispatchRuntime, dueFullVersion, roomCacheGradients } from '../parse/dispatch-render.ts';
+import { areaOf, dispatchPlanOrder, dispatchRuntime, dueFullVersion, roomCacheGradients, roomKeys } from '../parse/dispatch-render.ts';
 import type { DispatchRuntime, FullPlan, RoomPlanView } from '../parse/dispatch-render.ts';
 import type { LampOrRoom } from './types/lighting-state.ts';
 
@@ -340,7 +340,7 @@ export type RoomsPlan = {
   revision: string;
   plan_order: number;
   remote: false;
-  remote_rooms: string[];
+  remote_rooms: RoomId[];
   sara_mirror: StoredValue;
   output_targets: string[];
 };
@@ -358,7 +358,7 @@ export interface RenderOpening {
   /** A full render is pending that the runtime has not handled. */
   full: boolean;
   /** The rooms whose pending version the runtime has not handled. */
-  rooms: string[];
+  rooms: RoomId[];
 }
 
 /** The opening reads, or `undefined` when nothing is pending. */
@@ -368,7 +368,7 @@ export function renderOpening(view: HouseView): RenderOpening | undefined {
   const pending = attributeMapping(view, overrideSensor, 'pending_rooms'), handled = attributeMapping(view, runtime, 'handled_rooms');
   const fullVersion = dueFullVersion(view);
   const full = fullVersion !== undefined;
-  const rooms = Object.keys(pending).filter(room => pending[room] !== handled[room]);
+  const rooms = roomKeys(pending).filter(room => pending[room] !== handled[room]);
   if (!full && rooms.length === 0) return undefined;
   return { started, revision, received, request, pending, fullVersion, full, rooms };
 }
@@ -386,8 +386,8 @@ export function fullLights(view: HouseView): StoredValue | StoredValue[] {
 }
 
 /** Each baseline room's cache whose gradients the full plan changed, with the new gradients. */
-export function gradientUpdates(view: HouseView, planned: FullPlan): OpaqueMap {
-  const updates: OpaqueMap = {};
+export function gradientUpdates(view: HouseView, planned: FullPlan): Record<RoomId, Verbatim> {
+  const updates: Record<RoomId, Verbatim> = {};
   for (const room of planned.areas) {
     const old = roomCacheGradients(view.attr(`sensor.ls_cache_${room}`, 'cache'));
     const values = planned.gradientsIn(room);
@@ -405,7 +405,8 @@ export type MergedRooms = {
   mirrors: Verbatim[];
   stale: string[];
   saraMirror: StoredFact;
-  updates: OpaqueMap;
+  /** Each planned room's cache update, by room. */
+  updates: Record<RoomId, Verbatim>;
 };
 
 /** The runtime's stored targets and assignments, read before any room is planned. */
@@ -415,13 +416,13 @@ export function roomsStart(view: HouseView): MergedRooms {
 }
 
 /** `ls_room_plan`'s arguments for one room, read as the previous room's plan left the house. */
-export function roomPlanRequest(view: HouseView, room: string): { room: string; overrides: Verbatim; cache: Verbatim; reason: 'remote' } {
+export function roomPlanRequest(view: HouseView, room: RoomId): { room: RoomId; overrides: Verbatim; cache: Verbatim; reason: 'remote' } {
   return { room, overrides: mappingAttribute(view.attr(overrideSensor, 'overrides')),
     cache: mappingAttribute(view.attr(`sensor.ls_cache_${room}`, 'cache')), reason: 'remote' };
 }
 
 /** One room's plan over the merge: its stored targets replaced in place, the rest accumulated. */
-export function mergeRoomPlan(merged: MergedRooms, room: string, planned: RoomPlanView): MergedRooms {
+export function mergeRoomPlan(merged: MergedRooms, room: RoomId, planned: RoomPlanView): MergedRooms {
   const elsewhere = (map: OpaqueMap) => Object.fromEntries(Object.entries(map).filter(([, t]) => areaOf(t) !== room));
   return {
     targets: { ...elsewhere(merged.targets), ...planned.targets },
@@ -443,7 +444,7 @@ export function roomsPlan(merged: MergedRooms, opening: Pick<RenderOpening, 'rev
 }
 
 /** A room cache write, when the room's cache sensor has a value. */
-export function cacheWrite(view: HouseView, room: string, cache: Verbatim): Effect | undefined {
+export function cacheWrite(view: HouseView, room: RoomId, cache: Verbatim): Effect | undefined {
   const entity = `sensor.ls_cache_${room}`;
   if (!hasValue(view, entity)) return undefined;
   return { kind: 'service', service: 'variable.update_sensor', data: { value: view.now, attributes: { cache }, replace_attributes: false },
