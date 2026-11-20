@@ -11,11 +11,11 @@
  */
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { HouseView } from '../runtime/effects.ts';
-import { isObject, jinjaTruthy, object, requireBoolean, requireObject, requireString } from '../runtime/parse.ts';
+import { isObject, jinjaList, jinjaTruthy, object, requireString } from '../runtime/parse.ts';
 import { carry, carryOptional } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
-import { list, num } from './accessors.ts';
-import { latestRemoteKey, recordTimestamp } from './resolution.ts';
+import { list, num, savedNumberOr } from './accessors.ts';
+import { latestRemoteKey, savedWhen } from './resolution.ts';
 import { assembledMap, storedFact } from './overrides.ts';
 import type { Assembled, AssembledMap, StoredFact, StoredValue } from './overrides.ts';
 import type { Adjustment, RemotePlanArgs } from '../domain/remote-input.ts';
@@ -23,15 +23,24 @@ import type { Adjustment, RemotePlanArgs } from '../domain/remote-input.ts';
 const OVERRIDES = 'sensor.ls_overrides';
 const numeric = (v: JsonValue | undefined): v is number => typeof v === 'number' && Number.isFinite(v);
 
-/** A stored adjustment (or selection input): its document, and its numbers read on demand. */
-function storedAdjustment(document: JsonObject): Adjustment {
+/** The captured default `step_range`, `{'min':-20,'max':20}`. */
+const DEFAULT_STEP_RANGE = { min: -20, max: 20 } as const;
+
+/**
+ * A stored adjustment (or selection input): its document, and its numbers.
+ * Each number is read by {@link savedNumberOr} with the identity adjustment's
+ * value as its named default -- `updated` 0 (the captured `.get('updated',0)`),
+ * `lower`/`upper` the step range's ends, `steps` 0 -- where the captured
+ * arithmetic raises. `has_up` is the captured Jinja `or`.
+ */
+function storedAdjustment(document: JsonObject, range: { min: number; max: number }): Adjustment {
   return {
     fields: assembledMap(document),
-    updated: () => num(document.updated === undefined ? 0 : document.updated),
-    lower: () => num(document.lower),
-    upper: () => num(document.upper),
-    steps: () => num(document.steps),
-    hasUp: () => document.has_up === undefined ? false : requireBoolean(document.has_up, 'ls_remote_plan.adjustment.has_up'),
+    updated: () => savedNumberOr(document.updated, 0),
+    lower: () => savedNumberOr(document.lower, range.min),
+    upper: () => savedNumberOr(document.upper, range.max),
+    steps: () => savedNumberOr(document.steps, 0),
+    hasUp: pressedUp => document.has_up !== undefined && jinjaTruthy(document.has_up) ? storedFact(document.has_up) : pressedUp,
   };
 }
 
@@ -43,21 +52,21 @@ export interface RemoteInputValue {
   stepRange: { document: Assembled; bounds: { min: number; max: number } | undefined };
   /** `adjustment`, else `selection_input`, when a mapping. */
   adjustment: Adjustment | undefined;
-  /** `position`, when a finite number. */
-  legacyPosition: number | undefined;
+  /** `position`, when a Jinja number (booleans included). */
+  legacyPosition: number | boolean | undefined;
   /** `channels` as stored, when one of them runs an effect. */
   effectChannels: StoredValue | undefined;
   selection: StoredFact;
   /** `preset_contexts` read leniently; entries carried. */
   presetContexts: AssembledMap;
-  /** `remote_valid_until`, absent read as 0. */
+  /** `remote_valid_until`, absent or not comparable read as 0. */
   validUntil(): number;
   timingRevision: StoredFact;
 }
 
 function inputValue(raw: JsonValue | undefined): RemoteInputValue {
   const value = object(raw);
-  const range = Object.hasOwn(value, 'step_range') ? value.step_range : { min: -20, max: 20 };
+  const range = Object.hasOwn(value, 'step_range') ? value.step_range : { ...DEFAULT_STEP_RANGE };
   const bounds = isObject(range) && numeric(range.min) && numeric(range.max)
     && -20 <= range.min && range.min <= range.max && range.max <= 20 ? { min: range.min, max: range.max } : undefined;
   const adjustment = isObject(value.adjustment) ? value.adjustment : isObject(value.selection_input) ? value.selection_input : undefined;
@@ -65,12 +74,13 @@ function inputValue(raw: JsonValue | undefined): RemoteInputValue {
     fields: assembledMap(value),
     // Forwarded unread; `carryOptional` because an own key may hold `undefined` in memory.
     stepRange: { document: carryOptional(range), bounds },
-    adjustment: adjustment === undefined ? undefined : storedAdjustment(adjustment),
-    legacyPosition: numeric(value.position) ? value.position : undefined,
+    // The adjustment's numbers are read only on a press, which needs valid bounds.
+    adjustment: adjustment === undefined ? undefined : storedAdjustment(adjustment, bounds === undefined ? DEFAULT_STEP_RANGE : bounds),
+    legacyPosition: numeric(value.position) || typeof value.position === 'boolean' ? value.position : undefined,
     effectChannels: Object.values(object(value.channels)).some(x => object(x).kind === 'effect') ? storedFact(value.channels) : undefined,
     selection: storedFact(value.selection),
     presetContexts: assembledMap(object(value.preset_contexts)),
-    validUntil: () => num(value.remote_valid_until === undefined ? 0 : value.remote_valid_until),
+    validUntil: () => savedNumberOr(value.remote_valid_until, 0),
     timingRevision: storedFact(value.remote_timing_revision),
   };
 }
@@ -80,7 +90,7 @@ export interface RemoteInputRecordView {
   kind: StoredFact;
   scope: StoredFact;
   target: StoredFact;
-  /** `when` as a record timestamp, 0 when absent or unreadable. */
+  /** `when` as captured `as_timestamp(when,0)`: 0 for anything but date text. */
   whenStamp: number;
   value: RemoteInputValue;
 }
@@ -91,7 +101,7 @@ function inputRecord(raw: JsonValue | undefined): RemoteInputRecordView {
     kind: storedFact(record.kind),
     scope: storedFact(record.scope),
     target: storedFact(record.target),
-    whenStamp: recordTimestamp(record.when),
+    whenStamp: savedWhen(record.when),
     value: inputValue(record.value),
   };
 }
@@ -118,12 +128,15 @@ function otherRecord(key: string, raw: JsonValue): OtherRecord {
     scope: storedFact(r.scope),
     target: storedFact(r.target),
     valueIsMapping: isObject(r.value),
+    // Captured: `claim.get('updated', as_timestamp(r.get('when'),0)) if claim else
+    // v.get('adjustment',{}).get('updated',0) if v.get('adjustment') is mapping else 0`.
+    // A claim that is not a mapping is no claim, and an unreadable `updated`
+    // takes its absent spelling (lenient saved-value directive).
     newer: () => {
       const value = object(r.value);
       const claim = object(object(value.channels).brightness);
-      if (Object.keys(claim).length) return num(claim.updated === undefined ? recordTimestamp(r.when) : claim.updated);
-      const adjustment = value.adjustment === undefined ? {} : requireObject(value, 'adjustment', 'ls_remote_plan.override.value');
-      return num(adjustment.updated === undefined ? 0 : adjustment.updated);
+      if (jinjaTruthy(claim)) return savedNumberOr(claim.updated, savedWhen(r.when));
+      return isObject(value.adjustment) ? savedNumberOr(value.adjustment.updated, 0) : 0;
     },
   };
 }
@@ -179,10 +192,29 @@ export function remoteRoomPlan(result: JsonValue | undefined): RemoteRoomPlan {
   };
 }
 
-/** The selected preset: the stored selection, else the room's period, else `'day'`; must be a string. */
+/**
+ * The selected preset, as captured `value.get('selection', group.get('period','day'))`:
+ * the stored selection when it is text -- a saved selection that is not text
+ * reads as absent (lenient saved-value directive; the captured `**{selected:...}`
+ * raises on it) -- else the room plan's period, else `'day'`. The period is the
+ * port's own room plan, so a non-text period still raises.
+ */
 export function presetSelection(selection: StoredFact, period: StoredFact): string {
-  const value = selection === undefined ? (period === undefined ? 'day' : period) : selection;
-  return requireString({ selection: value }, 'selection', 'ls_remote_plan');
+  if (typeof selection === 'string') return selection;
+  return requireString({ selection: period === undefined ? 'day' : period }, 'selection', 'ls_remote_plan');
+}
+
+/**
+ * The saved `switch_ranges` entities the toggle visits, as captured
+ * `for L in (switch_ranges or {}) if area_id(L)==room`: Jinja iteration (a
+ * mapping's keys, a list's elements, a string's characters), keeping text, since
+ * `area_id` of a non-text scalar is none. A value Jinja cannot iterate is none
+ * (lenient saved-value directive; captured raises).
+ */
+export function switchRangeIterable(value: JsonValue | undefined): string[] {
+  const iterable = value !== undefined && jinjaTruthy(value) ? value : {};
+  const items = Array.isArray(iterable) || typeof iterable === 'string' || isObject(iterable) ? jinjaList(iterable, 'switch_ranges') : [];
+  return items.filter((item): item is string => typeof item === 'string');
 }
 
 /** A preset context, stored or just saved, as its entries when it is a mapping. */

@@ -53,6 +53,15 @@ export function recordTimestamp(value: JsonValue | undefined): number {
   return Number.isNaN(timestamp) ? 0 : timestamp / 1000 + (fraction ? Number('0.' + fraction.slice(0, 6)) : 0);
 }
 
+/**
+ * A saved record's `when`, as captured `as_timestamp(r.get('when'),0)`: date
+ * text is its instant (microseconds kept, see {@link recordTimestamp}); anything
+ * else, numbers included, is 0.
+ */
+export function savedWhen(value: JsonValue | undefined): number {
+  return typeof value === 'string' ? recordTimestamp(value) : 0;
+}
+
 function defaulted(o: JsonObject, key: string, fallback: JsonValue): JsonValue { return o[key] === undefined ? fallback : o[key]; }
 function optionalString(value: JsonValue | undefined): string | undefined { return typeof value === 'string' ? value : undefined; }
 function nonEmptyString(value: JsonValue | undefined): string | undefined { return typeof value === 'string' && value.length > 0 ?
@@ -204,7 +213,7 @@ function lightValue(value: JsonValue | undefined): LightValue {
 
 function overrideRecord(key: string, record: JsonObject): OverrideRecord {
   const value = record.value;
-  const stamp = recordTimestamp(record.when);
+  const stamp = savedWhen(record.when);
   return {
     key,
     scope: optionalString(defaulted(record, 'scope', record.kind === 'light' ? 'lamp' : '')),

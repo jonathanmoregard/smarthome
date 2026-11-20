@@ -59,7 +59,9 @@ test('remote commit acknowledgement accepts only a real boolean', () => {
   assert.throws(() => ctx.run('ls_remote_command', { source: 'remote', area: 'studio', command: 'up' }), /must be true or false/);
 });
 
-test('persisted remote has_up accepts only a real optional boolean', () => {
+// Round 4: a saved has_up is the captured Jinja `or` (`a.v.get('has_up',false) or
+// command=='up'`), which never raises: `[]` is falsy, so a down press stores False.
+test('persisted remote has_up is the captured Jinja or: a falsy stored value yields the press', () => {
   const ctx = context();
   ctx.areas['light.lamp'] = 'studio';
   ctx.put('sensor.ls_overrides', '0', { overrides: {
@@ -69,7 +71,8 @@ test('persisted remote has_up accepts only a real optional boolean', () => {
     },
   } });
   ctx.state['sensor.ls_overrides']!.last_updated = ctx.now;
-  assert.throws(() => remotePlan(ctx, { source: 'remote', area: 'studio', command: 'down' }), /must be true or false/);
+  const result = remotePlan(ctx, { source: 'remote', area: 'studio', command: 'down' }) as unknown as { records: { value: JsonObject }[] };
+  assert.equal((result.records[0]!.value.adjustment as JsonObject).has_up, false);
 });
 
 test('remote command requires its three string inputs instead of inventing empty values', () => {
@@ -90,8 +93,15 @@ test('remote plan requires its three raw string inputs', () => {
   }
 });
 
-test('remote plan preserves absent-only numeric and selection fallbacks', async t => {
-  await t.test('explicit null remote validity does not take the zero fallback', () => {
+/**
+ * Round 4 (lenient saved-value directive, 2026-11-19): where the captured
+ * template raises on a saved number or selection, the port reads it with the
+ * template's own absent spelling as the named default. The `next_fs` case stays
+ * strict: it is the port's own room plan, not a saved value.
+ */
+const adjustmentOf = (result: unknown) => ((result as { records: { value: JsonObject }[] }).records[0]!.value.adjustment as JsonObject);
+test('remote plan reads saved numbers and the saved selection leniently, with the absent default', async t => {
+  await t.test('explicit null remote validity reads as 0: expired, so the context is re-read', () => {
     const ctx = remoteContext({
       step_range: { min: -20, max: 20 },
       adjustment: { steps: 0, lower: -20, upper: 20, updated: 0 },
@@ -99,24 +109,27 @@ test('remote plan preserves absent-only numeric and selection fallbacks', async 
       remote_timing_revision: 0,
     });
     ctx.put('input_boolean.ls_ovr_next_block_on', 'on');
-    assert.throws(() => remotePlan(ctx, { source: 'remote', area: 'studio', command: 'up' }), /schedule number.*finite number/);
+    // The room plan's next_fs (100) is stamped only when the context was re-read.
+    const result = remotePlan(ctx, { source: 'remote', area: 'studio', command: 'up' }) as unknown as { records: { value: JsonObject }[] };
+    assert.equal(result.records[0]!.value.remote_valid_until, 100);
   });
 
-  await t.test('raw adjustment steps cannot be missing', () => {
+  await t.test('missing adjustment steps read as 0', () => {
     const ctx = remoteContext({
       step_range: { min: -20, max: 20 },
       adjustment: { lower: -20, upper: 20, updated: 0 },
     });
-    assert.throws(() => remotePlan(ctx, { source: 'remote', area: 'studio', command: 'left' }), /schedule number.*finite number/);
+    assert.equal(adjustmentOf(remotePlan(ctx, { source: 'remote', area: 'studio', command: 'left' })).steps, 0);
   });
 
-  await t.test('explicit null selection does not take the period fallback', () => {
+  await t.test("explicit null selection reads as absent: the room plan's period", () => {
     const ctx = remoteContext({
       step_range: { min: -20, max: 20 },
       adjustment: { steps: 0, lower: -20, upper: 20, updated: 0 },
       selection: null,
     });
-    assert.throws(() => remotePlan(ctx, { source: 'remote', area: 'studio', command: 'right' }), /selection.*string/);
+    const result = remotePlan(ctx, { source: 'remote', area: 'studio', command: 'right' }) as unknown as { records: { value: JsonObject }[] };
+    assert.equal(result.records[0]!.value.selection, 'cosy');
   });
 
   await t.test('explicit null next_fs does not take the zero fallback', () => {
@@ -130,7 +143,7 @@ test('remote plan preserves absent-only numeric and selection fallbacks', async 
     assert.throws(() => remotePlan(ctx, { source: 'remote', area: 'studio', command: 'up' }), /schedule number.*finite number/);
   });
 
-  await t.test('explicit null update stamps do not take any of the three get fallbacks', () => {
+  await t.test('explicit null update stamps take the three get fallbacks, never a raise', () => {
     const cases = [
       {
         ownUpdated: 0,
@@ -152,7 +165,7 @@ test('remote plan preserves absent-only numeric and selection fallbacks', async 
       });
       const overrides = ctx.state['sensor.ls_overrides']!.attributes.overrides as JsonObject;
       overrides.other = { kind: 'channels', via: 'app', scope: 'room', target: 'studio', when: ctx.now, value: item.competingValue };
-      assert.throws(() => remotePlan(ctx, { source: 'remote', area: 'studio', command: 'up' }), /schedule number.*finite number/);
+      assert.doesNotThrow(() => remotePlan(ctx, { source: 'remote', area: 'studio', command: 'up' }), JSON.stringify(item));
     }
   });
 
@@ -169,12 +182,12 @@ test('remote plan preserves absent-only numeric and selection fallbacks', async 
     assert.doesNotThrow(() => remotePlan(ctx, { source: 'remote', area: 'studio', command: 'up' }));
   });
 
-  await t.test('raw adjustment bounds reject malformed present numbers', () => {
+  await t.test("a malformed saved bound reads as the step range's end", () => {
     const ctx = remoteContext({
       step_range: { min: -20, max: 20 },
       adjustment: { steps: 0, lower: 'hot', upper: 20, updated: 0 },
     });
-    assert.throws(() => remotePlan(ctx, { source: 'remote', area: 'studio', command: 'left' }), /schedule number.*finite number/);
+    assert.equal(adjustmentOf(remotePlan(ctx, { source: 'remote', area: 'studio', command: 'left' })).lower, -20);
   });
 });
 

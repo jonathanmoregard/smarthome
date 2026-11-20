@@ -39,8 +39,10 @@ test('an up press keeps the stored value\'s keys in place and carries its docume
   }));
 });
 
-test('a stored adjustment with no lower raises the schedule number error on a press', () => {
-  assert.throws(() => recordValue({ adjustment: { updated: 0, upper: 2, steps: 0 } }, 'down'), /schedule number must be a finite number, got undefined/);
+// Round 4 (lenient saved-value directive): a missing saved bound reads as the step range's end.
+test("a stored adjustment with no lower reads it as the step range's minimum on a press", () => {
+  const adjustment = JSON.parse(recordValue({ adjustment: { updated: 0, upper: 2, steps: 0 } }, 'down')).adjustment;
+  assert.deepEqual([adjustment.lower, adjustment.upper, adjustment.steps], [-20, 1, -1]);
 });
 
 const roomPlan: ScriptHandlers = { ls_room_plan: () => ({ plan: { resolved: { targets: { 'room:studio': { period: 'cosy' } } } } }) };

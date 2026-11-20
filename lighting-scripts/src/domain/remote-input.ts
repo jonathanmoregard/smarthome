@@ -2,10 +2,10 @@ import type { Catalog } from '../runtime/catalog.ts';
 import type { HouseView } from '../runtime/effects.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { recordTimestamp } from '../parse/resolution.ts';
-import { switchRangeEntities } from '../parse/planning.ts';
-import type { AssembledMap } from '../parse/overrides.ts';
+import type { AssembledMap, StoredValue } from '../parse/overrides.ts';
 import { overridesRevision } from '../parse/sensors.ts';
-import { contextEntries, noInputRecord, presetSelection, remoteCache, remoteOverrides, roomPower } from '../parse/remote-input.ts';
+import { contextEntries, noInputRecord, presetSelection, remoteCache, remoteOverrides, roomPower, switchRangeIterable }
+  from '../parse/remote-input.ts';
 import type { RemoteOverrides, RemoteRoomPlan } from '../parse/remote-input.ts';
 import { clamp } from './scale.ts';
 
@@ -30,13 +30,14 @@ export interface Adjustment {
   lower(): number;
   upper(): number;
   steps(): number;
-  hasUp(): boolean;
+  /** Captured `a.v.get('has_up',false) or command=='up'`: the stored value when Jinja-truthy, else the press. */
+  hasUp(pressedUp: boolean): StoredValue;
 }
 
 /** An adjustment the planner builds itself; it has no `has_up`. */
 function built(fields: AssembledMap & { updated: number; lower: number; upper: number; steps: number }): Adjustment {
   return { fields, updated: () => fields.updated, lower: () => fields.lower, upper: () => fields.upper, steps: () => fields.steps,
-    hasUp: () => false };
+    hasUp: pressedUp => pressedUp };
 }
 
 /** A mode flip carries its own value; `sara_toggle` is the only producer. */
@@ -135,7 +136,7 @@ export function remoteDecision(view: HouseView, args: RemotePlanArgs, opening: R
       result = overrides.has('mode:sara') ? { op: 'clear', keys: ['mode:sara'], via: 'remote' }
         : { op: 'set', records: [{ kind: 'mode', target: 'sara', value: 'on' }], via: 'remote' };
     } else if (command === 'toggle') {
-      const targets = [...Object.keys(catalog.members), ...switchRangeEntities(view.attr('sensor.ls_overrides', 'switch_ranges'))]
+      const targets = [...Object.keys(catalog.members), ...switchRangeIterable(view.attr('sensor.ls_overrides', 'switch_ranges'))]
         .filter(id => view.areas[id] === room);
       const saved = roomPower(view, room);
       result = { op: 'power', area: room, on: saved !== undefined ? !saved : !targets.some(id => view.get(id) === 'on'), targets, via: 'remote' };
@@ -166,10 +167,10 @@ export function remoteDecision(view: HouseView, args: RemotePlanArgs, opening: R
       if (old.kind === 'channels' && value.effectChannels !== undefined) next.legacy_channels = value.effectChannels;
       if (command === 'up' || command === 'down') {
         const delta = command === 'up' ? 1 : -1;
-        const hasUp = adjustment.hasUp();
+        const hasUp = adjustment.hasUp(command === 'up');
         lower = clamp(lower + delta, low, high); upper = clamp(upper + delta, low, high);
         fields = { ...fields, steps: lower === upper ? 0 : steps + delta, lower, upper,
-          updated: stamp, last: command, has_up: hasUp || command === 'up' };
+          updated: stamp, last: command, has_up: hasUp };
         next.adjustment = fields;
       } else {
         const choices = ['day', 'cosy', 'Candle', ...Object.keys(catalog.effects).filter(k => !['Candle', 'Colour loop', 'Breathe',

@@ -58,6 +58,16 @@ export function testNow(value: JsonValue | undefined): number | undefined {
   return value === undefined || !jinjaTruthy(value) ? undefined : timestamp(value);
 }
 /**
+ * A saved number a captured template compares or adds: a finite number is
+ * itself, a boolean is Python's 0 or 1, and anything else -- where the captured
+ * arithmetic raises -- is `fallback` (lenient saved-value directive). Never raises.
+ */
+export function savedNumberOr(value: JsonValue | undefined, fallback: number): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'boolean') return value ? 1 : 0;
+  return fallback;
+}
+/**
  * Home Assistant's `as_timestamp(value, fallback)`: date text is its instant;
  * anything else -- unreadable text, `none`, a container, and numeric Unix
  * seconds too (measured: `as_timestamp(1700000000, 0)` is `0`) -- is `fallback`.
