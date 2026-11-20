@@ -16,7 +16,7 @@ import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { HouseView } from '../runtime/effects.ts';
 import { isObject, jinjaFloat, jinjaTruthy, lazy, object, ParseError, requireArray, requireNumber, requireObject,
   requireString } from '../runtime/parse.ts';
-import { carry, reveal } from '../runtime/verbatim.ts';
+import { carry, jsonEqual, reveal } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { requireRgb, warmEndOr } from './scale.ts';
 import { opaqueMap, storedFact } from './overrides.ts';
@@ -336,8 +336,24 @@ export function assignedLamps(ctx: HouseView): string[] {
   return Object.keys(object(ctx.attr(runtime, 'assignments')));
 }
 
-/** Has the area's power gate been explicitly closed (`power[area] === false`)? */
-export function powerClosed(ctx: HouseView, area: string): boolean {
-  return object(ctx.attr('sensor.ls_overrides', 'power'))[area] === false;
+/**
+ * Is the area's power gate closed? Captured `not (power or {}).get(area_id(L), true)`:
+ * Jinja `not`, so any falsy saved value closes it (`false`, `0`, `''`, `[]`,
+ * `{}`, an explicit none); an absent key, and a lamp with no area, take the
+ * default, open.
+ */
+export function powerClosed(ctx: HouseView, area: string | undefined): boolean {
+  const power = object(ctx.attr('sensor.ls_overrides', 'power'));
+  return area !== undefined && Object.hasOwn(power, area) && !jinjaTruthy(power[area]);
+}
+
+/**
+ * Captured `generation==state_attr('sensor.ls_effects_runtime','generation')`:
+ * Python `==`, by value, with an absent attribute read as none.
+ */
+export function runtimeGenerationIs(ctx: HouseView, generation: Verbatim | string | null): boolean {
+  const stored = ctx.attr(runtime, 'generation');
+  const given: JsonValue = typeof generation === 'string' || generation === null ? generation : reveal(generation);
+  return jsonEqual(stored === undefined ? null : stored, given);
 }
 

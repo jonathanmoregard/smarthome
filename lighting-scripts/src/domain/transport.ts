@@ -6,7 +6,8 @@ import type { Verbatim } from '../runtime/verbatim.ts';
 import { roundEven, clamp } from './scale.ts';
 import type { OpaqueMap, StoredFact, StoredValue } from '../parse/overrides.ts';
 import { overridesRevision } from '../parse/sensors.ts';
-import { assignedAs, powerClosed, runtimeGeneration, runtimePlanOrder, runtimeState, warmEndColour } from '../parse/transport.ts';
+import { assignedAs, powerClosed, runtimeGeneration, runtimeGenerationIs, runtimePlanOrder, runtimeState, warmEndColour }
+  from '../parse/transport.ts';
 import type { FrameColour, RuntimeState, StoredChannels } from '../parse/transport.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
@@ -273,8 +274,8 @@ export interface EmitGate {
 export function publishCommand(view: HouseView, gate: EmitGate): Effect | undefined {
   const { revision, generation, command, effectTargets } = gate;
   const owners = command.owners, members = command.members;
-  let allowed = revision === gate.current && generation === view.attr(runtime, 'generation');
-  for (const owner of owners) if (view.get(owner) !== 'on' || !command.turnsOff && powerClosed(view, view.areas[owner] ?? '')) allowed = false;
+  let allowed = revision === gate.current && runtimeGenerationIs(view, generation);
+  for (const owner of owners) if (view.get(owner) !== 'on' || !command.turnsOff && powerClosed(view, view.areas[owner])) allowed = false;
   for (const member of members) if (view.get(member) !== 'on') allowed = false;
   const targeted = Object.keys(effectTargets).length > 0;
   if (targeted) for (const owner of owners) {
@@ -293,7 +294,7 @@ export function publishCommand(view: HouseView, gate: EmitGate): Effect | undefi
  * missing sensor raises) and then the runtime generation, both unchanged?
  */
 export function stillCurrent(view: HouseView, script: string, revision: string, generation: Verbatim | string | null): boolean {
-  return revision === overridesRevision(view, script) && generation === view.attr(runtime, 'generation');
+  return revision === overridesRevision(view, script) && runtimeGenerationIs(view, generation);
 }
 
 type StopCommand = { topic: string; payload: { effect: string }; members: string[]; owners: string[]; group: false };
