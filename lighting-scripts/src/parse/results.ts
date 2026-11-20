@@ -47,6 +47,7 @@ export interface ResultCodec<R> {
   decode?(value: JsonValue, context: string): R;
 }
 
+const bound = (v: JsonValue | undefined, context: string): number | boolean => typeof v === 'boolean' ? v : requireFinite(v, context);
 function decodeSwitchDecision(value: JsonValue, context: string): SwitchDecision {
   const entry = requireObject({ value }, 'value', context);
   const range = requireArray(entry, 'range', context);
@@ -55,7 +56,8 @@ function decodeSwitchDecision(value: JsonValue, context: string): SwitchDecision
     on: requireBoolean(entry.on, `${context}.on`),
     room: requireString(entry, 'room', context),
     brightness: requireNumber(entry, 'brightness', context),
-    range: [requireFinite(range[0], `${context}.range.0`), requireFinite(range[1], `${context}.range.1`)],
+    // A bound may be a boolean: captured `is number` admits it (see `switchRange`).
+    range: [bound(range[0], `${context}.range.0`), bound(range[1], `${context}.range.1`)],
   };
 }
 

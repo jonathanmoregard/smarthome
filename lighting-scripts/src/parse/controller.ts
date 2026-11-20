@@ -23,7 +23,7 @@ import type { OpaqueMap } from './overrides.ts';
 import { requireRgb, warmEndOr } from './scale.ts';
 import { savedMappingOr } from './accessors.ts';
 import { BUILT_IN_RANGES } from './planning.ts';
-import type { ApplyArgs, PlanArgs, PlanOverrides, RemoteCommandArgs, SwitchPlanArgs } from '../domain/controller.ts';
+import type { ApplyArgs, PlanArgs, PlanOverrides, RemoteCommandArgs, SwitchInterval, SwitchPlanArgs } from '../domain/controller.ts';
 
 const lenientList = (v: JsonValue | undefined): JsonValue[] => Array.isArray(v) ? v : [];
 
@@ -45,12 +45,25 @@ function planOverridesOf(value: JsonObject): PlanOverrides {
   return { document: carry(value), entries: opaqueMap(value) };
 }
 
-/** One switch rule's interval: `[min, max]` for a custom rule, else the profile's default; `undefined` unless a valid 0-100 range. */
-function switchRange(rule: JsonObject, defaults: JsonObject): [number, number] | undefined {
-  const interval = rule.profile === 'custom' ? [rule.min, rule.max] : lenientList(defaults[String(rule.profile)]);
-  const low = interval[0], high = interval[1];
-  if (interval.length !== 2 || typeof low !== 'number' || typeof high !== 'number' || !(0 <= low && low <= high && high <= 100)) return undefined;
-  return [low, high];
+/** Captured `is number`: a finite number, or a boolean (Python's 0 or 1). */
+const jinjaNumber = (v: JsonValue | undefined): v is number | boolean => typeof v === 'boolean' || typeof v === 'number' && Number.isFinite(v);
+const asNumber = (v: number | boolean): number => typeof v === 'boolean' ? Number(v) : v;
+
+/**
+ * One switch rule's interval: `[min, max]` for a custom rule, else the
+ * profile's default -- looked up only for a text profile, since
+ * `defaults.get(profile,[])` finds no other key and raises on a container
+ * (lenient saved-value directive: no range) -- and `undefined` unless a valid
+ * 0-100 range.
+ */
+function switchRange(rule: JsonObject, defaults: JsonObject): SwitchInterval | undefined {
+  const interval = rule.profile === 'custom' ? [rule.min, rule.max]
+    : typeof rule.profile === 'string' ? lenientList(defaults[rule.profile]) : [];
+  const first = interval[0], second = interval[1];
+  if (interval.length !== 2 || !jinjaNumber(first) || !jinjaNumber(second)) return undefined;
+  const low = asNumber(first), high = asNumber(second);
+  if (!(0 <= low && low <= high && high <= 100)) return undefined;
+  return { low, high, stored: [first, second] };
 }
 
 // Captured targets/defaults each use mapping.get once and ranges uses
@@ -62,7 +75,7 @@ export function parseSwitchPlanArgs(args: JsonObject): SwitchPlanArgs {
   const ranges = requireObject(args, 'ranges', 'ls_switch_plan');
   const defaults = requireObject(args, 'defaults', 'ls_switch_plan');
   return {
-    // Each rule's interval is read at its turn: `String(profile)` is the inline coercion and can raise.
+    // Each rule's interval is read at its turn.
     rules: Object.entries(ranges).map(([entity, raw]) => ({ entity, range: () => switchRange(object(raw), defaults) })),
     roomTarget: room => {
       const group = room === undefined ? {} : object(targets[`room:${room}`]);

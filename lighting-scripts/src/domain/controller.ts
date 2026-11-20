@@ -8,9 +8,15 @@ import type { GradientPlanResult } from './gradient.ts';
 import type { RemotePlanResult } from './remote-input.ts';
 import type { Effect, HouseView } from '../runtime/effects.ts';
 
+/**
+ * A valid switch interval: its bounds as numbers (a boolean bound is Python's
+ * 0 or 1, since captured `is number` admits it) and as stored, for the report.
+ */
+export interface SwitchInterval { low: number; high: number; stored: [number | boolean, number | boolean] }
+
 export interface SwitchPlanArgs {
-  /** Each switch-range rule, its interval read at its turn: `[low, high]`, or `undefined` unless valid. */
-  rules: Array<{ entity: string; range: () => [number, number] | undefined }>;
+  /** Each switch-range rule, its interval read at its turn, or `undefined` unless valid. */
+  rules: Array<{ entity: string; range: () => SwitchInterval | undefined }>;
   /** The resolved room target a rule follows, read leniently; `on` is required once read. */
   roomTarget(room: string | undefined): { populated: boolean; level: () => number; on: () => boolean };
 }
@@ -63,7 +69,7 @@ export type SwitchDecision = {
   on: boolean;
   room: string;
   brightness: number;
-  range: [number, number];
+  range: [number | boolean, number | boolean];
 };
 export type SwitchPlanResult = { switches: Record<string, SwitchDecision> };
 
@@ -74,11 +80,11 @@ export function switchPlan(areas: Readonly<Record<string, string>>, args: Switch
     const group = args.roomTarget(room);
     const interval = range();
     if (interval === undefined || !group.populated) continue;
-    const [low, high] = interval;
+    const { low, high } = interval;
     const brightness = group.level() * 100 / 255;
     const on = group.on();
     switches[entity] = { on: on && low <= brightness && brightness <= high,
-      room: room!, brightness, range: [low, high] };
+      room: room!, brightness, range: [...interval.stored] };
   }
   return { switches };
 }
