@@ -12,10 +12,10 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { HouseView } from '../runtime/effects.ts';
-import { isObject, jinjaTruthy, object, requireArray, requireBoolean, requireString } from '../runtime/parse.ts';
+import { isObject, jinjaList, jinjaOr, jinjaTruthy, object, requireBoolean, requireString } from '../runtime/parse.ts';
 import { carry, reveal } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
-import { list, num, saved, strings } from './accessors.ts';
+import { num, saved, strings } from './accessors.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
 
@@ -176,9 +176,9 @@ export function proxyKelvin(ctx: HouseView, proxy: string): number {
   return num(ctx.attr(proxy, 'color_temp_kelvin'), 0);
 }
 
-/** Does the proxy's `rgb_color` (a list, or raising) equal this triple? */
+/** Does the proxy show this triple? Captured `(state_attr(proxy,'rgb_color') or []) | list == rgb | list`. */
 export function proxyShowsRgb(ctx: HouseView, proxy: string, rgb: Rgb): boolean {
-  return isDeepStrictEqual(list(ctx.attr(proxy, 'rgb_color')), reveal(rgb.value));
+  return isDeepStrictEqual(jinjaList(jinjaOr(ctx.attr(proxy, 'rgb_color'), []), `${proxy}.rgb_color`), reveal(rgb.value));
 }
 
 /** A row's stored profile: whether it names effect channels, and its effect. */
@@ -282,13 +282,10 @@ export function storedRangeBounds(ctx: HouseView, entity: string): { min: RangeB
 }
 
 /**
- * Is the light on/off only? HA uses null for an attribute with no value
- * (read as no modes); a present value must be a list.
+ * Is the light on/off only? Captured `(state_attr(e,'supported_color_modes') or []) != ['onoff']`:
+ * absent or Jinja-falsy is no modes, and any other value is on/off only exactly
+ * when it equals `['onoff']` -- a non-list simply compares unequal, nothing raises.
  */
 export function onOffOnly(ctx: HouseView, entity: string): boolean {
-  const value = ctx.attr(entity, 'supported_color_modes');
-  const modes = value === undefined || value === null
-    ? []
-    : requireArray({ value }, 'value', `ls_range_save.${entity}.supported_color_modes`);
-  return isDeepStrictEqual(modes, ['onoff']);
+  return isDeepStrictEqual(jinjaOr(ctx.attr(entity, 'supported_color_modes'), []), ['onoff']);
 }

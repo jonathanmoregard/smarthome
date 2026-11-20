@@ -68,25 +68,29 @@ test('stored UI profiles read effect_channels and effect leniently', async () =>
   assert.equal(lenient.messages.find(message => message.topic === 'test/effect')?.payload, 'Normal Light');
 });
 
-test('range save preserves explicit null bounds and rejects malformed typed fields', async () => {
+test('range save reads an explicit null bound as the saved one and rejects malformed typed fields', async () => {
   const ctx = await load();
   ctx.put('switch.new_lamp', 'off');
   ctx.areas['switch.new_lamp'] = 'studio';
   ctx.devices = { physical_device: ['switch.new_lamp'] };
   ctx.put('sensor.ls_overrides', '0', { switch_ranges: { 'switch.new_lamp': { profile: 'custom', min: 30, max: 60 } } });
-  const explicitNull = ctx.run('ls_range_save', { entity: 'switch.new_lamp', profile: 'custom', minimum: null, dry_run: true });
-  assert.equal(explicitNull.valid, false);
+  // Captured `minimum if minimum is defined and minimum is not none else saved.get('min')`.
+  const explicitNull = ctx.run('ls_range_save', { entity: 'switch.new_lamp', profile: 'custom', minimum: null, maximum: 60, dry_run: true });
+  assert.equal(explicitNull.valid, true);
+  assert.deepEqual(explicitNull.config, { profile: 'custom', min: 30, max: 60 });
   assert.throws(() => ctx.run('ls_range_save', { entity: null, dry_run: true }), /entity.*string/);
   assert.throws(() => ctx.run('ls_range_save', { entity: 'switch.new_lamp', profile: null, dry_run: true }), /profile.*string/);
   assert.throws(() => ctx.run('ls_range_save', { entity: 'switch.new_lamp', dry_run: [] }), /dry_run.*true or false/);
 });
 
-test('range save parses Home Assistant capability attributes explicitly', async () => {
+test('range save reads a Jinja-falsy supported_color_modes as no modes: not an on/off lamp', async () => {
   const ctx = await load();
   ctx.put('light.new_lamp', 'off', { supported_color_modes: false });
   ctx.areas['light.new_lamp'] = 'studio';
   ctx.devices = { physical_device: ['light.new_lamp'] };
-  assert.throws(() => ctx.run('ls_range_save', { entity: 'light.new_lamp', dry_run: true }), /supported_color_modes.*array/);
+  const result = ctx.run('ls_range_save', { entity: 'light.new_lamp', dry_run: true });
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.includes('Choose an on/off lamp; dimmable lamps use the normal lighting settings.'));
 });
 
 test('range save validates physical devices, rejects boolean ranges, and emits only the config event', async () => {

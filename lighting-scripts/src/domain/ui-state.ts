@@ -109,15 +109,15 @@ export type RangeSaveResult = {
 
 /**
  * Decide a switch's range rule. Not a generator: it reads the house through
- * the view, and the colour-mode read raises on a malformed list, so it is read
- * only on the branch that needs it.
+ * the view; the colour-mode read is made only on the branch that needs it.
  */
 export function decideRangeSave(view: HouseView, args: RangeSaveArgs): RangeSaveResult {
   const { entity, profile } = args;
   const e = entity;
   const previous = storedRangeBounds(view, e);
-  const lo = args.minimum === undefined ? previous.min : args.minimum;
-  const hi = args.maximum === undefined ? previous.max : args.maximum;
+  // Captured `minimum if minimum is defined and minimum is not none else saved.get('min')`.
+  const lo = args.minimum === undefined || args.minimum === null ? previous.min : args.minimum;
+  const hi = args.maximum === undefined || args.maximum === null ? previous.max : args.maximum;
   const errors: string[] = [], config: RangeConfig = { profile };
   const domain = e.split('.')[0];
   const supportedDomain = domain !== undefined && ['switch', 'light'].includes(domain);
