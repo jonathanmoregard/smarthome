@@ -49,13 +49,18 @@ export function timestamp(value: JsonValue | undefined): number {
 export function optionalTimestamp(value: JsonValue | undefined): number | undefined {
   return value === undefined || value === null ? undefined : timestamp(value);
 }
+/** What a saved profile reads as when its text is not JSON: the captured `from_json(default={})`. */
+const NO_SAVED_PROFILE: Readonly<JsonObject> = {};
+
+/**
+ * A saved `input_text` profile, read as the captured
+ * `states(entity) | from_json(default={})`: text that is not JSON (Home
+ * Assistant's `unknown`/`unavailable` included) is {@link NO_SAVED_PROFILE}.
+ * JSON that is not a mapping raises, as the captured `.get` on it does.
+ */
 export function saved(ctx: HouseView, entity: string): JsonObject {
-  const state = ctx.get(entity);
-  // Home Assistant uses these sentinel states when an input_text has no value;
-  // malformed present JSON is a corrupt profile, not another absence spelling.
-  if (state === 'unknown' || state === 'unavailable') return {};
   let parsed: JsonValue;
-  try { parsed = JSON.parse(state) as JsonValue; }
-  catch { throw new ParseError(`${entity} must contain a valid JSON object`); }
+  try { parsed = JSON.parse(ctx.get(entity)) as JsonValue; }
+  catch { return { ...NO_SAVED_PROFILE }; }
   return requireObject({ parsed }, 'parsed', entity);
 }

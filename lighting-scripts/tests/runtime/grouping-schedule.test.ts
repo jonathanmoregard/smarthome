@@ -40,15 +40,22 @@ test('schedule timestamps distinguish epoch zero from parse failure', () => {
   }
 });
 
-test('saved profiles reject corrupt present caches but allow HA no-value states', () => {
+test('a saved profile that is not JSON reads as the captured from_json default, {}', () => {
+  // Captured: `states(store) | from_json(default={})` in ls_base, `from_json({})` in effects_ui_sync.
   const ctx = context();
   assert.deepEqual(saved(ctx, 'input_text.missing'), {});
-  ctx.put('input_text.profile', 'unavailable');
-  assert.deepEqual(saved(ctx, 'input_text.profile'), {});
-  ctx.put('input_text.profile', '{bad json');
-  assert.throws(() => saved(ctx, 'input_text.profile'), /valid JSON object/);
-  ctx.put('input_text.profile', '[]');
-  assert.throws(() => saved(ctx, 'input_text.profile'), /object/);
+  for (const text of ['unavailable', 'unknown', '{bad json', '', 'on']) {
+    ctx.put('input_text.profile', text);
+    assert.deepEqual(saved(ctx, 'input_text.profile'), {}, JSON.stringify(text));
+  }
+});
+
+test('a saved profile that parses to a non-mapping still raises, as the captured .get on it does', () => {
+  const ctx = context();
+  for (const text of ['[]', '5', '"x"', 'null']) {
+    ctx.put('input_text.profile', text);
+    assert.throws(() => saved(ctx, 'input_text.profile'), /object/, text);
+  }
 });
 
 async function configured() {
