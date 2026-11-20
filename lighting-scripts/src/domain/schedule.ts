@@ -10,7 +10,7 @@ import { attributeNumber, entityProfile, entitySample, rgbComponent, savedProfil
 import type { ScheduleRecord, ScheduleRecords } from '../parse/schedule.ts';
 
 export const blocks: readonly string[] = BLOCKS;
-export function isAreaId(value: string | undefined): value is string { return value !== undefined && value.length > 0; }
+export function isAreaId<Room extends string>(value: Room | undefined): value is Room { return value !== undefined && value.length > 0; }
 export function hasValue(view: HouseView, entity: string): boolean { return !['unknown', 'unavailable'].includes(view.get(entity)); }
 export function labelled(view: HouseView, label: string): string[] {
   // Registry snapshots supply label members, including device-expanded entities.
@@ -354,14 +354,14 @@ export function scheduledBase(view: HouseView, args: ScheduledBaseArgs, roomLoca
   const plugs = labelled(view, 'on_off').filter(e => /^(light|switch)\./.test(e));
   const all = [...dimmables, ...plugs, ...switchRangeEntities(view.attr('sensor.ls_overrides', 'switch_ranges'))];
   const roomOnly = args.roomOnly;
-  const rooms = [...new Set(all.map(e => view.areas[e]).filter(isAreaId))].sort().filter(a => !roomOnly || roomOnly === a);
+  const rooms: string[] = [...new Set(all.map(e => view.rooms.ofId[e]).filter(isAreaId))].sort().filter(a => !roomOnly || roomOnly === a);
   const details = Object.fromEntries(['house', ...rooms].map(room => [room, scheduleDetails(view, room, at)])) as Record<string, ScheduleDetails>;
   const profiles: Record<string, LampProfileEntry> = {}, targets: Record<string, TargetEntry> = {}, commands = new Map<string, ScheduleCommand>();
   const debug: string[] = [];
   for (const lamp of [...dimmables, ...plugs]) {
-    if (roomOnly && (!roomLocal || view.areas[lamp] !== roomOnly)) continue;
+    if (roomOnly && (!roomLocal || view.rooms.ofId[lamp] !== roomOnly)) continue;
     if (roomLocal && !dimmables.includes(lamp)) continue;
-    const area = view.areas[lamp] ?? '';
+    const area = view.rooms.ofId[lamp] ?? '';
     const room = rooms.includes(area) ? area : 'house';
     const S = details[room]!;
     const privateRoom = privateRooms(view).includes(area);
@@ -481,7 +481,7 @@ export function scheduledBase(view: HouseView, args: ScheduledBaseArgs, roomLoca
     if (!expiry) return false;
     const r = records.get(key);
     const target = r.targetName;
-    const area = target === undefined ? undefined : r.kind === 'light' || r.scope === 'lamp' ? view.areas[target] : target;
+    const area = target === undefined ? undefined : r.kind === 'light' || r.scope === 'lamp' ? view.rooms.ofId[target] : target;
     const scope = rooms.includes(area ?? '') ? area! : 'house';
     const scopes = r.scope === 'house' || key === 'mode:sara' ? rooms.filter(a => !privateRooms(view).includes(a)) : [scope];
     return scopes.length > 0 && scopes.every(a => r.when() <= details[a]!.last_fs && !details[a]!.fading);

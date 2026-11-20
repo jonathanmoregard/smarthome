@@ -37,9 +37,9 @@ export interface GestureState {
   powerToken: string;
   preset: number;
 }
-/** A gesture's arguments plus its two snapshot reads: the device areas and the opening `now`. */
+/** A gesture's arguments plus its two snapshot reads: the remotes' rooms and the opening `now`. */
 export interface GestureInput extends GestureArgs {
-  areas: Readonly<Record<string, string>>;
+  remoteRooms: Readonly<Record<RemoteId, RoomId>>;
   now: string;
 }
 type HelperKey = 'chord_step' | 'power_count' | 'power_token' | 'preset';
@@ -65,9 +65,9 @@ function* chordTimer(room: RoomId, start: boolean): Plan<void> {
  * with no device, or whose device has no area (an empty area id is none),
  * has no area, and its gestures send nothing. There is no fallback room.
  */
-export function remoteArea(deviceId: RemoteId | undefined, areas: Readonly<Record<string, string>>): string | undefined {
+export function remoteArea(deviceId: RemoteId | undefined, remoteRooms: Readonly<Record<RemoteId, RoomId>>): RoomId | undefined {
   if (deviceId === undefined) return undefined;
-  const area = areas[deviceId];
+  const area = remoteRooms[deviceId];
   return area === undefined || area.length === 0 ? undefined : area;
 }
 
@@ -104,7 +104,7 @@ export function* gesture(state: GestureState, input: GestureInput): Plan<Gesture
   const send = function* (logical: string): Plan<void> {
     // The delivery fields raise only here, after the writes that precede the send.
     const { deviceId, source } = input.delivery();
-    const area = remoteArea(deviceId, input.areas);
+    const area = remoteArea(deviceId, input.remoteRooms);
     if (area === undefined) return;
     yield {
       kind: 'service', service: 'script.turn_on',

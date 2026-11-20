@@ -104,7 +104,7 @@ function remoteCommand(ctx: ScriptContext, args: RemoteCommandArgs): RemotePlanR
   });
 }
 export const controllerHandlers: ScriptHandlers = {
-  ls_switch_plan: typed('ls_switch_plan', { parse: parseSwitchPlanArgs, run: (ctx, args) => switchPlan(ctx.areas, args) }),
+  ls_switch_plan: typed('ls_switch_plan', { parse: parseSwitchPlanArgs, run: (ctx, args) => switchPlan(ctx.rooms.ofId, args) }),
   ls_plan: withParsedArgs({ parse: parsePlanArgs, run: plan }),
   ls_apply: withParsedArgs({ parse: parseApplyArgs, run: apply }),
   ls_remote_command: withParsedArgs({ parse: parseRemoteCommandArgs, run: remoteCommand }),

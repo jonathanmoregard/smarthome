@@ -98,7 +98,7 @@ export interface RemoteOpening {
 
 export function remoteOpening(view: HouseView, args: RemotePlanArgs): RemoteOpening {
   const command = args.command, area = args.area;
-  const room = Object.values(view.areas).includes(area) ? area : '';
+  const room = Object.values(view.rooms.ofId).includes(area) ? area : '';
   const overrides = remoteOverrides(view, room);
   const stamp = recordTimestamp(view.now);
   const revision = overridesRevision(view, 'ls_remote_plan');
@@ -138,7 +138,7 @@ export function remoteDecision(view: HouseView, args: RemotePlanArgs, opening: R
         : { op: 'set', records: [{ kind: 'mode', target: 'sara', value: 'on' }], via: 'remote' };
     } else if (command === 'toggle') {
       const targets = [...Object.keys(catalog.members), ...switchRangeIterable(view.attr('sensor.ls_overrides', 'switch_ranges'))]
-        .filter(id => view.areas[id] === room);
+        .filter(id => view.rooms.ofId[id] === room);
       const saved = roomPower(view, room);
       result = { op: 'power', area: room, on: saved !== undefined ? !saved : !targets.some(id => view.get(id) === 'on'), targets, via: 'remote' };
     } else if (command === 'reset') result = { op: 'clear_room', area: room, via: 'remote' };

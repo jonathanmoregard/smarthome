@@ -222,7 +222,7 @@ export function commitSnapshot(ctx: HouseView): CommitSnapshot {
   const sensor = 'sensor.ls_overrides';
   return {
     now: ctx.now,
-    areas: ctx.areas,
+    rooms: ctx.rooms,
     before: lenientOverrides(ctx),
     power: attributeMapping(ctx, sensor, 'power'),
     switchRanges: attributeMapping(ctx, sensor, 'switch_ranges'),

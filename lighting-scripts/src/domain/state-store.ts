@@ -8,6 +8,7 @@ import { affectedRoom, mergedValue, overrideRecord, sameFact, underlyingOf } fro
 import type { OpaqueMap, StoredEntry, StoredFact, StoredOverrides, StoredValue } from '../parse/overrides.ts';
 import type { HouseView, Plan } from '../runtime/effects.ts';
 import type { RoomId } from './types/ids.ts';
+import type { Rooms } from './types/rooms.ts';
 
 /** One channel claim of a `channels` record, as written. */
 export interface ChannelClaim {
@@ -106,7 +107,7 @@ export type CommitResult = { accepted: false } | { accepted: true; revision: str
  */
 export interface CommitSnapshot {
   now: string;
-  areas: Readonly<Record<string, string>>;
+  rooms: Rooms;
   before: StoredOverrides;
   power: OpaqueMap;
   switchRanges: OpaqueMap;
@@ -133,7 +134,7 @@ export function* planCommit(snapshot: CommitSnapshot, parsed: CommitData): Plan<
     overrides = kept(before.entries.filter(({ key }) => !contains(key)));
   }
   else if (op === 'clear_room') overrides = kept(before.entries.filter(({ record: r }) => {
-    const targetArea = typeof r.target === 'string' ? snapshot.areas[r.target] : undefined;
+    const targetArea = typeof r.target === 'string' ? snapshot.rooms.ofId[r.target] : undefined;
     return !(r.scope === 'room' && r.target === parsed.area || (r.scope === 'lamp' || r.kind === 'light') && targetArea === parsed.area ||
       r.kind === 'block' && r.target === parsed.area);
   }));
@@ -291,7 +292,7 @@ export function* planStore(args: StoreProfileArgs, current: StoredProfile, catal
 export function houseRooms(view: HouseView): string[] {
   const privateAreas = privateRooms(view);
   const entities = [...labelled(view, 'house_schedule'), ...labelled(view, 'on_off')];
-  const rooms = entities.map(entity => view.areas[entity]).filter(isAreaId).filter(area => !privateAreas.includes(area));
+  const rooms = entities.map(entity => view.rooms.ofId[entity]).filter(isAreaId).filter(area => !privateAreas.includes(area));
   return [...new Set(rooms)];
 }
 

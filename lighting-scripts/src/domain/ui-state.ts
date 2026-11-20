@@ -48,7 +48,7 @@ export function uiMessages(view: HouseView, force: boolean): UiMessage[] {
     let { brightness: b, colourTemp, kelvin: k, rgb } = lampReading(view, source);
     let target = runtime.target(source);
     if (store === undefined && (members.length > 1 || !members.includes(source))) {
-      const areas = [...new Set(members.map(e => view.areas[e]).filter(isAreaId))];
+      const areas = [...new Set(members.map(e => view.rooms.ofId[e]).filter(isAreaId))];
       if (areas.length === 1) target = runtime.target(`room:${areas[0]}`);
     }
     if (store === undefined) {
@@ -128,7 +128,7 @@ export function decideRangeSave(view: HouseView, args: RangeSaveArgs): RangeSave
   else if (domain === 'light') {
     if (!onOffOnly(view, e)) errors.push('Choose an on/off lamp; dimmable lamps use the normal lighting settings.');
   }
-  if (supportedDomain && view.state[e] && view.areas[e] === undefined) errors.push('Assign this lamp to a room before configuring its range.');
+  if (supportedDomain && view.state[e] && view.rooms.ofId[e] === undefined) errors.push('Assign this lamp to a room before configuring its range.');
   // `profile` is already a string from the parse above, so the String() this
   // read used to carry converted nothing.
   if (!['bright', 'cosy', 'custom'].includes(profile)) errors.push('Choose Bright Default, Cosy Default, or Own Range.');

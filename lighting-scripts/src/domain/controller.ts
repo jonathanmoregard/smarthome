@@ -75,7 +75,7 @@ export type SwitchDecision = {
 };
 export type SwitchPlanResult = { switches: Record<string, SwitchDecision> };
 
-export function switchPlan(areas: Readonly<Record<string, string>>, args: SwitchPlanArgs): SwitchPlanResult {
+export function switchPlan(areas: Readonly<Record<string, RoomId>>, args: SwitchPlanArgs): SwitchPlanResult {
   const switches: Record<string, SwitchDecision> = {};
   for (const { entity, range } of args.rules) {
     const room = areas[entity];

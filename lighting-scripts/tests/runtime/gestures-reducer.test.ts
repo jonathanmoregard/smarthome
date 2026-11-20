@@ -12,7 +12,7 @@ function input(command: string, extra: Partial<GestureInput> = {}): GestureInput
     room: 'studio', command, token: '',
     payload: () => undefined,
     delivery: () => ({ deviceId: 'studio_remote', source: 'remote_ieee' }),
-    areas: { studio_remote: 'studio' }, now: NOW, ...extra,
+    remoteRooms: { studio_remote: 'studio' }, now: NOW, ...extra,
   };
 }
 /** Drain a plan: its effects in yield order, and its answer. */
@@ -76,8 +76,8 @@ test('the delivery thunk raises only where the send happens, after the chord is 
   assert.deepEqual(seen, [...helper('power_count', 0), ...token(''), ...helper('chord_step', 0), ...timer(false)]);
 });
 
-test('a device area resolves through the areas snapshot; an unknown device sends nothing', () => {
-  const at = (deviceId: string) => input('up', { delivery: () => ({ deviceId, source: 's' }), areas: { remote_device: 'kitchen' } });
+test('a device area resolves through the remotes\' rooms; an unknown device sends nothing', () => {
+  const at = (deviceId: string) => input('up', { delivery: () => ({ deviceId, source: 's' }), remoteRooms: { remote_device: 'kitchen' } });
   assert.deepEqual(drain(gesture(idle, at('remote_device'))).effects, [command('up', 'kitchen', 's')]);
   assert.deepEqual(drain(gesture(idle, at('missing'))).effects, []);
 });

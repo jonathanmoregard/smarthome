@@ -5,13 +5,14 @@ import type { CommitSnapshot } from '../../src/domain/state-store.ts';
 import { parseCommitArgs, storedOverrides } from '../../src/parse/overrides.ts';
 import { cachedProfile, parseOverrideBlockArgs, parseStoreProfile } from '../../src/parse/state-store.ts';
 import { carry } from '../../src/runtime/verbatim.ts';
+import { parseRooms } from '../../src/parse/rooms.ts';
 import type { JsonObject } from '../../src/runtime/context.ts';
 import { house } from './house-view.ts';
 
 const NOW = '2026-10-26T12:00:00+01:00';
 function snapshot(overrides: JsonObject = {}, extra: Partial<CommitSnapshot> = {}): CommitSnapshot {
   return {
-    now: NOW, areas: {}, before: storedOverrides(overrides),
+    now: NOW, rooms: parseRooms({}), before: storedOverrides(overrides),
     power: {}, switchRanges: {}, remoteAck: {}, pendingRooms: {},
     handledFull: undefined, fullVersion: undefined, fullLights: [], fullReason: undefined, ...extra,
   };
@@ -44,9 +45,9 @@ test('a set record is stamped with now, keeps an explicit-null created, and mark
   assert.deepEqual(Object.keys(patch), ['overrides', 'last_via', 'pending_rooms', 'last_request', 'received_at']);
 });
 
-test('clear_room drops a lamp record whose lamp sits in the area, read from the areas snapshot', () => {
+test('clear_room drops a lamp record whose lamp sits in the area, read from the snapshot\'s rooms', () => {
   const before = { a: { scope: 'lamp', target: 'light.x' }, b: { scope: 'lamp', target: 'light.y' } };
-  const { patch } = commitEffects(snapshot(before, { areas: { 'light.x': 'kitchen', 'light.y': 'hall' } }), { op: 'clear_room', area: 'kitchen' });
+  const { patch } = commitEffects(snapshot(before, { rooms: parseRooms({ 'light.x': 'kitchen', 'light.y': 'hall' }) }), { op: 'clear_room', area: 'kitchen' });
   assert.deepEqual(Object.keys(patch.overrides as JsonObject), ['b']);
 });
 

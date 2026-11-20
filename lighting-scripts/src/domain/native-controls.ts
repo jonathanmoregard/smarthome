@@ -196,7 +196,9 @@ export type ControlPlan = {
 
 function unique(values: string[]): string[] { return [...new Set(values)]; }
 function constant(value: number | boolean | ClaimColour, stamp: Stamp): ConstantClaim { return { kind: 'constant', value, updated: stamp }; }
-function areasOf(view: HouseView, entities: string[]): string[] { return unique(entities.map(entity => view.areas[entity] ?? '').filter(Boolean)); }
+function areasOf(view: HouseView, entities: string[]): string[] {
+  return unique(entities.map(entity => view.rooms.ofId[entity] ?? '').filter(Boolean));
+}
 function expandedEntities(view: HouseView, entities: string[]): string[] {
   const pending = [...entities], seen = new Set<string>(), result: string[] = [];
   while (pending.length) {
@@ -294,7 +296,7 @@ function held(base: PlanTarget, resolved: PlanTarget, context: string, stamp: St
 export function planNativeControls(view: HouseView, args: NativePlanArgs): NativePlan {
   const { sd, catalog, areas, devices, labels, requested } = args;
   const members = catalog.members;
-  for (const area of areas) requested.push(...Object.keys(view.areas).filter(entity => view.areas[entity] === area));
+  for (const area of areas) requested.push(...Object.keys(view.rooms.ofId).filter(entity => view.rooms.ofId[entity] === area));
   for (const device of devices) requested.push(...view.devices?.[device] ?? []);
   for (const label of labels) requested.push(...view.labels?.[label] ?? []);
   const expanded = [...requested];
@@ -306,14 +308,14 @@ export function planNativeControls(view: HouseView, args: NativePlanArgs): Nativ
   for (const source of requested) {
     if (!catalog.groups.has(source)) continue;
     const membersOfGroup = catalog.groups.members(source);
-    for (const area of areasOf(view, membersOfGroup)) if (Object.keys(members).filter(lamp => view.areas[lamp] === area).every(lamp =>
+    for (const area of areasOf(view, membersOfGroup)) if (Object.keys(members).filter(lamp => view.rooms.ofId[lamp] === area).every(lamp =>
       membersOfGroup.includes(lamp))) roomScopes.push(area);
   }
   if (!roomScopes.length && !lamps.length) return { records: [], power: [] };
   const { baseTargets, resolvedTargets } = args.current();
   const items: ScopeItem[] = unique(roomScopes).sort().filter(area => baseTargets.populatedLeniently(`room:${area}`)).map(area =>
     ({ scope: 'room', target: area, base: `room:${area}` }));
-  for (const lamp of lamps) if (!roomScopes.includes(view.areas[lamp] ?? '')) items.push({ scope: 'lamp', target: lamp, base: lamp });
+  for (const lamp of lamps) if (!roomScopes.includes(view.rooms.ofId[lamp] ?? '')) items.push({ scope: 'lamp', target: lamp, base: lamp });
   const power: PowerEvent[] = areasOf(view, lamps).sort().map(area => ({ op: 'power', area, on: true, via: 'app' }));
   if (!items.length) return { records: [], power };
   const resolvedTargetMap = resolvedTargets();
@@ -392,20 +394,20 @@ export function planUIControls(view: HouseView, args: SetArgs, catalog: NativeCa
     if (catalog.groups.has(source)) {
       const areas = areasOf(view, targets).sort();
       for (const area of areas) {
-        if (Object.keys(members).filter(lamp => view.areas[lamp] === area).every(lamp => targets.includes(lamp))) {
+        if (Object.keys(members).filter(lamp => view.rooms.ofId[lamp] === area).every(lamp => targets.includes(lamp))) {
           scopes.push({ scope: 'room', target: area, base: `room:${area}`, suffix: areas.length > 1 ? `:${area}` : '' });
           scopeAreas.push(area);
         }
       }
     }
-    for (const lamp of targets) if (!scopeAreas.includes(view.areas[lamp] ?? '')) scopes.push({ scope: 'lamp', target: lamp, base: lamp,
+    for (const lamp of targets) if (!scopeAreas.includes(view.rooms.ofId[lamp] ?? '')) scopes.push({ scope: 'lamp', target: lamp, base: lamp,
       suffix: targets.length > 1 ? `:${lamp}` : '' });
     if (!errors.length && attribute === 'power') {
       const powerAreas = value.raw === 'ON' ? areasOf(view, targets) : scopeAreas;
       for (const area of powerAreas) events.push({ op: 'power', area, on: value.raw === 'ON', via: 'effects-house' });
       // A lamp with no area is never in the scope (captured `area_id(L)` is none).
       const ids = [...targets, ...switchRangeIterable(view.attr('sensor.ls_overrides', 'switch_ranges')).filter(lamp => {
-        const area = view.areas[lamp];
+        const area = view.rooms.ofId[lamp];
         return area !== undefined && scopeAreas.includes(area);
       })];
       commands.push({ action: value.raw === 'ON' ? 'homeassistant.turn_on' : 'homeassistant.turn_off', target: { entity_id: unique(ids) },

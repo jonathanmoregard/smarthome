@@ -283,7 +283,7 @@ export function publishCommand(view: HouseView, gate: EmitGate): Effect | undefi
   const { revision, generation, command, effectTargets } = gate;
   const owners = command.owners, members = command.members;
   let allowed = revision === gate.current && runtimeGenerationIs(view, generation);
-  for (const owner of owners) if (view.get(owner) !== 'on' || !command.turnsOff && powerClosed(view, view.areas[owner])) allowed = false;
+  for (const owner of owners) if (view.get(owner) !== 'on' || !command.turnsOff && powerClosed(view, view.rooms.ofId[owner])) allowed = false;
   for (const member of members) if (view.get(member) !== 'on') allowed = false;
   const targeted = Object.keys(effectTargets).length > 0;
   if (targeted) for (const owner of owners) {

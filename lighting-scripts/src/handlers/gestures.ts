@@ -18,7 +18,7 @@ import type { GestureArgs } from '../domain/gestures.ts';
  */
 export function remoteGesture(ctx: ScriptContext, args: GestureArgs): null {
   if (!accepted.includes(args.command)) return null;
-  run(ctx, gesture(gestureState(ctx, args.room), { ...args, areas: ctx.areas, now: ctx.now }));
+  run(ctx, gesture(gestureState(ctx, args.room), { ...args, remoteRooms: ctx.rooms.ofRemote, now: ctx.now }));
   if (args.command === 'power') {
     run(ctx, stampPowerToken(args.room, ctx.now));
     run(ctx, launchPowerQuiet(args.room, ctx.now));

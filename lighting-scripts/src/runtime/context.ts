@@ -1,5 +1,6 @@
 import type { Catalog } from './catalog.ts';
 import type { TypedResults } from './entrypoints.ts';
+import type { Rooms } from '../domain/types/rooms.ts';
 
 /** Explicit, serializable boundary between lighting decisions and HA I/O. */
 export type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject;
@@ -61,6 +62,8 @@ export interface ScriptContext extends Omit<Snapshot, 'catalog'> {
   events: EventRecord[];
   /** Parsed once per execution, on first read. */
   catalog: Catalog;
+  /** The snapshot's {@link Snapshot.areas}, parsed: which room each thing is in. */
+  readonly rooms: Rooms;
   /**
    * The unparsed catalog document.
    *

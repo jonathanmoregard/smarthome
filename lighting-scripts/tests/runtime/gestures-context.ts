@@ -1,5 +1,6 @@
 import type { JsonObject, ScriptContext, ScriptHandler, ScriptHandlers } from '../../src/runtime/context.ts';
 import type { Catalog } from '../../src/runtime/catalog.ts';
+import { parseRooms } from '../../src/parse/rooms.ts';
 import { emptyCatalog, parseCatalog } from '../../src/runtime/catalog.ts';
 import { typed, typedDispatch } from '../../src/runtime/entrypoints.ts';
 import type { TypedName, TypedResults } from '../../src/runtime/entrypoints.ts';
@@ -59,6 +60,8 @@ export function context(handlers: ScriptHandlers = {}): ScriptContext {
       return held.parsed;
     },
     rawCatalog() { return documents.get(this)?.raw ?? {}; },
+    // Parsed on every read, so a test may assign `areas` after building the context.
+    get rooms() { return parseRooms(this.areas); },
     get(entity) { return this.state[entity]?.state ?? 'unknown'; },
     attr(entity, key) { return this.state[entity]?.attributes[key]; },
     // Home Assistant stamps last_updated on every write, as the engine's put does.

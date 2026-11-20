@@ -2,8 +2,10 @@ import type { EntityState, EventRecord, JsonObject, JsonValue, OutputGuard, Sche
   Snapshot } from './context.ts';
 import type { Catalog } from './catalog.ts';
 import type { TypedResults } from './entrypoints.ts';
+import type { Rooms } from '../domain/types/rooms.ts';
 import { emptyCatalog, parseCatalog } from './catalog.ts';
 import { typedDispatch } from './entrypoints.ts';
+import { parseRooms } from '../parse/rooms.ts';
 
 export interface ExecutionRequest { script: string; args: JsonObject; snapshot: Snapshot }
 export interface ExecutionResult { result: JsonValue; snapshot: Snapshot; calls: ServiceCall[]; events: EventRecord[] }
@@ -44,6 +46,8 @@ class Context implements ScriptContext {
   private depth = 0;
   private raw: JsonObject | undefined;
   private parsed: Catalog | undefined;
+  private roomsFrom: Record<string, string> | undefined;
+  private roomsParsed: Rooms | undefined;
   private readonly handlers: ScriptHandlers;
   private readonly original: Snapshot;
   private readonly hooks: ExecutionHooks;
@@ -83,6 +87,18 @@ class Context implements ScriptContext {
   }
 
   rawCatalog(): JsonObject { return this.raw ?? {}; }
+
+  /**
+   * Parsed from {@link areas} on first read, and again whenever `areas` is
+   * replaced (the parity bridge re-syncs a whole snapshot mid-execution).
+   */
+  get rooms(): Rooms {
+    if (this.roomsParsed === undefined || this.roomsFrom !== this.areas) {
+      this.roomsParsed = parseRooms(this.areas);
+      this.roomsFrom = this.areas;
+    }
+    return this.roomsParsed;
+  }
 
   /**
    * Replace the raw catalog document and discard the parsed view.

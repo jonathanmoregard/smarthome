@@ -36,7 +36,7 @@ export type Plan<R> = Generator<Effect, R, void>;
  * look pure and not be. Generators take a snapshot instead.
  */
 export type HouseView = Pick<ScriptContext,
-  'state' | 'areas' | 'members' | 'labels' | 'devices' | 'entitySources' | 'timezone' | 'now' | 'catalog' | 'get' | 'attr'>;
+  'state' | 'rooms' | 'members' | 'labels' | 'devices' | 'entitySources' | 'timezone' | 'now' | 'catalog' | 'get' | 'attr'>;
 
 export function perform(ctx: ScriptContext, effect: Effect): void {
   switch (effect.kind) {

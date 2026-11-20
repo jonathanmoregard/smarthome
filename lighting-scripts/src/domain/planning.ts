@@ -159,9 +159,9 @@ function latestRemote(sorted: OverrideEntry[], room: RoomId): string {
 }
 /** The cache fingerprint: what the room's plan depends on, as observed now. */
 export function dependencies(view: HouseView, room: RoomId, reason: string, warm: Verbatim): Dependencies {
-  const lamps = labelled(view, 'house_schedule').filter(e => e.startsWith('light.') && view.areas[e] === room).sort();
+  const lamps = labelled(view, 'house_schedule').filter(e => e.startsWith('light.') && view.rooms.ofId[e] === room).sort();
   const switches = [...new Set([...labelled(view, 'on_off'), ...switchRangeEntities(view.attr('sensor.ls_overrides',
-    'switch_ranges'))])].filter(e => view.areas[e] === room).sort();
+    'switch_ranges'))])].filter(e => view.rooms.ofId[e] === room).sort();
   const values: Array<string | Verbatim> = [];
   for (const scope of ['house', room]) for (const block of BLOCKS) {
     for (const suffix of ['start', 'weekend']) values.push(view.get(`input_datetime.ls_${scope}_${block}_${suffix}`));
