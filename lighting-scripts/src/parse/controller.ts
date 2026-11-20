@@ -17,12 +17,11 @@ import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import { lazy, object, requireArray, requireBoolean, requireObject, requireString } from '../runtime/parse.ts';
 import { carry } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
-import { WARM_END } from '../domain/scale.ts';
 import type { RGB } from '../domain/scale.ts';
 import { optionalTimestamp } from './accessors.ts';
 import { opaqueMap } from './overrides.ts';
 import type { OpaqueMap } from './overrides.ts';
-import { requireRgb } from './scale.ts';
+import { requireRgb, warmEndOr } from './scale.ts';
 import type { ApplyArgs, PlanArgs, PlanOverrides, RemoteCommandArgs, SwitchPlanArgs } from '../domain/controller.ts';
 
 const lenientList = (v: JsonValue | undefined): JsonValue[] => Array.isArray(v) ? v : [];
@@ -135,10 +134,13 @@ export function planMapping(value: JsonValue | undefined, context: string): Verb
   return carry(optionalAttributeObject(value, context));
 }
 
-/** The warm-end test lamp's `rgb_color`, or the built-in warm end when it has none. */
+/**
+ * The warm-end test lamp's `rgb_color`, read as the captured
+ * `rgb_color or [255,126,0]` through the shared {@link warmEndOr}: any
+ * Jinja-falsy value takes the built-in warm end; a truthy one must be a triple.
+ */
 export function planWarmEnd(value: JsonValue | undefined): RGB {
-  // Home Assistant uses null for an attribute with no value.
-  return value === undefined || value === null ? WARM_END : requireRgb(value, 'ls_plan.warm_end');
+  return requireRgb(warmEndOr(value), 'ls_plan.warm_end');
 }
 
 /** A room cache's gradients, read leniently; entries carried. */
