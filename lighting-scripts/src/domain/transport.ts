@@ -40,12 +40,20 @@ export type BulbEffect = {
    * a loop owns the colour from its start on, so nothing is sent for it.
    */
   readonly colour: 'warm end' | 'none';
+  /**
+   * Is a lamp whose previous assignment names this effect at its top level
+   * told to stop it, whatever its channels say? The captured rule is
+   * `old.get(L,{}).get('effect') in ['Breathe','Colour loop']`: written when
+   * Candle was the software renderer, so a Candle named there stops nothing by
+   * name (its stop comes from the channel it runs, {@link runningIn}).
+   */
+  readonly stoppedByName: boolean;
 };
 export function bulbEffect(name: BulbEffectName): BulbEffect {
   switch (name) {
-    case 'Candle': return { channel: 'brightness', start: 'channel_change', colour: 'warm end' };
-    case 'Breathe': return { channel: 'brightness', start: 'breathe', colour: 'none' };
-    case 'Colour loop': return { channel: 'color', start: 'colorloop', colour: 'none' };
+    case 'Candle': return { channel: 'brightness', start: 'channel_change', colour: 'warm end', stoppedByName: false };
+    case 'Breathe': return { channel: 'brightness', start: 'breathe', colour: 'none', stoppedByName: true };
+    case 'Colour loop': return { channel: 'color', start: 'colorloop', colour: 'none', stoppedByName: true };
     default: { const unknown: never = name; throw new Error(`Unhandled bulb effect ${JSON.stringify(unknown)}`); }
   }
 }
@@ -336,7 +344,7 @@ export function stopCommands(view: HouseView, catalog: Catalog, targetViews: Ret
   for (const [lamp, target] of Object.entries(targetViews)) {
     if (target.isRoom) continue;
     const previous = stored.previous(lamp);
-    let needed = ['Breathe', 'Colour loop'].includes(previous.effect);
+    let needed = previous.effect !== undefined && bulbEffect(previous.effect).stoppedByName;
     for (const channel of ['brightness', 'color'] as const) {
       const source = target.channels[channel];
       // A lamp leaving an effect its bulbs run is told to stop it, before its new light.

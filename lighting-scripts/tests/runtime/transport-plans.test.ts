@@ -4,7 +4,7 @@ import { assignDecision, filterCommands, frameRows, planAssignUpdate, planStops,
 import type { EmitCommand } from '../../src/domain/transport.ts';
 import { parseAssignArgs, parseFilterArgs, parseFramePlanArgs, runtimeState } from '../../src/parse/transport.ts';
 import { parseCatalog } from '../../src/runtime/catalog.ts';
-import type { JsonObject } from '../../src/runtime/context.ts';
+import type { JsonObject, JsonValue } from '../../src/runtime/context.ts';
 import type { Effect } from '../../src/runtime/effects.ts';
 import { house } from './house-view.ts';
 
@@ -163,6 +163,23 @@ test('a room target and a lamp that ran no bulb effect are not told to stop', ()
   assert.deepEqual(stopCommands(view, catalog, details({ targets: { 'light.lamp': steady } }).targetViews(), runtimeState(view)), []);
   const was = house({ [runtime]: ['g0', { assignments: { 'light.lamp': { effect: 'Breathe' } } }], 'light.bulb': 'on' });
   assert.deepEqual(stopCommands(was, catalog, details({ targets: { 'light.lamp': { ...steady, is_room: true } } }).targetViews(), runtimeState(was)), []);
+});
+
+test("a previous assignment's top-level effect stops by the captured `.get('effect') in ['Breathe','Colour loop']`", () => {
+  // The captured rule compares the raw value: only those two exact strings
+  // match. Candle is not in it (it was the software renderer when the rule was
+  // written; its stop comes from the channel it runs), and a non-string never
+  // equals a name, whatever it would print as.
+  const catalog = parseCatalog(catalogDocument);
+  const stops = (effect: JsonValue) => {
+    const view = house({ [runtime]: ['g0', { assignments: { 'light.lamp': { effect } } }], 'light.bulb': 'on' });
+    return stopCommands(view, catalog, details({ targets: { 'light.lamp': steady } }).targetViews(), runtimeState(view))
+      .map(command => command.payload.effect);
+  };
+  for (const name of ['Breathe', 'Colour loop']) assert.deepEqual(stops(name), ['stop_colorloop', 'stop_effect'], name);
+  for (const other of ['Candle', 'breathe', ['Breathe'], ['Colour loop'], null, 0] as JsonValue[]) {
+    assert.deepEqual(stops(other), [], JSON.stringify(other));
+  }
 });
 
 test('the stops go to effects_emit as one inter-handler run, even when there are none', () => {

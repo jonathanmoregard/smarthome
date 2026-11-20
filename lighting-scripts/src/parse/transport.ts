@@ -277,8 +277,12 @@ export function storedChannels(value: JsonValue | undefined): StoredChannels {
 
 /** One lamp's previous runtime assignment and target, as the stop check reads them. */
 export interface PreviousLamp {
-  /** `String(assignment.effect)`, the captured spelling's JavaScript coercion. */
-  effect: string;
+  /**
+   * The bulb effect the previous assignment names at its top level (captured
+   * `old.get(L,{}).get('effect')`), compared as the captured `in` does: only
+   * a string equal to a name; anything else is `undefined`.
+   */
+  effect: BulbEffectName | undefined;
   channels: StoredChannels;
   /** The previous target's `channel.updated`, as stored, for an identity comparison. */
   updated(channel: Channel): StoredFact;
@@ -302,7 +306,7 @@ export function runtimeState(ctx: HouseView): RuntimeState {
     previous: lamp => {
       const previous = object(old[lamp]);
       return {
-        effect: String(previous.effect),
+        effect: typeof previous.effect === 'string' ? bulbEffectName(previous.effect) : undefined,
         channels: storedChannels(previous),
         updated: channel => storedFact(object(object(oldTargets[lamp])[channel]).updated),
       };
