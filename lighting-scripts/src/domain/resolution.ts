@@ -148,7 +148,7 @@ export type ResolveArgs = {
   records: OverrideRecord[];
   channelsOf(effect: string | undefined): Channel[];
   adjustsByGradient(processor: string): boolean;
-  private: string[];
+  private: RoomId[];
   power(area: RoomId): Verbatim;
   gradient(target: string, signature: GradientSignature): GradientCurve | undefined;
   /** Read where the signature lists it (`warm_end|list`); see `warmEndArgument`. */

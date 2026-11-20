@@ -6,7 +6,9 @@ import { pythonFloatText } from '../runtime/format.ts';
 import type { StoredValue } from '../parse/overrides.ts';
 import { overridesRevision } from '../parse/sensors.ts';
 import { switchRangeEntities } from '../parse/planning.ts';
-import { attributeNumber, entityProfile, entitySample, rgbComponent, savedProfile, stateNumber, storedScheduleRecords } from '../parse/schedule.ts';
+import {
+  attributeNumber, entityProfile, entitySample, privateRoomIds, rgbComponent, savedProfile, stateNumber, storedScheduleRecords,
+} from '../parse/schedule.ts';
 import type { ScheduleRecord, ScheduleRecords } from '../parse/schedule.ts';
 import type { OverlayKey } from './types/overlay.ts';
 import { byOverlayKeyText, overlayKeyText, sameOverlayKey } from './types/overlay.ts';
@@ -20,7 +22,12 @@ export function labelled(view: HouseView, label: string): string[] {
   const entities = view.labels?.[label] ?? (label === 'house_schedule' ? view.members : []);
   return [...new Set(entities.flatMap(e => view.devices?.[e] ?? [e]))];
 }
-export function privateRooms(view: HouseView): string[] { return view.labels?.private_room ?? []; }
+export function privateRooms(view: HouseView): RoomId[] { return privateRoomIds(view); }
+/** Is this area one of the private rooms? The area may be any registry area text (or `''` for none). */
+function isPrivateRoom(view: HouseView, area: string): boolean {
+  const rooms: readonly string[] = privateRooms(view);
+  return rooms.includes(area);
+}
 export function latestRemote(records: ScheduleRecords, room: string): OverlayKey {
   // The scripts start from the empty key and keep it when no remote record applies.
   let key: OverlayKey = { kind: 'saved', key: '' }, stamp = -1;
@@ -369,7 +376,7 @@ export function scheduledBase(view: HouseView, args: ScheduledBaseArgs, roomLoca
     const area = view.rooms.ofId[lamp] ?? '';
     const room = rooms.includes(area) ? area : 'house';
     const S = details[room]!;
-    const privateRoom = privateRooms(view).includes(area);
+    const privateRoom = isPrivateRoom(view, area);
     const newest = latestRemote(records, room);
     const blockRecord = records.get({ kind: 'block', scope: room });
     // The block override, or the newest applying period claim. Its `when` is
@@ -448,7 +455,7 @@ export function scheduledBase(view: HouseView, args: ScheduledBaseArgs, roomLoca
     debug.push(`${lamp} ${room}/${room} ${stage.source} ${stage.from}>${stage.to} p=${debugP} send=True`);
   }
   for (const area of rooms) {
-    const S = details[area]!, privateRoom = privateRooms(view).includes(area);
+    const S = details[area]!, privateRoom = isPrivateRoom(view, area);
     const ignored = keys.filter(key => {
       const r = records.get(key);
       const match = (r.scope === 'room' && r.target === area) || (r.scope === 'house' && !privateRoom) || (key.kind === 'sara mode' &&
@@ -488,7 +495,7 @@ export function scheduledBase(view: HouseView, args: ScheduledBaseArgs, roomLoca
     const target = r.targetName;
     const area = target === undefined ? undefined : r.kind === 'light' || r.scope === 'lamp' ? view.rooms.ofId[target] : target;
     const scope = rooms.includes(area ?? '') ? area! : 'house';
-    const scopes = r.scope === 'house' || key.kind === 'sara mode' ? rooms.filter(a => !privateRooms(view).includes(a)) : [scope];
+    const scopes = r.scope === 'house' || key.kind === 'sara mode' ? rooms.filter(a => !isPrivateRoom(view, a)) : [scope];
     return scopes.length > 0 && scopes.every(a => r.when() <= details[a]!.last_fs && !details[a]!.fading);
   });
   const sched: Record<string, Block | null> = {}, mirror: ScheduleMirror[] = [];

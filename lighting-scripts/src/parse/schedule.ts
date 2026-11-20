@@ -256,3 +256,14 @@ function parseScheduledBaseArgs(args: JsonObject, context: string, roomOnly: Roo
     includeDebug: args.debug !== undefined && jinjaTruthy(args.debug),
   };
 }
+
+/**
+ * The rooms the registry labels `private_room`: the snapshot's label list,
+ * read as the scripts read it (`view.labels?.private_room ?? []`, so an absent
+ * or null list is no rooms), each a room.
+ */
+export function privateRoomIds(view: Pick<HouseView, 'labels'>): RoomId[] {
+  const labels = view.labels;
+  const rooms = labels === undefined || labels === null ? undefined : labels.private_room;
+  return rooms === undefined || rooms === null ? [] : rooms.map(toRoomId);
+}

@@ -311,7 +311,7 @@ export function parseResolveArgs(args: JsonObject): ResolveArgs {
     channelsOf: name => effectChannels(catalog, name),
     adjustsByGradient: processor => defaulted(object(object(catalog.processors)[processor]), 'remote_adjustment',
       processor === 'Normal light' ? 'gradient' : 'ignore') === 'gradient',
-    private: privateRooms.filter((room): room is string => typeof room === 'string'),
+    private: privateRooms.filter((room): room is string => typeof room === 'string').map(toRoomId),
     power: area => carry(defaulted(power, area, true)),
     gradient: (target, signature) => {
       const cached = gradients[target];

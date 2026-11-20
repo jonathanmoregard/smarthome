@@ -5,11 +5,11 @@
   "effectKinds": 46,
   "haNames": 171,
   "parseRuntimeImports": 86,
-  "viewReads": 120,
+  "viewReads": 119,
   "carriedTypes": 230,
   "casts": 8,
   "nonNull": 36,
-  "nullish": 37,
+  "nullish": 36,
   "typeofs": 3,
   "literalIncludes": 29,
   "brandConstructors": 0
