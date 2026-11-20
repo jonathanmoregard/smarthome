@@ -120,14 +120,11 @@ test('a constant colour claimed over the candle is sent before the trigger', () 
   ]);
 });
 
-test('leaving the candle sends stop_effect before the new light', () => {
+const leftCandle = [{ effect: 'stop_colorloop' }, { effect: 'stop_effect' }, { brightness: 100, color_temp: 400, transition: 3 }];
+
+test('leaving the candle sends each bulb the stops, then the new light, and nothing else', () => {
   const calls = dispatch(steady, { assignments: { 'light.lamp': candle }, targets: { 'light.lamp': candle } });
-  const bodies = received(calls, topics['light.bulb_1']);
-  const stop = bodies.findIndex(body => body.effect === 'stop_effect');
-  const light = bodies.findIndex(body => body.brightness === 100);
-  assert.notEqual(stop, -1, 'stop_effect was sent');
-  assert.ok(stop < light, 'stop_effect precedes the new brightness');
-  assert.equal(bodies.some(body => body.effect === 'channel_change'), false);
+  for (const topic of Object.values(topics)) assert.deepEqual(received(calls, topic), leftCandle, topic);
 });
 
 test('a candle lamp whose applied light is already its target is not touched', () => {
@@ -151,7 +148,7 @@ test('no dispatch writes anything beside applied to record a start', () => {
 
 test('leaving the candle, then the steady light is sent once', () => {
   const left = dispatchOn(dispatchOn(snapshot({}), candle).snapshot, steady);
-  assert.ok(received(left.calls, topics['light.bulb_1']).some(body => body.brightness === 100), 'precondition: the steady light is sent');
+  for (const topic of Object.values(topics)) assert.deepEqual(received(left.calls, topic), leftCandle, `precondition: ${topic}`);
   assert.deepEqual(publishes(dispatchOn(left.snapshot, steady).calls), []);
 });
 
