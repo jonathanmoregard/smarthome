@@ -1,10 +1,12 @@
 import { withFields } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { timestamp } from '../parse/accessors.ts';
-import type { OpaqueMap, StoredFact, StoredValue } from '../parse/overrides.ts';
+import type { StoredFact, StoredValue } from '../parse/overrides.ts';
 import { lenientOverrides } from '../parse/sensors.ts';
 import { inputNumber, overrideAges } from '../parse/automations.ts';
 import type { Effect, HouseView, Plan } from '../runtime/effects.ts';
+import { entriesOf } from './types/ids.ts';
+import type { RemoteId, RoomId } from './types/ids.ts';
 
 function turnOn(script: string): Effect {
   return { kind: 'service', service: 'script.turn_on', data: {}, target: { entity_id: `script.${script}` } };
@@ -12,13 +14,13 @@ function turnOn(script: string): Effect {
 
 export type RemoteKind = 'power' | 'directions' | 'preset';
 export interface RemoteArgs {
-  room: string;
+  room: RoomId;
   /** The gesture command: the kind itself, or directions' `trigger.id` as stored. */
   command: StoredValue;
   /** Preset's `trigger.payload_json` as stored, `null` when absent. */
   payload: Verbatim;
   source: string | undefined;
-  deviceId: string | undefined;
+  deviceId: RemoteId | undefined;
 }
 export interface NativeControlsArgs {
   topic: string;
@@ -83,13 +85,13 @@ export function* forwardOverride(args: WriterArgs): Plan<null> {
 export interface PendingOutput {
   fullVersion: StoredFact;
   handledFull: StoredFact;
-  pendingRooms: OpaqueMap;
-  handledRooms: OpaqueMap;
+  pendingRooms: Readonly<Record<RoomId, Verbatim>>;
+  handledRooms: Readonly<Record<RoomId, Verbatim>>;
 }
 /** Output is dirty when the last full render or any pending room was not handled. */
 export function pendingOutputDirty(output: PendingOutput): boolean {
   return output.fullVersion !== output.handledFull
-    || Object.entries(output.pendingRooms).some(([room, version]) => version !== output.handledRooms[room]);
+    || entriesOf(output.pendingRooms).some(([room, version]) => version !== output.handledRooms[room]);
 }
 export function* requestRender(): Plan<null> {
   yield turnOn('ls_render');

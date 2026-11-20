@@ -10,12 +10,14 @@ import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { HouseView } from '../runtime/effects.ts';
 import { isObject, jinjaFloat, jinjaInt, lazy, ParseError, requireString } from '../runtime/parse.ts';
 import { carry } from '../runtime/verbatim.ts';
+import type { RoomId } from '../domain/types/ids.ts';
+import { toRemoteId, toRoomId } from './ids.ts';
 import type { GestureArgs, GestureState, PowerQuietArgs, PresetPayload } from '../domain/gestures.ts';
 
-function roomArg(args: JsonObject): string {
+function roomArg(args: JsonObject): RoomId {
   const room = requireString(args, 'room', 'ls_remote_gesture');
   if (!/^[a-z0-9_]+$/.test(room)) throw new ParseError('Gesture room must be a runtime room ID');
-  return room;
+  return toRoomId(room);
 }
 
 /**
@@ -52,7 +54,7 @@ export function parseGestureArgs(args: JsonObject): GestureArgs {
       : '',
     payload: lazy(() => presetPayload(args.payload)),
     delivery: lazy(() => ({
-      deviceId: args.device_id === undefined ? undefined : requireString(args, 'device_id', 'ls_remote_gesture'),
+      deviceId: args.device_id === undefined ? undefined : toRemoteId(requireString(args, 'device_id', 'ls_remote_gesture')),
       source: args.source === undefined ? '' : requireString(args, 'source', 'ls_remote_gesture'),
     })),
   };
@@ -77,7 +79,7 @@ export function helperInt(ctx: HouseView, entity: string, fallback = 0): number 
  * captured script reads it only on the preset branch, before any write there --
  * changes nothing observable.
  */
-export function gestureState(ctx: HouseView, room: string): GestureState {
+export function gestureState(ctx: HouseView, room: RoomId): GestureState {
   const prefix = `ls_${room}_remote_`;
   const saved = ctx.get(`input_text.${prefix}power_token`);
   return {

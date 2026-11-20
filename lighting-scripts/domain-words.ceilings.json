@@ -7,7 +7,7 @@
   "parseRuntimeImports": 86,
   "viewReads": 120,
   "carriedTypes": 230,
-  "casts": 7,
+  "casts": 8,
   "nonNull": 36,
   "nullish": 37,
   "typeofs": 5,

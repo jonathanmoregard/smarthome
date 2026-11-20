@@ -22,13 +22,14 @@ import type {
   LampChangeArgs, NativeCapture, NativeControlsArgs, RemoteArgs, RemoteKind, SaraModeArgs, ScheduleEngineArgs,
   TriggerIdArgs, WriterArgs,
 } from '../domain/automations.ts';
+import { toRemoteId, toRoomId } from './ids.ts';
 
 function triggerObject(args: JsonObject, context: string): JsonObject {
   return requireObject(args, 'trigger', context);
 }
 
 export function parseRemoteArgs(kind: RemoteKind, args: JsonObject): RemoteArgs {
-  const room = requireString(args, 'room', `automation.remote_${kind}`);
+  const room = toRoomId(requireString(args, 'room', `automation.remote_${kind}`));
   if (!/^[a-z0-9_]+$/.test(room)) throw new ParseError('Remote automation requires a runtime room ID');
   // Center never reads trigger. Directions and preset reach distinct raw
   // fields, so the shared factory must not impose either field on the other.
@@ -42,7 +43,7 @@ export function parseRemoteArgs(kind: RemoteKind, args: JsonObject): RemoteArgs 
     // `payload_json ?? null`: an absent payload is forwarded as null.
     payload: carry(payload === undefined ? null : payload),
     source: typeof args.source === 'string' ? args.source : undefined,
-    deviceId: typeof args.device_id === 'string' ? args.device_id : undefined,
+    deviceId: typeof args.device_id === 'string' ? toRemoteId(args.device_id) : undefined,
   };
 }
 

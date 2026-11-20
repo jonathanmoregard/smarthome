@@ -34,6 +34,7 @@ import type { BaselineTarget, DetailField, OverrideFacts, Overrides, RoomBaselin
   TestNow } from '../domain/planning.ts';
 import { isBlock, savedBlock } from './blocks.ts';
 import { warmEndOr } from './scale.ts';
+import { toRoomId } from './ids.ts';
 
 function requiredObjectValue(value: JsonValue | undefined, context: string): JsonObject {
   return value === undefined ? requireObject({}, 'value', context) : requireObject({ value }, 'value', context);
@@ -188,7 +189,7 @@ function validCache(value: JsonValue | undefined, room: string): RoomCache | und
  * captured runtime fallbacks.
  */
 export function parseRoomPlanArgs(args: JsonObject): RoomPlanArgs {
-  const room = requireString(args, 'room', 'ls_room_plan');
+  const room = toRoomId(requireString(args, 'room', 'ls_room_plan'));
   return {
     room,
     reason: args.reason === undefined ? 'remote' : requireString(args, 'reason', 'ls_room_plan'),

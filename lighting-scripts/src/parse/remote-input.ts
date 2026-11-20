@@ -19,6 +19,7 @@ import { latestRemoteKey, savedWhen } from './resolution.ts';
 import { assembledMap, storedFact } from './overrides.ts';
 import type { Assembled, AssembledMap, StoredFact, StoredValue } from './overrides.ts';
 import type { Adjustment, RemotePlanArgs } from '../domain/remote-input.ts';
+import { toRoomId } from './ids.ts';
 
 const OVERRIDES = 'sensor.ls_overrides';
 const numeric = (v: JsonValue | undefined): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -224,7 +225,7 @@ export function roomPower(ctx: HouseView, room: string): boolean | undefined {
 export function parseRemotePlanArgs(args: JsonObject): RemotePlanArgs {
   return {
     source: requireString(args, 'source', 'ls_remote_plan'),
-    area: requireString(args, 'area', 'ls_remote_plan'),
+    area: toRoomId(requireString(args, 'area', 'ls_remote_plan')),
     command: requireString(args, 'command', 'ls_remote_plan'),
   };
 }

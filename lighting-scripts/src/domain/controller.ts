@@ -7,6 +7,7 @@ import type { ResolutionResult } from './resolution.ts';
 import type { GradientPlanResult } from './gradient.ts';
 import type { RemotePlanResult } from './remote-input.ts';
 import type { Effect, HouseView } from '../runtime/effects.ts';
+import type { RoomId } from './types/ids.ts';
 
 /**
  * A valid switch interval: its bounds as numbers (a boolean bound is Python's
@@ -52,7 +53,7 @@ export interface ApplyArgs {
 
 export interface RemoteCommandArgs {
   source: string;
-  area: string;
+  area: RoomId;
   command: string;
   dryRun: boolean;
 }
@@ -148,9 +149,9 @@ export function planAnswer(view: HouseView, parts: PlanParts): PlanResult {
 
 
 /** The remote command `ls_remote_plan` plans. */
-export type RemoteInput = { source: string; area: string; command: string };
+export type RemoteInput = { source: string; area: RoomId; command: string };
 /** A planned change, committed against the revision it was planned at. */
-export type RemoteCommit = RemotePlanResult & { expected_revision: string; area: string; via: 'remote'; source: string };
+export type RemoteCommit = RemotePlanResult & { expected_revision: string; area: RoomId; via: 'remote'; source: string };
 
 /** The captured script's retry budget for a revision that keeps moving under the commit. */
 const REMOTE_ATTEMPTS = 1_000;

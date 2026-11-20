@@ -2,6 +2,7 @@ import { withFields } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { stateText } from '../runtime/format.ts';
 import type { Plan } from '../runtime/effects.ts';
+import type { RemoteId, RoomId } from './types/ids.ts';
 
 const presets = [200, 285, 370, 454, 588];
 const directions = ['left', 'right', 'up', 'down'];
@@ -12,16 +13,16 @@ export interface PresetPayload {
   preset: number | undefined;
 }
 export interface GestureArgs {
-  room: string;
+  room: RoomId;
   command: string;
   token: string;
   payload: () => PresetPayload | undefined;
-  delivery: () => { deviceId: string | undefined; source: string };
+  delivery: () => { deviceId: RemoteId | undefined; source: string };
 }
 export interface PowerQuietArgs {
   /** The whole argument document, forwarded into the scheduled `power_done`. */
   document: Verbatim;
-  room: string;
+  room: RoomId;
 }
 
 /**
@@ -45,12 +46,12 @@ type HelperKey = 'chord_step' | 'power_count' | 'power_token' | 'preset';
 
 function helperDomain(key: HelperKey): string { return key === 'power_token' ? 'input_text' : 'input_number'; }
 /** Write a helper: the transaction's own view of it first, then the service. */
-function* setHelper(room: string, key: HelperKey, value: string | number): Plan<void> {
+function* setHelper(room: RoomId, key: HelperKey, value: string | number): Plan<void> {
   const entity = `${helperDomain(key)}.ls_${room}_remote_${key}`;
   yield { kind: 'state', entity, state: stateText(value) };
   yield { kind: 'service', service: `${helperDomain(key)}.set_value`, data: { value }, target: { entity_id: entity } };
 }
-function* chordTimer(room: string, start: boolean): Plan<void> {
+function* chordTimer(room: RoomId, start: boolean): Plan<void> {
   const chord = `timer.ls_${room}_remote_chord`;
   yield { kind: 'state', entity: chord, state: start ? 'active' : 'idle' };
   yield {
@@ -64,7 +65,7 @@ function* chordTimer(room: string, start: boolean): Plan<void> {
  * with no device, or whose device has no area (an empty area id is none),
  * has no area, and its gestures send nothing. There is no fallback room.
  */
-export function remoteArea(deviceId: string | undefined, areas: Readonly<Record<string, string>>): string | undefined {
+export function remoteArea(deviceId: RemoteId | undefined, areas: Readonly<Record<string, string>>): string | undefined {
   if (deviceId === undefined) return undefined;
   const area = areas[deviceId];
   return area === undefined || area.length === 0 ? undefined : area;
@@ -158,14 +159,14 @@ export function* gesture(state: GestureState, input: GestureInput): Plan<Gesture
 }
 
 /** A power press's token, stamped with `now` as read after the press's writes. */
-export function* stampPowerToken(room: string, now: string): Plan<void> {
+export function* stampPowerToken(room: RoomId, now: string): Plan<void> {
   yield* setHelper(room, 'power_token', now);
 }
 /**
  * Launch the restartable quiet script. The host runs it; keeping the HA service
  * boundary lets the same recorder and event router execute this actor.
  */
-export function* launchPowerQuiet(room: string, now: string): Plan<void> {
+export function* launchPowerQuiet(room: RoomId, now: string): Plan<void> {
   yield {
     kind: 'service', service: 'script.turn_on',
     data: { variables: { token: now } }, target: { entity_id: `script.ls_remote_power_quiet_${room}` },

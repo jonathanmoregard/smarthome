@@ -7,14 +7,15 @@ import { parseRangeSaveArgs } from '../../src/parse/ui-state.ts';
 import { carry } from '../../src/runtime/verbatim.ts';
 import type { JsonObject } from '../../src/runtime/context.ts';
 import { house } from './house-view.ts';
+import { id } from './support/ids.ts';
 
 const override = (data: JsonObject) => ({ kind: 'event', event: 'ls_override', data });
 const turnOn = (script: string) => ({ kind: 'service', service: 'script.turn_on', data: {}, target: { entity_id: `script.${script}` } });
 
 test('a remote forwards its gesture to the room\'s gesture script, preset with its payload', () => {
-  assert.deepEqual([...forwardRemote('preset', { room: 'studio', command: 'preset', payload: carry({ a: 1 }), source: 's', deviceId: undefined })],
+  assert.deepEqual([...forwardRemote('preset', { room: id.room('studio'), command: 'preset', payload: carry({ a: 1 }), source: 's', deviceId: undefined })],
     [{ kind: 'script', name: 'ls_remote_gesture_studio', args: { command: 'preset', payload: { a: 1 }, source: 's' } }]);
-  assert.deepEqual([...forwardRemote('power', { room: 'studio', command: 'power', payload: carry(null), source: undefined, deviceId: 'd' })],
+  assert.deepEqual([...forwardRemote('power', { room: id.room('studio'), command: 'power', payload: carry(null), source: undefined, deviceId: id.remote('d') })],
     [{ kind: 'script', name: 'ls_remote_gesture_studio', args: { command: 'power', device_id: 'd' } }]);
 });
 
@@ -34,7 +35,7 @@ test('the store writer commits the event data with who replaced', () => {
 });
 
 test('pending output is dirty on an unhandled full version or an unhandled room', () => {
-  const clean = { fullVersion: 'v', handledFull: 'v', pendingRooms: { a: carry('t') }, handledRooms: { a: carry('t') } };
+  const clean = { fullVersion: 'v', handledFull: 'v', pendingRooms: { [id.room('a')]: carry('t') }, handledRooms: { [id.room('a')]: carry('t') } };
   assert.equal(pendingOutputDirty(clean), false);
   assert.equal(pendingOutputDirty({ ...clean, handledFull: 'w' }), true);
   assert.equal(pendingOutputDirty({ ...clean, handledRooms: {} }), true);

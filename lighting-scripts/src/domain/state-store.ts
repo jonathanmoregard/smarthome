@@ -7,6 +7,7 @@ import { roomTarget, storedProfileText } from '../parse/state-store.ts';
 import { affectedRoom, mergedValue, overrideRecord, sameFact, underlyingOf } from '../parse/overrides.ts';
 import type { OpaqueMap, StoredEntry, StoredFact, StoredOverrides, StoredValue } from '../parse/overrides.ts';
 import type { HouseView, Plan } from '../runtime/effects.ts';
+import type { RoomId } from './types/ids.ts';
 
 /** One channel claim of a `channels` record, as written. */
 export interface ChannelClaim {
@@ -45,7 +46,7 @@ export interface CommitData {
   area: StoredFact;
   receivedAt: StoredFact;
   clearContains: () => (key: string) => boolean;
-  power: () => { area: string; on: boolean };
+  power: () => { area: RoomId; on: boolean };
   range: () => { entity: string; rule: RangeRule } | undefined;
   ranges: () => Verbatim | undefined;
   remoteAck: () => { source: string; requestId: StoredValue } | undefined;

@@ -11,6 +11,7 @@ import { optionalBlock } from './blocks.ts';
 import { ParseError, requireArray, requireBoolean, requireFinite, requireNumber, requireObject, requireString } from '../runtime/parse.ts';
 import { carry } from '../runtime/verbatim.ts';
 import { assembledMap, storedFact } from './overrides.ts';
+import { toRoomId } from './ids.ts';
 
 function decodeStrings(container: JsonObject, key: string, context: string): string[] {
   return requireArray(container, key, context)
@@ -194,11 +195,11 @@ function decodeRemoteOp(result: JsonObject, context: string): RemotePlanOp {
   const op = requireString(result, 'op', context);
   if (op === 'noop') return { op };
   if (op === 'clear') return { op, keys: decodeStrings(result, 'keys', context), via: decodeVia(result, context) };
-  if (op === 'clear_room') return { op, area: requireString(result, 'area', context), via: decodeVia(result, context) };
+  if (op === 'clear_room') return { op, area: toRoomId(requireString(result, 'area', context)), via: decodeVia(result, context) };
   if (op === 'power') {
     return {
       op,
-      area: requireString(result, 'area', context),
+      area: toRoomId(requireString(result, 'area', context)),
       on: requireBoolean(result.on, `${context}.on`),
       targets: decodeStrings(result, 'targets', context),
       via: decodeVia(result, context),

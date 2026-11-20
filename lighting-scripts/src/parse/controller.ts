@@ -24,6 +24,7 @@ import { requireRgb, warmEndOr } from './scale.ts';
 import { savedMappingOr } from './accessors.ts';
 import { BUILT_IN_RANGES } from './planning.ts';
 import type { ApplyArgs, PlanArgs, PlanOverrides, RemoteCommandArgs, SwitchInterval, SwitchPlanArgs } from '../domain/controller.ts';
+import { toRoomId } from './ids.ts';
 
 const lenientList = (v: JsonValue | undefined): JsonValue[] => Array.isArray(v) ? v : [];
 
@@ -131,7 +132,7 @@ export function parseApplyArgs(args: JsonObject): ApplyArgs {
 export function parseRemoteCommandArgs(args: JsonObject): RemoteCommandArgs {
   return {
     source: requireString(args, 'source', 'ls_remote_command'),
-    area: requireString(args, 'area', 'ls_remote_command'),
+    area: toRoomId(requireString(args, 'area', 'ls_remote_command')),
     command: requireString(args, 'command', 'ls_remote_command'),
     dryRun: optionalScriptBoolean(args.dry_run, 'ls_remote_command.dry_run'),
   };

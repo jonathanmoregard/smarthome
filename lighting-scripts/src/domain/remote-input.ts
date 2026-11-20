@@ -8,13 +8,14 @@ import { contextEntries, noInputRecord, presetSelection, remoteCache, remoteOver
 import { switchRangeIterable } from '../parse/planning.ts';
 import type { RemoteOverrides, RemoteRoomPlan } from '../parse/remote-input.ts';
 import { clamp } from './scale.ts';
+import type { RoomId } from './types/ids.ts';
 
 const omit = (v: AssembledMap, keys: string[]): AssembledMap => Object.fromEntries(Object.entries(v).filter(([k]) => !keys.includes(k)));
 const pick = (v: AssembledMap, keys: string[]): AssembledMap => Object.fromEntries(Object.entries(v).filter(([k]) => keys.includes(k)));
 
 export interface RemotePlanArgs {
   source: string;
-  area: string;
+  area: RoomId;
   command: string;
 }
 
@@ -69,8 +70,8 @@ export type RemoteInputRecord = {
 export type RemotePlanOp =
   | { op: 'noop' }
   | { op: 'clear'; keys: string[]; via: 'remote' }
-  | { op: 'clear_room'; area: string; via: 'remote' }
-  | { op: 'power'; area: string; on: boolean; targets: string[]; via: 'remote' }
+  | { op: 'clear_room'; area: RoomId; via: 'remote' }
+  | { op: 'power'; area: RoomId; on: boolean; targets: string[]; via: 'remote' }
   | { op: 'set'; records: (RemoteModeRecord | RemoteInputRecord)[]; via: 'remote' };
 /** The envelope every answer carries, whatever the operation. */
 export type RemotePlanResult = RemotePlanOp & {
@@ -82,8 +83,8 @@ export type RemotePlanResult = RemotePlanOp & {
 
 /** What `ls_remote_plan` reads before it may ask `ls_room_plan` for the room's context. */
 export interface RemoteOpening {
-  /** The area, when some entity is in it; else `''`. */
-  room: string;
+  /** The area, when some entity is in it; else `''` (a sentinel V3 replaces). */
+  room: RoomId | '';
   overrides: RemoteOverrides;
   stamp: number;
   revision: string;

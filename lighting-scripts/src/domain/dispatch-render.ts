@@ -1,6 +1,7 @@
 import { jinjaTruthy } from '../runtime/parse.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import type { Effect, HouseView, Plan } from '../runtime/effects.ts';
+import type { BulbId } from './types/ids.ts';
 import type { GroupCommand, GroupPlanResult } from './grouping.ts';
 import { hasValue } from './schedule.ts';
 import { bulbEffect, runningIn, stillCurrent } from './transport.ts';
@@ -300,12 +301,12 @@ export function bulbStartCommands(view: HouseView, lamps: Array<[string, string[
 }
 
 /** A lamp's catalog members; a lamp the catalog does not list has none. */
-function membersOf(view: HouseView, lamp: string): string[] {
+function membersOf(view: HouseView, lamp: string): BulbId[] {
   const members = view.catalog.members[lamp];
   return members === undefined ? [] : members;
 }
 /** The members a start can reach now: on, with a topic. */
-function startableMembers(view: HouseView, lamp: string): Array<{ member: string; topic: string }> {
+function startableMembers(view: HouseView, lamp: string): Array<{ member: BulbId; topic: string }> {
   return membersOf(view, lamp).flatMap(member => {
     const topic = view.catalog.topics[member];
     return view.get(member) === 'on' && topic !== undefined ? [{ member, topic }] : [];

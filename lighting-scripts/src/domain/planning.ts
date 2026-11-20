@@ -13,6 +13,7 @@ import { overridesRevision } from '../parse/sensors.ts';
 import { entityProfile } from '../parse/schedule.ts';
 import type { StoredFact, StoredValue } from '../parse/overrides.ts';
 import { stored, storedList, switchRangeEntities, wakeFadeMinutes, wakeTimestamp, warmEndOf } from '../parse/planning.ts';
+import type { RoomId } from './types/ids.ts';
 
 /**
  * The oracle's own cache version literal, copied verbatim from
@@ -82,7 +83,7 @@ export type RoomBaseline = {
   targets: Verbatim;
   targetEntries: Array<{ entity: string; target(): BaselineTarget }>;
   schedule: Verbatim;
-  details(room: string, context: string): RoomDetails;
+  details(room: RoomId, context: string): RoomDetails;
   /** `profile()` raises when the lamp has no baseline target, then reads the profile. */
   profiles: Array<{ lamp: string; profile(): Verbatim }>;
 };
@@ -99,7 +100,7 @@ export type RoomCache = {
 };
 export type TestNow = { document: Verbatim | undefined; instant(now: string): number };
 export type RoomPlanArgs = {
-  room: string;
+  room: RoomId;
   reason: string;
   testNow: TestNow;
   overrides: Overrides;
@@ -125,7 +126,7 @@ export type PeriodRow = [Verbatim, Verbatim, Verbatim, Block, StoredValue, boole
 export type Gradients = GradientPlanResult['gradients'] | Verbatim;
 export type CacheUpdate = {
   version: string;
-  room: string;
+  room: RoomId;
   dependencies: Dependencies;
   periods: Record<string, PeriodRow>;
   valid_from: number;
@@ -146,7 +147,7 @@ function byKey(entries: OverrideEntry[]): OverrideEntry[] {
   return [...entries].sort((a, b) => a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
 }
 /** The newest remote stream for the room, reading records leniently. */
-function latestRemote(sorted: OverrideEntry[], room: string): string {
+function latestRemote(sorted: OverrideEntry[], room: RoomId): string {
   let key = '', stamp = -1;
   for (const entry of sorted) {
     const r = entry.record;
@@ -157,7 +158,7 @@ function latestRemote(sorted: OverrideEntry[], room: string): string {
   return key;
 }
 /** The cache fingerprint: what the room's plan depends on, as observed now. */
-export function dependencies(view: HouseView, room: string, reason: string, warm: Verbatim): Dependencies {
+export function dependencies(view: HouseView, room: RoomId, reason: string, warm: Verbatim): Dependencies {
   const lamps = labelled(view, 'house_schedule').filter(e => e.startsWith('light.') && view.areas[e] === room).sort();
   const switches = [...new Set([...labelled(view, 'on_off'), ...switchRangeEntities(view.attr('sensor.ls_overrides',
     'switch_ranges'))])].filter(e => view.areas[e] === room).sort();
@@ -177,7 +178,7 @@ export function dependencies(view: HouseView, room: string, reason: string, warm
       view.get(`input_number.ls_${room}_wake_fade`)],
     expiry: view.get('input_boolean.ls_ovr_next_block_on'), private: privateRooms(view).includes(room), warm, tick: reason === 'tick' };
 }
-function periods(overrides: Overrides, room: string, deps: Dependencies, boundary: number): Record<string, PeriodRow> {
+function periods(overrides: Overrides, room: RoomId, deps: Dependencies, boundary: number): Record<string, PeriodRow> {
   const sorted = byKey(overrides.entries);
   const newest = latestRemote(sorted, room), result: Record<string, PeriodRow> = {};
   for (const entry of sorted) {
@@ -197,7 +198,7 @@ function periods(overrides: Overrides, room: string, deps: Dependencies, boundar
 }
 export type Refreshed = { targets: Record<string, Verbatim>; schedule: Verbatim; stale: string[] };
 /** `hitFrom` is the cache's `valid_from` on a hit, `undefined` on a miss. */
-export function refreshBaseline(view: HouseView, baseline: RoomBaseline, hitFrom: number | undefined, room: string, deps: Dependencies,
+export function refreshBaseline(view: HouseView, baseline: RoomBaseline, hitFrom: number | undefined, room: RoomId, deps: Dependencies,
   overrides: Overrides, at: number): Refreshed {
   const S = baseline.details(room, 'ls_room_plan.baseline.schedule.schedule_details');
   const lastFs = (): number => S.number('last_fs', 'ls_room_plan schedule details');
@@ -254,7 +255,7 @@ export function refreshBaseline(view: HouseView, baseline: RoomBaseline, hitFrom
   return { targets, schedule, stale };
 }
 /** When the room's cache stops being valid: now while the room is moving, else its next boundary. */
-export function expiry(view: HouseView, baseline: RoomBaseline, room: string, at: number): number {
+export function expiry(view: HouseView, baseline: RoomBaseline, room: RoomId, at: number): number {
   const S = baseline.details(room, 'ls_room_plan.baseline.schedule.schedule_details');
   const field = (key: DetailField): number => S.number(key, 'ls_room_plan schedule details');
   const deadlines = [nextMidnight(at, view.timezone ?? 'Europe/Stockholm')];
@@ -315,7 +316,7 @@ export function activeOverrides(overrides: Overrides, stale: string[]): Record<s
 
 /** The parts `ls_room_plan` answers with, once every run is done. */
 export interface RoomPlanParts {
-  room: string;
+  room: RoomId;
   reason: string;
   revision: string;
   refreshed: Refreshed;

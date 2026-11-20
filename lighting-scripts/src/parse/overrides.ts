@@ -20,6 +20,7 @@ import { carry, jsonEqual, reveal } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import type { CommitArgs, CommitData, CommitRecord } from '../domain/state-store.ts';
 import { concatString, haBoolean, mappingKey } from './state-store.ts';
+import { toRoomId } from './ids.ts';
 
 /** A stored value compared by identity: scalars as themselves, containers opaque. */
 export type StoredValue = string | number | boolean | null | Verbatim;
@@ -227,7 +228,7 @@ function parseCommitData(data: JsonObject): CommitData {
     receivedAt: storedFact(data.received_at),
     clearContains: lazy(() => membership(data.keys, 'ls_commit.data.keys')),
     power: lazy(() => ({
-      area: requireString(data, 'area', 'ls_commit.data'),
+      area: toRoomId(requireString(data, 'area', 'ls_commit.data')),
       on: haBoolean(data.on, 'ls_commit.data.on'),
     })),
     range: lazy(() => {
