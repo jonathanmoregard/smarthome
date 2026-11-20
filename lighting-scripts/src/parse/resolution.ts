@@ -47,7 +47,8 @@ import { lampOrRoom } from './lighting-state.ts';
 import type { OverlayKey } from '../domain/types/overlay.ts';
 import { overlayKeyText } from '../domain/types/overlay.ts';
 import { parseOverlayKey } from './overlay-key.ts';
-import { toRoomId } from './ids.ts';
+import { toRoomId, toStep } from './ids.ts';
+import type { Step } from '../domain/types/remote.ts';
 import type { RoomId } from '../domain/types/ids.ts';
 
 /**
@@ -103,6 +104,9 @@ function inputAnchor(value: JsonValue | undefined): InputAnchor {
   return value === undefined || value === 'current' ? 'current' : 'other';
 }
 
+/** The captured default step range, `{'min':-20,'max':20}`, as the bounds of a remote input that names none. */
+export const DEFAULT_STEP_BOUNDS: { readonly min: Step; readonly max: Step } = { min: toStep(-20), max: toStep(20) };
+
 function inputFacts(input: JsonObject): InputFacts {
   const field = (key: string): number | undefined => {
     const v = input[key];
@@ -115,7 +119,8 @@ function inputFacts(input: JsonObject): InputFacts {
     steps: field('steps'),
     lower: field('lower'),
     upper: field('upper'),
-    bounds: typeof min === 'number' && typeof max === 'number' && -20 <= min && min <= max && max <= 20 ? { min, max } : undefined,
+    bounds: typeof min === 'number' && typeof max === 'number' && -20 <= min && min <= max && max <= 20
+      ? { min: toStep(min), max: toStep(max) } : undefined,
     anchor: inputAnchor(input.anchor),
     legacyPosition: typeof legacy === 'number' || typeof legacy === 'boolean' ? Number(legacy) : undefined,
     last: optionalString(input.last),

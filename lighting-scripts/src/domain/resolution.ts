@@ -4,11 +4,12 @@ import { gradientSignature, sampleGradient } from './gradient.ts';
 import type { GradientCurve, GradientSignature } from './gradient.ts';
 import { OFF_END_LEVEL, blend, boundedNumber, clamp } from './scale.ts';
 import type { BlendEnd, Blended, Color, RGB } from './scale.ts';
-import { levelNumber } from '../parse/resolution.ts';
+import { DEFAULT_STEP_BOUNDS, levelNumber } from '../parse/resolution.ts';
 import type { LampOrRoom } from './types/lighting-state.ts';
 import type { OverlayKey } from './types/overlay.ts';
 import { overlayKeyText, sameOverlayKey, SARA_MODE } from './types/overlay.ts';
 import type { RoomId } from './types/ids.ts';
+import type { Step } from './types/remote.ts';
 
 const CHANNELS = ['brightness', 'color'] as const;
 export type Channel = typeof CHANNELS[number];
@@ -51,7 +52,7 @@ export type InputFacts = {
   steps: number | undefined;
   lower: number | undefined;
   upper: number | undefined;
-  bounds: { min: number; max: number } | undefined;
+  bounds: { min: Step; max: Step } | undefined;
   anchor: InputAnchor;
   legacyPosition: number | undefined;
   last: string | undefined;
@@ -257,7 +258,7 @@ function normalPosition(input: ClampedInput, ends: BlendEnds, level: number): nu
 function remoteInput(claim: Extract<Claim, { kind: 'scale' }>): Claim {
   return {
     kind: 'input',
-    input: { steps: 0, lower: -20, upper: 20, bounds: { min: -20, max: 20 }, anchor: 'current', legacyPosition: claim.legacyPosition,
+    input: { steps: 0, lower: -20, upper: 20, bounds: { ...DEFAULT_STEP_BOUNDS }, anchor: 'current', legacyPosition: claim.legacyPosition,
       last: undefined, hasUp: false },
     updated: claim.updated,
   };
