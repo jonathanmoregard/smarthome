@@ -1,0 +1,5 @@
+{
+  "generators": 1, "yields": 2, "planTypes": 1, "effectKinds": 2, "haNames": 4,
+  "parseRuntimeImports": 3, "viewReads": 2, "carriedTypes": 1,
+  "casts": 2, "nonNull": 1, "nullish": 0, "typeofs": 1, "literalIncludes": 2, "brandConstructors": 2
+}

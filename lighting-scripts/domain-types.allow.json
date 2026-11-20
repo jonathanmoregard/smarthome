@@ -1,0 +1,31 @@
+{
+  "allow": [],
+  "ceilings": [
+    { "file": "src/domain/automations.ts", "ceiling": 12, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/domain/blocks.ts", "ceiling": 2, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/domain/controller.ts", "ceiling": 35, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/domain/dispatch-render.ts", "ceiling": 40, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/domain/gestures.ts", "ceiling": 23, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/domain/gradient.ts", "ceiling": 13, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/domain/grouping.ts", "ceiling": 13, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/domain/native-controls.ts", "ceiling": 26, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/domain/planning.ts", "ceiling": 52, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/domain/remote-input.ts", "ceiling": 23, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/domain/resolution.ts", "ceiling": 59, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/domain/scale.ts", "ceiling": 21, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/domain/schedule.ts", "ceiling": 66, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/domain/state-store.ts", "ceiling": 37, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/domain/transport.ts", "ceiling": 53, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/domain/ui-state.ts", "ceiling": 9, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/parse/dispatch-render.ts", "ceiling": 5, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/parse/native-controls.ts", "ceiling": 38, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/parse/overrides.ts", "ceiling": 7, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/parse/remote-input.ts", "ceiling": 13, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/parse/schedule.ts", "ceiling": 5, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/parse/transport.ts", "ceiling": 2, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/parse/ui-state.ts", "ceiling": 6, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/runtime/catalog.ts", "ceiling": 17, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/runtime/context.ts", "ceiling": 40, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/runtime/effects.ts", "ceiling": 7, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." }
+  ]
+}

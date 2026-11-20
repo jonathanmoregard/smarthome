@@ -1,0 +1,39 @@
+// Hand-counted sample for tests/runtime/domain-words.test.ts. Every column's
+// expected count is written in the test; keep the two in step.
+import type { HouseView, Plan } from '../runtime/effects.ts';
+import type { Verbatim } from '../runtime/verbatim.ts';
+import { roomId } from '../parse/ids.ts';
+import type { RoomId } from './types/ids.ts';
+
+// Comments are not code: function* yield Plan<x> view.get('sensor.x') ?? x as y typeof z kind: 'service'.
+
+const COLOURS = ['red', 'blue'] as const;
+
+export function* turnOn(view: HouseView, document: Verbatim): Plan<null> {
+  const state = view.get('light.example');
+  yield { kind: 'service', service: 'light.turn_on' };
+  yield { kind: 'script', name: 'ls_commit', args: document };
+  const named = state as string;
+  const level = view.attr('light.example', 'brightness') ?? 0;
+  void named;
+  void level;
+  return null;
+}
+
+export function check(value: unknown, names: string[], room: RoomId | undefined): boolean {
+  const kind = typeof value;
+  const own = room!;
+  void own;
+  return ['a', 'b'].includes(kind) && COLOURS.includes('red') && names.includes('x');
+}
+
+export function made(raw: string): RoomId {
+  return roomId(raw);
+}
+
+export function forged(raw: string): RoomId {
+  return raw as RoomId;
+}
+
+// A type query is not a runtime `typeof` test.
+export type Colours = typeof COLOURS;

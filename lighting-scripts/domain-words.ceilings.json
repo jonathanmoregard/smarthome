@@ -1,0 +1,16 @@
+{
+  "generators": 31,
+  "yields": 63,
+  "planTypes": 32,
+  "effectKinds": 46,
+  "haNames": 171,
+  "parseRuntimeImports": 86,
+  "viewReads": 120,
+  "carriedTypes": 230,
+  "casts": 7,
+  "nonNull": 36,
+  "nullish": 37,
+  "typeofs": 5,
+  "literalIncludes": 30,
+  "brandConstructors": 0
+}
