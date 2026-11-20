@@ -55,7 +55,7 @@ function decodeSwitchDecision(value: JsonValue, context: string): SwitchDecision
   return {
     on: requireBoolean(entry.on, `${context}.on`),
     room: requireString(entry, 'room', context),
-    brightness: requireNumber(entry, 'brightness', context),
+    ...(entry.brightness === undefined ? {} : { brightness: requireNumber(entry, 'brightness', context) }),
     // A bound may be a boolean: captured `is number` admits it (see `switchRange`).
     range: [bound(range[0], `${context}.range.0`), bound(range[1], `${context}.range.1`)],
   };

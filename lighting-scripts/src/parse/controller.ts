@@ -82,7 +82,8 @@ export function parseSwitchPlanArgs(args: JsonObject): SwitchPlanArgs {
       return {
         populated: Object.keys(group).length > 0,
         // `Number(...)`: the JavaScript coercion the inline arithmetic applied.
-        level: () => Number(group.level),
+        // An off room shows no level and carries none.
+        level: () => group.level === undefined ? undefined : Number(group.level),
         on: () => requireBoolean(group.on, `ls_switch_plan.targets.room:${room}.on`),
       };
     },

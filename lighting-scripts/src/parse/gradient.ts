@@ -11,7 +11,7 @@ import { isObject, lazy, object } from '../runtime/parse.ts';
 import { boundedNumber, WARM_END } from '../domain/scale.ts';
 import type { RGB } from '../domain/scale.ts';
 import type { GradientEntry, GradientPlanArgs, GradientPlanTarget, GradientSignature } from '../domain/gradient.ts';
-import { anchor, requireRgb, validColor } from './scale.ts';
+import { blendEnd, requireRgb, validColor } from './scale.ts';
 
 function validGradientColor(value: unknown): boolean {
   return validColor(value, 0, 1e20) && (value.kelvin === undefined || (value.kelvin > 0 && value.kelvin < 1e20));
@@ -67,7 +67,9 @@ export function warmEndArgument(args: JsonObject, context: string): () => RGB {
  * legitimately holds incomplete targets. `base` and `cached` are read as the
  * captured `is mapping else {}` reads them. A target's anchors are read when
  * the planner reaches it, so a malformed anchor raises in target order, after
- * every earlier target's signature, as the inline loop did.
+ * every earlier target's signature, as the inline loop did. A target with an
+ * off end (`{on: false}`) compiles nothing: there is no curve between a scene
+ * and the lamp being off.
  */
 export function parseGradientPlanArgs(args: JsonObject): GradientPlanArgs {
   const cache = object(args.cached);
@@ -77,7 +79,12 @@ export function parseGradientPlanArgs(args: JsonObject): GradientPlanArgs {
     const day = item.day, cosy = item.cosy;
     targets.push({
       target,
-      anchors: lazy(() => ({ day: anchor(day), cosy: anchor(cosy) })),
+      // Day then cosy, as before. Only two lit ends compile a curve: an off end
+      // (or a lit one with no colour) blends without one, in the resolver.
+      anchors: lazy(() => {
+        const dayEnd = blendEnd(day), cosyEnd = blendEnd(cosy);
+        return dayEnd !== undefined && cosyEnd !== undefined && dayEnd.on && cosyEnd.on ? { day: dayEnd, cosy: cosyEnd } : undefined;
+      }),
       cached: signature => {
         const entry = cache[target];
         return validGradient(entry, signature) ? entry : undefined;

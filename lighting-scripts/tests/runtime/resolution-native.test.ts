@@ -82,10 +82,12 @@ test('a boolean native brightness is claimed as given, intensity included', asyn
 });
 
 test('a native brightness step reads the resolved level before the step', async () => {
+  // An absent level is an off lamp, which steps from 0; a present malformed one
+  // still raises, and before the step itself is read.
   const { nativeHandlers } = await import('../../src/handlers/native-controls.ts');
-  const levelless = structuredClone(current);
-  delete (levelless.plan.resolved.targets['light.logical'] as { level?: number }).level;
-  assert.throws(() => execute({ script: 'effects_native_plan', snapshot, args: { sd: { entity_id: 'light.bulb', brightness_step: 'up' }, catalog, current: levelless, stamp: 5 } }, nativeHandlers),
+  const malformed = structuredClone(current);
+  (malformed.plan.resolved.targets['light.logical'] as { level?: unknown }).level = 'bright';
+  assert.throws(() => execute({ script: 'effects_native_plan', snapshot, args: { sd: { entity_id: 'light.bulb', brightness_step: 'up' }, catalog, current: malformed, stamp: 5 } }, nativeHandlers),
     /resolved target\.level must be a finite number/);
 });
 

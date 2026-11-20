@@ -95,7 +95,12 @@ export type FrameEffect =
    * strict colour read for colour); so does the port, deliberately.
    */
   | { kind: 'uncatalogued effect'; name: string }
-  | { kind: 'not an effect' };
+  | { kind: 'not an effect' }
+  /**
+   * The channel shows nothing (`{kind: 'none'}`: an off lamp's channel, or a
+   * lit lamp that reports no colour). Nothing is read and nothing is sent for it.
+   */
+  | { kind: 'no value' };
 
 export interface FrameSource {
   kind: string;
@@ -185,6 +190,7 @@ export function frameRows(view: HouseView, args: FramePlanArgs): FrameRow[] {
     const color = target.color, brightness = target.brightness;
     for (const channel of ['brightness', 'color'] as const) {
       const source = target[channel];
+      if (source.effect.kind === 'no value') continue;
       const details = source.details();
       if (channel === 'brightness') {
         payload.brightness = roundEven(clamp(frameLevel(source.effect, details), 1, 254));
@@ -217,6 +223,7 @@ function frameLevel(effect: FrameEffect, details: FrameDetails): number {
     case 'bulb effect': return effect.intensity();
     case 'uncatalogued effect':
     case 'not an effect': return details.level;
+    case 'no value': throw new Error('A channel that shows nothing has no level');
     default: { const unknown: never = effect; throw new Error(`Unhandled frame effect ${JSON.stringify(unknown)}`); }
   }
 }
@@ -234,6 +241,7 @@ function frameColourOf(view: HouseView, effect: FrameEffect, details: FrameDetai
     }
     case 'uncatalogued effect':
     case 'not an effect': return details.colour(context);
+    case 'no value': return undefined;
     default: { const unknown: never = effect; throw new Error(`Unhandled frame effect ${JSON.stringify(unknown)}`); }
   }
 }

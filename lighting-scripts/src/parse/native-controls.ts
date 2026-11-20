@@ -99,7 +99,8 @@ export function parseNativeCatalog(value: JsonValue | undefined, context: string
 /** One plan target: whether it holds anything, its level on demand, and its document carried. */
 export interface PlanTarget {
   populated: boolean;
-  level(context: string): number;
+  /** The resolved level; `undefined` when the target carries none (an off lamp shows no level). */
+  level(context: string): number | undefined;
   document: Verbatim;
 }
 /** A plan's base or resolved targets. */
@@ -120,7 +121,7 @@ function planTargets(targets: JsonObject): PlanTargets {
       const target = targets[key] === undefined ? {} : requireObject(targets, key, context);
       return {
         populated: Object.keys(target).length > 0,
-        level: levelContext => requireNumber(target, 'level', levelContext),
+        level: levelContext => target.level === undefined ? undefined : requireNumber(target, 'level', levelContext),
         document: carry(target),
       };
     },
@@ -130,7 +131,7 @@ function planTargets(targets: JsonObject): PlanTargets {
 /**
  * The colour a reset to normal light returns to: the base colour under Sara,
  * an effect's own `base` (else the base colour), otherwise the resolved value.
- * Carried as read, absent included.
+ * Carried as read, absent included (an off lamp has no colour).
  */
 export function underlyingColour(base: PlanTarget, resolved: PlanTarget): Verbatim {
   const baseDocument = reveal(base.document) as JsonObject;

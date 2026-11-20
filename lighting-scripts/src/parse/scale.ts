@@ -17,7 +17,7 @@
  */
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import { ParseError, isObject, jinjaTruthy, object, requireNumber } from '../runtime/parse.ts';
-import type { Anchor, Color, RGB, ScaleArgs } from '../domain/scale.ts';
+import type { Anchor, BlendEnd, Color, RGB, ScaleArgs } from '../domain/scale.ts';
 import { ANCHOR_BRIGHTNESS_MESSAGE, COLOR_SHAPE_MESSAGE, WARM_END, boundedNumber, copyColor } from '../domain/scale.ts';
 
 /**
@@ -55,6 +55,23 @@ export function anchor(value: JsonValue | undefined): Anchor {
     throw new ParseError(`${ANCHOR_BRIGHTNESS_MESSAGE}${JSON.stringify(a.brightness) ?? 'undefined'}`);
   }
   return { brightness: a.brightness, color: canonicalColor(a.color) };
+}
+
+/**
+ * One end of the cosy <-> day blend as a target document spells it.
+ *
+ * `{on: false}` is a scene that has the lamp off: no level, no colour. Any
+ * other mapping is a lit anchor, parsed by {@link anchor}, which raises on a
+ * malformed one exactly as before. A lit anchor whose level is fine but which
+ * carries no `color` is a scene Home Assistant reports without a colour (an on
+ * light in a brightness-only mode): there is no colour to blend, so it is
+ * `undefined`, and the caller treats the pair as it treats a missing anchor.
+ */
+export function blendEnd(value: JsonValue | undefined): BlendEnd | undefined {
+  const a = object(value);
+  if (a.on === false) return { on: false };
+  if (a.color === undefined && boundedNumber(a.brightness)) return undefined;
+  return { on: true, ...anchor(value) };
 }
 
 export function validColor(color: unknown, minimum = 1000, maximum = 10000): color is Color {

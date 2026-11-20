@@ -22,10 +22,14 @@
  *   non-string stored value compares unequal to every literal, as `undefined`
  *   does.
  *
- * Nothing here raises. The three reads in the resolver that do --
- * `anchor(item.day)`, `anchor(item.cosy)` and `canonicalColor(item.color)` --
- * are thunks, called where the inline read sat. So parsing the whole argument
- * document before resolving moves no raise.
+ * Nothing here raises. The reads in the resolver that do -- the two blend
+ * ends (`blendEnd(item.day)`, `blendEnd(item.cosy)`) and
+ * `canonicalColor(item.color)` -- are thunks, called where the inline read sat.
+ * So parsing the whole argument document before resolving moves no raise.
+ *
+ * An off target carries no `brightness` or `color` and an off end is
+ * `{on: false}` (off is a state that cannot carry a colour); both read as
+ * absent, never as a stand-in value.
  */
 import { isDeepStrictEqual } from 'node:util';
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
@@ -37,7 +41,7 @@ import type { Color } from '../domain/scale.ts';
 import { latestStream, lexical } from '../domain/resolution.ts';
 import type { BaseItem, Channel, ChannelValue, Claim, InputAnchor, InputClaim, InputFacts, LightValue, OverrideRecord, Patch, ResolveArgs,
   Stamp } from '../domain/resolution.ts';
-import { anchor, canonicalColor, validColor } from './scale.ts';
+import { blendEnd, canonicalColor, validColor } from './scale.ts';
 import { validGradient, warmEndArgument } from './gradient.ts';
 
 /**
@@ -254,10 +258,14 @@ function baseItem(raw: JsonValue): BaseItem {
     effectChannels: item.effect_channels === undefined ? undefined : Array.isArray(item.effect_channels) ?
       item.effect_channels.filter(isChannel) : [],
     anchorsPresent: isObject(item.day) && isObject(item.cosy),
-    day: () => anchor(item.day),
-    cosy: () => anchor(item.cosy),
-    color: (): Color => canonicalColor(color),
-    brightness: carryOptional(brightness),
+    // Day then cosy, as the inline reads raised; a lit end with no colour makes the pair unusable.
+    anchors: () => {
+      const day = blendEnd(item.day), cosy = blendEnd(item.cosy);
+      return day === undefined || cosy === undefined ? undefined : { day, cosy };
+    },
+    // An off target carries no colour, and a lit one may report none: absent is no base colour.
+    color: (): Color | undefined => color === undefined ? undefined : canonicalColor(color),
+    brightness: brightness === undefined ? undefined : carry(brightness),
     claims: {
       observedBrightness: constantClaim(observed.brightness === undefined ? brightness : observed.brightness, undefined),
       observedColor: constantClaim(observed.color === undefined ? color : observed.color, undefined),

@@ -29,8 +29,11 @@ export type GradientPlanResult = { gradients: Record<string, GradientEntry> };
 /** One baseline target with both anchors, as `src/parse/gradient.ts` reads it. */
 export type GradientPlanTarget = {
   target: string;
-  /** Read when the planner reaches the target; raises on a malformed anchor. */
-  anchors: () => { day: Anchor; cosy: Anchor };
+  /**
+   * Read when the planner reaches the target; raises on a malformed anchor.
+   * `undefined` when an end is off or reports no colour: nothing to compile.
+   */
+  anchors: () => { day: Anchor; cosy: Anchor } | undefined;
   /** The cached entry for this target when it is valid for the signature. */
   cached: (signature: GradientSignature) => GradientEntry | undefined;
 };
@@ -44,7 +47,9 @@ export type GradientPlanArgs = {
 export function planGradients(args: GradientPlanArgs): GradientPlanResult {
   const gradients: Record<string, GradientEntry> = {};
   for (const { target, anchors, cached } of args.targets) {
-    const { day, cosy } = anchors();
+    const ends = anchors();
+    if (ends === undefined) continue;
+    const { day, cosy } = ends;
     const signature = gradientSignature(day, cosy, args.warmEnd());
     const hit = cached(signature);
     gradients[target] = hit === undefined ? { signature, curve: compileGradient(day, cosy, args.warmEnd()) } : hit;

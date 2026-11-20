@@ -18,7 +18,7 @@ export interface SwitchPlanArgs {
   /** Each switch-range rule, its interval read at its turn, or `undefined` unless valid. */
   rules: Array<{ entity: string; range: () => SwitchInterval | undefined }>;
   /** The resolved room target a rule follows, read leniently; `on` is required once read. */
-  roomTarget(room: string | undefined): { populated: boolean; level: () => number; on: () => boolean };
+  roomTarget(room: string | undefined): { populated: boolean; level: () => number | undefined; on: () => boolean };
 }
 
 /** The override mapping `ls_plan` plans with: as stored (forwarded to the baseline), and entry by entry. */
@@ -68,7 +68,8 @@ export interface RemoteCommandArgs {
 export type SwitchDecision = {
   on: boolean;
   room: string;
-  brightness: number;
+  /** The room's level in percent; absent when the room shows no level (it is off), and the switch is then off. */
+  brightness?: number;
   range: [number | boolean, number | boolean];
 };
 export type SwitchPlanResult = { switches: Record<string, SwitchDecision> };
@@ -81,10 +82,11 @@ export function switchPlan(areas: Readonly<Record<string, string>>, args: Switch
     const interval = range();
     if (interval === undefined || !group.populated) continue;
     const { low, high } = interval;
-    const brightness = group.level() * 100 / 255;
+    const level = group.level();
+    const brightness = level === undefined ? undefined : level * 100 / 255;
     const on = group.on();
-    switches[entity] = { on: on && low <= brightness && brightness <= high,
-      room: room!, brightness, range: [...interval.stored] };
+    switches[entity] = { on: on && brightness !== undefined && low <= brightness && brightness <= high,
+      room: room!, ...(brightness === undefined ? {} : { brightness }), range: [...interval.stored] };
   }
   return { switches };
 }

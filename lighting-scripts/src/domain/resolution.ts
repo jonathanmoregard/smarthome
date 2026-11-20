@@ -1,8 +1,8 @@
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { gradientSignature, sampleGradient } from './gradient.ts';
 import type { GradientCurve, GradientSignature } from './gradient.ts';
-import { boundedNumber, clamp, scaleValue } from './scale.ts';
-import type { Anchor, Color, RGB, Scaled } from './scale.ts';
+import { OFF_END_LEVEL, blend, boundedNumber, clamp } from './scale.ts';
+import type { BlendEnd, Blended, Color, RGB } from './scale.ts';
 import { levelNumber } from '../parse/resolution.ts';
 
 const CHANNELS = ['brightness', 'color'] as const;
@@ -94,7 +94,16 @@ export type OverrideRecord = {
   channels: Patch | undefined;
   light: LightValue | undefined;
 };
-/** A base target. `day`/`cosy`/`color` raise on a malformed value, so they parse when read. */
+/** Both ends of a target's cosy <-> day blend. */
+export type BlendEnds = { day: BlendEnd; cosy: BlendEnd };
+/**
+ * A base target. `anchors`/`color` raise on a malformed value, so they parse
+ * when read.
+ *
+ * An off target carries no level and no colour (off is a state that cannot
+ * carry a colour, 2026-11-20), and a lit one may report no colour, so both base
+ * values are optional: `undefined` is "nothing to show on this channel".
+ */
 export type BaseItem = {
   isRoom: Verbatim;
   isRoomTruthy: boolean;
@@ -109,11 +118,12 @@ export type BaseItem = {
   effectInstance: Verbatim | undefined;
   /** `undefined` means "the effect's declared channels". */
   effectChannels: Channel[] | undefined;
+  /** Are both `day` and `cosy` mappings? Otherwise there is no blend (the "no anchor" path). */
   anchorsPresent: boolean;
-  day(): Anchor;
-  cosy(): Anchor;
-  color(): Color;
-  brightness: Verbatim;
+  /** The two ends, read day then cosy; `undefined` when a lit end has no colour, which is treated as no anchors. */
+  anchors(): BlendEnds | undefined;
+  color(): Color | undefined;
+  brightness: Verbatim | undefined;
   claims: { observedBrightness: Claim; observedColor: Claim; brightness: Claim; color: Claim };
 };
 export type ResolveArgs = {
@@ -137,15 +147,29 @@ type Updated = number | Verbatim;
  */
 export type ResolvedSource =
   | { kind: 'constant'; value: ChannelValue; updated: Updated; origin?: 'scale' | 'invalid_source'; position?: number; policy?: 'sara' }
+  /**
+   * The channel shows nothing: an off target's own channel, a lit target that
+   * reports no colour, or a blend at (or past) its off end. Never a value.
+   */
+  | { kind: 'none'; updated: Updated; origin?: 'scale' | 'invalid_source'; position?: number }
   | { kind: 'effect'; effect: string; instance: string | Verbatim; updated: Updated; base?: ChannelValue; intensity?: ChannelValue };
+/**
+ * One resolved lamp or room.
+ *
+ * An off lamp's entry has `on` falsy; a channel nothing claimed holds
+ * `{kind: 'none'}`, and `level` is absent unless a claim gave the brightness
+ * channel a value. Mapping this to a bulb's power/level/colour is the
+ * reconciler's job (`desired.ts`), not resolution's.
+ */
 export type ResolvedTarget = {
   brightness: ResolvedSource;
   color: ResolvedSource;
   period: Verbatim;
-  on: Verbatim;
+  /** As the schedule and room power give it, or `false` where a blend with an off end is at or past that end. */
+  on: Verbatim | boolean;
   area: string;
   is_room: Verbatim;
-  level: ChannelValue;
+  level?: ChannelValue;
   owners: { brightness: string; color: string };
   transition: Verbatim;
 };
@@ -157,11 +181,17 @@ type ClampedInput = {
   steps: number; lower: number; upper: number; anchor: InputAnchor;
   legacyPosition: number | undefined; last: string | undefined; hasUp: boolean;
 };
-type Selected = { kind: 'none' } | { kind: 'scale'; position: number } | { kind: 'effect'; source: ResolvedSource };
+/** `lit` is set only for a blend with an off end, which decides whether the lamp is lit. */
+type Selected = { kind: 'none' } | { kind: 'scale'; position: number; lit: boolean | undefined } | { kind: 'effect'; source: ResolvedSource };
 
 export function lexical(a: string, b: string): number {
   const x = a.toLowerCase(), y = b.toLowerCase();
   return x < y ? -1 : x > y ? 1 : 0;
+}
+/** A channel holding `value`, or holding nothing (`none`) when there is no value to hold. */
+function holding(value: ChannelValue | undefined, updated: Updated,
+  extra: { origin?: 'scale' | 'invalid_source'; position?: number } = {}): ResolvedSource {
+  return value === undefined ? { kind: 'none', updated, ...extra } : { kind: 'constant', value, updated, ...extra };
 }
 function numericStamp(n: number): Stamp { return { value: n, numeric: n, text: `${n}` }; }
 function isRemoteStream(r: OverrideRecord): boolean { return r.kind === 'input' || (r.kind === 'channels' && r.via === 'remote'); }
@@ -176,17 +206,33 @@ export function latestStream(records: OverrideRecord[], room: string): string {
   return key;
 }
 
-function normalPosition(input: ClampedInput, day: Anchor, cosy: Anchor, level: number): number {
-  const d = day.brightness - cosy.brightness;
-  const floor = Math.min(76.5, cosy.brightness);
-  const slope = Math.max(0, d, (cosy.brightness - floor) / 2);
+/** An end's level for placing a position: an off end reads as {@link OFF_END_LEVEL}. */
+function endLevel(end: BlendEnd): number { return end.on ? end.brightness : OFF_END_LEVEL; }
+
+/** A channel value's level for placing a position: a channel that shows nothing (an off lamp) reads as {@link OFF_END_LEVEL}. */
+function positionLevel(value: ChannelValue | undefined): number { return value === undefined ? OFF_END_LEVEL : levelNumber(value); }
+
+/**
+ * Where the remote's adjustment starts on the cosy (0) <-> day (1) axis.
+ *
+ * An off end reads as {@link OFF_END_LEVEL}. With a lit cosy and an off day the
+ * blend falls from the cosy level to the off end, the reverse of the rule's
+ * day-above-cosy shape, so a level there is placed by inverting that ramp: at
+ * or above the cosy level is cosy (0), {@link OFF_END_LEVEL} is the off day end.
+ */
+function normalPosition(input: ClampedInput, ends: BlendEnds, level: number): number {
+  const dayLevel = endLevel(ends.day), cosyLevel = endLevel(ends.cosy);
+  const d = dayLevel - cosyLevel;
+  const floor = Math.min(76.5, cosyLevel);
+  const slope = Math.max(0, d, (cosyLevel - floor) / 2);
   let seed: number;
   if (input.anchor === 'day') seed = 1;
   else if (input.anchor === 'cosy') seed = 0;
   else if (input.legacyPosition !== undefined) seed = input.legacyPosition;
-  else if (level > day.brightness && day.brightness < 255) seed = 1 + (level - day.brightness) / (255 - day.brightness);
-  else if (level < cosy.brightness && slope > 0) seed = Math.max(-2, (level - cosy.brightness) / slope);
-  else seed = d > 0 ? (level - cosy.brightness) / d : 1;
+  else if (!ends.day.on) seed = level < cosyLevel && cosyLevel > OFF_END_LEVEL ? (cosyLevel - level) / (cosyLevel - OFF_END_LEVEL) : 0;
+  else if (level > dayLevel && dayLevel < 255) seed = 1 + (level - dayLevel) / (255 - dayLevel);
+  else if (level < cosyLevel && slope > 0) seed = Math.max(-2, (level - cosyLevel) / slope);
+  else seed = d > 0 ? (level - cosyLevel) / d : 1;
   return clamp(seed * 10 + input.steps, input.lower, input.upper) / 10;
 }
 
@@ -234,7 +280,7 @@ export function resolveEffects(args: ResolveArgs): ResolutionResult {
     if (!streams.has(area)) streams.set(area, latestStream(records, area));
     const candidates: Record<Channel, Candidate[]> = { brightness: [], color: [] };
     let gradientChecked = false, curve: GradientCurve | undefined;
-    const samples = new Map<number, Scaled>();
+    const samples = new Map<number, Blended>();
     for (const record of records) {
       if (item.ignored.includes(record.key)) continue;
       const scope = record.scope;
@@ -268,14 +314,16 @@ export function resolveEffects(args: ResolveArgs): ResolutionResult {
     }
     const baselineEffect = item.effect, declared = args.channelsOf(baselineEffect);
     const enabled = item.effectChannels === undefined ? declared : item.effectChannels;
-    const sources: Record<Channel, ResolvedSource> = { brightness: { kind: 'constant', value: 0, updated: -1 }, color: { kind: 'constant',
-      value: 0, updated: -1 } };
+    const sources: Record<Channel, ResolvedSource> = { brightness: { kind: 'none', updated: -1 }, color: { kind: 'none', updated: -1 } };
     const owners = { brightness: 'base', color: 'base' };
-    const underlying: Record<Channel, ChannelValue> = { brightness: 0, color: 0 };
+    const underlying: Record<Channel, ChannelValue | undefined> = { brightness: undefined, color: undefined };
+    // Whether the blend lights the lamp, when the brightness channel follows a
+    // blend with an off end; `undefined` leaves on/off to the schedule.
+    let blendLit: boolean | undefined;
     for (const channel of CHANNELS) {
-      const initial: ChannelValue = channel === 'color' ? item.color() : item.brightness;
-      let currentUnderlying: ChannelValue = initial;
-      let current: ResolvedSource = { kind: 'constant', value: initial, updated: -1 }, owner = 'base';
+      const initial: ChannelValue | undefined = channel === 'color' ? item.color() : item.brightness;
+      let currentUnderlying: ChannelValue | undefined = initial;
+      let current: ResolvedSource = holding(initial, -1), owner = 'base';
       if (baselineEffect !== undefined && declared.includes(channel) && enabled.includes(channel) && (baselineEffect !== 'Candle' ||
         target === CANDLE_LAMP)) {
         current = { kind: 'effect', effect: baselineEffect, instance: item.effectInstance === undefined ?
@@ -286,7 +334,7 @@ export function resolveEffects(args: ResolveArgs): ResolutionResult {
       for (const candidate of candidates[channel]) {
         const claim = candidate.claim;
         if (target !== CANDLE_LAMP && claim.kind === 'effect' && claim.effect === 'Candle') continue;
-        let valid = false, ignore = false, value: ChannelValue = initial;
+        let valid = false, ignore = false, value: ChannelValue | undefined = initial;
         let selected: Selected = { kind: 'none' };
         if (claim.kind === 'constant') {
           const v = channel === 'brightness' ? claim.brightness : claim.color;
@@ -305,31 +353,49 @@ export function resolveEffects(args: ResolveArgs): ResolutionResult {
               const ref = `${candidate.key}:${candidate.updated.text}`;
               position = inputs.get(ref);
               if (position === undefined) {
-                const level = levelNumber(channel === 'brightness' ? currentUnderlying : underlying.brightness);
-                position = { position: normalPosition(input, item.day(), item.cosy(), level), level };
-                if (isRoom) inputs.set(ref, position);
+                const level = positionLevel(channel === 'brightness' ? currentUnderlying : underlying.brightness);
+                const ends = item.anchors();
+                // No usable pair, or both ends off: the lamp is not on this blend, and the
+                // room does not cache a position it could not place.
+                if (ends !== undefined && (ends.day.on || ends.cosy.on)) {
+                  position = { position: normalPosition(input, ends, level), level };
+                  if (isRoom) inputs.set(ref, position);
+                }
               }
-              p = position.position;
-              const processor = current.kind === 'effect' ? current.effect : 'Normal light';
-              ignore = !args.adjustsByGradient(processor);
+              if (position !== undefined) {
+                p = position.position;
+                const processor = current.kind === 'effect' ? current.effect : 'Normal light';
+                ignore = !args.adjustsByGradient(processor);
+              } else ignore = true;
             } else ignore = true;
           }
           if (!ignore && boundedNumber(p) && item.anchorsPresent) {
-            const day = item.day(), cosy = item.cosy();
-            if (!gradientChecked) {
-              curve = args.gradient(target, gradientSignature(day, cosy, args.warmEnd()));
-              gradientChecked = true;
+            const ends = item.anchors();
+            // Both ends off: the lamp is skipped and keeps what it had. A lit end with
+            // no colour: no blend, as with a missing anchor (an invalid source).
+            if (ends !== undefined && !ends.day.on && !ends.cosy.on) ignore = true;
+            else if (ends !== undefined) {
+              const { day, cosy } = ends;
+              const coordinate = clamp(p, -2, 2);
+              let sample = samples.get(coordinate);
+              if (sample === undefined) {
+                if (day.on && cosy.on) {
+                  // Only two lit ends have a compiled curve.
+                  if (!gradientChecked) {
+                    curve = args.gradient(target, gradientSignature(day, cosy, args.warmEnd()));
+                    gradientChecked = true;
+                  }
+                  sample = curve !== undefined ? { on: true, ...sampleGradient(curve, coordinate) } : blend(day, cosy, coordinate, args.warmEnd())!;
+                } else sample = blend(day, cosy, coordinate, args.warmEnd())!;
+                samples.set(coordinate, sample);
+              }
+              valid = true;
+              value = !sample.on ? undefined : channel === 'brightness' ? sample.brightness : sample.color;
+              if (sample.on && claim.kind === 'input' && channel === 'brightness' && input !== undefined && input.last === 'down' &&
+                !input.hasUp && position !== undefined && position.level < Math.min(76.5, endLevel(cosy)) && input.anchor === 'current' &&
+                input.steps <= 0) value = Math.min(positionLevel(currentUnderlying), sample.brightness);
+              selected = { kind: 'scale', position: sample.position, lit: day.on && cosy.on ? undefined : sample.on };
             }
-            const coordinate = clamp(p, -2, 2);
-            let sample = samples.get(coordinate);
-            if (sample === undefined) { sample = curve !== undefined ? sampleGradient(curve, coordinate) : scaleValue(day, cosy, coordinate,
-              args.warmEnd()); samples.set(coordinate, sample); }
-            valid = true; value = channel === 'brightness' ? sample.brightness : sample.color;
-            if (claim.kind === 'input' && channel === 'brightness' && input !== undefined && input.last === 'down' && !input.hasUp &&
-              position !== undefined
-              && position.level < Math.min(76.5, cosy.brightness) && input.anchor === 'current' &&
-                input.steps <= 0) value = Math.min(levelNumber(currentUnderlying), sample.brightness);
-            selected = { kind: 'scale', position: sample.position };
           }
         } else if (claim.kind === 'effect' && claim.effect !== undefined && args.channelsOf(claim.effect).includes(channel) &&
           claim.instance !== undefined) {
@@ -339,13 +405,16 @@ export function resolveEffects(args: ResolveArgs): ResolutionResult {
         }
         if (!ignore) {
           if (candidate.baselineOnly) { if (valid) currentUnderlying = value; }
-          else if (valid && selected.kind === 'effect') current = selected.source;
-          else {
+          else if (valid && selected.kind === 'effect') {
+            current = selected.source;
+            if (channel === 'brightness') blendLit = undefined;
+          } else {
             currentUnderlying = valid ? value : initial;
             const updated = candidate.updated.value;
-            current = !valid ? { kind: 'constant', value: currentUnderlying, updated, origin: 'invalid_source' }
-              : selected.kind === 'scale' ? { kind: 'constant', value: currentUnderlying, updated, origin: 'scale', position: selected.position }
-                : { kind: 'constant', value: currentUnderlying, updated };
+            current = !valid ? holding(currentUnderlying, updated, { origin: 'invalid_source' })
+              : selected.kind === 'scale' ? holding(currentUnderlying, updated, { origin: 'scale', position: selected.position })
+                : holding(currentUnderlying, updated);
+            if (channel === 'brightness') blendLit = valid && selected.kind === 'scale' ? selected.lit : undefined;
           }
           if (!candidate.baselineOnly) owner = candidate.key;
         }
@@ -353,15 +422,21 @@ export function resolveEffects(args: ResolveArgs): ResolutionResult {
       sources[channel] = current; owners[channel] = owner; underlying[channel] = currentUnderlying;
     }
     for (const channel of CHANNELS) {
-      const source = sources[channel];
-      if (source.kind === 'effect') sources[channel] = { ...source, base: underlying[channel], intensity: underlying.brightness };
+      const source = sources[channel], base = underlying[channel], intensity = underlying.brightness;
+      if (source.kind === 'effect') {
+        sources[channel] = { ...source, ...(base === undefined ? {} : { base }), ...(intensity === undefined ? {} : { intensity }) };
+      }
     }
     if (args.sara && !item.ignored.includes('mode:sara') && !args.private.includes(area) && !item.periodIsNight) {
       sources.color = { kind: 'constant', value: { rgb: [255, 105, 180] }, updated: 0, policy: 'sara' };
       owners.color = 'mode:sara';
     }
+    // A blend with an off end decides whether the lamp is lit; otherwise the schedule does, as before.
+    const lit = blendLit === undefined ? item.onTruthy : blendLit;
+    const level = underlying.brightness;
     const resolved: ResolvedTarget = { brightness: sources.brightness, color: sources.color, period: item.period,
-      on: item.onTruthy ? args.power(area) : item.on, area, is_room: item.isRoom, level: underlying.brightness, owners, transition: item.transition };
+      on: lit ? args.power(area) : blendLit === undefined ? item.on : false, area, is_room: item.isRoom,
+      ...(level === undefined ? {} : { level }), owners, transition: item.transition };
     targets[target] = resolved;
     if (!isRoom && (resolved.brightness.kind === 'effect' || resolved.color.kind === 'effect')) assignments[target] = resolved;
   }

@@ -75,6 +75,7 @@ type CatalogEffectNames = () => ReadonlySet<string>;
  * would light the lamp at brightness 1.
  */
 function frameEffect(kind: string, source: JsonObject, intensity: () => number, catalogEffects: CatalogEffectNames, context: string): FrameEffect {
+  if (kind === 'none') return { kind: 'no value' };
   if (kind !== 'effect') return { kind: 'not an effect' };
   const name = requireString(source, 'effect', context);
   const bulb = bulbEffectName(name);
