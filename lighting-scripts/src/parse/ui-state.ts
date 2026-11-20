@@ -176,9 +176,24 @@ export function proxyKelvin(ctx: HouseView, proxy: string): number {
   return num(ctx.attr(proxy, 'color_temp_kelvin'), 0);
 }
 
-/** Does the proxy show this triple? Captured `(state_attr(proxy,'rgb_color') or []) | list == rgb | list`. */
+/**
+ * The colour the proxy reports, or none. Home Assistant reports `rgb_color:
+ * null` for a light showing no colour (off, or not in a colour mode); the
+ * captured `rgb_color or ...` treats every Jinja-falsy value that way, and a
+ * reported value goes through Jinja's `list`.
+ */
+function proxyRgb(ctx: HouseView, proxy: string): JsonValue[] | undefined {
+  const reported = ctx.attr(proxy, 'rgb_color');
+  return reported === undefined || !jinjaTruthy(reported) ? undefined : jinjaList(reported, `${proxy}.rgb_color`);
+}
+
+/**
+ * Does the proxy show this triple? Captured `(state_attr(proxy,'rgb_color') or []) | list == rgb | list`:
+ * a proxy showing no colour shows no triple.
+ */
 export function proxyShowsRgb(ctx: HouseView, proxy: string, rgb: Rgb): boolean {
-  return isDeepStrictEqual(jinjaList(jinjaOr(ctx.attr(proxy, 'rgb_color'), []), `${proxy}.rgb_color`), reveal(rgb.value));
+  const shown = proxyRgb(ctx, proxy);
+  return shown !== undefined && isDeepStrictEqual(shown, reveal(rgb.value));
 }
 
 /** A row's stored profile: whether it names effect channels, and its effect. */
