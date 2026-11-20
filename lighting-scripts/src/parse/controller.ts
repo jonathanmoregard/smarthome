@@ -102,7 +102,7 @@ export function parsePlanArgs(args: JsonObject): PlanArgs {
     // Captured `{{ test_now|default(none) }}`: forwarded unread; ls_base parses it.
     testNow: forwardedOrNone(args.test_now),
     reason: args.reason === undefined ? 'config' : requireString(args, 'reason', 'ls_plan'),
-    room: args.room === undefined ? '' : requireString(args, 'room', 'ls_plan'),
+    room: args.room === undefined ? '' : toRoomId(requireString(args, 'room', 'ls_plan')),
   };
 }
 

@@ -55,7 +55,7 @@ function decodeSwitchDecision(value: JsonValue, context: string): SwitchDecision
   if (range.length !== 2) throw new ParseError(`${context}.range must have two elements, got ${range.length}`);
   return {
     on: requireBoolean(entry.on, `${context}.on`),
-    room: requireString(entry, 'room', context),
+    room: toRoomId(requireString(entry, 'room', context)),
     ...(entry.brightness === undefined ? {} : { brightness: requireNumber(entry, 'brightness', context) }),
     // A bound may be a boolean: captured `is number` admits it (see `switchRange`).
     range: [bound(range[0], `${context}.range.0`), bound(range[1], `${context}.range.1`)],

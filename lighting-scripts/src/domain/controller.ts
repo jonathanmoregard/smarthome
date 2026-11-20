@@ -20,7 +20,7 @@ export interface SwitchPlanArgs {
   /** Each switch-range rule, its interval read at its turn, or `undefined` unless valid. */
   rules: Array<{ entity: string; range: () => SwitchInterval | undefined }>;
   /** The resolved room target a rule follows, read leniently; `on` is required once read. */
-  roomTarget(room: string | undefined): { populated: boolean; level: () => number | undefined; on: () => boolean };
+  roomTarget(room: RoomId | undefined): { populated: boolean; level: () => number | undefined; on: () => boolean };
 }
 
 /** The override mapping `ls_plan` plans with: as stored (forwarded to the baseline), and entry by entry. */
@@ -34,7 +34,8 @@ export interface PlanArgs {
   /** Forwarded to `ls_base` unread (`null` when absent); `ls_base` parses it. */
   testNow: Verbatim;
   reason: string;
-  room: string;
+  /** `''` when the request names no room (captured `default('')`); a sentinel until V3. */
+  room: RoomId | '';
 }
 
 export interface ApplyArgs {
@@ -69,7 +70,7 @@ export interface RemoteCommandArgs {
  */
 export type SwitchDecision = {
   on: boolean;
-  room: string;
+  room: RoomId;
   /** The room's level in percent; absent when the room shows no level (it is off), and the switch is then off. */
   brightness?: number;
   range: [number | boolean, number | boolean];
