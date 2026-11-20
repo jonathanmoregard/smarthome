@@ -10,7 +10,7 @@ import type { OpaqueMap, StoredFact, StoredValue } from '../parse/overrides.ts';
 import { attributeFact, attributeMapping, overridesRevision } from '../parse/sensors.ts';
 import { mappingAttribute } from '../parse/planning.ts';
 import type { StoredChannels } from '../parse/transport.ts';
-import { areaOf, dispatchPlanOrder, dispatchRuntime, optionalRevisionAttribute, roomCacheGradients } from '../parse/dispatch-render.ts';
+import { areaOf, dispatchPlanOrder, dispatchRuntime, dueFullVersion, roomCacheGradients } from '../parse/dispatch-render.ts';
 import type { DispatchRuntime, FullPlan, RoomPlanView } from '../parse/dispatch-render.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
@@ -343,7 +343,8 @@ export interface RenderOpening {
   received: StoredValue;
   request: StoredValue;
   pending: OpaqueMap;
-  fullVersion: string | undefined;
+  /** The full render's version, when one is due (see `dueFullVersion`). */
+  fullVersion: StoredValue | undefined;
   /** A full render is pending that the runtime has not handled. */
   full: boolean;
   /** The rooms whose pending version the runtime has not handled. */
@@ -355,8 +356,8 @@ export function renderOpening(view: HouseView): RenderOpening | undefined {
   const started = timestamp(view.now), revision = overridesRevision(view, 'ls_render');
   const received = attributeFact(view, overrideSensor, 'received_at') ?? null, request = attributeFact(view, overrideSensor, 'last_request') ?? null;
   const pending = attributeMapping(view, overrideSensor, 'pending_rooms'), handled = attributeMapping(view, runtime, 'handled_rooms');
-  const fullVersion = optionalRevisionAttribute(view.attr(overrideSensor, 'full_version'), 'ls_render.full_version');
-  const full = fullVersion !== undefined && fullVersion !== attributeFact(view, runtime, 'handled_full');
+  const fullVersion = dueFullVersion(view);
+  const full = fullVersion !== undefined;
   const rooms = Object.keys(pending).filter(room => pending[room] !== handled[room]);
   if (!full && rooms.length === 0) return undefined;
   return { started, revision, received, request, pending, fullVersion, full, rooms };

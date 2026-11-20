@@ -136,8 +136,8 @@ test('a stored revision other than the request is a change', () => {
   assert.equal(decision.changed, true);
 });
 
-test('a non-number stored plan order raises when the request carries none', () => {
-  assert.throws(() => assignDecision(assignView({ plan_order: 'x' }), REVISION, details({})), /plan_order/);
+test('a non-number stored plan order reads as the captured default 0 when the request carries none', () => {
+  assert.doesNotThrow(() => assignDecision(assignView({ plan_order: 'x' }), REVISION, details({})));
 });
 
 test('a lamp leaving a bulb effect stops it on every on member that has a topic', () => {

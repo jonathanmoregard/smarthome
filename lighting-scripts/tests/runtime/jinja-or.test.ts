@@ -94,11 +94,11 @@ test('the runtime plan order is 0 for every Jinja-falsy value (ls_dispatch and e
   assert.equal(runtimePlanOrder(runtimeView(7)), 7);
 });
 
-test('a truthy non-number runtime plan order still raises', () => {
+test('a saved truthy non-number runtime plan order is the captured default 0 (lenient saved-value directive)', () => {
   // Captured `plan.plan_order >= ('x' or 0)` compares a number with a string: TypeError.
   for (const value of ['x', [1], { a: 1 }] as JsonValue[]) {
-    assert.throws(() => dispatchPlanOrder(runtimeView(value)), /plan_order/, `ls_dispatch ${JSON.stringify(value)}`);
-    assert.throws(() => runtimePlanOrder(runtimeView(value)), /plan_order/, `effects_assign ${JSON.stringify(value)}`);
+    assert.equal(dispatchPlanOrder(runtimeView(value)), 0, `ls_dispatch ${JSON.stringify(value)}`);
+    assert.equal(runtimePlanOrder(runtimeView(value)), 0, `effects_assign ${JSON.stringify(value)}`);
   }
 });
 

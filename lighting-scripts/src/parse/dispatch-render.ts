@@ -16,7 +16,7 @@ import { isDeepStrictEqual } from 'node:util';
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { HouseView } from '../runtime/effects.ts';
 import {
-  isObject, jinjaOr, jinjaTruthy, lazy, object, ParseError, requireArray, requireNumber, requireObject, requireString,
+  isObject, jinjaTruthy, lazy, object, requireArray, requireNumber, requireObject, requireString,
 } from '../runtime/parse.ts';
 import { carry, reveal } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
@@ -24,15 +24,19 @@ import { list, strings } from './accessors.ts';
 import { opaqueMap, storedFact } from './overrides.ts';
 import type { OpaqueMap, StoredFact, StoredValue } from './overrides.ts';
 import { storedChannels } from './transport.ts';
+import { savedPlanOrder } from './sensors.ts';
 import type { DispatchArgs, DispatchDetails, DispatchTarget } from '../domain/dispatch-render.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
 
-/** HA uses null for an entity attribute with no value; a present revision is a timestamp token. */
-export function optionalRevisionAttribute(value: JsonValue | undefined, context: string): string | undefined {
-  if (value === undefined || value === null) return undefined;
-  if (typeof value !== 'string' || value.length === 0) throw new ParseError(`${context} must be a non-empty string`);
-  return value;
+/**
+ * The full render due, captured `full_version and full_version != handled_full`:
+ * the stored `full_version` when it is Jinja-truthy and differs from the stored
+ * `handled_full`, else `undefined`. Both are saved state; nothing raises.
+ */
+export function dueFullVersion(ctx: HouseView): StoredValue | undefined {
+  const version = ctx.attr('sensor.ls_overrides', 'full_version'), handled = ctx.attr(runtime, 'handled_full');
+  return version !== undefined && jinjaTruthy(version) && !isDeepStrictEqual(version, handled) ? storedFact(version) : undefined;
 }
 
 function parseRequestedLights(value: JsonValue | undefined): StoredValue[] {
@@ -117,9 +121,9 @@ export function parseDispatchArgs(args: JsonObject): DispatchArgs {
   };
 }
 
-/** The runtime's `plan_order`, as captured `plan_order or 0`: absent or Jinja-falsy is 0; a truthy non-number raises. */
+/** The runtime's `plan_order`, as captured `plan_order or 0`, read by {@link savedPlanOrder}. */
 export function dispatchPlanOrder(ctx: HouseView): number {
-  return requireNumber({ plan_order: jinjaOr(ctx.attr(runtime, 'plan_order'), 0) }, 'plan_order', 'ls_dispatch runtime');
+  return savedPlanOrder(ctx);
 }
 
 /** `sensor.ls_effects_runtime` as `ls_dispatch` reads it before assigning, once. */

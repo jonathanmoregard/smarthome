@@ -14,12 +14,13 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { HouseView } from '../runtime/effects.ts';
-import { isObject, jinjaFloat, jinjaOr, jinjaTruthy, lazy, object, ParseError, requireArray, requireNumber, requireObject,
+import { isObject, jinjaFloat, jinjaTruthy, lazy, object, ParseError, requireArray, requireNumber, requireObject,
   requireString } from '../runtime/parse.ts';
 import { carry, reveal } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { requireRgb, warmEndOr } from './scale.ts';
 import { opaqueMap, storedFact } from './overrides.ts';
+import { savedPlanOrder } from './sensors.ts';
 import type { OpaqueMap, StoredFact } from './overrides.ts';
 import type { RGB } from '../domain/scale.ts';
 import type {
@@ -320,9 +321,9 @@ export function runtimeGeneration(ctx: HouseView): Verbatim {
   return carry(generation === undefined || generation === null ? null : generation);
 }
 
-/** The runtime's `plan_order`, as captured `plan_order or 0`: absent or Jinja-falsy is 0; a truthy non-number raises. */
+/** The runtime's `plan_order`, as captured `plan_order or 0`, read by {@link savedPlanOrder}. */
 export function runtimePlanOrder(ctx: HouseView): number {
-  return requireNumber({ plan_order: jinjaOr(ctx.attr(runtime, 'plan_order'), 0) }, 'plan_order', 'effects_assign runtime');
+  return savedPlanOrder(ctx);
 }
 
 /** Is a runtime assignment, read leniently, deep-equal to the effect target a command carries? */

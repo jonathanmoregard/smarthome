@@ -52,3 +52,19 @@ export function attributeList(ctx: HouseView, entity: string, key: string): Stor
   const value = ctx.attr(entity, key);
   return Array.isArray(value) ? value.map(item => storedFact(item)) : [];
 }
+
+/** A saved runtime `plan_order` Python cannot compare with a number: the captured `plan_order or 0` default. */
+export const NO_PLAN_ORDER = 0;
+
+/**
+ * `sensor.ls_effects_runtime`'s saved `plan_order`, captured `plan_order or 0`
+ * and compared with a number: a finite number is itself, a boolean is Python's
+ * 0 or 1, and anything else -- absent, falsy, or a value the comparison would
+ * raise on -- is {@link NO_PLAN_ORDER} (lenient saved-value directive). Never raises.
+ */
+export function savedPlanOrder(ctx: HouseView): number {
+  const value = ctx.attr('sensor.ls_effects_runtime', 'plan_order');
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'boolean') return value ? 1 : 0;
+  return NO_PLAN_ORDER;
+}

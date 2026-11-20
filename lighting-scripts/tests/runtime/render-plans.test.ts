@@ -26,9 +26,9 @@ test('the opening finds the rooms whose pending version is unhandled, and an unh
     [timestamp(NOW), REVISION, ['b'], true, 'v2', 7, 'r']);
 });
 
-test('the opening raises on a missing overrides sensor, and on a malformed full version', () => {
+test('the opening raises on a missing overrides sensor; any truthy full version is a full render', () => {
   assert.throws(() => renderOpening(house({})), /ls_render\.revision/);
-  assert.throws(() => renderOpening(house({ 'sensor.ls_overrides': overrides({ full_version: 3 }) })), /ls_render\.full_version/);
+  assert.equal(renderOpening(house({ 'sensor.ls_overrides': overrides({ full_version: 3 }) }))?.full, true);
 });
 
 test('the full render asks with its stored reason, Jinja-or config, and its stored lights, Jinja-or none', () => {

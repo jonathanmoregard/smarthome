@@ -52,12 +52,12 @@ test('dispatch rejects a non-boolean emission completion flag', async () => {
   assert.throws(() => execute({ script: 'ls_dispatch', args: { plan: plan() }, snapshot: snapshot() }, registry), /must be true or false/);
 });
 
-test('render rejects malformed full revision tokens instead of treating them as absent', async () => {
+test('render reads a Jinja-falsy full version as no full render (`full_version and ...`)', async () => {
   const registry = await handlers();
   for (const fullVersion of [0, '']) {
     const initial = snapshot();
     initial.state['sensor.ls_overrides'].attributes = { pending_rooms: {}, full_version: fullVersion };
-    assert.throws(() => execute({ script: 'ls_render', args: {}, snapshot: initial }, registry), /non-empty string/);
+    assert.doesNotThrow(() => execute({ script: 'ls_render', args: {}, snapshot: initial }, registry), JSON.stringify(fullVersion));
   }
 });
 
