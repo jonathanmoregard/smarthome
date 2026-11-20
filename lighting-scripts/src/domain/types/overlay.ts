@@ -1,3 +1,5 @@
+import type { Ranged } from './range.ts';
+
 /**
  * The key an overlay is saved under in the overlay store, as the overlay it
  * names. Read from the store by `parseOverlayKey` (`src/parse/overlay-key.ts`);
@@ -17,6 +19,9 @@ export type OverlayKey =
   | { kind: 'native control'; base: string }
   /** Any other key a saved store holds, kept exactly as saved. */
   | { kind: 'saved'; key: string };
+
+/** A count of minutes, finite and not negative (the overlay reset's age limit). */
+export type Minutes = Ranged<'Minutes'>;
 
 /** The key's saved text: the exact inverse of `parseOverlayKey`. */
 export function overlayKeyText(key: OverlayKey): string {

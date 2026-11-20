@@ -29,6 +29,16 @@
       "file": "src/domain/types/overlay.ts",
       "symbol": "byOverlayKeyText",
       "reason": "A sort comparator's result."
+    },
+    {
+      "file": "src/domain/types/range.ts",
+      "symbol": "Ranged",
+      "reason": "Spec v3 3.4 row 1: the range definition is the one place a range type is a number; every range type is built from it."
+    },
+    {
+      "file": "src/domain/types/range.ts",
+      "symbol": "RangeMark",
+      "reason": "Spec v3 3.4 row 1: the range mark's name parameter, the same mark on a range that is not a number."
     }
   ],
   "ceilings": [
