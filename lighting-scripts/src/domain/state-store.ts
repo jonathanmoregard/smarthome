@@ -291,7 +291,7 @@ export function* planStore(args: StoreProfileArgs, current: StoredProfile, catal
 }
 
 /** The rooms a house-scope block override expands to: labelled lamps' areas, unique, private rooms excluded. */
-export function houseRooms(view: HouseView): string[] {
+export function houseRooms(view: HouseView): RoomId[] {
   const privateAreas = privateRooms(view);
   const entities = [...labelled(view, 'house_schedule'), ...labelled(view, 'on_off')];
   const rooms = entities.map(entity => view.rooms.ofId[entity]).filter(isAreaId).filter(area => !privateAreas.includes(area));
@@ -303,7 +303,7 @@ export function houseRooms(view: HouseView): string[] {
  * where the schedule already says so. A target's schedule key raises for an
  * unhashable scope, here, where the lookup happens.
  */
-export function* planOverrideBlock(args: OverrideBlockArgs, rooms: string[], scheduledTo: ScheduledBlocks): Plan<null> {
+export function* planOverrideBlock(args: OverrideBlockArgs, rooms: RoomId[], scheduledTo: ScheduledBlocks): Plan<null> {
   const block = args.block;
   const targets: BlockTarget[] = [args.scope, ...rooms.map(roomTarget)];
   const scheduled = (target: BlockTarget) => scheduledTo(target.key());
