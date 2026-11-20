@@ -34,11 +34,6 @@ function requireStringValue(value: JsonValue | undefined, context: string): stri
   return requireString({ value: value === undefined ? null : value }, 'value', context);
 }
 
-function requireStringArray(value: JsonValue | undefined, context: string): string[] {
-  const items = requireArray({ value: value === undefined ? null : value }, 'value', context);
-  return items.map((item, index) => requireStringValue(item, `${context}[${index}]`));
-}
-
 /** Captured rows use an absent key or an empty string to mean no profile store. */
 function optionalStoreId(value: JsonValue | undefined, context: string): string | undefined {
   if (value === undefined) return undefined;
@@ -186,18 +181,32 @@ export function proxyShowsRgb(ctx: HouseView, proxy: string, rgb: Rgb): boolean 
   return isDeepStrictEqual(list(ctx.attr(proxy, 'rgb_color')), reveal(rgb.value));
 }
 
-/** A row's stored profile: its effect channels at once, its effect where it is read. */
+/** A row's stored profile: whether it names effect channels, at once; its effect where it is read. */
 export interface UiProfile {
-  effectChannels: string[];
+  namesEffectChannels: boolean;
   effect: () => string | undefined;
+}
+
+/** The channels a saved profile with no `effect_channels` key claims (the captured `.get` default). */
+const DEFAULT_PROFILE_EFFECT_CHANNELS: JsonValue = ['brightness', 'color'];
+
+/**
+ * Does a saved profile name any effect channels? A saved value, read
+ * leniently with a default (user directive 2026-11-19): the captured mirror
+ * reads `profile.get('effect_channels', ['brightness','color'])` under Jinja
+ * truthiness, so an absent key takes the default (true), and any present value
+ * -- null, a non-list, a list of non-strings -- is its Jinja truthiness. It
+ * never raises.
+ */
+function namesEffectChannels(profile: JsonObject): boolean {
+  const channels = Object.hasOwn(profile, 'effect_channels') ? profile.effect_channels : DEFAULT_PROFILE_EFFECT_CHANNELS;
+  return jinjaTruthy(channels);
 }
 
 export function uiProfile(ctx: HouseView, store: string): UiProfile {
   const pr = saved(ctx, store);
   return {
-    effectChannels: pr.effect_channels === undefined
-      ? ['brightness', 'color']
-      : requireStringArray(pr.effect_channels, 'effects_ui_sync.profile.effect_channels'),
+    namesEffectChannels: namesEffectChannels(pr),
     effect: () => pr.effect === undefined ? undefined : requireStringValue(pr.effect, 'effects_ui_sync.profile.effect'),
   };
 }
