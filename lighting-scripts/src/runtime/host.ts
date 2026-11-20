@@ -33,8 +33,13 @@ function ids(call: ServiceCall): string[] { const value = call.target?.entity_id
  *
  * - `effects_engine_tick`: the frame engine's tick, deleted with the engine
  *   when the bulbs took over every effect (42b2e77).
+ * - `effects_candle_sync_timeout`, `effects_candle_sync_published`: the
+ *   software candle's sync timers, deleted with it when the bulb firmware took
+ *   over the candle (b00e10a).
  */
-const RETIRED_SCRIPTS: ReadonlySet<string> = new Set(['effects_engine_tick']);
+const RETIRED_SCRIPTS: ReadonlySet<string> = new Set([
+  'effects_engine_tick', 'effects_candle_sync_timeout', 'effects_candle_sync_published',
+]);
 function topology(snapshot: Snapshot): unknown {
   return [snapshot.areas, snapshot.members, snapshot.devices, snapshot.entitySources, snapshot.catalog,
     snapshot.state['binary_sensor.zigbee2mqtt_bridge_connection_state']];
