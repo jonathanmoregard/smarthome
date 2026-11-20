@@ -16,8 +16,9 @@ import { isObject, jinjaList, jinjaOr, jinjaTruthy, object, requireBoolean, requ
 import { carry, reveal } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { num, saved, strings } from './accessors.ts';
-import { toSwitchId } from './ids.ts';
+import { toPercentRange, toSwitchId } from './ids.ts';
 import type { SwitchId } from '../domain/types/ids.ts';
+import type { PercentRange } from '../domain/types/light.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
 
@@ -269,6 +270,15 @@ export function parseUiSyncArgs(args: JsonObject): { dryRun: boolean; force: boo
 
 /** A range bound as given: absent, or the stored value (only a number is a bound). */
 export type RangeBound = string | number | boolean | null | Verbatim | undefined;
+
+/**
+ * Own Range's ends, as a percent range: both numbers (a boolean is not one
+ * here, unlike Jinja's `is number`), with `0 <= low <= high <= 100`; otherwise
+ * `undefined`, and the request is refused.
+ */
+export function ownRange(low: RangeBound, high: RangeBound): PercentRange | undefined {
+  return typeof low === 'number' && typeof high === 'number' && 0 <= low && low <= high && high <= 100 ? toPercentRange(low, high) : undefined;
+}
 
 function bound(value: JsonValue | undefined): RangeBound {
   return Array.isArray(value) || isObject(value) ? carry(value) : value;

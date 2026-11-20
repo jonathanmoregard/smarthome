@@ -10,7 +10,7 @@
   "casts": 8,
   "nonNull": 36,
   "nullish": 37,
-  "typeofs": 5,
+  "typeofs": 3,
   "literalIncludes": 29,
   "brandConstructors": 0
 }

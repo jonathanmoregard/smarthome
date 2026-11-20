@@ -4,11 +4,12 @@ import type { Verbatim } from '../runtime/verbatim.ts';
 import { roundEven } from './scale.ts';
 import { isAreaId } from './schedule.ts';
 import {
-  displayOfColour, lampReading, onOffOnly, proxyKelvin, proxyShowsRgb, runtimeTargets, storedRangeBounds, uiProfile, uiRows,
+  displayOfColour, lampReading, onOffOnly, ownRange, proxyKelvin, proxyShowsRgb, runtimeTargets, storedRangeBounds, uiProfile, uiRows,
 } from '../parse/ui-state.ts';
 import type { DiscoveryRow, Display, RangeSaveArgs } from '../parse/ui-state.ts';
 import { payloadNumber } from '../runtime/format.ts';
 import type { SwitchId } from './types/ids.ts';
+import type { Percent } from './types/light.ts';
 
 /**
  * One MQTT message for the UI proxy. Both fields are built here -- the topic
@@ -100,7 +101,7 @@ export function* publishUi(messages: UiMessage[]): Plan<null> {
  * `custom` profile, and this object is serialised into compared JSON, so an
  * absent bound must stay absent rather than become an explicit null.
  */
-export type RangeConfig = { profile: string; min?: number; max?: number };
+export type RangeConfig = { profile: string; min?: Percent; max?: Percent };
 export type RangeSaveResult = {
   valid: boolean;
   errors: string[];
@@ -135,9 +136,9 @@ export function decideRangeSave(view: HouseView, args: RangeSaveArgs): RangeSave
   // read used to carry converted nothing.
   if (!['bright', 'cosy', 'custom'].includes(profile)) errors.push('Choose Bright Default, Cosy Default, or Own Range.');
   else if (profile === 'custom') {
-    if (typeof lo !== 'number' || typeof hi !== 'number' || !(0 <= lo && lo <= hi && hi <= 100)) {
-      errors.push('Enter both ends of Own Range: 0–100%, with From no higher than Through.');
-    } else { config.min = lo; config.max = hi; }
+    const own = ownRange(lo, hi);
+    if (own === undefined) errors.push('Enter both ends of Own Range: 0–100%, with From no higher than Through.');
+    else { config.min = own.low; config.max = own.high; }
   }
   return { valid: errors.length === 0, errors, entity, config };
 }

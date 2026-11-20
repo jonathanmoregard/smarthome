@@ -106,6 +106,20 @@ test('range save validates physical devices, rejects boolean ranges, and emits o
   assert.equal(ctx.get('switch.new_lamp'), 'off');
 });
 
+test('range save keeps Own Range only for two numbers 0..100 with From not above Through', async () => {
+  // Break: the Own Range check (now `ownRange` at the parse edge) admits a reversed, out-of-range or
+  // non-numeric pair, refuses equal or edge ends, or stops falling back to the saved end.
+  const ctx = await load();
+  ctx.put('switch.new_lamp', 'off'); ctx.areas['switch.new_lamp'] = 'studio'; ctx.devices = { physical_device: ['switch.new_lamp'] };
+  const save = (minimum: unknown, maximum: unknown) => ctx.run('ls_range_save', { entity: 'switch.new_lamp', profile: 'custom', minimum, maximum, dry_run: true }).config;
+  for (const [low, high] of [[60, 30], [-1, 50], [10, 101], ['10', 50], [10, false], [null, 50]]) assert.deepEqual(save(low, high), { profile: 'custom' }, `${low}..${high}`);
+  assert.deepEqual(save(0, 100), { profile: 'custom', min: 0, max: 100 });
+  assert.deepEqual(save(40, 40), { profile: 'custom', min: 40, max: 40 });
+  assert.deepEqual(save(12.5, 80), { profile: 'custom', min: 12.5, max: 80 });
+  ctx.put('sensor.ls_overrides', '1', { switch_ranges: { 'switch.new_lamp': { profile: 'custom', min: 20, max: 70 } } });
+  assert.deepEqual(save(null, 50), { profile: 'custom', min: 20, max: 50 });
+});
+
 test('a constant colour with a non-numeric kelvin wins over its rgb and mirrors the lamp\'s own rgb', async () => {
   // `'kelvin' in display` takes the colour-temperature branch before the number
   // test, replacing the lamp's kelvin and leaving its rgb. A colour view that
