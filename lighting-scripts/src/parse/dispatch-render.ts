@@ -15,7 +15,9 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { HouseView } from '../runtime/effects.ts';
-import { isObject, jinjaTruthy, lazy, object, ParseError, requireArray, requireNumber, requireObject, requireString } from '../runtime/parse.ts';
+import {
+  isObject, jinjaOr, jinjaTruthy, lazy, object, ParseError, requireArray, requireNumber, requireObject, requireString,
+} from '../runtime/parse.ts';
 import { carry, reveal } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { list, strings } from './accessors.ts';
@@ -115,9 +117,9 @@ export function parseDispatchArgs(args: JsonObject): DispatchArgs {
   };
 }
 
-/** The runtime's `plan_order`, absent or null read as 0; a present non-number raises. */
+/** The runtime's `plan_order`, as captured `plan_order or 0`: absent or Jinja-falsy is 0; a truthy non-number raises. */
 export function dispatchPlanOrder(ctx: HouseView): number {
-  return requireNumber({ plan_order: ctx.attr(runtime, 'plan_order') ?? 0 }, 'plan_order', 'ls_dispatch runtime');
+  return requireNumber({ plan_order: jinjaOr(ctx.attr(runtime, 'plan_order'), 0) }, 'plan_order', 'ls_dispatch runtime');
 }
 
 /** `sensor.ls_effects_runtime` as `ls_dispatch` reads it before assigning, once. */

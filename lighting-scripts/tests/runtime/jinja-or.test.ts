@@ -6,6 +6,10 @@ import { typed } from '../../src/runtime/entrypoints.ts';
 import type { JsonObject, JsonValue, ScriptHandlers, Snapshot } from '../../src/runtime/context.ts';
 import { stateStoreHandlers } from '../../src/handlers/state-store.ts';
 import { context } from './gestures-context.ts';
+import { house } from './house-view.ts';
+import { reveal } from '../../src/runtime/verbatim.ts';
+import { dispatchPlanOrder } from '../../src/parse/dispatch-render.ts';
+import { runtimePlanOrder } from '../../src/parse/transport.ts';
 
 /**
  * Captured Jinja `or` / `and` over stored attributes. Jinja's falsy set holds
@@ -69,4 +73,29 @@ test('ls_commit turns a tick into config over a non-tick previous reason, and no
   assert.equal(tickCommit('remote'), 'config');
   assert.equal(tickCommit('tick'), 'tick');
   assert.equal(tickCommit(null), 'tick');
+});
+
+// Close-out review round 3: siblings of the `x or default` reads above that
+// were ported as an absent/null-only default. Each falsy value takes the
+// default; a truthy value of the wrong type still raises, as the captured
+// comparison or `.get`/`.items()` downstream of it does.
+const falsy: JsonValue[] = [null, false, 0, '', [], {}];
+const runtimeView = (plan_order: JsonValue) => house({ 'sensor.ls_effects_runtime': ['0', { plan_order }] });
+
+test('the runtime plan order is 0 for every Jinja-falsy value (ls_dispatch and effects_assign: `plan_order or 0`)', () => {
+  for (const value of falsy) {
+    assert.equal(dispatchPlanOrder(runtimeView(value)), 0, `ls_dispatch ${JSON.stringify(value)}`);
+    assert.equal(runtimePlanOrder(runtimeView(value)), 0, `effects_assign ${JSON.stringify(value)}`);
+  }
+  assert.equal(dispatchPlanOrder(house({ 'sensor.ls_effects_runtime': ['0', {}] })), 0);
+  assert.equal(dispatchPlanOrder(runtimeView(7)), 7);
+  assert.equal(runtimePlanOrder(runtimeView(7)), 7);
+});
+
+test('a truthy non-number runtime plan order still raises', () => {
+  // Captured `plan.plan_order >= ('x' or 0)` compares a number with a string: TypeError.
+  for (const value of ['x', [1], { a: 1 }] as JsonValue[]) {
+    assert.throws(() => dispatchPlanOrder(runtimeView(value)), /plan_order/, `ls_dispatch ${JSON.stringify(value)}`);
+    assert.throws(() => runtimePlanOrder(runtimeView(value)), /plan_order/, `effects_assign ${JSON.stringify(value)}`);
+  }
 });

@@ -135,6 +135,15 @@ export function jinjaTruthy(value: JsonValue | undefined): boolean {
   return Object.keys(value).length > 0;
 }
 
+/**
+ * Jinja's `value or fallback` over a read that may be absent: an absent or
+ * Jinja-falsy value (see {@link jinjaTruthy}) takes the fallback, a truthy one
+ * is returned as it is for the caller's own typed read.
+ */
+export function jinjaOr(value: JsonValue | undefined, fallback: JsonValue): JsonValue {
+  return value !== undefined && jinjaTruthy(value) ? value : fallback;
+}
+
 /** Raised where Jinja would raise `UndefinedError` or `TypeError` rather than coerce. */
 export class ParseError extends Error {
   constructor(message: string) {
