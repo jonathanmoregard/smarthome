@@ -30,3 +30,13 @@ test('runtime catalog atomic edits hotload without replacing the program; malfor
     assert.equal((await host.dispatch('catalog')).marker, 'after');
   } finally { watcher.close(); await host.close(); }
 });
+
+test('a runtime catalog where two lamps share a bulb is refused when it is loaded, not on a later dispatch', async () => {
+  // Break: a lazy check would accept the file, replace the running catalog,
+  // and fail every dispatch afterwards instead of keeping the previous config.
+  const directory = await mkdtemp(join(tmpdir(), 'lighting-shared-'));
+  const path = join(directory, 'catalog.json');
+  await writeFile(path, JSON.stringify({ groups: {}, effects: {},
+    members: { 'light.a': ['light.bulb'], 'light.b': ['light.bulb'] } }));
+  await assert.rejects(readRuntimeCatalog(path), /light\.bulb belongs to both light\.a and light\.b/);
+});

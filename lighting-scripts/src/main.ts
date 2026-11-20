@@ -6,6 +6,7 @@ import { createInterface } from 'node:readline';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { JsonObject, ScriptHandlers, Snapshot } from './runtime/context.ts';
 import type { ExecutionRequest, ExecutionResult } from './runtime/engine.ts';
+import { parseCatalog } from './runtime/catalog.ts';
 import { LightingHost } from './runtime/host.ts';
 import type { Program, OutputTransport } from './runtime/host.ts';
 import { HomeAssistantTransport } from './live.ts';
@@ -28,6 +29,10 @@ export async function loadProgram(directory?: string): Promise<Program> {
 export async function readRuntimeCatalog(path: string): Promise<JsonObject> {
   const catalog = record(JSON.parse(await readFile(path, 'utf8')));
   record(catalog.members); record(catalog.groups); record(catalog.effects);
+  // The full parse runs here, at load and at every reload, so a catalog the
+  // lighting logic would refuse (a bulb shared by two lamps, say) is rejected
+  // before it replaces the running one, not on the next dispatch.
+  parseCatalog(catalog);
   return catalog;
 }
 export function watchRuntimeCatalog(path: string, accept: (catalog: JsonObject) => Promise<void>, reject: (error: unknown) => void): FSWatcher {
