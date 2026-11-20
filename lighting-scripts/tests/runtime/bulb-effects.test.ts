@@ -109,10 +109,7 @@ for (const [name, running] of [['Breathe', breathe], ['Colour loop', loop]] as c
 }
 
 test('an unchanged running effect is not started again', () => {
-  // `bulb_effects` is the port's record that it started the effect; without it
-  // the lamp reads as never started (the cutover case, review-A2.test.ts).
-  const runtime = { assignments: { 'light.lamp': breathe }, targets: { 'light.lamp': breathe }, applied: { 'light.lamp': breathe },
-    bulb_effects: { 'light.bulb_1': ['breathe'], 'light.bulb_2': ['breathe'] } };
+  const runtime = { assignments: { 'light.lamp': breathe }, targets: { 'light.lamp': breathe }, applied: { 'light.lamp': breathe } };
   const { calls } = dispatch(breathe, runtime, []);
   assert.deepEqual(calls.filter(call => call.service === 'mqtt.publish'), []);
 });

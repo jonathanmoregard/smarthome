@@ -9,7 +9,6 @@ import { timestamp } from '../parse/accessors.ts';
 import type { OpaqueMap, StoredFact, StoredValue } from '../parse/overrides.ts';
 import { attributeFact, attributeMapping, overridesRevision } from '../parse/sensors.ts';
 import { mappingAttribute } from '../parse/planning.ts';
-import { bulbEffectsRecord } from '../parse/transport.ts';
 import type { StoredChannels } from '../parse/transport.ts';
 import { areaOf, dispatchPlanOrder, dispatchRuntime, optionalRevisionAttribute, roomCacheGradients } from '../parse/dispatch-render.ts';
 import type { DispatchRuntime, FullPlan, RoomPlanView } from '../parse/dispatch-render.ts';
@@ -64,8 +63,8 @@ type Accepted = { revision: string; planOrder: number; details: DispatchDetails 
 type Chosen = Accepted & { catalog: Verbatim; previous: DispatchRuntime; ordinary: OpaqueMap };
 /** ...once the assignment answered its generation. */
 type Assigned = Chosen & { generation: AssignResult['generation'] };
-/** ...once the light went out, with the bulb-effect starts built for each member after it. */
-type Lit = Assigned & { emission: EmitResult; starts: StartCommand[] };
+/** ...once the light went out. */
+type Lit = Assigned & { emission: EmitResult };
 /** ...once every publish is done: whether all completed, and when each went out. */
 type Settled = Assigned & { completed: boolean; publishedAt: number[] };
 
@@ -156,7 +155,7 @@ export function dispatchStep(phase: DispatchPhase, msg: DispatchMsg): Transition
     case 'emitting': {
       if (msg.tag !== 'emitted') return unexpected(phase, msg);
       const commands = bulbStartCommands(msg.house, sentStarts(phase.run));
-      const run: Lit = { ...phase.run, emission: msg.result, starts: commands };
+      const run: Lit = { ...phase.run, emission: msg.result };
       if (commands.length === 0) return settle(msg.house, run, { published_at: [], completed: true });
       return [{ tag: 'starting', run }, [{ tag: 'emit', args: { commands, revision: run.revision, generation: run.generation } }]];
     }
@@ -192,7 +191,10 @@ function unexpected(phase: DispatchPhase, msg: DispatchMsg): never {
 /**
  * The lamps to send: on, not rooms, inside the output targets, sendable
  * (requested, in a remote room, or the baseline sends it), and not already
- * showing what the target needs.
+ * showing what the target needs. `applied` is the only record of what a lamp
+ * shows, a bulb effect included: a lamp sent here gets its start after its
+ * light ({@link bulbStartCommands}), and a lamp not sent is not touched, so a
+ * steady candle is never restarted.
  */
 export function ordinaryTargets(view: HouseView, details: DispatchDetails, previous: DispatchRuntime): OpaqueMap {
   const { targetViews, requested, outputTargets, remoteRooms } = details;
@@ -201,8 +203,8 @@ export function ordinaryTargets(view: HouseView, details: DispatchDetails, previ
     if (target.isRoom || (outputTargets.length > 0 && !outputTargets.includes(lamp))) continue;
     if (view.get(lamp) !== 'on') continue;
     if (!(requested.includes(lamp) || remoteRooms.includes(target.area ?? null) || details.baselineSend(lamp))) continue;
-    if (requested.includes(lamp) || (previous.hadEffect(lamp) && !details.assigned(lamp)) || !previous.applied(lamp, target.document)
-      || !bulbsRunning(view, previous.bulbEffects, lamp, bulbStarts(target))) ordinary[lamp] = target.document;
+    if (requested.includes(lamp) || (previous.hadEffect(lamp) && !details.assigned(lamp))
+      || !previous.applied(lamp, target.document)) ordinary[lamp] = target.document;
   }
   return ordinary;
 }
@@ -214,9 +216,10 @@ function sentStarts(run: Chosen): Array<[string, string[]]> {
 
 /**
  * Every publish is done. Stop if the revision or the generation moved;
- * otherwise record a complete output's applied lights (and bulb-effect
- * starts) under the generation, then go on to the switches. Without such an
- * output, only a bulb-effect record that names a bulb no longer on is written.
+ * otherwise record a complete output's applied lights under the generation,
+ * then go on to the switches. An incomplete output records nothing, so
+ * `applied` keeps what `effects_assign` left: the lamps it sent are not in it,
+ * and the next dispatch sends them again, bulb-effect starts included.
  */
 function settle(house: HouseView, run: Lit, started: EmitResult): Transition {
   const { revision, generation, ordinary } = run;
@@ -227,24 +230,11 @@ function settle(house: HouseView, run: Lit, started: EmitResult): Transition {
   const completed = run.emission.completed && started.completed;
   if (!stillCurrent(house, 'ls_dispatch', revision, generation)) return done(null);
   const settled: Settled = { ...run, completed, publishedAt: [...run.emission.published_at, ...started.published_at] };
-  // The record as it stands now, not as read before the assignment:
-  // `effects_assign` drops the entry of every bulb it sent a stop. Every bulb
-  // that is not on goes too, whatever this dispatch sent.
-  const recorded = bulbEffectsRecord(house), lit = litRecord(recorded, house);
-  if (Object.keys(ordinary).length === 0 || !completed) {
-    if (lit === undefined) return switching(house, settled, 0);
-    return [{ tag: 'switching', run: settled, next: 0 }, [{ tag: 'effect', effect: {
-      kind: 'service', service: 'variable.update_sensor',
-      data: { value: generation, replace_attributes: false, attributes: { bulb_effects: lit } },
-      target: { entity_id: runtime }, guard: { revision, generation },
-    } }]];
-  }
-  const bulbEffects = recordStarts(lit ?? recorded, house, Object.keys(ordinary), run.starts) ?? lit;
+  if (Object.keys(ordinary).length === 0 || !completed) return switching(house, settled, 0);
   return [{ tag: 'switching', run: settled, next: 0 }, [{ tag: 'effect', effect: {
     kind: 'service', service: 'variable.update_sensor',
     data: { value: generation, replace_attributes: false,
-      attributes: { applied: { ...attributeMapping(house, runtime, 'applied'), ...ordinary },
-        ...(bulbEffects === undefined ? {} : { bulb_effects: bulbEffects }) } },
+      attributes: { applied: { ...attributeMapping(house, runtime, 'applied'), ...ordinary } } },
     target: { entity_id: runtime }, guard: { revision, generation, requiresOutputSuccess: true },
   } }]];
 }
@@ -312,66 +302,6 @@ function startableMembers(view: HouseView, lamp: string): Array<{ member: string
     const topic = view.catalog.topics[member];
     return view.get(member) === 'on' && topic !== undefined ? [{ member, topic }] : [];
   });
-}
-
-/**
- * Are a lamp's bulbs running what its target needs? `applied` cannot answer
- * that for a bulb effect: the original engine wrote `applied` too, after
- * streaming software candle frames, so at cutover a Candle lamp reads as
- * applied while its bulbs run nothing. Only the port's own record of the
- * starts it sent (`bulb_effects`, per bulb) says the firmware effect is
- * running. Every member a start can reach now must hold exactly the lamp's
- * starts; one that lacks them (it was off, or was stopped, when the candle
- * started) gets the lamp sent its light and starts. A lamp whose members all
- * match is left alone, so an unchanged candle is never restarted. A lamp with
- * no bulb effect and no record compares `[]` with `[]`.
- */
-function bulbsRunning(view: HouseView, recorded: Record<string, string[]>, lamp: string, starts: string[]): boolean {
-  return startableMembers(view, lamp).every(({ member }) => sameStarts(recordedStarts(recorded, member), starts));
-}
-function recordedStarts(recorded: Record<string, string[]>, member: string): string[] {
-  return Object.hasOwn(recorded, member) ? recorded[member]! : [];
-}
-function sameStarts(a: string[], b: string[]): boolean {
-  return a.length === b.length && a.every((start, index) => start === b[index]);
-}
-/**
- * `bulb_effects` without the bulbs that are not on now. The firmware ends the
- * candle when a bulb is switched off (and a bulb that lost power runs nothing),
- * so such a bulb runs no start the port sent: its entry goes, and once it is on
- * again its lamp reads as not running and is sent its colour, then the start.
- * A bulb that stays on keeps its entry, so a steady effect is never restarted.
- * `undefined` when every recorded bulb is on, so nothing is written.
- */
-function litRecord(recorded: Record<string, string[]>, view: HouseView): Record<string, string[]> | undefined {
-  const lit = Object.fromEntries(Object.entries(recorded).filter(([bulb]) => view.get(bulb) === 'on'));
-  return Object.keys(lit).length === Object.keys(recorded).length ? undefined : lit;
-}
-/**
- * `bulb_effects` after a completed dispatch sent these lamps their light, and
- * then these start commands. The record holds, per bulb, only the starts that
- * were sent to that bulb: each member of a sent lamp records the starts built
- * for it, and every other member of a sent lamp drops its entry (its light
- * ended any effect, or it was off and runs none). `undefined` when nothing
- * changed, so a dispatch that touches no bulb effect writes exactly what it
- * wrote before the record existed.
- */
-function recordStarts(recorded: Record<string, string[]>, view: HouseView, lamps: string[],
-  commands: StartCommand[]): Record<string, string[]> | undefined {
-  const sent = new Map<string, string[]>();
-  for (const command of commands) for (const member of command.members) {
-    const before = sent.get(member);
-    sent.set(member, before === undefined ? [command.payload.effect] : [...before, command.payload.effect]);
-  }
-  const next = { ...recorded };
-  let changed = false;
-  for (const member of new Set(lamps.flatMap(lamp => membersOf(view, lamp)))) {
-    const starts = sent.get(member);
-    if (starts !== undefined) {
-      if (!Object.hasOwn(next, member) || !sameStarts(next[member]!, starts)) { next[member] = starts; changed = true; }
-    } else if (Object.hasOwn(next, member)) { delete next[member]; changed = true; }
-  }
-  return changed ? next : undefined;
 }
 
 /**

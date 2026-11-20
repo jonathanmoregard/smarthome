@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import { execute } from '../../src/runtime/engine.ts';
 import { handlers } from '../../src/runtime/registry.ts';
+import { LightingHost } from '../../src/runtime/host.ts';
 import type { JsonObject, ServiceCall, Snapshot } from '../../src/runtime/context.ts';
 
 /**
@@ -9,6 +13,12 @@ import type { JsonObject, ServiceCall, Snapshot } from '../../src/runtime/contex
  * Zigbee2MQTT `effect: channel_change`). The bulb flickers under the level it
  * is at, so the port sends the candle's colour and ceiling first and the
  * trigger second, then leaves the lamp alone; `stop_effect` ends it.
+ *
+ * There is no record of what the bulbs run beside `applied`: the start goes
+ * out whenever ls_dispatch sends the lamp (its target differs from `applied`,
+ * it was requested, it was switched back on), and a lamp it does not send is
+ * not touched. Recovery is `applied`'s: a dispatch whose output failed does
+ * not advance it, so the next dispatch sends the lamp, start included.
  */
 
 const now = '2026-10-26T12:00:00.000Z';
@@ -42,11 +52,43 @@ function snapshot(runtime: JsonObject = {}): Snapshot {
   } };
 }
 
-function dispatch(target: JsonObject, runtime: JsonObject = {}): ServiceCall[] {
+function planFor(target: JsonObject): JsonObject {
   const assignments = target.brightness !== undefined && (target.brightness as JsonObject).kind === 'effect' ? { 'light.lamp': target } : {};
-  const plan = { revision: now, plan_order: 1, base: {}, resolved: { targets: { 'light.lamp': target }, assignments } };
-  return execute({ script: 'ls_dispatch', args: { plan, lights: ['light.lamp'] }, snapshot: snapshot(runtime) }, handlers).calls;
+  return { revision: now, plan_order: 1, base: {}, resolved: { targets: { 'light.lamp': target }, assignments } };
 }
+function dispatch(target: JsonObject, runtime: JsonObject = {}): ServiceCall[] {
+  return execute({ script: 'ls_dispatch', args: { plan: planFor(target), lights: ['light.lamp'] }, snapshot: snapshot(runtime) }, handlers).calls;
+}
+/** One ls_dispatch on a snapshot, the lamps it was asked for as `lights`. */
+function dispatchOn(state: Snapshot, target: JsonObject, lights: string[] = []) {
+  return execute({ script: 'ls_dispatch', args: { plan: planFor(target), lights }, snapshot: state }, handlers);
+}
+/** A runtime whose lamp was last sent (and assigned) `target`. */
+function holding(target: JsonObject): JsonObject {
+  const assigned = (target.brightness as JsonObject).kind === 'effect';
+  return { applied: { 'light.lamp': target }, targets: { 'light.lamp': target }, assignments: assigned ? { 'light.lamp': target } : {} };
+}
+/**
+ * One ls_dispatch through the host, whose transport loses every publish
+ * `lost` picks: the host then records nothing that waits on output success.
+ */
+async function hostedDispatch(state: Snapshot, target: JsonObject, lost: (body: JsonObject) => boolean, lights: string[] = []) {
+  const directory = await mkdtemp(join(tmpdir(), 'firmware-candle-'));
+  const host = await LightingHost.open({ path: join(directory, 'state.json'), initial: state, autoTimers: false,
+    now: () => Date.parse(now), program: request => execute(request, handlers), transport: {
+      send: async call => {
+        if (call.service === 'mqtt.publish' && lost(JSON.parse(String(call.data.payload)) as JsonObject)) throw new Error('publish lost');
+      },
+      close: async () => {},
+    } });
+  try {
+    await host.dispatch('ls_dispatch', { plan: planFor(target), lights });
+    await host.drain();
+    return host.snapshot();
+  } finally { await host.close(); }
+}
+const started = [{ brightness: 120, color: { rgb: '255,110,4' }, transition: 0.4 }, { effect: 'channel_change' }];
+const publishes = (calls: ServiceCall[]) => calls.filter(call => call.service === 'mqtt.publish');
 
 /** The MQTT bodies one bulb received, in publish order. */
 function received(calls: ServiceCall[], topic: string): JsonObject[] {
@@ -86,4 +128,91 @@ test('leaving the candle sends stop_effect before the new light', () => {
   assert.notEqual(stop, -1, 'stop_effect was sent');
   assert.ok(stop < light, 'stop_effect precedes the new brightness');
   assert.equal(bodies.some(body => body.effect === 'channel_change'), false);
+});
+
+test('a candle lamp whose applied light is already its target is not touched', () => {
+  // The cutover case too: the old engine wrote `applied` equal to the Candle
+  // target, so such a lamp is not sent until `applied` is cleared (README, cutover).
+  const result = dispatchOn(snapshot(holding(candle)), candle);
+  assert.deepEqual(publishes(result.calls), []);
+});
+
+test('a candle started from nothing is not restarted by the next dispatch', () => {
+  const first = dispatchOn(snapshot({}), candle);
+  for (const topic of Object.values(topics)) assert.deepEqual(received(first.calls, topic), started, `precondition: ${topic} started`);
+  assert.deepEqual(publishes(dispatchOn(first.snapshot, candle).calls), []);
+});
+
+test('no dispatch writes anything beside applied to record a start', () => {
+  const first = dispatchOn(snapshot({}), candle);
+  const runtime = first.snapshot.state['sensor.ls_effects_runtime']!.attributes;
+  assert.deepEqual(Object.keys(runtime).sort(), ['applied', 'assignments', 'generation', 'plan_order', 'revision', 'targets']);
+});
+
+test('leaving the candle, then the steady light is sent once', () => {
+  const left = dispatchOn(dispatchOn(snapshot({}), candle).snapshot, steady);
+  assert.ok(received(left.calls, topics['light.bulb_1']).some(body => body.brightness === 100), 'precondition: the steady light is sent');
+  assert.deepEqual(publishes(dispatchOn(left.snapshot, steady).calls), []);
+});
+
+test('recovery (a): a start the transport lost leaves applied as it was, so the next dispatch sends light then start', async () => {
+  const after = await hostedDispatch(snapshot(holding(steady)), candle, body => body.effect === 'channel_change');
+  assert.deepEqual(after.state['sensor.ls_effects_runtime']!.attributes.applied, { 'light.lamp': steady });
+  const next = dispatchOn(after, candle);
+  for (const topic of Object.values(topics)) assert.deepEqual(received(next.calls, topic), started, topic);
+});
+
+test('recovery (a): a start the host delivered advances applied, so the next dispatch sends nothing', async () => {
+  const after = await hostedDispatch(snapshot(holding(steady)), candle, () => false);
+  assert.deepEqual(after.state['sensor.ls_effects_runtime']!.attributes.applied, { 'light.lamp': candle });
+  assert.deepEqual(publishes(dispatchOn(after, candle).calls), []);
+});
+
+test('recovery (c): a candle lamp switched back on (lamp_on asks for it) gets its colour, then the start', () => {
+  const state = snapshot(holding(candle));
+  const result = dispatchOn(state, candle, ['light.lamp']);
+  for (const topic of Object.values(topics)) assert.deepEqual(received(result.calls, topic), started, topic);
+});
+
+test('recovery (b), in the engine: effects_assign takes the lamp it sends out of applied before any light goes out', () => {
+  const calls = dispatchOn(snapshot(holding(candle)), steady).calls;
+  const store = calls.find(call => call.service === 'variable.update_sensor');
+  assert.ok(store !== undefined, 'effects_assign stores the runtime');
+  assert.deepEqual((store.data.attributes as JsonObject).applied, {});
+  assert.ok(calls.indexOf(store) < calls.findIndex(call => call.service === 'mqtt.publish'));
+});
+
+// Known gaps of the stateless rule, reproduced and left open (close-out review
+// round 3). Each is a lamp whose bulbs no longer run the candle while
+// `applied` still says Candle, so the next Candle dispatch skips it.
+test('GAP recovery (b) through the host: a stop delivered, then the batch lost, the next Candle dispatch sends light then start', {
+  todo: 'host.ts transaction(): a guarded applied write rolls applied back to its pre-transaction value, '
+    + 'undoing the unguarded invalidation effects_assign wrote in the same transaction',
+}, async () => {
+  const after = await hostedDispatch(snapshot(holding(candle)), steady, body => body.brightness === 100);
+  const next = dispatchOn(after, candle);
+  for (const topic of Object.values(topics)) assert.deepEqual(received(next.calls, topic), started, topic);
+});
+
+test('GAP recovery (a) through the host, requested lamp: light delivered, start lost, on a lamp already applied as candle', {
+  todo: 'same host rollback: applied returns to the pre-transaction Candle entry although the delivered light ended the candle',
+}, async () => {
+  const after = await hostedDispatch(snapshot(holding(candle)), candle, body => body.effect === 'channel_change', ['light.lamp']);
+  const next = dispatchOn(after, candle);
+  for (const topic of Object.values(topics)) assert.deepEqual(received(next.calls, topic), started, topic);
+});
+
+test('GAP (was review2 R3): a candle stopped on a lamp ls_dispatch skipped is started again when the lamp returns to Candle', {
+  todo: 'effects_assign stops every lamp leaving a bulb effect, sent or not, but invalidates applied only for the lamps '
+    + 'ls_dispatch sends; a baseline send:false lamp keeps applied = Candle',
+}, () => {
+  const skipped = { revision: now, plan_order: 1, base: { 'light.lamp': { send: false } },
+    resolved: { targets: { 'light.lamp': steady }, assignments: {} } };
+  const left = execute({ script: 'ls_dispatch', args: { plan: skipped, lights: [] }, snapshot: snapshot(holding(candle)) }, handlers);
+  for (const topic of Object.values(topics)) {
+    assert.deepEqual(received(left.calls, topic), [{ effect: 'stop_colorloop' }, { effect: 'stop_effect' }], `precondition: ${topic}`);
+  }
+  const back = { revision: now, plan_order: 2, base: {}, resolved: { targets: { 'light.lamp': candle }, assignments: { 'light.lamp': candle } } };
+  const again = execute({ script: 'ls_dispatch', args: { plan: back, lights: [] }, snapshot: left.snapshot }, handlers);
+  for (const topic of Object.values(topics)) assert.deepEqual(received(again.calls, topic), started, topic);
 });

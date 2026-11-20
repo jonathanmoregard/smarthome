@@ -98,6 +98,13 @@ in Home Assistant. Dormant `effects_route` and `effects_release` have no consume
 in the captured scripts/automations and use obsolete schemas; they are retained as
 reference, not silently invoked by TypeScript.
 
+Cutover checklist:
+
+1. Clear `runtime.applied` once at cutover so every lamp is re-sent (starts the
+   firmware candle). Set the `applied` attribute of `sensor.ls_effects_runtime`
+   to an empty mapping `{}`: an absent or null `applied` is read as `targets`,
+   which the old engine also wrote, so removing it re-sends nothing.
+
 Live connection requires an existing credential file and an explicit command:
 
 ```sh

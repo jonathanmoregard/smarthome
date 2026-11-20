@@ -105,12 +105,12 @@ test('a complete output records what was applied under the generation, guarded o
   }]);
 });
 
-test('a candle start that completes records the start beside the applied light', () => {
+test('a candle start that completes records the applied light and nothing else', () => {
   const a = args({}, { 'light.lamp': candle });
   const [, cmds] = dispatchStep(emitted(a)[0], { tag: 'emitted', result: { published_at: [2], completed: true }, house: view() });
   const update = effects(cmds)[0];
   assert.ok(update !== undefined && update.kind === 'service');
-  assert.deepEqual((update.data.attributes as JsonObject).bulb_effects, { 'light.bulb': ['channel_change'] });
+  assert.deepEqual(update.data.attributes, { applied: { 'light.lamp': candle } });
 });
 
 test('output that moved the generation, or did not complete, records nothing', () => {

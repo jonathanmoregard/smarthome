@@ -21,7 +21,7 @@ import type { Verbatim } from '../runtime/verbatim.ts';
 import { list, strings } from './accessors.ts';
 import { opaqueMap, storedFact } from './overrides.ts';
 import type { OpaqueMap, StoredFact, StoredValue } from './overrides.ts';
-import { bulbEffectsRecord, storedChannels } from './transport.ts';
+import { storedChannels } from './transport.ts';
 import type { DispatchArgs, DispatchDetails, DispatchTarget } from '../domain/dispatch-render.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
@@ -126,13 +126,6 @@ export interface DispatchRuntime {
   applied(lamp: string, target: Verbatim): boolean;
   /** Did the previous assignments name this lamp? */
   hadEffect(lamp: string): boolean;
-  /**
-   * The bulb-effect starts last sent to each bulb after its lamp's light, in
-   * a dispatch whose output succeeded (`bulb_effects`, see
-   * {@link bulbEffectsRecord}). A bulb with no entry has none running that the
-   * port started.
-   */
-  bulbEffects: Record<string, string[]>;
 }
 
 export function dispatchRuntime(ctx: HouseView): DispatchRuntime {
@@ -142,7 +135,6 @@ export function dispatchRuntime(ctx: HouseView): DispatchRuntime {
   return {
     applied: (lamp, target) => isDeepStrictEqual(reveal(target), previous[lamp]),
     hadEffect: lamp => Object.hasOwn(previousEffects, lamp),
-    bulbEffects: bulbEffectsRecord(ctx),
   };
 }
 

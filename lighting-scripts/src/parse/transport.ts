@@ -310,40 +310,6 @@ export function runtimeState(ctx: HouseView): RuntimeState {
   };
 }
 
-/** What a `bulb_effects` record that says nothing reads as: no bulb runs a start the port sent. */
-const NOTHING_RECORDED: Readonly<Record<string, string[]>> = {};
-
-/** One bulb's recorded starts: a list of start names, or `undefined` (nothing recorded) for anything else. */
-function recordedStartsOf(value: JsonValue | undefined): string[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const starts: string[] = [];
-  for (const start of value) {
-    if (typeof start !== 'string') return undefined;
-    starts.push(start);
-  }
-  return starts;
-}
-
-/**
- * `bulb_effects`, which only the port writes: per bulb, the bulb-effect starts
- * last sent to it. A saved value, read leniently with a default (user
- * directive 2026-11-19, "typed with parser that is flexible and has
- * default"): absent (the original scripts never wrote it) or anything but a
- * mapping is {@link NOTHING_RECORDED}, and an entry that is not a list of start
- * names records nothing for its bulb. It never raises; nothing recorded only
- * means the bulb is started again.
- */
-export function bulbEffectsRecord(ctx: HouseView): Record<string, string[]> {
-  const value = ctx.attr(runtime, 'bulb_effects');
-  if (!isObject(value)) return { ...NOTHING_RECORDED };
-  const recorded: Record<string, string[]> = {};
-  for (const [bulb, entry] of Object.entries(value)) {
-    const starts = recordedStartsOf(entry);
-    if (starts !== undefined) recorded[bulb] = starts;
-  }
-  return recorded;
-}
-
 /** The runtime's `generation` as stored; absent reads as null. */
 export function runtimeGeneration(ctx: HouseView): Verbatim {
   const generation = ctx.attr(runtime, 'generation');

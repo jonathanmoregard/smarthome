@@ -21,7 +21,7 @@ export interface HostOptions {
 interface Journal { version: 1; snapshot: Snapshot; uncertain: boolean; pending: number; held?: ScheduledTask[] }
 interface Batch { calls: ServiceCall[]; events: EventRecord[]; epoch: number; topology: unknown; deferred: Map<string,
   JsonObject>; tasks: ScheduledTask[]; started: number; versions: Map<ServiceCall, Map<string, number>>; revision?: string }
-const successFields = ['applied', 'bulb_effects', 'handled_rooms', 'handled_full', 'last_latency'];
+const successFields = ['applied', 'handled_rooms', 'handled_full', 'last_latency'];
 const object = (value: unknown): JsonObject => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as JsonObject : {};
 function ids(call: ServiceCall): string[] { const value = call.target?.entity_id ?? call.data.entity_id; return Array.isArray(value) ?
   value.map(String) : typeof value === 'string' ? [value] : []; }
