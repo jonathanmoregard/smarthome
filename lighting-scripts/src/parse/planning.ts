@@ -31,6 +31,7 @@ import { list, optionalTimestamp, timestamp } from './accessors.ts';
 import type { BaselineTarget, DetailField, OverrideFacts, Overrides, RoomBaseline, RoomCache, RoomDetails, RoomPlanArgs,
   TestNow } from '../domain/planning.ts';
 import { isBlock, savedBlock } from './blocks.ts';
+import { warmEndOr } from './scale.ts';
 
 function requiredObjectValue(value: JsonValue | undefined, context: string): JsonObject {
   return value === undefined ? requireObject({}, 'value', context) : requireObject({ value }, 'value', context);
@@ -218,10 +219,14 @@ export function storedList(value: JsonValue | undefined): Verbatim {
   return carry(list(value));
 }
 
-/** `rgb_color` of the warm-end test lamp, or the built-in warm end when it names none. */
+/**
+ * `(state_attr('light.candle_test_rgb_warm_end','rgb_color') or [255,126,0])|list`:
+ * {@link warmEndOr}'s Jinja `or`, then `|list`. A truthy non-list still raises
+ * here, as it did before; Jinja's `|list` would split a string or take a
+ * mapping's keys, which no colour attribute carries.
+ */
 export function warmEndOf(value: JsonValue | undefined): Verbatim {
-  const warm = list(value);
-  return carry(warm.length > 0 ? warm : [255, 126, 0]);
+  return carry(list(warmEndOr(value)));
 }
 
 /** An attribute read through `.get(key, {})`-style leniency: a non-mapping is `{}`. */
