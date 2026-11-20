@@ -152,9 +152,11 @@ test('leaving the candle, then the steady light is sent once', () => {
   assert.deepEqual(publishes(dispatchOn(left.snapshot, steady).calls), []);
 });
 
-test('recovery (a): a start the transport lost leaves applied as it was, so the next dispatch sends light then start', async () => {
+test('recovery (a): a start the transport lost leaves the lamp out of applied, so the next dispatch sends light then start', async () => {
   const after = await hostedDispatch(snapshot(holding(steady)), candle, body => body.effect === 'channel_change');
-  assert.deepEqual(after.state['sensor.ls_effects_runtime']!.attributes.applied, { 'light.lamp': steady });
+  // effects_assign took the lamp out before any light went out; the lost
+  // output keeps that, not the pre-dispatch `steady` entry.
+  assert.deepEqual(after.state['sensor.ls_effects_runtime']!.attributes.applied, {});
   const next = dispatchOn(after, candle);
   for (const topic of Object.values(topics)) assert.deepEqual(received(next.calls, topic), started, topic);
 });
@@ -179,25 +181,33 @@ test('recovery (b), in the engine: effects_assign takes the lamp it sends out of
   assert.ok(calls.indexOf(store) < calls.findIndex(call => call.service === 'mqtt.publish'));
 });
 
-// Known gaps of the stateless rule, reproduced and left open (close-out review
-// round 3). Each is a lamp whose bulbs no longer run the candle while
-// `applied` still says Candle, so the next Candle dispatch skips it.
-test('GAP recovery (b) through the host: a stop delivered, then the batch lost, the next Candle dispatch sends light then start', {
-  todo: 'host.ts transaction(): a guarded applied write rolls applied back to its pre-transaction value, '
-    + 'undoing the unguarded invalidation effects_assign wrote in the same transaction',
-}, async () => {
+// Through the host: a lost output keeps what effects_assign wrote to `applied`
+// in the same transaction (the lamp taken out), not the pre-dispatch entry.
+test('recovery (b) through the host: a stop delivered, then the batch lost, the next Candle dispatch sends light then start', async () => {
   const after = await hostedDispatch(snapshot(holding(candle)), steady, body => body.brightness === 100);
   const next = dispatchOn(after, candle);
   for (const topic of Object.values(topics)) assert.deepEqual(received(next.calls, topic), started, topic);
 });
 
-test('GAP recovery (a) through the host, requested lamp: light delivered, start lost, on a lamp already applied as candle', {
-  todo: 'same host rollback: applied returns to the pre-transaction Candle entry although the delivered light ended the candle',
-}, async () => {
+test('recovery (a) through the host, requested lamp: light delivered, start lost, on a lamp already applied as candle', async () => {
   const after = await hostedDispatch(snapshot(holding(candle)), candle, body => body.effect === 'channel_change', ['light.lamp']);
   const next = dispatchOn(after, candle);
   for (const topic of Object.values(topics)) assert.deepEqual(received(next.calls, topic), started, topic);
 });
+
+test('an ordinary light lost in transit leaves the lamp out of applied, so going back to the old light sends it', async () => {
+  const brighter: JsonObject = { ...steady, brightness: { kind: 'constant', value: 150 } };
+  const after = await hostedDispatch(snapshot(holding(steady)), brighter, body => body.brightness === 150);
+  assert.deepEqual(after.state['sensor.ls_effects_runtime']!.attributes.applied, {});
+  const back = dispatchOn(after, steady);
+  for (const topic of Object.values(topics)) {
+    assert.deepEqual(received(back.calls, topic), [{ brightness: 100, color_temp: 400, transition: 3 }], topic);
+  }
+});
+
+// A known gap of the stateless rule, reproduced and left open (close-out
+// review round 3): a lamp whose bulbs no longer run the candle while
+// `applied` still says Candle, so the next Candle dispatch skips it.
 
 test('GAP (was review2 R3): a candle stopped on a lamp ls_dispatch skipped is started again when the lamp returns to Candle', {
   todo: 'effects_assign stops every lamp leaving a bulb effect, sent or not, but invalidates applied only for the lamps '

@@ -185,18 +185,46 @@ export class LightingHost {
         if (typeof deadline === 'number' && Number.isFinite(deadline)) task.due = deadline;
         else if (typeof deadline === 'string' && Number.isFinite(Date.parse(deadline))) task.due = Date.parse(deadline);
       }
-      for (const call of result.calls) if (call.guard?.requiresOutputSuccess) {
-        for (const entity of ids(call)) {
-          const desired = object(call.data.attributes), old = previous.state[entity]?.attributes ?? {};
+      // A success field a guarded write sets is deferred until the batch's
+      // output succeeds. Until then it holds the last value the transaction
+      // committed before that write: the pre-transaction value overlaid, in
+      // call order, by every unguarded `variable.update_sensor` (which HA also
+      // receives whatever the output does). Restoring the pre-transaction
+      // value instead would discard those writes, e.g. effects_assign taking a
+      // lamp it sends out of `applied` before any light goes out.
+      // Every writer in src sends `replace_attributes: false`; `true` is read
+      // as a full replacement, any other value as a merge.
+      const committed = new Map<string, JsonObject>();
+      const committedOf = (entity: string): JsonObject => {
+        let fields = committed.get(entity);
+        if (fields === undefined) {
+          const old = previous.state[entity]?.attributes ?? {};
+          fields = Object.fromEntries(successFields.filter(field => Object.hasOwn(old, field)).map(field => [field, old[field]!]));
+          committed.set(entity, fields);
+        }
+        return fields;
+      };
+      for (const call of result.calls) for (const entity of ids(call)) {
+        const desired = object(call.data.attributes);
+        if (call.guard?.requiresOutputSuccess) {
           const fields = deferred.get(entity) ?? {};
-          for (const field of successFields) if (Object.hasOwn(desired, field)) {
-            fields[field] = desired[field]!;
-            if (next.state[entity]) {
-              if (Object.hasOwn(old, field)) next.state[entity]!.attributes[field] = old[field]!;
-              else delete next.state[entity]!.attributes[field];
-            }
-          }
+          for (const field of successFields) if (Object.hasOwn(desired, field)) fields[field] = desired[field]!;
           deferred.set(entity, fields);
+        } else if (call.service === 'variable.update_sensor') {
+          const fields = committedOf(entity), replaces = call.data.replace_attributes === true;
+          for (const field of successFields) {
+            if (Object.hasOwn(desired, field)) fields[field] = desired[field]!;
+            else if (replaces) delete fields[field];
+          }
+        }
+      }
+      for (const [entity, fields] of deferred) {
+        const current = next.state[entity];
+        if (current === undefined) continue;
+        const held = committedOf(entity);
+        for (const field of Object.keys(fields)) {
+          if (Object.hasOwn(held, field)) current.attributes[field] = held[field]!;
+          else delete current.attributes[field];
         }
       }
       this.state = next;
