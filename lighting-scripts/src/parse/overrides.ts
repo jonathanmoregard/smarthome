@@ -21,6 +21,7 @@ import type { Verbatim } from '../runtime/verbatim.ts';
 import type { CommitArgs, CommitData, CommitRecord } from '../domain/state-store.ts';
 import { concatString, haBoolean, mappingKey } from './state-store.ts';
 import { toRoomId, toSwitchId } from './ids.ts';
+import type { RoomId } from '../domain/types/ids.ts';
 import type { OverlayKey } from '../domain/types/overlay.ts';
 import { overlayKeyText } from '../domain/types/overlay.ts';
 import { parseOverlayKey } from './overlay-key.ts';
@@ -150,8 +151,8 @@ export function mergedValue(prior: Verbatim, value: StoredValue, channels: Opaqu
 }
 
 /** A room the commit marks pending: a string, or the captured `affected` refusal. */
-export function affectedRoom(room: StoredFact, index: number): string {
-  return requireString({ room: room ?? null }, 'room', `ls_commit affected[${index}]`);
+export function affectedRoom(room: StoredFact, index: number): RoomId {
+  return toRoomId(requireString({ room: room ?? null }, 'room', `ls_commit affected[${index}]`));
 }
 
 function parseRecords(value: JsonValue | undefined, context: string): CommitRecord[] {

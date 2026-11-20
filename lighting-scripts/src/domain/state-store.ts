@@ -61,13 +61,13 @@ export interface CommitArgs {
 }
 /** The attributes `ls_commit` writes, in the order it writes them. */
 export type OverridesPatch = {
-  power?: Record<string, Verbatim | boolean>;
+  power?: Record<RoomId, Verbatim | boolean>;
   switch_ranges?: Record<SwitchId, Verbatim | RangeRule>;
   range_defaults?: Verbatim;
   remote_ack?: Record<string, StoredValue>;
   overrides?: OpaqueMap;
   last_via?: StoredValue;
-  pending_rooms?: Record<string, StoredValue>;
+  pending_rooms?: Record<RoomId, StoredValue>;
   last_request?: string;
   received_at?: StoredValue;
   full_version?: string;
@@ -174,7 +174,7 @@ export function* planCommit(snapshot: CommitSnapshot, parsed: CommitData): Plan<
   const remoteAck = parsed.remoteAck();
   if (remoteAck !== undefined) patch.remote_ack = { ...snapshot.remoteAck, [remoteAck.source]: remoteAck.requestId };
   patch = { ...patch, overrides, last_via: parsed.via ?? null };
-  const pending: Record<string, StoredValue> = { ...snapshot.pendingRooms };
+  const pending: Record<RoomId, StoredValue> = { ...snapshot.pendingRooms };
   const affected: StoredFact[] = [];
   if (jinjaTruthy(parsed.area)) affected.push(parsed.area);
   for (const record of parsed.records) {
