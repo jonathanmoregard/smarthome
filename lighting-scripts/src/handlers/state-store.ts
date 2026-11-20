@@ -12,7 +12,7 @@ import {
 } from '../parse/state-store.ts';
 import { parseCommitArgs } from '../parse/overrides.ts';
 import { commitSnapshot } from '../parse/state-store.ts';
-import { lenientOverrides, overridesRevision } from '../parse/sensors.ts';
+import { overridesRevision, savedOverridesContain } from '../parse/sensors.ts';
 import { run } from '../runtime/effects.ts';
 import { clearAllOverrides, houseRooms, planCommit, planOverrideBlock, planStore, toggleSaraMode } from '../domain/state-store.ts';
 import type { CommitArgs, CommitResult, StoreProfileArgs } from '../domain/state-store.ts';
@@ -72,6 +72,6 @@ export const stateStoreHandlers: ScriptHandlers = {
   // Captured via has two `| default('app')` sites with the same semantics.
   ls_sara_mode: withParsedArgs({
     parse: parseViaArgs,
-    run: (ctx, args) => run(ctx, toggleSaraMode(lenientOverrides(ctx).has('mode:sara'), args.via)),
+    run: (ctx, args) => run(ctx, toggleSaraMode(savedOverridesContain(ctx, 'mode:sara'), args.via)),
   }),
 };

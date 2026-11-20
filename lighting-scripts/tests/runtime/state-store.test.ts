@@ -79,7 +79,9 @@ test('ls_override_block reads the dry-run plan leniently', () => {
   }
 });
 
-test('ls_sara_mode reads the overrides attribute as a mapping only when it is one', () => {
+// Round 4: captured `'mode:sara' in (overrides or {})` is Python `in` (rendered
+// in Home Assistant 2026.7.4: a list's elements and a string's substrings count).
+test('ls_sara_mode tests the overrides attribute with Python `in`', () => {
   const run = (overrides: unknown) => {
     const ctx = context(stateStoreHandlers);
     if (overrides !== undefined) ctx.put('sensor.ls_overrides', 'x', { overrides: overrides as never });
@@ -87,8 +89,8 @@ test('ls_sara_mode reads the overrides attribute as a mapping only when it is on
     return (ctx.events[0]?.data as { op: string }).op;
   };
   assert.equal(run(undefined), 'set');
-  assert.equal(run(['mode:sara']), 'set');
-  assert.equal(run('mode:sara'), 'set');
+  assert.equal(run(['mode:sara']), 'clear');
+  assert.equal(run('mode:sara'), 'clear');
   assert.equal(run({ 'mode:sara': null }), 'clear');
 });
 
