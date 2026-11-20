@@ -99,13 +99,8 @@ test('schedule chooses weekend timing on local calendar across DST fall-back', a
 
 test('schedule handlers parse optional values without using falsiness as presence', async () => {
   const ctx = await configured();
-  const omitted = ctx.run('ls_base', { overrides: {} });
-  const epoch = ctx.run('ls_base', { test_now: 0, overrides: {} });
-  assert.notEqual(epoch.schedule.schedule_details.house.cur_ts, omitted.schedule.schedule_details.house.cur_ts,
-    'epoch zero is an explicit timestamp, not an absent test_now');
-
-  const debug = ctx.run('ls_base', { overrides: {}, debug: false });
-  assert.ok(Array.isArray(debug.schedule.dbg), 'captured source includes dbg when debug is defined, even when false');
+  // test_now and debug are Jinja-truthiness tests (`x is defined and x`); see
+  // r4-schedule-jinja.test.ts. What stays here is the typing of present values.
 
   for (const [field, value, message] of [
     ['overrides', 0, /ls_base\.overrides.*object/],

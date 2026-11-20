@@ -144,6 +144,19 @@ export function jinjaOr(value: JsonValue | undefined, fallback: JsonValue): Json
   return value !== undefined && jinjaTruthy(value) ? value : fallback;
 }
 
+/**
+ * `{{ value | list }}` -- Python's `list(value)`: a list is itself, a string
+ * its characters, a mapping its keys. Anything else is not iterable and raises
+ * (with `context`), as the filter does; `none` included, which is why the
+ * captured sites spell `(value or default) | list` (see {@link jinjaOr}).
+ */
+export function jinjaList(value: JsonValue | undefined, context = 'value'): JsonValue[] {
+  if (Array.isArray(value)) return [...value];
+  if (typeof value === 'string') return [...value];
+  if (isObject(value)) return Object.keys(value);
+  throw new ParseError(`${context} is not iterable, got ${describe(value)}`);
+}
+
 /** Raised where Jinja would raise `UndefinedError` or `TypeError` rather than coerce. */
 export class ParseError extends Error {
   constructor(message: string) {

@@ -9,7 +9,7 @@
  */
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { HouseView } from '../runtime/effects.ts';
-import { ParseError, requireArray, requireFinite, requireObject, requireString } from '../runtime/parse.ts';
+import { jinjaTruthy, ParseError, requireArray, requireFinite, requireObject, requireString } from '../runtime/parse.ts';
 
 export const list = (value: JsonValue | undefined): JsonValue[] =>
   value === undefined ? [] : requireArray({ value }, 'value', 'schedule list');
@@ -48,6 +48,14 @@ export function timestamp(value: JsonValue | undefined): number {
 }
 export function optionalTimestamp(value: JsonValue | undefined): number | undefined {
   return value === undefined || value === null ? undefined : timestamp(value);
+}
+/**
+ * A `test_now` argument, read as the captured `test_now is defined and test_now`:
+ * absent or Jinja-falsy (`0`, `''`, `false`, `none`) is now, `undefined` here;
+ * a truthy value must be a timestamp.
+ */
+export function testNow(value: JsonValue | undefined): number | undefined {
+  return value === undefined || !jinjaTruthy(value) ? undefined : timestamp(value);
 }
 /** What a saved profile reads as when its text is not JSON: the captured `from_json(default={})`. */
 const NO_SAVED_PROFILE: Readonly<JsonObject> = {};

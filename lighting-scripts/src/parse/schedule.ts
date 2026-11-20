@@ -15,11 +15,11 @@
  */
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { HouseView } from '../runtime/effects.ts';
-import { jinjaTruthy, object, requireObject, requireString } from '../runtime/parse.ts';
+import { jinjaList, jinjaOr, jinjaTruthy, object, requireObject, requireString } from '../runtime/parse.ts';
 import type { Block } from '../domain/blocks.ts';
 import type { LampProfile, LampSample, ScheduledBaseArgs } from '../domain/schedule.ts';
 import { isBlock } from './blocks.ts';
-import { list, num, optionalTimestamp, saved } from './accessors.ts';
+import { num, optionalTimestamp, saved, testNow } from './accessors.ts';
 import { haBoolean } from './state-store.ts';
 import { storedFact } from './overrides.ts';
 import type { StoredFact, StoredValue } from './overrides.ts';
@@ -108,21 +108,32 @@ export function savedProfile(ctx: HouseView, entity: string): SavedProfile {
   };
 }
 
-/** A light entity's brightness and colour, as the schedule samples it. */
-export function entityProfile(ctx: HouseView, entity: string): LampProfile {
-  const rgb = list(ctx.attr(entity, 'rgb_color')).map(value => storedFact(value));
-  return { brightness: Math.trunc(num(ctx.attr(entity, 'brightness'), 255)), color: ctx.attr(entity, 'color_mode') === 'color_temp'
-    ? { kelvin: Math.trunc(num(ctx.attr(entity, 'color_temp_kelvin'), 3000)) }
-    : { rgb: rgb.length > 0 ? rgb : [255, 255, 255] } };
+/**
+ * A light's `rgb_color`, read as the captured `(rgb_color or [255,255,255]) | list`.
+ * Home Assistant reports `null` for a lamp that is off, so the Jinja-falsy
+ * default is the ordinary path; a truthy value goes through Jinja's `list`.
+ */
+function sampledRgb(ctx: HouseView, entity: string): StoredValue[] {
+  return jinjaList(jinjaOr(ctx.attr(entity, 'rgb_color'), [255, 255, 255]), `${entity}.rgb_color`).map(value => storedFact(value));
 }
 
-/** {@link entityProfile}, plus the entity's on state and raw rgb triple. */
+/**
+ * A light entity's brightness and colour, as the schedule samples it. The
+ * captured profile macro reads `rgb_color` only in its non-colour-temp arm.
+ */
+export function entityProfile(ctx: HouseView, entity: string): LampProfile {
+  return { brightness: Math.trunc(num(ctx.attr(entity, 'brightness'), 255)), color: ctx.attr(entity, 'color_mode') === 'color_temp'
+    ? { kelvin: Math.trunc(num(ctx.attr(entity, 'color_temp_kelvin'), 3000)) }
+    : { rgb: sampledRgb(ctx, entity) } };
+}
+
+/** {@link entityProfile}, plus the entity's on state and its rgb, which the captured sample always reads. */
 export function entitySample(ctx: HouseView, entity: string): LampSample {
-  const rgb = list(ctx.attr(entity, 'rgb_color')).map(value => storedFact(value));
+  const profile = entityProfile(ctx, entity);
   // `on` is `=== 'on'`, so it is always a real boolean — never absent, never a
   // falsy stand-in. That is what lets every downstream `target.on` read be a
   // boolean test by construction rather than a truthiness gamble.
-  return { ...entityProfile(ctx, entity), on: ctx.get(entity) === 'on', rgb: rgb.length > 0 ? rgb : [255, 255, 255] };
+  return { ...profile, on: ctx.get(entity) === 'on', rgb: sampledRgb(ctx, entity) };
 }
 
 /** One component of a sampled rgb triple, as a schedule number. */
@@ -142,7 +153,7 @@ export function attributeNumber(ctx: HouseView, entity: string, key: string): nu
 
 /**
  * Captured test_now/overrides are guarded by definition before use; reason
- * and room_only use Undefined-only defaults; debug is definition-tested.
+ * and room_only use Undefined-only defaults; debug is definition- and truth-tested.
  * Present optional values are parsed, while null overrides retain the
  * producer's explicit "use the state attribute" spelling.
  */
@@ -164,14 +175,14 @@ export function parseRoomBaseArgs(args: JsonObject): ScheduledBaseArgs {
 
 function parseScheduledBaseArgs(args: JsonObject, context: string, roomOnly: string): ScheduledBaseArgs {
   return {
-    testNow: optionalTimestamp(args.test_now),
+    testNow: testNow(args.test_now),
     reason: args.reason === undefined ? 'config' : requireString(args, 'reason', context),
     overrides: args.overrides === undefined || args.overrides === null
       ? undefined
       : scheduleRecords(requireObject(args, 'overrides', context)),
     roomOnly,
-    // The captured template tests definition, not truthiness. The raw value is
-    // never otherwise consumed, so the typed domain only carries the decision.
-    includeDebug: Object.hasOwn(args, 'debug'),
+    // Captured `debug is defined and debug`: definition and Jinja truthiness.
+    // The raw value is never otherwise consumed, so the domain only carries the decision.
+    includeDebug: args.debug !== undefined && jinjaTruthy(args.debug),
   };
 }
