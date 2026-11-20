@@ -8,7 +8,8 @@
  * an id names something the registry knows is a later, named unit.
  */
 import type { BulbId, EffectName, LampId, RemoteId, RoomId, SwitchId, UserId } from '../domain/types/ids.ts';
-import type { Kelvin, Level, Percent, PercentRange } from '../domain/types/light.ts';
+import type { Brightness, Kelvin, Level, Percent, PercentRange } from '../domain/types/light.ts';
+import type { Step } from '../domain/types/remote.ts';
 import type { Minutes } from '../domain/types/overlay.ts';
 import type { Progress } from '../domain/types/schedule.ts';
 import { ParseError } from '../runtime/parse.ts';
@@ -65,6 +66,13 @@ export function toLevel(raw: number): Level {
   return raw as Level;
 }
 
+export function toBrightness(raw: number): Brightness {
+  inRange(raw, 0, 255, 'A brightness');
+  if (!Number.isInteger(raw)) throw new ParseError(`A brightness must be a whole number, got ${raw}`);
+  // Cast: checked just above; this is the one place a number becomes a brightness.
+  return raw as Brightness;
+}
+
 export function toPercent(raw: number): Percent {
   inRange(raw, 0, 100, 'A percent');
   // Cast: checked just above; this is the one place a number becomes a percent.
@@ -76,6 +84,12 @@ export function toPercentRange(low: number, high: number): PercentRange {
   if (range.low > range.high) throw new ParseError(`A percent range must not run backwards, got ${low}..${high}`);
   // Cast: both ends checked just above; this is the one place two percents become a range.
   return range as PercentRange;
+}
+
+export function toStep(raw: number): Step {
+  inRange(raw, -20, 20, 'A remote step bound');
+  // Cast: checked just above; this is the one place a number becomes a step bound.
+  return raw as Step;
 }
 
 export function toKelvin(raw: number): Kelvin {

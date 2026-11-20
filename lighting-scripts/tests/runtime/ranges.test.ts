@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { toKelvin, toLevel, toMinutes, toPercent, toPercentRange, toProgress } from '../../src/parse/ids.ts';
+import { toBrightness, toKelvin, toLevel, toMinutes, toPercent, toPercentRange, toProgress, toStep } from '../../src/parse/ids.ts';
 
 const bad = (build: () => unknown) => assert.throws(build, { name: 'ParseError' });
 
@@ -35,4 +35,17 @@ test('a transition progress is 0..1', () => {
 test('a minutes count is finite and not negative', () => {
   assert.equal(toMinutes(0), 0); assert.equal(toMinutes(180), 180);
   for (const n of [-1, NaN, Infinity]) bad(() => toMinutes(n));
+});
+
+test('a brightness is a whole Home Assistant brightness, 0..255', () => {
+  // Break: the constructor reuses the Zigbee level range and raises on 0 or on 255, which today's scripts send,
+  // or lets 256, a fraction or a non-finite value through.
+  assert.equal(toBrightness(0), 0); assert.equal(toBrightness(255), 255); assert.equal(toBrightness(128), 128);
+  for (const n of [-1, 256, 127.5, NaN, Infinity]) bad(() => toBrightness(n));
+});
+
+test('a remote step bound is -20..20, the default step range', () => {
+  // Break: the constructor lets a bound outside the captured `-20 <= min <= max <= 20` check through.
+  assert.equal(toStep(-20), -20); assert.equal(toStep(20), 20); assert.equal(toStep(0), 0); assert.equal(toStep(2.5), 2.5);
+  for (const n of [-20.5, 21, NaN, -Infinity]) bad(() => toStep(n));
 });
