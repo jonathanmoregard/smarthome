@@ -181,10 +181,27 @@ export function proxyShowsRgb(ctx: HouseView, proxy: string, rgb: Rgb): boolean 
   return isDeepStrictEqual(list(ctx.attr(proxy, 'rgb_color')), reveal(rgb.value));
 }
 
-/** A row's stored profile: whether it names effect channels, at once; its effect where it is read. */
+/** A row's stored profile: whether it names effect channels, and its effect. */
 export interface UiProfile {
   namesEffectChannels: boolean;
-  effect: () => string | undefined;
+  effect: string;
+}
+
+/** The effect a saved profile with no usable `effect` shows (the captured `.get` default). */
+const DEFAULT_PROFILE_EFFECT = 'Normal light';
+
+/**
+ * A saved profile's effect. A saved value, read leniently with a default (user
+ * directive 2026-11-19): an absent key is the captured
+ * `profile.get('effect','Normal light')` default, and a present non-string
+ * (null, a number, a boolean, a list, a mapping) takes the same default rather
+ * than raising. The captured mirror would publish such a value as its Python
+ * repr, which no effect list holds; a non-string names no catalog effect, so the
+ * lamp's own resolver claims no effect channels for it, and 'Normal light' is
+ * what the lamp actually shows. It never raises.
+ */
+function savedEffect(profile: JsonObject): string {
+  return typeof profile.effect === 'string' ? profile.effect : DEFAULT_PROFILE_EFFECT;
 }
 
 /** The channels a saved profile with no `effect_channels` key claims (the captured `.get` default). */
@@ -207,7 +224,7 @@ export function uiProfile(ctx: HouseView, store: string): UiProfile {
   const pr = saved(ctx, store);
   return {
     namesEffectChannels: namesEffectChannels(pr),
-    effect: () => pr.effect === undefined ? undefined : requireStringValue(pr.effect, 'effects_ui_sync.profile.effect'),
+    effect: savedEffect(pr),
   };
 }
 

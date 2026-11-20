@@ -54,7 +54,7 @@ test('UI catalog and row fields distinguish absence from malformed present value
   assert.throws(() => ctx.run('effects_ui_catalog'), /ui_choices.*array/);
 });
 
-test('stored UI profiles read effect_channels leniently and require a typed effect when it is read', async () => {
+test('stored UI profiles read effect_channels and effect leniently', async () => {
   const ctx = await load();
   setCatalog(ctx, { ui_rows: [{ ...row('light.group'), store: 'input_text.profile' }] });
   ctx.put('light.group', 'on');
@@ -62,8 +62,10 @@ test('stored UI profiles read effect_channels leniently and require a typed effe
   ctx.put('input_text.profile', JSON.stringify({ effect_channels: null, effect: null }));
   const result = ctx.run('effects_ui_sync', { dry_run: true, force: true }) as { messages: { topic: string; payload: string }[] };
   assert.equal(result.messages.find(message => message.topic === 'test/effect')?.payload, 'Normal Light');
+  // A null `effect` with truthy channels is a saved value: it takes the 'Normal light' default.
   ctx.put('input_text.profile', JSON.stringify({ effect_channels: ['color'], effect: null }));
-  assert.throws(() => ctx.run('effects_ui_sync', { dry_run: true }), /effect.*string/);
+  const lenient = ctx.run('effects_ui_sync', { dry_run: true, force: true }) as { messages: { topic: string; payload: string }[] };
+  assert.equal(lenient.messages.find(message => message.topic === 'test/effect')?.payload, 'Normal Light');
 });
 
 test('range save preserves explicit null bounds and rejects malformed typed fields', async () => {

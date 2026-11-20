@@ -42,8 +42,7 @@ export function uiMessages(view: HouseView, force: boolean): UiMessage[] {
     let effect = unique.length === 1 ? unique[0]! : unique.length > 1 ? '' : 'Normal light';
     if (store !== undefined) {
       const pr = uiProfile(view, store);
-      const stored = pr.namesEffectChannels ? pr.effect() : undefined;
-      effect = stored === undefined ? 'Normal light' : stored;
+      effect = pr.namesEffectChannels ? pr.effect : 'Normal light';
     }
     if (effect === 'Normal light') effect = 'Normal Light';
     let { brightness: b, colourTemp, kelvin: k, rgb } = lampReading(view, source);
