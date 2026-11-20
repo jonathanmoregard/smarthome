@@ -10,6 +10,7 @@ import { attributeNumber, entityProfile, entitySample, rgbComponent, savedProfil
 import type { ScheduleRecord, ScheduleRecords } from '../parse/schedule.ts';
 import type { OverlayKey } from './types/overlay.ts';
 import { byOverlayKeyText, overlayKeyText, sameOverlayKey } from './types/overlay.ts';
+import type { RoomId } from './types/ids.ts';
 
 export const blocks: readonly string[] = BLOCKS;
 export function isAreaId<Room extends string>(value: Room | undefined): value is Room { return value !== undefined && value.length > 0; }
@@ -108,7 +109,8 @@ export interface ScheduledBaseArgs {
   testNow: number | undefined;
   reason: string;
   overrides: ScheduleRecords | undefined;
-  roomOnly: string;
+  /** `''` when the request names no room (captured `default('')`); a sentinel until V3. */
+  roomOnly: RoomId | '';
   includeDebug: boolean;
 }
 export function scheduleDetails(view: HouseView, scope: string, at: number): ScheduleDetails {

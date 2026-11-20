@@ -26,6 +26,8 @@ import type { StoredFact, StoredValue } from './overrides.ts';
 import type { OverlayKey } from '../domain/types/overlay.ts';
 import { overlayKeyText } from '../domain/types/overlay.ts';
 import { parseOverlayKey } from './overlay-key.ts';
+import type { RoomId } from '../domain/types/ids.ts';
+import { toRoomId } from './ids.ts';
 
 /**
  * A stored override record as the schedule reads it. Saved state, so every
@@ -227,7 +229,7 @@ export function attributeNumber(ctx: HouseView, entity: string, key: string): nu
  */
 /** `ls_base`'s arguments. `room_only` is read first, as the inline parse read it. */
 export function parseBaseArgs(args: JsonObject): ScheduledBaseArgs {
-  const roomOnly = args.room_only === undefined ? '' : requireString(args, 'room_only', 'ls_base');
+  const roomOnly = args.room_only === undefined ? '' : toRoomId(requireString(args, 'room_only', 'ls_base'));
   return parseScheduledBaseArgs(args, 'ls_base', roomOnly);
 }
 
@@ -237,11 +239,11 @@ export function parseBaseArgs(args: JsonObject): ScheduledBaseArgs {
  * iteration or membership; it is read first.
  */
 export function parseRoomBaseArgs(args: JsonObject): ScheduledBaseArgs {
-  const room = requireString(args, 'room', 'ls_room_base');
+  const room = toRoomId(requireString(args, 'room', 'ls_room_base'));
   return parseScheduledBaseArgs(args, 'ls_room_base', room);
 }
 
-function parseScheduledBaseArgs(args: JsonObject, context: string, roomOnly: string): ScheduledBaseArgs {
+function parseScheduledBaseArgs(args: JsonObject, context: string, roomOnly: RoomId | ''): ScheduledBaseArgs {
   return {
     testNow: testNow(args.test_now),
     reason: args.reason === undefined ? 'config' : requireString(args, 'reason', context),
