@@ -8,7 +8,7 @@
  */
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { HouseView } from '../runtime/effects.ts';
-import { isObject, jinjaInt, lazy, ParseError, requireString } from '../runtime/parse.ts';
+import { isObject, jinjaFloat, jinjaInt, lazy, ParseError, requireString } from '../runtime/parse.ts';
 import { carry } from '../runtime/verbatim.ts';
 import type { GestureArgs, GestureState, PowerQuietArgs, PresetPayload } from '../domain/gestures.ts';
 
@@ -85,6 +85,7 @@ export function gestureState(ctx: HouseView, room: string): GestureState {
     chordActive: ctx.get(`timer.${prefix}chord`) === 'active',
     powerCount: helperInt(ctx, `input_number.${prefix}power_count`),
     powerToken: ['unknown', 'unavailable'].includes(saved) ? '' : saved,
-    preset: helperInt(ctx, `input_number.${prefix}preset`, -2),
+    // Captured `states(...)|float(-2)`: a fractional cursor is kept, never truncated to an index.
+    preset: jinjaFloat(ctx.get(`input_number.${prefix}preset`), -2),
   };
 }

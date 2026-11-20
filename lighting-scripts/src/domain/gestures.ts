@@ -27,7 +27,7 @@ export interface PowerQuietArgs {
 /**
  * The remote's helper state as this transaction opens it. `powerToken` is the
  * stored token with `unknown`/`unavailable` read as empty; `preset` is the
- * cursor with the captured `| int(-2)` fallback.
+ * cursor as captured `| float(-2)`.
  */
 export interface GestureState {
   chordStep: number;
