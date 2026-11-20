@@ -16,6 +16,22 @@ from homeassistant.helpers import area_registry,device_registry,entity_registry
 from homeassistant import loader
 from homeassistant.util import dt as dt_util
 
+OFF_LIGHT_FIELDS=('brightness','color')
+def without_off_light(actual,expected):
+ """Named divergence "off has no colour": the Jinja oracle carries an off scene's stored level and colour on an
+ off target or profile; the port gives an off lamp neither. Drop exactly those two keys from the oracle's entry,
+ only where both sides say on: false and the port's entry lacks the key. Returns how many keys were dropped."""
+ dropped=0
+ sections=[(actual.get('targets',{}),expected.get('targets',{})),
+   (actual.get('schedule',{}).get('profiles',{}),expected.get('schedule',{}).get('profiles',{}))]
+ for ours,theirs in sections:
+  for key,entry in theirs.items():
+   mine=ours.get(key)
+   if not isinstance(mine,dict) or not isinstance(entry,dict) or mine.get('on') is not False or entry.get('on') is not False:continue
+   for field in OFF_LIGHT_FIELDS:
+    if field in entry and field not in mine:del entry[field];dropped+=1
+ return dropped
+
 async def main():
  with Stage() as stage, tempfile.TemporaryDirectory(prefix='schedule-native-') as temporary:
   sys.path[:0]=[str(stage.path/'lighting-algebra/tests'),str(stage.path/'effects-promotion/tests')]
@@ -36,7 +52,7 @@ async def main():
   configs={n:json.loads((ROOT/'reference/live/scripts'/f'{n}.json').read_text())['config'] for n in ['ls_base','ls_room_base']}
   catalog=sim.run('effects_catalog')
   catalog['baseline_groups']={'light.kitchen_all':['light.kitchen_pendant','light.kitchen_spots_1','light.kitchen_spots_2']}
-  comparisons=0
+  comparisons=0;off_light_dropped=0
   for variant in ['ordinary','wake','custom','expired']:
    records={}
    if variant=='wake':
@@ -64,11 +80,12 @@ async def main():
      snapshot={'state':copy.deepcopy(sim.state),'members':sim.members,'areas':sim.areas,'now':sim.now.isoformat(),'catalog':catalog,'labels':{'private_room':['jonathan_bedroom']}}
      snapshot['state']['sensor.ls_overrides']['last_updated']=hass.states.get('sensor.ls_overrides').last_updated.isoformat()
      actual=rpc.call(name,args,snapshot)['result']
+     off_light_dropped+=without_off_light(actual,expected)
      try:equal_results(actual,expected)
      except AssertionError as e:
       print(name,time,e)
       Path('/tmp/schedule-expected.json').write_text(json.dumps(expected,indent=2));Path('/tmp/schedule-actual.json').write_text(json.dumps(actual,indent=2));raise
      comparisons+=1
-  print(json.dumps({'native_full_schedule_comparisons':comparisons,'failures':0}))
+  print(json.dumps({'native_full_schedule_comparisons':comparisons,'failures':0,'off_has_no_colour_keys_dropped':off_light_dropped}))
   rpc.close(); await hass.async_stop()
 asyncio.run(main())
