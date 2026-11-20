@@ -234,6 +234,19 @@ export function switchRangeEntities(value: JsonValue | undefined): string[] {
   return Object.keys(object(value));
 }
 
+/**
+ * The saved `switch_ranges` entities a power toggle visits, as captured
+ * `for L in (switch_ranges or {}) if area_id(L)...` (`ls_remote_plan`, `effects_set`): Jinja iteration (a
+ * mapping's keys, a list's elements, a string's characters), keeping text, since
+ * `area_id` of a non-text scalar is none. A value Jinja cannot iterate is none
+ * (lenient saved-value directive; captured raises).
+ */
+export function switchRangeIterable(value: JsonValue | undefined): string[] {
+  const iterable = value !== undefined && jinjaTruthy(value) ? value : {};
+  const items = Array.isArray(iterable) || typeof iterable === 'string' || isObject(iterable) ? jinjaList(iterable, 'switch_ranges') : [];
+  return items.filter((item): item is string => typeof item === 'string');
+}
+
 /** The captured built-in `range_defaults`, `{'bright':[90,100],'cosy':[30,60]}`. */
 export const BUILT_IN_RANGES: Readonly<JsonObject> = { bright: [90, 100], cosy: [30, 60] };
 

@@ -11,7 +11,7 @@
  */
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { HouseView } from '../runtime/effects.ts';
-import { isObject, jinjaList, jinjaTruthy, object, requireString } from '../runtime/parse.ts';
+import { isObject, jinjaTruthy, object, requireString } from '../runtime/parse.ts';
 import { carry, carryOptional } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { list, num, savedNumberOr } from './accessors.ts';
@@ -204,18 +204,6 @@ export function presetSelection(selection: StoredFact, period: StoredFact): stri
   return requireString({ selection: period === undefined ? 'day' : period }, 'selection', 'ls_remote_plan');
 }
 
-/**
- * The saved `switch_ranges` entities the toggle visits, as captured
- * `for L in (switch_ranges or {}) if area_id(L)==room`: Jinja iteration (a
- * mapping's keys, a list's elements, a string's characters), keeping text, since
- * `area_id` of a non-text scalar is none. A value Jinja cannot iterate is none
- * (lenient saved-value directive; captured raises).
- */
-export function switchRangeIterable(value: JsonValue | undefined): string[] {
-  const iterable = value !== undefined && jinjaTruthy(value) ? value : {};
-  const items = Array.isArray(iterable) || typeof iterable === 'string' || isObject(iterable) ? jinjaList(iterable, 'switch_ranges') : [];
-  return items.filter((item): item is string => typeof item === 'string');
-}
 
 /** A preset context, stored or just saved, as its entries when it is a mapping. */
 export function contextEntries(entry: Assembled | undefined): AssembledMap | undefined {

@@ -3,7 +3,7 @@ import type { Verbatim } from '../runtime/verbatim.ts';
 import { rgbValue, roundEven } from './scale.ts';
 import type { RGB } from './scale.ts';
 import { recordTimestamp } from '../parse/resolution.ts';
-import { attributeMapping } from '../parse/sensors.ts';
+import { switchRangeIterable } from '../parse/planning.ts';
 import { groupChildren, lampKelvinRange, underlyingColour } from '../parse/native-controls.ts';
 import type {
   BrightnessRequest, ColourRequest, NativeCatalog, NativeCurrent, NativePlanArgs, PlanTarget, SetArgs,
@@ -377,8 +377,11 @@ export function planUIControls(view: HouseView, args: SetArgs, catalog: NativeCa
     if (!errors.length && attribute === 'power') {
       const powerAreas = value.raw === 'ON' ? areasOf(view, targets) : scopeAreas;
       for (const area of powerAreas) events.push({ op: 'power', area, on: value.raw === 'ON', via: 'effects-house' });
-      const ids = [...targets, ...Object.keys(attributeMapping(view, 'sensor.ls_overrides', 'switch_ranges')).filter(lamp =>
-        scopeAreas.includes(view.areas[lamp] ?? ''))];
+      // A lamp with no area is never in the scope (captured `area_id(L)` is none).
+      const ids = [...targets, ...switchRangeIterable(view.attr('sensor.ls_overrides', 'switch_ranges')).filter(lamp => {
+        const area = view.areas[lamp];
+        return area !== undefined && scopeAreas.includes(area);
+      })];
       commands.push({ action: value.raw === 'ON' ? 'homeassistant.turn_on' : 'homeassistant.turn_off', target: { entity_id: unique(ids) },
         data: {} });
     } else if (!errors.length) {

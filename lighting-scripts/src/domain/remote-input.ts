@@ -4,8 +4,8 @@ import type { Verbatim } from '../runtime/verbatim.ts';
 import { recordTimestamp } from '../parse/resolution.ts';
 import type { AssembledMap, StoredValue } from '../parse/overrides.ts';
 import { overridesRevision } from '../parse/sensors.ts';
-import { contextEntries, noInputRecord, presetSelection, remoteCache, remoteOverrides, roomPower, switchRangeIterable }
-  from '../parse/remote-input.ts';
+import { contextEntries, noInputRecord, presetSelection, remoteCache, remoteOverrides, roomPower } from '../parse/remote-input.ts';
+import { switchRangeIterable } from '../parse/planning.ts';
 import type { RemoteOverrides, RemoteRoomPlan } from '../parse/remote-input.ts';
 import { clamp } from './scale.ts';
 
