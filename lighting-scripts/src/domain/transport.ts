@@ -366,6 +366,26 @@ export function* planStops(commands: StopCommand[], revision: string, generation
 }
 
 /**
+ * A stop ends whatever effect the bulb ran, so `bulb_effects` (the port's
+ * per-bulb record of the starts it sent) drops every bulb a stop was just sent
+ * to. Then a lamp whose target needs that effect again is seen as not running
+ * it and is started again, even when this dispatch did not send the lamp its
+ * light. Written only when an entry goes, so the runtime store is unchanged
+ * wherever no recorded bulb is stopped.
+ */
+export function* planStoppedRecord(recorded: Record<string, string[]>, commands: StopCommand[],
+  generation: Verbatim | string): Plan<void> {
+  const stopped = new Set(commands.flatMap(command => command.members));
+  const kept = Object.fromEntries(Object.entries(recorded).filter(([bulb]) => !stopped.has(bulb)));
+  if (Object.keys(kept).length === Object.keys(recorded).length) return;
+  yield {
+    kind: 'service', service: 'variable.update_sensor',
+    data: { value: generation, replace_attributes: false, attributes: { bulb_effects: kept } },
+    target: { entity_id: runtime },
+  };
+}
+
+/**
  * Drop the assigned lamps from each command: a group id with an assigned
  * member becomes its unassigned members, and a command left with no id goes.
  */

@@ -9,6 +9,7 @@ import { timestamp } from '../parse/accessors.ts';
 import type { OpaqueMap, StoredFact, StoredValue } from '../parse/overrides.ts';
 import { attributeFact, attributeMapping, overridesRevision } from '../parse/sensors.ts';
 import { mappingAttribute } from '../parse/planning.ts';
+import { bulbEffectsRecord } from '../parse/transport.ts';
 import type { StoredChannels } from '../parse/transport.ts';
 import { areaOf, dispatchPlanOrder, dispatchRuntime, optionalRevisionAttribute, roomCacheGradients } from '../parse/dispatch-render.ts';
 import type { DispatchRuntime, FullPlan, RoomPlanView } from '../parse/dispatch-render.ts';
@@ -226,7 +227,9 @@ function settle(house: HouseView, run: Lit, started: EmitResult): Transition {
   if (!stillCurrent(house, 'ls_dispatch', revision, generation)) return done(null);
   const settled: Settled = { ...run, completed, publishedAt: [...run.emission.published_at, ...started.published_at] };
   if (Object.keys(ordinary).length === 0 || !completed) return switching(house, settled, 0);
-  const bulbEffects = recordStarts(run.previous.bulbEffects, house, Object.keys(ordinary), run.starts);
+  // The record as it stands now, not as read before the assignment:
+  // `effects_assign` drops the entry of every bulb it sent a stop.
+  const bulbEffects = recordStarts(bulbEffectsRecord(house), house, Object.keys(ordinary), run.starts);
   return [{ tag: 'switching', run: settled, next: 0 }, [{ tag: 'effect', effect: {
     kind: 'service', service: 'variable.update_sensor',
     data: { value: generation, replace_attributes: false,

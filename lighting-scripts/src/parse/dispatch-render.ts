@@ -21,7 +21,7 @@ import type { Verbatim } from '../runtime/verbatim.ts';
 import { list, strings } from './accessors.ts';
 import { opaqueMap, storedFact } from './overrides.ts';
 import type { OpaqueMap, StoredFact, StoredValue } from './overrides.ts';
-import { storedChannels } from './transport.ts';
+import { bulbEffectsRecord, storedChannels } from './transport.ts';
 import type { DispatchArgs, DispatchDetails, DispatchTarget } from '../domain/dispatch-render.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
@@ -127,24 +127,12 @@ export interface DispatchRuntime {
   /** Did the previous assignments name this lamp? */
   hadEffect(lamp: string): boolean;
   /**
-   * The bulb-effect starts last sent to each lamp's bulbs after its light, in
-   * a dispatch whose output succeeded (`bulb_effects`). A lamp with no entry
-   * has none running that the port started.
+   * The bulb-effect starts last sent to each bulb after its lamp's light, in
+   * a dispatch whose output succeeded (`bulb_effects`, see
+   * {@link bulbEffectsRecord}). A bulb with no entry has none running that the
+   * port started.
    */
   bulbEffects: Record<string, string[]>;
-}
-
-/**
- * `bulb_effects`, which only the port writes: absent means nothing recorded
- * yet (the original scripts never wrote it); anything present must be a
- * mapping of lamp to a list of start names.
- */
-function parseBulbEffects(value: JsonValue | undefined): Record<string, string[]> {
-  if (value === undefined) return {};
-  const recorded = requireObject({ value }, 'value', 'ls_dispatch runtime.bulb_effects');
-  return Object.fromEntries(Object.keys(recorded).map(lamp => [lamp,
-    requireArray(recorded, lamp, 'ls_dispatch runtime.bulb_effects').map((start, index) =>
-      requireString({ start }, 'start', `ls_dispatch runtime.bulb_effects.${lamp}[${index}]`))]));
 }
 
 export function dispatchRuntime(ctx: HouseView): DispatchRuntime {
@@ -154,7 +142,7 @@ export function dispatchRuntime(ctx: HouseView): DispatchRuntime {
   return {
     applied: (lamp, target) => isDeepStrictEqual(reveal(target), previous[lamp]),
     hadEffect: lamp => Object.hasOwn(previousEffects, lamp),
-    bulbEffects: parseBulbEffects(ctx.attr(runtime, 'bulb_effects')),
+    bulbEffects: bulbEffectsRecord(ctx),
   };
 }
 

@@ -10,10 +10,12 @@ import { perform, run } from '../runtime/effects.ts';
 import { typed } from '../runtime/entrypoints.ts';
 import { recordTimestamp } from '../parse/resolution.ts';
 import { overridesRevision } from '../parse/sensors.ts';
-import { assignedLamps, parseAssignArgs, parseEmitArgs, parseFilterArgs, parseFramePlanArgs, runtimeGeneration } from '../parse/transport.ts';
+import {
+  assignedLamps, bulbEffectsRecord, parseAssignArgs, parseEmitArgs, parseFilterArgs, parseFramePlanArgs, runtimeGeneration,
+} from '../parse/transport.ts';
 import type { GroupPlanResult } from '../domain/grouping.ts';
 import {
-  assignDecision, filterCommands, frameRows, planAssignUpdate, planStops, publishCommand, stillCurrent, stopCommands,
+  assignDecision, filterCommands, frameRows, planAssignUpdate, planStoppedRecord, planStops, publishCommand, stillCurrent, stopCommands,
 } from '../domain/transport.ts';
 import type { AssignArgs, AssignResult, EmitArgs, EmitResult, FramePlanArgs } from '../domain/transport.ts';
 
@@ -53,9 +55,10 @@ export function emitCommands(ctx: ScriptContext, args: EmitArgs): EmitResult {
   return { published_at: published, completed: completed && stillCurrent(ctx, 'effects_emit', revision, generation) };
 }
 /**
- * Store the assignment, then stop the bulb effects lamps are leaving. The
- * stop commands read member states after the store and the catalog run, live,
- * and the answer re-reads the generation the store left.
+ * Store the assignment, then stop the bulb effects lamps are leaving and drop
+ * the stopped bulbs from the start record. The stop commands read member
+ * states after the store and the catalog run, live, and the answer re-reads
+ * the generation the store left.
  */
 export function assignEffects(ctx: ScriptContext, args: AssignArgs): AssignResult {
   if (args.revision !== overridesRevision(ctx, 'effects_assign')) return { generation: runtimeGeneration(ctx) };
@@ -64,7 +67,9 @@ export function assignEffects(ctx: ScriptContext, args: AssignArgs): AssignResul
   run(ctx, planAssignUpdate(decision, args.revision, details));
   if (decision.changed) {
     const catalog = catalogOf(ctx);
-    run(ctx, planStops(stopCommands(ctx, catalog, details.targetViews(), decision.stored), args.revision, decision.generation));
+    const stops = stopCommands(ctx, catalog, details.targetViews(), decision.stored);
+    run(ctx, planStops(stops, args.revision, decision.generation));
+    run(ctx, planStoppedRecord(bulbEffectsRecord(ctx), stops, decision.generation));
   }
   return { generation: runtimeGeneration(ctx) };
 }

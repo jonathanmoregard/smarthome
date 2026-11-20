@@ -313,6 +313,21 @@ export function runtimeState(ctx: HouseView): RuntimeState {
   };
 }
 
+/**
+ * `bulb_effects`, which only the port writes: per bulb, the bulb-effect starts
+ * last sent to it. Absent means nothing recorded yet (the original scripts
+ * never wrote it); anything present must be a mapping of bulb to a list of
+ * start names.
+ */
+export function bulbEffectsRecord(ctx: HouseView): Record<string, string[]> {
+  const value = ctx.attr(runtime, 'bulb_effects');
+  if (value === undefined) return {};
+  const recorded = requireObject({ value }, 'value', 'runtime.bulb_effects');
+  return Object.fromEntries(Object.keys(recorded).map(bulb => [bulb,
+    requireArray(recorded, bulb, 'runtime.bulb_effects').map((start, index) =>
+      requireString({ start }, 'start', `runtime.bulb_effects.${bulb}[${index}]`))]));
+}
+
 /** The runtime's `generation` as stored; absent reads as null. */
 export function runtimeGeneration(ctx: HouseView): Verbatim {
   const generation = ctx.attr(runtime, 'generation');
