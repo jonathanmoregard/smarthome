@@ -24,10 +24,12 @@
  */
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { HouseView } from '../runtime/effects.ts';
-import { isObject, jinjaFloat, jinjaOr, jinjaTruthy, object, requireNumber, requireObject, requireString } from '../runtime/parse.ts';
+import { isObject, jinjaFloat, jinjaList, jinjaOr, jinjaTruthy, object, requireNumber, requireObject, requireString } from '../runtime/parse.ts';
 import { carry } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
-import { list, optionalTimestamp, timestamp } from './accessors.ts';
+import { asTimestampOr, timestamp } from './accessors.ts';
+import { NO_WHEN } from './schedule.ts';
+import { storedFact } from './overrides.ts';
 import type { BaselineTarget, DetailField, OverrideFacts, Overrides, RoomBaseline, RoomCache, RoomDetails, RoomPlanArgs,
   TestNow } from '../domain/planning.ts';
 import { isBlock, savedBlock } from './blocks.ts';
@@ -57,28 +59,18 @@ function overrideFacts(r: JsonObject): OverrideFacts {
     stored: { kind: carry(r.kind ?? null), scope: carry(r.scope ?? null), target: carry(r.target ?? null) },
     valueBlock,
     period: r.kind === 'block' ? valueBlock : isBlock(value.period) ? value.period : undefined,
-    periodUpdated: () => value.period_updated === undefined ? undefined : requireNumber(value, 'period_updated', 'ls_room_plan override value'),
-    when: () => optionalTimestamp(r.when),
+    periodUpdated: storedFact(value.period_updated),
+    when: asTimestampOr(r.when, NO_WHEN),
   };
 }
 
-/**
- * The stored records. `lenient` reads a non-mapping record as `{}`, which is
- * how `latestRemote` reads them; `record()` requires a mapping, raising with
- * the context the period scan always used.
- */
+/** The stored records; one that is not a mapping has no facts, and every captured loop skips it. */
 function parseOverrides(records: JsonObject): Overrides {
   return {
     document: carry(records),
-    entries: Object.entries(records).map(([key, value]) => {
-      const facts = overrideFacts(object(value));
-      return {
-        key,
-        document: carry(value),
-        lenient: facts,
-        record: () => { requireObject(records, key, 'ls_room_plan.overrides'); return facts; },
-      };
-    }),
+    entries: Object.entries(records).map(([key, value]) => ({
+      key, document: carry(value), record: isObject(value) ? overrideFacts(value) : undefined,
+    })),
   };
 }
 
@@ -214,19 +206,22 @@ export function stored(value: JsonValue | undefined): Verbatim {
   return carry(value ?? null);
 }
 
-/** A list attribute as stored in the dependency fingerprint: absent is `[]`, a non-list raises. */
+/**
+ * `rgb_color` as stored in the dependency fingerprint, captured
+ * `(state_attr(e,'rgb_color') or []) | list`: Jinja-falsy (Home Assistant's
+ * `null` for a lamp that is off) is `[]`; a truthy value goes through Jinja's `list`.
+ */
 export function storedList(value: JsonValue | undefined): Verbatim {
-  return carry(list(value));
+  return carry(jinjaList(jinjaOr(value, []), 'ls_room_plan dependency rgb_color'));
 }
 
 /**
  * `(state_attr('light.candle_test_rgb_warm_end','rgb_color') or [255,126,0])|list`:
- * {@link warmEndOr}'s Jinja `or`, then `|list`. A truthy non-list still raises
- * here, as it did before; Jinja's `|list` would split a string or take a
- * mapping's keys, which no colour attribute carries.
+ * {@link warmEndOr}'s Jinja `or`, then Jinja's `list` (a string is its
+ * characters, a mapping its keys).
  */
 export function warmEndOf(value: JsonValue | undefined): Verbatim {
-  return carry(list(warmEndOr(value)));
+  return carry(jinjaList(warmEndOr(value), 'ls_room_plan.warm_end'));
 }
 
 /** An attribute read through `.get(key, {})`-style leniency: a non-mapping is `{}`. */

@@ -11,6 +11,7 @@ import { hasValue, labelled, nextMidnight, privateRooms } from './schedule.ts';
 import { timestamp } from '../parse/accessors.ts';
 import { overridesRevision } from '../parse/sensors.ts';
 import { entityProfile } from '../parse/schedule.ts';
+import type { StoredFact, StoredValue } from '../parse/overrides.ts';
 import { stored, storedList, switchRangeEntities, wakeFadeMinutes, wakeTimestamp, warmEndOf } from '../parse/planning.ts';
 
 /**
@@ -27,8 +28,9 @@ const cacheVersion = 'db7981f72ee868e8d33ff1481dffb34e5e26570e8bf949a3cb2c505d7c
  * `kind`/`scope`/`target`/`via` are only ever compared with strings, so a
  * non-string stored value is `undefined` here and compares unequal to every
  * literal, exactly as the raw value did. `stored` keeps the three raw values
- * for the period tuple, which persists them. `when` and `periodUpdated` raise
- * on a malformed value, so they are read only where planning reaches them.
+ * for the period tuple, which persists them. A saved record, so nothing here
+ * raises (directive 2026-11-19): `when` is the captured `as_timestamp(when, 0)`
+ * and `periodUpdated` is carried as stored, as the captured tuple stores it.
  */
 export type OverrideFacts = {
   kind: string | undefined;
@@ -40,10 +42,12 @@ export type OverrideFacts = {
   valueBlock: Block | undefined;
   /** The block this record selects: `value` for a block override, else `value.period`. */
   period: Block | undefined;
-  periodUpdated(): number | undefined;
-  when(): number | undefined;
+  /** `value.period_updated` as stored, `undefined` when absent. */
+  periodUpdated: StoredFact;
+  when: number;
 };
-export type OverrideEntry = { key: string; document: Verbatim; lenient: OverrideFacts; record(): OverrideFacts };
+/** A stored record; `record` is `undefined` for one that is not a mapping, which every captured loop skips. */
+export type OverrideEntry = { key: string; document: Verbatim; record: OverrideFacts | undefined };
 /** The records in stored order, plus the mapping itself, which is forwarded unchanged. */
 export type Overrides = { document: Verbatim; entries: OverrideEntry[] };
 
@@ -113,7 +117,7 @@ export type Dependencies = {
   warm: Verbatim;
   tick: boolean;
 };
-export type PeriodRow = [Verbatim, Verbatim, Verbatim, Block, number, boolean];
+export type PeriodRow = [Verbatim, Verbatim, Verbatim, Block, StoredValue, boolean];
 /** Computed on a miss; cached on a hit. */
 export type Gradients = GradientPlanResult['gradients'] | Verbatim;
 export type CacheUpdate = {
@@ -142,9 +146,9 @@ function byKey(entries: OverrideEntry[]): OverrideEntry[] {
 function latestRemote(sorted: OverrideEntry[], room: string): string {
   let key = '', stamp = -1;
   for (const entry of sorted) {
-    const r = entry.lenient;
-    if (r.scope !== 'room' || r.target !== room || !isRemote(r)) continue;
-    const ts = r.when() ?? 0;
+    const r = entry.record;
+    if (r === undefined || r.scope !== 'room' || r.target !== room || !isRemote(r)) continue;
+    const ts = r.when;
     if (ts >= stamp) { key = entry.key; stamp = ts; }
   }
   return key;
@@ -174,15 +178,15 @@ function periods(overrides: Overrides, room: string, deps: Dependencies, boundar
   const sorted = byKey(overrides.entries);
   const newest = latestRemote(sorted, room), result: Record<string, PeriodRow> = {};
   for (const entry of sorted) {
-    const r = entry.record();
+    const r = entry.record;
+    if (r === undefined) continue;
     const match = (r.kind === 'block' && r.target === room) || ((r.kind === 'channels' || r.kind === 'input') &&
       ((r.scope === 'room' && r.target === room) || (r.scope === 'lamp' && r.target !== undefined && deps.lamps.includes(r.target)) ||
         (r.scope === 'house' && !deps.private)));
     const period = r.period;
     if (!match || (r.scope === 'room' && isRemote(r) && entry.key !== newest) || period === undefined) continue;
-    const when = r.when() ?? 0;
-    const updated = r.periodUpdated();
-    const stamp = updated === undefined ? when : updated;
+    const when = r.when;
+    const stamp = r.periodUpdated === undefined ? when : r.periodUpdated;
     result[r.scope === 'room' && isRemote(r) ? `remote-input:${room}` : entry.key] = [r.stored.kind, r.stored.scope, r.stored.target,
       period, stamp, deps.expiry === 'on' && when <= boundary];
   }
@@ -198,24 +202,26 @@ export function refreshBaseline(view: HouseView, baseline: RoomBaseline, hitFrom
   for (const { entity, target } of baseline.targetEntries) {
     const t = target(), ignored: string[] = [];
     if (deps.expiry === 'on') for (const { key, record } of overrides.entries) {
-      const r = record();
+      if (record === undefined) continue;
+      const r = record;
       const match = (r.scope === 'room' && r.target === room) || (r.scope === 'house' && !deps.private) || (key === 'mode:sara' &&
         !deps.private) || (r.kind === 'block' && r.target === room)
         || (!t.isRoom && ((r.scope === 'lamp' && r.target === entity) || (r.kind === 'light' && r.target === entity)));
-      if (match && (r.when() ?? 0) <= lastFs()) ignored.push(key);
+      if (match && r.when <= lastFs()) ignored.push(key);
     }
     const observed = t.isRoom ? undefined : entityProfile(view, entity);
     targets[entity] = withFields(t.document, observed === undefined ? { ignore_overrides: ignored } : { ignore_overrides: ignored, observed });
     ignoredBy.set(entity, ignored);
   }
   if (deps.expiry === 'on' && !S.fading) for (const { key, record } of overrides.entries) {
-    const r = record();
+    if (record === undefined) continue;
+    const r = record;
     const local = (r.scope === 'room' && r.target === room) || ((r.scope === 'lamp' || r.kind === 'light') && r.target !== undefined &&
       deps.lamps.includes(r.target)) || (r.kind === 'block' && r.target === room);
-    if (local && (r.when() ?? 0) <= lastFs()) stale.push(key);
+    if (local && r.when <= lastFs()) stale.push(key);
   }
   const blockKey = `block:${room}`;
-  const chosen = overrides.entries.find(entry => entry.key === blockKey)?.record().valueBlock;
+  const chosen = overrides.entries.find(entry => entry.key === blockKey)?.record?.valueBlock;
   // The captured source spells this `(S.get('cur') or 'night') | capitalize`.
   // The saved `cur` arrives already parsed by the lenient `savedBlock`: absent
   // or Jinja-falsy means Night, a block name in any case is that block, and

@@ -237,19 +237,18 @@ test('a room cache hit carries keys of the cached schedule it does not know into
   assert.deepEqual(hit.plan.written_by, { jinja: [1, 'two', null] });
 });
 
-// Record checks interleave with planning: the period scan visits records in
-// key order and parses a matched record's `when` before it looks at the next
-// record at all. Parsing every record up front would raise on the later
-// non-mapping record first.
-test('room planning raises on an earlier malformed record before a later non-mapping one', async () => {
+// Saved override records are read leniently (directive 2026-11-19), matching
+// the captured loops: `if r is mapping` skips a non-mapping record and
+// `as_timestamp(r.get('when'),0)` reads an unreadable when as 0.
+test('room planning reads a malformed when as 0 and skips a non-mapping record', async () => {
   const ctx = await roomPlanner();
   const overrides = {
     'a:block': { kind: 'block', target: 'studio', value: 'cosy', when: 'not-a-date' },
     'b:broken': 7,
   };
-  assert.throws(() => ctx.run('ls_room_plan', { room: 'studio', overrides, reason: 'remote' }), /schedule timestamp/);
-  assert.throws(() => ctx.run('ls_room_plan', { room: 'studio', overrides: { 'b:broken': 7 }, reason: 'remote' }),
-    /ls_room_plan\.overrides\.b:broken must be an object/);
+  assert.deepEqual(ctx.run('ls_room_plan', { room: 'studio', overrides, reason: 'remote' }).cache_update.periods,
+    { 'a:block': ['block', null, 'studio', 'cosy', 0, false] });
+  assert.deepEqual(ctx.run('ls_room_plan', { room: 'studio', overrides: { 'b:broken': 7 }, reason: 'remote' }).cache_update.periods, {});
 });
 
 test('scheduled baseline packs only explicitly configured complete command groups', async () => {
