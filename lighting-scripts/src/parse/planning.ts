@@ -27,7 +27,7 @@ import type { HouseView } from '../runtime/effects.ts';
 import { isObject, jinjaFloat, jinjaList, jinjaOr, jinjaTruthy, object, requireNumber, requireObject, requireString } from '../runtime/parse.ts';
 import { carry } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
-import { asTimestampOr, timestamp } from './accessors.ts';
+import { asTimestampOr, savedMappingOr, timestamp } from './accessors.ts';
 import { NO_WHEN } from './schedule.ts';
 import { storedFact } from './overrides.ts';
 import type { BaselineTarget, DetailField, OverrideFacts, Overrides, RoomBaseline, RoomCache, RoomDetails, RoomPlanArgs,
@@ -234,13 +234,12 @@ export function switchRangeEntities(value: JsonValue | undefined): string[] {
   return Object.keys(object(value));
 }
 
-/**
- * `range_defaults` as captured `range_defaults or {bright, cosy}`: absent or
- * Jinja-falsy is the built-in ranges. A truthy value is carried, and
- * `ls_switch_plan` raises on one that is not a mapping.
- */
+/** The captured built-in `range_defaults`, `{'bright':[90,100],'cosy':[30,60]}`. */
+export const BUILT_IN_RANGES: Readonly<JsonObject> = { bright: [90, 100], cosy: [30, 60] };
+
+/** `range_defaults` as captured `range_defaults or {bright, cosy}`, read by {@link savedMappingOr}. */
 export function rangeDefaults(value: JsonValue | undefined): Verbatim {
-  return carry(jinjaOr(value, { bright: [90, 100], cosy: [30, 60] }));
+  return carry(savedMappingOr(value, BUILT_IN_RANGES));
 }
 
 /**

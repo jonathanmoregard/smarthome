@@ -67,6 +67,15 @@ export function asTimestampOr(value: JsonValue | undefined, fallback: number): n
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 /**
+ * A saved mapping attribute read as the captured `attr or fallback`: absent or
+ * Jinja-falsy is `fallback`, and so -- by the lenient saved-value directive
+ * (2026-11-19) -- is a truthy value that is not a mapping, where the captured
+ * `.get`/`.items()` on it raises. Never raises.
+ */
+export function savedMappingOr(value: JsonValue | undefined, fallback: JsonObject): JsonObject {
+  return value !== undefined && jinjaTruthy(value) && isObject(value) ? value : structuredClone(fallback);
+}
+/**
  * What a saved profile reads as when it holds no profile: the captured
  * `from_json(default={})` for text that is not JSON, and -- by the lenient
  * saved-value directive (2026-11-19) -- for JSON that is not a mapping, where

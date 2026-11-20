@@ -14,13 +14,15 @@
  * `tasks/ls-plan-design.md`).
  */
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
-import { isObject, jinjaOr, jinjaTruthy, lazy, object, requireArray, requireBoolean, requireObject, requireString } from '../runtime/parse.ts';
+import { isObject, jinjaTruthy, lazy, object, requireArray, requireBoolean, requireObject, requireString } from '../runtime/parse.ts';
 import { carry } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import type { RGB } from '../domain/scale.ts';
 import { opaqueMap } from './overrides.ts';
 import type { OpaqueMap } from './overrides.ts';
 import { requireRgb, warmEndOr } from './scale.ts';
+import { savedMappingOr } from './accessors.ts';
+import { BUILT_IN_RANGES } from './planning.ts';
 import type { ApplyArgs, PlanArgs, PlanOverrides, RemoteCommandArgs, SwitchPlanArgs } from '../domain/controller.ts';
 
 const lenientList = (v: JsonValue | undefined): JsonValue[] => Array.isArray(v) ? v : [];
@@ -34,13 +36,9 @@ function optionalScriptBoolean(value: JsonValue | undefined, context: string): b
   return value === undefined ? false : requireBoolean(value, context);
 }
 
-/**
- * An attribute mapping read as the captured `attr or {}`: absent or
- * Jinja-falsy is `{}`; a truthy non-mapping raises, as the `.items()`/`.get`
- * it reaches does.
- */
-function attributeMappingOr(value: JsonValue | undefined, context: string): JsonObject {
-  return requireObject({ value: jinjaOr(value, {}) }, 'value', context);
+/** A saved `sensor.ls_overrides` mapping, captured `attr or {}`, read by {@link savedMappingOr}. */
+function attributeMappingOr(value: JsonValue | undefined): JsonObject {
+  return savedMappingOr(value, {});
 }
 
 function planOverridesOf(value: JsonObject): PlanOverrides {
@@ -125,14 +123,14 @@ export function parseRemoteCommandArgs(args: JsonObject): RemoteCommandArgs {
   };
 }
 
-/** `sensor.ls_overrides`'s `overrides`, as captured `overrides or {}`; a truthy non-mapping raises. */
+/** `sensor.ls_overrides`'s `overrides`, captured `overrides or {}`, read by {@link savedMappingOr}. */
 export function planOverrides(value: JsonValue | undefined): PlanOverrides {
-  return planOverridesOf(attributeMappingOr(value, 'ls_plan.overrides'));
+  return planOverridesOf(attributeMappingOr(value));
 }
 
-/** An attribute mapping `ls_plan` forwards, as captured `attr or {}`; a truthy non-mapping raises. */
-export function planMapping(value: JsonValue | undefined, context: string): Verbatim {
-  return carry(attributeMappingOr(value, context));
+/** A saved attribute mapping `ls_plan` forwards, captured `attr or {}`, read by {@link savedMappingOr}. */
+export function planMapping(value: JsonValue | undefined): Verbatim {
+  return carry(attributeMappingOr(value));
 }
 
 /**
@@ -149,9 +147,9 @@ export function cachedGradients(value: JsonValue | undefined): OpaqueMap {
   return opaqueMap(object(value).gradients);
 }
 
-/** `range_defaults` as captured `range_defaults or {bright, cosy}`: absent or Jinja-falsy is the built-in ranges; a truthy non-mapping raises. */
+/** `range_defaults` as captured `range_defaults or {bright, cosy}`, read by {@link savedMappingOr}. */
 export function planRangeDefaults(value: JsonValue | undefined): Verbatim {
-  return carry(requireObject({ value: jinjaOr(value, { bright: [90, 100], cosy: [30, 60] }) }, 'value', 'ls_plan.range_defaults'));
+  return carry(savedMappingOr(value, BUILT_IN_RANGES));
 }
 
 /** The override sensor's `last_updated`, required. */

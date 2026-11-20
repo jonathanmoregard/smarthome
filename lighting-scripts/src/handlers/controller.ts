@@ -59,12 +59,12 @@ export function plan(ctx: ScriptContext, args: PlanArgs): PlanResult {
   }
   const gradients = ctx.call('effects_gradient_plan', { base: baselineTargets, warm_end: warmEnd, cached }).gradients;
   const privateRooms = ctx.labels?.private_room;
-  const power = planMapping(ctx.attr('sensor.ls_overrides', 'power'), 'ls_plan.power');
+  const power = planMapping(ctx.attr('sensor.ls_overrides', 'power'));
   const resolved = ctx.call('effects_resolve', { base: baselineTargets, overrides: active, catalog,
     sara: Object.hasOwn(active, 'mode:sara'), private: privateRooms === undefined ? [] : privateRooms,
     power, warm_end: warmEnd, gradients });
   const resolvedTargets = resolved.targets;
-  const ranges = planMapping(ctx.attr('sensor.ls_overrides', 'switch_ranges'), 'ls_plan.switch_ranges');
+  const ranges = planMapping(ctx.attr('sensor.ls_overrides', 'switch_ranges'));
   const defaults = planRangeDefaults(ctx.attr('sensor.ls_overrides', 'range_defaults'));
   const switches = ctx.call('ls_switch_plan', { targets: resolvedTargets, ranges, defaults });
   return planAnswer(ctx, { schedule, base: baselineTargets, resolved, gradients, switches: switches.switches, active, reason: args.reason });

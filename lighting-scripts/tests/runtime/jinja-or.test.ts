@@ -105,16 +105,16 @@ test('a truthy non-number runtime plan order still raises', () => {
 test("ls_plan reads overrides, power and switch_ranges as `attr or {}`: every falsy value is the empty mapping", () => {
   for (const value of [...falsy, undefined]) {
     assert.deepEqual(planOverrides(value).entries, {}, `overrides ${JSON.stringify(value)}`);
-    assert.deepEqual(reveal(planMapping(value, 'ls_plan.power')), {}, `power ${JSON.stringify(value)}`);
+    assert.deepEqual(reveal(planMapping(value)), {}, `power ${JSON.stringify(value)}`);
   }
-  assert.deepEqual(reveal(planMapping({ room: true }, 'ls_plan.power')), { room: true });
+  assert.deepEqual(reveal(planMapping({ room: true })), { room: true });
 });
 
-test('ls_plan still raises on a truthy non-mapping overrides, power or switch_ranges', () => {
+test('ls_plan reads a saved truthy non-mapping overrides, power or switch_ranges as {} (lenient saved-value directive)', () => {
   // Captured `overrides.items()` and the callees' `.get`/`.items()` raise on it.
   for (const value of ['x', [1], 5, true] as JsonValue[]) {
-    assert.throws(() => planOverrides(value), /ls_plan\.overrides/, JSON.stringify(value));
-    assert.throws(() => planMapping(value, 'ls_plan.power'), /ls_plan\.power/, JSON.stringify(value));
+    assert.deepEqual(planOverrides(value).entries, {}, JSON.stringify(value));
+    assert.deepEqual(reveal(planMapping(value)), {}, JSON.stringify(value));
   }
 });
 
@@ -128,12 +128,9 @@ test('range_defaults takes the built-in ranges for every Jinja-falsy value (ls_p
   assert.deepEqual(reveal(rangeDefaults({ bright: [80, 90] })), { bright: [80, 90] });
 });
 
-test('ls_plan still raises on a truthy non-mapping range_defaults', () => {
+test('a saved truthy non-mapping range_defaults is the built-in ranges (ls_plan and ls_room_plan)', () => {
   for (const value of ['x', [1], 5, true] as JsonValue[]) {
-    assert.throws(() => planRangeDefaults(value), /ls_plan\.range_defaults/, JSON.stringify(value));
+    assert.deepEqual(reveal(planRangeDefaults(value)), builtInRanges, `ls_plan ${JSON.stringify(value)}`);
+    assert.deepEqual(reveal(rangeDefaults(value)), builtInRanges, `ls_room_plan ${JSON.stringify(value)}`);
   }
-});
-
-test('ls_room_plan hands a truthy non-mapping range_defaults on, where ls_switch_plan raises on it', () => {
-  assert.deepEqual(reveal(rangeDefaults([1])), [1]);
 });

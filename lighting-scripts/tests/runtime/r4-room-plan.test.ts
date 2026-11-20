@@ -77,3 +77,11 @@ test('a saved record that is not a mapping is skipped, as every captured loop do
     assert.deepEqual(result.plan.base['light.studio']!.ignore_overrides, [], JSON.stringify(broken));
   }
 });
+
+test("ls_room_plan reads a saved truthy non-mapping range_defaults as the built-in ranges", () => {
+  for (const bad of [5, 'x', [1], true] as JsonValue[]) {
+    const ctx = roomPlanner();
+    ctx.put('sensor.ls_overrides', '0', { overrides: {}, range_defaults: bad });
+    assert.doesNotThrow(() => plan(ctx), JSON.stringify(bad));
+  }
+});

@@ -82,3 +82,23 @@ test('ls_apply forwards test_now and test_overrides to its dry-run plan unread',
     assert.deepEqual(forwarded, [{ reason: 'config', test_now, test_overrides }], JSON.stringify([test_now, test_overrides]));
   }
 });
+
+/**
+ * `sensor.ls_overrides` attributes are state the scripts themselves save.
+ * Captured `state_attr(...) or {}` (and `or {'bright':[90,100],'cosy':[30,60]}`
+ * for range_defaults) raises downstream on a truthy non-mapping; by the lenient
+ * saved-value directive (2026-11-19) such a value takes the same default.
+ */
+test("ls_plan reads saved sensor mappings leniently: a truthy non-mapping is the captured `or` default", () => {
+  for (const bad of [5, 'x', [1], true] as JsonValue[]) {
+    const { ctx, seen } = planContext();
+    ctx.put('sensor.ls_overrides', '0', { overrides: bad, power: bad, switch_ranges: bad, range_defaults: bad });
+    ctx.state['sensor.ls_overrides']!.last_updated = ctx.now;
+    ctx.run('ls_plan', {});
+    const args = (name: string) => seen.find(s => name in s)![name] as JsonObject;
+    assert.deepEqual(args('ls_base').overrides, {}, JSON.stringify(bad));
+    assert.deepEqual(args('effects_resolve').power, {}, JSON.stringify(bad));
+    assert.deepEqual(args('ls_switch_plan').ranges, {}, JSON.stringify(bad));
+    assert.deepEqual(args('ls_switch_plan').defaults, { bright: [90, 100], cosy: [30, 60] }, JSON.stringify(bad));
+  }
+});

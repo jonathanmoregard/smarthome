@@ -44,11 +44,10 @@ test('ls_plan forwards the stored overrides to the baseline and only the live on
   assert.deepEqual(seen.ls_switch_plan!.defaults, { bright: [90, 100], cosy: [30, 60] });
 });
 
-test('ls_plan refuses a present non-mapping power only after the gradient plan', () => {
+test('ls_plan reads a saved non-mapping power as {} (lenient saved-value directive)', () => {
   const { ctx, seen } = planContext({ overrides: {}, power: 5 });
-  assert.throws(() => ctx.run('ls_plan', {}), /ls_plan\.power.*object/);
-  assert.ok(seen.effects_gradient_plan);
-  assert.equal(seen.effects_resolve, undefined);
+  ctx.run('ls_plan', {});
+  assert.deepEqual(seen.effects_resolve!.power, {});
 });
 
 test('ls_switch_plan reads a room level with Number() and requires on only for an applying rule', () => {
