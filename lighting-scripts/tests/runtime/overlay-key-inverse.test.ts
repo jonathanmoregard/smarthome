@@ -3,7 +3,6 @@ import test from 'node:test';
 import { parseOverlayKey } from '../../src/parse/overlay-key.ts';
 import { parseRemotePlanArgs } from '../../src/parse/remote-input.ts';
 import { overlayKeyText } from '../../src/domain/types/overlay.ts';
-import { ParseError } from '../../src/runtime/parse.ts';
 
 /**
  * `overlayKeyText` is the exact inverse of `parseOverlayKey` both ways: a key
@@ -15,7 +14,7 @@ import { ParseError } from '../../src/runtime/parse.ts';
 test('a remote source spelling a dashboard or native control key is refused at the edge', () => {
   // Break: the source is taken as any text, so `channels:ui:x` is written for a remote and read back as a dashboard control.
   for (const source of ['ui:light.ls_x', 'native:room:studio']) {
-    assert.throws(() => parseRemotePlanArgs({ source, area: 'studio', command: 'up' }), ParseError, source);
+    assert.throws(() => parseRemotePlanArgs({ source, area: 'studio', command: 'up' }), /A remote source must not begin/, source);
   }
   assert.equal(parseRemotePlanArgs({ source: 'remote_ieee', area: 'studio', command: 'up' }).source, 'remote_ieee');
 });
