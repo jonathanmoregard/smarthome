@@ -5,6 +5,7 @@ import { decideRangeSave, discoveryPublish, publishUi, saveRange, uiChoices } fr
 import { nativeCapture } from '../../src/parse/automations.ts';
 import { parseRangeSaveArgs } from '../../src/parse/ui-state.ts';
 import { carry } from '../../src/runtime/verbatim.ts';
+import { ParseError } from '../../src/runtime/parse.ts';
 import type { JsonObject } from '../../src/runtime/context.ts';
 import { house } from './house-view.ts';
 import { id } from './support/ids.ts';
@@ -68,7 +69,9 @@ test('the Sara switch sets or clears mode:sara only on a change', () => {
 test('a lamp change powers its areas, then reads the records list where the inline read sat', () => {
   const seen: unknown[] = [];
   const plan = lampChangeOverrides(nativeCapture({ power: [{ area: 'kitchen' }], records: 'not a list' }), 'u');
-  assert.throws(() => { for (const effect of plan) seen.push(effect); });
+  // Break: the records list stops being read strictly, or something other than its ParseError is thrown.
+  assert.throws(() => { for (const effect of plan) seen.push(effect); },
+    (error: unknown) => error instanceof ParseError && error.message === 'schedule list.value must be an array, got string "not a list"');
   assert.deepEqual(seen, [override({ op: 'power', area: 'kitchen', on: true, via: 'app', who: 'u' })]);
   assert.deepEqual([...lampChangeOverrides(nativeCapture({ power: [], records: [{ k: 1 }] }), 'u')],
     [override({ op: 'set', records: [{ k: 1 }], via: 'app', who: 'u' })]);
