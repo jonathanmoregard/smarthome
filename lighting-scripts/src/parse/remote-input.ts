@@ -19,7 +19,7 @@ import { latestRemoteKey, savedWhen } from './resolution.ts';
 import { assembledMap, storedFact } from './overrides.ts';
 import type { Assembled, AssembledMap, StoredFact, StoredValue } from './overrides.ts';
 import type { Adjustment, RemotePlanArgs } from '../domain/remote-input.ts';
-import { toRemoteSource, toRoomId, toStep } from './ids.ts';
+import { stepBoundsOf, toRemoteSource, toRoomId } from './ids.ts';
 import { roomText } from './rooms.ts';
 import type { OverlayKey } from '../domain/types/overlay.ts';
 import { overlayKeyText } from '../domain/types/overlay.ts';
@@ -74,8 +74,7 @@ export interface RemoteInputValue {
 function inputValue(raw: JsonValue | undefined): RemoteInputValue {
   const value = object(raw);
   const range = Object.hasOwn(value, 'step_range') ? value.step_range : { ...DEFAULT_STEP_RANGE };
-  const bounds = isObject(range) && numeric(range.min) && numeric(range.max)
-    && -20 <= range.min && range.min <= range.max && range.max <= 20 ? { min: toStep(range.min), max: toStep(range.max) } : undefined;
+  const bounds = isObject(range) ? stepBoundsOf(range.min, range.max) : undefined;
   const adjustment = isObject(value.adjustment) ? value.adjustment : isObject(value.selection_input) ? value.selection_input : undefined;
   return {
     fields: assembledMap(value),

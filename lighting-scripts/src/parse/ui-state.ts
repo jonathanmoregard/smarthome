@@ -16,7 +16,7 @@ import { isObject, jinjaList, jinjaOr, jinjaTruthy, object, requireBoolean, requ
 import { carry, reveal } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { num, saved, strings } from './accessors.ts';
-import { toPercentRange, toSwitchId } from './ids.ts';
+import { percentRangeOf, toSwitchId } from './ids.ts';
 import type { SwitchId } from '../domain/types/ids.ts';
 import type { PercentRange } from '../domain/types/light.ts';
 
@@ -277,7 +277,7 @@ export type RangeBound = string | number | boolean | null | Verbatim | undefined
  * `undefined`, and the request is refused.
  */
 export function ownRange(low: RangeBound, high: RangeBound): PercentRange | undefined {
-  return typeof low === 'number' && typeof high === 'number' && 0 <= low && low <= high && high <= 100 ? toPercentRange(low, high) : undefined;
+  return percentRangeOf(low, high);
 }
 
 function bound(value: JsonValue | undefined): RangeBound {

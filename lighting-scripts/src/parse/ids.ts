@@ -77,9 +77,16 @@ export function toSavedOverlayKey(raw: string): SavedOverlayKey {
  * a named default instead of calling one with a value that may be out of range.
  */
 
-function inRange(raw: number, low: number, high: number, what: string): void {
-  if (!(Number.isFinite(raw) && raw >= low && raw <= high)) throw new ParseError(`${what} must be ${low}..${high}, got ${raw}`);
+function within(raw: number, low: number, high: number): boolean {
+  return Number.isFinite(raw) && raw >= low && raw <= high;
 }
+
+function inRange(raw: number, low: number, high: number, what: string): void {
+  if (!within(raw, low, high)) throw new ParseError(`${what} must be ${low}..${high}, got ${raw}`);
+}
+
+const PERCENT = { low: 0, high: 100 };
+const STEP = { low: -20, high: 20 };
 
 export function toLevel(raw: number): Level {
   inRange(raw, 1, 254, 'A level');
@@ -96,7 +103,7 @@ export function toBrightness(raw: number): Brightness {
 }
 
 export function toPercent(raw: number): Percent {
-  inRange(raw, 0, 100, 'A percent');
+  inRange(raw, PERCENT.low, PERCENT.high, 'A percent');
   // Cast: checked just above; this is the one place a number becomes a percent.
   return raw as Percent;
 }
@@ -109,7 +116,7 @@ export function toPercentRange(low: number, high: number): PercentRange {
 }
 
 export function toStep(raw: number): Step {
-  inRange(raw, -20, 20, 'A remote step bound');
+  inRange(raw, STEP.low, STEP.high, 'A remote step bound');
   // Cast: checked just above; this is the one place a number becomes a step bound.
   return raw as Step;
 }
@@ -130,4 +137,27 @@ export function toMinutes(raw: number): Minutes {
   inRange(raw, 0, Infinity, 'A count of minutes');
   // Cast: checked just above; this is the one place a number becomes minutes.
   return raw as Minutes;
+}
+
+/*
+ * Lenient range readers, for saved and argument values: the range type when
+ * the value is in range, none otherwise. They never raise; each read site
+ * names its own fallback for none.
+ */
+
+/** A remote step bound: a number (not a boolean) that is finite and within -20..20. */
+export function stepOf(raw: unknown): Step | undefined {
+  return typeof raw === 'number' && within(raw, STEP.low, STEP.high) ? toStep(raw) : undefined;
+}
+
+/** A remote's step range: two step bounds, `min` not above `max`. */
+export function stepBoundsOf(min: unknown, max: unknown): { min: Step; max: Step } | undefined {
+  const low = stepOf(min), high = stepOf(max);
+  return low !== undefined && high !== undefined && low <= high ? { min: low, max: high } : undefined;
+}
+
+/** A percent range: two numbers (not booleans) within 0..100, `low` not above `high`. */
+export function percentRangeOf(low: unknown, high: unknown): PercentRange | undefined {
+  const inPercent = (raw: unknown): raw is number => typeof raw === 'number' && within(raw, PERCENT.low, PERCENT.high);
+  return inPercent(low) && inPercent(high) && low <= high ? toPercentRange(low, high) : undefined;
 }

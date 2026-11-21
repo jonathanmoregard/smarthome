@@ -47,7 +47,7 @@ import { lampOrRoom } from './lighting-state.ts';
 import type { OverlayKey } from '../domain/types/overlay.ts';
 import { overlayKeyText } from '../domain/types/overlay.ts';
 import { parseOverlayKey } from './overlay-key.ts';
-import { toRoomId, toStep } from './ids.ts';
+import { stepBoundsOf, toRoomId, toStep } from './ids.ts';
 import { roomText } from './rooms.ts';
 import type { Step } from '../domain/types/remote.ts';
 import type { RoomId } from '../domain/types/ids.ts';
@@ -114,14 +114,12 @@ function inputFacts(input: JsonObject): InputFacts {
     return typeof v === 'number' && Number.isFinite(v) && v >= -40 && v <= 40 ? v : undefined;
   };
   const range = input.step_range === undefined ? { min: -20, max: 20 } : object(input.step_range);
-  const min = range.min, max = range.max;
   const legacy = input.legacy_position;
   return {
     steps: field('steps'),
     lower: field('lower'),
     upper: field('upper'),
-    bounds: typeof min === 'number' && typeof max === 'number' && -20 <= min && min <= max && max <= 20
-      ? { min: toStep(min), max: toStep(max) } : undefined,
+    bounds: stepBoundsOf(range.min, range.max),
     anchor: inputAnchor(input.anchor),
     legacyPosition: typeof legacy === 'number' || typeof legacy === 'boolean' ? Number(legacy) : undefined,
     last: optionalString(input.last),
