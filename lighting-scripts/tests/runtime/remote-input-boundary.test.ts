@@ -64,6 +64,14 @@ test('a stored preset context that is not a mapping is replaced by a fresh one',
 });
 
 test('with no stored selection the room plan\'s period is the selection, and a null period raises', () => {
+  // Review round 3, item 7: the period 'cosy' is the selection, so its context
+  // is saved under 'cosy' and the arrows step from cosy (right: Candle, left: day).
+  // Break: the absent selection falls back to anything but the room plan's period.
+  for (const [command, next] of [['right', 'Candle'], ['left', 'day']]) {
+    const value = JSON.parse(recordValue({}, command, roomPlan));
+    assert.equal(value.selection, next, command);
+    assert.deepEqual(Object.keys(value.preset_contexts), ['cosy'], command);
+  }
   const nullPeriod: ScriptHandlers = { ls_room_plan: () => ({ plan: { resolved: { targets: { 'room:studio': { period: null } } } } }) };
   assert.throws(() => recordValue({}, 'left', nullPeriod), /ls_remote_plan\.selection must be a string, got null/);
 });
