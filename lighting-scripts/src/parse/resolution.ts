@@ -255,11 +255,16 @@ function overrideRecords(overrides: JsonObject): OverrideRecord[] {
   return Object.entries(overrides).flatMap(([key, record]) => isObject(record) ? [overrideRecord(key, record)] : []);
 }
 
-/** A target's `area`: absent or `null` is no room; anything else names the room, as the text it coerces to. */
+/**
+ * A target's `area`: text names the room; absent or `null` is no room. A target
+ * document can be saved data (the room cache carries its targets as stored),
+ * so any other value is read leniently: it names no room either, read as the
+ * schedule's explicit `null` for a lamp in no room.
+ */
 function targetArea(area: JsonValue | undefined): TargetArea {
+  if (typeof area === 'string') return { kind: 'room', room: toRoomId(area) };
   if (area === undefined) return { kind: 'no room', written: 'undefined' };
-  if (area === null) return { kind: 'no room', written: 'null' };
-  return { kind: 'room', room: toRoomId(String(area)) };
+  return { kind: 'no room', written: 'null' };
 }
 
 function baseItem(target: string, raw: JsonValue): BaseItem {

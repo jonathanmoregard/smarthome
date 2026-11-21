@@ -114,7 +114,8 @@ export type OverrideRecord = {
 };
 /**
  * A target's room: the room its document's `area` names, or none, when `area`
- * is absent or `null` (the schedule's lamp in no room). A target in no room
+ * is absent, `null` (the schedule's lamp in no room) or a saved value that is
+ * not text (read as that `null`). A target in no room
  * has no room records, no remote stream, is never private and takes the
  * default power. `written` is the text the resolver has always echoed on the
  * resolved target for it (`String(undefined)`, `String(null)`); the scripts

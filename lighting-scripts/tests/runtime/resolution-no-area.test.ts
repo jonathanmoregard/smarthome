@@ -53,3 +53,29 @@ test('a lamp in no room still echoes the area text the resolver has always writt
   assert.equal(resolveLamp({ area: null })?.area, 'null');
   assert.equal(resolveLamp({ area: 'kitchen' })?.area, 'kitchen');
 });
+
+/*
+ * Review round 2, item 1. A target document reaches the resolver from the
+ * schedule (whose area is a RoomId or null) and from the room cache, which is
+ * saved data and carries its targets verbatim. A saved area that is not text
+ * names no room, so it takes the lenient no-room reading the parser already
+ * gives an absent or null area (saved data: the named default), read as the
+ * schedule's explicit null.
+ */
+
+test('a saved area that is not text parses as in no room, as the schedule null does', () => {
+  // Break: the parse brands `String(item.area)`, so `{}` is the room '[object Object]' and `5` the room '5'.
+  for (const area of [{}, 5, true, ['kitchen']]) {
+    assert.deepEqual(parseResolveArgs({ base: { 'light.x': { area } } }).targets[0]?.item.area,
+      { kind: 'no room', written: 'null' }, JSON.stringify(area));
+  }
+});
+
+test('a room record whose target is the text of a non-text area does not apply to that lamp', () => {
+  // Break: the area `5` is the room '5', so a room record saved for '5' applies to the lamp.
+  for (const [area, text] of [[5, '5'], [{}, '[object Object]']] as const) {
+    const lamp = resolveLamp({ area, brightness: 110 }, { overrides: { r: channelRecord(text) } });
+    assert.deepEqual(lamp?.brightness, { kind: 'constant', value: 110, updated: -1 }, text);
+    assert.equal(lamp?.area, 'null', text);
+  }
+});
