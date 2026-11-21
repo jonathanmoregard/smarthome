@@ -6,20 +6,6 @@
       "text": "String(value)",
       "sites": 1,
       "reason": "The input-position memo key, captured `ref=candidate.key~':'~candidate.updated`: Jinja joins a saved `updated` whatever it holds, so two candidates share one position exactly when their stamps print alike. The key is never written out. Saved data, and the scripts name no default for a stamp that is not a number; kept as today. Python and JavaScript print a non-number differently, so only the sharing between two such stamps could differ."
-    },
-    {
-      "file": "src/parse/ui-state.ts",
-      "within": "uiTargetView",
-      "text": "String(claim.effect)",
-      "sites": 1,
-      "reason": "Saved runtime sensor. Captured `fx.names+[claim.effect]` publishes a truthy effect that is not text as its printed text too; no producer writes one (the resolver's effect claims name catalog effects, which are text) and the scripts name no default, so it is kept as today. Python prints `True` and raises on a container in `unique`; JavaScript prints `true` and joins a list."
-    },
-    {
-      "file": "src/parse/ui-state.ts",
-      "within": "uiTargetView",
-      "text": "String(entry.effect)",
-      "sites": 1,
-      "reason": "Saved runtime sensor, the same as `String(claim.effect)` above: captured `fx.names+[entry.effect]` publishes a truthy effect that is not text as its printed text, no producer writes one, and the scripts name no default; kept as today."
     }
   ]
 }

@@ -12,7 +12,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { HouseView } from '../runtime/effects.ts';
-import { isObject, jinjaList, jinjaOr, jinjaTruthy, object, requireBoolean, requireObject, requireString } from '../runtime/parse.ts';
+import { isObject, jinjaList, jinjaOr, jinjaString, jinjaTruthy, object, requireBoolean, requireObject, requireString } from '../runtime/parse.ts';
 import { carry, reveal } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { num, saved, strings } from './accessors.ts';
@@ -129,19 +129,19 @@ function uiTargetView(raw: JsonValue | undefined): UiTargetView {
     const claim = object(entry[channel]);
     // Captured `claim.get('effect')` sits in a Jinja boolean position, where
     // an empty container is false, so `jinjaTruthy` keeps out '' and an empty
-    // list or mapping. A truthy effect that is not text (a number, `true`, a
-    // non-empty container) still goes into the names as its String(): the
-    // captured `fx.names+[claim.effect]` publishes it as its printed text
-    // too, though Python prints `True` and raises on a container in `unique`.
-    // No producer writes one (the resolver's effect claims name catalog
-    // effects, which are text), and the scripts name no default, so this is
-    // kept as it is (`stringified.kept.json`). The same holds for `entry.effect`.
-    if (claim.kind === 'effect' && jinjaTruthy(claim.effect)) claimEffects.push(String(claim.effect));
+    // list or mapping. A truthy effect that is not text still goes into the
+    // names as its printed text, the way the captured `fx.names+[claim.effect]`
+    // publishes it, and `jinjaString` prints it as Python does (`True`, not
+    // `true`). A container is the one input it does not match (Python prints
+    // its repr, or raises in `unique`); no producer writes one, since the
+    // resolver's effect claims name catalog effects, which are text. The same
+    // holds for `entry.effect`.
+    if (claim.kind === 'effect' && jinjaTruthy(claim.effect)) claimEffects.push(jinjaString(claim.effect));
   }
   const colour = object(entry.color);
   return {
     claimEffects,
-    effect: jinjaTruthy(entry.effect) && entry.effect !== 'Normal light' ? String(entry.effect) : undefined,
+    effect: jinjaTruthy(entry.effect) && entry.effect !== 'Normal light' ? jinjaString(entry.effect) : undefined,
     level: typeof entry.level === 'number' ? entry.level : undefined,
     brightness: typeof entry.brightness === 'number' ? entry.brightness : undefined,
     constantColour: colour.kind === 'constant' && isObject(colour.value) ? carry(colour.value) : undefined,

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { JsonValue } from '../../src/runtime/context.ts';
-import { onOffOnly, proxyShowsRgb } from '../../src/parse/ui-state.ts';
+import { onOffOnly, proxyShowsRgb, runtimeTargets } from '../../src/parse/ui-state.ts';
 import { carry } from '../../src/runtime/verbatim.ts';
 import { house } from './house-view.ts';
 
@@ -28,4 +28,15 @@ test('supported_color_modes is on/off only exactly when it equals ["onoff"]; not
   }
   assert.equal(onOffOnly(lamp(['onoff']), 'light.lamp'), true);
   assert.equal(onOffOnly(house({ 'light.lamp': ['off', {}] }), 'light.lamp'), false);
+});
+
+test('a truthy non-text effect on a runtime target is published as Jinja prints it: True, not true', () => {
+  // Break: the effect is read with JavaScript's String(), which prints `true` where the scripts' `fx.names+[effect]` prints `True`.
+  const runtime = house({ 'sensor.ls_effects_runtime': ['ok', {
+    targets: { 'light.lamp': { effect: true, brightness: { kind: 'effect', effect: true } } },
+    assignments: {},
+  }] });
+  const view = runtimeTargets(runtime).member('light.lamp');
+  assert.equal(view.effect, 'True');
+  assert.deepEqual(view.claimEffects, ['True']);
 });
