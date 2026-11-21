@@ -7,7 +7,7 @@ import type { BlendEnd, Blended, Color, RGB } from './scale.ts';
 import { DEFAULT_STEP_BOUNDS, levelNumber } from '../parse/resolution.ts';
 import type { LampOrRoom } from './types/lighting-state.ts';
 import type { OverlayKey } from './types/overlay.ts';
-import { overlayKeyText, sameOverlayKey, SARA_MODE } from './types/overlay.ts';
+import { EMPTY_KEY, overlayKeyText, sameOverlayKey, SARA_MODE } from './types/overlay.ts';
 import type { RoomId } from './types/ids.ts';
 import type { Step } from './types/remote.ts';
 
@@ -227,7 +227,7 @@ function isRemoteStream(r: OverrideRecord): boolean { return r.kind === 'input' 
 /** The newest remote input stream for a room, over records already in lexical key order. */
 export function latestStream(records: OverrideRecord[], room: RoomId | '' | undefined): OverlayKey {
   // The scripts start from the empty key and keep it when no remote record applies.
-  let key: OverlayKey = { kind: 'saved', key: '' }, stamp = -1;
+  let key: OverlayKey = EMPTY_KEY, stamp = -1;
   // A target in no room has no remote stream.
   if (room === undefined) return key;
   for (const record of records) {

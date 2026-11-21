@@ -23,6 +23,19 @@ export type RemoteId = Id<'RemoteId'>;
 export type UserId = Id<'UserId'>;
 /** An effect the catalog names (`Candle`). */
 export type EffectName = Id<'EffectName'>;
+/**
+ * A remote's source, as its input's overlay key carries it
+ * (`channels:<source>`). Never begins `ui:` or `native:`, the prefixes of a
+ * dashboard or native control's key, so the key reads back as the remote's.
+ * Unlike the other ids, its constructor checks that.
+ */
+export type RemoteSource = Id<'RemoteSource'>;
+/**
+ * A saved overlay key of no known shape, kept as saved. Never text a known
+ * shape claims (empty, `mode:sara`, `block:...`, `channels:...`), so it reads
+ * back as itself; its constructor checks that.
+ */
+export type SavedOverlayKey = Id<'SavedOverlayKey'>;
 
 
 /**

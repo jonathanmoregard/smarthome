@@ -8,7 +8,7 @@ import { contextEntries, noInputRecord, presetSelection, remoteCache, remoteOver
 import { switchRangeIterable } from '../parse/planning.ts';
 import type { RemoteOverrides, RemoteRoomPlan } from '../parse/remote-input.ts';
 import { clamp } from './scale.ts';
-import type { RoomId } from './types/ids.ts';
+import type { RemoteSource, RoomId } from './types/ids.ts';
 import type { OverlayKey } from './types/overlay.ts';
 import { overlayKeyText, sameOverlayKey, SARA_MODE } from './types/overlay.ts';
 
@@ -16,7 +16,7 @@ const omit = (v: AssembledMap, keys: string[]): AssembledMap => Object.fromEntri
 const pick = (v: AssembledMap, keys: string[]): AssembledMap => Object.fromEntries(Object.entries(v).filter(([k]) => keys.includes(k)));
 
 export interface RemotePlanArgs {
-  source: string;
+  source: RemoteSource;
   area: RoomId;
   command: string;
 }

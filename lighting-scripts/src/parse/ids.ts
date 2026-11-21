@@ -7,7 +7,7 @@
  * already checked about the string still holds, and nothing is added. Whether
  * an id names something the registry knows is a later, named unit.
  */
-import type { BulbId, EffectName, LampId, RemoteId, RoomId, SwitchId, UserId } from '../domain/types/ids.ts';
+import type { BulbId, EffectName, LampId, RemoteId, RemoteSource, RoomId, SavedOverlayKey, SwitchId, UserId } from '../domain/types/ids.ts';
 import type { Brightness, Kelvin, Level, Percent, PercentRange } from '../domain/types/light.ts';
 import type { Step } from '../domain/types/remote.ts';
 import type { Minutes } from '../domain/types/overlay.ts';
@@ -47,6 +47,28 @@ export function toUserId(raw: string): UserId {
 export function toEffectName(raw: string): EffectName {
   // Cast: the edge read this string as a catalog effect; this is the one place that says so.
   return raw as EffectName;
+}
+
+/*
+ * The overlay key ids. These two check: each refuses the text another overlay
+ * key's shape claims, so `overlayKeyText` and `parseOverlayKey` stay exact
+ * inverses (`src/domain/types/overlay.ts`).
+ */
+
+export function toRemoteSource(raw: string): RemoteSource {
+  if (raw.startsWith('ui:') || raw.startsWith('native:')) {
+    throw new ParseError(`A remote source must not begin 'ui:' or 'native:' (a dashboard or native control's key), got ${raw}`);
+  }
+  // Cast: checked just above; this is the one place a string becomes a remote source.
+  return raw as RemoteSource;
+}
+
+export function toSavedOverlayKey(raw: string): SavedOverlayKey {
+  if (raw === '' || raw === 'mode:sara' || raw.startsWith('block:') || raw.startsWith('channels:')) {
+    throw new ParseError(`A saved overlay key of no known shape must not have a known shape, got '${raw}'`);
+  }
+  // Cast: checked just above; this is the one place a string becomes a saved overlay key.
+  return raw as SavedOverlayKey;
 }
 
 /*

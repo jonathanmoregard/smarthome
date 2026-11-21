@@ -11,7 +11,7 @@ import {
 } from '../parse/schedule.ts';
 import type { ScheduleRecord, ScheduleRecords } from '../parse/schedule.ts';
 import type { OverlayKey } from './types/overlay.ts';
-import { byOverlayKeyText, overlayKeyText, sameOverlayKey } from './types/overlay.ts';
+import { byOverlayKeyText, EMPTY_KEY, overlayKeyText, sameOverlayKey } from './types/overlay.ts';
 import type { RoomId } from './types/ids.ts';
 import type { RoomOrHouse } from './types/schedule.ts';
 
@@ -31,7 +31,7 @@ function isPrivateRoom(view: HouseView, area: string): boolean {
 }
 export function latestRemote(records: ScheduleRecords, room: RoomOrHouse): OverlayKey {
   // The scripts start from the empty key and keep it when no remote record applies.
-  let key: OverlayKey = { kind: 'saved', key: '' }, stamp = -1;
+  let key: OverlayKey = EMPTY_KEY, stamp = -1;
   for (const k of [...records.keys].sort(byOverlayKeyText)) {
     const r = records.get(k);
     if (r.scope !== 'room' || r.target !== room || !isRemote(r)) continue;

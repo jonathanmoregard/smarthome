@@ -15,7 +15,7 @@ import type { StoredFact, StoredValue } from '../parse/overrides.ts';
 import { stored, storedList, switchRangeEntities, wakeFadeMinutes, wakeTimestamp, warmEndOf } from '../parse/planning.ts';
 import type { RoomId, SwitchId } from './types/ids.ts';
 import type { LampOrRoom } from './types/lighting-state.ts';
-import { byOverlayKeyText, overlayKeyText, sameOverlayKey, SARA_MODE } from './types/overlay.ts';
+import { byOverlayKeyText, EMPTY_KEY, overlayKeyText, sameOverlayKey, SARA_MODE } from './types/overlay.ts';
 import type { OverlayKey } from './types/overlay.ts';
 
 /**
@@ -152,7 +152,7 @@ function byKey(entries: OverrideEntry[]): OverrideEntry[] {
 /** The newest remote stream for the room, reading records leniently. */
 function latestRemote(sorted: OverrideEntry[], room: RoomId): OverlayKey {
   // The scripts start from the empty key and keep it when no remote record applies.
-  let key: OverlayKey = { kind: 'saved', key: '' }, stamp = -1;
+  let key: OverlayKey = EMPTY_KEY, stamp = -1;
   for (const entry of sorted) {
     const r = entry.record;
     if (r === undefined || r.scope !== 'room' || r.target !== room || !isRemote(r)) continue;

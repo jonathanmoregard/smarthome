@@ -19,7 +19,7 @@ import { latestRemoteKey, savedWhen } from './resolution.ts';
 import { assembledMap, storedFact } from './overrides.ts';
 import type { Assembled, AssembledMap, StoredFact, StoredValue } from './overrides.ts';
 import type { Adjustment, RemotePlanArgs } from '../domain/remote-input.ts';
-import { toRoomId, toStep } from './ids.ts';
+import { toRemoteSource, toRoomId, toStep } from './ids.ts';
 import type { OverlayKey } from '../domain/types/overlay.ts';
 import { overlayKeyText } from '../domain/types/overlay.ts';
 import { parseOverlayKey } from './overlay-key.ts';
@@ -229,7 +229,7 @@ export function roomPower(ctx: HouseView, room: string): boolean | undefined {
  */
 export function parseRemotePlanArgs(args: JsonObject): RemotePlanArgs {
   return {
-    source: requireString(args, 'source', 'ls_remote_plan'),
+    source: toRemoteSource(requireString(args, 'source', 'ls_remote_plan')),
     area: toRoomId(requireString(args, 'area', 'ls_remote_plan')),
     command: requireString(args, 'command', 'ls_remote_plan'),
   };

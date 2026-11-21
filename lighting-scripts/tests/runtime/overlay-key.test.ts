@@ -14,9 +14,14 @@ test('each saved key shape reads as the overlay it names', () => {
 
 test('a key of no known shape is kept as saved, never dropped', () => {
   // Break: rejecting it would make one unknown saved key fail every read of the store.
-  for (const key of ['light:light.lamp', 'mode:other', 'sara', '', 'block', 'channels']) {
+  for (const key of ['light:light.lamp', 'mode:other', 'sara', 'block', 'channels']) {
     assert.deepEqual(parseOverlayKey(key), { kind: 'saved', key });
   }
+});
+
+test('the empty key reads as its own case', () => {
+  // Break: the empty key is a saved key of no shape, so the searches that start from it build one by hand.
+  assert.deepEqual(parseOverlayKey(''), { kind: 'empty' });
 });
 
 test("writing a key back gives today's exact saved text", () => {
