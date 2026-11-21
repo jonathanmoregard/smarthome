@@ -312,7 +312,8 @@ export function planNativeControls(view: HouseView, args: NativePlanArgs): Nativ
   const roomScopes = [...areas];
   for (const source of requested) {
     if (!catalog.groups.has(source)) continue;
-    const membersOfGroup = catalog.groups.members(source);
+    // Read as text: compared with the catalog's lamp keys, which `Object.keys` gives as text.
+    const membersOfGroup: string[] = catalog.groups.members(source);
     for (const area of areasOf(view, membersOfGroup)) if (Object.keys(members).filter(lamp => view.rooms.ofId[lamp] === area).every(lamp =>
       membersOfGroup.includes(lamp))) roomScopes.push(area);
   }

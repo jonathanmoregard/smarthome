@@ -59,8 +59,8 @@ function requiredValue(container: JsonObject, key: string, context: string): Jso
 /** The catalog's `groups`: `source in groups`, and a group's members read on demand. */
 export interface CatalogGroups {
   has(source: string): boolean;
-  /** An absent group has no members; a present one must be a string list. */
-  members(source: string): string[];
+  /** The group's lamps. An absent group has none; a present one must be a string list. */
+  members(source: string): LampId[];
 }
 /** The catalog's `effects`: their names, `name in effects`, and an effect's channels on demand. */
 export interface CatalogEffects {
@@ -86,7 +86,7 @@ export function parseNativeCatalog(value: JsonValue | undefined, context: string
     members: parsedMembers,
     groups: {
       has: source => source in groups,
-      members: source => groups[source] === undefined ? [] : stringArray(groups[source], `catalog.groups.${source}`),
+      members: source => groups[source] === undefined ? [] : stringArray(groups[source], `catalog.groups.${source}`).map(toLampId),
     },
     effects: {
       names: Object.keys(effects),

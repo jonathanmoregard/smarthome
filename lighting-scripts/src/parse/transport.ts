@@ -188,7 +188,7 @@ export function parseEmitArgs(args: JsonObject): EmitArgs {
       const command = requireObject({ raw }, 'raw', context);
       const payload = requireObject(command, 'payload', context);
       const owners = requireStrings(command, 'owners', context);
-      const members = requireStrings(command, 'members', context);
+      const members = requireStrings(command, 'members', context).map(toBulbId);
       const topic = requireString(command, 'topic', context);
       return { body: JSON.stringify(payload), turnsOff: payload.state === 'OFF', owners, members, topic };
     })),

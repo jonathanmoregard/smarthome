@@ -11,7 +11,7 @@ import { optionalBlock } from './blocks.ts';
 import { ParseError, requireArray, requireBoolean, requireFinite, requireNumber, requireObject, requireString } from '../runtime/parse.ts';
 import { carry } from '../runtime/verbatim.ts';
 import { assembledMap, storedFact } from './overrides.ts';
-import { toRoomId, toSwitchId } from './ids.ts';
+import { toBulbId, toRoomId, toSwitchId } from './ids.ts';
 
 function decodeStrings(container: JsonObject, key: string, context: string): string[] {
   return requireArray(container, key, context)
@@ -126,7 +126,7 @@ function decodeGroupCommand(value: JsonValue, context: string): GroupCommand {
   return {
     topic: requireString(command, 'topic', context),
     payload: carry(requireObject(command, 'payload', context)),
-    members: decodeStrings(command, 'members', context),
+    members: decodeStrings(command, 'members', context).map(toBulbId),
     owners: decodeStrings(command, 'owners', context),
     group: group === null ? null : carry(group),
   };

@@ -151,7 +151,7 @@ export interface EmitCommand {
   /** Does the payload switch the lamp off (`state == 'OFF'`)? */
   turnsOff: boolean;
   owners: string[];
-  members: string[];
+  members: BulbId[];
   topic: string;
 }
 export interface EmitArgs {
@@ -313,7 +313,7 @@ export function stillCurrent(view: HouseView, script: string, revision: string, 
   return revision === overridesRevision(view, script) && runtimeGenerationIs(view, generation);
 }
 
-type StopCommand = { topic: string; payload: { effect: string }; members: string[]; owners: string[]; group: false };
+type StopCommand = { topic: string; payload: { effect: string }; members: BulbId[]; owners: string[]; group: false };
 
 
 /** What `effects_assign` decides from the runtime as it stood before the store. */

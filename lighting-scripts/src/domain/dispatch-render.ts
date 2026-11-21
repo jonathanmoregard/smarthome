@@ -100,7 +100,7 @@ export type DispatchMsg =
   | { tag: 'framed'; batch: GroupPlanResult; house: HouseView }
   | { tag: 'emitted'; result: EmitResult; house: HouseView }
   | { tag: 'performed'; house: HouseView };
-type StartCommand = { topic: string; payload: { effect: string }; members: string[]; owners: string[]; group: null };
+type StartCommand = { topic: string; payload: { effect: string }; members: BulbId[]; owners: string[]; group: null };
 export type DispatchCmd =
   /** Run `effects_catalog`; answers `catalog`. */
   | { tag: 'catalog' }

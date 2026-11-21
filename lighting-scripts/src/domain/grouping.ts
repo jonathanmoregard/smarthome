@@ -1,5 +1,6 @@
 import { sameDocument } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
+import type { BulbId } from './types/ids.ts';
 
 function compare(a: string, b: string): number { return a < b ? -1 : a > b ? 1 : 0; }
 /** Element-wise `===`, which is what JSON equality reduces to on two string lists. */
@@ -12,13 +13,13 @@ function sameStrings(a: string[], b: string[]): boolean {
  * by `framePlan` and compared byte for byte downstream, so the planner holds it
  * opaquely: it only ever asks whether two payloads are the same document.
  */
-export type EndpointRow = { entity: string; owner: string; topic: string; payload: Verbatim };
+export type EndpointRow = { entity: BulbId; owner: string; topic: string; payload: Verbatim };
 /**
  * A multicast group the planner may use: verified, on a `/set` topic, with
  * more than one member and no duplicate or non-string member. `id` is the
  * group's own id when it names one and its topic otherwise, raw either way.
  */
-export type MulticastGroup = { id: Verbatim; topic: string; members: string[] };
+export type MulticastGroup = { id: Verbatim; topic: string; members: BulbId[] };
 /** `undefined` in `rows` is a row that failed to parse; it is rejected by index. */
 export type GroupPlanArgs = { rows: Array<EndpointRow | undefined>; groups: MulticastGroup[] };
 
@@ -37,7 +38,8 @@ export type GroupPlanArgs = { rows: Array<EndpointRow | undefined>; groups: Mult
 export type GroupCommand = {
   topic: string;
   payload: Verbatim;
-  members: string[];
+  /** The bulbs the publish reaches: a multicast group's members, or one endpoint's bulb. */
+  members: BulbId[];
   owners: string[];
   group: Verbatim | null;
 };
@@ -59,7 +61,7 @@ export type GroupPlanResult = {
 
 /** Exact live effects_group_plan: only verified complete groups may replace unicast. */
 export function planGroups(rows: Array<EndpointRow | undefined>, groups: MulticastGroup[]): GroupPlanResult {
-  const byEntity = new Map<string, EndpointRow>();
+  const byEntity = new Map<BulbId, EndpointRow>();
   const blocked = new Set<string>();
   const rejected: RejectedRow[] = [];
   rows.forEach((row, index) => {

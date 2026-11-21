@@ -15,6 +15,7 @@ import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import { carry } from '../runtime/verbatim.ts';
 import { list } from './accessors.ts';
 import type { EndpointRow, GroupPlanArgs, MulticastGroup } from '../domain/grouping.ts';
+import { toBulbId } from './ids.ts';
 
 function mapping(value: JsonValue | undefined): value is JsonObject {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -28,13 +29,13 @@ function strings(value: JsonValue | undefined): string[] { return list(value).fi
 function endpointRow(row: JsonValue): EndpointRow | undefined {
   if (!mapping(row) || typeof row.entity !== 'string' || typeof row.owner !== 'string' || !topic(row.topic)
     || !mapping(row.payload) || Object.keys(row.payload).length === 0) return undefined;
-  return { entity: row.entity, owner: row.owner, topic: row.topic, payload: carry(row.payload) };
+  return { entity: toBulbId(row.entity), owner: row.owner, topic: row.topic, payload: carry(row.payload) };
 }
 
 /** `undefined` is a group the planner may not use. */
 function multicastGroup(g: JsonValue): MulticastGroup | undefined {
   if (!mapping(g) || g.verified !== true || !topic(g.topic) || !Array.isArray(g.members) || g.members.length <= 1) return undefined;
-  const members = strings(g.members);
+  const members = strings(g.members).map(toBulbId);
   if (members.length !== g.members.length || new Set(members).size !== members.length) return undefined;
   // The group's own `id` when it names one, else its topic -- raw either way,
   // since it reaches the command unchanged.
