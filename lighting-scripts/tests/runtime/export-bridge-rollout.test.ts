@@ -122,3 +122,12 @@ test('an automation the rollout does not know is refused rather than guessed', a
   assert.notEqual(run.status, 0);
   assert.match(run.stderr, /lighting_mystery/);
 });
+
+test('a bridge forwards the automation\'s own variables, so the port reads the dashboard sources Home Assistant routed by', async () => {
+  const { run, read } = await exportRollout();
+  assert.equal(run.status, 0, run.stderr);
+  const native = await read('effects_native_light_controls.json') as { actions: Array<{ event_data: { args: Record<string, string> } }> };
+  assert.equal(native.actions[0]?.event_data.args.sources, '{{ sources }}');
+  const remote = await read('lighting_studio_remote_center.json') as { actions: Array<{ event_data: { args: Record<string, string> } }> };
+  assert.equal(Object.hasOwn(remote.actions[0]?.event_data.args ?? {}, 'sources'), false);
+});

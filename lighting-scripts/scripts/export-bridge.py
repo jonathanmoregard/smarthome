@@ -64,6 +64,12 @@ def bridge(slug, original):
     action = original.get('actions', original.get('action', []))
     rooms = set(re.findall(r'script\.ls_remote_gesture_([a-z0-9_]+)', json.dumps(action)))
     args = {'trigger': TRIGGER_DATA}
+    # The automation's own variables (the dashboard controls' `sources`) are
+    # what its conditions routed by, so the port reads the same mapping.
+    for name in original.get('variables', {}):
+        if not re.fullmatch(r'[a-zA-Z_][a-zA-Z0-9_]*', name) or name in ('trigger', 'room'):
+            raise ValueError(f'{slug}: cannot forward the variable {name!r}')
+        args[name] = '{{ ' + name + ' }}'
     if rooms:
         if len(rooms) != 1:
             raise ValueError(f'Ambiguous remote room in {slug}')

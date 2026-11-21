@@ -229,6 +229,14 @@ test('a dashboard overlay on a lamp in a room that is not live does nothing in t
   assert.equal(drives(live, 'automation.effects_native_light_controls', control('unknown'), view), false);
 });
 
+test('a dashboard control with no catalog row is routed by the sources the bridge forwards', () => {
+  const live = parseLiveRooms('studio'), view = house();
+  const control = (alias: string) => ({ trigger: { platform: 'mqtt', topic: `house/v1/effect_preview/${alias}/set/brightness`, payload: '80' },
+    sources: { extra_studio: 'light.studio', extra_den: 'light.den' } });
+  assert.equal(drives(live, 'automation.effects_native_light_controls', control('extra_studio'), view), true);
+  assert.equal(drives(live, 'automation.effects_native_light_controls', control('extra_den'), view), false);
+});
+
 test('a lamp switched from the app is the port\'s only when every lamp it names is in a live room', () => {
   const live = parseLiveRooms('studio'), view = house();
   const change = (entity: string | string[]) => ({ trigger: { platform: 'event', event: { event_type: 'call_service',
