@@ -128,8 +128,14 @@ function uiTargetView(raw: JsonValue | undefined): UiTargetView {
   for (const channel of ['brightness', 'color']) {
     const claim = object(entry[channel]);
     // Captured `claim.get('effect')` sits in a Jinja boolean position, where
-    // an empty container is false. Bare truthiness let one through to
-    // String(), inventing '[object Object]' or '' as an effect name.
+    // an empty container is false, so `jinjaTruthy` keeps out '' and an empty
+    // list or mapping. A truthy effect that is not text (a number, `true`, a
+    // non-empty container) still goes into the names as its String(): the
+    // captured `fx.names+[claim.effect]` publishes it as its printed text
+    // too, though Python prints `True` and raises on a container in `unique`.
+    // No producer writes one (the resolver's effect claims name catalog
+    // effects, which are text), and the scripts name no default, so this is
+    // kept as it is (`stringified.kept.json`). The same holds for `entry.effect`.
     if (claim.kind === 'effect' && jinjaTruthy(claim.effect)) claimEffects.push(String(claim.effect));
   }
   const colour = object(entry.color);
