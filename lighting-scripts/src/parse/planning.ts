@@ -33,7 +33,7 @@ import { storedFact } from './overrides.ts';
 import type { BaselineTarget, DetailField, OverrideFacts, Overrides, RoomBaseline, RoomCache, RoomDetails, RoomPlanArgs,
   TestNow } from '../domain/planning.ts';
 import { isBlock, savedBlock } from './blocks.ts';
-import { warmEndRgb } from './scale.ts';
+import { colorShape, readableBlendEnd, warmEndRgb } from './scale.ts';
 import { toRoomId, toSwitchId } from './ids.ts';
 import type { SwitchId } from '../domain/types/ids.ts';
 import { lampOrRoom } from './lighting-state.ts';
@@ -135,9 +135,41 @@ export function parseRoomBaseline(value: JsonValue | undefined, context: string)
   };
 }
 
+function finiteNumber(value: JsonValue | undefined): boolean {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+/** A cached target the plan and the resolver read without raising: a mapping, with a readable colour and blend ends. */
+function readableTarget(target: JsonValue): boolean {
+  if (!isObject(target)) return false;
+  if (target.color !== undefined && !colorShape(target.color)) return false;
+  return !isObject(target.day) || !isObject(target.cosy) || readableBlendEnd(target.day) && readableBlendEnd(target.cosy);
+}
+
+/**
+ * Can the plan read this cached baseline without raising? These are the reads
+ * the captured sanitiser does not check and the plan makes on the cache: the
+ * room's `last_fs` (absent or a number) on every kept cache, and on a hit its
+ * `left` and `cur_ts` (numbers), its `next_fs` (absent or a number, read by the
+ * remote plan from the answer), every target, the room target's `period`
+ * (absent or text, where the remote plan's preset cycle starts), and every
+ * profile (a mapping, for a lamp with a target). The captured script raises where one of them
+ * fails; the cache is saved data, so such a cache is a miss instead
+ * (2026-11-21: corrupt saved data recovers to a default).
+ */
+function readableBaseline(targets: JsonObject, profiles: JsonObject, details: JsonObject, room: string): boolean {
+  for (const key of ['last_fs', 'next_fs']) if (details[key] !== undefined && !finiteNumber(details[key])) return false;
+  if (!finiteNumber(details.left) || !finiteNumber(details.cur_ts)) return false;
+  if (!Object.values(targets).every(readableTarget)) return false;
+  const period = object(targets[`room:${room}`]).period;
+  if (period !== undefined && typeof period !== 'string') return false;
+  return Object.entries(profiles).every(([lamp, profile]) => isObject(profile) && isObject(targets[lamp]));
+}
+
 /**
  * A cache the plan may consult, or `undefined` for a miss. Never raises: an
- * absent or malformed cache is a miss, as in the oracle.
+ * absent or malformed cache is a miss, as in the oracle, and so is one whose
+ * baseline the plan could not read ({@link readableBaseline}).
  *
  * This is the captured script's first-step cache sanitiser, which replaces a
  * cache failing any of its checks with `{}`: `dependencies`, `periods`,
@@ -163,6 +195,7 @@ function validCache(value: JsonValue | undefined, room: string): RoomCache | und
   const schedule = baseline.schedule;
   if (!isObject(schedule.schedule_details) || !isObject(schedule.profiles) || !isObject(schedule.schedule_details[room])) return undefined;
   if (!Object.hasOwn(baseline.targets, `room:${room}`)) return undefined;
+  if (!readableBaseline(baseline.targets, schedule.profiles, schedule.schedule_details[room], room)) return undefined;
   const raw = structuredClone(value);
   const savedRoom = optionalString(raw.room);
   return {

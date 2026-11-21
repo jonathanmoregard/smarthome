@@ -74,6 +74,14 @@ export function blendEnd(value: JsonValue | undefined): BlendEnd | undefined {
   return { on: true, ...anchor(value) };
 }
 
+/** Does {@link blendEnd} read this end without raising? For saved ends a reader checks before it trusts them. */
+export function readableBlendEnd(value: JsonValue | undefined): boolean {
+  const a = object(value);
+  if (a.on === false) return true;
+  if (a.color === undefined && boundedNumber(a.brightness)) return true;
+  return boundedNumber(a.brightness) && colorShape(a.color);
+}
+
 export function validColor(color: unknown, minimum = 1000, maximum = 10000): color is Color {
   if (!isObject(color)) return false;
   if ('kelvin' in color && !('rgb' in color)) {

@@ -9,10 +9,14 @@ import { parseRoomPlanArgs } from '../../src/parse/planning.ts';
  * here was rendered through Home Assistant 2026.7.4 with the captured template
  * and gave the same keep/drop. Loosening `validCache` to the `cache_hit` checks
  * would keep caches the original drops.
+ *
+ * The port also drops a cache whose baseline the plan cannot read, where the
+ * captured script keeps it and then raises (`recover-room-cache.test.ts`), so
+ * the complete cache here carries the room's `left` and `cur_ts`.
  */
 function cache(edit: (c: JsonObject) => void): JsonObject {
   const c: JsonObject = { version: 'v', room: 'studio', dependencies: {}, periods: {}, gradients: {}, catalog: {}, valid_from: 1, valid_until: 2,
-    baseline: { targets: { 'room:studio': {} }, schedule: { schedule_details: { studio: {} }, profiles: {} } } };
+    baseline: { targets: { 'room:studio': {} }, schedule: { schedule_details: { studio: { left: 0, cur_ts: 0 } }, profiles: {} } } };
   edit(c);
   return c;
 }
