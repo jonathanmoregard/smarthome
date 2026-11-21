@@ -51,3 +51,10 @@ export function aliased(raw: string, document: Carried, documents: Documents, wr
   void wrapper;
   return raw as Room;
 }
+
+// A HouseView read by destructuring, as a parameter or from a variable, or by
+// element access, is as much a view read as `view.get`.
+export function destructured({ get, now }: HouseView, view: HouseView): unknown[] {
+  const { attr } = view;
+  return [get, now, attr, view['state']];
+}

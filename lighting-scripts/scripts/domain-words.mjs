@@ -23,7 +23,9 @@
 //   own (`input_number`), or a script or event name (`ls_...`, `effects_...`).
 //   Import paths are not literals here.
 // - parseRuntimeImports: an import or re-export from src/parse or src/runtime.
-// - viewReads: a property read on a `HouseView`, whatever the variable is called.
+// - viewReads: a property read on a `HouseView`, whatever the variable is called:
+//   `view.x`, `view['x']`, and each name destructured from one (`const { x } = view`,
+//   or a destructured HouseView parameter).
 // - carriedTypes: a type reference to a carried document type
 //   (`Verbatim`, `OpaqueMap`, `StoredFact`, `StoredValue`, `Assembled`, `AssembledMap`),
 //   directly or through a project type alias that renames or contains one.
@@ -182,7 +184,9 @@ function measure(source) {
     else if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
       && node.moduleSpecifier !== undefined && ts.isStringLiteral(node.moduleSpecifier)
       && inParseOrRuntime(resolve(dirname(source.fileName), node.moduleSpecifier.text))) row.parseRuntimeImports++;
-    else if (ts.isPropertyAccessExpression(node) && isHouseView(node.expression)) row.viewReads++;
+    else if ((ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) && isHouseView(node.expression)) row.viewReads++;
+    // `const { rooms } = view` and a destructured HouseView parameter: one read per name taken.
+    else if (ts.isObjectBindingPattern(node) && isHouseView(node)) row.viewReads += node.elements.length;
     else if (ts.isNonNullExpression(node)) row.nonNull++;
     else if (ts.isBinaryExpression(node) && (node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken
       || node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionEqualsToken)) row.nullish++;

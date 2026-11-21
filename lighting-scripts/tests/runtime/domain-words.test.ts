@@ -37,7 +37,7 @@ const COLUMNS: [column: string, count: number, counted: string][] = [
   ['effectKinds', 2, "`kind: 'service'` and `kind: 'script'` object literals"],
   ['haNames', 4, "'light.example' twice, 'light.turn_on' and 'ls_commit'; import paths and plain words are not names"],
   ['parseRuntimeImports', 3, 'two `../runtime` imports and one `../parse` import; `./types/ids.ts` is the domain'],
-  ['viewReads', 2, '`view.get` and `view.attr` on the HouseView'],
+  ['viewReads', 6, "`view.get` and `view.attr` on the HouseView, `get` and `now` destructured from a HouseView parameter, `attr` destructured from `view`, and `view['state']`"],
   ['carriedTypes', 6, 'the `Verbatim` parameter, the `Verbatim` in the `Carried` alias and in `Wrapper`, the `Carried` in `Documents`, and the uses of `Carried` and `Documents` (aliases seen through); `Wrapper` and the import specifier are not uses'],
   ['casts', 4, '`state as string`, `raw as RoomId`, `raw as Room` and `keysOf`\'s `as K[]`; `as const` is not a cast'],
   ['nonNull', 1, '`room!`'],
