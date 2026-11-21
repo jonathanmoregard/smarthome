@@ -34,7 +34,8 @@ import type { BaselineTarget, DetailField, OverrideFacts, Overrides, RoomBaselin
   TestNow } from '../domain/planning.ts';
 import { isBlock, savedBlock } from './blocks.ts';
 import { warmEndOr } from './scale.ts';
-import { toRoomId } from './ids.ts';
+import { toRoomId, toSwitchId } from './ids.ts';
+import type { SwitchId } from '../domain/types/ids.ts';
 import { lampOrRoom } from './lighting-state.ts';
 import { parseOverlayKey } from './overlay-key.ts';
 
@@ -245,10 +246,10 @@ export function switchRangeEntities(value: JsonValue | undefined): string[] {
  * `area_id` of a non-text scalar is none. A value Jinja cannot iterate is none
  * (lenient saved-value directive; captured raises).
  */
-export function switchRangeIterable(value: JsonValue | undefined): string[] {
+export function switchRangeIterable(value: JsonValue | undefined): SwitchId[] {
   const iterable = value !== undefined && jinjaTruthy(value) ? value : {};
   const items = Array.isArray(iterable) || typeof iterable === 'string' || isObject(iterable) ? jinjaList(iterable, 'switch_ranges') : [];
-  return items.filter((item): item is string => typeof item === 'string');
+  return items.filter((item): item is string => typeof item === 'string').map(toSwitchId);
 }
 
 /** The captured built-in `range_defaults`, `{'bright':[90,100],'cosy':[30,60]}`. */

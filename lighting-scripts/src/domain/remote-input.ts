@@ -8,9 +8,10 @@ import { contextEntries, noInputRecord, presetSelection, remoteCache, remoteOver
 import { switchRangeIterable } from '../parse/planning.ts';
 import type { RemoteOverrides, RemoteRoomPlan } from '../parse/remote-input.ts';
 import { clamp } from './scale.ts';
-import type { RemoteSource, RoomId } from './types/ids.ts';
+import type { PowerTarget, RemoteSource, RoomId } from './types/ids.ts';
+import { entriesOf } from './types/ids.ts';
 import type { OverlayKey } from './types/overlay.ts';
-import { overlayKeyText, sameOverlayKey, SARA_MODE } from './types/overlay.ts';
+import { sameOverlayKey, SARA_MODE } from './types/overlay.ts';
 
 const omit = (v: AssembledMap, keys: string[]): AssembledMap => Object.fromEntries(Object.entries(v).filter(([k]) => !keys.includes(k)));
 const pick = (v: AssembledMap, keys: string[]): AssembledMap => Object.fromEntries(Object.entries(v).filter(([k]) => keys.includes(k)));
@@ -72,9 +73,9 @@ export type RemoteInputRecord = {
  */
 export type RemotePlanOp =
   | { op: 'noop' }
-  | { op: 'clear'; keys: string[]; via: 'remote' }
+  | { op: 'clear'; keys: OverlayKey[]; via: 'remote' }
   | { op: 'clear_room'; area: RoomId; via: 'remote' }
-  | { op: 'power'; area: RoomId; on: boolean; targets: string[]; via: 'remote' }
+  | { op: 'power'; area: RoomId; on: boolean; targets: PowerTarget[]; via: 'remote' }
   | { op: 'set'; records: (RemoteModeRecord | RemoteInputRecord)[]; via: 'remote' };
 /** The envelope every answer carries, whatever the operation. */
 export type RemotePlanResult = RemotePlanOp & {
@@ -138,10 +139,11 @@ export function remoteDecision(view: HouseView, args: RemotePlanArgs, opening: R
   if (room !== undefined && ['up', 'down', 'left', 'right', 'toggle', 'reset', 'sara_toggle'].includes(command)
     && (bounds !== undefined || ['toggle', 'reset', 'sara_toggle'].includes(command))) {
     if (command === 'sara_toggle') {
-      result = overrides.has(SARA_MODE) ? { op: 'clear', keys: [overlayKeyText(SARA_MODE)], via: 'remote' }
+      result = overrides.has(SARA_MODE) ? { op: 'clear', keys: [SARA_MODE], via: 'remote' }
         : { op: 'set', records: [{ kind: 'mode', target: 'sara', value: 'on' }], via: 'remote' };
     } else if (command === 'toggle') {
-      const targets = [...Object.keys(catalog.members), ...switchRangeIterable(view.attr('sensor.ls_overrides', 'switch_ranges'))]
+      const targets: PowerTarget[] = [...entriesOf(catalog.members).map(([lamp]) => lamp),
+        ...switchRangeIterable(view.attr('sensor.ls_overrides', 'switch_ranges'))]
         .filter(id => view.rooms.ofId[id] === room);
       const saved = roomPower(view, room);
       result = { op: 'power', area: room, on: saved !== undefined ? !saved : !targets.some(id => view.get(id) === 'on'), targets, via: 'remote' };

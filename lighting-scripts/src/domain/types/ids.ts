@@ -17,6 +17,8 @@ export type LampId = Id<'LampId'>;
 export type BulbId = Id<'BulbId'>;
 /** A switch: a switched socket's entity (`switch.plug`). */
 export type SwitchId = Id<'SwitchId'>;
+/** What a room's power toggle switches: its lamps, and the switches a saved range names. */
+export type PowerTarget = LampId | SwitchId;
 /** A remote: the remote control's Home Assistant device id. */
 export type RemoteId = Id<'RemoteId'>;
 /** A Home Assistant user, as an event's `user_id` names them. */

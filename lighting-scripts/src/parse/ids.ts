@@ -7,7 +7,8 @@
  * already checked about the string still holds, and nothing is added. Whether
  * an id names something the registry knows is a later, named unit.
  */
-import type { BulbId, EffectName, LampId, RemoteId, RemoteSource, RoomId, SavedOverlayKey, SwitchId, UserId } from '../domain/types/ids.ts';
+import type { BulbId, EffectName, LampId, PowerTarget, RemoteId, RemoteSource, RoomId, SavedOverlayKey, SwitchId, UserId }
+  from '../domain/types/ids.ts';
 import type { Brightness, Kelvin, Level, Percent, PercentRange } from '../domain/types/light.ts';
 import type { Step } from '../domain/types/remote.ts';
 import type { Minutes } from '../domain/types/overlay.ts';
@@ -32,6 +33,11 @@ export function toBulbId(raw: string): BulbId {
 export function toSwitchId(raw: string): SwitchId {
   // Cast: the edge read this string as a switch; this is the one place that says so.
   return raw as SwitchId;
+}
+
+export function toPowerTarget(raw: string): PowerTarget {
+  // Cast: the edge read this string as a lamp or switch a power toggle names; this is the one place that says so.
+  return raw as PowerTarget;
 }
 
 export function toRemoteId(raw: string): RemoteId {

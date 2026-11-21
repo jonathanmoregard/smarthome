@@ -11,7 +11,7 @@ import { optionalBlock } from './blocks.ts';
 import { ParseError, requireArray, requireBoolean, requireFinite, requireNumber, requireObject, requireString } from '../runtime/parse.ts';
 import { carry } from '../runtime/verbatim.ts';
 import { assembledMap, storedFact } from './overrides.ts';
-import { toBulbId, toRemoteSource, toRoomId, toSwitchId } from './ids.ts';
+import { toBulbId, toPowerTarget, toRemoteSource, toRoomId, toSwitchId } from './ids.ts';
 import { parseOverlayKey } from './overlay-key.ts';
 import { overlayKeyText } from '../domain/types/overlay.ts';
 
@@ -196,14 +196,14 @@ function decodeRemoteRecord(value: JsonValue, context: string): RemoteModeRecord
 function decodeRemoteOp(result: JsonObject, context: string): RemotePlanOp {
   const op = requireString(result, 'op', context);
   if (op === 'noop') return { op };
-  if (op === 'clear') return { op, keys: decodeStrings(result, 'keys', context), via: decodeVia(result, context) };
+  if (op === 'clear') return { op, keys: decodeStrings(result, 'keys', context).map(parseOverlayKey), via: decodeVia(result, context) };
   if (op === 'clear_room') return { op, area: toRoomId(requireString(result, 'area', context)), via: decodeVia(result, context) };
   if (op === 'power') {
     return {
       op,
       area: toRoomId(requireString(result, 'area', context)),
       on: requireBoolean(result.on, `${context}.on`),
-      targets: decodeStrings(result, 'targets', context),
+      targets: decodeStrings(result, 'targets', context).map(toPowerTarget),
       via: decodeVia(result, context),
     };
   }
@@ -223,11 +223,12 @@ function decodeRemoteOp(result: JsonObject, context: string): RemotePlanOp {
  * operation wrong is told about that rather than about a missing timestamp.
  */
 /**
- * A remote plan (or the commit built on it) as the document it leaves as: an
- * input record's key written as its saved text. Every other field is already
- * its wire value, and every key keeps its place.
+ * A remote plan (or the commit built on it) as the document it leaves as: a
+ * clear's keys and an input record's key written as their saved text. Every
+ * other field is already its wire value, and every key keeps its place.
  */
 export function remotePlanDocument<P extends RemotePlanOp>(plan: P): JsonObject {
+  if (plan.op === 'clear') return { ...plan, keys: plan.keys.map(overlayKeyText) };
   if (plan.op !== 'set') return { ...plan };
   return { ...plan, records: plan.records.map(record => record.kind === 'input' ? { ...record, key: overlayKeyText(record.key) } : record) };
 }

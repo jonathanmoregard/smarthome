@@ -71,7 +71,7 @@ test('reset clears the room, sara_toggle flips the mode, an unknown room is a no
     return op;
   };
   assert.deepEqual(decide('studio', 'reset'), { op: 'clear_room', area: 'studio', via: 'remote' });
-  assert.deepEqual(decide('studio', 'sara_toggle'), { op: 'clear', keys: ['mode:sara'], via: 'remote' });
+  assert.deepEqual(decide('studio', 'sara_toggle'), { op: 'clear', keys: [{ kind: 'sara mode' }], via: 'remote' });
   assert.deepEqual(decide('attic', 'reset'), { op: 'noop' });
 });
 
