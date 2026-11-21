@@ -6,6 +6,7 @@ import { dirname } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { EntityState, EventRecord, JsonObject, JsonValue, ScheduledTask, ServiceCall, Snapshot } from './context.ts';
 import type { ExecutionRequest, ExecutionResult } from './engine.ts';
+import type { RoomId } from '../domain/types/ids.ts';
 
 export type Program = (request: ExecutionRequest) => ExecutionResult;
 export interface OutputAcknowledgement { states?: Record<string, EntityState> }
@@ -15,13 +16,28 @@ export interface OutputTransport {
   event?(event: EventRecord): Promise<void>;
 }
 /**
- * Which of the program's output this process owns. During a room-by-room
+ * Who an input belongs to: the house as a whole (the schedule, recovery, a
+ * start-up apply), or the rooms it came from (a remote, a dashboard control,
+ * a lamp switched from the app). Everything a run does is that input's.
+ */
+export type Origin = { kind: 'house' } | { kind: 'rooms'; rooms: readonly RoomId[] };
+/**
+ * Which inputs and which output this process owns. During a room-by-room
  * rollout the old scripts drive the rooms the port does not, so the port
- * computes the whole house and sends only its part.
+ * computes the whole house and sends only its part. Both questions are asked
+ * against the house as it stands when they are asked: the input when its run
+ * starts, each call when it goes out.
  */
 export interface OutputScope {
-  /** Whether this process sends the call. A call it does not send is left to whatever drives its room; the batch goes on. */
-  sends(call: ServiceCall, house: Snapshot): boolean;
+  /** Who owns an input, or `undefined` when it is another system's: then it is not run at all. */
+  origin(script: string, args: JsonObject, house: Snapshot): Origin | undefined;
+  /**
+   * The part of a call this process sends for a run from `origin`: the call
+   * itself, a narrower call (or several) that reach only its own lamps, or
+   * nothing. What it does not send is left to whatever drives the rest; the
+   * batch goes on.
+   */
+  share(call: ServiceCall, house: Snapshot, origin: Origin): ServiceCall[];
   /** An entity this process keeps to itself: its writes stay local and, once it holds a value, Home Assistant's is not read back. */
   keeps(entity: string, house: Snapshot): boolean;
 }
@@ -31,7 +47,7 @@ export interface HostOptions {
 }
 interface Journal { version: 1; snapshot: Snapshot; uncertain: boolean; pending: number; held?: ScheduledTask[] }
 interface Batch { calls: ServiceCall[]; events: EventRecord[]; epoch: number; topology: unknown; deferred: Map<string,
-  JsonObject>; tasks: ScheduledTask[]; started: number; versions: Map<ServiceCall, Map<string, number>>; revision?: string }
+  JsonObject>; tasks: ScheduledTask[]; started: number; versions: Map<ServiceCall, Map<string, number>>; revision?: string; origin: Origin }
 const successFields = ['applied', 'handled_rooms', 'handled_full', 'last_latency'];
 const object = (value: unknown): JsonObject => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as JsonObject : {};
 function ids(call: ServiceCall): string[] { const value = call.target?.entity_id ?? call.data.entity_id; return Array.isArray(value) ?
@@ -176,8 +192,13 @@ export class LightingHost {
     await this.mutation(async () =>
       { if (this.closing) return; const next = this.snapshot(); change(next); this.state = next; await this.save(); this.armTimer(); });
   }
-  dispatch(script: string, args: JsonObject = {}): Promise<JsonValue> { return this.transaction(script, args); }
-  private async transaction(script: string, args: JsonObject, task?: ScheduledTask): Promise<JsonValue> {
+  /**
+   * Run an input. Without `origin` the scope decides, against the house as it
+   * stands when the run starts, whose input it is; one that is not this
+   * process's is not run.
+   */
+  dispatch(script: string, args: JsonObject = {}, origin?: Origin): Promise<JsonValue> { return this.transaction(script, args, undefined, origin); }
+  private async transaction(script: string, args: JsonObject, task?: ScheduledTask, given?: Origin): Promise<JsonValue> {
     return this.mutation(async () => {
       if (this.closing) throw new Error('Runtime is closing');
       const previous = this.snapshot();
@@ -186,6 +207,13 @@ export class LightingHost {
         const index = (request.scheduled ?? []).findIndex(item => isDeepStrictEqual(item, task));
         if (index < 0) return null;
         request.scheduled!.splice(index, 1);
+      }
+      const origin = given === undefined ? this.options.scope.origin(script, args, request) : given;
+      if (origin === undefined) {
+        this.options.report?.(`Ignored ${script}: not in a room the port drives`);
+        // A timer of a room handed back is dropped with it.
+        if (task) { this.state = request; await this.save(); this.armTimer(); }
+        return null;
       }
       const oldMicros = BigInt(Date.parse(request.now)) * 1000n + BigInt((/\.(\d{6})/.exec(request.now)?.[1] ?? '000000').slice(3));
       const wallMicros = BigInt(Math.trunc(this.now())) * 1000n;
@@ -254,7 +282,7 @@ export class LightingHost {
         versions.set(call, callVersions);
       }
       const batch: Batch = { calls: result.calls, events: result.events, epoch: this.epoch, topology: structuredClone(topology(next)),
-        deferred, tasks: structuredClone(tasks), started: this.now(), versions, ...(next.state['sensor.ls_overrides']?.last_updated ?
+        deferred, tasks: structuredClone(tasks), started: this.now(), versions, origin, ...(next.state['sensor.ls_overrides']?.last_updated ?
         { revision: next.state['sensor.ls_overrides']!.last_updated! } : {}) };
       if (batch.calls.length || batch.events.length) for (const task of tasks) this.held.set(JSON.stringify(task), task);
       if (batch.calls.length || batch.events.length) this.pending++;
@@ -302,20 +330,20 @@ export class LightingHost {
       let succeeded = true;
       try {
         for (const event of batch.events) {
-          if (event.event === 'ls_override') await this.dispatch('ls_commit', { data: event.data });
-          else if (event.event === 'ls_lamp_store_changed') await this.dispatch('ls_apply', { reason: 'config' });
+          // What an input's run asks for next is still that input's.
+          if (event.event === 'ls_override') await this.dispatch('ls_commit', { data: event.data }, batch.origin);
+          else if (event.event === 'ls_lamp_store_changed') await this.dispatch('ls_apply', { reason: 'config' }, batch.origin);
           else if (this.options.transport.event) await this.options.transport.event(event);
           else throw new Error(`Unsupported external event: ${event.event}`);
         }
         // Completion writes always follow every physical command, irrespective of template order.
         const calls = [...batch.calls.filter(call => !call.guard?.requiresOutputSuccess), ...batch.calls.filter(call =>
           call.guard?.requiresOutputSuccess)];
-        for (const call of calls) {
-          // Not this process's output: whatever drives that room sends it, so the batch goes on.
-          if (!this.options.scope.sends(call, this.state)) continue;
+        for (const planned of calls) for (const call of this.options.scope.share(planned, this.state, batch.origin)) {
+          // Only this process's share goes out: whatever drives the rest sends it, so the batch goes on.
           if (!this.allowed(call, batch) || (call.guard?.requiresOutputSuccess && !succeeded)) { succeeded = false; continue; }
           if (call.service === 'script.turn_on') {
-            for (const entity of ids(call)) await this.dispatch(entity.replace(/^script\./, ''), object(call.data.variables));
+            for (const entity of ids(call)) await this.dispatch(entity.replace(/^script\./, ''), object(call.data.variables), batch.origin);
           } else if (call.service === 'script.turn_off') {
             const names = ids(call).map(entity => entity.replace(/^script\./, ''));
             await this.update(state => { state.scheduled = (state.scheduled ?? []).filter(task => !names.some(name =>
@@ -324,14 +352,14 @@ export class LightingHost {
             const acknowledgement = await this.options.transport.send(call);
             await this.mutation(async () => {
               for (const [entity, state] of Object.entries(acknowledgement?.states ?? {})) {
-                const version = batch.versions.get(call)?.get(entity);
+                const version = batch.versions.get(planned)?.get(entity);
                 if (version === undefined || version !== this.writeVersions.get(entity)) continue;
                 if (call.guard?.requiresOutputSuccess) continue;
                 if (entity === 'sensor.ls_overrides' && batch.revision && state.last_updated) this.revisionAliases.set(batch.revision,
                   state.last_updated);
                 this.state.state[entity] = structuredClone(state);
               }
-              for (const [entity, version] of batch.versions.get(call) ?? []) this.pendingWrites.get(entity)?.delete(version);
+              for (const [entity, version] of batch.versions.get(planned) ?? []) this.pendingWrites.get(entity)?.delete(version);
               await this.save();
             });
           }

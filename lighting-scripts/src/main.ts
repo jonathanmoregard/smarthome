@@ -12,7 +12,7 @@ import type { Program, OutputTransport } from './runtime/host.ts';
 import { HomeAssistantTransport } from './live.ts';
 import { readLiveRoomsFlag } from './parse/live-rooms.ts';
 import type { LiveRooms } from './parse/live-rooms.ts';
-import { drivenLamps, drivesInput, liveScope, switchedOnRoom } from './runtime/live-rooms.ts';
+import { drivenLamps, liveScope, switchedOnRoom } from './runtime/live-rooms.ts';
 import type { RoomId } from './domain/types/ids.ts';
 
 const record = (value: unknown): JsonObject => {
@@ -46,12 +46,6 @@ export function watchRuntimeCatalog(path: string, accept: (catalog: JsonObject) 
     const current = ++revision;
     void readRuntimeCatalog(path).then(async catalog => { if (current === revision) await accept(catalog); }).catch(reject);
   });
-}
-/** A bridged Home Assistant input, acted on only when it is in a room the port drives (or is the house's). */
-export async function bridgeInput(host: LightingHost, live: LiveRooms, script: string, args: JsonObject,
-  report: (message: string) => void): Promise<void> {
-  if (!drivesInput(live, script, args, host.snapshot())) { report(`Ignored ${script}: not in a room the port drives`); return; }
-  await host.dispatch(script, args);
 }
 /**
  * Re-send the lamps of the rooms the port drives (or of one room): the old
@@ -114,8 +108,9 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
         state as unknown as Snapshot['state'][string] | null);
     })().catch(error => console.error(String(error))); });
     // HA retains triggers only; all decision/actions run in the typed process.
-    await live.subscribe('smarthome_script', event => { void bridgeInput(host, liveRooms, String(event.data.script),
-      record(event.data.args ?? {}), message => console.error(message)).catch(error => console.error(String(error))); });
+    // The host's scope decides, as the run starts, whether the input is the port's.
+    await live.subscribe('smarthome_script', event => { void host.dispatch(String(event.data.script),
+      record(event.data.args ?? {})).catch(error => console.error(String(error))); });
     for (const event of ['entity_registry_updated', 'device_registry_updated', 'area_registry_updated',
       'label_registry_updated']) await live.subscribe(event, () => { void refresh().catch(error => console.error(String(error))); });
     await host.connectionChanged(true);

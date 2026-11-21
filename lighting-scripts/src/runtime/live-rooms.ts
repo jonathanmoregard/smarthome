@@ -12,13 +12,14 @@
  * port's to act on.
  */
 import type { EntityState, JsonObject, JsonValue, ServiceCall, Snapshot } from './context.ts';
-import type { OutputScope } from './host.ts';
+import type { Origin, OutputScope } from './host.ts';
 import type { Catalog } from './catalog.ts';
 import type { RoomId } from '../domain/types/ids.ts';
 import type { Rooms } from '../domain/types/rooms.ts';
 import type { LiveRooms } from '../parse/live-rooms.ts';
 import { emptyCatalog, parseCatalog } from './catalog.ts';
 import { parseRooms } from '../parse/rooms.ts';
+import { toBulbId } from '../parse/ids.ts';
 import { nativeSourceFor } from '../parse/automations.ts';
 import { controlTopic } from '../domain/automations.ts';
 
@@ -86,40 +87,20 @@ function entityIds(value: JsonValue | undefined): string[] {
 function targetsOf(call: ServiceCall): string[] {
   return entityIds(call.target === undefined ? call.data.entity_id : call.target.entity_id);
 }
-
-/**
- * Where a call lands: the house as a whole, or the rooms of the lamps,
- * bulbs and switches it reaches (`undefined` for one the registry puts in no
- * room).
- */
-type Place = { kind: 'house' } | { kind: 'rooms'; rooms: Array<RoomId | undefined> };
+/** The call narrowed to some of its entities, named where the call named them. */
+function withTargets(call: ServiceCall, entities: string[]): ServiceCall {
+  return call.target === undefined ? { ...call, data: { ...call.data, entity_id: entities } }
+    : { ...call, target: { ...call.target, entity_id: entities } };
+}
 
 /** A bulb is in its lamp's room; a bulb no lamp claims is in its own. */
 function bulbRoom(house: House, bulb: string): RoomId | undefined {
   const lamp = house.lampOfBulb.get(bulb);
   return lamp === undefined ? house.rooms.ofId[bulb] : house.rooms.ofId[lamp];
 }
-
-function placeOf(call: ServiceCall, snapshot: Snapshot): Place {
-  const house = houseOf(snapshot);
-  if (SWITCHING.has(call.service)) {
-    // A light or switch the catalog does not list and the registry puts in no
-    // room is no lamp (a dashboard proxy), so it is the house's.
-    const reached = targetsOf(call).filter(entity => Object.hasOwn(house.catalog.members, entity) || house.lampOfBulb.has(entity)
-      || house.rooms.ofId[entity] !== undefined);
-    return reached.length === 0 ? { kind: 'house' } : { kind: 'rooms', rooms: reached.map(entity => bulbRoom(house, entity)) };
-  }
-  if (call.service === 'mqtt.publish') {
-    const owners = call.guard?.owners;
-    if (owners !== undefined && owners.length > 0) return { kind: 'rooms', rooms: owners.map(owner => house.rooms.ofId[owner]) };
-    const topic = call.data.topic, bulbs = typeof topic === 'string' ? house.bulbsOfTopic.get(topic) : undefined;
-    return bulbs === undefined ? { kind: 'house' } : { kind: 'rooms', rooms: bulbs.map(bulb => bulbRoom(house, bulb)) };
-  }
-  if (call.service === 'variable.update_sensor') {
-    const caches = targetsOf(call).filter(entity => entity.startsWith(ROOM_CACHE));
-    if (caches.length > 0) return { kind: 'rooms', rooms: caches.map(entity => roomNamed(house, entity.slice(ROOM_CACHE.length))) };
-  }
-  return { kind: 'house' };
+/** A catalog lamp or bulb, or anything the registry puts in a room. Anything else (a dashboard proxy) is the house's. */
+function placed(house: House, entity: string): boolean {
+  return Object.hasOwn(house.catalog.members, entity) || house.lampOfBulb.has(entity) || house.rooms.ofId[entity] !== undefined;
 }
 
 /** The house room a room cache's name spells, if the house has it. */
@@ -127,58 +108,126 @@ function roomNamed(house: House, name: string): RoomId | undefined {
   return [...houseRooms(house)].find(room => room === name);
 }
 
+/**
+ * What the port may send right now. The lamps, bulbs, switches and room
+ * caches of the rooms it drives are always its own. The rest of the house's
+ * state is shared with the old scripts while any room is still theirs, and
+ * each part has one writer: the records an input leaves (the overlay store,
+ * a remote's helpers, a saved profile) belong to the input's owner, so they
+ * are the port's only for an input from rooms it still drives; the displays
+ * of that state (the dashboard rows, the block selects, the Sara mirror) and
+ * the render bookkeeping stay with the old scripts.
+ */
+interface Share { inRoom(room: RoomId | undefined): boolean; records: boolean; whole: boolean }
+function shareOf(live: LiveRooms, snapshot: Snapshot, origin: Origin): Share {
+  const driven = drivenRooms(live, snapshot), whole = wholeHouse(live, snapshot);
+  const fromDriven = origin.kind === 'rooms' && origin.rooms.length > 0 && origin.rooms.every(room => driven.has(room));
+  return { inRoom: room => room !== undefined && driven.has(room), records: whole || fromDriven, whole };
+}
+
+/** Calls this process runs itself rather than sends; what they run is scoped in turn. */
+const IN_PROCESS = new Set(['script.turn_on', 'script.turn_off']);
+
+/** A switching call's share: each lamp, bulb or switch by its room, anything unplaced as a record. */
+function switchingShare(house: House, share: Share, call: ServiceCall): ServiceCall[] {
+  const targets = targetsOf(call);
+  if (targets.length === 0) return share.records ? [call] : [];
+  const kept = targets.filter(entity => placed(house, entity) ? share.inRoom(bulbRoom(house, entity)) : share.records);
+  if (kept.length === targets.length) return [call];
+  return kept.length === 0 ? [] : [withTargets(call, kept)];
+}
+
+/**
+ * A bulb publish's share. One that reaches only driven rooms goes out as it
+ * is; a group publish over driven and old-scripts rooms becomes the same
+ * payload on each driven bulb's own topic, since a group topic cannot be
+ * narrowed.
+ */
+function publishShare(house: House, share: Share, call: ServiceCall): ServiceCall[] {
+  const guard = call.guard, owners = guard?.owners;
+  if (guard !== undefined && owners !== undefined && owners.length > 0) {
+    const rooms = owners.map(owner => house.rooms.ofId[owner]);
+    if (rooms.every(room => share.inRoom(room))) return [call];
+    if (!rooms.some(room => share.inRoom(room))) return [];
+    return (guard.members === undefined ? [] : guard.members).flatMap(bulb => {
+      const topic = house.catalog.topics[toBulbId(bulb)], lamp = house.lampOfBulb.get(bulb);
+      if (topic === undefined || !share.inRoom(bulbRoom(house, bulb))) return [];
+      return [{ ...call, data: { ...call.data, topic }, guard: { ...guard, owners: [lamp === undefined ? bulb : lamp], members: [bulb] } }];
+    });
+  }
+  const topic = call.data.topic, bulbs = typeof topic === 'string' ? house.bulbsOfTopic.get(topic) : undefined;
+  // Not a bulb topic: the dashboard mirror.
+  if (bulbs === undefined) return share.whole ? [call] : [];
+  return bulbs.every(bulb => share.inRoom(bulbRoom(house, bulb))) ? [call] : [];
+}
+
+function sensorShare(house: House, share: Share, call: ServiceCall): ServiceCall[] {
+  const targets = targetsOf(call);
+  if (targets.includes(RUNTIME)) return share.whole ? [call] : [];
+  const caches = targets.filter(entity => entity.startsWith(ROOM_CACHE));
+  if (caches.length === 0) return share.records ? [call] : [];
+  const kept = caches.filter(entity => share.inRoom(roomNamed(house, entity.slice(ROOM_CACHE.length))));
+  if (kept.length === targets.length) return [call];
+  return kept.length === 0 ? [] : [withTargets(call, kept)];
+}
+
+/** The displays the old scripts publish: the block selects and the Sara mirror. */
+function mirrors(call: ServiceCall): boolean {
+  return call.service === 'input_select.select_option' || call.service.startsWith('input_boolean.');
+}
+
+/** Who owns an input: its rooms, when every one of them is driven; the house for anything not from a room. */
+function inputOrigin(live: LiveRooms, script: string, args: JsonObject, snapshot: Snapshot): Origin | undefined {
+  const house = houseOf(snapshot), driven = drivenRooms(live, snapshot);
+  const ofRooms = (rooms: Array<RoomId | undefined>): Origin | undefined =>
+    rooms.length > 0 && rooms.every((room): room is RoomId => room !== undefined && driven.has(room))
+      ? { kind: 'rooms', rooms: [...new Set(rooms)] } : undefined;
+  const named = /^ls_remote_(?:gesture|power_quiet)_(.+)$/.exec(script);
+  const byRoom = script.startsWith('automation.') || script === 'ls_remote_gesture';
+  const remote = named !== null ? named[1] : byRoom && typeof args.room === 'string' ? args.room : undefined;
+  if (remote !== undefined) {
+    const entry = house.catalog.remotes[remote];
+    return entry === undefined ? undefined : ofRooms([house.rooms.ofRemote[entry.device_id]]);
+  }
+  const trigger = objectOf(args.trigger);
+  if (script === 'automation.effects_native_light_controls') {
+    const control = typeof trigger.topic === 'string' ? controlTopic(trigger.topic) : undefined;
+    if (control === undefined) return undefined;
+    const row = nativeSourceFor(house.catalog.ui_rows, control.alias);
+    const fallback = objectOf(args.sources)[control.alias];
+    const source = row.matched ? row.source : typeof fallback === 'string' ? fallback : undefined;
+    return source === undefined ? undefined : ofRooms([house.rooms.ofId[source]]);
+  }
+  if (script === 'automation.lighting_schedule_lamp_change_detector') {
+    const lamps = entityIds(objectOf(objectOf(objectOf(trigger.event).data).service_data).entity_id);
+    return ofRooms(lamps.map(lamp => house.rooms.ofId[lamp]));
+  }
+  if (script === 'automation.lighting_schedule_engine' && trigger.id === 'lamp_on') {
+    const lamp = trigger.entity_id;
+    return typeof lamp === 'string' ? ofRooms([house.rooms.ofId[lamp]]) : undefined;
+  }
+  return { kind: 'house' };
+}
+
 /** The scope a `--live-rooms` list gives the host. */
 export function liveScope(live: LiveRooms): OutputScope {
-  const keeps = (entity: string, snapshot: Snapshot) => entity === RUNTIME && !wholeHouse(live, snapshot);
   return {
-    keeps,
-    sends(call, snapshot) {
-      const place = placeOf(call, snapshot);
-      if (place.kind === 'house') return !targetsOf(call).some(entity => keeps(entity, snapshot));
-      const driven = drivenRooms(live, snapshot);
-      return place.rooms.length > 0 && place.rooms.every(room => room !== undefined && driven.has(room));
+    origin: (script, args, snapshot) => inputOrigin(live, script, args, snapshot),
+    keeps: (entity, snapshot) => entity === RUNTIME && !wholeHouse(live, snapshot),
+    share(call, snapshot, origin) {
+      if (IN_PROCESS.has(call.service)) return [call];
+      const house = houseOf(snapshot), share = shareOf(live, snapshot, origin);
+      if (SWITCHING.has(call.service)) return switchingShare(house, share, call);
+      if (call.service === 'mqtt.publish') return publishShare(house, share, call);
+      if (call.service === 'variable.update_sensor') return sensorShare(house, share, call);
+      if (mirrors(call)) return share.whole ? [call] : [];
+      return share.records ? [call] : [];
     },
   };
 }
 
 function objectOf(value: JsonValue | undefined): JsonObject {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {};
-}
-
-/**
- * Whether an input from Home Assistant is the port's to act on. A remote
- * press, a dashboard control, a lamp switched from the app or a lamp switched
- * on is the port's only in a room it drives; anything else (the schedule
- * tick, house modes, recovery) is the house's, and its lamp output is scoped
- * by {@link liveScope}.
- */
-export function drivesInput(live: LiveRooms, script: string, args: JsonObject, snapshot: Snapshot): boolean {
-  const house = houseOf(snapshot), driven = drivenRooms(live, snapshot);
-  const inDriven = (room: RoomId | undefined) => room !== undefined && driven.has(room);
-  const named = /^ls_remote_(?:gesture|power_quiet)_(.+)$/.exec(script);
-  const remote = named !== null ? named[1] : script.startsWith('automation.') && typeof args.room === 'string' ? args.room : undefined;
-  if (remote !== undefined) {
-    const entry = house.catalog.remotes[remote];
-    return entry !== undefined && inDriven(house.rooms.ofRemote[entry.device_id]);
-  }
-  const trigger = objectOf(args.trigger);
-  if (script === 'automation.effects_native_light_controls') {
-    const control = typeof trigger.topic === 'string' ? controlTopic(trigger.topic) : undefined;
-    if (control === undefined) return false;
-    const row = nativeSourceFor(house.catalog.ui_rows, control.alias);
-    const fallback = objectOf(args.sources)[control.alias];
-    const source = row.matched ? row.source : typeof fallback === 'string' ? fallback : undefined;
-    return source !== undefined && inDriven(house.rooms.ofId[source]);
-  }
-  if (script === 'automation.lighting_schedule_lamp_change_detector') {
-    const lamps = entityIds(objectOf(objectOf(objectOf(trigger.event).data).service_data).entity_id);
-    return lamps.length > 0 && lamps.every(lamp => inDriven(house.rooms.ofId[lamp]));
-  }
-  if (script === 'automation.lighting_schedule_engine' && trigger.id === 'lamp_on') {
-    const lamp = trigger.entity_id;
-    return typeof lamp === 'string' && inDriven(house.rooms.ofId[lamp]);
-  }
-  return true;
 }
 
 /** The catalog lamps in the rooms the port drives, for the re-send when a room is handed over. */

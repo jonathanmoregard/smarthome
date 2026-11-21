@@ -10,7 +10,7 @@ import type { OutputScope } from '../../src/runtime/host.ts';
 import { handlers } from '../../src/runtime/registry.ts';
 import { liveScope } from '../../src/runtime/live-rooms.ts';
 import { parseLiveRooms } from '../../src/parse/live-rooms.ts';
-import { bridgeInput, handOver, ingestChange } from '../../src/main.ts';
+import { handOver, ingestChange } from '../../src/main.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
 const overrides = { state: '1', attributes: {}, last_updated: 'r1' };
@@ -19,7 +19,7 @@ const bare: Snapshot = { now: '2026-10-26T12:00:00Z', areas: {}, members: [], st
   [runtime]: { state: '1', attributes: { generation: 1, applied: {} } },
 } };
 const directory = () => mkdtemp(join(tmpdir(), 'lighting-live-rooms-'));
-const notDen: OutputScope = { sends: call => call.data.topic !== 'den', keeps: () => false };
+const notDen: OutputScope = { origin: () => ({ kind: 'house' }), share: call => call.data.topic === 'den' ? [] : [call], keeps: () => false };
 
 test('a call the scope does not send is skipped, and the batch still succeeds', async () => {
   const calls: ServiceCall[] = [];
@@ -41,7 +41,8 @@ test('a call the scope does not send is skipped, and the batch still succeeds', 
 
 test('a kept entity\'s writes stay in the process', async () => {
   const calls: ServiceCall[] = [];
-  const keepsRuntime: OutputScope = { sends: call => call.target?.entity_id !== runtime, keeps: entity => entity === runtime };
+  const keepsRuntime: OutputScope = { origin: () => ({ kind: 'house' }), share: call => call.target?.entity_id === runtime ? [] : [call],
+    keeps: entity => entity === runtime };
   const host = await LightingHost.open({ path: join(await directory(), 'state.json'), initial: bare, autoTimers: false, scope: keepsRuntime,
     program: request => execute(request, { mark: ctx => {
       ctx.emit('variable.update_sensor', { value: 'local', attributes: { applied: { 'light.studio': 2 } } }, { entity_id: runtime });
@@ -56,7 +57,7 @@ test('a kept entity\'s writes stay in the process', async () => {
 });
 
 test('a kept entity is read from Home Assistant once, then never again', async () => {
-  const keepsRuntime: OutputScope = { sends: () => true, keeps: entity => entity === runtime };
+  const keepsRuntime: OutputScope = { origin: () => ({ kind: 'house' }), share: call => [call], keeps: entity => entity === runtime };
   const seedless: Snapshot = { ...bare, state: { 'sensor.ls_overrides': overrides } };
   const host = await LightingHost.open({ path: join(await directory(), 'state.json'), initial: seedless, autoTimers: false,
     scope: keepsRuntime, program: request => execute(request, {}), transport: { send: async () => {}, close: async () => {} } });
@@ -97,9 +98,17 @@ function twoRooms(): Snapshot {
   return snapshot;
 }
 
-async function applyHouse(live: string): Promise<{ calls: ServiceCall[]; errors: string[]; host: LightingHost }> {
+/** The two rooms with a verified multicast group over both rooms' bulbs, as the candle cross groups are. */
+function crossGroup(): Snapshot {
+  const snapshot = twoRooms();
+  if (snapshot.catalog !== undefined) snapshot.catalog.multicast = [{ id: 'cross', topic: 'zigbee2mqtt/cross/set', verified: true,
+    members: ['light.den_bulb', 'light.studio_bulb'] }];
+  return snapshot;
+}
+
+async function applyHouse(live: string, initial: Snapshot = twoRooms()): Promise<{ calls: ServiceCall[]; errors: string[]; host: LightingHost }> {
   const calls: ServiceCall[] = [], errors: string[] = [];
-  const host = await LightingHost.open({ path: join(await directory(), 'state.json'), initial: twoRooms(), autoTimers: false,
+  const host = await LightingHost.open({ path: join(await directory(), 'state.json'), initial, autoTimers: false,
     scope: liveScope(parseLiveRooms(live)), report: message => errors.push(message), program: request => execute(request, handlers),
     transport: { send: async call => { calls.push(call); }, close: async () => {} } });
   await host.dispatch('ls_apply', { reason: 'config' }); await host.drain();
@@ -117,25 +126,45 @@ test('the schedule computes every room but reaches only the lamps of live rooms'
     assert.ok(targets !== undefined && targets !== null && typeof targets === 'object');
     assert.deepEqual(Object.keys(targets).filter(key => key.startsWith('light.')).sort(), ['light.den', 'light.studio']);
     assert.equal(calls.some(call => call.target?.entity_id === runtime), false);
-    assert.equal(calls.some(call => call.target?.entity_id === 'sensor.ls_overrides'), true);
+    assert.equal(calls.some(call => call.target?.entity_id === 'sensor.ls_overrides'), false, 'the old scripts commit house events');
   } finally { await host.close(); }
 });
 
-test('with an empty live-room list the schedule reaches no lamp', async () => {
+test('with an empty live-room list the port sends nothing at all', async () => {
   const { calls, host } = await applyHouse('');
-  try { assert.deepEqual(bulbTopics(calls), []); } finally { await host.close(); }
+  try { assert.deepEqual(calls, []); } finally { await host.close(); }
+});
+
+test('a house event commits nothing house-wide while a room is still on the old scripts', async () => {
+  const { calls, host } = await applyHouse('studio');
+  try {
+    assert.deepEqual(calls.filter(call => call.service !== 'mqtt.publish'), []);
+    assert.deepEqual(bulbTopics(calls), ['zigbee2mqtt/studio_bulb/set']);
+  } finally { await host.close(); }
+});
+
+test('a group publish over a driven and an old-scripts room reaches the driven lamp on its own topic', async () => {
+  const { calls, errors, host } = await applyHouse('studio', crossGroup());
+  try {
+    assert.deepEqual(errors, []);
+    assert.deepEqual(bulbTopics(calls), ['zigbee2mqtt/studio_bulb/set']);
+  } finally { await host.close(); }
+});
+
+test('with every room driven the group publish goes out whole', async () => {
+  const { calls, host } = await applyHouse('studio,den', crossGroup());
+  try { assert.deepEqual(bulbTopics(calls), ['zigbee2mqtt/cross/set']); } finally { await host.close(); }
 });
 
 test('a lamp switched on in a room the port does not drive does nothing in the port', async () => {
-  const { calls, host } = await applyHouse('studio');
+  const { calls, errors, host } = await applyHouse('studio');
   try {
-    const before = host.snapshot(), sent = calls.length, ignored: string[] = [];
-    await bridgeInput(host, parseLiveRooms('studio'), 'automation.lighting_schedule_engine',
-      { trigger: { platform: 'device', id: 'lamp_on', entity_id: 'light.den' } }, message => ignored.push(message));
+    const before = host.snapshot(), sent = calls.length, reported = errors.length;
+    await host.dispatch('automation.lighting_schedule_engine', { trigger: { platform: 'device', id: 'lamp_on', entity_id: 'light.den' } });
     await host.drain();
     assert.equal(calls.length, sent);
     assert.deepEqual(host.snapshot().state['sensor.ls_overrides'], before.state['sensor.ls_overrides']);
-    assert.equal(ignored.length, 1);
+    assert.deepEqual(errors.slice(reported), ['Ignored automation.lighting_schedule_engine: not in a room the port drives']);
   } finally { await host.close(); }
 });
 
@@ -143,11 +172,43 @@ test('a lamp switched on in a driven room reaches the port', async () => {
   const { calls, host } = await applyHouse('studio');
   try {
     const before = host.snapshot();
-    await bridgeInput(host, parseLiveRooms('studio'), 'automation.lighting_schedule_engine',
-      { trigger: { platform: 'device', id: 'lamp_on', entity_id: 'light.studio' } }, () => {});
+    await host.dispatch('automation.lighting_schedule_engine', { trigger: { platform: 'device', id: 'lamp_on', entity_id: 'light.studio' } });
     await host.drain();
     assert.notDeepEqual(host.snapshot().state['sensor.ls_overrides'], before.state['sensor.ls_overrides']);
     assert.ok(calls.length > 0);
+    // The port is this input's one writer, so its record of the lamp-on reaches the shared store.
+    assert.equal(calls.some(call => call.target?.entity_id === 'sensor.ls_overrides'), true);
+  } finally { await host.close(); }
+});
+
+test('an input that arrives as its room is handed back is not run: the room is decided when the run starts', async () => {
+  const { calls, errors, host } = await applyHouse('studio');
+  try {
+    const before = host.snapshot(), sent = calls.length;
+    // Home Assistant reports the switch off, then the bridge delivers a press made just before it.
+    const off = host.ingestState('input_boolean.ls_studio_on_port', { state: 'off', attributes: {}, last_updated: '2026-10-26T12:00:01Z' });
+    const press = host.dispatch('automation.lighting_schedule_engine', { trigger: { platform: 'device', id: 'lamp_on', entity_id: 'light.studio' } });
+    await off; await press; await host.drain();
+    assert.equal(calls.length, sent);
+    assert.deepEqual(host.snapshot().state['sensor.ls_overrides'], before.state['sensor.ls_overrides']);
+    assert.match(errors.at(-1) ?? '', /^Ignored automation\.lighting_schedule_engine/);
+  } finally { await host.close(); }
+});
+
+test('a timer of a room that is no longer driven is dropped, not run', async () => {
+  const errors: string[] = [];
+  const initial = twoRooms();
+  initial.state['input_boolean.ls_studio_on_port'] = { state: 'off', attributes: {} };
+  initial.scheduled = [{ script: 'ls_remote_gesture', args: { room: 'studio', command: 'power_done' }, due: 0 }];
+  if (initial.catalog !== undefined) initial.catalog.remotes = { studio: { source: 'remote-studio', device_id: 'remote-s' } };
+  initial.areas['remote-s'] = 'studio';
+  const host = await LightingHost.open({ path: join(await directory(), 'state.json'), initial, autoTimers: false, now: () => 1,
+    scope: liveScope(parseLiveRooms('studio')), report: message => errors.push(message), program: request => execute(request, handlers),
+    transport: { send: async () => {}, close: async () => {} } });
+  try {
+    await host.runDue(); await host.drain();
+    assert.deepEqual(host.snapshot().scheduled, []);
+    assert.deepEqual(errors, ['Ignored ls_remote_gesture: not in a room the port drives']);
   } finally { await host.close(); }
 });
 

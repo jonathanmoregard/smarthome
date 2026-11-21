@@ -5,4 +5,4 @@ import type { OutputScope } from '../../../src/runtime/host.ts';
  * its output and keeps nothing to itself. Production builds its scope from
  * the required `--live-rooms` list (`src/runtime/live-rooms.ts`).
  */
-export const sendsAll: OutputScope = { sends: () => true, keeps: () => false };
+export const sendsAll: OutputScope = { origin: () => ({ kind: 'house' }), share: call => [call], keeps: () => false };
