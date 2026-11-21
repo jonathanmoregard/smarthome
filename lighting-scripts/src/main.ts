@@ -12,7 +12,8 @@ import type { Program, OutputTransport } from './runtime/host.ts';
 import { HomeAssistantTransport } from './live.ts';
 import { readLiveRoomsFlag } from './parse/live-rooms.ts';
 import type { LiveRooms } from './parse/live-rooms.ts';
-import { drivenLamps, handedRooms, isPortSwitch, liveScope, newlyHanded, refuseUnknownRooms } from './runtime/live-rooms.ts';
+import { drivenLamps, handedRooms, heartbeatCall, isPortSwitch, liveScope, newlyHanded, refuseUnknownRooms } from './runtime/live-rooms.ts';
+import type { ServiceCall } from './runtime/context.ts';
 import type { Handed } from './runtime/live-rooms.ts';
 
 const record = (value: unknown): JsonObject => {
@@ -74,6 +75,19 @@ export async function ingestChange(host: LightingHost, handover: RoomHandover, e
   await host.ingestState(entity, state);
   if (isPortSwitch(entity)) await handover.reconcile();
 }
+/** How often the port beats; Home Assistant's watchdog treats 30 s without a beat as the port gone. */
+export const HEARTBEAT_MS = 10_000;
+/** Beat now and every `intervalMs` until the answer is called. A failed beat is reported and the next one still goes. */
+export function startHeartbeat(live: LiveRooms, send: (call: ServiceCall) => Promise<unknown>, report: (message: string) => void,
+  intervalMs = HEARTBEAT_MS): () => void {
+  const beat = () => {
+    const call = heartbeatCall(live, Date.now());
+    if (call !== undefined) void send(call).catch(error => report(`Heartbeat not sent: ${error instanceof Error ? error.message : String(error)}`));
+  };
+  beat();
+  const timer = setInterval(beat, intervalMs);
+  return () => clearInterval(timer);
+}
 export async function main(argv = process.argv.slice(2)): Promise<void> {
   const option = (name: string) =>
     { const index = argv.indexOf(name); if (index < 0) return undefined; const value = argv[index + 1]; if (!value ||
@@ -101,6 +115,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     console.error(message) }).catch(async error => { await transport.close(); throw error; });
   let watcher: FSWatcher | undefined;
   const handover = new RoomHandover(host, liveRooms);
+  let stopHeartbeat = () => {};
   try {
   if (configuration) await host.update(state => { state.catalog = initial.catalog!; });
   let stopping = false;
@@ -131,6 +146,8 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       'label_registry_updated']) await live.subscribe(event, () => { void refresh().then(() => handover.reconcile())
       .catch(error => console.error(String(error))); });
     await host.connectionChanged(true);
+    const connection = live;
+    stopHeartbeat = startHeartbeat(liveRooms, call => connection.send(call), message => console.error(message));
     // On start every driven room is newly handed over, so its lamps are re-sent.
     if (!await handover.reconcile()) await host.dispatch('ls_apply', { reason: 'config' });
   }
@@ -147,7 +164,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     if (live) await host.dispatch('ls_apply', { reason: 'config' });
     console.error('Program reloaded; connection and intent retained.');
   })().catch(error => console.error(`Reload rejected; last working program retained: ${String(error)}`)); });
-  const stop = async () => { if (stopping) return; stopping = true; watcher?.close(); await host.close(); };
+  const stop = async () => { if (stopping) return; stopping = true; stopHeartbeat(); watcher?.close(); await host.close(); };
   process.once('SIGINT', () => { void stop().then(() => process.exit()); });
   process.once('SIGTERM', () => { void stop().then(() => process.exit()); });
   console.error(live ? 'Home Assistant host ready.' : 'Offline host ready; service calls are captured only.');
@@ -162,7 +179,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     }
     await stop();
   }
-  } catch (error) { watcher?.close(); await host.close(); throw error; }
+  } catch (error) { stopHeartbeat(); watcher?.close(); await host.close(); throw error; }
 }
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) void main().catch(error =>
   { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; });
