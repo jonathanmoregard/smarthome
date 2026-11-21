@@ -12,7 +12,7 @@
     },
     {
       "file": "src/domain/types/rooms.ts",
-      "symbol": "Rooms",
+      "symbol": "Rooms.ofId",
       "reason": "D1: ofId is keyed by the registry's own entity or device id. Its readers look up lists that mix lamps, bulbs, on/off lights and switches (a switch range can be set on an on/off light), so no one id kind fits until those lists are split (V3)."
     },
     {
