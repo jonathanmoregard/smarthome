@@ -119,3 +119,35 @@ test('a range save naming no switch answers entity "" and reads the range saved 
     valid: false, entity: '', config: { profile: 'custom', min: 10, max: 60 }, errors: ['Choose a physical on/off lamp or smart plug.'],
   });
 });
+
+test('ls_plan reads no room cache for a lamp in no room', () => {
+  // The captured plan joins `'sensor.ls_cache_' ~ room` with room None, a
+  // sensor no script writes; the port joined `${area}` into
+  // `sensor.ls_cache_null`, so a sensor of that name fed its gradients in.
+  // Break: a lamp in no room names a room cache again.
+  const cached: JsonValue[] = [];
+  const ctx = context({
+    ...scheduleHandlers,
+    ...controllerHandlers,
+    effects_catalog: () => ({}),
+    effects_gradient_plan: typed('effects_gradient_plan', { parse: args => args, run: (_ctx, args) => {
+      cached.push(structuredClone(args.cached));
+      return { gradients: {} };
+    } }),
+    effects_resolve: typed('effects_resolve', { parse: args => args, run: () => ({ targets: {}, assignments: {} }) }),
+    ls_switch_plan: typed('ls_switch_plan', { parse: args => args, run: () => ({ switches: {} }) }),
+  });
+  ctx.members = ['light.hall'];
+  ctx.areas = {};
+  for (const [block, hour, b, k] of [['day', '08:00', 240, 4500], ['cosy', '18:00', 90, 2500], ['night', '23:00', 10, 2000]] as const) {
+    for (const kind of ['start', 'weekend']) ctx.put(`input_datetime.ls_house_${block}_${kind}`, `${hour}:00`);
+    ctx.put(`input_number.ls_house_${block}_fade`, '20');
+    ctx.put(`light.ls_house_${block}`, 'on', { brightness: b, color_mode: 'color_temp', color_temp_kelvin: k, rgb_color: [255, 255, 255] });
+    ctx.put(`input_text.ls_house_${block}`, JSON.stringify({ on: true, b, m: 'ct', k }));
+  }
+  ctx.put('light.hall', 'on', { brightness: 100, color_mode: 'color_temp', color_temp_kelvin: 2500 });
+  ctx.put('sensor.ls_overrides', '0', { overrides: {} });
+  ctx.put('sensor.ls_cache_null', '0', { cache: { gradients: { 'light.hall': { marker: 'not a room cache' } } } });
+  ctx.run('ls_plan', { test_now: '2026-10-23T12:00:00+02:00' });
+  assert.deepEqual(cached, [{}]);
+});

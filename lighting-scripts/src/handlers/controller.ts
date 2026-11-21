@@ -57,8 +57,10 @@ export function plan(ctx: ScriptContext, args: PlanArgs): PlanResult {
   const catalog = ctx.run('effects_catalog');
   const warmEnd = planWarmEnd(ctx.attr('light.candle_test_rgb_warm_end', 'rgb_color'));
   let cached: OpaqueMap = {};
-  for (const target of Object.values(baselineTargets)) {
-    cached = { ...cached, ...cachedGradients(ctx.attr(`sensor.ls_cache_${target.area}`, 'cache')) };
+  for (const { area } of Object.values(baselineTargets)) {
+    // A lamp in no room has no room cache: the captured `'sensor.ls_cache_' ~ None` names a sensor no script writes.
+    if (area === null) continue;
+    cached = { ...cached, ...cachedGradients(ctx.attr(`sensor.ls_cache_${area}`, 'cache')) };
   }
   const gradients = ctx.call('effects_gradient_plan', { base: baselineTargets, warm_end: warmEnd, cached }).gradients;
   const privateRooms = ctx.labels?.private_room;
