@@ -74,6 +74,19 @@ function houseRooms(house: House): Set<RoomId> {
   return rooms;
 }
 
+/**
+ * Refuse a live room that holds none of the house's lamps: a misspelt room
+ * (`bedrom`) would be skipped by neither system's switch check and driven by
+ * neither. Asked once the registry's areas are read.
+ */
+export function refuseUnknownRooms(live: LiveRooms, snapshot: Snapshot): void {
+  const rooms = houseRooms(houseOf(snapshot)), unknown = [...live].filter(room => !rooms.has(room));
+  if (unknown.length > 0) {
+    throw new Error(`--live-rooms names ${unknown.join(', ')}, which ${unknown.length === 1 ? 'holds' : 'hold'} no lamp of the house; `
+      + `its rooms are ${[...rooms].sort().join(', ')}`);
+  }
+}
+
 /** The port drives every room of the house, so nothing is left to the old scripts. */
 function wholeHouse(live: LiveRooms, snapshot: Snapshot): boolean {
   const driven = drivenRooms(live, snapshot), rooms = houseRooms(houseOf(snapshot));

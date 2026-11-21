@@ -12,7 +12,7 @@ import type { Program, OutputTransport } from './runtime/host.ts';
 import { HomeAssistantTransport } from './live.ts';
 import { readLiveRoomsFlag } from './parse/live-rooms.ts';
 import type { LiveRooms } from './parse/live-rooms.ts';
-import { drivenLamps, handedRooms, isPortSwitch, liveScope, newlyHanded } from './runtime/live-rooms.ts';
+import { drivenLamps, handedRooms, isPortSwitch, liveScope, newlyHanded, refuseUnknownRooms } from './runtime/live-rooms.ts';
 import type { Handed } from './runtime/live-rooms.ts';
 
 const record = (value: unknown): JsonObject => {
@@ -110,6 +110,8 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   };
   if (live) {
     await refresh();
+    // The registry's areas are read now; a live room they do not hold is refused before anything is sent.
+    refuseUnknownRooms(liveRooms, host.snapshot());
     live.onConnection(connected => { void (async () => {
       await host.connectionChanged(false);
       // A room whose switch changed while out of reach is handed over once output is allowed again.

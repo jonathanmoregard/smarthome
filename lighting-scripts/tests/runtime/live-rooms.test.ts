@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { EntityState, ServiceCall, Snapshot } from '../../src/runtime/context.ts';
-import { drivenLamps, handedRooms, isPortSwitch, liveScope, newlyHanded } from '../../src/runtime/live-rooms.ts';
+import { drivenLamps, handedRooms, isPortSwitch, liveScope, newlyHanded, refuseUnknownRooms } from '../../src/runtime/live-rooms.ts';
 import type { Origin } from '../../src/runtime/host.ts';
 import type { LiveRooms } from '../../src/parse/live-rooms.ts';
 import type { JsonObject } from '../../src/runtime/context.ts';
@@ -67,6 +67,17 @@ test('an empty live-room setting is an empty list, and a list names its rooms', 
 test('a live-room list with an empty entry is refused', () => {
   assert.throws(() => parseLiveRooms('studio,,den'), /empty room/);
   assert.throws(() => parseLiveRooms('studio,'), /empty room/);
+});
+
+test('a live room that holds no lamp of the house is refused, naming it and the house\'s rooms', () => {
+  assert.doesNotThrow(() => refuseUnknownRooms(parseLiveRooms('studio,den'), house()));
+  assert.doesNotThrow(() => refuseUnknownRooms(parseLiveRooms(''), house()));
+  assert.throws(() => refuseUnknownRooms(parseLiveRooms('studio,stduio'), house()),
+    { message: "--live-rooms names stduio, which holds no lamp of the house; its rooms are den, studio" });
+  // An area with no catalog lamp in it (here: only remotes) is no room the port can drive.
+  const view = house();
+  view.areas['remote-x'] = 'porch';
+  assert.throws(() => refuseUnknownRooms(parseLiveRooms('porch'), view), /names porch/);
 });
 
 test('lamp commands are sent only to lamps in live rooms', () => {
