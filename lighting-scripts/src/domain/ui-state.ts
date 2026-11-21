@@ -51,7 +51,8 @@ export function uiMessages(view: HouseView, force: boolean): UiMessage[] {
     let target = runtime.target(source);
     if (store === undefined && (members.length > 1 || !members.includes(source))) {
       const areas = [...new Set(members.map(e => view.rooms.ofId[e]).filter(isAreaId))];
-      if (areas.length === 1) target = runtime.target(`room:${areas[0]}`);
+      const [only] = areas;
+      if (areas.length === 1 && only !== undefined) target = runtime.target(`room:${only}`);
     }
     if (store === undefined) {
       if (target.level !== undefined) b = target.level;

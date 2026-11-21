@@ -1,13 +1,6 @@
 {
   "kept": [
     {
-      "file": "src/domain/ui-state.ts",
-      "within": "uiMessages",
-      "text": "${areas[0]}",
-      "sites": 1,
-      "reason": "Found by this guard at ed33a7f; fixed or argued in a following commit."
-    },
-    {
       "file": "src/handlers/controller.ts",
       "within": "plan",
       "text": "${target.area}",
