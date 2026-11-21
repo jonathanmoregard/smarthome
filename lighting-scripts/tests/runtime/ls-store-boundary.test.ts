@@ -42,16 +42,22 @@ const written = (ctx: ReturnType<typeof store>): Record<string, unknown> => {
 const storedText = (ctx: ReturnType<typeof store>): string =>
   String(ctx.calls.find(c => c.service === 'input_text.set_value')?.data.value);
 
-test('ls_store rejects a mireds value the captured division cannot convert', () => {
+test('ls_store ignores a mireds value the captured division cannot convert, as if none was given', () => {
   // `1000000 / (mireds | float)` is Python division. `| float` yields 0.0 for a
   // zero and for anything unparseable, so the oracle raises ZeroDivisionError.
   // JavaScript instead yields Infinity/NaN, which `JSON.stringify` had been
-  // silently writing to the store as `"k":null`.
+  // silently writing to the store as `"k":null`. A value a person sends
+  // recovers instead (2026-11-21): the mireds is not supplied, so the saved
+  // colour and the effect's colour channel stay as they are.
   // `true | float` is 1.0, so a boolean is NOT in this set -- only values the
   // float filter reduces to 0.0: a zero, and anything it cannot parse at all.
+  const cached = JSON.stringify({ m: 'ct', k: 2700, effect: 'Normal light', effect_channels: ['brightness', 'color'] });
+  const without = store(cached);
+  without.run('ls_store', { store: STORE, brightness: 100 });
   for (const mireds of [0, '0', 'abc', []]) {
-    assert.throws(() => store().run('ls_store', { store: STORE, mireds }),
-      /ls_store\.mireds/, `mireds ${JSON.stringify(mireds)} must raise instead of writing a null kelvin`);
+    const ctx = store(cached);
+    ctx.run('ls_store', { store: STORE, brightness: 100, mireds });
+    assert.equal(storedText(ctx), storedText(without), `mireds ${JSON.stringify(mireds)}`);
   }
 });
 

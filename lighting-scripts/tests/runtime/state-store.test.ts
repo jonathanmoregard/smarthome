@@ -19,10 +19,20 @@ test('ls_commit power rejects values rejected by the captured Home Assistant boo
   );
 });
 
-test('ls_store profile booleans use the captured Home Assistant bool filter', () => {
-  const ctx = context({ ...stateStoreHandlers, effects_catalog: () => ({ effects: {} }) });
-  ctx.put('input_text.profile', '{}');
-  assert.throws(() => ctx.run('ls_store', { store: 'input_text.profile', own: 'hot' }), /ls_store\.own/);
+test('ls_store profile booleans the Home Assistant bool filter rejects are ignored, as if none was given', () => {
+  // The captured `| bool` raises on them; a value a person sends recovers
+  // instead (2026-11-21): the field is not supplied, so the saved one stays.
+  const written = (args: Record<string, string>) => {
+    const ctx = context({ ...stateStoreHandlers, effects_catalog: () => ({ effects: {} }) });
+    ctx.put('input_text.profile', JSON.stringify({ on: true, own: true }));
+    ctx.run('ls_store', { store: 'input_text.profile', brightness: 10, ...args });
+    return ctx.calls.find(call => call.service === 'input_text.set_value')?.data.value;
+  };
+  for (const value of ['hot', 'maybe', '']) {
+    assert.equal(written({ own: value }), written({}), `own ${JSON.stringify(value)}`);
+    assert.equal(written({ on: value }), written({}), `on ${JSON.stringify(value)}`);
+  }
+  assert.deepEqual(JSON.parse(String(written({ own: 'off', on: 'no' }))), { on: false, own: false, b: 10, effect_channels: [] });
 });
 
 test('ls_commit rejects unhashable record keys on the shared affected-room lookup', () => {

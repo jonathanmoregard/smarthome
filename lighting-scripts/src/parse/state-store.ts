@@ -86,8 +86,12 @@ export function scheduledBlocks(result: JsonValue): ScheduledBlocks {
   };
 }
 
-/** Home Assistant's custom `| bool` filter, measured from the pinned oracle. */
-export function haBoolean(value: JsonValue | undefined, context: string): boolean {
+/**
+ * Home Assistant's custom `| bool` filter, measured from the pinned oracle,
+ * as a lenient read: what the filter accepts is its boolean, and what it
+ * rejects (where the filter raises) is none. Never raises.
+ */
+export function haBooleanOf(value: JsonValue | undefined): boolean | undefined {
   if (typeof value === 'boolean') return value;
   if (typeof value === 'number') return Number.isNaN(value) ? true : value !== 0;
   if (typeof value === 'string') {
@@ -95,13 +99,20 @@ export function haBoolean(value: JsonValue | undefined, context: string): boolea
     if (['1', 'true', 'yes', 'on', 'enable'].includes(normalized)) return true;
     if (['0', 'false', 'no', 'off', 'disable'].includes(normalized)) return false;
   }
-  throw new ParseError(`${context} is not accepted by Home Assistant's bool filter`);
+  return undefined;
 }
 
-/** {@link haBoolean} for a saved value: what the filter rejects is `fallback` instead of a raise. */
+/** Home Assistant's custom `| bool` filter: what it rejects raises, as the filter does. */
+export function haBoolean(value: JsonValue | undefined, context: string): boolean {
+  const parsed = haBooleanOf(value);
+  if (parsed === undefined) throw new ParseError(`${context} is not accepted by Home Assistant's bool filter`);
+  return parsed;
+}
+
+/** {@link haBooleanOf} for a saved value: what the filter rejects is `fallback` instead of a raise. */
 export function haBooleanOr(value: JsonValue | undefined, fallback: boolean): boolean {
-  try { return haBoolean(value, 'saved value'); }
-  catch (error) { if (error instanceof ParseError) return fallback; throw error; }
+  const parsed = haBooleanOf(value);
+  return parsed === undefined ? fallback : parsed;
 }
 
 /**
@@ -113,17 +124,19 @@ function supplied(value: JsonValue | undefined): boolean {
   return value !== undefined && value !== null;
 }
 
-/** `(1000000 / (mireds | float)) | int` */
-function miredKelvin(mireds: JsonValue | undefined): number {
-  // The float filter yields 0.0 both for a zero and for anything it cannot
-  // parse, and Python division by 0.0 raises ZeroDivisionError. JavaScript
-  // instead produces Infinity or NaN, which `JSON.stringify` wrote to the store
-  // as `"k":null` -- a saved profile claiming colour temperature with no value.
+/**
+ * `(1000000 / (mireds | float)) | int`, or none when it cannot convert.
+ *
+ * The float filter yields 0.0 both for a zero and for anything it cannot
+ * parse, and Python division by 0.0 raises ZeroDivisionError. JavaScript
+ * instead produces Infinity or NaN, which `JSON.stringify` wrote to the store
+ * as `"k":null` -- a saved profile claiming colour temperature with no value.
+ * A value a person sends recovers instead (2026-11-21): a mireds that does not
+ * convert is none, and the store reads it as not supplied.
+ */
+function miredKelvin(mireds: JsonValue | undefined): number | undefined {
   const divisor = jinjaFloat(mireds);
-  if (divisor === 0) {
-    throw new ParseError('ls_store.mireds must convert to a kelvin value, got a zero divisor');
-  }
-  return jinjaInt(1_000_000 / divisor);
+  return divisor === 0 ? undefined : jinjaInt(1_000_000 / divisor);
 }
 
 /** `h=hs[0] | float, s=hs[1] | float` */
@@ -141,19 +154,24 @@ function huePair(hs: JsonValue | undefined): { h: number; s: number } {
  * makes absence and none identical, and each carries its own filter: `| bool`
  * for on/own, `| int` for brightness and kelvin, `| float` under a division
  * for mireds, `| float` per element for hs. The effect is stored as supplied.
+ *
+ * The light values come from the dashboard a person uses, so they recover
+ * rather than raise (2026-11-21): an `on` or `own` the bool filter rejects, and
+ * a mireds that does not convert, are read as not supplied -- the saved value
+ * stays, and an unconverted mireds releases no colour channel.
  */
 export function parseStoreProfile(args: JsonObject): StoreProfileArgs {
+  const mireds = !supplied(args.kelvin) && supplied(args.mireds) ? miredKelvin(args.mireds) : undefined;
   return {
     // The captured tail evaluates `store.startswith('input_text.ls_lamp_')`,
     // which raises for a non-string. Nothing coerces it, so neither does this.
     entity: requireString(args, 'store', 'ls_store'),
-    on: supplied(args.on) ? haBoolean(args.on, 'ls_store.on') : undefined,
-    own: supplied(args.own) ? haBoolean(args.own, 'ls_store.own') : undefined,
+    on: supplied(args.on) ? haBooleanOf(args.on) : undefined,
+    own: supplied(args.own) ? haBooleanOf(args.own) : undefined,
     brightness: supplied(args.brightness) ? jinjaInt(args.brightness) : undefined,
-    kelvin: supplied(args.kelvin) ? jinjaInt(args.kelvin)
-      : supplied(args.mireds) ? miredKelvin(args.mireds) : undefined,
+    kelvin: supplied(args.kelvin) ? jinjaInt(args.kelvin) : mireds,
     hs: supplied(args.hs) ? huePair(args.hs) : undefined,
-    releasesColour: supplied(args.kelvin) || supplied(args.mireds) || supplied(args.hs),
+    releasesColour: supplied(args.kelvin) || mireds !== undefined || supplied(args.hs),
     effect: supplied(args.effect) ? storedFact(args.effect) : undefined,
   };
 }
