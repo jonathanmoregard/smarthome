@@ -7,7 +7,7 @@ import type { StoredValue } from '../parse/overrides.ts';
 import { overridesRevision } from '../parse/sensors.ts';
 import { switchRangeEntities } from '../parse/planning.ts';
 import {
-  attributeNumber, entityProfile, entitySample, privateRoomIds, rgbComponent, savedProfile, stateNumber, storedScheduleRecords,
+  entityProfile, entitySample, privateRoomIds, rgbComponent, savedProfile, stateNumber, storedScheduleRecords, wakeInstant,
 } from '../parse/schedule.ts';
 import type { ScheduleRecord, ScheduleRecords } from '../parse/schedule.ts';
 import type { OverlayKey } from './types/overlay.ts';
@@ -163,8 +163,8 @@ function initialStage(S: ScheduleDetails): Stage {
 }
 function wakeStage(view: HouseView, area: string, S: ScheduleDetails, at: number, stage: Stage): Stage {
   const entity = `input_datetime.ls_${area}_wake`;
-  if (!hasValue(view, entity)) return stage;
-  const wake = attributeNumber(view, entity, 'timestamp');
+  const wake = hasValue(view, entity) ? wakeInstant(view, entity) : undefined;
+  if (wake === undefined) return stage;
   const duration = stateNumber(view, `input_number.ls_${area}_wake_fade`, 37.5) * 60;
   const elapsed = at - wake;
   if (S.cur !== 'night' || S.cur_ts > wake) return stage;

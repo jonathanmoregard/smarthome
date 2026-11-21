@@ -15,11 +15,11 @@
  */
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { HouseView } from '../runtime/effects.ts';
-import { jinjaList, jinjaTruthy, object, parsePythonNumeric, requireObject, requireString } from '../runtime/parse.ts';
+import { jinjaList, jinjaTruthy, object, parseFinite, parsePythonNumeric, requireObject, requireString } from '../runtime/parse.ts';
 import type { Block } from '../domain/blocks.ts';
 import type { LampColor, LampLight, LampProfile, LampSample, ScheduledBaseArgs } from '../domain/schedule.ts';
 import { isBlock } from './blocks.ts';
-import { asTimestampOr, num, saved, testNow } from './accessors.ts';
+import { asTimestampOr, num, saved, stateNumberOr, testNow } from './accessors.ts';
 import { haBooleanOr } from './state-store.ts';
 import { storedFact } from './overrides.ts';
 import type { StoredFact, StoredValue } from './overrides.ts';
@@ -212,14 +212,19 @@ export function rgbComponent(rgb: StoredValue[], index: number): number {
   return num(rgb[index]);
 }
 
-/** An entity's state as a schedule number; HA's no-value states read as `fallback`. */
+/** A helper's state as a schedule number, read by {@link stateNumberOr}: anything but a number is `fallback`. */
 export function stateNumber(ctx: HouseView, entity: string, fallback: number): number {
-  return num(ctx.get(entity), fallback);
+  return stateNumberOr(ctx.get(entity), fallback);
 }
 
-/** An entity attribute as a required schedule number. */
-export function attributeNumber(ctx: HouseView, entity: string, key: string): number {
-  return num(ctx.attr(entity, key));
+/**
+ * A wake helper's `timestamp` attribute: a finite number (or numeric text) is
+ * the instant, and anything else -- absent, `null`, unreadable -- is none, which
+ * the schedule reads as no wake (2026-11-21: a value a person can edit
+ * recovers to a default). It used to raise.
+ */
+export function wakeInstant(ctx: HouseView, entity: string): number | undefined {
+  return parseFinite(ctx.attr(entity, 'timestamp'));
 }
 
 /**

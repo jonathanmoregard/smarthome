@@ -15,7 +15,7 @@ import type { HouseView } from '../runtime/effects.ts';
 import { isObject, jinjaTruthy, lazy, object, ParseError, requireObject, requireString } from '../runtime/parse.ts';
 import { carry, carryOptional, reveal } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
-import { list, nativeScalar, num } from './accessors.ts';
+import { list, nativeScalar, stateNumberOr } from './accessors.ts';
 import { storedFact } from './overrides.ts';
 import type { StoredEntry, StoredFact } from './overrides.ts';
 import type {
@@ -180,9 +180,9 @@ export function nativeCapture(result: JsonValue): NativeCapture {
   };
 }
 
-/** An `input_number` read as `num(state, fallback)`: HA's no-value states take the fallback. */
+/** An `input_number`'s state, read by {@link stateNumberOr}: anything but a number is `fallback`. */
 export function inputNumber(ctx: HouseView, entity: string, fallback: number): number {
-  return num(ctx.get(entity), fallback);
+  return stateNumberOr(ctx.get(entity), fallback);
 }
 
 /**

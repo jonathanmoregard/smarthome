@@ -9,7 +9,7 @@
  */
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { HouseView } from '../runtime/effects.ts';
-import { isObject, jinjaTruthy, ParseError, requireArray, requireFinite, requireString } from '../runtime/parse.ts';
+import { isObject, jinjaTruthy, parseFinite, ParseError, requireArray, requireFinite, requireString } from '../runtime/parse.ts';
 
 export const list = (value: JsonValue | undefined): JsonValue[] =>
   value === undefined ? [] : requireArray({ value }, 'value', 'schedule list');
@@ -66,6 +66,16 @@ export function savedNumberOr(value: JsonValue | undefined, fallback: number): n
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'boolean') return value ? 1 : 0;
   return fallback;
+}
+/**
+ * A helper state a person sets (an `input_number`), read as a number: numeric
+ * text is that number, and anything else -- Home Assistant's `unknown` and
+ * `unavailable`, and text that is not a finite number -- is `fallback`
+ * (2026-11-21: a value a person can edit recovers to a default). Never raises.
+ */
+export function stateNumberOr(state: string, fallback: number): number {
+  const parsed = parseFinite(state);
+  return parsed === undefined ? fallback : parsed;
 }
 /**
  * Home Assistant's `as_timestamp(value, fallback)`: date text is its instant;
