@@ -180,3 +180,11 @@ test('a lamp listing the same bulb twice still owns it alone', () => {
   assert.deepEqual(parseCatalog({ ...minimal, members: { 'light.a': ['light.a_1', 'light.a_1'] } }).members,
     { 'light.a': ['light.a_1', 'light.a_1'] });
 });
+
+test('a catalog remote whose source spells a dashboard or native key is refused when the catalog is parsed', () => {
+  // Break: the source stays plain text, so the catalog loads and the refusal waits for the first press.
+  for (const source of ['ui:light.studio', 'native:room:studio']) {
+    assert.throws(() => parseCatalog({ ...minimal, remotes: { studio: { device_id: 'abc', source } } }),
+      /A remote source must not begin/, source);
+  }
+});

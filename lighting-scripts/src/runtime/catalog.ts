@@ -41,8 +41,8 @@
  */
 import { ParseError, describe, requireArray, requireBoolean, requireObject, requireString } from './parse.ts';
 import type { JsonObject, JsonValue, ScriptContext } from './context.ts';
-import type { BulbId, EffectName, LampId, RemoteId } from '../domain/types/ids.ts';
-import { toBulbId, toLampId, toRemoteId } from '../parse/ids.ts';
+import type { BulbId, EffectName, LampId, RemoteId, RemoteSource } from '../domain/types/ids.ts';
+import { toBulbId, toLampId, toRemoteId, toRemoteSource } from '../parse/ids.ts';
 
 /**
  * The channels an effect drives.
@@ -89,7 +89,7 @@ export interface CatalogBulb {
 
 export interface CatalogRemote {
   device_id: RemoteId;
-  source: string;
+  source: RemoteSource;
 }
 
 export interface Catalog {
@@ -204,8 +204,18 @@ function parseBulb(bulb: JsonObject, context: string): CatalogBulb {
 function parseRemote(remote: JsonObject, context: string): CatalogRemote {
   return {
     device_id: toRemoteId(requireString(remote, 'device_id', context)),
-    source: requireString(remote, 'source', context),
+    source: remoteSourceOf(requireString(remote, 'source', context), context),
   };
+}
+
+/** A catalog remote's source, with the catalog context on the refusal. */
+function remoteSourceOf(raw: string, context: string): RemoteSource {
+  try {
+    return toRemoteSource(raw);
+  } catch (error) {
+    if (error instanceof ParseError) throw new ParseError(`${context}.source: ${error.message}`);
+    throw error;
+  }
 }
 
 /**

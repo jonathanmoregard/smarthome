@@ -275,7 +275,7 @@
     { "file": "src/parse/schedule.ts", "ceiling": 3, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/parse/transport.ts", "ceiling": 1, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/parse/ui-state.ts", "ceiling": 5, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
-    { "file": "src/runtime/catalog.ts", "ceiling": 10, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/runtime/catalog.ts", "ceiling": 9, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/runtime/context.ts", "ceiling": 40, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/runtime/effects.ts", "ceiling": 7, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." }
   ]
