@@ -299,14 +299,14 @@ export type ScheduleEnvelope = {
  * `effects_ui_sync` reads `effect` back out. The `=== undefined` defaults are
  * absence-only on purpose; a stored null is not the same as a missing key.
  *
- * `area` is `string | null` because the source writes `area || null`, turning
+ * `area` is `RoomId | null` because the source writes `area || null`, turning
  * a lamp with no area into an explicit null. That is a Jinja-truthiness
  * fallback on a string, so the empty-string case is load-bearing and the
- * spelling stays.
+ * spelling stays: the lamp's room, or null when it has none.
  */
 export type LampProfileEntry = { effect: StoredValue } & ProfileLevel & {
   period: string;
-  area: string | null;
+  area: RoomId | null;
   /** As stored, or both channels when the profile names none. */
   effect_channels: StoredValue | string[];
   send: boolean;

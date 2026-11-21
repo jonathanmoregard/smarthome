@@ -281,7 +281,7 @@ function decodeProfileEntry(value: JsonValue, context: string): LampProfileEntry
     effect: storedFact(entry.effect ?? null),
     ...decodeProfileLevel(entry, context),
     period: requireString(entry, 'period', context),
-    area: entry.area === null ? null : requireString(entry, 'area', context),
+    area: entry.area === null ? null : toRoomId(requireString(entry, 'area', context)),
     effect_channels: storedFact(entry.effect_channels ?? null),
     send: requireBoolean(entry.send, `${context}.send`),
     ignore_overrides: decodeStrings(entry, 'ignore_overrides', context),
