@@ -11,7 +11,7 @@ import { assignedAs, powerClosed, runtimeGeneration, runtimeGenerationIs, runtim
 import type { FrameColour, RuntimeState, StoredChannels } from '../parse/transport.ts';
 import type { LampOrRoom } from './types/lighting-state.ts';
 import type { OverlayKey } from './types/overlay.ts';
-import type { BulbId } from './types/ids.ts';
+import type { BulbId, LampId } from './types/ids.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
 
@@ -130,8 +130,10 @@ export interface FrameTarget {
 }
 export interface FramePlanArgs {
   catalog: {
-    members: Record<string, string[]>;
-    topics: Record<string, string>;
+    /** Each lamp's bulbs. */
+    members: Record<LampId, BulbId[]>;
+    /** Each bulb's MQTT command topic. */
+    topics: Record<BulbId, string>;
     /** The multicast groups, forwarded to the group planner unread. */
     multicast: () => Verbatim;
   };
@@ -189,6 +191,8 @@ export interface FilterArgs {
 /** One row per on member of each on lamp, carrying that lamp's light. */
 export function frameRows(view: HouseView, args: FramePlanArgs): FrameRow[] {
   const catalog = args.catalog, rows: FrameRow[] = [];
+  // The targets are lighting-state entry keys, plain text until those lists are parsed; look their lamps up as text.
+  const membersByText: Readonly<Record<string, BulbId[] | undefined>> = catalog.members;
   for (const [lamp, target] of Object.entries(args.targets)) {
     let payload: FramePayload = {};
     const color = target.color, brightness = target.brightness;
@@ -211,7 +215,7 @@ export function frameRows(view: HouseView, args: FramePlanArgs): FrameRow[] {
     const capped = args.transitionRooms === null || args.transitionRooms.includes(target.area ?? null);
     if (args.transitionCap !== null && capped) transition = Math.min(transition, args.transitionCap);
     payload = target.on ? { ...payload, transition } : { state: 'OFF', transition };
-    if (view.get(lamp) === 'on') for (const member of catalog.members[lamp] ?? []) {
+    if (view.get(lamp) === 'on') for (const member of membersByText[lamp] ?? []) {
       if (view.get(member) === 'on') rows.push({ entity: member, owner: lamp,
         topic: catalog.topics[member] ?? null, payload });
     }

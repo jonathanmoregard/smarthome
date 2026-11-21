@@ -26,8 +26,8 @@ import {
 import { carry, carryOptional, reveal } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import type { RGB } from '../domain/scale.ts';
-import type { RoomId } from '../domain/types/ids.ts';
-import { toRoomId } from './ids.ts';
+import type { BulbId, LampId, RoomId } from '../domain/types/ids.ts';
+import { toBulbId, toLampId, toRoomId } from './ids.ts';
 
 function selector(container: JsonObject, key: string, split = false): string[] {
   const value = container[key];
@@ -69,7 +69,8 @@ export interface CatalogEffects {
   channels(effect: string): string[];
 }
 export interface NativeCatalog {
-  members: Record<string, string[]>;
+  /** Each lamp's bulbs. */
+  members: Record<LampId, BulbId[]>;
   groups: CatalogGroups;
   effects: CatalogEffects;
 }
@@ -78,7 +79,7 @@ export function parseNativeCatalog(value: JsonValue | undefined, context: string
   const catalog = value === undefined ? requireObject({}, 'value', context) : requireObject({ value }, 'value', context);
   const members = requireObject(catalog, 'members', context);
   const parsedMembers = Object.fromEntries(Object.entries(members).map(([lamp, physical]) =>
-    [lamp, stringArray(physical, `${context}.members.${lamp}`)]));
+    [toLampId(lamp), stringArray(physical, `${context}.members.${lamp}`).map(toBulbId)]));
   const groups = requireObject(catalog, 'groups', context);
   const effects = requireObject(catalog, 'effects', context);
   return {

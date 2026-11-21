@@ -28,6 +28,7 @@ import type {
 } from '../domain/transport.ts';
 import { lampOrRoom } from './lighting-state.ts';
 import { parseOverlayKey } from './overlay-key.ts';
+import { toBulbId, toLampId } from './ids.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
 
@@ -122,9 +123,9 @@ function parseFrameCatalog(args: JsonObject): FramePlanArgs['catalog'] {
   const topicsRaw = requireObject(catalog, 'topics', 'effects_frame_plan.catalog');
   return {
     members: Object.fromEntries(Object.keys(membersRaw).map(lamp =>
-      [lamp, requireStrings(membersRaw, lamp, 'effects_frame_plan.catalog.members')])),
+      [toLampId(lamp), requireStrings(membersRaw, lamp, 'effects_frame_plan.catalog.members').map(toBulbId)])),
     topics: Object.fromEntries(Object.keys(topicsRaw).map(member =>
-      [member, requireString(topicsRaw, member, 'effects_frame_plan.catalog.topics')])),
+      [toBulbId(member), requireString(topicsRaw, member, 'effects_frame_plan.catalog.topics')])),
     // Read only when the group planner is reached, which is where the oracle
     // reads it; forwarded to it unread.
     multicast: lazy(() => carry(requireArray(catalog, 'multicast', 'effects_frame_plan.catalog'))),
