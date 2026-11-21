@@ -24,10 +24,14 @@ export function labelled(view: HouseView, label: string): string[] {
   return [...new Set(entities.flatMap(e => view.devices?.[e] ?? [e]))];
 }
 export function privateRooms(view: HouseView): RoomId[] { return privateRoomIds(view); }
-/** Is this area one of the private rooms? The area may be any registry area text (or `''` for none). */
-function isPrivateRoom(view: HouseView, area: string): boolean {
+/**
+ * Is this room one of the private rooms? A lamp in no room is private only
+ * when the list names the empty room, as the scripts' `area_id(L) or ''`
+ * lookup reads it.
+ */
+function isPrivateRoom(view: HouseView, room: RoomId | undefined): boolean {
   const rooms: readonly string[] = privateRooms(view);
-  return rooms.includes(area);
+  return room === undefined ? rooms.includes('') : rooms.includes(room);
 }
 export function latestRemote(records: ScheduleRecords, room: RoomOrHouse): OverlayKey {
   // The scripts start from the empty key and keep it when no remote record applies.
@@ -172,9 +176,10 @@ function wakeStage(view: HouseView, area: string, S: ScheduleDetails, at: number
   }
   return stage;
 }
-function scopeFor(view: HouseView, area: string, block: string): string { return area &&
+/** The room's own light when it has one on for the block; the house's otherwise, and for a lamp in no room. */
+function scopeFor(view: HouseView, area: RoomId | undefined, block: string): string { return area !== undefined &&
   view.get(`input_boolean.ls_${area}_${block}_own_light`) === 'on' ? area : 'house'; }
-function sourceEntity(view: HouseView, lamp: string | null, area: string, block: string, fallback = true): string {
+function sourceEntity(view: HouseView, lamp: string | null, area: RoomId | undefined, block: string, fallback = true): string {
   if (block === 'lamp' && lamp) return lamp;
   const scope = scopeFor(view, area, block);
   const lampProfile = lamp === null ? undefined : savedProfile(view, `input_text.ls_lamp_${lamp.split('.')[1]}_${block}`);
@@ -301,9 +306,8 @@ export type ScheduleEnvelope = {
  * absence-only on purpose; a stored null is not the same as a missing key.
  *
  * `area` is `RoomId | null` because the source writes `area || null`, turning
- * a lamp with no area into an explicit null. That is a Jinja-truthiness
- * fallback on a string, so the empty-string case is load-bearing and the
- * spelling stays: the lamp's room, or null when it has none.
+ * a lamp with no area (or the empty area id) into an explicit null: the
+ * lamp's room, or null when it is in none.
  */
 export type LampProfileEntry = { effect: StoredValue } & ProfileLevel & {
   period: string;
@@ -375,9 +379,10 @@ export function scheduledBase(view: HouseView, args: ScheduledBaseArgs, roomLoca
   for (const lamp of [...dimmables, ...plugs]) {
     if (roomOnly !== undefined && (!roomLocal || view.rooms.ofId[lamp] !== roomOnly)) continue;
     if (roomLocal && !dimmables.includes(lamp)) continue;
-    const area = view.rooms.ofId[lamp] ?? '';
-    // `rooms` never holds `''` (isAreaId), so a lamp with no room follows the house.
-    const room: RoomOrHouse = area !== '' && rooms.includes(area) ? area : 'house';
+    // A lamp the registry places in no room, or in the empty area id, is in no room and follows the house.
+    const placed = view.rooms.ofId[lamp];
+    const area = isAreaId(placed) ? placed : undefined;
+    const room: RoomOrHouse = area !== undefined && rooms.includes(area) ? area : 'house';
     const S = details[room]!;
     const privateRoom = isPrivateRoom(view, area);
     const newest = latestRemote(records, room);
@@ -435,7 +440,7 @@ export function scheduledBase(view: HouseView, args: ScheduledBaseArgs, roomLoca
     // and nothing else (no invented 255, no 3000 K).
     const level: ProfileLevel = target.on ? { brightness: target.brightness, on: true } : { on: false };
     const p: LampProfileEntry = { effect: pr.effect === undefined ? 'Normal light' : pr.effect, ...level, period: block,
-      area: area || null, effect_channels: pr.effectChannels === undefined ? ['brightness', 'color'] : pr.effectChannels,
+      area: area === undefined ? null : area, effect_channels: pr.effectChannels === undefined ? ['brightness', 'color'] : pr.effectChannels,
       send: why !== 'tick' || stage.moving || stage.edge, ignore_overrides: ignored.map(overlayKeyText) };
     profiles[lamp] = p;
     const command: ScheduleOutput = !target.on ? { kind: 'off', transition }
