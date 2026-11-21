@@ -49,6 +49,16 @@
       "file": "src/domain/planning.ts",
       "symbol": "Dependencies.switches",
       "reason": "V1 switch site, kept: the cache fingerprint's on/off list as observed, `labelled(view, 'on_off')` (label members, device-expanded in the domain) plus the saved switch-range keys, compared with the stored fingerprint as text. The schedule plans the same `on_off` entities as lamps, so they are not all switches; branding the list needs the label list split and parsed at the snapshot edge (V3)."
+    },
+    {
+      "file": "src/domain/transport.ts",
+      "symbol": "FramePlanArgs.catalog.topics",
+      "reason": "V1 bulb site, kept: the key is a BulbId; the string left is the bulb's MQTT command topic, an address outside V1's id brands (other-id, named in V2)."
+    },
+    {
+      "file": "src/runtime/catalog.ts",
+      "symbol": "Catalog.topics",
+      "reason": "V1 bulb site, kept: the key is a BulbId; the string left is the bulb's MQTT command topic, an address outside V1's id brands (other-id, named in V2)."
     }
   ],
   "ceilings": [
@@ -66,7 +76,7 @@
     { "file": "src/domain/scale.ts", "ceiling": 21, "reason": "Arithmetic results; typed in V3 (spec 3.4 row 2): every number site here is a computed real, and the entry points take range types in V3. A ratchet: it only falls." },
     { "file": "src/domain/schedule.ts", "ceiling": 59, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/domain/state-store.ts", "ceiling": 25, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
-    { "file": "src/domain/transport.ts", "ceiling": 47, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/domain/transport.ts", "ceiling": 46, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/domain/ui-state.ts", "ceiling": 6, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/parse/dispatch-render.ts", "ceiling": 3, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/parse/native-controls.ts", "ceiling": 34, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
@@ -75,7 +85,7 @@
     { "file": "src/parse/schedule.ts", "ceiling": 3, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/parse/transport.ts", "ceiling": 2, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/parse/ui-state.ts", "ceiling": 5, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
-    { "file": "src/runtime/catalog.ts", "ceiling": 11, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/runtime/catalog.ts", "ceiling": 10, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/runtime/context.ts", "ceiling": 40, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/runtime/effects.ts", "ceiling": 7, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." }
   ]
