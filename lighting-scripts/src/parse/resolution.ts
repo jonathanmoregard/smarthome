@@ -40,7 +40,7 @@ import { boundedNumber } from '../domain/scale.ts';
 import type { Color } from '../domain/scale.ts';
 import { latestStream, lexical } from '../domain/resolution.ts';
 import type { BaseItem, Channel, ChannelValue, Claim, InputAnchor, InputClaim, InputFacts, LightValue, OverrideRecord, Patch, ResolveArgs,
-  Stamp } from '../domain/resolution.ts';
+  Stamp, TargetArea } from '../domain/resolution.ts';
 import { blendEnd, canonicalColor, validColor } from './scale.ts';
 import { validGradient, warmEndArgument } from './gradient.ts';
 import { lampOrRoom } from './lighting-state.ts';
@@ -250,6 +250,13 @@ function overrideRecords(overrides: JsonObject): OverrideRecord[] {
   return Object.entries(overrides).flatMap(([key, record]) => isObject(record) ? [overrideRecord(key, record)] : []);
 }
 
+/** A target's `area`: absent or `null` is no room; anything else names the room, as the text it coerces to. */
+function targetArea(area: JsonValue | undefined): TargetArea {
+  if (area === undefined) return { kind: 'no room', written: 'undefined' };
+  if (area === null) return { kind: 'no room', written: 'null' };
+  return { kind: 'room', room: toRoomId(String(area)) };
+}
+
 function baseItem(target: string, raw: JsonValue): BaseItem {
   const item = object(raw), observed = object(item.observed);
   const isRoom = defaulted(item, 'is_room', false), on = defaulted(item, 'on', true), effect = defaulted(item, 'effect', 'Normal light');
@@ -257,7 +264,7 @@ function baseItem(target: string, raw: JsonValue): BaseItem {
   return {
     isRoomAsStored: carry(isRoom),
     lampOrRoom: lampOrRoom(target, isRoom),
-    area: toRoomId(String(item.area)),
+    area: targetArea(item.area),
     ignored: Array.isArray(item.ignore_overrides)
       ? item.ignore_overrides.filter((key): key is string => typeof key === 'string').map(parseOverlayKey) : [],
     period: carryOptional(item.period),
@@ -312,7 +319,7 @@ export function parseResolveArgs(args: JsonObject): ResolveArgs {
     adjustsByGradient: processor => defaulted(object(object(catalog.processors)[processor]), 'remote_adjustment',
       processor === 'Normal light' ? 'gradient' : 'ignore') === 'gradient',
     private: privateRooms.filter((room): room is string => typeof room === 'string').map(toRoomId),
-    power: area => carry(defaulted(power, area, true)),
+    power: room => carry(room === undefined ? true : defaulted(power, room, true)),
     gradient: (target, signature) => {
       const cached = gradients[target];
       return validGradient(cached, signature) ? cached.curve : undefined;

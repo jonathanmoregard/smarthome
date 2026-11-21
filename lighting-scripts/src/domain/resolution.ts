@@ -110,6 +110,15 @@ export type OverrideRecord = {
   channels: Patch | undefined;
   light: LightValue | undefined;
 };
+/**
+ * A target's room: the room its document's `area` names, or none, when `area`
+ * is absent or `null` (the schedule's lamp in no room). A target in no room
+ * has no room records, no remote stream, is never private and takes the
+ * default power. `written` is the text the resolver has always echoed on the
+ * resolved target for it (`String(undefined)`, `String(null)`); the scripts
+ * echo the value itself, so replacing it is a behaviour change of its own.
+ */
+export type TargetArea = { kind: 'room'; room: RoomId } | { kind: 'no room'; written: 'undefined' | 'null' };
 /** Both ends of a target's cosy <-> day blend. */
 export type BlendEnds = { day: BlendEnd; cosy: BlendEnd };
 /**
@@ -124,7 +133,7 @@ export type BaseItem = {
   /** `is_room` as stored, echoed on the resolved target unread. */
   isRoomAsStored: Verbatim;
   lampOrRoom: LampOrRoom;
-  area: RoomId;
+  area: TargetArea;
   ignored: OverlayKey[];
   period: Verbatim;
   periodIsNight: boolean;
@@ -149,7 +158,8 @@ export type ResolveArgs = {
   channelsOf(effect: string | undefined): Channel[];
   adjustsByGradient(processor: string): boolean;
   private: RoomId[];
-  power(area: RoomId): Verbatim;
+  /** The room's saved power; a target in no room has none, so the default. */
+  power(room: RoomId | undefined): Verbatim;
   gradient(target: string, signature: GradientSignature): GradientCurve | undefined;
   /** Read where the signature lists it (`warm_end|list`); see `warmEndArgument`. */
   warmEnd: () => RGB;
@@ -184,7 +194,8 @@ export type ResolvedTarget = {
   period: Verbatim;
   /** As the schedule and room power give it, or `false` where a blend with an off end is at or past that end. */
   on: Verbatim | boolean;
-  area: RoomId;
+  /** The target's room, or for a target in no room the text {@link TargetArea} names. */
+  area: RoomId | Extract<TargetArea, { kind: 'no room' }>['written'];
   is_room: Verbatim;
   level?: ChannelValue;
   owners: { brightness: string; color: string };
@@ -214,9 +225,11 @@ function numericStamp(n: number): Stamp { return { value: n, numeric: n, text: `
 function isRemoteStream(r: OverrideRecord): boolean { return r.kind === 'input' || (r.kind === 'channels' && r.via === 'remote'); }
 
 /** The newest remote input stream for a room, over records already in lexical key order. */
-export function latestStream(records: OverrideRecord[], room: RoomId | ''): OverlayKey {
+export function latestStream(records: OverrideRecord[], room: RoomId | '' | undefined): OverlayKey {
   // The scripts start from the empty key and keep it when no remote record applies.
   let key: OverlayKey = { kind: 'saved', key: '' }, stamp = -1;
+  // A target in no room has no remote stream.
+  if (room === undefined) return key;
   for (const record of records) {
     if (record.storedScope !== 'room' || record.target !== room || !isRemoteStream(record)) continue;
     if (record.stamp >= stamp) { key = record.key; stamp = record.stamp; }
@@ -293,23 +306,24 @@ function lightPatch(light: LightValue, key: string, item: BaseItem, args: Resolv
  */
 export function resolveEffects(args: ResolveArgs, candle: ReadonlySet<string>): ResolutionResult {
   const targets: Record<string, ResolvedTarget> = {}, assignments: Record<string, ResolvedTarget> = {};
-  const inputs = new Map<string, InputPosition>(), streams = new Map<string, OverlayKey>();
+  const inputs = new Map<string, InputPosition>(), streams = new Map<RoomId | undefined, OverlayKey>();
   const entries = [...args.targets].sort((a, b) => lexical(a.target, b.target));
   const records = [...args.records].sort((a, b) => lexical(overlayKeyText(a.key), overlayKeyText(b.key)));
   const order = [...entries.filter(entry => entry.item.lampOrRoom.kind === 'room'),
     ...entries.filter(entry => entry.item.lampOrRoom.kind === 'lamp')];
   for (const { target, item } of order) {
-    const area = item.area, isRoom = item.lampOrRoom.kind === 'room';
-    if (!streams.has(area)) streams.set(area, latestStream(records, area));
+    const room = item.area.kind === 'room' ? item.area.room : undefined, isRoom = item.lampOrRoom.kind === 'room';
+    const isPrivate = room !== undefined && args.private.includes(room);
+    if (!streams.has(room)) streams.set(room, latestStream(records, room));
     const candidates: Record<Channel, Candidate[]> = { brightness: [], color: [] };
     let gradientChecked = false, curve: GradientCurve | undefined;
     const samples = new Map<number, Blended>();
     for (const record of records) {
       if (item.ignored.some(key => sameOverlayKey(key, record.key))) continue;
       const scope = record.scope;
-      let applies = (scope === 'house' && record.target === 'house' && !args.private.includes(area)) ||
-        (scope === 'room' && record.target === area) || (scope === 'lamp' && !isRoom && record.target === target);
-      const stream = streams.get(area);
+      let applies = (scope === 'house' && record.target === 'house' && !isPrivate) ||
+        (scope === 'room' && room !== undefined && record.target === room) || (scope === 'lamp' && !isRoom && record.target === target);
+      const stream = streams.get(room);
       if (record.storedScope === 'room' && isRemoteStream(record) && (stream === undefined || !sameOverlayKey(record.key, stream))) {
         applies = false;
       }
@@ -453,7 +467,7 @@ export function resolveEffects(args: ResolveArgs, candle: ReadonlySet<string>): 
         sources[channel] = { ...source, ...(base === undefined ? {} : { base }), ...(intensity === undefined ? {} : { intensity }) };
       }
     }
-    if (args.sara && !item.ignored.some(key => key.kind === 'sara mode') && !args.private.includes(area) && !item.periodIsNight) {
+    if (args.sara && !item.ignored.some(key => key.kind === 'sara mode') && !isPrivate && !item.periodIsNight) {
       sources.color = { kind: 'constant', value: { rgb: [255, 105, 180] }, updated: 0, policy: 'sara' };
       owners.color = overlayKeyText(SARA_MODE);
     }
@@ -461,7 +475,8 @@ export function resolveEffects(args: ResolveArgs, candle: ReadonlySet<string>): 
     const lit = blendLit === undefined ? item.onTruthy : blendLit;
     const level = underlying.brightness;
     const resolved: ResolvedTarget = { brightness: sources.brightness, color: sources.color, period: item.period,
-      on: lit ? args.power(area) : blendLit === undefined ? item.on : false, area, is_room: item.isRoomAsStored,
+      on: lit ? args.power(room) : blendLit === undefined ? item.on : false,
+      area: item.area.kind === 'room' ? item.area.room : item.area.written, is_room: item.isRoomAsStored,
       ...(level === undefined ? {} : { level }), owners, transition: item.transition };
     targets[target] = resolved;
     if (!isRoom && (resolved.brightness.kind === 'effect' || resolved.color.kind === 'effect')) assignments[target] = resolved;
