@@ -76,11 +76,90 @@ def bridge(slug, original):
     return result
 
 
+# Room-by-room rollout. The old automations keep running and skip rooms whose
+# port switch input_boolean.ls_<room>_on_port is on; each rollout bridge is a
+# NEW automation (id + '_port') that forwards to the port only for those rooms.
+#
+# House-wide store writers get no rollout bridge: the old scripts stay the one
+# writer of the overlay store for every house-wide event, and the port renders
+# what they commit through the recovery bridge (within its 5 s period). A
+# second writer would commit every such event twice.
+ROLLOUT_OLD_ONLY = {
+    'lighting_schedule_override_store_writer': 'Commits the ls_override events the old automations fire; one writer for the overlay store.',
+    'lighting_schedule_end_overrides': 'Expires overlays house-wide; the old scripts commit, the port renders from the store.',
+    'lighting_schedule_sara_mode_switch': 'Sara mode is house-wide; the old scripts commit it, the port renders from the store.',
+    'switch_lamps_validate_house_defaults': 'House switch ranges; the old scripts commit them, the port renders from the store.',
+    'effects_refresh_native_light_controls': 'The dashboard mirror; the old scripts keep publishing it.',
+}
+ON_PORT = "is_state('input_boolean.ls_' ~ {area} ~ '_on_port', 'on')"
+# A room's lamps switched from the app: the port's only when every lamp named is in a room on the port.
+LAMP_CHANGE_ON_PORT = """{% set data = trigger.event.data.service_data | default({}) %}
+{% set ids = data.entity_id | default([]) %}{% set ids = [ids] if ids is string else ids | list %}
+{% set n = namespace(ok=ids | count > 0) %}
+{% for e in ids %}{% if not """ + ON_PORT.format(area='area_id(e)') + """ %}{% set n.ok = false %}{% endif %}{% endfor %}
+{{ n.ok }}"""
+NATIVE_ON_PORT = ("{% set s = sources.get(trigger.topic.split('/')[3]) %}{{ s is not none and "
+                  + ON_PORT.format(area='area_id(s)') + " }}")
+ANY_ON_PORT = ("{{ states.input_boolean | selectattr('entity_id', 'search', '^input_boolean\\.ls_.+_on_port$')"
+               " | selectattr('state', 'eq', 'on') | list | count > 0 }}")
+
+
+def template(text):
+    return {'condition': 'template', 'value_template': text}
+
+
+def rollout_bridge(slug, original, remotes):
+    """The bridge as a new automation beside the old one, acting only for rooms on the port."""
+    if 'id' not in original:
+        raise ValueError(f'{slug} has no id to derive the rollout id from')
+    result = bridge(slug, original)
+    result['id'] = str(original['id']) + '_port'
+    result['alias'] = original.get('alias', slug) + ' (port)'
+    conditions = list(original.get('conditions', original.get('condition', [])))
+    result.pop('condition', None)
+    room = result['actions'][0]['event_data']['args'].get('room')
+    if room is not None:
+        remote = remotes.get(room)
+        if not isinstance(remote, dict) or not isinstance(remote.get('device_id'), str):
+            raise ValueError(f'{slug}: no catalog.remotes.{room}.device_id to find the remote\'s room')
+        conditions.append(template('{{ ' + ON_PORT.format(area="area_id('" + remote['device_id'] + "')") + ' }}'))
+    elif slug == 'effects_native_light_controls':
+        conditions.append(template(NATIVE_ON_PORT))
+    elif slug == 'lighting_schedule_lamp_change_detector':
+        conditions.append(template(LAMP_CHANGE_ON_PORT))
+    elif slug == 'lighting_schedule_engine':
+        # The tick and the lamp state triggers apply the whole house: the old
+        # scripts commit those and the port renders them through recovery.
+        result['triggers'] = [t for t in original.get('triggers', original.get('trigger', [])) if t.get('id') == 'lamp_on']
+        result.pop('trigger', None)
+        if not result['triggers']:
+            raise ValueError(f'{slug} has no lamp_on trigger')
+        conditions.append(template('{{ ' + ON_PORT.format(area='area_id(trigger.entity_id)') + ' }}'))
+    elif slug == 'lighting_recover_pending_output':
+        # Its own check reads the old scripts' render bookkeeping, which the port does not share.
+        conditions = [c for c in conditions if 'ls_effects_runtime' not in json.dumps(c)]
+        conditions.append(template(ANY_ON_PORT))
+    else:
+        raise ValueError(f'{slug}: the rollout does not know whether it is a room or the house; add it to a list')
+    result['conditions'] = conditions
+    result['description'] = 'Rollout bridge (rooms on the port only). ' + original.get('description', '')
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', type=Path, default=ROOT / 'reference/live/automations')
-    parser.add_argument('--output', type=Path, default=ROOT / '.runtime/bridge')
+    parser.add_argument('--output', type=Path)
+    parser.add_argument('--rollout', action='store_true',
+                        help='Bridges that run beside the old automations, for rooms whose port switch is on.')
+    parser.add_argument('--catalog', type=Path, default=ROOT / '.runtime/catalog.json',
+                        help='Runtime catalog; --rollout reads each remote\'s device from it.')
     args = parser.parse_args()
+    if args.output is None:
+        args.output = ROOT / ('.runtime/bridge-rollout' if args.rollout else '.runtime/bridge')
+    if args.rollout:
+        rollout(args)
+        return
     args.output.mkdir(mode=0o700, parents=True, exist_ok=True)
     manifest = {'bridges': [], 'script_bridges': [], 'retained': RETAINED, 'retired': RETIRED, 'applied': False,
                 'response_queries': 'Local src/rpc.ts only; HA script bridges are commands, with dry_run suppressed.'}
@@ -109,6 +188,31 @@ def main():
         manifest['script_bridges'].append(path.stem)
     (args.output / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
     print(f"Prepared {len(manifest['bridges'])} automation and {len(manifest['script_bridges'])} command bridges at {args.output}; nothing applied.")
+
+
+def write_new(path, value):
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, 'w') as stream:
+        json.dump(value, stream, indent=2)
+        stream.write('\n')
+
+
+def rollout(args):
+    remotes = json.loads(args.catalog.read_text()).get('remotes', {})
+    prepared = []
+    for path in sorted(args.source.glob('*.json')):
+        if path.stem in RETAINED or path.stem in RETIRED or path.stem in ROLLOUT_OLD_ONLY:
+            continue
+        envelope = json.loads(path.read_text())
+        prepared.append((path, rollout_bridge(path.stem, envelope.get('config', envelope), remotes)))
+    args.output.mkdir(mode=0o700, parents=True, exist_ok=True)
+    for path, result in prepared:
+        write_new(args.output / path.name, result)
+    manifest = {'mode': 'rollout', 'bridges': [path.stem for path, _ in prepared], 'old_only': ROLLOUT_OLD_ONLY,
+                'retained': RETAINED, 'retired': RETIRED, 'script_bridges': [], 'applied': False,
+                'scripts': 'No script shims during the rollout: the old scripts still call their own scripts.'}
+    (args.output / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+    print(f"Prepared {len(prepared)} rollout bridges at {args.output}; nothing applied.")
 
 
 if __name__ == '__main__':
