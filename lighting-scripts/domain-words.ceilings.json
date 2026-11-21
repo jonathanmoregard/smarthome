@@ -6,7 +6,7 @@
   "haNames": 171,
   "parseRuntimeImports": 86,
   "viewReads": 119,
-  "carriedTypes": 230,
+  "carriedTypes": 258,
   "casts": 8,
   "nonNull": 36,
   "nullish": 35,

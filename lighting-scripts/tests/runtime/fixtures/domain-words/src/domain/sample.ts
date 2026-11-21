@@ -37,3 +37,17 @@ export function forged(raw: string): RoomId {
 
 // A type query is not a runtime `typeof` test.
 export type Colours = typeof COLOURS;
+
+// A local alias hides nothing: using one counts as using what it names.
+type Room = RoomId;
+type Carried = Verbatim;
+type Documents = Carried[] | undefined;
+// A named object type is not a carried type, though its field is one.
+type Wrapper = { document: Verbatim };
+
+export function aliased(raw: string, document: Carried, documents: Documents, wrapper: Wrapper): Room {
+  void document;
+  void documents;
+  void wrapper;
+  return raw as Room;
+}

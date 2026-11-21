@@ -38,13 +38,13 @@ const COLUMNS: [column: string, count: number, counted: string][] = [
   ['haNames', 4, "'light.example' twice, 'light.turn_on' and 'ls_commit'; import paths and plain words are not names"],
   ['parseRuntimeImports', 3, 'two `../runtime` imports and one `../parse` import; `./types/ids.ts` is the domain'],
   ['viewReads', 2, '`view.get` and `view.attr` on the HouseView'],
-  ['carriedTypes', 1, 'the `Verbatim` parameter; the import specifier is not a use'],
-  ['casts', 2, '`state as string` and `raw as RoomId`; `as const` is not a cast'],
+  ['carriedTypes', 6, 'the `Verbatim` parameter, the `Verbatim` in the `Carried` alias and in `Wrapper`, the `Carried` in `Documents`, and the uses of `Carried` and `Documents` (aliases seen through); `Wrapper` and the import specifier are not uses'],
+  ['casts', 4, '`state as string`, `raw as RoomId`, `raw as Room` and `keysOf`\'s `as K[]`; `as const` is not a cast'],
   ['nonNull', 1, '`room!`'],
   ['nullish', 1, 'the one `??`'],
   ['typeofs', 1, 'the runtime `typeof value`; `typeof COLOURS` in a type is not a test'],
   ['literalIncludes', 2, "`['a', 'b'].includes` and `COLOURS.includes` (a const array literal); `names.includes` is not literal"],
-  ['brandConstructors', 2, 'the `roomId(...)` call into src/parse/ids.ts and the `as RoomId` cast to a domain type'],
+  ['brandConstructors', 3, 'the `roomId(...)` call into src/parse/ids.ts, the `as RoomId` cast to a domain type, and `as Room` through its local alias; `as K[]` names only a type parameter'],
 ];
 
 for (const [column, count, counted] of COLUMNS) {
@@ -76,6 +76,6 @@ test('a count below its ceiling fails and asks for the ceiling to be lowered', (
   // Break: a fall passes, so the slack it leaves absorbs a later rise elsewhere in the house.
   const { status, output } = guard('casts-5');
   assert.equal(status, 1);
-  assert.match(output, /casts: 5 -> 2/);
+  assert.match(output, /casts: 5 -> 4/);
   assert.match(output, /[Ll]ower/);
 });

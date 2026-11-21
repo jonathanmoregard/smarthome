@@ -25,14 +25,16 @@
 // - parseRuntimeImports: an import or re-export from src/parse or src/runtime.
 // - viewReads: a property read on a `HouseView`, whatever the variable is called.
 // - carriedTypes: a type reference to a carried document type
-//   (`Verbatim`, `OpaqueMap`, `StoredFact`, `StoredValue`, `Assembled`, `AssembledMap`).
+//   (`Verbatim`, `OpaqueMap`, `StoredFact`, `StoredValue`, `Assembled`, `AssembledMap`),
+//   directly or through a project type alias that renames or contains one.
 // - casts: `x as T` or `<T>x`; `as const` is not a cast.
 // - nonNull: postfix `!`.
 // - nullish: `??` and `??=`.
 // - typeofs: a runtime `typeof x` test; `typeof x` in a type is not one.
 // - literalIncludes: `.includes(` on an array literal, or on a const bound to one.
 // - brandConstructors: a call to a function declared in src/parse/ids.ts, or a
-//   cast to a type declared under src/domain/types (a brand or a range).
+//   cast to a type that holds one declared under src/domain/types (a brand or
+//   a range), as the checker resolves it, so a local alias is seen through.
 //
 // Usage: node scripts/domain-words.mjs [--root <dir>] [--ceilings <file>] [--files] [--json]
 // `--files` adds the per-file table; `--json` prints `{ totals, files }` instead of tables.
@@ -44,6 +46,7 @@ const { root, program, checker, name, under, resolved } = project();
 const CEILINGS = resolve(option('--ceilings') ?? join(root, 'domain-words.ceilings.json'));
 const inDomain = under('src/domain');
 const inDomainTypes = under('src/domain/types');
+const inSource = under('src');
 const isParseIds = file => resolve(file) === join(root, 'src', 'parse', 'ids.ts');
 const inParseOrRuntime = file => [join(root, 'src', 'parse'), join(root, 'src', 'runtime')].some(dir => resolve(file).startsWith(dir + sep));
 
@@ -107,20 +110,53 @@ function isHouseView(expression) {
   return type.aliasSymbol?.name === 'HouseView' || type.getSymbol()?.name === 'HouseView';
 }
 
-function namesDomainType(typeNode) {
-  let found = false;
-  const visit = node => {
-    if (found) return;
-    if (ts.isTypeReferenceNode(node)) {
-      const symbol = resolved(checker.getSymbolAtLocation(node.typeName));
-      found = (symbol?.declarations ?? []).some(declaration =>
-        (ts.isTypeAliasDeclaration(declaration) || ts.isInterfaceDeclaration(declaration) || ts.isClassDeclaration(declaration)
-          || ts.isEnumDeclaration(declaration)) && inDomainTypes(declaration.getSourceFile().fileName));
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(typeNode);
-  return found;
+const declaredInDomainTypes = symbol => (symbol?.declarations ?? []).some(declaration => inDomainTypes(declaration.getSourceFile().fileName));
+
+/**
+ * Does the type, as the checker resolves it, hold a type declared under
+ * src/domain/types? Resolved, not read off the written name, so a local alias
+ * (`type R = RoomId; x as R`) is seen through. The same walk as
+ * `tests/runtime/domain-type-casts.test.ts`.
+ */
+function holdsDomainType(type, seen) {
+  if (seen.has(type)) return false;
+  seen.add(type);
+  // A type parameter is declared where its generic is (`entriesOf`'s `K`), not a type declared there.
+  if ((type.flags & ts.TypeFlags.TypeParameter) !== 0) return false;
+  if (declaredInDomainTypes(type.aliasSymbol) || declaredInDomainTypes(type.getSymbol())) return true;
+  if (type.isUnionOrIntersection()) return type.types.some(member => holdsDomainType(member, seen));
+  if (type.aliasTypeArguments !== undefined && type.aliasTypeArguments.some(argument => holdsDomainType(argument, seen))) return true;
+  if ((type.flags & ts.TypeFlags.Object) === 0) return false;
+  return checker.getIndexInfosOfType(type).some(info => holdsDomainType(info.keyType, seen) || holdsDomainType(info.type, seen))
+    || checker.getPropertiesOfType(type).some(property => holdsDomainType(checker.getTypeOfSymbol(property), seen));
+}
+const namesDomainType = typeNode => holdsDomainType(checker.getTypeFromTypeNode(typeNode), new Set());
+
+/**
+ * Does this type reference name a carried document type? Directly, or through
+ * a type alias the checker resolves it to, followed through the syntax that
+ * only renames or contains (another reference and its type arguments, a
+ * union, an intersection, an array, a tuple, parentheses, `readonly`). A
+ * named object type is not carried, though a field of it may be: that field
+ * is counted where it is written.
+ */
+function namesCarriedType(reference, seen = new Set()) {
+  const typeName = ts.isIdentifier(reference.typeName) ? reference.typeName.text : reference.typeName.right.text;
+  const symbol = resolved(checker.getSymbolAtLocation(reference.typeName));
+  if (CARRIED.has(symbol?.name ?? typeName)) return true;
+  if (symbol === undefined || seen.has(symbol)) return false;
+  seen.add(symbol);
+  return (symbol.declarations ?? []).some(declaration => ts.isTypeAliasDeclaration(declaration)
+    && inSource(declaration.getSourceFile().fileName) && carriedWithin(declaration.type, seen));
+}
+function carriedWithin(node, seen) {
+  if (ts.isTypeReferenceNode(node)) return namesCarriedType(node, seen) || (node.typeArguments ?? []).some(argument => carriedWithin(argument, seen));
+  if (ts.isUnionTypeNode(node) || ts.isIntersectionTypeNode(node)) return node.types.some(member => carriedWithin(member, seen));
+  if (ts.isArrayTypeNode(node)) return carriedWithin(node.elementType, seen);
+  if (ts.isTupleTypeNode(node)) return node.elements.some(element => carriedWithin(element, seen));
+  if (ts.isNamedTupleMember(node) || ts.isOptionalTypeNode(node) || ts.isRestTypeNode(node) || ts.isParenthesizedTypeNode(node)
+    || ts.isTypeOperatorNode(node)) return carriedWithin(node.type, seen);
+  return false;
 }
 
 function literalText(node) {
@@ -136,7 +172,7 @@ function measure(source) {
     else if (ts.isTypeReferenceNode(node)) {
       const typeName = ts.isIdentifier(node.typeName) ? node.typeName.text : node.typeName.right.text;
       if (typeName === 'Plan') row.planTypes++;
-      if (CARRIED.has(resolved(checker.getSymbolAtLocation(node.typeName))?.name ?? typeName)) row.carriedTypes++;
+      if (namesCarriedType(node)) row.carriedTypes++;
     } else if (ts.isPropertyAssignment(node) && ts.isIdentifier(node.name) && node.name.text === 'kind'
       && ts.isStringLiteralLike(node.initializer) && EFFECT_KINDS.has(node.initializer.text)) row.effectKinds++;
     else if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
