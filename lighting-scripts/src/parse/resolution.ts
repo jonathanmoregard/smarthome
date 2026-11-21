@@ -78,6 +78,7 @@ function defaulted(o: JsonObject, key: string, fallback: JsonValue): JsonValue {
 function optionalString(value: JsonValue | undefined): string | undefined { return typeof value === 'string' ? value : undefined; }
 function nonEmptyString(value: JsonValue | undefined): string | undefined { return typeof value === 'string' && value.length > 0 ?
   value : undefined; }
+function isPresetText(value: JsonValue | undefined): value is 'day' | 'cosy' { return value === 'day' || value === 'cosy'; }
 function isChannel(value: JsonValue): value is Channel { return value === 'brightness' || value === 'color'; }
 
 /** The number JavaScript arithmetic reads from a raw value: `Number(value)`. */
@@ -183,12 +184,14 @@ function inputClaims(value: JsonObject, key: string, stamp: number): InputClaim[
   const claims: InputClaim[] = [];
   const selection = value.selection;
   const preset = selection === 'day' || selection === 'cosy' || selection === null || selection === undefined;
+  const period = value.period;
   const claimInput = (input: JsonObject): InputClaim => {
-    const presetAnchor = ['day', 'cosy'].includes(String(input.anchor)) && ['day', 'cosy'].includes(String(value.period));
+    // Captured `x in ['day','cosy']` compares the whole saved value: only the text is a preset.
+    const presetAnchor = isPresetText(input.anchor) && isPresetText(period);
     const merged: JsonObject = {
       ...input,
       step_range: defaulted(value, 'step_range', { min: -20, max: 20 }),
-      anchor: presetAnchor ? value.period! : defaulted(input, 'anchor', 'current'),
+      anchor: presetAnchor ? period : defaulted(input, 'anchor', 'current'),
     };
     return { claim: { kind: 'input', input: inputFacts(merged), updated: undefined }, updated: rawStamp(defaulted(input, 'updated', stamp)) };
   };
