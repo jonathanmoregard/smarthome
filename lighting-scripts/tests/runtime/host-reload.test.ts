@@ -1,0 +1,30 @@
+import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import test from 'node:test';
+import { loadProgram } from '../../src/main.ts';
+import { LightingHost } from '../../src/runtime/host.ts';
+import { compileCandidate } from '../../scripts/dev.mjs';
+
+test('actual TypeScript compile reloads valid edits and invalid edits leave last working program and intent', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'lighting-reload-'));
+  await mkdir(join(root, 'src/runtime'), { recursive: true });
+  await symlink(resolve('node_modules'), join(root, 'node_modules'), 'dir');
+  await writeFile(join(root, 'package.json'), '{"type":"module"}');
+  await writeFile(join(root, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2023', module: 'NodeNext', rootDir: 'src', types: [], skipLibCheck: true }, include: ['src/**/*.ts'] }));
+  await writeFile(join(root, 'src/runtime/engine.ts'), 'export const execute = (r: {script:string;snapshot:object}, h: Record<string,()=>number>) => ({result:h[r.script](),snapshot:r.snapshot,calls:[],events:[]});');
+  const registry = join(root, 'src/runtime/registry.ts');
+  await writeFile(registry, 'export const handlers = { probe: () => 1 };');
+  assert.equal(await compileCandidate(root, join(root, 'build-one')), true);
+  const host = await LightingHost.open({ path: join(root, 'intent.json'), initial: { state: {}, members: [], areas: {}, now: '2026-10-26T12:00:00Z' }, program: await loadProgram(join(root, 'build-one')), autoTimers: false, transport: { send: async () => {}, close: async () => {} } });
+  assert.equal(await host.dispatch('probe'), 1);
+  await writeFile(registry, 'export const handlers = { probe: () => 2 };');
+  assert.equal(await compileCandidate(root, join(root, 'build-two')), true);
+  await host.replaceProgram(await loadProgram(join(root, 'build-two')));
+  assert.equal(await host.dispatch('probe'), 2);
+  await writeFile(registry, 'export const handlers = { probe: () => SYNTAX ERROR };');
+  assert.equal(await compileCandidate(root, join(root, 'build-broken')), false);
+  assert.equal(await host.dispatch('probe'), 2);
+  await host.close();
+});

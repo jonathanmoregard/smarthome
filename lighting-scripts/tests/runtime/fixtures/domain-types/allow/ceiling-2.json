@@ -1,0 +1,4 @@
+{
+  "allow": [],
+  "ceilings": [{ "file": "src/domain/lamp.ts", "ceiling": 2, "reason": "fixture: one site has since gone" }]
+}
