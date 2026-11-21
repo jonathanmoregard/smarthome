@@ -8,6 +8,7 @@ import { affectedRoom, mergedValue, overrideRecord, sameFact, underlyingOf } fro
 import type { OpaqueMap, StoredEntry, StoredFact, StoredOverrides, StoredValue } from '../parse/overrides.ts';
 import type { HouseView, Plan } from '../runtime/effects.ts';
 import type { RoomId, SwitchId } from './types/ids.ts';
+import type { Percent } from './types/light.ts';
 import type { Rooms } from './types/rooms.ts';
 import type { OverlayKey } from './types/overlay.ts';
 import { overlayKeyText, SARA_MODE } from './types/overlay.ts';
@@ -36,8 +37,9 @@ export interface CommitRecord {
 /**
  * A stored switch range rule. Not `ui-state`'s `RangeConfig`: the custom bounds
  * pass Jinja's `is number`, which accepts booleans, so a bound can be `true`.
+ * A bound is saved as given: a percent, or that boolean (read as 1 or 0 by the check).
  */
-export type RangeRule = { profile: 'bright' | 'cosy' } | { profile: 'custom'; min: number | boolean; max: number | boolean };
+export type RangeRule = { profile: 'bright' | 'cosy' } | { profile: 'custom'; min: Percent | boolean; max: Percent | boolean };
 export interface CommitData {
   /** `data.get('op', 'set')`, only ever compared with literals. */
   op: StoredValue;

@@ -194,3 +194,16 @@ test('ls_commit full render keeps unhandled lights first and dedupes by identity
   assert.equal(JSON.stringify(attributes.full_lights), JSON.stringify(['l1', light, 'l2', 'l3', { id: 1 }]));
   assert.equal((attributes.full_lights as unknown[])[1], light);
 });
+
+test('ls_commit saves a custom switch range only when its bounds are a percent span, as given', () => {
+  const saved = (min: unknown, max: unknown) => {
+    const ctx = context(stateStoreHandlers);
+    ctx.put('sensor.ls_overrides', 'x', {});
+    ctx.run('ls_commit', { data: { op: 'range_set', entity: 'switch.b', profile: 'custom', min, max } });
+    return JSON.stringify(sensorUpdate(ctx).switch_ranges);
+  };
+  assert.equal(saved(0, 100), JSON.stringify({ 'switch.b': { profile: 'custom', min: 0, max: 100 } }));
+  assert.equal(saved(12.5, 12.5), JSON.stringify({ 'switch.b': { profile: 'custom', min: 12.5, max: 12.5 } }));
+  assert.equal(saved(false, true), JSON.stringify({ 'switch.b': { profile: 'custom', min: false, max: true } }));
+  for (const [min, max] of [[-1, 50], [10, 101], [60, 50], ['10', 50], [10, null]]) assert.equal(saved(min, max), undefined);
+});

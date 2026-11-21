@@ -20,8 +20,9 @@ import { carry, jsonEqual, reveal } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import type { CommitArgs, CommitData, CommitRecord } from '../domain/state-store.ts';
 import { concatString, haBoolean, mappingKey } from './state-store.ts';
-import { toRoomId, toSwitchId } from './ids.ts';
+import { toPercent, toRoomId, toSwitchId } from './ids.ts';
 import type { RoomId } from '../domain/types/ids.ts';
+import type { Percent } from '../domain/types/light.ts';
 import type { OverlayKey } from '../domain/types/overlay.ts';
 import { overlayKeyText } from '../domain/types/overlay.ts';
 import { parseOverlayKey } from './overlay-key.ts';
@@ -206,6 +207,11 @@ function testedNumber(value: JsonValue | undefined): { raw: number | boolean; nu
   return undefined;
 }
 
+/** A custom range bound as saved: a boolean as given, a number as the percent the range check found it to be. */
+function savedBound(bound: { raw: number | boolean }): Percent | boolean {
+  return typeof bound.raw === 'boolean' ? bound.raw : toPercent(bound.raw);
+}
+
 function validRangePair(value: JsonValue | undefined, context: string): boolean {
   // Jinja's `sequence` test accepts strings and mappings. They simply fail the
   // length test unless length is two; at length two, numeric comparison raises.
@@ -246,7 +252,7 @@ function parseCommitData(data: JsonObject): CommitData {
       if (profile !== 'custom') return undefined;
       const min = testedNumber(data.min), max = testedNumber(data.max);
       if (min === undefined || max === undefined || min.numeric < 0 || min.numeric > max.numeric || max.numeric > 100) return undefined;
-      return { entity: toSwitchId(requireString(data, 'entity', 'ls_commit.data')), rule: { profile, min: min.raw, max: max.raw } };
+      return { entity: toSwitchId(requireString(data, 'entity', 'ls_commit.data')), rule: { profile, min: savedBound(min), max: savedBound(max) } };
     }),
     ranges: lazy(() => {
       const ranges = data.ranges === undefined ? {} : requireObject(data, 'ranges', 'ls_commit.data');
