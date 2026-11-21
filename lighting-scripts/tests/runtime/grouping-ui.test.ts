@@ -139,7 +139,7 @@ test('UI discovery republishes the stored config with effect_list replaced in pl
   const ctx = await load();
   setCatalog(ctx, { ui_choices: ['Normal Light', 'Breathe'], ui_discovery: [
     { entity: 'light.ep_a', config: { unique_id: 'ep_a', effect_list: ['old'], name: 'A' } },
-    { entity: 'light.ep_b', config: { name: 'B' } },
+    { entity: 'light.ep_b', config: { unique_id: 'ep_b', name: 'B' } },
   ] });
   ctx.put('light.ep_b', 'on', { effect_list: ['Normal Light', 'Breathe'] });
   ctx.run('effects_ui_catalog');

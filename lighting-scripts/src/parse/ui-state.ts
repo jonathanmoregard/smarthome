@@ -12,7 +12,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { HouseView } from '../runtime/effects.ts';
-import { isObject, jinjaList, jinjaOr, jinjaTruthy, object, requireBoolean, requireString } from '../runtime/parse.ts';
+import { isObject, jinjaList, jinjaOr, jinjaTruthy, object, requireBoolean, requireObject, requireString } from '../runtime/parse.ts';
 import { carry, reveal } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { num, saved, strings } from './accessors.ts';
@@ -44,7 +44,10 @@ function optionalStoreId(value: JsonValue | undefined, context: string): string 
   return store.length === 0 ? undefined : store;
 }
 
-/** One UI row. `source`/`proxy` keep JavaScript `String` semantics, as the inline read did. */
+/**
+ * One UI row. The rows are the catalog's, so `source` and `proxy` must be text:
+ * a row without them is a configuration error, refused here.
+ */
 export interface UiRow {
   source: string;
   proxy: string;
@@ -57,7 +60,8 @@ export interface UiRow {
 /** The `ui_rows` list, each row parsed as the loop reaches it. */
 export function uiRows(ctx: HouseView): Array<() => UiRow> {
   return rows(ctx, 'ui_rows').map(raw => () => {
-    const row = object(raw), source = String(row.source), proxy = String(row.proxy);
+    const row = object(raw);
+    const source = requireString(row, 'source', 'effects_ui_sync.row'), proxy = requireString(row, 'proxy', 'effects_ui_sync.row');
     // The store raises before the members do.
     const store = optionalStoreId(row.store, 'effects_ui_sync.row.store');
     const members = strings(row.members), topics = object(row.topics);
@@ -246,7 +250,7 @@ export function uiProfile(ctx: HouseView, store: string): UiProfile {
   };
 }
 
-/** One discovery row. `entity` is `String`ed and `uniqueId` template-formatted, as inline. */
+/** One discovery row, from the catalog: its entity and its config's unique id must be text, or the row is refused. */
 export interface DiscoveryRow {
   entity: string;
   uniqueId: string;
@@ -256,8 +260,9 @@ export interface DiscoveryRow {
 
 export function discoveryRows(ctx: HouseView): DiscoveryRow[] {
   return rows(ctx, 'ui_discovery').map(raw => {
-    const row = object(raw), config = object(row.config);
-    return { entity: String(row.entity), uniqueId: `${config.unique_id}`, config: carry(config) };
+    const row = object(raw), at = 'effects_ui_catalog.row';
+    const entity = requireString(row, 'entity', at), config = requireObject(row, 'config', at);
+    return { entity, uniqueId: requireString(config, 'unique_id', `${at}.config`), config: carry(config) };
   });
 }
 
