@@ -14,6 +14,17 @@ export interface OutputTransport {
   close(): Promise<void>;
   event?(event: EventRecord): Promise<void>;
 }
+/**
+ * Which of the program's output this process owns. During a room-by-room
+ * rollout the old scripts drive the rooms the port does not, so the port
+ * computes the whole house and sends only its part.
+ */
+export interface OutputScope {
+  /** Whether this process sends the call. A call it does not send is left to whatever drives its room; the batch goes on. */
+  sends(call: ServiceCall, house: Snapshot): boolean;
+  /** An entity this process keeps to itself: its writes stay local and, once it holds a value, Home Assistant's is not read back. */
+  keeps(entity: string, house: Snapshot): boolean;
+}
 export interface HostOptions {
   path: string; initial: Snapshot; program: Program; transport: OutputTransport;
   autoTimers?: boolean; connected?: boolean; now?: () => number; report?: (message: string) => void;
