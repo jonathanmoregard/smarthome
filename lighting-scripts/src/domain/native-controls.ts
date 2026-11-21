@@ -10,6 +10,8 @@ import type {
 } from '../parse/native-controls.ts';
 import { overlayKeyText } from './types/overlay.ts';
 import type { OverlayKey } from './types/overlay.ts';
+import type { RoomId } from './types/ids.ts';
+import { isAreaId } from './schedule.ts';
 
 // Literal CSS colour names from the deployed native adapter.
 const COLOR_NAMES: Record<string, RGB> = {
@@ -182,7 +184,7 @@ export type ChannelRecord = {
   target: string;
   value: { channels: Record<string, ChannelClaim>; selection?: string };
 };
-export type PowerEvent = { op: 'power'; area: string; on: boolean; via: string };
+export type PowerEvent = { op: 'power'; area: RoomId; on: boolean; via: string };
 export type SetEvent = { op: 'set'; records: ChannelRecord[]; via: string };
 type LightData = Record<string, never> | { brightness: number } | { rgb_color: number[] } | { color_temp_kelvin: number };
 export type ControlCommand =
@@ -196,10 +198,11 @@ export type ControlPlan = {
   valid: boolean; errors: string[]; events: Array<PowerEvent | SetEvent>; commands: ControlCommand[]; records: ChannelRecord[];
 };
 
-function unique(values: string[]): string[] { return [...new Set(values)]; }
+function unique<T>(values: T[]): T[] { return [...new Set(values)]; }
 function constant(value: number | boolean | ClaimColour, stamp: Stamp): ConstantClaim { return { kind: 'constant', value, updated: stamp }; }
-function areasOf(view: HouseView, entities: string[]): string[] {
-  return unique(entities.map(entity => view.rooms.ofId[entity] ?? '').filter(Boolean));
+/** The rooms the entities are in, each once; an entity with no room adds none. */
+function areasOf(view: HouseView, entities: string[]): RoomId[] {
+  return unique(entities.map(entity => view.rooms.ofId[entity]).filter(isAreaId));
 }
 function expandedEntities(view: HouseView, entities: string[]): string[] {
   const pending = [...entities], seen = new Set<string>(), result: string[] = [];
@@ -314,10 +317,12 @@ export function planNativeControls(view: HouseView, args: NativePlanArgs): Nativ
       membersOfGroup.includes(lamp))) roomScopes.push(area);
   }
   if (!roomScopes.length && !lamps.length) return { records: [], power: [] };
+  // Read as text: a lamp with no room is looked up as `''`, which a requested area of `''` matches.
+  const roomScopeTexts: readonly string[] = roomScopes;
   const { baseTargets, resolvedTargets } = args.current();
   const items: ScopeItem[] = unique(roomScopes).sort().filter(area => baseTargets.populatedLeniently(`room:${area}`)).map(area =>
     ({ scope: 'room', target: area, base: `room:${area}` }));
-  for (const lamp of lamps) if (!roomScopes.includes(view.rooms.ofId[lamp] ?? '')) items.push({ scope: 'lamp', target: lamp, base: lamp });
+  for (const lamp of lamps) if (!roomScopeTexts.includes(view.rooms.ofId[lamp] ?? '')) items.push({ scope: 'lamp', target: lamp, base: lamp });
   const power: PowerEvent[] = areasOf(view, lamps).sort().map(area => ({ op: 'power', area, on: true, via: 'app' }));
   if (!items.length) return { records: [], power };
   const resolvedTargetMap = resolvedTargets();
@@ -392,7 +397,9 @@ export function planUIControls(view: HouseView, args: SetArgs, catalog: NativeCa
     }
   } else {
     if (targets.length === 0 || targets.some(target => !(target in members))) errors.push('Unknown logical lamp or room.');
-    const scopes: ScopeItem[] = [], scopeAreas: string[] = [];
+    const scopes: ScopeItem[] = [], scopeAreas: RoomId[] = [];
+    // Read as text, as the lamp loop below looks a lamp with no room up as `''`.
+    const scopeAreaTexts: readonly string[] = scopeAreas;
     if (catalog.groups.has(source)) {
       const areas = areasOf(view, targets).sort();
       for (const area of areas) {
@@ -402,7 +409,7 @@ export function planUIControls(view: HouseView, args: SetArgs, catalog: NativeCa
         }
       }
     }
-    for (const lamp of targets) if (!scopeAreas.includes(view.rooms.ofId[lamp] ?? '')) scopes.push({ scope: 'lamp', target: lamp, base: lamp,
+    for (const lamp of targets) if (!scopeAreaTexts.includes(view.rooms.ofId[lamp] ?? '')) scopes.push({ scope: 'lamp', target: lamp, base: lamp,
       suffix: targets.length > 1 ? `:${lamp}` : '' });
     if (!errors.length && attribute === 'power') {
       const powerAreas = value.raw === 'ON' ? areasOf(view, targets) : scopeAreas;

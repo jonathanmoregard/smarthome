@@ -26,6 +26,8 @@ import {
 import { carry, carryOptional, reveal } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import type { RGB } from '../domain/scale.ts';
+import type { RoomId } from '../domain/types/ids.ts';
+import { toRoomId } from './ids.ts';
 
 function selector(container: JsonObject, key: string, split = false): string[] {
   const value = container[key];
@@ -239,7 +241,8 @@ export function groupChildren(ctx: HouseView, entity: string, zone: boolean): st
 
 export interface NativePlanArgs {
   sd: ServiceData;
-  areas: string[];
+  /** The call's `area_id` selector, as rooms. */
+  areas: RoomId[];
   devices: string[];
   labels: string[];
   requested: string[];
@@ -262,7 +265,7 @@ export function parseNativePlanArgs(args: JsonObject): NativePlanArgs {
   const sd = requireObject(args, 'sd', 'effects_native_plan');
   return {
     sd: serviceData(sd),
-    areas: selector(sd, 'area_id'),
+    areas: selector(sd, 'area_id').map(toRoomId),
     devices: selector(sd, 'device_id'),
     labels: selector(sd, 'label_id'),
     requested: selector(sd, 'entity_id', true),

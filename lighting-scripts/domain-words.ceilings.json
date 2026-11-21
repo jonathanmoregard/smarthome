@@ -9,8 +9,8 @@
   "carriedTypes": 230,
   "casts": 8,
   "nonNull": 36,
-  "nullish": 36,
+  "nullish": 35,
   "typeofs": 3,
-  "literalIncludes": 29,
+  "literalIncludes": 27,
   "brandConstructors": 0
 }

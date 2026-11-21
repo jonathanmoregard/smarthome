@@ -110,3 +110,16 @@ test('an effect name the catalog mapping inherits is not unknown; its channels t
   assert.throws(() => execute({ script: 'effects_set', snapshot, args: { source: 'light.logical', attribute: 'effect', value: 'toString', dry_run: true } }, handlers),
     /catalog\.effects\.toString must be an object/);
 });
+
+test('a native request powers only the rooms its lamps are in, and a lamp with no room gets a lamp scope', async () => {
+  const { nativeHandlers } = await import('../../src/handlers/native-controls.ts');
+  const run = (areas: Record<string, string>, sd: Record<string, unknown>) =>
+    execute({ script: 'effects_native_plan', snapshot: { ...snapshot, areas }, args: { sd, catalog, current, stamp: 5 } }, nativeHandlers).result;
+  const roomed = run(snapshot.areas, { entity_id: 'light.bulb', brightness: 80 });
+  assert.deepEqual(roomed.power, [{ op: 'power', area: 'living', on: true, via: 'app' }]);
+  const roomless = run({}, { entity_id: 'light.bulb', brightness: 80 });
+  assert.deepEqual(roomless.power, []);
+  assert.equal(roomless.records[0].scope, 'lamp');
+  // A requested area of '' matches the '' a roomless lamp is looked up as, so the lamp gets no lamp scope.
+  assert.deepEqual(run({}, { entity_id: 'light.bulb', area_id: '', brightness: 80 }), { records: [], power: [] });
+});
