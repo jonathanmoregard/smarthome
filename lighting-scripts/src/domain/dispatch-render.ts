@@ -201,8 +201,10 @@ function unexpected(phase: DispatchPhase, msg: DispatchMsg): never {
 export function ordinaryTargets(view: HouseView, details: DispatchDetails, previous: DispatchRuntime): OpaqueMap {
   const { targetViews, requested, outputTargets, remoteRooms } = details;
   const ordinary: OpaqueMap = {};
-  for (const [lamp, target] of Object.entries(targetViews)) {
-    if (target.lampOrRoom.kind === 'room' || (outputTargets.length > 0 && !outputTargets.includes(lamp))) continue;
+  for (const target of Object.values(targetViews)) {
+    if (target.lampOrRoom.kind === 'room') continue;
+    const lamp = target.lampOrRoom.lamp;
+    if (outputTargets.length > 0 && !outputTargets.includes(lamp)) continue;
     if (view.get(lamp) !== 'on') continue;
     if (!(requested.includes(lamp) || remoteRooms.includes(target.area ?? null) || details.baselineSend(lamp))) continue;
     if (requested.includes(lamp) || (previous.hadEffect(lamp) && !details.assigned(lamp))

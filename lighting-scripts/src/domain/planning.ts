@@ -214,7 +214,7 @@ export function refreshBaseline(view: HouseView, baseline: RoomBaseline, hitFrom
       const r = record;
       const match = (r.scope === 'room' && r.target === room) || (r.scope === 'house' && !deps.private) || (key.kind === 'sara mode' &&
         !deps.private) || (r.kind === 'block' && r.target === room)
-        || (t.lampOrRoom.kind === 'lamp' && ((r.scope === 'lamp' && r.target === entity) || (r.kind === 'light' && r.target === entity)));
+        || (t.lampOrRoom.kind === 'lamp' && (r.scope === 'lamp' || r.kind === 'light') && r.target === t.lampOrRoom.lamp);
       if (match && r.when <= lastFs()) ignored.push(key);
     }
     // A lamp's reading is re-taken now: off is `{on: false}`, and a lamp that is
@@ -222,7 +222,7 @@ export function refreshBaseline(view: HouseView, baseline: RoomBaseline, hitFrom
     const refreshed = withFields(t.document, { ignore_overrides: ignored.map(overlayKeyText) });
     if (t.lampOrRoom.kind === 'room') targets[entity] = refreshed;
     else {
-      const observed = entityProfile(view, entity);
+      const observed = entityProfile(view, t.lampOrRoom.lamp);
       targets[entity] = observed === undefined ? withoutField(refreshed, 'observed') : withFields(refreshed, { observed });
     }
     ignoredBy.set(entity, ignored);

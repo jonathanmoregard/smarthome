@@ -39,8 +39,8 @@ import type { Verbatim } from '../runtime/verbatim.ts';
 import { boundedNumber } from '../domain/scale.ts';
 import type { Color } from '../domain/scale.ts';
 import { latestStream, lexical } from '../domain/resolution.ts';
-import type { BaseItem, Channel, ChannelValue, Claim, InputAnchor, InputClaim, InputFacts, LightValue, OverrideRecord, Patch, ResolveArgs,
-  Stamp, TargetArea } from '../domain/resolution.ts';
+import type { BaseItem, Channel, ChannelValue, Claim, InputAnchor, InputClaim, InputFacts, LightValue, OverrideRecord, Patch, RecordScope,
+  ResolveArgs, Stamp, TargetArea } from '../domain/resolution.ts';
 import { blendEnd, canonicalColor, validColor } from './scale.ts';
 import { validGradient, warmEndArgument } from './gradient.ts';
 import { lampOrRoom } from './lighting-state.ts';
@@ -227,13 +227,19 @@ function lightValue(value: JsonValue | undefined): LightValue {
   };
 }
 
+/** A stored scope: one of the three, or none for anything else (absent, `null`, other text, a non-string). */
+function recordScope(value: JsonValue | undefined): RecordScope | undefined {
+  return value === 'house' || value === 'room' || value === 'lamp' ? value : undefined;
+}
+
 function overrideRecord(key: string, record: JsonObject): OverrideRecord {
   const value = record.value;
   const stamp = savedWhen(record.when);
   return {
     key: parseOverlayKey(key),
-    scope: optionalString(defaulted(record, 'scope', record.kind === 'light' ? 'lamp' : '')),
-    storedScope: optionalString(record.scope),
+    // Captured `r.get('scope', 'lamp' if kind == 'light' else '')`: the `''` matches no scope, so it is none here.
+    scope: record.scope === undefined && record.kind === 'light' ? 'lamp' : recordScope(record.scope),
+    storedScope: recordScope(record.scope),
     target: optionalString(record.target),
     kind: optionalString(record.kind),
     via: optionalString(record.via),

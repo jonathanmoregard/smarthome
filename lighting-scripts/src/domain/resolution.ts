@@ -95,13 +95,15 @@ export type LightValue =
     brightness: Claim;
     intensity: number | undefined;
   };
+/** Where a stored record applies: the whole house, one room, or one lamp. */
+export type RecordScope = 'house' | 'room' | 'lamp';
 /** One mapping override record. Only the field the record's `kind` uses is set. */
 export type OverrideRecord = {
   key: OverlayKey;
-  /** `scope`, defaulting to `lamp` for a light record and `''` otherwise. */
-  scope: string | undefined;
-  /** `scope` exactly as stored, for the remote-stream test. */
-  storedScope: string | undefined;
+  /** The record's scope, a `light` record's defaulting to `lamp`; none (applies nowhere) when it names no scope. */
+  scope: RecordScope | undefined;
+  /** The scope exactly as stored, with no default, for the remote-stream test. */
+  storedScope: RecordScope | undefined;
   target: string | undefined;
   kind: string | undefined;
   via: string | undefined;
@@ -324,7 +326,8 @@ export function resolveEffects(args: ResolveArgs, candle: ReadonlySet<string>): 
       if (item.ignored.some(key => sameOverlayKey(key, record.key))) continue;
       const scope = record.scope;
       let applies = (scope === 'house' && record.target === 'house' && !isPrivate) ||
-        (scope === 'room' && room !== undefined && record.target === room) || (scope === 'lamp' && !isRoom && record.target === target);
+        (scope === 'room' && room !== undefined && record.target === room)
+        || (scope === 'lamp' && item.lampOrRoom.kind === 'lamp' && record.target === item.lampOrRoom.lamp);
       const stream = streams.get(room);
       if (record.storedScope === 'room' && isRemoteStream(record) && (stream === undefined || !sameOverlayKey(record.key, stream))) {
         applies = false;

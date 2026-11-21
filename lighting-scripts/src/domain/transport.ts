@@ -363,8 +363,9 @@ export function* planAssignUpdate(decision: AssignDecision, revision: string, de
  */
 export function stoppedLamps(targetViews: ReturnType<AssignDetails['targetViews']>, stored: RuntimeState): string[] {
   const lamps: string[] = [];
-  for (const [lamp, target] of Object.entries(targetViews)) {
+  for (const target of Object.values(targetViews)) {
     if (target.lampOrRoom.kind === 'room') continue;
+    const lamp = target.lampOrRoom.lamp;
     const previous = stored.previous(lamp);
     let needed = previous.effect !== undefined && bulbEffect(previous.effect).stoppedByName;
     for (const channel of ['brightness', 'color'] as const) {
