@@ -17,6 +17,7 @@ import { drive, perform } from '../runtime/effects.ts';
 import { planAnswer, remoteCommandStart, remoteCommandStep, switchPlan } from '../domain/controller.ts';
 import type { ApplyArgs, PlanArgs, PlanResult, RemoteCommandArgs, RemoteCommandCmd, RemoteCommandMsg } from '../domain/controller.ts';
 import { overlayKeyText, SARA_MODE } from '../domain/types/overlay.ts';
+import { roomText } from '../parse/rooms.ts';
 
 /**
  * `ls_plan` is deliberately NOT in `TypedResults`, so no decoder exists for it
@@ -48,7 +49,7 @@ export function plan(ctx: ScriptContext, args: PlanArgs): PlanResult {
   // `stale_keys` are gone: `decodeScheduledBase` performs all four for a stub
   // and `scheduledBase` builds every field for the real handler.
   const baseline = ctx.call('ls_base', { overrides: overrides.document, test_now: args.testNow,
-    reason: args.reason, room_only: args.room });
+    reason: args.reason, room_only: roomText(args.room) });
   const schedule = baseline.schedule;
   const baselineTargets = baseline.targets;
   const active: OpaqueMap = Object.fromEntries(Object.entries(overrides.entries).filter(([key]) => !schedule.stale_keys.includes(key)));

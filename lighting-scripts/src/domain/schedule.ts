@@ -117,8 +117,8 @@ export interface ScheduledBaseArgs {
   testNow: number | undefined;
   reason: string;
   overrides: ScheduleRecords | undefined;
-  /** `''` when the request names no room (captured `default('')`); a sentinel until V3. */
-  roomOnly: RoomId | '';
+  /** The one room to plan; none when the request names none or `''` (captured `default('')`). */
+  roomOnly: RoomId | undefined;
   includeDebug: boolean;
 }
 export function scheduleDetails(view: HouseView, scope: string, at: number): ScheduleDetails {
@@ -367,12 +367,13 @@ export function scheduledBase(view: HouseView, args: ScheduledBaseArgs, roomLoca
   const plugs = labelled(view, 'on_off').filter(e => /^(light|switch)\./.test(e));
   const all = [...dimmables, ...plugs, ...switchRangeEntities(view.attr('sensor.ls_overrides', 'switch_ranges'))];
   const roomOnly = args.roomOnly;
-  const rooms: RoomId[] = [...new Set(all.map(e => view.rooms.ofId[e]).filter(isAreaId))].sort().filter(a => !roomOnly || roomOnly === a);
+  const rooms: RoomId[] = [...new Set(all.map(e => view.rooms.ofId[e]).filter(isAreaId))].sort()
+    .filter(a => roomOnly === undefined || roomOnly === a);
   const details = Object.fromEntries(['house', ...rooms].map(room => [room, scheduleDetails(view, room, at)])) as Record<string, ScheduleDetails>;
   const profiles: Record<string, LampProfileEntry> = {}, targets: Record<string, TargetEntry> = {}, commands = new Map<string, ScheduleCommand>();
   const debug: string[] = [];
   for (const lamp of [...dimmables, ...plugs]) {
-    if (roomOnly && (!roomLocal || view.rooms.ofId[lamp] !== roomOnly)) continue;
+    if (roomOnly !== undefined && (!roomLocal || view.rooms.ofId[lamp] !== roomOnly)) continue;
     if (roomLocal && !dimmables.includes(lamp)) continue;
     const area = view.rooms.ofId[lamp] ?? '';
     // `rooms` never holds `''` (isAreaId), so a lamp with no room follows the house.

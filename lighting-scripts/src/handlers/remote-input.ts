@@ -7,6 +7,7 @@ import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
 import { catalogOf, emptyCatalog } from '../runtime/catalog.ts';
 import { typed } from '../runtime/entrypoints.ts';
 import { parseRemotePlanArgs, remoteRoomPlan } from '../parse/remote-input.ts';
+import { roomText } from '../parse/rooms.ts';
 import { remoteDecision, remoteOpening } from '../domain/remote-input.ts';
 import type { RemotePlanArgs, RemotePlanResult } from '../domain/remote-input.ts';
 
@@ -19,7 +20,7 @@ import type { RemotePlanArgs, RemotePlanResult } from '../domain/remote-input.ts
  */
 export function remotePlan(ctx: ScriptContext, args: RemotePlanArgs): RemotePlanResult {
   const opening = remoteOpening(ctx, args);
-  const plan = remoteRoomPlan(opening.needsContext ? ctx.run('ls_room_plan', { room: opening.room, overrides: opening.overrides.document,
+  const plan = remoteRoomPlan(opening.needsContext ? ctx.run('ls_room_plan', { room: roomText(opening.room), overrides: opening.overrides.document,
     cache: opening.cache, reason: 'remote' }) : undefined);
   // The captured script calls effects_catalog only for these three commands.
   const catalog = ['toggle', 'left', 'right'].includes(args.command) ? catalogOf(ctx) : emptyCatalog();

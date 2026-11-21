@@ -26,7 +26,7 @@ test('the opening reads the room, the revision and the stamp, and asks for conte
   assert.deepEqual([left.room, left.revision, left.stamp, left.timingRevision, left.needsContext], ['studio', REVISION, STAMP, 0, true]);
   assert.equal(remoteOpening(view, { source: 'remote', area: 'studio', command: 'right' }).needsContext, true);
   assert.equal(remoteOpening(view, { source: 'remote', area: 'studio', command: 'toggle' }).needsContext, false);
-  assert.equal(remoteOpening(view, { source: 'remote', area: 'attic', command: 'toggle' }).room, '');
+  assert.equal(remoteOpening(view, { source: 'remote', area: 'attic', command: 'toggle' }).room, undefined);
 });
 
 test('a dimming press under next-block expiry fingerprints the timing helpers and needs context', () => {

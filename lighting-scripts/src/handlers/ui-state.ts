@@ -7,7 +7,7 @@ import { isDeepStrictEqual } from 'node:util';
 import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
 import { perform, run } from '../runtime/effects.ts';
 import { withParsedArgs } from '../runtime/parse.ts';
-import { discoveryRows, parseRangeSaveArgs, parseUiSyncArgs } from '../parse/ui-state.ts';
+import { discoveryRows, parseRangeSaveArgs, parseUiSyncArgs, rangeSaveAnswer } from '../parse/ui-state.ts';
 import type { RangeSaveArgs } from '../parse/ui-state.ts';
 import { decideRangeSave, discoveryPublish, publishUi, saveRange, uiChoices, uiMessages } from '../domain/ui-state.ts';
 import type { RangeSaveResult } from '../domain/ui-state.ts';
@@ -40,5 +40,5 @@ export const uiHandlers: ScriptHandlers = {
   }),
   // Every argument read is eager in the captured script and none can raise
   // between them, so the arguments parse up front.
-  ls_range_save: withParsedArgs({ parse: parseRangeSaveArgs, run: rangeSave }),
+  ls_range_save: withParsedArgs({ parse: parseRangeSaveArgs, run: (ctx, args) => rangeSaveAnswer(rangeSave(ctx, args)) }),
 };

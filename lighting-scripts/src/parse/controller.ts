@@ -25,6 +25,7 @@ import { savedMappingOr } from './accessors.ts';
 import { BUILT_IN_RANGES } from './planning.ts';
 import type { ApplyArgs, PlanArgs, PlanOverrides, RemoteCommandArgs, SwitchInterval, SwitchPlanArgs } from '../domain/controller.ts';
 import { toPercent, toRoomId, toSwitchId } from './ids.ts';
+import { roomOfText } from './rooms.ts';
 
 const lenientList = (v: JsonValue | undefined): JsonValue[] => Array.isArray(v) ? v : [];
 
@@ -102,7 +103,7 @@ export function parsePlanArgs(args: JsonObject): PlanArgs {
     // Captured `{{ test_now|default(none) }}`: forwarded unread; ls_base parses it.
     testNow: forwardedOrNone(args.test_now),
     reason: args.reason === undefined ? 'config' : requireString(args, 'reason', 'ls_plan'),
-    room: args.room === undefined ? '' : toRoomId(requireString(args, 'room', 'ls_plan')),
+    room: args.room === undefined ? undefined : roomOfText(requireString(args, 'room', 'ls_plan')),
   };
 }
 

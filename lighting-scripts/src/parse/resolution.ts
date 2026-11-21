@@ -48,6 +48,7 @@ import type { OverlayKey } from '../domain/types/overlay.ts';
 import { overlayKeyText } from '../domain/types/overlay.ts';
 import { parseOverlayKey } from './overlay-key.ts';
 import { toRoomId, toStep } from './ids.ts';
+import { roomText } from './rooms.ts';
 import type { Step } from '../domain/types/remote.ts';
 import type { RoomId } from '../domain/types/ids.ts';
 
@@ -334,6 +335,9 @@ export function parseResolveArgs(args: JsonObject): ResolveArgs {
  * `ls_remote_plan`, whose records are not parsed yet; the resolver itself
  * calls `latestStream` with the records it parsed.
  */
-export function latestRemoteKey(records: JsonObject, room: RoomId | ''): OverlayKey {
-  return latestStream(overrideRecords(records).sort((a, b) => lexical(overlayKeyText(a.key), overlayKeyText(b.key))), room);
+export function latestRemoteKey(records: JsonObject, room: RoomId | undefined): OverlayKey {
+  // Compared as saved text: a remote in no room matches the records saved for the
+  // empty target, as the scripts' `''` room did.
+  return latestStream(overrideRecords(records).sort((a, b) => lexical(overlayKeyText(a.key), overlayKeyText(b.key))),
+    target => target === roomText(room));
 }

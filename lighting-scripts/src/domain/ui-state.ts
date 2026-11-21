@@ -4,7 +4,7 @@ import type { Verbatim } from '../runtime/verbatim.ts';
 import { roundEven } from './scale.ts';
 import { isAreaId } from './schedule.ts';
 import {
-  displayOfColour, lampReading, onOffOnly, ownRange, proxyKelvin, proxyShowsRgb, runtimeTargets, storedRangeBounds, uiProfile, uiRows,
+  displayOfColour, lampReading, onOffOnly, ownRange, proxyKelvin, proxyShowsRgb, runtimeTargets, storedRangeBounds, switchText, uiProfile, uiRows,
 } from '../parse/ui-state.ts';
 import type { DiscoveryRow, Display, RangeSaveArgs } from '../parse/ui-state.ts';
 import { payloadNumber } from '../runtime/format.ts';
@@ -102,13 +102,9 @@ export function* publishUi(messages: UiMessage[]): Plan<null> {
  * absent bound must stay absent rather than become an explicit null.
  */
 export type RangeConfig = { profile: string; min?: Percent; max?: Percent };
-export type RangeSaveResult = {
-  valid: boolean;
-  errors: string[];
-  /** The switch the request names; `''` when it names none (a sentinel until V3). */
-  entity: SwitchId | '';
-  config: RangeConfig;
-};
+/** A valid rule names its switch; an invalid request may name none. */
+export type RangeSaveResult = { errors: string[]; config: RangeConfig }
+  & ({ valid: true; entity: SwitchId } | { valid: false; entity: SwitchId | undefined });
 
 /**
  * Decide a switch's range rule. Not a generator: it reads the house through
@@ -116,7 +112,8 @@ export type RangeSaveResult = {
  */
 export function decideRangeSave(view: HouseView, args: RangeSaveArgs): RangeSaveResult {
   const { entity, profile } = args;
-  const e = entity;
+  // Every check reads the switch by name; a request naming none is read as the empty name.
+  const e = switchText(entity);
   const previous = storedRangeBounds(view, e);
   // Captured `minimum if minimum is defined and minimum is not none else saved.get('min')`.
   const lo = args.minimum === undefined || args.minimum === null ? previous.min : args.minimum;
@@ -140,11 +137,12 @@ export function decideRangeSave(view: HouseView, args: RangeSaveArgs): RangeSave
     if (own === undefined) errors.push('Enter both ends of Own Range: 0–100%, with From no higher than Through.');
     else { config.min = own.low; config.max = own.high; }
   }
-  return { valid: errors.length === 0, errors, entity, config };
+  // A request naming no switch always fails the physical-lamp check above.
+  return errors.length === 0 && entity !== undefined ? { valid: true, errors, entity, config } : { valid: false, errors, entity, config };
 }
 /** Save a decided rule: refuse an invalid one, else fire the range override. */
 export function* saveRange(result: RangeSaveResult): Plan<RangeSaveResult> {
-  if (result.errors.length) throw new Error(result.errors.join(' '));
+  if (!result.valid) throw new Error(result.errors.join(' '));
   const config = result.config;
   yield { kind: 'event', event: 'ls_override', data: { op: 'range_set', entity: result.entity, profile: config.profile,
     min: config.min === undefined ? null : config.min,

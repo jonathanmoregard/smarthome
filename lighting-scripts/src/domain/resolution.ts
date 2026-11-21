@@ -224,14 +224,15 @@ function holding(value: ChannelValue | undefined, updated: Updated,
 function numericStamp(n: number): Stamp { return { value: n, numeric: n, text: `${n}` }; }
 function isRemoteStream(r: OverrideRecord): boolean { return r.kind === 'input' || (r.kind === 'channels' && r.via === 'remote'); }
 
-/** The newest remote input stream for a room, over records already in lexical key order. */
-export function latestStream(records: OverrideRecord[], room: RoomId | '' | undefined): OverlayKey {
+/**
+ * The newest remote input stream for a room, over records already in lexical
+ * key order: the room-scoped remote records whose saved target `isRoom` accepts.
+ */
+export function latestStream(records: OverrideRecord[], isRoom: (target: OverrideRecord['target']) => boolean): OverlayKey {
   // The scripts start from the empty key and keep it when no remote record applies.
   let key: OverlayKey = EMPTY_KEY, stamp = -1;
-  // A target in no room has no remote stream.
-  if (room === undefined) return key;
   for (const record of records) {
-    if (record.storedScope !== 'room' || record.target !== room || !isRemoteStream(record)) continue;
+    if (record.storedScope !== 'room' || !isRoom(record.target) || !isRemoteStream(record)) continue;
     if (record.stamp >= stamp) { key = record.key; stamp = record.stamp; }
   }
   return key;
@@ -314,7 +315,8 @@ export function resolveEffects(args: ResolveArgs, candle: ReadonlySet<string>): 
   for (const { target, item } of order) {
     const room = item.area.kind === 'room' ? item.area.room : undefined, isRoom = item.lampOrRoom.kind === 'room';
     const isPrivate = room !== undefined && args.private.includes(room);
-    if (!streams.has(room)) streams.set(room, latestStream(records, room));
+    // A target in no room has no remote stream.
+    if (!streams.has(room)) streams.set(room, latestStream(records, stored => room !== undefined && stored === room));
     const candidates: Record<Channel, Candidate[]> = { brightness: [], color: [] };
     let gradientChecked = false, curve: GradientCurve | undefined;
     const samples = new Map<number, Blended>();

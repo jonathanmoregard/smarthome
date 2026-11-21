@@ -35,8 +35,8 @@ export interface PlanArgs {
   /** Forwarded to `ls_base` unread (`null` when absent); `ls_base` parses it. */
   testNow: Verbatim;
   reason: string;
-  /** `''` when the request names no room (captured `default('')`); a sentinel until V3. */
-  room: RoomId | '';
+  /** The room the request names; none when it names none or `''` (captured `default('')`). */
+  room: RoomId | undefined;
 }
 
 export interface ApplyArgs {

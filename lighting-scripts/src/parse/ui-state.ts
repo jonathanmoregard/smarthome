@@ -285,8 +285,8 @@ function bound(value: JsonValue | undefined): RangeBound {
 }
 
 export interface RangeSaveArgs {
-  /** The switch to configure; `''` when the request names none (a sentinel until V3). */
-  entity: SwitchId | '';
+  /** The switch to configure; none when the request names none or `''` (captured `default('')`). */
+  entity: SwitchId | undefined;
   profile: string;
   dryRun: boolean;
   minimum: RangeBound;
@@ -295,12 +295,29 @@ export interface RangeSaveArgs {
 
 export function parseRangeSaveArgs(args: JsonObject): RangeSaveArgs {
   return {
-    entity: args.entity === undefined ? '' : toSwitchId(requireString(args, 'entity', 'ls_range_save')),
+    entity: args.entity === undefined ? undefined : switchOfText(requireString(args, 'entity', 'ls_range_save')),
     profile: args.profile === undefined ? 'bright' : requireString(args, 'profile', 'ls_range_save'),
     dryRun: args.dry_run === undefined ? false : requireBoolean(args.dry_run, 'ls_range_save.dry_run'),
     minimum: bound(args.minimum),
     maximum: bound(args.maximum),
   };
+}
+
+function switchOfText(text: string): SwitchId | undefined {
+  return text === '' ? undefined : toSwitchId(text);
+}
+
+/**
+ * The switch as the captured script names it in every read and in its answer:
+ * the switch's entity, or `''` when the request names none (`default('')`).
+ */
+export function switchText(entity: SwitchId | undefined): string {
+  return entity === undefined ? '' : entity;
+}
+
+/** `ls_range_save`'s answer: the decision, with no switch spelled `''` as the captured script answers it. */
+export function rangeSaveAnswer(result: { valid: boolean; errors: string[]; entity: SwitchId | undefined; config: JsonObject }): JsonObject {
+  return { valid: result.valid, errors: result.errors, entity: switchText(result.entity), config: result.config };
 }
 
 /** A switch's stored range bounds, read leniently from `sensor.ls_overrides`. */

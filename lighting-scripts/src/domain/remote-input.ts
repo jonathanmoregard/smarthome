@@ -4,7 +4,7 @@ import type { Verbatim } from '../runtime/verbatim.ts';
 import { recordTimestamp } from '../parse/resolution.ts';
 import type { AssembledMap, StoredValue } from '../parse/overrides.ts';
 import { overridesRevision } from '../parse/sensors.ts';
-import { contextEntries, noInputRecord, presetSelection, remoteCache, remoteOverrides, roomPower } from '../parse/remote-input.ts';
+import { contextEntries, noInputRecord, presetSelection, remoteCache, remoteOverrides, roomPower, roomText } from '../parse/remote-input.ts';
 import { switchRangeIterable } from '../parse/planning.ts';
 import type { RemoteOverrides, RemoteRoomPlan } from '../parse/remote-input.ts';
 import { clamp } from './scale.ts';
@@ -85,8 +85,8 @@ export type RemotePlanResult = RemotePlanOp & {
 
 /** What `ls_remote_plan` reads before it may ask `ls_room_plan` for the room's context. */
 export interface RemoteOpening {
-  /** The area, when some entity is in it; else `''` (a sentinel V3 replaces). */
-  room: RoomId | '';
+  /** The area, when some entity is in it; else none. */
+  room: RoomId | undefined;
   overrides: RemoteOverrides;
   stamp: number;
   revision: string;
@@ -100,7 +100,7 @@ export interface RemoteOpening {
 
 export function remoteOpening(view: HouseView, args: RemotePlanArgs): RemoteOpening {
   const command = args.command, area = args.area;
-  const room = Object.values(view.rooms.ofId).includes(area) ? area : '';
+  const room = Object.values(view.rooms.ofId).includes(area) ? area : undefined;
   const overrides = remoteOverrides(view, room);
   const stamp = recordTimestamp(view.now);
   const revision = overridesRevision(view, 'ls_remote_plan');
@@ -108,7 +108,7 @@ export function remoteOpening(view: HouseView, args: RemotePlanArgs): RemoteOpen
   const expiry = view.get('input_boolean.ls_ovr_next_block_on') === 'on';
   if (['up', 'down'].includes(command) && expiry) {
     const ids = ['input_boolean.ls_ovr_next_block_on'];
-    for (const scope of ['house', room]) for (const block of ['day', 'cosy', 'night']) {
+    for (const scope of ['house', roomText(room)]) for (const block of ['day', 'cosy', 'night']) {
       ids.push(`input_boolean.ls_${scope}_${block}_own_timing`, `input_datetime.ls_${scope}_${block}_start`,
         `input_datetime.ls_${scope}_${block}_weekend`, `input_number.ls_${scope}_${block}_fade`);
     }
@@ -117,7 +117,7 @@ export function remoteOpening(view: HouseView, args: RemotePlanArgs): RemoteOpen
   const inputValue = overrides.input.value;
   const needsContext = ['left', 'right'].includes(command) || (['up', 'down'].includes(command) && expiry
     && (inputValue.validUntil() <= stamp || inputValue.timingRevision !== timingRevision));
-  const cache = remoteCache(view.attr(`sensor.ls_cache_${room}`, 'cache'));
+  const cache = remoteCache(view.attr(`sensor.ls_cache_${roomText(room)}`, 'cache'));
   return { room, overrides, stamp, revision, timingRevision, needsContext, cache };
 }
 
@@ -129,11 +129,12 @@ export function remoteDecision(view: HouseView, args: RemotePlanArgs, opening: R
   const inputKey = overrides.inputKey;
   const inputRecord = overrides.input;
   const key: OverlayKey = { kind: 'remote input', source };
-  const old = inputRecord.scope !== 'room' || inputRecord.target !== room || plan.stale(inputKey) ? noInputRecord() : inputRecord;
+  // Compared as saved text: a remote in no room reads a record saved for the empty target, as the scripts' `''` room did.
+  const old = inputRecord.scope !== 'room' || inputRecord.target !== roomText(room) || plan.stale(inputKey) ? noInputRecord() : inputRecord;
   const value = old.value;
   const bounds = value.stepRange.bounds;
   let result: RemotePlanOp = { op: 'noop' };
-  if (room !== '' && ['up', 'down', 'left', 'right', 'toggle', 'reset', 'sara_toggle'].includes(command)
+  if (room !== undefined && ['up', 'down', 'left', 'right', 'toggle', 'reset', 'sara_toggle'].includes(command)
     && (bounds !== undefined || ['toggle', 'reset', 'sara_toggle'].includes(command))) {
     if (command === 'sara_toggle') {
       result = overrides.has(SARA_MODE) ? { op: 'clear', keys: [overlayKeyText(SARA_MODE)], via: 'remote' }
