@@ -6,6 +6,7 @@ import test from 'node:test';
 import type { Snapshot } from '../../src/runtime/context.ts';
 import { execute } from '../../src/runtime/engine.ts';
 import { handlers } from '../../src/runtime/registry.ts';
+import { sendsAll } from './support/scope.ts';
 
 // Review 2, R1: the deleted software candle (b00e10a) scheduled
 // `effects_candle_sync_timeout` and `effects_candle_sync_published`. A journal
@@ -30,7 +31,7 @@ for (const retired of ['effects_candle_sync_timeout', 'effects_candle_sync_publi
       later: ctx => { ctx.put('sensor.later_ran', 'yes'); return null; },
     });
     const reports: string[] = [];
-    const host = await LightingHost.open({ path: join(directory, 'state.json'), initial, program, autoTimers: false, now: () => now,
+    const host = await LightingHost.open({ path: join(directory, 'state.json'), initial, program, autoTimers: false, scope: sendsAll, now: () => now,
       report: message => reports.push(message), transport: { send: async () => {}, close: async () => {} } });
     let error: unknown;
     try { await host.runDue(); } catch (caught) { error = caught; }

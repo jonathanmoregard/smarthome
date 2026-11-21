@@ -6,12 +6,13 @@ import { join } from 'node:path';
 import { LightingHost } from '../../src/runtime/host.ts';
 import { execute } from '../../src/runtime/engine.ts';
 import type { Snapshot } from '../../src/runtime/context.ts';
+import { sendsAll } from './support/scope.ts';
 
 test('slow registry refresh preserves consumed timers, new continuations, catalog edits and newer HA events', async () => {
   const now = Date.parse('2026-10-26T12:00:00Z'), directory = await mkdtemp(join(tmpdir(), 'lighting-refresh-'));
   let release!: (snapshot: Snapshot) => void, captured!: Snapshot, sends = 0;
   const initial: Snapshot = { now: new Date(now).toISOString(), state: { 'light.existing': { state: 'on', attributes: {}, last_updated: '2026-10-26T12:00:00Z' } }, areas: {}, members: [], catalog: { marker: 'old' }, scheduled: [{ script: 'tick', args: {}, due: now }] };
-  const host = await LightingHost.open({ path: join(directory, 'state.json'), initial, now: () => now, autoTimers: false,
+  const host = await LightingHost.open({ path: join(directory, 'state.json'), initial, now: () => now, autoTimers: false, scope: sendsAll,
     transport: { send: async () => { sends++; }, close: async () => {} },
     program: request => execute(request, {
       tick: ctx => { ctx.emit('mqtt.publish', { topic: 'fixture/set', payload: '{}' }); return null; },

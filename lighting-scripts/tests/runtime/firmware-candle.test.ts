@@ -7,6 +7,7 @@ import { execute } from '../../src/runtime/engine.ts';
 import { handlers } from '../../src/runtime/registry.ts';
 import { LightingHost } from '../../src/runtime/host.ts';
 import type { JsonObject, ServiceCall, Snapshot } from '../../src/runtime/context.ts';
+import { sendsAll } from './support/scope.ts';
 
 /**
  * Candle runs on the bulb (custom Innr firmware, Identify TriggerEffect 0x0b,
@@ -74,7 +75,7 @@ function holding(target: JsonObject): JsonObject {
  */
 async function hostedDispatch(state: Snapshot, target: JsonObject, lost: (body: JsonObject) => boolean, lights: string[] = []) {
   const directory = await mkdtemp(join(tmpdir(), 'firmware-candle-'));
-  const host = await LightingHost.open({ path: join(directory, 'state.json'), initial: state, autoTimers: false,
+  const host = await LightingHost.open({ path: join(directory, 'state.json'), initial: state, autoTimers: false, scope: sendsAll,
     now: () => Date.parse(now), program: request => execute(request, handlers), transport: {
       send: async call => {
         if (call.service === 'mqtt.publish' && lost(JSON.parse(String(call.data.payload)) as JsonObject)) throw new Error('publish lost');

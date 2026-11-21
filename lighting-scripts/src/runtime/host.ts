@@ -26,7 +26,7 @@ export interface OutputScope {
   keeps(entity: string, house: Snapshot): boolean;
 }
 export interface HostOptions {
-  path: string; initial: Snapshot; program: Program; transport: OutputTransport;
+  path: string; initial: Snapshot; program: Program; transport: OutputTransport; scope: OutputScope;
   autoTimers?: boolean; connected?: boolean; now?: () => number; report?: (message: string) => void;
 }
 interface Journal { version: 1; snapshot: Snapshot; uncertain: boolean; pending: number; held?: ScheduledTask[] }
@@ -165,6 +165,8 @@ export class LightingHost {
   }
   private mergeIncoming(state: Snapshot, entity: string, incoming: EntityState | null): void {
     if (this.pendingWrites.get(entity)?.size) return;
+    // A kept entity is read once, to start from, and is the process's own after that.
+    if (state.state[entity] !== undefined && this.options.scope.keeps(entity, state)) return;
     const previous = state.state[entity];
     const time = (iso: string) => Date.parse(iso) + Number((/\.(\d{6})/.exec(iso)?.[1] ?? '000000').slice(3)) / 1000;
     if (incoming?.last_updated && previous?.last_updated && time(incoming.last_updated) < time(previous.last_updated)) return;
@@ -309,6 +311,8 @@ export class LightingHost {
         const calls = [...batch.calls.filter(call => !call.guard?.requiresOutputSuccess), ...batch.calls.filter(call =>
           call.guard?.requiresOutputSuccess)];
         for (const call of calls) {
+          // Not this process's output: whatever drives that room sends it, so the batch goes on.
+          if (!this.options.scope.sends(call, this.state)) continue;
           if (!this.allowed(call, batch) || (call.guard?.requiresOutputSuccess && !succeeded)) { succeeded = false; continue; }
           if (call.service === 'script.turn_on') {
             for (const entity of ids(call)) await this.dispatch(entity.replace(/^script\./, ''), object(call.data.variables));

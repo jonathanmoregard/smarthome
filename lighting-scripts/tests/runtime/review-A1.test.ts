@@ -6,6 +6,7 @@ import test from 'node:test';
 import type { Snapshot } from '../../src/runtime/context.ts';
 import { execute } from '../../src/runtime/engine.ts';
 import { handlers } from '../../src/runtime/registry.ts';
+import { sendsAll } from './support/scope.ts';
 
 // Review A1: a journal written before the frame engine was removed can still
 // hold a scheduled `effects_engine_tick`. The current registry has no handler
@@ -28,7 +29,7 @@ test('review A1: a due task for a removed handler does not block later due tasks
     ...handlers,
     later: ctx => { ctx.put('sensor.later_ran', 'yes'); return null; },
   });
-  const host = await LightingHost.open({ path: join(directory, 'state.json'), initial, program, autoTimers: false, now: () => now,
+  const host = await LightingHost.open({ path: join(directory, 'state.json'), initial, program, autoTimers: false, scope: sendsAll, now: () => now,
     transport: { send: async () => {}, close: async () => {} } });
   let error: unknown;
   try { await host.runDue(); } catch (caught) { error = caught; }
@@ -49,7 +50,7 @@ test('review A1: the retired task is dropped with a log line and never reaches t
   };
   const reports: string[] = [], seen: string[] = [];
   const program = (request: Parameters<typeof execute>[0]) => { seen.push(request.script); return execute(request, handlers); };
-  const host = await LightingHost.open({ path: join(directory, 'state.json'), initial, program, autoTimers: false, now: () => now,
+  const host = await LightingHost.open({ path: join(directory, 'state.json'), initial, program, autoTimers: false, scope: sendsAll, now: () => now,
     report: message => reports.push(message), transport: { send: async () => {}, close: async () => {} } });
   const after = host.snapshot();
   await host.close();
@@ -68,7 +69,7 @@ test('review A1: a due task for any other unknown script still fails loudly', as
     scheduled: [{ script: 'no_such_handler', args: {}, due: now - 1 }],
   };
   const host = await LightingHost.open({ path: join(directory, 'state.json'), initial, program: request => execute(request, handlers),
-    autoTimers: false, now: () => now, transport: { send: async () => {}, close: async () => {} } });
+    autoTimers: false, scope: sendsAll, now: () => now, transport: { send: async () => {}, close: async () => {} } });
   try {
     await assert.rejects(host.runDue(), /Unsupported script: no_such_handler/);
     assert.deepEqual(host.snapshot().scheduled?.map(task => task.script), ['no_such_handler'], 'kept, not silently dropped');
@@ -84,7 +85,7 @@ test('review A1: a retired task that appears after load is dropped by runDue, an
     ...handlers,
     later: ctx => { ctx.put('sensor.later_ran', 'yes'); return null; },
   });
-  const host = await LightingHost.open({ path: join(directory, 'state.json'), initial, program, autoTimers: false, now: () => now,
+  const host = await LightingHost.open({ path: join(directory, 'state.json'), initial, program, autoTimers: false, scope: sendsAll, now: () => now,
     transport: { send: async () => {}, close: async () => {} } });
   try {
     await host.update(state => { state.scheduled = [{ script: 'effects_engine_tick', args: {}, due: now - 2 }, { script: 'later', args: {}, due: now - 1 }]; });

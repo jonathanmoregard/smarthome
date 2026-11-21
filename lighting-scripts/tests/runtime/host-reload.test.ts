@@ -6,6 +6,7 @@ import test from 'node:test';
 import { loadProgram } from '../../src/main.ts';
 import { LightingHost } from '../../src/runtime/host.ts';
 import { compileCandidate } from '../../scripts/dev.mjs';
+import { sendsAll } from './support/scope.ts';
 
 test('actual TypeScript compile reloads valid edits and invalid edits leave last working program and intent', async () => {
   const root = await mkdtemp(join(tmpdir(), 'lighting-reload-'));
@@ -17,7 +18,7 @@ test('actual TypeScript compile reloads valid edits and invalid edits leave last
   const registry = join(root, 'src/runtime/registry.ts');
   await writeFile(registry, 'export const handlers = { probe: () => 1 };');
   assert.equal(await compileCandidate(root, join(root, 'build-one')), true);
-  const host = await LightingHost.open({ path: join(root, 'intent.json'), initial: { state: {}, members: [], areas: {}, now: '2026-10-26T12:00:00Z' }, program: await loadProgram(join(root, 'build-one')), autoTimers: false, transport: { send: async () => {}, close: async () => {} } });
+  const host = await LightingHost.open({ path: join(root, 'intent.json'), initial: { state: {}, members: [], areas: {}, now: '2026-10-26T12:00:00Z' }, program: await loadProgram(join(root, 'build-one')), autoTimers: false, scope: sendsAll, transport: { send: async () => {}, close: async () => {} } });
   assert.equal(await host.dispatch('probe'), 1);
   await writeFile(registry, 'export const handlers = { probe: () => 2 };');
   assert.equal(await compileCandidate(root, join(root, 'build-two')), true);

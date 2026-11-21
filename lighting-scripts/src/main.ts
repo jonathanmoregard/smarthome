@@ -10,6 +10,8 @@ import { parseCatalog } from './runtime/catalog.ts';
 import { LightingHost } from './runtime/host.ts';
 import type { Program, OutputTransport } from './runtime/host.ts';
 import { HomeAssistantTransport } from './live.ts';
+import { readLiveRoomsFlag } from './parse/live-rooms.ts';
+import { liveScope } from './runtime/live-rooms.ts';
 
 const record = (value: unknown): JsonObject => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Expected a JSON object');
@@ -47,6 +49,8 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   const option = (name: string) =>
     { const index = argv.indexOf(name); if (index < 0) return undefined; const value = argv[index + 1]; if (!value ||
     value.startsWith('--')) throw new Error(`Missing value for ${name}`); return value; };
+  // First: a port started without its rooms must not touch anything.
+  const liveRooms = readLiveRoomsFlag(argv);
   const configuration = option('--config'), fixture = option('--snapshot');
   const statePath = resolve(option('--state') ?? '.runtime/state.json');
   let initial: Snapshot = fixture ? JSON.parse(await readFile(fixture, 'utf8')) as Snapshot : { state: {}, areas: {}, members: [],
@@ -63,7 +67,8 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     live = await HomeAssistantTransport.connect(url, await readFile(tokenFile, 'utf8'));
     transport = live;
   }
-  const host = await LightingHost.open({ path: statePath, initial, program, transport, connected: !live, report: message =>
+  const host = await LightingHost.open({ path: statePath, initial, program, transport, scope: liveScope(liveRooms), connected: !live,
+    report: message =>
     console.error(message) }).catch(async error => { await transport.close(); throw error; });
   let watcher: FSWatcher | undefined;
   try {
