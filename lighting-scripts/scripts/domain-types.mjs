@@ -27,6 +27,8 @@
 // `domain-types.allow.json` holds two kinds of entry:
 // - `allow`: `{ file, symbol, reason }`. Covers the sites of one symbol (and
 //   everything under it: `Lamp` covers `Lamp.level`). The reason is required.
+//   An entry that covers no site fails, so it cannot linger and later excuse
+//   a new site under its name.
 // - `ceilings`: `{ file, ceiling, reason }`. A ratchet, not a permission: the
 //   file holds exactly that many sites no `allow` entry covers. A rise fails,
 //   and so does a fall until the ceiling is lowered to the new count, so slack
@@ -246,10 +248,6 @@ if (LIST) {
 }
 
 const stale = allow.filter(entry => !used.has(entry));
-if (stale.length > 0) {
-  console.log('\nThese allow entries cover no site any more; remove them:');
-  for (const entry of stale) console.log(`  ${entry.file}  ${entry.symbol}`);
-}
 
 if (over.length > 0) {
   console.error('\nFAIL: plain string/number rose above its ceiling.');
@@ -266,4 +264,10 @@ if (slack.length > 0) {
   for (const { file, ceiling, count } of slack) console.error(`  ${file}: ${ceiling} -> ${count}`);
   process.exit(1);
 }
-console.log('\nOK: every count sits exactly at its ceiling.');
+// A stale entry would later excuse a new site under its name, so it fails as slack does.
+if (stale.length > 0) {
+  console.error('\nFAIL: these allow entries cover no site any more. Progress made: remove them from domain-types.allow.json:');
+  for (const entry of stale) console.error(`  ${entry.file}  ${entry.symbol}`);
+  process.exit(1);
+}
+console.log('\nOK: every count sits exactly at its ceiling, and every allow entry covers a site.');

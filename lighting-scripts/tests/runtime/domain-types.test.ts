@@ -88,3 +88,12 @@ test('types reached through an exported signature are checked, wherever they are
   assert.match(output, /src\/domain\/room\.ts.*Lamp\.level/);
   assert.match(output, /src\/parse\/remote\.ts.*Remote\.device/);
 });
+
+test('an allow entry that covers no site fails the guard and names it', () => {
+  // Break: a stale entry is only printed, so it lingers and later excuses a new site under its name.
+  const { status, output } = guard('one-site', 'stale');
+  assert.equal(status, 1);
+  assert.match(output, /FAIL/);
+  assert.match(output, /src\/domain\/lamp\.ts\s+gone/);
+  assert.match(output, /[Rr]emove/);
+});
