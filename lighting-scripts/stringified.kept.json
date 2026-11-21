@@ -1,0 +1,81 @@
+{
+  "kept": [
+    {
+      "file": "src/domain/schedule.ts",
+      "within": "sourceEntity",
+      "text": "${lamp.split('.')[1]}",
+      "sites": 2,
+      "reason": "Found by this guard at ed33a7f; fixed or argued in a following commit."
+    },
+    {
+      "file": "src/domain/schedule.ts",
+      "within": "scheduledBase",
+      "text": "${lamp.split('.')[1]}",
+      "sites": 2,
+      "reason": "Found by this guard at ed33a7f; fixed or argued in a following commit."
+    },
+    {
+      "file": "src/domain/ui-state.ts",
+      "within": "uiMessages",
+      "text": "${areas[0]}",
+      "sites": 1,
+      "reason": "Found by this guard at ed33a7f; fixed or argued in a following commit."
+    },
+    {
+      "file": "src/handlers/controller.ts",
+      "within": "plan",
+      "text": "${target.area}",
+      "sites": 1,
+      "reason": "Found by this guard at ed33a7f; fixed or argued in a following commit."
+    },
+    {
+      "file": "src/parse/controller.ts",
+      "within": "on",
+      "text": "${room}",
+      "sites": 1,
+      "reason": "Found by this guard at ed33a7f; fixed or argued in a following commit."
+    },
+    {
+      "file": "src/parse/resolution.ts",
+      "within": "rawStamp",
+      "text": "String(value)",
+      "sites": 1,
+      "reason": "Found by this guard at ed33a7f; fixed or argued in a following commit."
+    },
+    {
+      "file": "src/parse/resolution.ts",
+      "within": "claimInput",
+      "text": "String(input.anchor)",
+      "sites": 1,
+      "reason": "Found by this guard at ed33a7f; fixed or argued in a following commit."
+    },
+    {
+      "file": "src/parse/resolution.ts",
+      "within": "claimInput",
+      "text": "String(value.period)",
+      "sites": 1,
+      "reason": "Found by this guard at ed33a7f; fixed or argued in a following commit."
+    },
+    {
+      "file": "src/parse/resolution.ts",
+      "within": "inputClaims",
+      "text": "String(selection)",
+      "sites": 1,
+      "reason": "Found by this guard at ed33a7f; fixed or argued in a following commit."
+    },
+    {
+      "file": "src/parse/ui-state.ts",
+      "within": "uiTargetView",
+      "text": "String(claim.effect)",
+      "sites": 1,
+      "reason": "Found by this guard at ed33a7f; fixed or argued in a following commit."
+    },
+    {
+      "file": "src/parse/ui-state.ts",
+      "within": "uiTargetView",
+      "text": "String(entry.effect)",
+      "sites": 1,
+      "reason": "Found by this guard at ed33a7f; fixed or argued in a following commit."
+    }
+  ]
+}
