@@ -11,6 +11,7 @@ import type {
 import { overlayKeyText } from './types/overlay.ts';
 import type { OverlayKey } from './types/overlay.ts';
 import type { RoomId } from './types/ids.ts';
+import type { Brightness, Kelvin } from './types/light.ts';
 import { isAreaId } from './schedule.ts';
 
 // Literal CSS colour names from the deployed native adapter.
@@ -186,7 +187,7 @@ export type ChannelRecord = {
 };
 export type PowerEvent = { op: 'power'; area: RoomId; on: boolean; via: string };
 export type SetEvent = { op: 'set'; records: ChannelRecord[]; via: string };
-type LightData = Record<string, never> | { brightness: number } | { rgb_color: number[] } | { color_temp_kelvin: number };
+type LightData = Record<string, never> | { brightness: Brightness } | { rgb_color: number[] } | { color_temp_kelvin: Kelvin };
 export type ControlCommand =
   | { action: 'script.ls_store'; data: { store: string; effect: string }; target: Record<string, never> }
   | {
@@ -372,11 +373,13 @@ export function planUIControls(view: HouseView, args: SetArgs, catalog: NativeCa
   // the -1 fallback and so failed the bound, which is how the captured
   // `| float(-1)` reports it. `inRange` keeps that outcome — the same error
   // string, for the same inputs — without a sentinel standing in for "not a
-  // number". The parity probe found all 14 of the gate's coercion-fallback
+  // number"; the parsed `brightness` and `kelvin` are defined exactly when
+  // their `inRange` check passes (`src/parse/native-controls.ts`). The parity probe found all 14 of the gate's coercion-fallback
   // hits here, every one of them a `null` value, so this is the only site
   // where the leniency was load-bearing at all.
-  if (attribute === 'brightness' && !value.inRange(0, 255)) errors.push('Brightness must be 0–255.');
-  if (attribute === 'temperature' && !value.inRange(100, 1000)) errors.push('Temperature must be 100–1000 mireds.');
+  const { brightness, kelvin } = value;
+  if (attribute === 'brightness' && brightness === undefined) errors.push('Brightness must be 0–255.');
+  if (attribute === 'temperature' && kelvin === undefined) errors.push('Temperature must be 100–1000 mireds.');
   const rgb = value.components;
   if (attribute === 'rgb') {
     if (rgb === undefined || rgb.length !== 3) errors.push('RGB needs three components.');
@@ -391,8 +394,9 @@ export function planUIControls(view: HouseView, args: SetArgs, catalog: NativeCa
       if (attribute === 'effect') commands.push({ action: 'script.ls_store', data: { store, effect: value.string('effects_set') }, target: {} });
       else if (attribute === 'power' && value.raw === 'OFF') commands.push({ action: 'light.turn_off', target: { entity_id: source }, data: {} });
       else {
-        const data: LightData = attribute === 'brightness' ? { brightness: value.int } : attribute === 'rgb' ?
-          { rgb_color: rgbInts() } : attribute === 'temperature' ? { color_temp_kelvin: roundEven(1000000 / value.float) } : {};
+        // With no errors, a brightness or temperature control's value passed its check, so it is defined here.
+        const data: LightData = attribute === 'brightness' && brightness !== undefined ? { brightness } : attribute === 'rgb' ?
+          { rgb_color: rgbInts() } : attribute === 'temperature' && kelvin !== undefined ? { color_temp_kelvin: kelvin } : {};
         commands.push({ action: 'light.turn_on', target: { entity_id: source }, data });
       }
     }

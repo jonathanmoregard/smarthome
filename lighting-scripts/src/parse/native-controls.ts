@@ -27,7 +27,9 @@ import { carry, carryOptional, reveal } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import type { RGB } from '../domain/scale.ts';
 import type { BulbId, LampId, RoomId } from '../domain/types/ids.ts';
-import { toBulbId, toLampId, toRoomId } from './ids.ts';
+import type { Brightness, Kelvin } from '../domain/types/light.ts';
+import { roundEven } from '../domain/scale.ts';
+import { toBrightness, toBulbId, toKelvin, toLampId, toRoomId } from './ids.ts';
 
 function selector(container: JsonObject, key: string, split = false): string[] {
   const value = container[key];
@@ -297,6 +299,13 @@ export interface ControlValue extends ControlScalar {
   text: string;
   /** `value | float` */
   float: number;
+  /** `value | int` as a brightness, when the value is a number in 0..255 (the brightness control's check); else `undefined`. */
+  brightness: Brightness | undefined;
+  /**
+   * The value as mireds, when a number in 100..1000 (the temperature control's
+   * check), given in kelvin: `1000000 / value`, rounded half to even. Else `undefined`.
+   */
+  kelvin: Kelvin | undefined;
   /** A string's comma-separated parts, or a list's elements; otherwise `undefined`. */
   components: ControlScalar[] | undefined;
   /** The value as a required string, raising as the inline read did. */
@@ -313,11 +322,16 @@ function controlScalar(value: JsonValue | undefined): ControlScalar {
 
 function controlValue(value: JsonValue | undefined): ControlValue {
   const parts = typeof value === 'string' ? value.split(',') : value;
+  const scalar = controlScalar(value), float = jinjaFloat(value);
   return {
-    ...controlScalar(value),
+    ...scalar,
     raw: value,
     text: jinjaString(value),
-    float: jinjaFloat(value),
+    float,
+    // In range, `value | int` truncates the same number, so it is a whole 0..255.
+    brightness: scalar.inRange(0, 255) ? toBrightness(scalar.int) : undefined,
+    // In range, `value | float` is the same number, so the kelvin is within 1000..10000.
+    kelvin: scalar.inRange(100, 1000) ? toKelvin(roundEven(1000000 / float)) : undefined,
     components: Array.isArray(parts) ? parts.map(controlScalar) : undefined,
     string: context => value === undefined ? requireString({}, 'value', context) : requireString({ value }, 'value', context),
   };
