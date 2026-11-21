@@ -110,7 +110,9 @@ function isHouseView(expression) {
   return type.aliasSymbol?.name === 'HouseView' || type.getSymbol()?.name === 'HouseView';
 }
 
-const declaredInDomainTypes = symbol => (symbol?.declarations ?? []).some(declaration => inDomainTypes(declaration.getSourceFile().fileName));
+/** A symbol's declarations; none for no symbol. */
+const declarationsOf = symbol => symbol === undefined || symbol.declarations === undefined ? [] : symbol.declarations;
+const declaredInDomainTypes = symbol => declarationsOf(symbol).some(declaration => inDomainTypes(declaration.getSourceFile().fileName));
 
 /**
  * Does the type, as the checker resolves it, hold a type declared under
@@ -143,14 +145,16 @@ const namesDomainType = typeNode => holdsDomainType(checker.getTypeFromTypeNode(
 function namesCarriedType(reference, seen = new Set()) {
   const typeName = ts.isIdentifier(reference.typeName) ? reference.typeName.text : reference.typeName.right.text;
   const symbol = resolved(checker.getSymbolAtLocation(reference.typeName));
-  if (CARRIED.has(symbol?.name ?? typeName)) return true;
+  if (CARRIED.has(symbol === undefined ? typeName : symbol.name)) return true;
   if (symbol === undefined || seen.has(symbol)) return false;
   seen.add(symbol);
-  return (symbol.declarations ?? []).some(declaration => ts.isTypeAliasDeclaration(declaration)
+  return declarationsOf(symbol).some(declaration => ts.isTypeAliasDeclaration(declaration)
     && inSource(declaration.getSourceFile().fileName) && carriedWithin(declaration.type, seen));
 }
 function carriedWithin(node, seen) {
-  if (ts.isTypeReferenceNode(node)) return namesCarriedType(node, seen) || (node.typeArguments ?? []).some(argument => carriedWithin(argument, seen));
+  if (ts.isTypeReferenceNode(node)) {
+    return namesCarriedType(node, seen) || (node.typeArguments !== undefined && node.typeArguments.some(argument => carriedWithin(argument, seen)));
+  }
   if (ts.isUnionTypeNode(node) || ts.isIntersectionTypeNode(node)) return node.types.some(member => carriedWithin(member, seen));
   if (ts.isArrayTypeNode(node)) return carriedWithin(node.elementType, seen);
   if (ts.isTupleTypeNode(node)) return node.elements.some(element => carriedWithin(element, seen));
