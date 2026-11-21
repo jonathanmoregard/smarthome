@@ -22,7 +22,7 @@ import { SARA_MODE } from '../../src/domain/types/overlay.ts';
  */
 
 const decode = resultCodecs.ls_remote_plan.decode;
-const envelope = { input_revision: 'revision', received_at: 0, request_id: 'remote:0' };
+const envelope = { input_revision: 'revision', received_at: 0, request_id: 'r:0' };
 const set = (record: JsonObject): JsonObject => ({ op: 'set', records: [record], via: 'remote', ...envelope });
 const INPUT = { kind: 'input', key: 'channels:r', source: 'r', scope: 'room', target: 'studio', value: {} };
 const refused = (pattern: RegExp) => (error: unknown) => error instanceof ParseError && pattern.test(error.message);
@@ -71,4 +71,35 @@ test("an input record whose key is not its source's key is refused", () => {
     assert.throws(() => decode?.(set({ ...INPUT, key }), 'ls_remote_plan'),
       (error: unknown) => error instanceof ParseError && error.message === message, key);
   }
+});
+
+test('a clear that names anything but Sara mode is refused', () => {
+  // Review round 3: the one producer of a clear is `sara_toggle` with Sara
+  // mode on, which clears `[SARA_MODE]` and nothing else.
+  // Break: the decoder accepts any list of keys, so a clear no producer writes decodes.
+  for (const keys of [[], ['mode:sara', 'mode:sara'], ['block:house'], ['block:house', 'mode:sara']]) {
+    const message = `ls_remote_plan.keys must be ["mode:sara"], got ${JSON.stringify(keys)}`;
+    assert.throws(() => decode?.({ op: 'clear', keys, via: 'remote', ...envelope }, 'ls_remote_plan'),
+      (error: unknown) => error instanceof ParseError && error.message === message, JSON.stringify(keys));
+  }
+});
+
+test("a request id that is not its source and its received_at is refused, and so is an input record from another source", () => {
+  // Review round 3: the producer builds `request_id` as `${source}:${received_at}`
+  // and gives an input record that same source.
+  // Break: request_id and received_at are read independently, so a stub's
+  // mismatched pair decodes.
+  const noop = (fields: JsonObject) => ({ op: 'noop', input_revision: 'revision', ...fields });
+  for (const [fields, pattern] of [
+    [{ received_at: 0, request_id: 'r:1' }, /request_id must be "<source>:0", got "r:1"/],
+    [{ received_at: 1.5, request_id: 'r:1' }, /request_id must be "<source>:1\.5", got "r:1"/],
+    [{ received_at: 0, request_id: '0' }, /request_id must be "<source>:0", got "0"/],
+    [{ received_at: 0, request_id: ':0' }, /request_id must be "<source>:0", got ":0"/],
+    [{ received_at: 0, request_id: 'ui:r:0' }, /remote source must not begin 'ui:'/],
+  ] as const) {
+    assert.throws(() => decode?.(noop(fields), 'ls_remote_plan'), refused(pattern), JSON.stringify(fields));
+  }
+  assert.equal(decode?.(noop({ received_at: 1.5, request_id: 'kitchen:remote:1.5' }), 'ls_remote_plan')?.request_id, 'kitchen:remote:1.5');
+  assert.throws(() => decode?.({ ...set(INPUT), request_id: 'other:0' }, 'ls_remote_plan'),
+    refused(/records\.0\.source must be "other", the request's source, got "r"/));
 });

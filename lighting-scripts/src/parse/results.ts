@@ -12,8 +12,8 @@ import { ParseError, requireArray, requireBoolean, requireFinite, requireNumber,
 import { carry } from '../runtime/verbatim.ts';
 import { assembledMap, storedFact } from './overrides.ts';
 import { toBulbId, toPowerTarget, toRemoteSource, toRoomId, toSwitchId } from './ids.ts';
-import { parseOverlayKey } from './overlay-key.ts';
-import { overlayKeyText, remoteInputKey } from '../domain/types/overlay.ts';
+import { overlayKeyText, remoteInputKey, SARA_MODE } from '../domain/types/overlay.ts';
+import type { RemoteSource } from '../domain/types/ids.ts';
 
 function decodeStrings(container: JsonObject, key: string, context: string): string[] {
   return requireArray(container, key, context)
@@ -207,7 +207,12 @@ function decodeRemoteRecord(value: JsonValue, context: string): RemoteModeRecord
 function decodeRemoteOp(result: JsonObject, context: string): RemotePlanOp {
   const op = requireString(result, 'op', context);
   if (op === 'noop') return { op };
-  if (op === 'clear') return { op, keys: decodeStrings(result, 'keys', context).map(parseOverlayKey), via: decodeVia(result, context) };
+  if (op === 'clear') {
+    // The one producer of a clear is `sara_toggle` with Sara mode on: it clears Sara mode and nothing else.
+    const keys = decodeStrings(result, 'keys', context), sara = overlayKeyText(SARA_MODE);
+    if (keys.length !== 1 || keys[0] !== sara) throw new ParseError(`${context}.keys must be ${JSON.stringify([sara])}, got ${JSON.stringify(keys)}`);
+    return { op, keys: [SARA_MODE], via: decodeVia(result, context) };
+  }
   if (op === 'clear_room') return { op, area: toRoomId(requireString(result, 'area', context)), via: decodeVia(result, context) };
   if (op === 'power') {
     return {
@@ -253,14 +258,34 @@ export function remoteAnswerDocument(answer: RemotePlanResult | null): JsonObjec
   return answer === null ? null : remotePlanDocument(answer);
 }
 
+/**
+ * The source a request id names. The producer builds the id as
+ * `${source}:${received_at}`, so an id that does not end in its own
+ * `received_at`, or names no source before it, is no producer's.
+ */
+function requestSource(requestId: string, receivedAt: number, context: string): RemoteSource {
+  const suffix = `:${receivedAt}`;
+  if (!requestId.endsWith(suffix) || requestId.length === suffix.length) {
+    throw new ParseError(`${context}.request_id must be ${JSON.stringify(`<source>${suffix}`)}, got ${JSON.stringify(requestId)}`);
+  }
+  return toRemoteSource(requestId.slice(0, -suffix.length));
+}
+
 function decodeRemotePlan(value: JsonValue, context: string): RemotePlanResult {
   const result = requireObject({ value }, 'value', context);
-  return {
-    ...decodeRemoteOp(result, context),
-    input_revision: requireString(result, 'input_revision', context),
-    received_at: requireNumber(result, 'received_at', context),
-    request_id: requireString(result, 'request_id', context),
-  };
+  const op = decodeRemoteOp(result, context);
+  const input_revision = requireString(result, 'input_revision', context);
+  const received_at = requireNumber(result, 'received_at', context);
+  const request_id = requireString(result, 'request_id', context);
+  const source = requestSource(request_id, received_at, context);
+  // The producer's input record comes from the request's own source.
+  if (op.op === 'set') op.records.forEach((record, index) => {
+    if (record.kind === 'input' && record.source !== source) {
+      throw new ParseError(`${context}.records.${index}.source must be ${JSON.stringify(source)}, the request's source, `
+        + `got ${JSON.stringify(record.source)}`);
+    }
+  });
+  return { ...op, input_revision, received_at, request_id };
 }
 
 function decodeLampColor(container: JsonObject, key: string, context: string): LampColor {
