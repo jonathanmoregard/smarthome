@@ -51,17 +51,31 @@ export interface ResultCodec<R> {
 }
 
 const bound = (v: JsonValue | undefined, context: string): number | boolean => typeof v === 'boolean' ? v : requireFinite(v, context);
+/** A bound as the switch range compares it: a boolean is 0 or 1. */
+const boundNumber = (v: number | boolean): number => typeof v === 'boolean' ? (v === true ? 1 : 0) : v;
+/**
+ * `switchPlan`'s decision, as it can emit one: its range is `switchRange`'s,
+ * two bounds with 0 <= low <= high <= 100, and the switch is on only when the
+ * room's brightness lies within it.
+ */
 function decodeSwitchDecision(value: JsonValue, context: string): SwitchDecision {
   const entry = requireObject({ value }, 'value', context);
   const range = requireArray(entry, 'range', context);
   if (range.length !== 2) throw new ParseError(`${context}.range must have two elements, got ${range.length}`);
-  return {
-    on: requireBoolean(entry.on, `${context}.on`),
-    room: toRoomId(requireString(entry, 'room', context)),
-    ...(entry.brightness === undefined ? {} : { brightness: requireNumber(entry, 'brightness', context) }),
-    // A bound may be a boolean: captured `is number` admits it (see `switchRange`).
-    range: [bound(range[0], `${context}.range.0`), bound(range[1], `${context}.range.1`)],
-  };
+  const on = requireBoolean(entry.on, `${context}.on`);
+  const room = toRoomId(requireString(entry, 'room', context));
+  const brightness = entry.brightness === undefined ? undefined : requireNumber(entry, 'brightness', context);
+  // A bound may be a boolean: captured `is number` admits it (see `switchRange`).
+  const stored: [number | boolean, number | boolean] = [bound(range[0], `${context}.range.0`), bound(range[1], `${context}.range.1`)];
+  const low = boundNumber(stored[0]), high = boundNumber(stored[1]);
+  if (!(0 <= low && low <= high && high <= 100)) {
+    throw new ParseError(`${context}.range must be two bounds with 0 <= low <= high <= 100, got ${JSON.stringify(stored)}`);
+  }
+  if (on && (brightness === undefined || brightness < low || brightness > high)) {
+    const shown = brightness === undefined ? 'no brightness' : `brightness ${brightness}`;
+    throw new ParseError(`${context}.on is true only with a brightness within its range, got ${shown}`);
+  }
+  return { on, room, ...(brightness === undefined ? {} : { brightness }), range: stored };
 }
 
 /**
