@@ -44,6 +44,8 @@ test('ls_remote_command commits the record with its key as saved text', () => {
   const commits: JsonObject[] = [];
   house(commits).run('ls_remote_command', { source: 'remote', area: 'studio', command: 'up' });
   assert.deepEqual(commits, [{ data: { ...answer, expected_revision: NOW, area: 'studio', via: 'remote', source: 'remote' } }]);
-  assert.deepEqual(Object.keys(commits[0]?.data ?? {}), ['op', 'records', 'via', 'input_revision', 'received_at', 'request_id',
+  const data = commits[0]?.data;
+  assert.ok(typeof data === 'object' && data !== null && !Array.isArray(data));
+  assert.deepEqual(Object.keys(data), ['op', 'records', 'via', 'input_revision', 'received_at', 'request_id',
     'expected_revision', 'area', 'source']);
 });
