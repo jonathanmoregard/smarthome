@@ -11,7 +11,9 @@ import { optionalBlock } from './blocks.ts';
 import { ParseError, requireArray, requireBoolean, requireFinite, requireNumber, requireObject, requireString } from '../runtime/parse.ts';
 import { carry } from '../runtime/verbatim.ts';
 import { assembledMap, storedFact } from './overrides.ts';
-import { toBulbId, toRoomId, toSwitchId } from './ids.ts';
+import { toBulbId, toRemoteSource, toRoomId, toSwitchId } from './ids.ts';
+import { parseOverlayKey } from './overlay-key.ts';
+import { overlayKeyText } from '../domain/types/overlay.ts';
 
 function decodeStrings(container: JsonObject, key: string, context: string): string[] {
   return requireArray(container, key, context)
@@ -180,10 +182,10 @@ function decodeRemoteRecord(value: JsonValue, context: string): RemoteModeRecord
     if (scope !== 'room') throw new ParseError(`${context}.scope must be "room", got ${JSON.stringify(scope)}`);
     return {
       kind,
-      key: requireString(record, 'key', context),
-      source: requireString(record, 'source', context),
+      key: parseOverlayKey(requireString(record, 'key', context)),
+      source: toRemoteSource(requireString(record, 'source', context)),
       scope,
-      target: requireString(record, 'target', context),
+      target: toRoomId(requireString(record, 'target', context)),
       // Carried, as `RemoteInputRecord` says: this is the stored override document.
       value: assembledMap(requireObject(record, 'value', context)),
     };
@@ -220,6 +222,21 @@ function decodeRemoteOp(result: JsonObject, context: string): RemotePlanOp {
  * The operation is decoded before the envelope, so a stub that gets the
  * operation wrong is told about that rather than about a missing timestamp.
  */
+/**
+ * A remote plan (or the commit built on it) as the document it leaves as: an
+ * input record's key written as its saved text. Every other field is already
+ * its wire value, and every key keeps its place.
+ */
+export function remotePlanDocument<P extends RemotePlanOp>(plan: P): JsonObject {
+  if (plan.op !== 'set') return { ...plan };
+  return { ...plan, records: plan.records.map(record => record.kind === 'input' ? { ...record, key: overlayKeyText(record.key) } : record) };
+}
+
+/** `ls_remote_command`'s answer: the plan as its document, or `null` when it has none. */
+export function remoteAnswerDocument(answer: RemotePlanResult | null): JsonObject | null {
+  return answer === null ? null : remotePlanDocument(answer);
+}
+
 function decodeRemotePlan(value: JsonValue, context: string): RemotePlanResult {
   const result = requireObject({ value }, 'value', context);
   return {
@@ -435,7 +452,7 @@ export const resultCodecs: { [K in keyof TypedResults]: ResultCodec<TypedResults
   // `requireBoolean(on)` and `requireArray(targets)`, and
   // `falsy-boundaries.test.ts:216` exists to pin that a `power` plan with no
   // `targets` is refused. The decoder is where those reads moved.
-  ls_remote_plan: { encode: result => result, decode: decodeRemotePlan },
+  ls_remote_plan: { encode: remotePlanDocument, decode: decodeRemotePlan },
   // Both names share one decoder, as they share one result type.
   ls_base: { encode: result => result, decode: decodeScheduledBase },
   ls_room_base: { encode: result => result, decode: decodeScheduledBase },

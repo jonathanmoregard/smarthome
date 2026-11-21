@@ -54,10 +54,11 @@ export type RemoteModeRecord = { kind: 'mode'; target: string; value: string };
  */
 export type RemoteInputRecord = {
   kind: 'input';
-  key: string;
-  source: string;
+  /** Written as its saved text where the record leaves as a document (`remotePlanDocument`). */
+  key: OverlayKey;
+  source: RemoteSource;
   scope: 'room';
-  target: string;
+  target: RoomId;
   value: AssembledMap;
 };
 /**
@@ -195,7 +196,7 @@ export function remoteDecision(view: HouseView, args: RemotePlanArgs, opening: R
       if (schedule.present) next = { ...next,
         remote_valid_until: schedule.nextFs(),
         remote_timing_revision: timingRevision };
-      result = { op: 'set', records: [{ kind: 'input', key: overlayKeyText(key), source, scope: 'room', target: room, value: next }], via: 'remote' };
+      result = { op: 'set', records: [{ kind: 'input', key, source, scope: 'room', target: room, value: next }], via: 'remote' };
     }
   }
   return { ...result, input_revision: revision, received_at: stamp, request_id: `${source}:${stamp}` };

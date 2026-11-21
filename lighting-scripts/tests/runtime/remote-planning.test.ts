@@ -80,7 +80,8 @@ test('a first up press stores a one-step adjustment over the default range', () 
   const args = { source: 'remote', area: 'studio', command: 'up' };
   const result = remoteDecision(view, args, remoteOpening(view, args), noContext, emptyCatalog());
   assert.ok(result.op === 'set');
-  assert.deepEqual(result.records, [{ kind: 'input', key: 'channels:remote', source: 'remote', scope: 'room', target: 'studio', value: {
+  assert.deepEqual(result.records, [{ kind: 'input', key: { kind: 'remote input', source: 'remote' }, source: 'remote', scope: 'room',
+    target: 'studio', value: {
     step_range: { min: -20, max: 20 },
     adjustment: { steps: 1, lower: -19, upper: 20, anchor: 'current', updated: STAMP, last: 'up', has_up: true },
   } }]);

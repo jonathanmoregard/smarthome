@@ -150,7 +150,8 @@ export interface EmitCommand {
   body: string;
   /** Does the payload switch the lamp off (`state == 'OFF'`)? */
   turnsOff: boolean;
-  owners: string[];
+  /** The lamps whose light the command carries. */
+  owners: LampId[];
   members: BulbId[];
   topic: string;
 }

@@ -13,6 +13,7 @@ import {
     planRangeDefaults, planWarmEnd,
 } from '../parse/controller.ts';
 import type { RemotePlanResult } from '../domain/remote-input.ts';
+import { remoteAnswerDocument, remotePlanDocument } from '../parse/results.ts';
 import { drive, perform } from '../runtime/effects.ts';
 import { planAnswer, remoteCommandStart, remoteCommandStep, switchPlan } from '../domain/controller.ts';
 import type { ApplyArgs, PlanArgs, PlanResult, RemoteCommandArgs, RemoteCommandCmd, RemoteCommandMsg } from '../domain/controller.ts';
@@ -92,7 +93,7 @@ function remoteCommand(ctx: ScriptContext, args: RemoteCommandArgs): RemotePlanR
   return drive(remoteCommandStep, remoteCommandStart(args), { tag: 'start' }, (cmd: RemoteCommandCmd): RemoteCommandMsg | undefined => {
     switch (cmd.tag) {
       case 'plan': return { tag: 'planned', result: ctx.call('ls_remote_plan', cmd.input) };
-      case 'commit': return { tag: 'committed', accepted: ctx.call('ls_commit', { data: cmd.data }).accepted };
+      case 'commit': return { tag: 'committed', accepted: ctx.call('ls_commit', { data: remotePlanDocument(cmd.data) }).accepted };
       case 'effect': perform(ctx, cmd.effect); return undefined;
       default: {
         const unknown: never = cmd;
@@ -109,5 +110,5 @@ export const controllerHandlers: ScriptHandlers = {
   ls_switch_plan: typed('ls_switch_plan', { parse: parseSwitchPlanArgs, run: (ctx, args) => switchPlan(ctx.rooms.ofId, args) }),
   ls_plan: withParsedArgs({ parse: parsePlanArgs, run: plan }),
   ls_apply: withParsedArgs({ parse: parseApplyArgs, run: apply }),
-  ls_remote_command: withParsedArgs({ parse: parseRemoteCommandArgs, run: remoteCommand }),
+  ls_remote_command: withParsedArgs({ parse: parseRemoteCommandArgs, run: (ctx, args) => remoteAnswerDocument(remoteCommand(ctx, args)) }),
 };
