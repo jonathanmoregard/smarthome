@@ -4,14 +4,16 @@ import { readFile } from 'node:fs/promises';
 import { basename, dirname, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import type { JsonObject, ScriptHandlers, Snapshot } from './runtime/context.ts';
+import type { EntityState, JsonObject, ScriptHandlers, Snapshot } from './runtime/context.ts';
 import type { ExecutionRequest, ExecutionResult } from './runtime/engine.ts';
 import { parseCatalog } from './runtime/catalog.ts';
 import { LightingHost } from './runtime/host.ts';
 import type { Program, OutputTransport } from './runtime/host.ts';
 import { HomeAssistantTransport } from './live.ts';
 import { readLiveRoomsFlag } from './parse/live-rooms.ts';
-import { liveScope } from './runtime/live-rooms.ts';
+import type { LiveRooms } from './parse/live-rooms.ts';
+import { drivenLamps, drivesInput, liveScope, switchedOnRoom } from './runtime/live-rooms.ts';
+import type { RoomId } from './domain/types/ids.ts';
 
 const record = (value: unknown): JsonObject => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Expected a JSON object');
@@ -44,6 +46,28 @@ export function watchRuntimeCatalog(path: string, accept: (catalog: JsonObject) 
     const current = ++revision;
     void readRuntimeCatalog(path).then(async catalog => { if (current === revision) await accept(catalog); }).catch(reject);
   });
+}
+/** A bridged Home Assistant input, acted on only when it is in a room the port drives (or is the house's). */
+export async function bridgeInput(host: LightingHost, live: LiveRooms, script: string, args: JsonObject,
+  report: (message: string) => void): Promise<void> {
+  if (!drivesInput(live, script, args, host.snapshot())) { report(`Ignored ${script}: not in a room the port drives`); return; }
+  await host.dispatch(script, args);
+}
+/**
+ * Re-send the lamps of the rooms the port drives (or of one room): the old
+ * scripts drove them until now, so what the bulbs show is not what the port
+ * last sent. Requested lamps are sent whatever was applied, bulb effects included.
+ */
+export async function handOver(host: LightingHost, live: LiveRooms, room?: RoomId): Promise<void> {
+  const lamps = drivenLamps(live, host.snapshot(), room);
+  if (lamps.length > 0) await host.dispatch('ls_apply', { reason: 'config', lights: lamps });
+}
+/** A Home Assistant state change; a live room's port switch turning on hands that room over. */
+export async function ingestChange(host: LightingHost, live: LiveRooms, entity: string, state: EntityState | null): Promise<void> {
+  const before = host.snapshot().state[entity];
+  await host.ingestState(entity, state);
+  const room = switchedOnRoom(live, entity, before, state);
+  if (room !== undefined) await handOver(host, live, room);
 }
 export async function main(argv = process.argv.slice(2)): Promise<void> {
   const option = (name: string) =>
@@ -86,16 +110,18 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     })().catch(error => console.error(String(error))); });
     await live.subscribe('state_changed', event => { void (async () => {
       const entity = String(event.data.entity_id), state = event.data.new_state;
-      if (state === null || (state && typeof state === 'object' && !Array.isArray(state))) await host.ingestState(entity,
+      if (state === null || (state && typeof state === 'object' && !Array.isArray(state))) await ingestChange(host, liveRooms, entity,
         state as unknown as Snapshot['state'][string] | null);
     })().catch(error => console.error(String(error))); });
     // HA retains triggers only; all decision/actions run in the typed process.
-    await live.subscribe('smarthome_script', event => { void host.dispatch(String(event.data.script),
-      record(event.data.args ?? {})).catch(error => console.error(String(error))); });
+    await live.subscribe('smarthome_script', event => { void bridgeInput(host, liveRooms, String(event.data.script),
+      record(event.data.args ?? {}), message => console.error(message)).catch(error => console.error(String(error))); });
     for (const event of ['entity_registry_updated', 'device_registry_updated', 'area_registry_updated',
       'label_registry_updated']) await live.subscribe(event, () => { void refresh().catch(error => console.error(String(error))); });
     await host.connectionChanged(true);
-    await host.dispatch('ls_apply', { reason: 'config' });
+    // On start the driven rooms are handed over: their lamps are requested, so they are re-sent.
+    const lamps = drivenLamps(liveRooms, host.snapshot());
+    await host.dispatch('ls_apply', lamps.length > 0 ? { reason: 'config', lights: lamps } : { reason: 'config' });
   }
   watcher = configuration ? watchRuntimeCatalog(configuration, async catalog => {
     await host.update(state => { state.catalog = catalog; });

@@ -10,6 +10,7 @@ import type { OutputScope } from '../../src/runtime/host.ts';
 import { handlers } from '../../src/runtime/registry.ts';
 import { liveScope } from '../../src/runtime/live-rooms.ts';
 import { parseLiveRooms } from '../../src/parse/live-rooms.ts';
+import { bridgeInput, handOver, ingestChange } from '../../src/main.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
 const overrides = { state: '1', attributes: {}, last_updated: 'r1' };
@@ -123,4 +124,58 @@ test('the schedule computes every room but reaches only the lamps of live rooms'
 test('with an empty live-room list the schedule reaches no lamp', async () => {
   const { calls, host } = await applyHouse('');
   try { assert.deepEqual(bulbTopics(calls), []); } finally { await host.close(); }
+});
+
+test('a lamp switched on in a room the port does not drive does nothing in the port', async () => {
+  const { calls, host } = await applyHouse('studio');
+  try {
+    const before = host.snapshot(), sent = calls.length, ignored: string[] = [];
+    await bridgeInput(host, parseLiveRooms('studio'), 'automation.lighting_schedule_engine',
+      { trigger: { platform: 'device', id: 'lamp_on', entity_id: 'light.den' } }, message => ignored.push(message));
+    await host.drain();
+    assert.equal(calls.length, sent);
+    assert.deepEqual(host.snapshot().state['sensor.ls_overrides'], before.state['sensor.ls_overrides']);
+    assert.equal(ignored.length, 1);
+  } finally { await host.close(); }
+});
+
+test('a lamp switched on in a driven room reaches the port', async () => {
+  const { calls, host } = await applyHouse('studio');
+  try {
+    const before = host.snapshot();
+    await bridgeInput(host, parseLiveRooms('studio'), 'automation.lighting_schedule_engine',
+      { trigger: { platform: 'device', id: 'lamp_on', entity_id: 'light.studio' } }, () => {});
+    await host.drain();
+    assert.notDeepEqual(host.snapshot().state['sensor.ls_overrides'], before.state['sensor.ls_overrides']);
+    assert.ok(calls.length > 0);
+  } finally { await host.close(); }
+});
+
+test('handing a room to the port re-sends its lamps, even ones the port already sent', async () => {
+  const { calls, host } = await applyHouse('studio');
+  try {
+    const live = parseLiveRooms('studio');
+    calls.length = 0;
+    await host.dispatch('ls_apply', { reason: 'config' }); await host.drain();
+    assert.deepEqual(bulbTopics(calls), [], 'an unchanged lamp is not sent again by an ordinary apply');
+    await ingestChange(host, live, 'input_boolean.ls_studio_on_port', { state: 'off', attributes: {}, last_updated: '2026-10-26T12:00:01Z' });
+    await ingestChange(host, live, 'input_boolean.ls_studio_on_port', { state: 'on', attributes: {}, last_updated: '2026-10-26T12:00:02Z' });
+    await host.drain();
+    assert.deepEqual(bulbTopics(calls), ['zigbee2mqtt/studio_bulb/set']);
+    calls.length = 0;
+    await handOver(host, live); await host.drain();
+    assert.deepEqual(bulbTopics(calls), ['zigbee2mqtt/studio_bulb/set']);
+  } finally { await host.close(); }
+});
+
+test('a port switch turning on for a room not in the list hands nothing over', async () => {
+  const { calls, host } = await applyHouse('studio');
+  try {
+    calls.length = 0;
+    const live = parseLiveRooms('studio');
+    await ingestChange(host, live, 'input_boolean.ls_den_on_port', { state: 'off', attributes: {}, last_updated: '2026-10-26T12:00:01Z' });
+    await ingestChange(host, live, 'input_boolean.ls_den_on_port', { state: 'on', attributes: {}, last_updated: '2026-10-26T12:00:02Z' });
+    await host.drain();
+    assert.deepEqual(calls, []);
+  } finally { await host.close(); }
 });
