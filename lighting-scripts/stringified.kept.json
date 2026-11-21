@@ -8,13 +8,6 @@
       "reason": "Found by this guard at ed33a7f; fixed or argued in a following commit."
     },
     {
-      "file": "src/parse/controller.ts",
-      "within": "on",
-      "text": "${room}",
-      "sites": 1,
-      "reason": "Found by this guard at ed33a7f; fixed or argued in a following commit."
-    },
-    {
       "file": "src/parse/resolution.ts",
       "within": "rawStamp",
       "text": "String(value)",

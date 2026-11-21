@@ -80,7 +80,7 @@ export function parseSwitchPlanArgs(args: JsonObject): SwitchPlanArgs {
     // Each rule's interval is read at its turn.
     rules: Object.entries(ranges).map(([entity, raw]) => ({ entity: toSwitchId(entity), range: () => switchRange(object(raw), defaults) })),
     roomTarget: room => {
-      const group = room === undefined ? {} : object(targets[`room:${room}`]);
+      const group = object(targets[`room:${room}`]);
       return {
         populated: Object.keys(group).length > 0,
         // `Number(...)`: the JavaScript coercion the inline arithmetic applied.
