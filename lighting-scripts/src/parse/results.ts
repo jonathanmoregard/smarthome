@@ -6,8 +6,9 @@ import type { CommitResult } from '../domain/state-store.ts';
 import type { GroupCommand, GroupPlanResult, RejectedRow } from '../domain/grouping.ts';
 import type { RemoteInputRecord, RemoteModeRecord, RemotePlanOp, RemotePlanResult } from '../domain/remote-input.ts';
 import type { LampColor, LampProfile, LampProfileEntry, ProfileLevel, ScheduleCommand, ScheduleDetails, ScheduleEnvelope, ScheduledBaseResult,
-  TargetEntry } from '../domain/schedule.ts';
-import { optionalBlock } from './blocks.ts';
+  ScheduleMirror, TargetEntry } from '../domain/schedule.ts';
+import { optionalBlock, requireBlock } from './blocks.ts';
+import { BLOCKS, blockOption } from '../domain/blocks.ts';
 import { ParseError, requireArray, requireBoolean, requireFinite, requireNumber, requireObject, requireString } from '../runtime/parse.ts';
 import { carry } from '../runtime/verbatim.ts';
 import { assembledMap, storedFact } from './overrides.ts';
@@ -371,7 +372,8 @@ function decodeProfileEntry(value: JsonValue, context: string): LampProfileEntry
   return {
     effect: storedFact(entry.effect ?? null),
     ...decodeProfileLevel(entry, context),
-    period: requireString(entry, 'period', context),
+    // `scheduledBase` gives every lamp a block as its period.
+    period: requireBlock(entry.period, `${context}.period`),
     area: entry.area === null ? null : toRoomId(requireString(entry, 'area', context)),
     effect_channels: storedFact(entry.effect_channels ?? null),
     send: requireBoolean(entry.send, `${context}.send`),
@@ -388,7 +390,7 @@ function decodeTargetEntry(value: JsonValue, context: string): TargetEntry {
     const room = {
       area: toRoomId(requireString(entry, 'area', context)),
       is_room: true as const,
-      period: requireString(entry, 'period', context),
+      period: requireBlock(entry.period, `${context}.period`),
       effect: storedFact(entry.effect ?? null),
     };
     const scenes = { ...decodeLampProfile(entry, 'day', context), ...decodeLampProfile(entry, 'cosy', context),
@@ -439,6 +441,20 @@ function decodeScheduleDetails(container: JsonObject, key: string, context: stri
   };
 }
 
+/** Each block as the override select shows it. */
+const BLOCK_OPTIONS = BLOCKS.map(blockOption);
+
+/** `scheduledBase` mirrors a scope's block into that scope's override select, as the block's option. */
+function mirrorRow(entity: string, option: string, scopes: string[], context: string): ScheduleMirror {
+  if (!scopes.some(scope => entity === `input_select.ls_${scope}_override`)) {
+    throw new ParseError(`${context}.entity must be input_select.ls_<scope>_override for a scope in sched, got ${JSON.stringify(entity)}`);
+  }
+  if (!BLOCK_OPTIONS.includes(option)) {
+    throw new ParseError(`${context}.option must be one of ${BLOCK_OPTIONS.join('/')}, got ${JSON.stringify(option)}`);
+  }
+  return { entity, option };
+}
+
 /**
  * `ls_base`/`ls_room_base`'s decoder, which is where `ls_plan`'s
  * `requiredResultObject(...)`, its two `requireObject`s and its
@@ -473,7 +489,7 @@ function decodeScheduledBase(value: JsonValue, context: string): ScheduledBaseRe
     mirror: requireArray(schedule, 'mirror', `${context}.schedule`).map((entry, index) => {
       const at = `${context}.schedule.mirror.${index}`;
       const row = requireObject({ entry }, 'entry', at);
-      return { entity: requireString(row, 'entity', at), option: requireString(row, 'option', at) };
+      return mirrorRow(requireString(row, 'entity', at), requireString(row, 'option', at), Object.keys(sched), at);
     }),
     sara_mirror: saraMirror,
   };

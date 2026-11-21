@@ -76,3 +76,46 @@ test('an invalid row numbered outside the rows is refused', () => {
   assert.deepEqual(decodeGroups({ rejected: [{ reason: 'invalid_endpoint_row', index: 0 }] })?.rejected,
     [{ reason: 'invalid_endpoint_row', index: 0 }]);
 });
+
+// ls_base / ls_room_base: `scheduledBase` gives every lamp and room a block as
+// its period, and mirrors each scope's block into
+// `input_select.ls_<scope>_override` as the block's capitalised option.
+
+const profile = { effect: 'Normal light', effect_channels: ['brightness', 'color'], on: false, period: 'day', area: null, send: true,
+  ignore_overrides: [] };
+const room = { area: 'studio', is_room: true, period: 'day', effect: 'Normal light', on: false, ignore_overrides: [] };
+const base = (fields: { profiles?: JsonObject; targets?: JsonObject; mirror?: JsonValue[] }): JsonValue => ({
+  targets: fields.targets === undefined ? {} : fields.targets,
+  schedule: { cmds: [], profiles: fields.profiles === undefined ? {} : fields.profiles, revision: 'r', stale_keys: [],
+    sched: { house: 'day', studio: 'cosy' }, schedule_details: {}, mirror: fields.mirror === undefined ? [] : fields.mirror, sara_mirror: null },
+});
+const decodeBase = (fields: { profiles?: JsonObject; targets?: JsonObject; mirror?: JsonValue[] }) =>
+  resultCodecs.ls_base.decode?.(base(fields), 'ls_base');
+
+test('a lamp or room whose period is not a block is refused', () => {
+  // Break: a period is read as any text, so 'lamp' or 'evening' decodes.
+  for (const period of ['lamp', 'evening', 'Day']) {
+    assert.throws(() => decodeBase({ profiles: { 'light.a': { ...profile, period } } }),
+      refused(/ls_base\.schedule\.profiles\.light\.a\.period must be one of day\/cosy\/night/), period);
+    assert.throws(() => decodeBase({ targets: { 'light.a': { ...profile, period, is_room: false, transition: 3 } } }),
+      refused(/ls_base\.targets\.light\.a\.period must be one of day\/cosy\/night/), period);
+    assert.throws(() => decodeBase({ targets: { 'room:studio': { ...room, period } } }),
+      refused(/ls_base\.targets\.room:studio\.period must be one of day\/cosy\/night/), period);
+  }
+  assert.equal(decodeBase({ profiles: { 'light.a': profile } })?.schedule.profiles['light.a']?.period, 'day');
+});
+
+test("a mirror row that is not a scope's override select set to a block's option is refused", () => {
+  // Break: a mirror row's entity and option are read as any text.
+  for (const [row, pattern] of [
+    [{ entity: 'input_select.ls_studio_override', option: 'cosy' }, /mirror\.0\.option must be one of Day\/Cosy\/Night, got "cosy"/],
+    [{ entity: 'input_select.ls_studio_override', option: 'Evening' }, /mirror\.0\.option must be one of Day\/Cosy\/Night, got "Evening"/],
+    [{ entity: 'input_select.ls_attic_override', option: 'Day' },
+      /mirror\.0\.entity must be input_select\.ls_<scope>_override for a scope in sched, got "input_select\.ls_attic_override"/],
+    [{ entity: 'light.studio', option: 'Day' }, /mirror\.0\.entity must be input_select\.ls_<scope>_override/],
+  ] as const) {
+    assert.throws(() => decodeBase({ mirror: [row] }), refused(pattern), JSON.stringify(row));
+  }
+  assert.deepEqual(decodeBase({ mirror: [{ entity: 'input_select.ls_house_override', option: 'Night' }] })?.schedule.mirror,
+    [{ entity: 'input_select.ls_house_override', option: 'Night' }]);
+});
