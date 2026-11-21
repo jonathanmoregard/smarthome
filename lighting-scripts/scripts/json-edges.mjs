@@ -27,7 +27,9 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ROOT = fileURLToPath(new URL('../', import.meta.url));
+// `--root <dir>` reads another project (a test fixture); the default is this one.
+const rootFlag = process.argv.indexOf('--root');
+const ROOT = rootFlag === -1 ? fileURLToPath(new URL('../', import.meta.url)) : process.argv[rootFlag + 1];
 const DOMAIN = join(ROOT, 'src/domain');
 /**
  * The handler shells (refactor U8). They read the live house, make the
@@ -468,7 +470,8 @@ const PATTERNS = {
 const count = (text, pattern) => (text.match(pattern) ?? []).length;
 
 const files = [
-  ...(await readdir(DOMAIN)).filter(name => name.endsWith('.ts')).sort().map(name => ({ name, dir: DOMAIN })),
+  // Recursive: src/domain/types is domain too.
+  ...(await readdir(DOMAIN, { recursive: true })).filter(name => name.endsWith('.ts')).sort().map(name => ({ name, dir: DOMAIN })),
   ...(await readdir(HANDLERS)).filter(name => name.endsWith('.ts')).sort().map(name => ({ name: `handlers/${name}`, dir: HANDLERS, base: name })),
 ];
 const totals = Object.fromEntries(Object.keys(PATTERNS).map(key => [key, 0]));
