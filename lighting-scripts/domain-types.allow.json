@@ -39,18 +39,28 @@
       "file": "src/domain/types/range.ts",
       "symbol": "RangeMark",
       "reason": "Spec v3 3.4 row 1: the range mark's name parameter, the same mark on a range that is not a number."
+    },
+    {
+      "file": "src/domain/controller.ts",
+      "symbol": "switchPlan.areas",
+      "reason": "V1 room site, kept: this is `Rooms.ofId`, the registry's entity-or-device -> room map. Its keys are the registry's own ids and mix lamps, bulbs, on/off lights and switches, so no one id kind fits them (the `Rooms` entry's reason); its values are already RoomIds."
+    },
+    {
+      "file": "src/domain/planning.ts",
+      "symbol": "Dependencies.switches",
+      "reason": "V1 switch site, kept: the cache fingerprint's on/off list as observed, `labelled(view, 'on_off')` (label members, device-expanded in the domain) plus the saved switch-range keys, compared with the stored fingerprint as text. The schedule plans the same `on_off` entities as lamps, so they are not all switches; branding the list needs the label list split and parsed at the snapshot edge (V3)."
     }
   ],
   "ceilings": [
     { "file": "src/domain/automations.ts", "ceiling": 10, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/domain/blocks.ts", "ceiling": 2, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
-    { "file": "src/domain/controller.ts", "ceiling": 22, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/domain/controller.ts", "ceiling": 21, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/domain/dispatch-render.ts", "ceiling": 34, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/domain/gestures.ts", "ceiling": 12, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/domain/gradient.ts", "ceiling": 13, "reason": "Arithmetic results; typed in V3 (spec 3.4 row 2): every number site here is a computed real, and the entry points take range types in V3. A ratchet: it only falls. The two string sites (GradientPlanResult.gradients, GradientPlanTarget.target) are lighting-state entry keys (lamp or room:<room>), kept until the catalog's lamp keys are branded." },
     { "file": "src/domain/grouping.ts", "ceiling": 13, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/domain/native-controls.ts", "ceiling": 25, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
-    { "file": "src/domain/planning.ts", "ceiling": 40, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/domain/planning.ts", "ceiling": 39, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/domain/remote-input.ts", "ceiling": 19, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/domain/resolution.ts", "ceiling": 49, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/domain/scale.ts", "ceiling": 21, "reason": "Arithmetic results; typed in V3 (spec 3.4 row 2): every number site here is a computed real, and the entry points take range types in V3. A ratchet: it only falls." },
