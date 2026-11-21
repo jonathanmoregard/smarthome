@@ -17,15 +17,20 @@
 //   declared (a parse result in `src/parse`, a runtime type in `src/runtime`).
 //   Following is by name: an interface is read whole even when it is reached
 //   through `Pick<...>`.
-// Function bodies, unexported declarations nothing exported reaches, and
-// inferred types are not sites: the guard reads what a signature says.
+// - the inferred return type of any of those functions written without one:
+//   a plain `string`/`number` in it is a site at the function, followed into
+//   unions, arrays, tuples and anonymous objects, with named types followed to
+//   their declarations as above.
+// Function bodies and unexported declarations nothing exported reaches are not
+// sites: the guard reads what a signature says, or what the checker says it returns.
 //
 // `domain-types.allow.json` holds two kinds of entry:
 // - `allow`: `{ file, symbol, reason }`. Covers the sites of one symbol (and
 //   everything under it: `Lamp` covers `Lamp.level`). The reason is required.
 // - `ceilings`: `{ file, ceiling, reason }`. A ratchet, not a permission: the
-//   file may hold at most that many sites no `allow` entry covers. A rise
-//   fails; a fall passes and prints the lower number to commit.
+//   file holds exactly that many sites no `allow` entry covers. A rise fails,
+//   and so does a fall until the ceiling is lowered to the new count, so slack
+//   never absorbs a later rise.
 //
 // Usage: node scripts/domain-types.mjs [--root <dir>] [--allow <file>] [--list]
 // `--list` prints every uncovered site, not only those in files over their ceiling.
@@ -92,10 +97,59 @@ function scanType(node, top) {
   ts.forEachChild(node, child => scanType(child, top));
 }
 
+/**
+ * A plain `string`/`number` in a type the checker inferred: the return type of
+ * a function with no annotation. There is no keyword to point at, so the site
+ * is the function, with the path down to the plain member (`lampView.return.level`).
+ * A named type is followed to its declaration, as a written reference is; a
+ * branded id is an intersection and a literal is a closed set, so neither is plain.
+ */
+function scanInferred(type, fn, top, path, seen) {
+  if (seen.has(type)) return;
+  seen.add(type);
+  if ((type.flags & (ts.TypeFlags.String | ts.TypeFlags.Number)) !== 0) {
+    const source = fn.getSourceFile();
+    const file = relativeName(source.fileName);
+    const at = fn.name ?? fn;
+    sites.set(`${file}:${at.pos}:${path.join('.')}`, {
+      file,
+      line: source.getLineAndCharacterOfPosition(at.getStart()).line + 1,
+      symbol: [symbolPath(fn, top), ...path].join('.'),
+      keyword: (type.flags & ts.TypeFlags.String) !== 0 ? 'string' : 'number',
+    });
+    return;
+  }
+  if (type.isUnion()) {
+    for (const member of type.types) scanInferred(member, fn, top, path, seen);
+    return;
+  }
+  if (type.isIntersection()) return;
+  const named = type.aliasSymbol ?? ((type.flags & ts.TypeFlags.Object) !== 0
+    && (type.objectFlags & (ts.ObjectFlags.Anonymous | ts.ObjectFlags.ObjectLiteral)) === 0 ? type.getSymbol() : undefined);
+  const declared = (named?.declarations ?? []).filter(declaration => FOLLOWED.has(declaration.kind));
+  if (declared.length > 0) {
+    for (const declaration of declared) if (inSrc(declaration.getSourceFile().fileName)) scanDeclaration(declaration);
+    return;
+  }
+  if (checker.isArrayType(type) || checker.isTupleType(type)) {
+    for (const element of checker.getTypeArguments(type)) scanInferred(element, fn, top, [...path, '[]'], seen);
+    return;
+  }
+  if ((type.flags & ts.TypeFlags.Object) !== 0) {
+    for (const property of checker.getPropertiesOfType(type)) {
+      scanInferred(checker.getTypeOfSymbol(property), fn, top, [...path, property.name], seen);
+    }
+  }
+}
+
 function scanSignature(fn, top) {
   for (const parameter of fn.typeParameters ?? []) scanType(parameter, top);
   for (const parameter of fn.parameters) scanType(parameter.type, top);
-  scanType(fn.type, top);
+  if (fn.type !== undefined) scanType(fn.type, top);
+  else {
+    const signature = checker.getSignatureFromDeclaration(fn);
+    if (signature !== undefined) scanInferred(checker.getReturnTypeOfSignature(signature), fn, top, ['return'], new Set());
+  }
 }
 
 function scanDeclaration(declaration) {
@@ -208,8 +262,8 @@ if (over.length > 0) {
   process.exit(1);
 }
 if (slack.length > 0) {
-  console.log('\nProgress made. Lower these ceilings in domain-types.allow.json before committing:');
-  for (const { file, ceiling, count } of slack) console.log(`  ${file}: ${ceiling} -> ${count}`);
-} else {
-  console.log('\nOK: every count sits exactly at its ceiling.');
+  console.error('\nFAIL: a count fell below its ceiling. Progress made: lower these ceilings in domain-types.allow.json to the new count:');
+  for (const { file, ceiling, count } of slack) console.error(`  ${file}: ${ceiling} -> ${count}`);
+  process.exit(1);
 }
+console.log('\nOK: every count sits exactly at its ceiling.');

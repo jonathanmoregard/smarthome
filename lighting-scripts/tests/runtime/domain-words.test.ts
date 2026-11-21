@@ -72,9 +72,10 @@ test('a count above its ceiling fails and names the column', () => {
   assert.match(output, /nullish: 1 exceeds the ceiling of 0/);
 });
 
-test('a count below its ceiling passes and asks for the ceiling to be lowered', () => {
-  // Break: a fall fails the build, or passes silently so the ceiling never ratchets.
+test('a count below its ceiling fails and asks for the ceiling to be lowered', () => {
+  // Break: a fall passes, so the slack it leaves absorbs a later rise elsewhere in the house.
   const { status, output } = guard('casts-5');
-  assert.equal(status, 0);
+  assert.equal(status, 1);
   assert.match(output, /casts: 5 -> 2/);
+  assert.match(output, /[Ll]ower/);
 });

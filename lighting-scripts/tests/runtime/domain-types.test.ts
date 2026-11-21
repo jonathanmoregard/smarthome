@@ -61,11 +61,23 @@ test('a count above its file ceiling fails the guard', () => {
   assert.match(output, /Lamp\.level/);
 });
 
-test('a count below its file ceiling passes and asks for the ceiling to be lowered', () => {
-  // Break: a fall fails the build, or passes silently so the ceiling never ratchets.
+test('a count below its file ceiling fails and asks for the ceiling to be lowered', () => {
+  // Break: a fall passes, so the slack it leaves absorbs a later rise in that file.
   const { status, output } = guard('one-site', 'ceiling-2');
-  assert.equal(status, 0);
+  assert.equal(status, 1);
   assert.match(output, /src\/domain\/lamp\.ts: 2 -> 1/);
+  assert.match(output, /[Ll]ower/);
+});
+
+test('an exported function with no return annotation is checked on the type it returns', () => {
+  // Break: the guard reads only written return types, so `return String(x)` with no
+  // annotation, an arrow's inferred return and a returned object's plain field all escape.
+  const { status, output } = guard('inferred-return', 'none');
+  assert.equal(status, 1);
+  assert.match(output, /src\/domain\/lamp\.ts.*lampName\.return\s+string/);
+  assert.match(output, /src\/domain\/lamp\.ts.*roomOf\.return\s+string/);
+  assert.match(output, /src\/domain\/lamp\.ts.*lampView\.return\.level\s+number/);
+  assert.doesNotMatch(output, /brandedRoom|literalKind|namedLamp/);
 });
 
 test('types reached through an exported signature are checked, wherever they are declared', () => {

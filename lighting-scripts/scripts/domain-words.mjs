@@ -5,8 +5,10 @@
 // Rule 0.3: ids, ranges and closed sets are built once in src/parse, so the
 // domain never re-checks, defaults or casts. Each column below counts one sign
 // that a file is not there yet. Ceilings live in `domain-words.ceilings.json`
-// and ratchet DOWN only: a rise fails, a fall passes and prints the lower
-// number to commit. Raising a ceiling is the regression this guard exists to
+// and ratchet DOWN only. Each count must equal its ceiling: a rise fails, and
+// so does a fall until the ceiling is lowered to the new count. A ceiling is a
+// house-wide total, so slack left by a fall would absorb a later rise in
+// another file. Raising a ceiling is the regression this guard exists to
 // catch; argue any raise in the commit message.
 //
 // Columns are read with the TypeScript compiler API (comments are never code),
@@ -217,10 +219,9 @@ if (over.length > 0) {
   process.exit(1);
 }
 if (slack.length > 0) {
-  // With --json, stdout is the document alone.
-  const say = process.argv.includes('--json') ? console.error : console.log;
-  say('\nProgress made. Lower these ceilings in domain-words.ceilings.json before committing:');
-  for (const column of slack) say(`  ${column}: ${ceilings[column]} -> ${totals[column]}`);
-} else if (!process.argv.includes('--json')) {
-  console.log('\nOK: every count sits exactly at its ceiling.');
+  console.error('\nFAIL: a count fell below its ceiling. Progress made: lower these ceilings in domain-words.ceilings.json to the new count:');
+  for (const column of slack) console.error(`  ${column}: ${ceilings[column]} -> ${totals[column]}`);
+  process.exit(1);
 }
+// With --json, stdout is the document alone.
+if (!process.argv.includes('--json')) console.log('\nOK: every count sits exactly at its ceiling.');
