@@ -138,23 +138,35 @@ the switch is where a person hands the room over or back. A missing
 `--live-rooms` is refused at start-up: it never means every room.
 
 1. The port computes the whole house, and sends lamp, bulb and switch commands
-   and room cache writes only for its rooms. A command that reaches any room
-   that is not its own is not sent.
+   and room cache writes only for its rooms. A command that reaches its rooms
+   and others is narrowed to its own share: a switching call to its own
+   entities, a group publish to each of its bulbs' own topics.
 2. A remote press, a dashboard control, a lamp switched from the app or a lamp
-   switched on in another room does nothing in the port. House-wide inputs (the
-   schedule, house modes, recovery) are computed for the whole house and reach
-   only the port's rooms.
-3. The overlay store stays shared, with one writer per event. The render
-   bookkeeping (`sensor.ls_effects_runtime`) is the port's own while any room is
-   still on the old scripts: it is read once at start and is then neither sent
-   nor read back, so the two systems never overwrite each other's applied
-   lights or generation.
-4. When a room's switch turns on, and on start, the port re-sends that room's
-   lamps, so their bulb effects (the firmware candle) start.
+   switched on in another room does nothing in the port. That is decided as
+   the run starts, and every output is checked again as it goes out.
+   House-wide inputs (the schedule, house modes, recovery) are computed for the
+   whole house and reach only the port's rooms.
+3. Until every room is the port's, house-wide state has one writer per part.
+   The records an input leaves (the overlay store, a remote's helpers, a saved
+   profile) are written by the port only for an input from its own rooms; house
+   events are committed by the old scripts. The dashboard mirror, the block
+   selects and the Sara mirror stay with the old scripts. The render
+   bookkeeping (`sensor.ls_effects_runtime`) is the port's own: it is read once
+   at start and is then neither sent nor read back. An empty list sends nothing.
+4. Whenever a room changes hands to the port (its switch turns on, on start, or
+   as found by the refresh after Home Assistant was out of reach), the port
+   re-sends that room's lamps, so their bulb effects (the firmware candle)
+   start.
+5. Live rooms that hold none of the catalog's lamps are refused once the
+   registry is read. The port writes `input_text.ls_port_heartbeat`
+   (`<unix seconds>|<live rooms>`) every 10 s; a Home Assistant watchdog,
+   built with the old-side patch, turns off every port switch a fresh heartbeat
+   does not name, and all of them after 30 s without one.
 
 `python3 scripts/export-bridge.py --rollout` prepares the matching Home Assistant
 side in `.runtime/bridge-rollout`: one new automation per room-scoped bridge (id
-`<id>_port`), acting only for rooms whose switch is on, plus a recovery bridge
+`<id>_port`), acting only for rooms whose switch is on and forwarding the
+automation's own variables (the dashboard controls' `sources`), plus a recovery bridge
 that lets the port render what the old scripts commit. House-wide store writers
 and the schedule tick stay with the old scripts. The old scripts must, in turn,
 skip rooms whose switch is on; that patch is built from the captured originals
