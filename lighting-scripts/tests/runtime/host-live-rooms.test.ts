@@ -10,7 +10,7 @@ import type { OutputScope } from '../../src/runtime/host.ts';
 import { handlers } from '../../src/runtime/registry.ts';
 import { liveScope } from '../../src/runtime/live-rooms.ts';
 import { parseLiveRooms } from '../../src/parse/live-rooms.ts';
-import { handOver, ingestChange } from '../../src/main.ts';
+import { RoomHandover, ingestChange } from '../../src/main.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
 const overrides = { state: '1', attributes: {}, last_updated: 'r1' };
@@ -215,28 +215,68 @@ test('a timer of a room that is no longer driven is dropped, not run', async () 
 test('handing a room to the port re-sends its lamps, even ones the port already sent', async () => {
   const { calls, host } = await applyHouse('studio');
   try {
-    const live = parseLiveRooms('studio');
+    const handover = new RoomHandover(host, parseLiveRooms('studio'));
+    await handover.reconcile(); await host.drain();
     calls.length = 0;
     await host.dispatch('ls_apply', { reason: 'config' }); await host.drain();
     assert.deepEqual(bulbTopics(calls), [], 'an unchanged lamp is not sent again by an ordinary apply');
-    await ingestChange(host, live, 'input_boolean.ls_studio_on_port', { state: 'off', attributes: {}, last_updated: '2026-10-26T12:00:01Z' });
-    await ingestChange(host, live, 'input_boolean.ls_studio_on_port', { state: 'on', attributes: {}, last_updated: '2026-10-26T12:00:02Z' });
+    await ingestChange(host, handover, 'input_boolean.ls_studio_on_port', { state: 'off', attributes: {}, last_changed: '2026-10-26T12:00:01Z' });
+    await ingestChange(host, handover, 'input_boolean.ls_studio_on_port', { state: 'on', attributes: {}, last_changed: '2026-10-26T12:00:02Z' });
     await host.drain();
     assert.deepEqual(bulbTopics(calls), ['zigbee2mqtt/studio_bulb/set']);
     calls.length = 0;
-    await handOver(host, live); await host.drain();
-    assert.deepEqual(bulbTopics(calls), ['zigbee2mqtt/studio_bulb/set']);
+    await handover.reconcile(); await host.drain();
+    assert.deepEqual(bulbTopics(calls), [], 'a room already handed over is not re-sent');
   } finally { await host.close(); }
 });
 
 test('a port switch turning on for a room not in the list hands nothing over', async () => {
   const { calls, host } = await applyHouse('studio');
   try {
+    const handover = new RoomHandover(host, parseLiveRooms('studio'));
+    await handover.reconcile(); await host.drain();
     calls.length = 0;
-    const live = parseLiveRooms('studio');
-    await ingestChange(host, live, 'input_boolean.ls_den_on_port', { state: 'off', attributes: {}, last_updated: '2026-10-26T12:00:01Z' });
-    await ingestChange(host, live, 'input_boolean.ls_den_on_port', { state: 'on', attributes: {}, last_updated: '2026-10-26T12:00:02Z' });
+    await ingestChange(host, handover, 'input_boolean.ls_den_on_port', { state: 'off', attributes: {}, last_changed: '2026-10-26T12:00:01Z' });
+    await ingestChange(host, handover, 'input_boolean.ls_den_on_port', { state: 'on', attributes: {}, last_changed: '2026-10-26T12:00:02Z' });
     await host.drain();
     assert.deepEqual(calls, []);
+  } finally { await host.close(); }
+});
+
+/** Two driven-list rooms; den's switch starts off and the start-up hand-over has run. */
+async function denOff(): Promise<{ calls: ServiceCall[]; host: LightingHost; handover: RoomHandover }> {
+  const initial = twoRooms();
+  initial.state['input_boolean.ls_den_on_port'] = { state: 'off', attributes: {}, last_changed: '2026-10-26T11:00:00Z' };
+  const { calls, host } = await applyHouse('studio,den', initial);
+  const handover = new RoomHandover(host, parseLiveRooms('studio,den'));
+  await handover.reconcile(); await host.drain();
+  calls.length = 0;
+  return { calls, host, handover };
+}
+const reconnect = async (host: LightingHost, handover: RoomHandover, changes: Snapshot['state']) => {
+  await host.connectionChanged(false);
+  await host.refresh(async previous => ({ ...previous, state: { ...previous.state, ...changes } }));
+  await host.connectionChanged(true);
+  await handover.reconcile();
+  await host.dispatch('ls_apply', { reason: 'config' }); await host.drain();
+};
+
+test('a port switch turned on while Home Assistant was out of reach hands its room over on reconnect', async () => {
+  const { calls, host, handover } = await denOff();
+  try {
+    await reconnect(host, handover, { 'input_boolean.ls_den_on_port': { state: 'on', attributes: {}, last_changed: '2026-10-26T12:00:05Z' } });
+    assert.deepEqual(bulbTopics(calls), ['zigbee2mqtt/den_bulb/set']);
+  } finally { await host.close(); }
+});
+
+test('a port switch turned off and on again while out of reach still hands its room over again', async () => {
+  const { calls, host, handover } = await denOff();
+  try {
+    await ingestChange(host, handover, 'input_boolean.ls_den_on_port', { state: 'on', attributes: {}, last_changed: '2026-10-26T12:00:01Z' });
+    await host.drain();
+    calls.length = 0;
+    // The old scripts drove den for a while; only the switch's change time tells.
+    await reconnect(host, handover, { 'input_boolean.ls_den_on_port': { state: 'on', attributes: {}, last_changed: '2026-10-26T12:00:09Z' } });
+    assert.deepEqual(bulbTopics(calls), ['zigbee2mqtt/den_bulb/set']);
   } finally { await host.close(); }
 });

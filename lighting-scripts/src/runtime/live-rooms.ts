@@ -11,7 +11,7 @@
  * edge, which of that output is the port's to send and which inputs are the
  * port's to act on.
  */
-import type { EntityState, JsonObject, JsonValue, ServiceCall, Snapshot } from './context.ts';
+import type { JsonObject, JsonValue, ServiceCall, Snapshot } from './context.ts';
 import type { Origin, OutputScope } from './host.ts';
 import type { Catalog } from './catalog.ts';
 import type { RoomId } from '../domain/types/ids.ts';
@@ -230,18 +230,35 @@ function objectOf(value: JsonValue | undefined): JsonObject {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
-/** The catalog lamps in the rooms the port drives, for the re-send when a room is handed over. */
-export function drivenLamps(live: LiveRooms, snapshot: Snapshot, only?: RoomId): string[] {
+/** The catalog lamps in the given driven rooms (every driven room by default), for the re-send when a room is handed over. */
+export function drivenLamps(live: LiveRooms, snapshot: Snapshot, only?: ReadonlySet<RoomId>): string[] {
   const house = houseOf(snapshot), driven = drivenRooms(live, snapshot);
   return Object.keys(house.catalog.members).filter(lamp => {
     const room = house.rooms.ofId[lamp];
-    return room !== undefined && driven.has(room) && (only === undefined || room === only);
+    return room !== undefined && driven.has(room) && (only === undefined || only.has(room));
   });
 }
 
-/** The live room whose port switch just turned on, if this change is one. */
-export function switchedOnRoom(live: LiveRooms, entity: string, before: EntityState | undefined,
-  after: EntityState | null | undefined): RoomId | undefined {
-  if (after === null || after === undefined || after.state !== 'on' || before?.state === 'on') return undefined;
-  return [...live].find(room => portSwitch(room) === entity);
+/**
+ * The rooms the port drives, each with the time its port switch last
+ * changed. Two looks at the house that differ for a room mean the room
+ * changed hands in between, even when both looks find it driven: the switch
+ * went off (the old scripts drove the room) and on again.
+ */
+export type Handed = ReadonlyMap<RoomId, string | undefined>;
+export function handedRooms(live: LiveRooms, snapshot: Snapshot): Handed {
+  const handed = new Map<RoomId, string | undefined>();
+  for (const room of drivenRooms(live, snapshot)) {
+    const state = snapshot.state[portSwitch(room)];
+    handed.set(room, state === undefined ? undefined : state.last_changed !== undefined ? state.last_changed : state.last_updated);
+  }
+  return handed;
+}
+/** The rooms handed to the port between two looks. */
+export function newlyHanded(before: Handed, after: Handed): Set<RoomId> {
+  return new Set([...after].filter(([room, changed]) => !before.has(room) || before.get(room) !== changed).map(([room]) => room));
+}
+/** Whether an entity is some room's port switch. */
+export function isPortSwitch(entity: string): boolean {
+  return entity.startsWith(SWITCH_PREFIX) && entity.endsWith(SWITCH_SUFFIX) && entity.length > SWITCH_PREFIX.length + SWITCH_SUFFIX.length;
 }

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { EntityState, ServiceCall, Snapshot } from '../../src/runtime/context.ts';
-import { drivenLamps, liveScope, switchedOnRoom } from '../../src/runtime/live-rooms.ts';
+import { drivenLamps, handedRooms, isPortSwitch, liveScope, newlyHanded } from '../../src/runtime/live-rooms.ts';
 import type { Origin } from '../../src/runtime/host.ts';
 import type { LiveRooms } from '../../src/parse/live-rooms.ts';
 import type { JsonObject } from '../../src/runtime/context.ts';
@@ -240,15 +240,26 @@ test('the lamps the port re-sends on start are the lamps in its driven rooms', (
   assert.deepEqual(drivenLamps(parseLiveRooms('studio'), house()), ['light.studio']);
   assert.deepEqual(drivenLamps(parseLiveRooms('studio'), house({ studio: 'off', den: 'on' })), []);
   assert.deepEqual(drivenLamps(parseLiveRooms(''), house()), []);
+  assert.deepEqual(drivenLamps(parseLiveRooms('studio,den'), house(), new Set(parseLiveRooms('den'))), ['light.den']);
 });
 
-test('a live room\'s port switch turning on names the room; any other change names none', () => {
-  const live = parseLiveRooms('studio');
-  const state = (value: string): EntityState => ({ state: value, attributes: {} });
-  assert.equal(switchedOnRoom(live, 'input_boolean.ls_studio_on_port', state('off'), state('on')), 'studio');
-  assert.equal(switchedOnRoom(live, 'input_boolean.ls_studio_on_port', undefined, state('on')), 'studio');
-  assert.equal(switchedOnRoom(live, 'input_boolean.ls_studio_on_port', state('on'), state('on')), undefined);
-  assert.equal(switchedOnRoom(live, 'input_boolean.ls_studio_on_port', state('on'), state('off')), undefined);
-  assert.equal(switchedOnRoom(live, 'input_boolean.ls_den_on_port', state('off'), state('on')), undefined);
-  assert.equal(switchedOnRoom(live, 'light.studio', state('off'), state('on')), undefined);
+test('a room is newly handed over when it becomes driven, or its switch changed since the last look', () => {
+  const live = parseLiveRooms('studio,den');
+  const look = (studio: string, changed: string) => {
+    const view = house({ studio, den: 'off' });
+    view.state['input_boolean.ls_studio_on_port'] = { state: studio, attributes: {}, last_changed: changed };
+    return handedRooms(live, view);
+  };
+  assert.deepEqual([...newlyHanded(new Map(), look('on', 't1'))], ['studio']);
+  assert.deepEqual([...newlyHanded(look('on', 't1'), look('on', 't1'))], []);
+  assert.deepEqual([...newlyHanded(look('on', 't1'), look('on', 't3'))], ['studio']);
+  assert.deepEqual([...newlyHanded(look('on', 't1'), look('off', 't2'))], []);
+  assert.deepEqual([...newlyHanded(look('off', 't2'), look('on', 't3'))], ['studio']);
+});
+
+test('only a room\'s port switch is a port switch', () => {
+  assert.equal(isPortSwitch('input_boolean.ls_studio_on_port'), true);
+  assert.equal(isPortSwitch('input_boolean.ls__on_port'), false);
+  assert.equal(isPortSwitch('input_boolean.ls_sara_mode_mirror'), false);
+  assert.equal(isPortSwitch('light.studio'), false);
 });
