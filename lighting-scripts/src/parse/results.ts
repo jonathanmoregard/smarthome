@@ -13,7 +13,7 @@ import { carry } from '../runtime/verbatim.ts';
 import { assembledMap, storedFact } from './overrides.ts';
 import { toBulbId, toPowerTarget, toRemoteSource, toRoomId, toSwitchId } from './ids.ts';
 import { parseOverlayKey } from './overlay-key.ts';
-import { overlayKeyText } from '../domain/types/overlay.ts';
+import { overlayKeyText, remoteInputKey } from '../domain/types/overlay.ts';
 
 function decodeStrings(container: JsonObject, key: string, context: string): string[] {
   return requireArray(container, key, context)
@@ -175,15 +175,26 @@ function decodeRemoteRecord(value: JsonValue, context: string): RemoteModeRecord
   const record = requireObject({ value }, 'value', context);
   const kind = requireString(record, 'kind', context);
   if (kind === 'mode') {
-    return { kind, target: requireString(record, 'target', context), value: requireString(record, 'value', context) };
+    // Sara mode switched on is the only mode record a producer writes.
+    const target = requireString(record, 'target', context);
+    if (target !== 'sara') throw new ParseError(`${context}.target must be "sara", got ${JSON.stringify(target)}`);
+    const value = requireString(record, 'value', context);
+    if (value !== 'on') throw new ParseError(`${context}.value must be "on", got ${JSON.stringify(value)}`);
+    return { kind, target, value };
   }
   if (kind === 'input') {
     const scope = requireString(record, 'scope', context);
     if (scope !== 'room') throw new ParseError(`${context}.scope must be "room", got ${JSON.stringify(scope)}`);
+    // The key is derived from the source, so the document's key must be exactly that one.
+    const keyText = requireString(record, 'key', context);
+    const source = toRemoteSource(requireString(record, 'source', context));
+    const sourceKey = overlayKeyText(remoteInputKey(source));
+    if (keyText !== sourceKey) {
+      throw new ParseError(`${context}.key must be ${JSON.stringify(sourceKey)}, the key of its source, got ${JSON.stringify(keyText)}`);
+    }
     return {
       kind,
-      key: parseOverlayKey(requireString(record, 'key', context)),
-      source: toRemoteSource(requireString(record, 'source', context)),
+      source,
       scope,
       target: toRoomId(requireString(record, 'target', context)),
       // Carried, as `RemoteInputRecord` says: this is the stored override document.
@@ -224,13 +235,17 @@ function decodeRemoteOp(result: JsonObject, context: string): RemotePlanOp {
  */
 /**
  * A remote plan (or the commit built on it) as the document it leaves as: a
- * clear's keys and an input record's key written as their saved text. Every
+ * clear's keys and an input record's key (its source's, derived) written as
+ * their saved text, the input record's key second, where it always sat. Every
  * other field is already its wire value, and every key keeps its place.
  */
 export function remotePlanDocument<P extends RemotePlanOp>(plan: P): JsonObject {
   if (plan.op === 'clear') return { ...plan, keys: plan.keys.map(overlayKeyText) };
   if (plan.op !== 'set') return { ...plan };
-  return { ...plan, records: plan.records.map(record => record.kind === 'input' ? { ...record, key: overlayKeyText(record.key) } : record) };
+  return { ...plan, records: plan.records.map(record => record.kind === 'input'
+    ? { kind: record.kind, key: overlayKeyText(remoteInputKey(record.source)), source: record.source, scope: record.scope,
+      target: record.target, value: record.value }
+    : record) };
 }
 
 /** `ls_remote_command`'s answer: the plan as its document, or `null` when it has none. */

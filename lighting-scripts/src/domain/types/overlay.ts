@@ -58,6 +58,11 @@ export function byOverlayKeyText(a: OverlayKey, b: OverlayKey): number {
   return x < y ? -1 : x > y ? 1 : 0;
 }
 
+/** The overlay key a remote's input is saved under: its source's (`channels:<source>`). */
+export function remoteInputKey(source: RemoteSource): OverlayKey {
+  return { kind: 'remote input', source };
+}
+
 /** The Sara mode overlay's key. */
 export const SARA_MODE: OverlayKey = { kind: 'sara mode' };
 /** The empty key. */

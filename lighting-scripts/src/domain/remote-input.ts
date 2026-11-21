@@ -11,7 +11,7 @@ import { clamp } from './scale.ts';
 import type { PowerTarget, RemoteSource, RoomId } from './types/ids.ts';
 import { entriesOf } from './types/ids.ts';
 import type { OverlayKey } from './types/overlay.ts';
-import { sameOverlayKey, SARA_MODE } from './types/overlay.ts';
+import { remoteInputKey, sameOverlayKey, SARA_MODE } from './types/overlay.ts';
 
 const omit = (v: AssembledMap, keys: string[]): AssembledMap => Object.fromEntries(Object.entries(v).filter(([k]) => !keys.includes(k)));
 const pick = (v: AssembledMap, keys: string[]): AssembledMap => Object.fromEntries(Object.entries(v).filter(([k]) => keys.includes(k)));
@@ -44,8 +44,11 @@ function built(fields: AssembledMap & { updated: number; lower: number; upper: n
     hasUp: pressedUp => pressedUp };
 }
 
-/** A mode flip carries its own value; `sara_toggle` is the only producer. */
-export type RemoteModeRecord = { kind: 'mode'; target: string; value: string };
+/**
+ * Sara mode switched on: `sara_toggle` is the only producer, and switching it
+ * off is a `clear` of its key, so the target and value are these literals.
+ */
+export type RemoteModeRecord = { kind: 'mode'; target: 'sara'; value: 'on' };
 /**
  * A channel claim. `value` is `next`, which is assembled by spreading the
  * stored override document through `omit`/`pick` and the preset contexts -- it
@@ -55,8 +58,11 @@ export type RemoteModeRecord = { kind: 'mode'; target: string; value: string };
  */
 export type RemoteInputRecord = {
   kind: 'input';
-  /** Written as its saved text where the record leaves as a document (`remotePlanDocument`). */
-  key: OverlayKey;
+  /**
+   * Whose input this is. The record's overlay key is derived from it
+   * ({@link remoteInputKey}), never held beside it, so the two cannot disagree;
+   * `remotePlanDocument` writes the key's saved text where the record leaves.
+   */
   source: RemoteSource;
   scope: 'room';
   target: RoomId;
@@ -130,7 +136,7 @@ export function remoteDecision(view: HouseView, args: RemotePlanArgs, opening: R
   const { room, overrides, stamp, revision, timingRevision } = opening;
   const inputKey = overrides.inputKey;
   const inputRecord = overrides.input;
-  const key: OverlayKey = { kind: 'remote input', source };
+  const key = remoteInputKey(source);
   // Compared as saved text: a remote in no room reads a record saved for the empty target, as the scripts' `''` room did.
   const old = inputRecord.scope !== 'room' || inputRecord.target !== roomText(room) || plan.stale(inputKey) ? noInputRecord() : inputRecord;
   const value = old.value;
@@ -198,7 +204,7 @@ export function remoteDecision(view: HouseView, args: RemotePlanArgs, opening: R
       if (schedule.present) next = { ...next,
         remote_valid_until: schedule.nextFs(),
         remote_timing_revision: timingRevision };
-      result = { op: 'set', records: [{ kind: 'input', key, source, scope: 'room', target: room, value: next }], via: 'remote' };
+      result = { op: 'set', records: [{ kind: 'input', source, scope: 'room', target: room, value: next }], via: 'remote' };
     }
   }
   return { ...result, input_revision: revision, received_at: stamp, request_id: `${source}:${stamp}` };
