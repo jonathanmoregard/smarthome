@@ -13,6 +13,7 @@ import type { ScheduleRecord, ScheduleRecords } from '../parse/schedule.ts';
 import type { OverlayKey } from './types/overlay.ts';
 import { byOverlayKeyText, overlayKeyText, sameOverlayKey } from './types/overlay.ts';
 import type { RoomId } from './types/ids.ts';
+import type { RoomOrHouse } from './types/schedule.ts';
 
 export const blocks: readonly string[] = BLOCKS;
 export function isAreaId<Room extends string>(value: Room | undefined): value is Room { return value !== undefined && value.length > 0; }
@@ -28,7 +29,7 @@ function isPrivateRoom(view: HouseView, area: string): boolean {
   const rooms: readonly string[] = privateRooms(view);
   return rooms.includes(area);
 }
-export function latestRemote(records: ScheduleRecords, room: string): OverlayKey {
+export function latestRemote(records: ScheduleRecords, room: RoomOrHouse): OverlayKey {
   // The scripts start from the empty key and keep it when no remote record applies.
   let key: OverlayKey = { kind: 'saved', key: '' }, stamp = -1;
   for (const k of [...records.keys].sort(byOverlayKeyText)) {
@@ -330,13 +331,13 @@ export type LampTargetEntry = LampProfileEntry & ({ on: false } | { on: true; co
 };
 /**
  * A room's entry in `targets`. **Not** a superset or subset of the lamp entry:
- * it has no `send`, `transition` or `observed`, and it carries `area` as a
- * plain string rather than a nullable one. Keeping them as two members of a
+ * it has no `send`, `transition` or `observed`, and it carries `area` as its
+ * room rather than a nullable one. Keeping them as two members of a
  * union rather than one optional-heavy shape is what stops a reader assuming
  * a field exists on both.
  */
 export type RoomTargetEntry = ({ on: false } | { on: true; brightness: number; color?: LampColor }) & {
-  area: string;
+  area: RoomId;
   is_room: true;
   period: string;
   effect: StoredValue;
@@ -366,7 +367,7 @@ export function scheduledBase(view: HouseView, args: ScheduledBaseArgs, roomLoca
   const plugs = labelled(view, 'on_off').filter(e => /^(light|switch)\./.test(e));
   const all = [...dimmables, ...plugs, ...switchRangeEntities(view.attr('sensor.ls_overrides', 'switch_ranges'))];
   const roomOnly = args.roomOnly;
-  const rooms: string[] = [...new Set(all.map(e => view.rooms.ofId[e]).filter(isAreaId))].sort().filter(a => !roomOnly || roomOnly === a);
+  const rooms: RoomId[] = [...new Set(all.map(e => view.rooms.ofId[e]).filter(isAreaId))].sort().filter(a => !roomOnly || roomOnly === a);
   const details = Object.fromEntries(['house', ...rooms].map(room => [room, scheduleDetails(view, room, at)])) as Record<string, ScheduleDetails>;
   const profiles: Record<string, LampProfileEntry> = {}, targets: Record<string, TargetEntry> = {}, commands = new Map<string, ScheduleCommand>();
   const debug: string[] = [];
@@ -374,7 +375,8 @@ export function scheduledBase(view: HouseView, args: ScheduledBaseArgs, roomLoca
     if (roomOnly && (!roomLocal || view.rooms.ofId[lamp] !== roomOnly)) continue;
     if (roomLocal && !dimmables.includes(lamp)) continue;
     const area = view.rooms.ofId[lamp] ?? '';
-    const room = rooms.includes(area) ? area : 'house';
+    // `rooms` never holds `''` (isAreaId), so a lamp with no room follows the house.
+    const room: RoomOrHouse = area !== '' && rooms.includes(area) ? area : 'house';
     const S = details[room]!;
     const privateRoom = isPrivateRoom(view, area);
     const newest = latestRemote(records, room);
@@ -489,12 +491,14 @@ export function scheduledBase(view: HouseView, args: ScheduledBaseArgs, roomLoca
       : target.color === undefined ? { brightness: target.brightness, ...room, on: true, ...scenes }
         : { brightness: target.brightness, color: target.color, ...room, on: true, ...scenes };
   }
+  // Read as text: a record's target is any saved text, looked up among the rooms.
+  const roomTexts: readonly string[] = rooms;
   const stale = keys.filter(key => {
     if (!expiry) return false;
     const r = records.get(key);
     const target = r.targetName;
     const area = target === undefined ? undefined : r.kind === 'light' || r.scope === 'lamp' ? view.rooms.ofId[target] : target;
-    const scope = rooms.includes(area ?? '') ? area! : 'house';
+    const scope = roomTexts.includes(area ?? '') ? area! : 'house';
     const scopes = r.scope === 'house' || key.kind === 'sara mode' ? rooms.filter(a => !isPrivateRoom(view, a)) : [scope];
     return scopes.length > 0 && scopes.every(a => r.when() <= details[a]!.last_fs && !details[a]!.fading);
   });

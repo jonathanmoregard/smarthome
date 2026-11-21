@@ -295,7 +295,7 @@ function decodeTargetEntry(value: JsonValue, context: string): TargetEntry {
     if (!Object.hasOwn(entry, 'effect')) throw new ParseError(`${context}.effect must be present, got undefined`);
     const lit = requireBoolean(entry.on, `${context}.on`);
     const room = {
-      area: requireString(entry, 'area', context),
+      area: toRoomId(requireString(entry, 'area', context)),
       is_room: true as const,
       period: requireString(entry, 'period', context),
       effect: storedFact(entry.effect ?? null),
