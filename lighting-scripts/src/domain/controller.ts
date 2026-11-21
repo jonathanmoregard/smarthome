@@ -7,7 +7,7 @@ import type { ResolutionResult } from './resolution.ts';
 import type { GradientPlanResult } from './gradient.ts';
 import type { RemotePlanResult } from './remote-input.ts';
 import type { Effect, HouseView } from '../runtime/effects.ts';
-import type { RoomId, SwitchId } from './types/ids.ts';
+import type { RemoteSource, RoomId, SwitchId } from './types/ids.ts';
 import type { Percent } from './types/light.ts';
 import { overlayKeyText, SARA_MODE } from './types/overlay.ts';
 
@@ -55,7 +55,7 @@ export interface ApplyArgs {
 }
 
 export interface RemoteCommandArgs {
-  source: string;
+  source: RemoteSource;
   area: RoomId;
   command: string;
   dryRun: boolean;
@@ -155,9 +155,9 @@ export function planAnswer(view: HouseView, parts: PlanParts): PlanResult {
 
 
 /** The remote command `ls_remote_plan` plans. */
-export type RemoteInput = { source: string; area: RoomId; command: string };
+export type RemoteInput = { source: RemoteSource; area: RoomId; command: string };
 /** A planned change, committed against the revision it was planned at. */
-export type RemoteCommit = RemotePlanResult & { expected_revision: string; area: RoomId; via: 'remote'; source: string };
+export type RemoteCommit = RemotePlanResult & { expected_revision: string; area: RoomId; via: 'remote'; source: RemoteSource };
 
 /** The captured script's retry budget for a revision that keeps moving under the commit. */
 const REMOTE_ATTEMPTS = 1_000;

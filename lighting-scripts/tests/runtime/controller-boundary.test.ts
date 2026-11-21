@@ -67,3 +67,16 @@ test('ls_apply\'s dry run answers whatever answered to ls_plan, unread', () => {
     assert.deepEqual(ctx.run('ls_apply', { dry_run: true }), marker);
   }
 });
+
+test('ls_remote_command parses its source as a remote source at its own edge, before it plans', () => {
+  // Review round 3, item 2: the source is a RemoteSource from the edge on, so
+  // a dashboard or native control's key is refused here, not first inside
+  // `ls_remote_plan`'s own parse.
+  // Break: the command reads its source as plain text and plans with it.
+  const planned: JsonObject[] = [];
+  const ctx = context({ ...controllerHandlers, ls_remote_plan: (_ctx, args) => { planned.push(args); return { op: 'noop' }; } });
+  for (const source of ['ui:light.lamp', 'native:room:studio']) {
+    assert.throws(() => ctx.run('ls_remote_command', { source, area: 'studio', command: 'up' }), /A remote source must not begin/, source);
+  }
+  assert.deepEqual(planned, []);
+});
