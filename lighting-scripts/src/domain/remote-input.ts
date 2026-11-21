@@ -10,6 +10,8 @@ import type { RemoteOverrides, RemoteRoomPlan } from '../parse/remote-input.ts';
 import { clamp } from './scale.ts';
 import type { PowerTarget, RemoteSource, RoomId } from './types/ids.ts';
 import { entriesOf } from './types/ids.ts';
+import type { RemotePress } from './types/remote.ts';
+import { pressCommand } from './types/remote.ts';
 import type { OverlayKey } from './types/overlay.ts';
 import { remoteInputKey, sameOverlayKey, SARA_MODE } from './types/overlay.ts';
 
@@ -19,7 +21,7 @@ const pick = (v: AssembledMap, keys: string[]): AssembledMap => Object.fromEntri
 export interface RemotePlanArgs {
   source: RemoteSource;
   area: RoomId;
-  command: string;
+  command: RemotePress;
 }
 
 /**
@@ -107,14 +109,15 @@ export interface RemoteOpening {
 }
 
 export function remoteOpening(view: HouseView, args: RemotePlanArgs): RemoteOpening {
-  const command = args.command, area = args.area;
+  const command = pressCommand(args.command), area = args.area;
   const room = Object.values(view.rooms.ofId).includes(area) ? area : undefined;
   const overrides = remoteOverrides(view, room);
   const stamp = recordTimestamp(view.now);
   const revision = overridesRevision(view, 'ls_remote_plan');
   let timingRevision = 0;
   const expiry = view.get('input_boolean.ls_ovr_next_block_on') === 'on';
-  if (['up', 'down'].includes(command) && expiry) {
+  const dimming = command === 'up' || command === 'down';
+  if (dimming && expiry) {
     const ids = ['input_boolean.ls_ovr_next_block_on'];
     for (const scope of ['house', roomText(room)]) for (const block of ['day', 'cosy', 'night']) {
       ids.push(`input_boolean.ls_${scope}_${block}_own_timing`, `input_datetime.ls_${scope}_${block}_start`,
@@ -123,7 +126,7 @@ export function remoteOpening(view: HouseView, args: RemotePlanArgs): RemoteOpen
     timingRevision = Math.max(0, ...ids.map(id => recordTimestamp(view.state[id]?.last_updated)));
   }
   const inputValue = overrides.input.value;
-  const needsContext = ['left', 'right'].includes(command) || (['up', 'down'].includes(command) && expiry
+  const needsContext = command === 'left' || command === 'right' || (dimming && expiry
     && (inputValue.validUntil() <= stamp || inputValue.timingRevision !== timingRevision));
   const cache = remoteCache(view.attr(`sensor.ls_cache_${roomText(room)}`, 'cache'));
   return { room, overrides, stamp, revision, timingRevision, needsContext, cache };
@@ -132,7 +135,8 @@ export function remoteOpening(view: HouseView, args: RemotePlanArgs): RemoteOpen
 /** The command's operation, from the opening reads, the room plan and the catalog, on the house after both runs. */
 export function remoteDecision(view: HouseView, args: RemotePlanArgs, opening: RemoteOpening, plan: RemoteRoomPlan,
   catalog: Catalog): RemotePlanResult {
-  const source = args.source, command = args.command;
+  // No command: a press that does nothing, the scripts' noop.
+  const source = args.source, command = pressCommand(args.command);
   const { room, overrides, stamp, revision, timingRevision } = opening;
   const inputKey = overrides.inputKey;
   const inputRecord = overrides.input;
@@ -142,8 +146,8 @@ export function remoteDecision(view: HouseView, args: RemotePlanArgs, opening: R
   const value = old.value;
   const bounds = value.stepRange.bounds;
   let result: RemotePlanOp = { op: 'noop' };
-  if (room !== undefined && ['up', 'down', 'left', 'right', 'toggle', 'reset', 'sara_toggle'].includes(command)
-    && (bounds !== undefined || ['toggle', 'reset', 'sara_toggle'].includes(command))) {
+  if (room !== undefined && command !== undefined
+    && (bounds !== undefined || command === 'toggle' || command === 'reset' || command === 'sara_toggle')) {
     if (command === 'sara_toggle') {
       result = overrides.has(SARA_MODE) ? { op: 'clear', keys: [SARA_MODE], via: 'remote' }
         : { op: 'set', records: [{ kind: 'mode', target: 'sara', value: 'on' }], via: 'remote' };
@@ -172,7 +176,7 @@ export function remoteDecision(view: HouseView, args: RemotePlanArgs, opening: R
         const newer = other.newer();
         if (newer > adjustment.updated()) restart = true;
       }
-      if (restart && ['up', 'down'].includes(command)) adjustment = built({ ...identity });
+      if (restart && (command === 'up' || command === 'down')) adjustment = built({ ...identity });
       let lower = clamp(adjustment.lower(), low, high), upper = clamp(adjustment.upper(), low, high);
       const steps = lower === upper ? 0 : adjustment.steps();
       let fields: AssembledMap = { ...adjustment.fields, steps, lower, upper };

@@ -5,6 +5,7 @@ import { switchPlan } from '../../src/domain/controller.ts';
 import { controllerHandlers } from '../../src/handlers/controller.ts';
 import { parseSwitchPlanArgs } from '../../src/parse/controller.ts';
 import { remoteInputHandlers, remotePlan } from '../../src/handlers/remote-input.ts';
+import { remotePress } from '../../src/parse/remote-input.ts';
 import { stateStoreHandlers } from '../../src/handlers/state-store.ts';
 import { uiHandlers } from '../../src/handlers/ui-state.ts';
 import { context, setCatalog, stub } from './gestures-context.ts';
@@ -71,7 +72,7 @@ test('persisted remote has_up is the captured Jinja or: a falsy stored value yie
     },
   } });
   ctx.state['sensor.ls_overrides']!.last_updated = ctx.now;
-  const result = remotePlan(ctx, { source: 'remote', area: 'studio', command: 'down' }) as unknown as { records: { value: JsonObject }[] };
+  const result = remotePlan(ctx, { source: 'remote', area: 'studio', command: remotePress('down') }) as unknown as { records: { value: JsonObject }[] };
   assert.equal((result.records[0]!.value.adjustment as JsonObject).has_up, false);
 });
 
@@ -110,7 +111,7 @@ test('remote plan reads saved numbers and the saved selection leniently, with th
     });
     ctx.put('input_boolean.ls_ovr_next_block_on', 'on');
     // The room plan's next_fs (100) is stamped only when the context was re-read.
-    const result = remotePlan(ctx, { source: 'remote', area: 'studio', command: 'up' }) as unknown as { records: { value: JsonObject }[] };
+    const result = remotePlan(ctx, { source: 'remote', area: 'studio', command: remotePress('up') }) as unknown as { records: { value: JsonObject }[] };
     assert.equal(result.records[0]!.value.remote_valid_until, 100);
   });
 
@@ -119,7 +120,7 @@ test('remote plan reads saved numbers and the saved selection leniently, with th
       step_range: { min: -20, max: 20 },
       adjustment: { lower: -20, upper: 20, updated: 0 },
     });
-    assert.equal(adjustmentOf(remotePlan(ctx, { source: 'remote', area: 'studio', command: 'left' })).steps, 0);
+    assert.equal(adjustmentOf(remotePlan(ctx, { source: 'remote', area: 'studio', command: remotePress('left') })).steps, 0);
   });
 
   await t.test("explicit null selection reads as absent: the room plan's period", () => {
@@ -128,7 +129,7 @@ test('remote plan reads saved numbers and the saved selection leniently, with th
       adjustment: { steps: 0, lower: -20, upper: 20, updated: 0 },
       selection: null,
     });
-    const result = remotePlan(ctx, { source: 'remote', area: 'studio', command: 'right' }) as unknown as { records: { value: JsonObject }[] };
+    const result = remotePlan(ctx, { source: 'remote', area: 'studio', command: remotePress('right') }) as unknown as { records: { value: JsonObject }[] };
     assert.equal(result.records[0]!.value.selection, 'cosy');
   });
 
@@ -140,7 +141,7 @@ test('remote plan reads saved numbers and the saved selection leniently, with th
       remote_timing_revision: 0,
     }, null);
     ctx.put('input_boolean.ls_ovr_next_block_on', 'on');
-    assert.throws(() => remotePlan(ctx, { source: 'remote', area: 'studio', command: 'up' }), /schedule number.*finite number/);
+    assert.throws(() => remotePlan(ctx, { source: 'remote', area: 'studio', command: remotePress('up') }), /schedule number.*finite number/);
   });
 
   await t.test('explicit null update stamps take the three get fallbacks, never a raise', () => {
@@ -165,7 +166,7 @@ test('remote plan reads saved numbers and the saved selection leniently, with th
       });
       const overrides = ctx.state['sensor.ls_overrides']!.attributes.overrides as JsonObject;
       overrides.other = { kind: 'channels', via: 'app', scope: 'room', target: 'studio', when: ctx.now, value: item.competingValue };
-      assert.doesNotThrow(() => remotePlan(ctx, { source: 'remote', area: 'studio', command: 'up' }), JSON.stringify(item));
+      assert.doesNotThrow(() => remotePlan(ctx, { source: 'remote', area: 'studio', command: remotePress('up') }), JSON.stringify(item));
     }
   });
 
@@ -179,7 +180,7 @@ test('remote plan reads saved numbers and the saved selection leniently, with th
       kind: 'channels', via: 'app', scope: 'room', target: 'studio', when: ctx.now,
       value: { channels: { brightness: { updated: 1 } }, adjustment: null },
     };
-    assert.doesNotThrow(() => remotePlan(ctx, { source: 'remote', area: 'studio', command: 'up' }));
+    assert.doesNotThrow(() => remotePlan(ctx, { source: 'remote', area: 'studio', command: remotePress('up') }));
   });
 
   await t.test("a malformed saved bound reads as the step range's end", () => {
@@ -187,7 +188,7 @@ test('remote plan reads saved numbers and the saved selection leniently, with th
       step_range: { min: -20, max: 20 },
       adjustment: { steps: 0, lower: 'hot', upper: 20, updated: 0 },
     });
-    assert.equal(adjustmentOf(remotePlan(ctx, { source: 'remote', area: 'studio', command: 'left' })).lower, -20);
+    assert.equal(adjustmentOf(remotePlan(ctx, { source: 'remote', area: 'studio', command: remotePress('left') })).lower, -20);
   });
 });
 
@@ -204,7 +205,7 @@ test('remote cache uses the captured Jinja or fallback for empty containers', ()
   ctx.put('sensor.ls_overrides', '0', { overrides: {} });
   ctx.state['sensor.ls_overrides']!.last_updated = ctx.now;
   ctx.put('sensor.ls_cache_studio', '0', { cache: [] });
-  remotePlan(ctx, { source: 'remote', area: 'studio', command: 'left' });
+  remotePlan(ctx, { source: 'remote', area: 'studio', command: remotePress('left') });
   assert.deepEqual(seenCache, {});
 });
 

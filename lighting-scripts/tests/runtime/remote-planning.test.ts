@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { remoteDecision, remoteOpening } from '../../src/domain/remote-input.ts';
 import { dependencies, expiry, refreshBaseline, roomOpening, roomPlanAnswer } from '../../src/domain/planning.ts';
-import { remoteRoomPlan } from '../../src/parse/remote-input.ts';
+import { remotePress, remoteRoomPlan } from '../../src/parse/remote-input.ts';
 import { parseRoomBaseline, parseRoomPlanArgs } from '../../src/parse/planning.ts';
 import { recordTimestamp } from '../../src/parse/resolution.ts';
 import { timestamp } from '../../src/parse/accessors.ts';
@@ -22,11 +22,11 @@ const catalog = parseCatalog({ effects: { Glow: {} }, members: { 'light.lamp': [
 
 test('the opening reads the room, the revision and the stamp, and asks for context only for the arrows', () => {
   const view = house({ 'sensor.ls_overrides': sensor() }, { areas });
-  const left = remoteOpening(view, { source: 'remote', area: 'studio', command: 'left' });
+  const left = remoteOpening(view, { source: 'remote', area: 'studio', command: remotePress('left') });
   assert.deepEqual([left.room, left.revision, left.stamp, left.timingRevision, left.needsContext], ['studio', REVISION, STAMP, 0, true]);
-  assert.equal(remoteOpening(view, { source: 'remote', area: 'studio', command: 'right' }).needsContext, true);
-  assert.equal(remoteOpening(view, { source: 'remote', area: 'studio', command: 'toggle' }).needsContext, false);
-  assert.equal(remoteOpening(view, { source: 'remote', area: 'attic', command: 'toggle' }).room, undefined);
+  assert.equal(remoteOpening(view, { source: 'remote', area: 'studio', command: remotePress('right') }).needsContext, true);
+  assert.equal(remoteOpening(view, { source: 'remote', area: 'studio', command: remotePress('toggle') }).needsContext, false);
+  assert.equal(remoteOpening(view, { source: 'remote', area: 'attic', command: remotePress('toggle') }).room, undefined);
 });
 
 test('a dimming press under next-block expiry fingerprints the timing helpers and needs context', () => {
@@ -35,20 +35,20 @@ test('a dimming press under next-block expiry fingerprints the timing helpers an
     'sensor.ls_overrides': sensor(), 'input_boolean.ls_ovr_next_block_on': 'on',
     'input_number.ls_studio_cosy_fade': { state: '5', attributes: {}, last_updated: later },
   }, { areas });
-  const opening = remoteOpening(view, { source: 'remote', area: 'studio', command: 'up' });
+  const opening = remoteOpening(view, { source: 'remote', area: 'studio', command: remotePress('up') });
   assert.equal(opening.timingRevision, recordTimestamp(later));
   assert.equal(opening.needsContext, true);
 });
 
 test('the opening raises on a missing overrides sensor, before any call', () => {
-  assert.throws(() => remoteOpening(house({}, { areas }), { source: 'remote', area: 'studio', command: 'left' }), /ls_remote_plan\.revision/);
+  assert.throws(() => remoteOpening(house({}, { areas }), { source: 'remote', area: 'studio', command: remotePress('left') }), /ls_remote_plan\.revision/);
 });
 
 const noContext = remoteRoomPlan(undefined);
 
 test('toggle flips the room: its catalog lamps and switch-range entities, off when any is on', () => {
   const view = house({ 'sensor.ls_overrides': sensor({ switch_ranges: { 'switch.fan': {} } }), 'switch.fan': 'on' }, { areas });
-  const args = { source: 'remote', area: 'studio', command: 'toggle' };
+  const args = { source: 'remote', area: 'studio', command: remotePress('toggle') };
   const result = remoteDecision(view, args, remoteOpening(view, args), noContext, catalog);
   assert.deepEqual(result, { op: 'power', area: 'studio', on: false, targets: ['light.lamp', 'switch.fan'], via: 'remote',
     input_revision: REVISION, received_at: STAMP, request_id: `remote:${STAMP}` });
@@ -56,7 +56,7 @@ test('toggle flips the room: its catalog lamps and switch-range entities, off wh
 
 test('toggle follows a saved room power over the lamp states', () => {
   const view = house({ 'sensor.ls_overrides': sensor({ power: { studio: false } }), 'light.lamp': 'on' }, { areas });
-  const args = { source: 'remote', area: 'studio', command: 'toggle' };
+  const args = { source: 'remote', area: 'studio', command: remotePress('toggle') };
   const result = remoteDecision(view, args, remoteOpening(view, args), noContext, catalog);
   assert.ok(result.op === 'power');
   assert.equal(result.on, true);
@@ -65,7 +65,7 @@ test('toggle follows a saved room power over the lamp states', () => {
 test('reset clears the room, sara_toggle flips the mode, an unknown room is a noop', () => {
   const view = house({ 'sensor.ls_overrides': sensor({ overrides: { 'mode:sara': {} } }) }, { areas });
   const decide = (area: string, command: string) => {
-    const args = { source: 'remote', area, command };
+    const args = { source: 'remote', area, command: remotePress(command) };
     const { input_revision, received_at, request_id, ...op } = remoteDecision(view, args, remoteOpening(view, args), noContext, emptyCatalog());
     assert.deepEqual([input_revision, received_at, request_id], [REVISION, STAMP, `remote:${STAMP}`]);
     return op;
@@ -77,7 +77,7 @@ test('reset clears the room, sara_toggle flips the mode, an unknown room is a no
 
 test('a first up press stores a one-step adjustment over the default range', () => {
   const view = house({ 'sensor.ls_overrides': sensor() }, { areas });
-  const args = { source: 'remote', area: 'studio', command: 'up' };
+  const args = { source: 'remote', area: 'studio', command: remotePress('up') };
   const result = remoteDecision(view, args, remoteOpening(view, args), noContext, emptyCatalog());
   assert.ok(result.op === 'set');
   assert.deepEqual(result.records, [{ kind: 'input', source: 'remote', scope: 'room',

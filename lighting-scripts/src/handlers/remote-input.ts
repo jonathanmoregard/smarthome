@@ -9,6 +9,7 @@ import { typed } from '../runtime/entrypoints.ts';
 import { parseRemotePlanArgs, remoteRoomPlan } from '../parse/remote-input.ts';
 import { roomText } from '../parse/rooms.ts';
 import { remoteDecision, remoteOpening } from '../domain/remote-input.ts';
+import { pressCommand } from '../domain/types/remote.ts';
 import type { RemotePlanArgs, RemotePlanResult } from '../domain/remote-input.ts';
 
 /**
@@ -23,7 +24,8 @@ export function remotePlan(ctx: ScriptContext, args: RemotePlanArgs): RemotePlan
   const plan = remoteRoomPlan(opening.needsContext ? ctx.run('ls_room_plan', { room: roomText(opening.room), overrides: opening.overrides.document,
     cache: opening.cache, reason: 'remote' }) : undefined);
   // The captured script calls effects_catalog only for these three commands.
-  const catalog = ['toggle', 'left', 'right'].includes(args.command) ? catalogOf(ctx) : emptyCatalog();
+  const command = pressCommand(args.command);
+  const catalog = command === 'toggle' || command === 'left' || command === 'right' ? catalogOf(ctx) : emptyCatalog();
   return remoteDecision(ctx, args, opening, plan, catalog);
 }
 export const remoteInputHandlers: ScriptHandlers = {

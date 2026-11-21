@@ -18,6 +18,7 @@ import { drive, perform } from '../runtime/effects.ts';
 import { planAnswer, remoteCommandStart, remoteCommandStep, switchPlan } from '../domain/controller.ts';
 import type { ApplyArgs, PlanArgs, PlanResult, RemoteCommandArgs, RemoteCommandCmd, RemoteCommandMsg } from '../domain/controller.ts';
 import { overlayKeyText, SARA_MODE } from '../domain/types/overlay.ts';
+import { pressText } from '../domain/types/remote.ts';
 import { roomText } from '../parse/rooms.ts';
 
 /**
@@ -94,7 +95,11 @@ function apply(ctx: ScriptContext, args: ApplyArgs): Verbatim | null {
 function remoteCommand(ctx: ScriptContext, args: RemoteCommandArgs): RemotePlanResult | null {
   return drive(remoteCommandStep, remoteCommandStart(args), { tag: 'start' }, (cmd: RemoteCommandCmd): RemoteCommandMsg | undefined => {
     switch (cmd.tag) {
-      case 'plan': return { tag: 'planned', result: ctx.call('ls_remote_plan', cmd.input) };
+      case 'plan': {
+        // The press goes out as the text the remote sent, whatever it is.
+        const { source, area, command } = cmd.input;
+        return { tag: 'planned', result: ctx.call('ls_remote_plan', { source, area, command: pressText(command) }) };
+      }
       case 'commit': return { tag: 'committed', accepted: ctx.call('ls_commit', { data: remotePlanDocument(cmd.data) }).accepted };
       case 'effect': perform(ctx, cmd.effect); return undefined;
       default: {

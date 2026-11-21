@@ -26,6 +26,7 @@ import { BUILT_IN_RANGES } from './planning.ts';
 import type { ApplyArgs, PlanArgs, PlanOverrides, RemoteCommandArgs, SwitchInterval, SwitchPlanArgs } from '../domain/controller.ts';
 import { toPercent, toRemoteSource, toRoomId, toSwitchId } from './ids.ts';
 import { roomOfText } from './rooms.ts';
+import { remotePress } from './remote-input.ts';
 
 const lenientList = (v: JsonValue | undefined): JsonValue[] => Array.isArray(v) ? v : [];
 
@@ -134,7 +135,7 @@ export function parseRemoteCommandArgs(args: JsonObject): RemoteCommandArgs {
   return {
     source: toRemoteSource(requireString(args, 'source', 'ls_remote_command')),
     area: toRoomId(requireString(args, 'area', 'ls_remote_command')),
-    command: requireString(args, 'command', 'ls_remote_command'),
+    command: remotePress(requireString(args, 'command', 'ls_remote_command')),
     dryRun: optionalScriptBoolean(args.dry_run, 'ls_remote_command.dry_run'),
   };
 }

@@ -26,7 +26,8 @@ import type { OverlayKey } from '../domain/types/overlay.ts';
 import { overlayKeyText } from '../domain/types/overlay.ts';
 import { parseOverlayKey } from './overlay-key.ts';
 import type { RoomId } from '../domain/types/ids.ts';
-import type { Step } from '../domain/types/remote.ts';
+import type { RemotePress, Step } from '../domain/types/remote.ts';
+import { REMOTE_COMMANDS } from '../domain/types/remote.ts';
 
 const OVERRIDES = 'sensor.ls_overrides';
 const numeric = (v: JsonValue | undefined): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -239,6 +240,12 @@ export function parseRemotePlanArgs(args: JsonObject): RemotePlanArgs {
   return {
     source: toRemoteSource(requireString(args, 'source', 'ls_remote_plan')),
     area: toRoomId(requireString(args, 'area', 'ls_remote_plan')),
-    command: requireString(args, 'command', 'ls_remote_plan'),
+    command: remotePress(requireString(args, 'command', 'ls_remote_plan')),
   };
+}
+
+/** A press's text: one of the commands a remote acts on, exactly, or any other text, which does nothing. */
+export function remotePress(text: string): RemotePress {
+  const command = REMOTE_COMMANDS.find(known => known === text);
+  return command === undefined ? { kind: 'unknown', text } : { kind: 'command', command };
 }
