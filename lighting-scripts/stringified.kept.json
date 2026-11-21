@@ -1,20 +1,6 @@
 {
   "kept": [
     {
-      "file": "src/domain/schedule.ts",
-      "within": "sourceEntity",
-      "text": "${lamp.split('.')[1]}",
-      "sites": 2,
-      "reason": "Found by this guard at ed33a7f; fixed or argued in a following commit."
-    },
-    {
-      "file": "src/domain/schedule.ts",
-      "within": "scheduledBase",
-      "text": "${lamp.split('.')[1]}",
-      "sites": 2,
-      "reason": "Found by this guard at ed33a7f; fixed or argued in a following commit."
-    },
-    {
       "file": "src/domain/ui-state.ts",
       "within": "uiMessages",
       "text": "${areas[0]}",

@@ -176,15 +176,25 @@ function wakeStage(view: HouseView, area: string, S: ScheduleDetails, at: number
   }
   return stage;
 }
+/**
+ * A lamp's object id, captured `lamp.split('.')[1]`: the text after its domain,
+ * up to any further dot. The schedule's lamps are filtered to `light.` and
+ * `switch.` ids, so the part is always there; an id without it is not a lamp.
+ */
+function lampObjectId(lamp: string): string {
+  const [, objectId] = lamp.split('.');
+  if (objectId === undefined) throw new Error(`schedule lamp ${lamp} has no object id`);
+  return objectId;
+}
 /** The room's own light when it has one on for the block; the house's otherwise, and for a lamp in no room. */
 function scopeFor(view: HouseView, area: RoomId | undefined, block: string): string { return area !== undefined &&
   view.get(`input_boolean.ls_${area}_${block}_own_light`) === 'on' ? area : 'house'; }
 function sourceEntity(view: HouseView, lamp: string | null, area: RoomId | undefined, block: string, fallback = true): string {
   if (block === 'lamp' && lamp) return lamp;
   const scope = scopeFor(view, area, block);
-  const lampProfile = lamp === null ? undefined : savedProfile(view, `input_text.ls_lamp_${lamp.split('.')[1]}_${block}`);
+  const lampProfile = lamp === null ? undefined : savedProfile(view, `input_text.ls_lamp_${lampObjectId(lamp)}_${block}`);
   const own = lampProfile === undefined ? false : lampProfile.own;
-  const candidates = [...(own && lamp !== null ? [`light.ls_lamp_${lamp.split('.')[1]}_${block}`] : []), `light.ls_${scope}_${block}`,
+  const candidates = [...(own && lamp !== null ? [`light.ls_lamp_${lampObjectId(lamp)}_${block}`] : []), `light.ls_${scope}_${block}`,
     ...(fallback ? [`light.ls_house_${block}`] : [])];
   return (fallback ? candidates.find(e => hasValue(view, e)) : candidates[0]) ?? candidates[0]!;
 }
@@ -414,12 +424,12 @@ export function scheduledBase(view: HouseView, args: ScheduledBaseArgs, roomLoca
     } else if (room !== 'house') stage = wakeStage(view, room, S, at, stage);
     const block = stage.from === 'lamp' ? stage.to : stage.from;
     const scope = scopeFor(view, area, block);
-    const lampSaved = savedProfile(view, `input_text.ls_lamp_${lamp.split('.')[1]}_${block}`);
+    const lampSaved = savedProfile(view, `input_text.ls_lamp_${lampObjectId(lamp)}_${block}`);
     const pr = lampSaved.own ? lampSaved : savedProfile(view, `input_text.ls_${scope}_${block}`);
     if (plugs.includes(lamp)) {
       const selectedBlock = !stage.moving || stage.p >= 1 ? stage.to : stage.from;
       const selectedScope = scopeFor(view, area, selectedBlock);
-      const lp = savedProfile(view, `input_text.ls_lamp_${lamp.split('.')[1]}_${selectedBlock}`);
+      const lp = savedProfile(view, `input_text.ls_lamp_${lampObjectId(lamp)}_${selectedBlock}`);
       const src = [`input_boolean.ls_${selectedScope}_${selectedBlock}_on_off`, `input_boolean.ls_house_${selectedBlock}_on_off`].find(e =>
         hasValue(view, e));
       const want = lp.own
