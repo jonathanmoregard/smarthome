@@ -37,26 +37,35 @@ function badCasts(root: string): string[] {
   const domainTypes = join(root, 'src', 'domain', 'types') + sep;
   const name = (file: string) => relative(root, file).split(sep).join('/');
 
-  const namesDomainType = (type: ts.Node): boolean => {
-    if (ts.isTypeReferenceNode(type)) {
-      let symbol = checker.getSymbolAtLocation(type.typeName);
-      if (symbol !== undefined && (symbol.flags & ts.SymbolFlags.Alias) !== 0) symbol = checker.getAliasedSymbol(symbol);
-      const declared = (symbol?.declarations ?? []).some(declaration =>
-        (ts.isTypeAliasDeclaration(declaration) || ts.isInterfaceDeclaration(declaration))
-        && declaration.getSourceFile().fileName.startsWith(domainTypes));
-      if (declared) return true;
-    }
-    return ts.forEachChild(type, child => namesDomainType(child) || undefined) ?? false;
-  };
+  const declaredInDomainTypes = (symbol: ts.Symbol | undefined): boolean =>
+    symbol?.declarations !== undefined && symbol.declarations.some(declaration => declaration.getSourceFile().fileName.startsWith(domainTypes));
 
-  /** The constructors and `entriesOf`/`fromEntriesOf`: the only places a domain type may be cast to. */
+  /**
+   * Does the type, as the checker resolves it, hold a type declared under
+   * `src/domain/types/`? Resolved, not read off the written name, so an alias
+   * declared anywhere else (`type R = RoomId`) is seen through.
+   */
+  const holdsDomainType = (type: ts.Type, seen: Set<ts.Type>): boolean => {
+    if (seen.has(type)) return false;
+    seen.add(type);
+    if (declaredInDomainTypes(type.aliasSymbol) || declaredInDomainTypes(type.getSymbol())) return true;
+    if (type.isUnionOrIntersection()) return type.types.some(member => holdsDomainType(member, seen));
+    if (type.aliasTypeArguments !== undefined && type.aliasTypeArguments.some(argument => holdsDomainType(argument, seen))) return true;
+    if ((type.flags & ts.TypeFlags.Object) === 0) return false;
+    // Elements and index values (`RoomId[]`, a tuple, `Record<string, RoomId>`), then properties.
+    return checker.getIndexInfosOfType(type).some(info => holdsDomainType(info.keyType, seen) || holdsDomainType(info.type, seen))
+      || checker.getPropertiesOfType(type).some(property => holdsDomainType(checker.getTypeOfSymbol(property), seen));
+  };
+  const namesDomainType = (type: ts.TypeNode): boolean => holdsDomainType(checker.getTypeFromTypeNode(type), new Set());
+
+  /** The constructors and `entriesOf`: the only places a domain type may be cast to. */
   const allowedPlace = (node: ts.Node): boolean => {
     let fn: ts.Node | undefined = node.parent;
     while (fn !== undefined && !ts.isFunctionDeclaration(fn)) fn = fn.parent;
     if (fn === undefined || !ts.isFunctionDeclaration(fn) || fn.name === undefined) return false;
     const file = name(fn.getSourceFile().fileName), fnName = fn.name.text;
     return file === 'src/parse/ids.ts' && /^to[A-Z]/.test(fnName)
-      || file === 'src/domain/types/ids.ts' && (fnName === 'entriesOf' || fnName === 'fromEntriesOf');
+      || file === 'src/domain/types/ids.ts' && fnName === 'entriesOf';
   };
 
   const hasReason = (node: ts.Node): boolean => {
@@ -101,6 +110,7 @@ test('the cast check reports a forged cast and an allowed cast with no reason, a
   // `as const` and casts to types outside src/domain/types.
   assert.deepEqual(badCasts(FIXTURE), [
     'src/domain/lamp.ts:9 outside the constructors and entriesOf',
+    'src/parse/alias.ts:7 outside the constructors and entriesOf',
     'src/parse/ids.ts:10 no reason',
   ]);
 });

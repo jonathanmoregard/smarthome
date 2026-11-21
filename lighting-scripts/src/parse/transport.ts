@@ -28,6 +28,7 @@ import type {
 } from '../domain/transport.ts';
 import { lampOrRoom } from './lighting-state.ts';
 import { parseOverlayKey } from './overlay-key.ts';
+import type { OverlayKey } from '../domain/types/overlay.ts';
 import { toBulbId, toLampId } from './ids.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
@@ -204,6 +205,8 @@ function parseAssignTargetViews(targets: JsonObject): ReturnType<AssignDetails['
     const context = `effects_assign.targets.${lamp}`;
     const target = requireObject({ raw }, 'raw', context);
     const owners = target.owners === undefined ? {} : requireObject(target, 'owners', context);
+    const owner = (channel: Channel): OverlayKey =>
+      parseOverlayKey(owners[channel] === undefined ? '' : requireString(owners, channel, `${context}.owners`));
     const channels = Object.fromEntries((['brightness', 'color'] as const).map(channel => {
       const source = requireObject(target, channel, context);
       const kind = requireString(source, 'kind', `${context}.${channel}`);
@@ -218,10 +221,7 @@ function parseAssignTargetViews(targets: JsonObject): ReturnType<AssignDetails['
     return [lamp, {
       lampOrRoom: lampOrRoom(lamp, target.is_room),
       channels,
-      owners: Object.fromEntries((['brightness', 'color'] as const).map(channel => [
-        channel,
-        parseOverlayKey(owners[channel] === undefined ? '' : requireString(owners, channel, `${context}.owners`)),
-      ])) as ReturnType<AssignDetails['targetViews']>[string]['owners'],
+      owners: { brightness: owner('brightness'), color: owner('color') },
     }];
   }));
 }
