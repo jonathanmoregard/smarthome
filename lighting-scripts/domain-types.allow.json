@@ -59,31 +59,156 @@
       "file": "src/runtime/catalog.ts",
       "symbol": "Catalog.topics",
       "reason": "V1 bulb site, kept: the key is a BulbId; the string left is the bulb's MQTT command topic, an address outside V1's id brands (other-id, named in V2)."
+    },
+    {
+      "file": "src/domain/controller.ts",
+      "symbol": "SwitchPlanArgs.roomTarget.return.level",
+      "reason": "V1 level site, kept: the resolved room target's `level`, read with JavaScript `Number(...)` and no range check (src/parse/controller.ts), so a non-numeric or out-of-range level passes today; a range type needs a decision on those, and today's code has no default."
+    },
+    {
+      "file": "src/domain/controller.ts",
+      "symbol": "SwitchDecision.brightness",
+      "reason": "V1 level site, kept: not a brightness but the room's level in percent, `level * 100 / 255`, arithmetic on the unchecked room target level (`SwitchPlanArgs.roomTarget`); a Percent once that level is typed (V3)."
+    },
+    {
+      "file": "src/domain/native-controls.ts",
+      "symbol": "EffectClaim.intensity",
+      "reason": "V1 level site, kept: the service call's `brightness` as given, a number or a boolean (`true` is stored as `true`, a parity case; `absolute` in src/parse/native-controls.ts), with no range check. A `Brightness` cannot hold the boolean."
+    },
+    {
+      "file": "src/domain/native-controls.ts",
+      "symbol": "ClaimColour.kelvin",
+      "reason": "V1 kelvin site, kept: a native call's `color_temp_kelvin`/`kelvin` carried raw (`'2300'` stays a string, a parity case), or the UI control's converted mireds; a `Kelvin` cannot hold the raw value."
+    },
+    {
+      "file": "src/domain/resolution.ts",
+      "symbol": "Claim.brightness",
+      "reason": "V1 level site, kept: the resolver keeps a saved brightness or intensity in [0, 255] and drops anything else to the base value (src/parse/resolution.ts), but does not require a whole number, so 127.5 passes today; `Brightness` is whole. Open question for the user: keep accepting fractions, or treat them as unset."
+    },
+    {
+      "file": "src/domain/resolution.ts",
+      "symbol": "Claim.intensity",
+      "reason": "V1 level site, kept: the resolver keeps a saved brightness or intensity in [0, 255] and drops anything else to the base value (src/parse/resolution.ts), but does not require a whole number, so 127.5 passes today; `Brightness` is whole. Open question for the user: keep accepting fractions, or treat them as unset."
+    },
+    {
+      "file": "src/domain/resolution.ts",
+      "symbol": "LightValue.intensity",
+      "reason": "V1 level site, kept: the resolver keeps a saved brightness or intensity in [0, 255] and drops anything else to the base value (src/parse/resolution.ts), but does not require a whole number, so 127.5 passes today; `Brightness` is whole. Open question for the user: keep accepting fractions, or treat them as unset."
+    },
+    {
+      "file": "src/domain/schedule.ts",
+      "symbol": "LampLight.brightness",
+      "reason": "V1 level site, kept (ground rule 1): the schedule's brightness starts as a light attribute read back, `Math.trunc(num(brightness))` in `entityLight` (src/parse/schedule.ts), with no range check, so 300 or -5 passes today; everything after is arithmetic on it (`ramp`, `roundEven`, `Math.max(.., 1)`). `Brightness` would raise where today it passes, and today's code has no default. Open question for the user: raise, or keep passing."
+    },
+    {
+      "file": "src/domain/schedule.ts",
+      "symbol": "LampProfile.brightness",
+      "reason": "V1 level site, kept (ground rule 1): the schedule's brightness starts as a light attribute read back, `Math.trunc(num(brightness))` in `entityLight` (src/parse/schedule.ts), with no range check, so 300 or -5 passes today; everything after is arithmetic on it (`ramp`, `roundEven`, `Math.max(.., 1)`). `Brightness` would raise where today it passes, and today's code has no default. Open question for the user: raise, or keep passing."
+    },
+    {
+      "file": "src/domain/schedule.ts",
+      "symbol": "LampSample.brightness",
+      "reason": "V1 level site, kept (ground rule 1): the schedule's brightness starts as a light attribute read back, `Math.trunc(num(brightness))` in `entityLight` (src/parse/schedule.ts), with no range check, so 300 or -5 passes today; everything after is arithmetic on it (`ramp`, `roundEven`, `Math.max(.., 1)`). `Brightness` would raise where today it passes, and today's code has no default. Open question for the user: raise, or keep passing."
+    },
+    {
+      "file": "src/domain/schedule.ts",
+      "symbol": "ProfileLevel.brightness",
+      "reason": "V1 level site, kept (ground rule 1): the schedule's brightness starts as a light attribute read back, `Math.trunc(num(brightness))` in `entityLight` (src/parse/schedule.ts), with no range check, so 300 or -5 passes today; everything after is arithmetic on it (`ramp`, `roundEven`, `Math.max(.., 1)`). `Brightness` would raise where today it passes, and today's code has no default. Open question for the user: raise, or keep passing."
+    },
+    {
+      "file": "src/domain/schedule.ts",
+      "symbol": "RoomTargetEntry.brightness",
+      "reason": "V1 level site, kept (ground rule 1): the schedule's brightness starts as a light attribute read back, `Math.trunc(num(brightness))` in `entityLight` (src/parse/schedule.ts), with no range check, so 300 or -5 passes today; everything after is arithmetic on it (`ramp`, `roundEven`, `Math.max(.., 1)`). `Brightness` would raise where today it passes, and today's code has no default. Open question for the user: raise, or keep passing."
+    },
+    {
+      "file": "src/domain/schedule.ts",
+      "symbol": "ScheduleOutput.brightness",
+      "reason": "V1 level site, kept (ground rule 1): the schedule's brightness starts as a light attribute read back, `Math.trunc(num(brightness))` in `entityLight` (src/parse/schedule.ts), with no range check, so 300 or -5 passes today; everything after is arithmetic on it (`ramp`, `roundEven`, `Math.max(.., 1)`). `Brightness` would raise where today it passes, and today's code has no default. Open question for the user: raise, or keep passing."
+    },
+    {
+      "file": "src/domain/schedule.ts",
+      "symbol": "LampColor.kelvin",
+      "reason": "V1 kelvin site, kept (ground rule 1): a light attribute read back, `Math.trunc(num(color_temp_kelvin))` in `lampColour` (src/parse/schedule.ts), with no range check, and `interpolate` mixes two of them. `Kelvin` would raise outside 1000..10000 where today it passes, and today's code has no default. Open question for the user: raise, or keep passing."
+    },
+    {
+      "file": "src/domain/schedule.ts",
+      "symbol": "ScheduleOutput.kelvin",
+      "reason": "V1 kelvin site, kept: arithmetic, `interpolate`'s mix of two unchecked `LampColor` kelvins (see that entry); typed with it."
+    },
+    {
+      "file": "src/domain/state-store.ts",
+      "symbol": "StoreProfileArgs.brightness",
+      "reason": "V1 level site, kept (ground rule 1): `ls_store`'s request argument, read with `| int` (kelvin also from mireds, `1000000 / mireds`) and no range check (src/parse/state-store.ts), and stored as given. A range type would raise where today it stores, and today's code has no default."
+    },
+    {
+      "file": "src/domain/state-store.ts",
+      "symbol": "ProfilePatch.b",
+      "reason": "V1 level site, kept (ground rule 1): `ls_store`'s request argument, read with `| int` (kelvin also from mireds, `1000000 / mireds`) and no range check (src/parse/state-store.ts), and stored as given. A range type would raise where today it stores, and today's code has no default."
+    },
+    {
+      "file": "src/domain/state-store.ts",
+      "symbol": "StoreProfileArgs.kelvin",
+      "reason": "V1 kelvin site, kept (ground rule 1): `ls_store`'s request argument, read with `| int` (kelvin also from mireds, `1000000 / mireds`) and no range check (src/parse/state-store.ts), and stored as given. A range type would raise where today it stores, and today's code has no default."
+    },
+    {
+      "file": "src/domain/state-store.ts",
+      "symbol": "ProfilePatch.k",
+      "reason": "V1 kelvin site, kept (ground rule 1): `ls_store`'s request argument, read with `| int` (kelvin also from mireds, `1000000 / mireds`) and no range check (src/parse/state-store.ts), and stored as given. A range type would raise where today it stores, and today's code has no default."
+    },
+    {
+      "file": "src/domain/transport.ts",
+      "symbol": "FrameEffect.intensity",
+      "reason": "V1 level site, kept: a bulb effect's `intensity` (the candle's ceiling), the effect source's `intensity` read with `requireNumber` and no range check (src/parse/transport.ts); today's code has no default."
+    },
+    {
+      "file": "src/domain/transport.ts",
+      "symbol": "FrameSource.details.return.level",
+      "reason": "V1 level site, kept: the source's `value | float` (src/parse/transport.ts), with no range check (NaN and infinities pass); today's code has no default."
+    },
+    {
+      "file": "src/domain/transport.ts",
+      "symbol": "FramePayload.brightness",
+      "reason": "V1 level site, kept: the MQTT payload's level, clamped to 1..254 and rounded in the domain (`frameRows`), so a Zigbee `Level` by construction except when `value | float` is NaN. Arithmetic: typed when the frame arithmetic takes range types (V3)."
+    },
+    {
+      "file": "src/domain/transport.ts",
+      "symbol": "FramePayload.color_temp",
+      "reason": "V1 kelvin site, kept: mireds, not kelvin: `roundEven(1000000 / kelvin)` from the unchecked `FrameColour.kelvin`. Arithmetic (V3)."
+    },
+    {
+      "file": "src/parse/native-controls.ts",
+      "symbol": "PlanTarget.level.return",
+      "reason": "V1 level site, kept: the resolved plan target's `level`, read with `requireNumber` and no range check; today's code has no default."
+    },
+    {
+      "file": "src/parse/transport.ts",
+      "symbol": "FrameColour.kelvin",
+      "reason": "V1 kelvin site, kept: the resolved colour's `kelvin`, read with `requireNumber` and no range check; today's code has no default."
     }
   ],
   "ceilings": [
     { "file": "src/domain/automations.ts", "ceiling": 10, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/domain/blocks.ts", "ceiling": 2, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
-    { "file": "src/domain/controller.ts", "ceiling": 21, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/domain/controller.ts", "ceiling": 19, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/domain/dispatch-render.ts", "ceiling": 33, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/domain/gestures.ts", "ceiling": 12, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/domain/gradient.ts", "ceiling": 13, "reason": "Arithmetic results; typed in V3 (spec 3.4 row 2): every number site here is a computed real, and the entry points take range types in V3. A ratchet: it only falls. The two string sites (GradientPlanResult.gradients, GradientPlanTarget.target) are lighting-state entry keys (lamp or room:<room>), kept until the catalog's lamp keys are branded." },
     { "file": "src/domain/grouping.ts", "ceiling": 10, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
-    { "file": "src/domain/native-controls.ts", "ceiling": 23, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/domain/native-controls.ts", "ceiling": 21, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/domain/planning.ts", "ceiling": 39, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/domain/remote-input.ts", "ceiling": 19, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
-    { "file": "src/domain/resolution.ts", "ceiling": 49, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/domain/resolution.ts", "ceiling": 46, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/domain/scale.ts", "ceiling": 21, "reason": "Arithmetic results; typed in V3 (spec 3.4 row 2): every number site here is a computed real, and the entry points take range types in V3. A ratchet: it only falls." },
-    { "file": "src/domain/schedule.ts", "ceiling": 59, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
-    { "file": "src/domain/state-store.ts", "ceiling": 25, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
-    { "file": "src/domain/transport.ts", "ceiling": 46, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/domain/schedule.ts", "ceiling": 49, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/domain/state-store.ts", "ceiling": 21, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/domain/transport.ts", "ceiling": 42, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/domain/ui-state.ts", "ceiling": 6, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/parse/dispatch-render.ts", "ceiling": 3, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
-    { "file": "src/parse/native-controls.ts", "ceiling": 34, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/parse/native-controls.ts", "ceiling": 33, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/parse/overrides.ts", "ceiling": 4, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/parse/remote-input.ts", "ceiling": 5, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/parse/schedule.ts", "ceiling": 3, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
-    { "file": "src/parse/transport.ts", "ceiling": 2, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/parse/transport.ts", "ceiling": 1, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/parse/ui-state.ts", "ceiling": 5, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/runtime/catalog.ts", "ceiling": 10, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/runtime/context.ts", "ceiling": 40, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
