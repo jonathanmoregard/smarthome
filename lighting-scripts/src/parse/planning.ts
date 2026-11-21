@@ -163,9 +163,10 @@ function validCache(value: JsonValue | undefined, room: string): RoomCache | und
   if (!isObject(schedule.schedule_details) || !isObject(schedule.profiles) || !isObject(schedule.schedule_details[room])) return undefined;
   if (!Object.hasOwn(baseline.targets, `room:${room}`)) return undefined;
   const raw = structuredClone(value);
+  const savedRoom = optionalString(raw.room);
   return {
     version: optionalString(raw.version),
-    room: optionalString(raw.room),
+    room: savedRoom === undefined ? undefined : toRoomId(savedRoom),
     dependencies: carry(requireObject(raw, 'dependencies', 'ls_room_plan.cache')),
     periods: carry(requireObject(raw, 'periods', 'ls_room_plan.cache')),
     baseline: parseRoomBaseline(raw.baseline, 'ls_room_plan.cache.baseline'),

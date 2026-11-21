@@ -92,7 +92,7 @@ export type RoomBaseline = {
 };
 export type RoomCache = {
   version: string | undefined;
-  room: string | undefined;
+  room: RoomId | undefined;
   dependencies: Verbatim;
   periods: Verbatim;
   baseline: RoomBaseline;
