@@ -184,27 +184,82 @@
       "file": "src/parse/transport.ts",
       "symbol": "FrameColour.kelvin",
       "reason": "V1 kelvin site, kept: the resolved colour's `kelvin`, read with `requireNumber` and no range check; today's code has no default."
+    },
+    {
+      "file": "src/domain/controller.ts",
+      "symbol": "SwitchDecision.range",
+      "reason": "V1 percent site, kept: the switch range's bounds as stored (`SwitchInterval.stored`, saved text: a number or the boolean Jinja's `is number` admits), forwarded into `ls_plan`'s document. Its results decoder (`bound`, src/parse/results.ts) accepts any finite number or boolean, so a `Percent` would make it reject what it accepts today."
+    },
+    {
+      "file": "src/domain/state-store.ts",
+      "symbol": "StoreProfileArgs.hs.s",
+      "reason": "V1 percent site, kept (ground rule 1): `ls_store`'s request `hs` saturation, `| float` per element with no range check (src/parse/state-store.ts), stored as given; a `Percent` would raise where today it stores, and today's code has no default."
+    },
+    {
+      "file": "src/domain/state-store.ts",
+      "symbol": "ProfilePatch.s",
+      "reason": "V1 percent site, kept (ground rule 1): the saturation `ls_store` writes, the request's unchecked `hs` saturation (`StoreProfileArgs.hs`)."
+    },
+    {
+      "file": "src/parse/native-controls.ts",
+      "symbol": "BrightnessRequest.value",
+      "reason": "V1 percent site, kept: not a percent but the service call's absolute `brightness` or `white` as given, a number or a boolean (`absolute`), with no range check; a range type cannot hold the boolean, and today's code has no default."
+    },
+    {
+      "file": "src/parse/native-controls.ts",
+      "symbol": "BrightnessRequest.percent",
+      "reason": "V1 percent site, kept: the service call's `brightness_pct`, read with `requireNumber` and no range check, so 150 or -5 passes into the plan's arithmetic today; a `Percent` would raise, and today's code has no default."
+    },
+    {
+      "file": "src/parse/native-controls.ts",
+      "symbol": "ControlScalar.inRange",
+      "reason": "V1 percent site, kept: not a value but the bounds of a range check, literal at every call (0..255 for brightness and RGB components, 100..1000 for mireds); the check itself is the parse."
+    },
+    {
+      "file": "src/domain/remote-input.ts",
+      "symbol": "Adjustment.lower",
+      "reason": "V1 step site, kept: a saved remote adjustment's `lower`, read by `savedNumberOr` (any finite number, a boolean as 1/0, else the step range's end) with no range check (src/parse/remote-input.ts); a `Step` would raise or need a new default where today any number passes."
+    },
+    {
+      "file": "src/domain/remote-input.ts",
+      "symbol": "Adjustment.upper",
+      "reason": "V1 step site, kept: a saved remote adjustment's `upper`, read as `Adjustment.lower` is."
+    },
+    {
+      "file": "src/domain/resolution.ts",
+      "symbol": "InputFacts.lower",
+      "reason": "V1 step site, kept: checked to [-40, 40] (else `undefined`, src/parse/resolution.ts), twice the `Step` range (-20..20) the step bounds use. Typing it `Step` would drop 21..40 to `undefined`, a behaviour change no rule settles. Open question for the user."
+    },
+    {
+      "file": "src/domain/resolution.ts",
+      "symbol": "InputFacts.upper",
+      "reason": "V1 step site, kept: checked to [-40, 40], as `InputFacts.lower` is."
+    },
+    {
+      "file": "src/domain/schedule.ts",
+      "symbol": "ScheduleDetails.p",
+      "reason": "V1 progress site, kept: computed in the domain, `fading ? 1 - left / nextFade : 0`, so in [0, 1) by construction, and decoded from `ls_base`'s result with `requireNumber` and no range check (src/parse/results.ts). Arithmetic: a `Progress` once the schedule arithmetic takes range types (V3); a check in the decoder would reject what it accepts today."
     }
   ],
   "ceilings": [
     { "file": "src/domain/automations.ts", "ceiling": 10, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/domain/blocks.ts", "ceiling": 2, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
-    { "file": "src/domain/controller.ts", "ceiling": 19, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/domain/controller.ts", "ceiling": 17, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/domain/dispatch-render.ts", "ceiling": 33, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/domain/gestures.ts", "ceiling": 12, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/domain/gradient.ts", "ceiling": 13, "reason": "Arithmetic results; typed in V3 (spec 3.4 row 2): every number site here is a computed real, and the entry points take range types in V3. A ratchet: it only falls. The two string sites (GradientPlanResult.gradients, GradientPlanTarget.target) are lighting-state entry keys (lamp or room:<room>), kept until the catalog's lamp keys are branded." },
     { "file": "src/domain/grouping.ts", "ceiling": 10, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/domain/native-controls.ts", "ceiling": 21, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/domain/planning.ts", "ceiling": 39, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
-    { "file": "src/domain/remote-input.ts", "ceiling": 19, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
-    { "file": "src/domain/resolution.ts", "ceiling": 46, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/domain/remote-input.ts", "ceiling": 17, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/domain/resolution.ts", "ceiling": 44, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/domain/scale.ts", "ceiling": 21, "reason": "Arithmetic results; typed in V3 (spec 3.4 row 2): every number site here is a computed real, and the entry points take range types in V3. A ratchet: it only falls." },
-    { "file": "src/domain/schedule.ts", "ceiling": 49, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
-    { "file": "src/domain/state-store.ts", "ceiling": 19, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/domain/schedule.ts", "ceiling": 48, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/domain/state-store.ts", "ceiling": 17, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/domain/transport.ts", "ceiling": 42, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/domain/ui-state.ts", "ceiling": 6, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/parse/dispatch-render.ts", "ceiling": 3, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
-    { "file": "src/parse/native-controls.ts", "ceiling": 33, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/parse/native-controls.ts", "ceiling": 29, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/parse/overrides.ts", "ceiling": 4, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/parse/remote-input.ts", "ceiling": 5, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/parse/schedule.ts", "ceiling": 3, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
