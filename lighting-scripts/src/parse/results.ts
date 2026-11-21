@@ -139,13 +139,16 @@ function decodeGroupCommand(value: JsonValue, context: string): GroupCommand {
   const command = requireObject({ value }, 'value', context);
   if (!Object.hasOwn(command, 'group')) throw new ParseError(`${context}.group must be present, got undefined`);
   const group = command.group ?? null;
-  return {
-    topic: requireString(command, 'topic', context),
-    payload: carry(requireObject(command, 'payload', context)),
-    members: decodeStrings(command, 'members', context).map(toBulbId),
-    owners: decodeStrings(command, 'owners', context),
-    group: group === null ? null : carry(group),
-  };
+  const topic = requireString(command, 'topic', context);
+  const payload = carry(requireObject(command, 'payload', context));
+  const members = decodeStrings(command, 'members', context).map(toBulbId);
+  const owners = decodeStrings(command, 'owners', context);
+  // `planGroups` sends a unicast command to one endpoint's bulb, for that endpoint's owner.
+  if (group === null && (members.length !== 1 || owners.length !== 1)) {
+    throw new ParseError(`${context} is unicast (group null), so it must have one member and one owner, `
+      + `got ${members.length} and ${owners.length}`);
+  }
+  return { topic, payload, members, owners, group: group === null ? null : carry(group) };
 }
 
 /**
@@ -160,21 +163,37 @@ function decodeGroupPlan(value: JsonValue, context: string): GroupPlanResult {
   const result = requireObject({ value }, 'value', context);
   const commands = requireArray(result, 'commands', context);
   const rejected = requireArray(result, 'rejected', context);
+  const input_count = requireNumber(result, 'input_count', context);
+  const endpoint_count = requireNumber(result, 'endpoint_count', context);
+  const command_count = requireNumber(result, 'command_count', context);
+  // `planGroups` counts its own commands.
+  if (command_count !== commands.length) {
+    throw new ParseError(`${context}.command_count must be ${commands.length}, the number of commands, got ${command_count}`);
+  }
   return {
     commands: commands.map((command, index) => decodeGroupCommand(command, `${context}.commands.${index}`)),
-    rejected: rejected.map((row, index) => decodeRejectedRow(row, `${context}.rejected.${index}`)),
-    input_count: requireNumber(result, 'input_count', context),
-    endpoint_count: requireNumber(result, 'endpoint_count', context),
-    command_count: requireNumber(result, 'command_count', context),
+    rejected: rejected.map((row, index) => decodeRejectedRow(row, `${context}.rejected.${index}`, input_count)),
+    input_count,
+    endpoint_count,
+    command_count,
   };
 }
 
-/** The two shapes `planGroups` pushes, and no third one. */
-function decodeRejectedRow(value: JsonValue, context: string): RejectedRow {
+/**
+ * The two shapes `planGroups` pushes, and no third one, with their keys in the
+ * order it writes them. An invalid row is numbered by its place among the rows.
+ */
+function decodeRejectedRow(value: JsonValue, context: string, inputCount: number): RejectedRow {
   const row = requireObject({ value }, 'value', context);
   const reason = requireString(row, 'reason', context);
-  if (reason === 'invalid_endpoint_row') return { reason, index: requireNumber(row, 'index', context) };
-  if (reason === 'conflicting_endpoint_rows') return { reason, entity: requireString(row, 'entity', context) };
+  if (reason === 'invalid_endpoint_row') {
+    const index = requireNumber(row, 'index', context);
+    if (!Number.isInteger(index) || index < 0 || index >= inputCount) {
+      throw new ParseError(`${context}.index must be a whole number below input_count ${inputCount}, got ${index}`);
+    }
+    return { reason, index };
+  }
+  if (reason === 'conflicting_endpoint_rows') return { entity: requireString(row, 'entity', context), reason };
   throw new ParseError(`${context}.reason must be invalid_endpoint_row or conflicting_endpoint_rows, got ${JSON.stringify(reason)}`);
 }
 
