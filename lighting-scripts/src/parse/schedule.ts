@@ -15,10 +15,11 @@
  */
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { HouseView } from '../runtime/effects.ts';
-import { jinjaList, jinjaTruthy, object, parseFinite, parsePythonNumeric, requireObject, requireString } from '../runtime/parse.ts';
+import { jinjaTruthy, object, parseFinite, parsePythonNumeric, requireObject, requireString } from '../runtime/parse.ts';
 import type { Block } from '../domain/blocks.ts';
 import type { LampColor, LampLight, LampProfile, LampSample, ScheduledBaseArgs } from '../domain/schedule.ts';
 import { isBlock } from './blocks.ts';
+import { rgbTripleOf } from './scale.ts';
 import { asTimestampOr, num, saved, stateNumberOr, testNow } from './accessors.ts';
 import { haBooleanOr } from './state-store.ts';
 import { storedFact } from './overrides.ts';
@@ -131,21 +132,16 @@ export function savedProfile(ctx: HouseView, entity: string): SavedProfile {
   };
 }
 
-/** Home Assistant's spellings of "no value" for an attribute: absent, `null`, `unknown`, `unavailable`. */
-function reported(value: JsonValue | undefined): value is JsonValue {
-  return value !== undefined && value !== null && value !== 'unknown' && value !== 'unavailable';
-}
-
 /**
- * A lit light's `rgb_color`, when it reports one. The captured read was
- * `(rgb_color or [255,255,255]) | list`; the white stand-in is gone (2026-11-20:
- * no invented colour), so a Jinja-falsy value is no rgb. A truthy value still
- * goes through Jinja's `list`, as captured.
+ * A lit light's `rgb_color`, when it reports one: three numbers. The captured
+ * read was `(rgb_color or [255,255,255]) | list`; the white stand-in is gone
+ * (2026-11-20: no invented colour), so a Jinja-falsy value is no rgb. Any other
+ * value that is not three numbers is no rgb too (2026-11-21: a value a person
+ * can edit recovers): the captured `| list` raised on one it cannot list, and
+ * the fade's mix or the resolver's colour read raised on the rest.
  */
 function sampledRgb(ctx: HouseView, entity: string): StoredValue[] | undefined {
-  const value = ctx.attr(entity, 'rgb_color');
-  return value === undefined || !jinjaTruthy(value) ? undefined
-    : jinjaList(value, `${entity}.rgb_color`).map(element => storedFact(element));
+  return rgbTripleOf(ctx.attr(entity, 'rgb_color'));
 }
 
 /**
@@ -155,8 +151,9 @@ function sampledRgb(ctx: HouseView, entity: string): StoredValue[] | undefined {
  */
 function lampColour(ctx: HouseView, entity: string): LampColor | undefined {
   if (ctx.attr(entity, 'color_mode') === 'color_temp') {
-    const kelvin = ctx.attr(entity, 'color_temp_kelvin');
-    return reported(kelvin) ? { kelvin: Math.trunc(num(kelvin)) } : undefined;
+    // A kelvin that is not a number is no colour (it used to raise).
+    const kelvin = parseFinite(ctx.attr(entity, 'color_temp_kelvin'));
+    return kelvin === undefined ? undefined : { kelvin: Math.trunc(kelvin) };
   }
   const rgb = sampledRgb(ctx, entity);
   return rgb === undefined ? undefined : { rgb };
@@ -171,15 +168,16 @@ function lampColour(ctx: HouseView, entity: string): LampColor | undefined {
  *   light is absent, which is not the same as off.
  * - `on` with no level (an on/off-only light, or a level not yet reported):
  *   there is no honest level to schedule or blend with, so it is absent too.
- *   It used to read as 255. A present level that is not a number still raises.
+ *   It used to read as 255. A level that is not a number is absent the same
+ *   way (2026-11-21: a value a person can edit recovers); it used to raise.
  */
 export function entityLight(ctx: HouseView, entity: string): LampLight | undefined {
   const state = ctx.get(entity);
   if (state === 'off') return { on: false };
   if (state !== 'on') return undefined;
-  const level = ctx.attr(entity, 'brightness');
-  if (!reported(level)) return undefined;
-  const brightness = Math.trunc(num(level)), color = lampColour(ctx, entity);
+  const level = parseFinite(ctx.attr(entity, 'brightness'));
+  if (level === undefined) return undefined;
+  const brightness = Math.trunc(level), color = lampColour(ctx, entity);
   return color === undefined ? { on: true, brightness } : { on: true, brightness, color };
 }
 

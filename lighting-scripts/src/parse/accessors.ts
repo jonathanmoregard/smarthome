@@ -9,7 +9,7 @@
  */
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { HouseView } from '../runtime/effects.ts';
-import { isObject, jinjaTruthy, parseFinite, ParseError, requireArray, requireFinite, requireString } from '../runtime/parse.ts';
+import { isObject, jinjaList, jinjaTruthy, parseFinite, ParseError, requireArray, requireFinite, requireString } from '../runtime/parse.ts';
 
 export const list = (value: JsonValue | undefined): JsonValue[] =>
   value === undefined ? [] : requireArray({ value }, 'value', 'schedule list');
@@ -66,6 +66,15 @@ export function savedNumberOr(value: JsonValue | undefined, fallback: number): n
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'boolean') return value ? 1 : 0;
   return fallback;
+}
+/**
+ * Jinja's `| list` over what it can list -- a list, a string's characters, a
+ * mapping's keys -- and none for anything else, where the filter raises. For
+ * values read back from Home Assistant (2026-11-21: a value a person can edit
+ * recovers). Never raises.
+ */
+export function jinjaListOf(value: JsonValue | undefined): JsonValue[] | undefined {
+  return Array.isArray(value) || typeof value === 'string' || isObject(value) ? jinjaList(value) : undefined;
 }
 /**
  * A helper state a person sets (an `input_number`), read as a number: numeric

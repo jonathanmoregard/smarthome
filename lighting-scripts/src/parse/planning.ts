@@ -27,13 +27,13 @@ import type { HouseView } from '../runtime/effects.ts';
 import { isObject, jinjaFloat, jinjaList, jinjaOr, jinjaTruthy, object, requireNumber, requireObject, requireString } from '../runtime/parse.ts';
 import { carry } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
-import { asTimestampOr, savedMappingOr, timestamp } from './accessors.ts';
+import { asTimestampOr, jinjaListOf, savedMappingOr, timestamp } from './accessors.ts';
 import { NO_WHEN } from './schedule.ts';
 import { storedFact } from './overrides.ts';
 import type { BaselineTarget, DetailField, OverrideFacts, Overrides, RoomBaseline, RoomCache, RoomDetails, RoomPlanArgs,
   TestNow } from '../domain/planning.ts';
 import { isBlock, savedBlock } from './blocks.ts';
-import { warmEndOr } from './scale.ts';
+import { warmEndRgb } from './scale.ts';
 import { toRoomId, toSwitchId } from './ids.ts';
 import type { SwitchId } from '../domain/types/ids.ts';
 import { lampOrRoom } from './lighting-state.ts';
@@ -215,18 +215,24 @@ export function stored(value: JsonValue | undefined): Verbatim {
  * `rgb_color` as stored in the dependency fingerprint, captured
  * `(state_attr(e,'rgb_color') or []) | list`: Jinja-falsy (Home Assistant's
  * `null` for a lamp that is off) is `[]`; a truthy value goes through Jinja's `list`.
+ * A value Jinja cannot list (a number, `true`), where the captured filter
+ * raises, is fingerprinted as reported, so a change to it still misses the
+ * cache (2026-11-21: a value a person can edit recovers). Never raises.
  */
 export function storedList(value: JsonValue | undefined): Verbatim {
-  return carry(jinjaList(jinjaOr(value, []), 'ls_room_plan dependency rgb_color'));
+  const reported = jinjaOr(value, []), listed = jinjaListOf(reported);
+  return carry(listed === undefined ? reported : listed);
 }
 
 /**
- * `(state_attr('light.candle_test_rgb_warm_end','rgb_color') or [255,126,0])|list`:
- * {@link warmEndOr}'s Jinja `or`, then Jinja's `list` (a string is its
- * characters, a mapping its keys).
+ * The captured `(state_attr('light.candle_test_rgb_warm_end','rgb_color') or
+ * [255,126,0])|list`, read by {@link warmEndRgb}: an rgb triple is itself, and
+ * anything else is the built-in warm end. The captured `|list` raised on a
+ * value it cannot list, and a listed value that is not a triple raised further
+ * on, where the gradient plan reads it.
  */
 export function warmEndOf(value: JsonValue | undefined): Verbatim {
-  return carry(jinjaList(warmEndOr(value), 'ls_room_plan.warm_end'));
+  return carry(warmEndRgb(value));
 }
 
 /** An attribute read through `.get(key, {})`-style leniency: a non-mapping is `{}`. */

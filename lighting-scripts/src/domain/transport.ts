@@ -243,7 +243,7 @@ function frameColourOf(view: HouseView, effect: FrameEffect, details: FrameDetai
     case 'bulb effect': {
       const held = bulbEffect(effect.name).colour;
       switch (held) {
-        case 'warm end': return warmEndColour(view, context);
+        case 'warm end': return warmEndColour(view);
         case 'none': return undefined;
         default: { const unknown: never = held; throw new Error(`Unhandled bulb effect colour ${JSON.stringify(unknown)}`); }
       }

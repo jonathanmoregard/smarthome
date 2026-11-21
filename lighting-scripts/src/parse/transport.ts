@@ -18,7 +18,7 @@ import { isObject, jinjaFloat, jinjaTruthy, lazy, object, ParseError, requireArr
   requireString } from '../runtime/parse.ts';
 import { carry, jsonEqual, reveal } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
-import { requireRgb, warmEndOr } from './scale.ts';
+import { requireRgb, warmEndRgb } from './scale.ts';
 import { opaqueMap, storedFact } from './overrides.ts';
 import { savedPlanOrder } from './sensors.ts';
 import type { OpaqueMap, StoredFact } from './overrides.ts';
@@ -48,13 +48,11 @@ function frameColour(value: JsonValue | undefined, context: string): FrameColour
 }
 
 /**
- * The colour a warm-end effect holds: the candle test lamp's warm end, read as
- * a frame colour. Read as the candle renderer read it
- * (`state_attr('light.candle_test_rgb_warm_end','rgb_color') or [255,126,0]`):
- * through {@link warmEndOr}; a truthy value must be an rgb triple.
+ * The colour a warm-end effect holds: the candle test lamp's warm end, read by
+ * {@link warmEndRgb}: an rgb triple is itself, anything else the built-in warm end.
  */
-export function warmEndColour(ctx: HouseView, context: string): FrameColour {
-  return frameColour({ rgb: warmEndOr(ctx.attr('light.candle_test_rgb_warm_end', 'rgb_color')) }, context);
+export function warmEndColour(ctx: HouseView): FrameColour {
+  return { kind: 'rgb', rgb: warmEndRgb(ctx.attr('light.candle_test_rgb_warm_end', 'rgb_color')) };
 }
 
 /**

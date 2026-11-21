@@ -20,7 +20,7 @@ import type { Verbatim } from '../runtime/verbatim.ts';
 import type { RGB } from '../domain/scale.ts';
 import { opaqueMap } from './overrides.ts';
 import type { OpaqueMap } from './overrides.ts';
-import { requireRgb, warmEndOr } from './scale.ts';
+import { warmEndRgb } from './scale.ts';
 import { savedMappingOr } from './accessors.ts';
 import { BUILT_IN_RANGES } from './planning.ts';
 import type { ApplyArgs, PlanArgs, PlanOverrides, RemoteCommandArgs, SwitchInterval, SwitchPlanArgs } from '../domain/controller.ts';
@@ -151,12 +151,11 @@ export function planMapping(value: JsonValue | undefined): Verbatim {
 }
 
 /**
- * The warm-end test lamp's `rgb_color`, read as the captured
- * `rgb_color or [255,126,0]` through the shared {@link warmEndOr}: any
- * Jinja-falsy value takes the built-in warm end; a truthy one must be a triple.
+ * The warm-end test lamp's `rgb_color`, read by the shared {@link warmEndRgb}:
+ * an rgb triple is itself, anything else the built-in warm end.
  */
 export function planWarmEnd(value: JsonValue | undefined): RGB {
-  return requireRgb(warmEndOr(value), 'ls_plan.warm_end');
+  return warmEndRgb(value);
 }
 
 /** A room cache's gradients, read leniently; entries carried. */

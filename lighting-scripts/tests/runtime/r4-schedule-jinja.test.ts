@@ -57,12 +57,15 @@ test('an rgb source whose rgb_color is Jinja-falsy has no colour (the oracle inv
   }
 });
 
-test('a truthy rgb_color goes through Jinja list: a string is its characters, a mapping its keys', () => {
+test('a truthy rgb_color that is not three numbers is no colour (Jinja would list it)', () => {
+  // The captured `| list` makes a string its characters and a mapping its
+  // keys; such a colour raises further on where the resolver reads a scene's
+  // colour. A light attribute recovers instead (2026-11-21): no colour.
   const ctx = configured();
   ctx.put('light.studio', 'on', { brightness: 100, color_mode: 'rgb', color_temp_kelvin: null, rgb_color: 'abc' });
-  assert.deepEqual(base(ctx).targets['light.studio']!.observed, { brightness: 100, color: { rgb: ['a', 'b', 'c'] } });
+  assert.deepEqual(base(ctx).targets['light.studio']!.observed, { brightness: 100 });
   ctx.put('light.studio', 'on', { brightness: 100, color_mode: 'rgb', color_temp_kelvin: null, rgb_color: { a: 1 } });
-  assert.deepEqual(base(ctx).targets['light.studio']!.observed, { brightness: 100, color: { rgb: ['a'] } });
+  assert.deepEqual(base(ctx).targets['light.studio']!.observed, { brightness: 100 });
 });
 
 test("a colour-temperature lamp's rgb_color is never read for its profile", () => {

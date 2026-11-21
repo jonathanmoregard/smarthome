@@ -45,10 +45,12 @@ test('a schedule light that is off, rgb_color null, fingerprints as []', () => {
   assert.deepEqual(values.slice(at - 1, at + 5), [JSON.stringify({ on: true, b: 10, m: 'ct', k: 2000 }), 'off', null, null, null, []]);
 });
 
-test('the warm end is Jinja `(rgb_color or [255,126,0]) | list`', () => {
+test('the warm end is Jinja `(rgb_color or [255,126,0])`, and a value that is not a triple is the default', () => {
   for (const value of [undefined, null, [], {}, '', 0, false]) assert.deepEqual(reveal(warmEndOf(value)), [255, 126, 0], JSON.stringify(value));
-  assert.deepEqual(reveal(warmEndOf('abc')), ['a', 'b', 'c']);
-  assert.deepEqual(reveal(warmEndOf({ a: 1 })), ['a']);
+  // The captured `| list` lists these, and the gradient plan then raises on
+  // them; a warm end a person sets recovers to the default instead (2026-11-21).
+  assert.deepEqual(reveal(warmEndOf('abc')), [255, 126, 0]);
+  assert.deepEqual(reveal(warmEndOf({ a: 1 })), [255, 126, 0]);
   assert.deepEqual(reveal(warmEndOf([1, 2, 3])), [1, 2, 3]);
 });
 

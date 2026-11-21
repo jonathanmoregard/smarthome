@@ -16,7 +16,7 @@
  * `TypeError: c.rgb is not iterable`. Both fail as a named `ParseError` now.
  */
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
-import { ParseError, isObject, jinjaTruthy, object, requireNumber } from '../runtime/parse.ts';
+import { ParseError, isObject, object, requireNumber } from '../runtime/parse.ts';
 import type { Anchor, BlendEnd, Color, RGB, ScaleArgs } from '../domain/scale.ts';
 import { ANCHOR_BRIGHTNESS_MESSAGE, COLOR_SHAPE_MESSAGE, WARM_END, boundedNumber, copyColor } from '../domain/scale.ts';
 
@@ -83,25 +83,36 @@ export function validColor(color: unknown, minimum = 1000, maximum = 10000): col
     color.rgb.every(v => typeof v === 'number' && v >= 0 && v <= 255);
 }
 
+/**
+ * An `[r,g,b]` triple of finite numbers, or none for anything else. The
+ * lenient half of {@link requireRgb}, for colours read back from Home
+ * Assistant (2026-11-21: a value a person can edit recovers). Never raises.
+ */
+export function rgbTripleOf(value: JsonValue | undefined): RGB | undefined {
+  if (!Array.isArray(value) || value.length !== 3) return undefined;
+  const [r, g, b] = value;
+  return boundedNumber(r) && boundedNumber(g) && boundedNumber(b) ? [r, g, b] : undefined;
+}
+
 /** Parse an `[r,g,b]` triple. The captured source reads `warm_end` raw, so the oracle raises on anything else. */
 export function requireRgb(value: JsonValue | undefined, context = 'rgb'): RGB {
-  if (Array.isArray(value) && value.length === 3) {
-    const [r, g, b] = value;
-    if (boundedNumber(r) && boundedNumber(g) && boundedNumber(b)) return [r, g, b];
-  }
-  throw new ParseError(`${context} must be [r, g, b] with finite numbers, got ${JSON.stringify(value) ?? 'undefined'}`);
+  const rgb = rgbTripleOf(value);
+  if (rgb === undefined) throw new ParseError(`${context} must be [r, g, b] with finite numbers, got ${JSON.stringify(value) ?? 'undefined'}`);
+  return rgb;
 }
 
 /**
- * The candle test lamp's warm end as the captured scripts read it:
- * `state_attr('light.candle_test_rgb_warm_end','rgb_color') or [255,126,0]`.
- * Jinja's `or`, so an absent attribute, Home Assistant's null, or any other
- * Jinja-falsy value (`[]`, `{}`, `0`, `''`) takes {@link WARM_END}; a truthy
- * value is returned as it is, for the caller's own further read
- * (`ls_room_plan`'s `|list`, the candle's rgb triple).
+ * The candle test lamp's warm end, a light a person sets from a dashboard. The
+ * captured scripts read it as
+ * `state_attr('light.candle_test_rgb_warm_end','rgb_color') or [255,126,0]`, so
+ * an absent attribute, Home Assistant's null and every other Jinja-falsy value
+ * take {@link WARM_END}. A value that is not an rgb triple -- where the captured
+ * `| list` or the triple read raises -- takes {@link WARM_END} too (2026-11-21:
+ * a value a person can edit recovers to a default). Never raises.
  */
-export function warmEndOr(value: JsonValue | undefined): JsonValue {
-  return value !== undefined && jinjaTruthy(value) ? value : [...WARM_END];
+export function warmEndRgb(value: JsonValue | undefined): RGB {
+  const rgb = rgbTripleOf(value);
+  return rgb === undefined ? [...WARM_END] : rgb;
 }
 
 /**

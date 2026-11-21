@@ -12,10 +12,10 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { HouseView } from '../runtime/effects.ts';
-import { isObject, jinjaList, jinjaOr, jinjaString, jinjaTruthy, object, requireBoolean, requireObject, requireString } from '../runtime/parse.ts';
+import { isObject, jinjaOr, jinjaString, jinjaTruthy, object, parseFinite, requireBoolean, requireObject, requireString } from '../runtime/parse.ts';
 import { carry, reveal } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
-import { num, saved, strings } from './accessors.ts';
+import { jinjaListOf, saved, strings } from './accessors.ts';
 import { percentRangeOf, toSwitchId } from './ids.ts';
 import type { SwitchId } from '../domain/types/ids.ts';
 import type { PercentRange } from '../domain/types/light.ts';
@@ -184,9 +184,17 @@ export function lampReading(ctx: HouseView, entity: string): LampReading {
   };
 }
 
-/** The proxy's `color_temp_kelvin` as `num(value, 0)`. */
+/** A proxy colour temperature that is not a number: 0, the captured read's default for no value. */
+const NO_PROXY_KELVIN = 0;
+
+/**
+ * The proxy's `color_temp_kelvin`: a number (or numeric text) is itself, and
+ * anything else -- absent, `null`, unreadable -- is {@link NO_PROXY_KELVIN}
+ * (2026-11-21: a value a person can edit recovers to a default). Never raises.
+ */
 export function proxyKelvin(ctx: HouseView, proxy: string): number {
-  return num(ctx.attr(proxy, 'color_temp_kelvin'), 0);
+  const kelvin = parseFinite(ctx.attr(proxy, 'color_temp_kelvin'));
+  return kelvin === undefined ? NO_PROXY_KELVIN : kelvin;
 }
 
 /**
@@ -197,7 +205,8 @@ export function proxyKelvin(ctx: HouseView, proxy: string): number {
  */
 function proxyRgb(ctx: HouseView, proxy: string): JsonValue[] | undefined {
   const reported = ctx.attr(proxy, 'rgb_color');
-  return reported === undefined || !jinjaTruthy(reported) ? undefined : jinjaList(reported, `${proxy}.rgb_color`);
+  // A value Jinja cannot list shows no triple either (the captured `| list` raises on it).
+  return reported === undefined || !jinjaTruthy(reported) ? undefined : jinjaListOf(reported);
 }
 
 /**
