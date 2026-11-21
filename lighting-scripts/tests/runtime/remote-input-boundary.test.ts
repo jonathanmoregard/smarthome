@@ -67,3 +67,19 @@ test('with no stored selection the room plan\'s period is the selection, and a n
   const nullPeriod: ScriptHandlers = { ls_room_plan: () => ({ plan: { resolved: { targets: { 'room:studio': { period: null } } } } }) };
   assert.throws(() => recordValue({}, 'left', nullPeriod), /ls_remote_plan\.selection must be a string, got null/);
 });
+
+test('a saved selection that is not text is no choice: an arrow starts the cycle and saves no context under it', () => {
+  // The captured resolver reads a selection that is not text as a selection
+  // naming no effect, not as an absent one (`remote-saved-presets.test.ts`);
+  // the remote plan reads it the same way: like a selection that is no
+  // choice (captured `choices.index(selected) if selected in choices else
+  // 0`), with no name to save its context under.
+  // Break: the selection reads as absent, so the cycle starts at the room's
+  // period ('cosy' -> 'Candle') and cosy's context is overwritten.
+  const notText = JSON.parse(recordValue({ selection: 5 }, 'right', roomPlan));
+  const noChoice = JSON.parse(recordValue({ selection: 'Unknown effect' }, 'right', roomPlan));
+  assert.equal(notText.selection, 'cosy');
+  assert.equal(noChoice.selection, 'cosy');
+  assert.deepEqual(notText.preset_contexts, {});
+  assert.deepEqual(noChoice.preset_contexts, { 'Unknown effect': {} });
+});

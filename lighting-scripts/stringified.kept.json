@@ -8,13 +8,6 @@
       "reason": "Found by this guard at ed33a7f; fixed or argued in a following commit."
     },
     {
-      "file": "src/parse/resolution.ts",
-      "within": "inputClaims",
-      "text": "String(selection)",
-      "sites": 1,
-      "reason": "Found by this guard at ed33a7f; fixed or argued in a following commit."
-    },
-    {
       "file": "src/parse/ui-state.ts",
       "within": "uiTargetView",
       "text": "String(claim.effect)",

@@ -47,10 +47,10 @@ import { lampOrRoom } from './lighting-state.ts';
 import type { OverlayKey } from '../domain/types/overlay.ts';
 import { overlayKeyText } from '../domain/types/overlay.ts';
 import { parseOverlayKey } from './overlay-key.ts';
-import { stepBoundsOf, toRoomId, toStep } from './ids.ts';
+import { stepBoundsOf, toEffectName, toRoomId, toStep } from './ids.ts';
 import { roomText } from './rooms.ts';
 import type { Step } from '../domain/types/remote.ts';
-import type { RoomId } from '../domain/types/ids.ts';
+import type { EffectName, RoomId } from '../domain/types/ids.ts';
 
 /**
  * A record or input timestamp in seconds, `0` when absent or unparseable.
@@ -79,6 +79,26 @@ function optionalString(value: JsonValue | undefined): string | undefined { retu
 function nonEmptyString(value: JsonValue | undefined): string | undefined { return typeof value === 'string' && value.length > 0 ?
   value : undefined; }
 function isPresetText(value: JsonValue | undefined): value is 'day' | 'cosy' { return value === 'day' || value === 'cosy'; }
+
+/**
+ * A remote's saved `selection`, read once for both of its readers: the
+ * resolver's claims and the remote plan's preset cycle. Captured `selection not
+ * in ['day','cosy',none]`: absent and null are `none`, other text names an
+ * effect, and any other saved value is `notText`, which is no preset and names
+ * no effect (the effect claim the resolver makes for it finds no catalog
+ * channels, so it claims nothing).
+ */
+export type SavedSelection =
+  | { kind: 'preset'; preset: 'day' | 'cosy' }
+  | { kind: 'effect'; effect: EffectName }
+  | { kind: 'none' }
+  | { kind: 'notText' };
+
+export function savedSelection(raw: JsonValue | undefined): SavedSelection {
+  if (raw === undefined || raw === null) return { kind: 'none' };
+  if (isPresetText(raw)) return { kind: 'preset', preset: raw };
+  return typeof raw === 'string' ? { kind: 'effect', effect: toEffectName(raw) } : { kind: 'notText' };
+}
 function isChannel(value: JsonValue): value is Channel { return value === 'brightness' || value === 'color'; }
 
 /** The number JavaScript arithmetic reads from a raw value: `Number(value)`. */
@@ -182,8 +202,8 @@ function patchOf(channels: JsonObject): Patch {
  */
 function inputClaims(value: JsonObject, key: string, stamp: number): InputClaim[] {
   const claims: InputClaim[] = [];
-  const selection = value.selection;
-  const preset = selection === 'day' || selection === 'cosy' || selection === null || selection === undefined;
+  const selection = savedSelection(value.selection);
+  const preset = selection.kind === 'preset' || selection.kind === 'none';
   const period = value.period;
   const claimInput = (input: JsonObject): InputClaim => {
     // Captured `x in ['day','cosy']` compares the whole saved value: only the text is a preset.
@@ -197,11 +217,11 @@ function inputClaims(value: JsonObject, key: string, stamp: number): InputClaim[
   };
   if (!preset && !isObject(value.legacy_channels)) {
     if (isObject(value.selection_input)) claims.push(claimInput(value.selection_input));
-    claims.push({
+    if (selection.kind === 'effect') claims.push({
       claim: {
         kind: 'effect',
-        effect: optionalString(selection),
-        instance: nonEmptyString(defaulted(value, 'selection_instance', `${key}:${String(selection)}`)),
+        effect: selection.effect,
+        instance: nonEmptyString(defaulted(value, 'selection_instance', `${key}:${selection.effect}`)),
         intensity: undefined,
         carried: undefined,
         updated: undefined,

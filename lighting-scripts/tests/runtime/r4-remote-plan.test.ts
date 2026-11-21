@@ -125,11 +125,13 @@ test("a saved remote_valid_until that cannot be compared reads as 0: the context
   }
 });
 
-test("a saved selection that is not text reads as absent: the room's period", () => {
+test("a saved null selection reads as absent (the room's period); one that is not text is no choice", () => {
+  // Both as the captured resolver reads the same value: null is no selection,
+  // and 5 or ['day'] is a selection that names nothing (`savedSelection`).
   const roomPlan: ScriptHandlers = { ls_room_plan: () => ({ plan: { resolved: { targets: { 'room:studio': { period: 'cosy' } } } } }) };
-  for (const selection of [null, 5, ['day']] as JsonValue[]) {
+  for (const [selection, next] of [[null, 'Candle'], [5, 'cosy'], [['day'], 'cosy']] as [JsonValue, string][]) {
     const overrides = { 'channels:remote': input({ selection }) };
-    assert.equal(recordValue(plan(overrides, 'right', { handlers: roomPlan })).selection, 'Candle', JSON.stringify(selection));
+    assert.equal(recordValue(plan(overrides, 'right', { handlers: roomPlan })).selection, next, JSON.stringify(selection));
   }
 });
 

@@ -15,7 +15,8 @@ import { isObject, jinjaTruthy, object, requireString } from '../runtime/parse.t
 import { carry, carryOptional } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { list, num, savedNumberOr } from './accessors.ts';
-import { latestRemoteKey, savedWhen } from './resolution.ts';
+import { latestRemoteKey, savedSelection, savedWhen } from './resolution.ts';
+import type { SavedSelection } from './resolution.ts';
 import { assembledMap, storedFact } from './overrides.ts';
 import type { Assembled, AssembledMap, StoredFact, StoredValue } from './overrides.ts';
 import type { Adjustment, RemotePlanArgs } from '../domain/remote-input.ts';
@@ -63,7 +64,7 @@ export interface RemoteInputValue {
   legacyPosition: number | boolean | undefined;
   /** `channels` as stored, when one of them runs an effect. */
   effectChannels: StoredValue | undefined;
-  selection: StoredFact;
+  selection: SavedSelection;
   /** `preset_contexts` read leniently; entries carried. */
   presetContexts: AssembledMap;
   /** `remote_valid_until`, absent or not comparable read as 0. */
@@ -84,7 +85,7 @@ function inputValue(raw: JsonValue | undefined): RemoteInputValue {
     adjustment: adjustment === undefined ? undefined : storedAdjustment(adjustment, bounds === undefined ? DEFAULT_STEP_RANGE : bounds),
     legacyPosition: numeric(value.position) || typeof value.position === 'boolean' ? value.position : undefined,
     effectChannels: Object.values(object(value.channels)).some(x => object(x).kind === 'effect') ? storedFact(value.channels) : undefined,
-    selection: storedFact(value.selection),
+    selection: savedSelection(value.selection),
     presetContexts: assembledMap(object(value.preset_contexts)),
     validUntil: () => savedNumberOr(value.remote_valid_until, 0),
     timingRevision: storedFact(value.remote_timing_revision),
@@ -202,13 +203,18 @@ export function remoteRoomPlan(result: JsonValue | undefined): RemoteRoomPlan {
 
 /**
  * The selected preset, as captured `value.get('selection', group.get('period','day'))`:
- * the stored selection when it is text -- a saved selection that is not text
- * reads as absent (lenient saved-value directive; the captured `**{selected:...}`
- * raises on it) -- else the room plan's period, else `'day'`. The period is the
- * port's own room plan, so a non-text period still raises.
+ * the stored selection when it is text, else (absent or null) the room plan's
+ * period, else `'day'`. The period is the port's own room plan, so a non-text
+ * period still raises. A saved selection that is not text is `undefined`: it
+ * names no choice, as the resolver reads it ({@link savedSelection}), so the
+ * cycle starts where captured `choices.index(selected) if selected in choices
+ * else 0` starts one that is no choice. (The captured `**{selected:...}` raises
+ * on it; saved records never raise here, per the lenient saved-value directive.)
  */
-export function presetSelection(selection: StoredFact, period: StoredFact): string {
-  if (typeof selection === 'string') return selection;
+export function presetSelection(selection: SavedSelection, period: StoredFact): string | undefined {
+  if (selection.kind === 'preset') return selection.preset;
+  if (selection.kind === 'effect') return selection.effect;
+  if (selection.kind === 'notText') return undefined;
   return requireString({ selection: period === undefined ? 'day' : period }, 'selection', 'ls_remote_plan');
 }
 

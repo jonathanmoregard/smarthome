@@ -38,3 +38,14 @@ test('a saved period that is a one-item list is not the preset it prints as', ()
   assert.deepEqual(resolve({ period: ['cosy'], adjustment: { ...adjustment, anchor: 'day' } }),
     resolve({ period: 'elsewhere', adjustment: { ...adjustment, anchor: 'day' } }));
 });
+
+test('a saved selection that is not text is a selection naming no effect, not an absent one', () => {
+  // Captured `selection not in ['day','cosy',none]`: 5 is not a preset, so
+  // its selection input claims the lamps; the effect claim it makes names
+  // no catalog effect, exactly as unknown text does.
+  // Break: a selection that is not text reads as absent (a preset), and its
+  // selection input is dropped.
+  const selection_input = { steps: 4, lower: -20, upper: 20, anchor: 'current', updated: 1 };
+  assert.deepEqual(resolve({ selection: 5, selection_input }), resolve({ selection: 'Unknown effect', selection_input }));
+  assert.notDeepEqual(resolve({ selection: 5, selection_input }), resolve({ selection_input }));
+});

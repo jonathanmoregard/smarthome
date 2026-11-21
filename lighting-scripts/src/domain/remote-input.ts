@@ -188,11 +188,13 @@ export function remoteDecision(view: HouseView, args: RemotePlanArgs, opening: R
       } else {
         const choices = ['day', 'cosy', 'Candle', ...Object.keys(catalog.effects).filter(k => !['Candle', 'Colour loop', 'Breathe',
           'Normal light'].includes(k))];
-        let selected = presetSelection(value.selection, plan.roomPeriod(room));
+        // `undefined`: a saved selection that is not text names no choice, and has no name to save its context under.
+        const current = presetSelection(value.selection, plan.roomPeriod(room));
         const names = ['period', 'period_updated', 'selection_updated', 'selection_input', 'selection_instance', 'legacy_channels'];
-        const contexts: AssembledMap = { ...value.presetContexts, [selected]: pick(next, names) };
-        const index = Math.max(0, choices.indexOf(selected));
-        selected = choices[(index + (command === 'right' ? 1 : -1) + choices.length) % choices.length]!;
+        const contexts: AssembledMap = current === undefined ? { ...value.presetContexts }
+          : { ...value.presetContexts, [current]: pick(next, names) };
+        const index = current === undefined ? 0 : Math.max(0, choices.indexOf(current));
+        const selected = choices[(index + (command === 'right' ? 1 : -1) + choices.length) % choices.length]!;
         const stored = contextEntries(contexts[selected]);
         const saved: AssembledMap = stored !== undefined ? stored : ['day', 'cosy'].includes(selected)
           ? { period: selected, period_updated: stamp, selection_updated: stamp }
