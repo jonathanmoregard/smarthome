@@ -132,9 +132,11 @@ if (over.length > 0) {
   console.error('Yield an Effect from a plan and perform it at the edge. Do not raise the ceiling.');
   process.exit(1);
 }
+// A fall fails too, until the ceiling is lowered: slack left by a fall in one
+// file would absorb a later rise in another.
 if (slack.length > 0) {
-  console.log('\nProgress made. Ratchet these ceilings down in scripts/effects-edge.mjs before committing:');
-  for (const key of slack) console.log(`  ${key}: ${CEILINGS[key]} -> ${totals[key]}`);
-} else {
-  console.log('\nOK: every count sits exactly at its ceiling.');
+  console.error('\nFAIL: a count fell below its ceiling. Progress made: lower these ceilings in scripts/effects-edge.mjs to the new count:');
+  for (const key of slack) console.error(`  ${key}: ${CEILINGS[key]} -> ${totals[key]}`);
+  process.exit(1);
 }
+console.log('\nOK: every count sits exactly at its ceiling.');

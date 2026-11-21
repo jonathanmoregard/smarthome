@@ -516,14 +516,14 @@ if (over.length > 0) {
   process.exit(1);
 }
 
-// Progress does NOT fail the build. A red check mid-refactor invites someone to
-// "fix" it by reverting the improvement, and it breaks the edit-then-check loop.
-// The ratchet is applied deliberately at commit time, prompted by this notice.
+// A fall fails too, until the ceiling is lowered, as in the other guards: a
+// ceiling is a house-wide total, so slack left by a fall in one file would
+// absorb a later rise in another.
 if (slack.length > 0) {
-  console.log('\nProgress made. Ratchet these ceilings down in scripts/json-edges.mjs before committing:');
+  console.error('\nFAIL: a count fell below its ceiling. Progress made: lower these ceilings in scripts/json-edges.mjs to the new count:');
   for (const [key, label] of slack) {
-    console.log(`  ${label}: ${CEILINGS[key]} -> ${totals[key]}`);
+    console.error(`  ${label}: ${CEILINGS[key]} -> ${totals[key]}`);
   }
-} else {
-  console.log('\nOK: every count sits exactly at its ceiling.');
+  process.exit(1);
 }
+console.log('\nOK: every count sits exactly at its ceiling.');
