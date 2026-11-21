@@ -285,9 +285,7 @@ function overrideRecords(overrides: JsonObject): OverrideRecord[] {
  * schedule's explicit `null` for a lamp in no room.
  */
 function targetArea(area: JsonValue | undefined): TargetArea {
-  if (typeof area === 'string') return { kind: 'room', room: toRoomId(area) };
-  if (area === undefined) return { kind: 'no room', written: 'undefined' };
-  return { kind: 'no room', written: 'null' };
+  return typeof area === 'string' ? { kind: 'room', room: toRoomId(area) } : { kind: 'no room' };
 }
 
 function baseItem(target: string, raw: JsonValue): BaseItem {

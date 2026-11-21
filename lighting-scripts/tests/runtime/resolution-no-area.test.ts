@@ -47,11 +47,15 @@ test('a lamp in no room is never private and takes the default power, whatever k
   }
 });
 
-test('a lamp in no room still echoes the area text the resolver has always written', () => {
-  // Break: the output's `area` changes for a lamp in no room (a behaviour change, not this fix).
-  assert.equal(resolveLamp({})?.area, 'undefined');
-  assert.equal(resolveLamp({ area: null })?.area, 'null');
+test('a lamp in no room writes its area as null, as the scripts do', () => {
+  // Review round 3, item 1: the captured resolver writes `area=item.area`,
+  // null for a lamp in no room. The port wrote the text 'undefined' or
+  // 'null', which a room named 'null' would also write.
+  // Break: a lamp in no room writes a text sentinel as its area.
+  assert.equal(resolveLamp({})?.area, null);
+  assert.equal(resolveLamp({ area: null })?.area, null);
   assert.equal(resolveLamp({ area: 'kitchen' })?.area, 'kitchen');
+  assert.equal(resolveLamp({ area: 'null' })?.area, 'null');
 });
 
 /*
@@ -67,7 +71,7 @@ test('a saved area that is not text parses as in no room, as the schedule null d
   // Break: the parse brands `String(item.area)`, so `{}` is the room '[object Object]' and `5` the room '5'.
   for (const area of [{}, 5, true, ['kitchen']]) {
     assert.deepEqual(parseResolveArgs({ base: { 'light.x': { area } } }).targets[0]?.item.area,
-      { kind: 'no room', written: 'null' }, JSON.stringify(area));
+      { kind: 'no room' }, JSON.stringify(area));
   }
 });
 
@@ -76,6 +80,6 @@ test('a room record whose target is the text of a non-text area does not apply t
   for (const [area, text] of [[5, '5'], [{}, '[object Object]']] as const) {
     const lamp = resolveLamp({ area, brightness: 110 }, { overrides: { r: channelRecord(text) } });
     assert.deepEqual(lamp?.brightness, { kind: 'constant', value: 110, updated: -1 }, text);
-    assert.equal(lamp?.area, 'null', text);
+    assert.equal(lamp?.area, null, text);
   }
 });

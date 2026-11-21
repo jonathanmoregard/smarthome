@@ -115,13 +115,11 @@ export type OverrideRecord = {
 /**
  * A target's room: the room its document's `area` names, or none, when `area`
  * is absent, `null` (the schedule's lamp in no room) or a saved value that is
- * not text (read as that `null`). A target in no room
- * has no room records, no remote stream, is never private and takes the
- * default power. `written` is the text the resolver has always echoed on the
- * resolved target for it (`String(undefined)`, `String(null)`); the scripts
- * echo the value itself, so replacing it is a behaviour change of its own.
+ * not text (read as that `null`). A target in no room has no room records, no
+ * remote stream, is never private, takes the default power, and is written
+ * with area `null`, as the scripts write it.
  */
-export type TargetArea = { kind: 'room'; room: RoomId } | { kind: 'no room'; written: 'undefined' | 'null' };
+export type TargetArea = { kind: 'room'; room: RoomId } | { kind: 'no room' };
 /** Both ends of a target's cosy <-> day blend. */
 export type BlendEnds = { day: BlendEnd; cosy: BlendEnd };
 /**
@@ -197,8 +195,8 @@ export type ResolvedTarget = {
   period: Verbatim;
   /** As the schedule and room power give it, or `false` where a blend with an off end is at or past that end. */
   on: Verbatim | boolean;
-  /** The target's room, or for a target in no room the text {@link TargetArea} names. */
-  area: RoomId | Extract<TargetArea, { kind: 'no room' }>['written'];
+  /** The target's room; `null` for a target in no room. */
+  area: RoomId | null;
   is_room: Verbatim;
   level?: ChannelValue;
   owners: { brightness: string; color: string };
@@ -482,7 +480,7 @@ export function resolveEffects(args: ResolveArgs, candle: ReadonlySet<string>): 
     const level = underlying.brightness;
     const resolved: ResolvedTarget = { brightness: sources.brightness, color: sources.color, period: item.period,
       on: lit ? args.power(room) : blendLit === undefined ? item.on : false,
-      area: item.area.kind === 'room' ? item.area.room : item.area.written, is_room: item.isRoomAsStored,
+      area: item.area.kind === 'room' ? item.area.room : null, is_room: item.isRoomAsStored,
       ...(level === undefined ? {} : { level }), owners, transition: item.transition };
     targets[target] = resolved;
     if (!isRoom && (resolved.brightness.kind === 'effect' || resolved.color.kind === 'effect')) assignments[target] = resolved;
