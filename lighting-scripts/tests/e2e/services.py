@@ -99,7 +99,7 @@ def _js_number(value: float) -> str:
 
 
 def _field(action: str, data: Mapping, key: str) -> object:
-    if key not in data:
+    if key not in data:   # deliberate (ruling 40): the port's sim writes "undefined" here; no captured call omits it
         raise KeyError(f'{action} without {key!r}: {data!r}')
     return data[key]
 

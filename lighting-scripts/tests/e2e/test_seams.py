@@ -91,6 +91,13 @@ class Seeds(unittest.TestCase):
             session(sim, {}, world('bulb_a'), seeds=[Seed('light.lamp_bulb_a', 'off', {})])
         self.assertEqual(raised.exception.kind, 'MalformedRequest')
 
+    def test_a_seed_on_any_light_or_switch_is_refused(self):
+        # The world is built before the seeds, so a light or switch it does not know would be half seeded (ruling 41).
+        for entity in ('light.unknown_x', 'switch.unknown_x'):
+            with self.subTest(entity=entity), self.assertRaises(BackendError) as raised:
+                session(StandIn(), {}, world('bulb_a'), seeds=[Seed(entity, 'on', {})])
+            self.assertEqual(raised.exception.kind, 'MalformedRequest')
+
 
 class Power(unittest.TestCase):
     def test_power_cut_then_restore(self):
@@ -136,6 +143,19 @@ class Power(unittest.TestCase):
         self.assertEqual(the_world.fading(5.0), frozenset())
         the_world.power_restore(['bulb_a'], 60.0)
         self.assertEqual(the_world.bulb('bulb_a', 60.0).level, 70)
+
+    def test_a_restored_level_is_the_one_a_bare_on_comes_back_to(self):
+        # Cut at 70 on the way down to 20: the bulb comes back at 70, and so does a later bare ON.
+        the_world = world('bulb_a')
+        lit(the_world)
+        the_world.apply({'action': 'mqtt.publish', 'target': {}, 'data': {
+            'topic': 'zigbee2mqtt/bulb_a/set', 'payload': json.dumps({'brightness': 20, 'transition': 10})}}, 0.0)
+        the_world.power_cut(['bulb_a'], 5.0)
+        the_world.power_restore(['bulb_a'], 6.0)
+        for state in ('OFF', 'ON'):
+            the_world.apply({'action': 'mqtt.publish', 'target': {}, 'data': {
+                'topic': 'zigbee2mqtt/bulb_a/set', 'payload': json.dumps({'state': state})}}, 7.0)
+        self.assertEqual(the_world.bulb('bulb_a', 7.0), On(70, Kelvin(2703), 'none'))
 
     def test_the_firmware_candle_does_not_survive_a_power_cut(self):
         the_world = world('bulb_a')
@@ -189,6 +209,13 @@ class Power(unittest.TestCase):
         self.assertEqual(sim.state['light.lamp_bulb_a']['state'], 'unavailable')
         self.assertEqual(checkpoint.bulbs['bulb_a'], Off())
 
+    def test_an_unavailable_light_keeps_only_its_group_members(self):
+        # As HA: an unavailable light has no brightness or colour; a group keeps the members it is made of.
+        sim = StandIn(state={'light.lamp_bulb_a': {'state': 'on', 'attributes': {'entity_id': ['light.x']}}})
+        session(sim, {}, world('bulb_a')).run([PowerCut(('bulb_a',))])
+        self.assertEqual(sim.state['light.lamp_bulb_a']['state'], 'unavailable')
+        self.assertEqual(sim.state['light.lamp_bulb_a']['attributes'], {'entity_id': ['light.x']})
+
     def test_power_restore_is_routed_unavailable_to_on(self):
         seen = []
         automations = {'automation_follow': {'triggers': [
@@ -229,7 +256,7 @@ const cases = {cases};
 const out = [];
 for (const [service, target, data] of cases) {{
   const snapshot = {{ state: structuredClone({state}), areas: {{}}, members: [], now: '2026-10-23T12:00:00+02:00' }};
-  const handlers = {{ probe: (ctx) => {{ ctx.emit(service, data, Object.keys(target).length ? target : undefined); return null; }} }};
+  const handlers = {{ probe: (ctx) => {{ ctx.emit(service, data, Object.keys(target).length === 0 ? undefined : target); return null; }} }};
   const result = execute({{ script: 'probe', args: {{}}, snapshot }}, handlers);
   out.push(Object.fromEntries(Object.entries(result.snapshot.state).map(([entity, value]) =>
     [entity, [value.state, value.attributes]])));

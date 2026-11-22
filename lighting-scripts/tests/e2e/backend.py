@@ -67,6 +67,9 @@ HELPER_NAMES = {
     'own_light': 'input_boolean.ls_{scope}_{block}_own_light',
     'own_timing': 'input_boolean.ls_{scope}_{block}_own_timing',
 }
+WORLD_DOMAINS = ('light.', 'switch.')   # the world's entities: never seeded
+UNAVAILABLE = 'unavailable'
+STRUCTURAL_ATTRIBUTES = ('entity_id',)   # what an unavailable light keeps: a group's members
 DESCRIBE_START = datetime(2026, 10, 23, 12, tzinfo=LOCAL)   # any instant: the description does not depend on it
 # `adapters.simulator` refuses these before any RPC: the harness routed something the
 # adapter cannot map, a setup fault rather than port behaviour (ruling 25).
@@ -89,11 +92,11 @@ class Session:
         self.contexts = 0
         self.seen_calls = len(sim.calls)
         self.sim.now, self.sim.elapsed = self.start.astimezone(LOCAL), 0.0
-        owned = world.ha_states(math.inf)
         for seed in seeds:   # silent, like the world's first light: the captured state the scenario starts in
-            if seed.entity in owned:
-                raise BackendError(backend, 'MalformedRequest',
-                                   f'seed {seed.entity}: the world writes its own state there, over any seed')
+            if seed.entity.startswith(WORLD_DOMAINS):
+                # The world, built before the seeds, writes its lights and switches back over a seed, and one it
+                # does not know would be half seeded (ruling 41).
+                raise BackendError(backend, 'MalformedRequest', f'seed {seed.entity}: lights and switches are the world\'s')
             sim.put(seed.entity, seed.state, copy.deepcopy(dict(seed.attributes)))
         self._write_back()                # silent: the world's first light is not a change anybody made
         self.known = {entity: self._known(value, None) for entity, value in sim.state.items()}
@@ -303,10 +306,16 @@ class Session:
                                f"continuation {task['script']}: {type(error).__name__}: {error}") from error
 
     def _write_back(self) -> None:
-        """The world's end states into the simulator: attributes merged, so a group keeps its `entity_id` list."""
+        """The world's end states into the simulator: attributes merged, so a group keeps its `entity_id` list.
+
+        An unavailable light keeps only that list, as in HA: no brightness or colour.
+        """
         for entity, wanted in self.world.ha_states(math.inf).items():
             current = self.sim.state.get(entity)
-            attributes = {**(current or {}).get('attributes', {}), **wanted['attributes']}
+            kept = (current or {}).get('attributes', {})
+            if wanted['state'] == UNAVAILABLE:
+                kept = {key: value for key, value in kept.items() if key in STRUCTURAL_ATTRIBUTES}
+            attributes = {**kept, **wanted['attributes']}
             if current is None or current.get('state') != wanted['state'] or current.get('attributes') != attributes:
                 self.sim.put(entity, wanted['state'], attributes)
 

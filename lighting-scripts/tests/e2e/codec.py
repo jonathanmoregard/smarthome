@@ -90,7 +90,7 @@ class HelperInfo:
     entity: str
     room: str | None
     lamp: str | None
-    block: str | None
+    block: Literal['day', 'cosy', 'night']
     setting: Literal['light', 'start', 'weekend', 'fade', 'own_light', 'own_timing']
 
 

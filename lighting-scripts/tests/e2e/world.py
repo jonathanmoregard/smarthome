@@ -169,7 +169,7 @@ class World:
 
     def power_cut(self, names: Iterable[str], now: float) -> None:
         """The wall power to `names` goes: each keeps what it showed at `now`, to come back to."""
-        for name in self._known(names):
+        for name in self._require_bulbs(names):
             if name in self._unpowered:
                 raise ValueError(f'{name} has no power to cut')
             state = self.bulb(name, now)
@@ -177,10 +177,12 @@ class World:
             self._lines.pop(name, None)
 
     def power_restore(self, names: Iterable[str], now: float) -> None:
-        for name in self._known(names):
+        for name in self._require_bulbs(names):
             if name not in self._unpowered:
                 raise ValueError(f'{name} has power already')
-            self._settled[name] = self._unpowered.pop(name)
+            restored = self._settled[name] = self._unpowered.pop(name)
+            if isinstance(restored, On):   # what a later bare ON comes back to
+                self._last_level[name], self._last_colour[name] = restored.level, restored.colour
 
     def ha_states(self, now: float) -> dict[str, dict]:
         states: dict[str, dict] = {}
@@ -265,7 +267,7 @@ class World:
         if names:
             self._change(list(dict.fromkeys(names)), _parse_light(on, data), now)
 
-    def _known(self, names: Iterable[str]) -> list[str]:
+    def _require_bulbs(self, names: Iterable[str]) -> list[str]:
         names = list(names)
         unknown = [name for name in names if name not in self._bulbs]
         if unknown:
