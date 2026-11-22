@@ -532,6 +532,14 @@ class Recordings(unittest.TestCase):
         self.assertEqual(dict(result.exact.adjustments), {'fade-off-to-on-gradual': 1})
         self.assertEqual((result.flow.flow, dict(result.flow.noted)), ((), {'fade-sampling': 1}))
 
+    def test_an_expected_entry_needs_the_house_to_resolve(self):
+        # A plain mapping of scenarios has no house to find the entry's subject in: said so, not an AttributeError.
+        save('golden_x', self.scenario, self.reference_run, directory=self.directory)
+        entry = replace(PRESS, scenario='golden_x')
+        with mock.patch('tests.e2e.golden.run_backend', return_value=self.reference_run), \
+                self.assertRaisesRegex(ValueError, 'house'):
+            replay('golden_x', directory=self.directory, current=lambda: {}, expected=[entry])
+
     def test_a_missing_recording_is_an_error(self):
         with self.assertRaises(MissingRecording):
             replay('golden_x', directory=self.directory, current=lambda: {})

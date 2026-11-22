@@ -192,7 +192,10 @@ def replay(name: str, *, directory: Path = GOLDEN,
     scenario = recording.scenario
     port = run_backend('port', scenario.steps, scenario.start, scenario.seeds)
     entries = [entry for entry in expected if entry.scenario == name]
-    resolved = windows(entries, name, scenario, golden.house) if entries else ()   # type: ignore[union-attr]
+    if entries and not isinstance(golden, Scenarios):
+        raise ValueError(f'{name}: an expected difference names its subject by role, which needs the house '
+                         '(golden scenarios built by `scenarios`, not a plain mapping)')
+    resolved = windows(entries, name, scenario, golden.house) if isinstance(golden, Scenarios) else ()
     judged = compare_flow(recording.reference.checkpoints, port.checkpoints, scenario, resolved)
     exact = compare(recording.reference.checkpoints, port.checkpoints, ADJUSTMENTS)
     # The backends' own rules (the reference's software candle) are adjustments as much as compare's are.
