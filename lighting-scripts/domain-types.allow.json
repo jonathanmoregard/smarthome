@@ -77,6 +77,16 @@
     },
     {
       "file": "src/domain/types/range.ts",
+      "symbol": "blendPositionOrThrow",
+      "reason": "A range constructor: its input is the plain number it checks and turns into the range type."
+    },
+    {
+      "file": "src/domain/blend.ts",
+      "symbol": "roundEven",
+      "reason": "Python's round over a plain number: the arithmetic a level or a colour is computed in before its range constructor makes it one."
+    },
+    {
+      "file": "src/domain/types/range.ts",
       "symbol": "minutesOrThrow",
       "reason": "A range constructor: its input is the plain number it checks and turns into the range type."
     },

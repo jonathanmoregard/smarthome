@@ -7,10 +7,10 @@
   "parseRuntimeImports": 0,
   "viewReads": 0,
   "carriedTypes": 0,
-  "casts": 15,
+  "casts": 16,
   "nonNull": 0,
   "nullish": 0,
   "typeofs": 0,
   "literalIncludes": 0,
-  "brandConstructors": 14
+  "brandConstructors": 15
 }

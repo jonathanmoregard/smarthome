@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  brightnessOrThrow, colourChannelOrThrow, instantOrThrow, kelvinOrThrow, levelOrThrow, minutesOrThrow, percentOrThrow,
+  blendPositionOrThrow, brightnessOrThrow, colourChannelOrThrow, instantOrThrow, kelvinOrThrow, levelOrThrow, minutesOrThrow, percentOrThrow,
   percentRangeOrThrow, progressOrThrow, secondsOrThrow, stepCountOrThrow, stepOrThrow, timeOfDayOrThrow,
 } from '../../src/domain/types/range.ts';
 
@@ -10,7 +10,7 @@ test('each range constructor accepts both ends of its range and throws a RangeEr
   const cases: [string, (raw: number) => number, number, number][] = [
     ['level', levelOrThrow, 1, 254], ['brightness', brightnessOrThrow, 0, 255], ['kelvin', kelvinOrThrow, 1000, 10000],
     ['progress', progressOrThrow, 0, 1], ['percent', percentOrThrow, 0, 100], ['colour channel', colourChannelOrThrow, 0, 255],
-    ['step', stepOrThrow, -20, 20], ['step count', stepCountOrThrow, -40, 40],
+    ['step', stepOrThrow, -20, 20], ['step count', stepCountOrThrow, -40, 40], ['blend position', blendPositionOrThrow, -2, 2],
   ];
   for (const [name, build, low, high] of cases) {
     assert.equal(build(low), low, `${name} low end`);
