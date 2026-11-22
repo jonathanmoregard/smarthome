@@ -3,8 +3,8 @@
  *
  * Moved from `switchPlan` in `src/legacy/domain/controller.ts` (a range rule
  * against the room's level) and the switch half of `scheduledBase` in
- * `src/legacy/domain/schedule.ts` (the block's on/off setting, kept through a
- * fade). `isRangeDefault` is not moved: a `PercentRange` is in order inside
+ * `src/legacy/domain/schedule.ts` (the block's on/off setting, sent only while
+ * the stage is still). `isRangeDefault` is not moved: a `PercentRange` is in order inside
  * 0..100 by its type.
  */
 import type { Block } from './blocks.ts';
@@ -23,8 +23,10 @@ import type { Instant } from './types/time.ts';
  * on/off setting. Then a switch with a range rule is on while its room is on
  * and the room's level, as a percent of 255, is inside the range, both ends
  * included. A switch with no rule, or in no room (a rule needs a room's level),
- * follows its block's on/off setting. A switch nothing says anything about is
- * left out, so it is left as it is.
+ * follows its block's on/off setting once its room's stage is still; while the
+ * stage moves (a fade or the wake fade) it is left out, as today a moving stage
+ * sends a plug nothing. A switch nothing says anything about is left out too,
+ * so it is left as it is.
  *
  * The next-block reset, when its rule is on, releases a switch overlay set at
  * or before the room's last fade start. `rooms` are the room lights
@@ -46,8 +48,8 @@ export function switchPower(model: Model, rooms: Readonly<Record<RoomOrHouse, Ro
       const range = rule.kind === 'custom' ? rule.range : model.rangeDefaults[rule.kind];
       const share = light.light.power === 'on' ? light.light.brightness * 100 / 255 : undefined;
       power[id] = share !== undefined && range.low <= share && share <= range.high ? 'on' : 'off';
-    } else {
-      const setting = switchesOn(config, room, light.block);
+    } else if (!light.stage.moving) {
+      const setting = switchesOn(config, room, light.stage.block);
       if (setting !== undefined) power[id] = setting ? 'on' : 'off';
     }
   }

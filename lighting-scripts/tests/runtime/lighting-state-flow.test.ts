@@ -120,6 +120,17 @@ test('with none there it keeps the colour of the newest earlier block that has o
   assert.deepEqual(lamp(model, lampB1, at('20:00:00')), shows(120, kelvin(4000)));
 });
 
+test('a held block looks back from itself, not from the scheduled block', () => {
+  // Cosy held over `room-b` at noon on Monday, cosy colourless, night lit at 2000 K. The block before cosy is day,
+  // so its 4000 K. Break: the look-back starts from the scheduled day and takes the night before it.
+  const model = house(m => {
+    m.config.house.cosy.light = lit(120, undefined);
+    m.config.house.night.light = lit(30, kelvin(2000));
+    m.overlays.blocks[roomB] = { block: 'cosy', since: at('11:00:00') };
+  });
+  assert.deepEqual(lamp(model, lampB1, at('12:00:00')), shows(120, kelvin(4000)));
+});
+
 test('with no colour in any block the lamp has none, and each bulb keeps its own', () => {
   // Break: a colour is invented (white, the warm end) where the schedule names none.
   const model = house(m => { m.config.house.day.light = lit(220, undefined); m.config.house.cosy.light = lit(120, undefined); });

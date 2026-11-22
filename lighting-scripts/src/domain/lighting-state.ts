@@ -139,12 +139,15 @@ function presetBlock(remote: RemoteOverlay): { block: Block; stamp: Instant } | 
 }
 
 /**
- * What a room's switches read: the block the room is in (inside a fade, the
- * block it leaves, or the block a hold released at the fade start kept it in,
- * since today's switches move only once a fade is over) and the room's own
- * light, its block light with the room's overlays, whose level a range rule reads.
+ * What a room's switches read: the room's stage, still in a block or moving (a
+ * fade or the wake fade, during which today's switches are sent nothing), and
+ * the room's own light, its block light with the room's overlays, whose level a
+ * range rule reads.
  */
-export type RoomLight = { block: Block; light: { power: 'off' } | { power: 'on'; brightness: Brightness } };
+export type RoomLight = {
+  stage: { moving: false; block: Block } | { moving: true };
+  light: { power: 'off' } | { power: 'on'; brightness: Brightness };
+};
 
 /** What the overlays work on: a lamp, or a room's own light. */
 type Subject = {
@@ -184,13 +187,14 @@ function lampSubject(model: Model, lamp: LampId, room: RoomId | undefined, now: 
 
 /**
  * Rule 2: the colour for a lit light with none. The room's light for the
- * block the lamp is in; else the newest earlier block's colour for the lamp,
- * looking back one cycle of blocks; else none.
+ * block the lamp is in (a held block, where one is held); else the newest
+ * colour for the lamp among the blocks before that block's last start, looking
+ * back one cycle of blocks; else none.
  */
 function fallbackColour(config: Config, subject: Subject, room: RoomId | undefined, block: Block, now: Instant): Colour | undefined {
   const own = colourOf(blockLight(config, room, block));
   if (own !== undefined) return own;
-  let since = blockPosition(config, room, now).currentSince;
+  let since = lastStart(config, room, block, now);
   for (let looked = 0; looked < BLOCKS.length && since !== undefined; looked++) {
     const earlier = blockPosition(config, room, instantOrThrow(since - 1));
     const lamps = colourOf(subject.lightIn(earlier.current));
@@ -199,6 +203,23 @@ function fallbackColour(config: Config, subject: Subject, room: RoomId | undefin
     since = earlier.currentSince;
   }
   return undefined;
+}
+
+/**
+ * When the room's schedule last started `block`, at or before `now`, looking
+ * back one cycle of blocks. A block the schedule did not start in that cycle
+ * (held, but never scheduled) has no start of its own, so the look-back starts
+ * from the current block's.
+ */
+function lastStart(config: Config, room: RoomId | undefined, block: Block, now: Instant): Instant | undefined {
+  const current = blockPosition(config, room, now);
+  let position = current;
+  for (let looked = 0; looked < BLOCKS.length; looked++) {
+    if (position.current === block) return position.currentSince;
+    if (position.currentSince === undefined) break;
+    position = blockPosition(config, room, instantOrThrow(position.currentSince - 1));
+  }
+  return current.currentSince;
 }
 
 function colourOf(light: SceneLight | undefined): Colour | undefined {
@@ -476,9 +497,9 @@ function roomShown(model: Model, scope: RoomOrHouse, now: Instant): { light: Roo
   const shown = fold(base, changesOf(on.lamps, on.remote), subject);
   const lit = shown.lit === undefined ? base.power === 'on' : shown.lit;
   const off = !lit || (room !== undefined && model.overlays.roomPower[room] === 'off') || shown.brightness === undefined;
-  const before = applied(model, room, undefined, position, false).block;
-  const block = !stage.moving ? blockAt(stage.into, position.current) : before === undefined ? blockAt(stage.from, position.current) : before;
-  return { light: { block, light: off || shown.brightness === undefined ? OFF : { power: 'on', brightness: shown.brightness } }, placed };
+  const switchStage: RoomLight['stage'] = stage.moving ? { moving: true } : { moving: false, block: blockAt(stage.into, position.current) };
+  const light: RoomLight['light'] = off || shown.brightness === undefined ? OFF : { power: 'on', brightness: shown.brightness };
+  return { light: { stage: switchStage, light }, placed };
 }
 
 /**

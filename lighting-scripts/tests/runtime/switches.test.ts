@@ -5,7 +5,7 @@ import type { Model } from '../../src/domain/model.ts';
 import type { SwitchId } from '../../src/domain/types/ids.ts';
 import type { Power } from '../../src/domain/types/light.ts';
 import type { Instant } from '../../src/domain/types/time.ts';
-import { toBrightness, toInstant, toPercentRange, toRoomId, toSwitchId } from '../../src/parse/ids.ts';
+import { toBrightness, toInstant, toMinutes, toPercentRange, toRoomId, toSwitchId } from '../../src/parse/ids.ts';
 import { syntheticHouse } from './fixtures/synthetic-house.ts';
 
 /**
@@ -84,11 +84,34 @@ test('a switch with no rule follows its block\'s on/off setting', () => {
   assert.equal(power(model, at('23:30:00')), 'off');
 });
 
-test('during a fade a switch keeps the setting of the block it leaves', () => {
-  // Today's switches change only once a fade is over. Break: the switch changes at the fade start.
+test('while its room\'s fade is moving a switch with no rule is left as it is', () => {
+  // Today a moving stage sends a plug nothing (legacy `schedule.ts`, the plug branch). Break: the switch is set
+  // to the block it leaves, or to the block it fades into, before the fade is over.
   const model = house(m => { delete m.switchRanges[plugA]; });
-  assert.equal(power(model, at('22:15:00')), 'on');
+  assert.equal(power(model, at('21:55:00')), 'on');
+  assert.equal(power(model, at('22:15:00')), undefined);
   assert.equal(power(model, at('22:45:00')), 'off');
+});
+
+test('while its room\'s wake fade is moving a switch with no rule is left as it is', () => {
+  // `room-a` wakes at 06:00 on Tuesday over 30 minutes. Break: the wake fade sets the switch from the night block.
+  const model = house(m => { delete m.switchRanges[plugA]; m.config.rooms[roomA]!.wakeLight = { at: at('06:00:00', 22), fade: toMinutes(30) }; });
+  assert.equal(power(model, at('05:30:00', 22)), 'off');
+  assert.equal(power(model, at('06:15:00', 22)), undefined);
+});
+
+test('a range rule keeps reading its room\'s level through a fade', () => {
+  // `room-a` fades from 220 to 90 between 16:45 and 17:30: 69 % at 17:00, 47 % at 17:20. Break: a moving stage
+  // leaves a ranged switch alone too, which today's range rule does not.
+  const model = house();
+  assert.equal(power(model, at('17:00:00')), 'off');
+  assert.equal(power(model, at('17:20:00')), 'on');
+});
+
+test('a switch overlay holds the switch through a fade', () => {
+  // Break: a moving stage leaves a switch the plug's own button set alone.
+  const model = house(m => { delete m.switchRanges[plugA]; m.overlays.switches[plugA] = { power: 'off', since: at('22:10:00') }; });
+  assert.equal(power(model, at('22:15:00')), 'off');
 });
 
 test('a switch with no rule and no on/off setting is left as it is', () => {
