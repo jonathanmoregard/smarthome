@@ -169,9 +169,9 @@ export function toSeconds(raw: number): Seconds {
 }
 
 /*
- * The two fades. They sit here, not beside `Transition`, because a `Seconds`
- * is built only by `toSeconds` and the domain may not import this file or cast;
- * M2 hands them to the domain through the config.
+ * The two fades. They sit here, not beside `Transition`, because they belong
+ * to the adapter's encoder and reconciler (moved there in M2 T3), which build
+ * them with `toSeconds`; the domain never sees them.
  */
 
 /** The fade of a change a person makes. */
