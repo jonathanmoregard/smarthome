@@ -8,8 +8,9 @@
  * parse step already checked about the string still holds, and nothing is
  * added. Whether an id names something the registry knows is a later, named unit.
  */
-import type { BulbId, DashboardControlId, EffectName, LampId, PowerTarget, RemoteId, RemoteSource, RoomId, SavedOverlayKey, SwitchId, UserId }
+import type { BulbId, DashboardControlId, LampId, PowerTarget, RemoteId, RemoteSource, RoomId, SavedOverlayKey, SwitchId, UserId }
   from '../domain/types/ids.ts';
+import type { CatalogEffectName } from '../runtime/catalog.ts';
 import type { Brightness, ColourChannel, Kelvin, Level, Percent, PercentRange } from '../domain/types/light.ts';
 import type { Instant, Seconds, TimeOfDay, Timezone } from '../domain/types/time.ts';
 import type { Step, StepCount } from '../domain/types/remote.ts';
@@ -56,9 +57,9 @@ export function toUserId(raw: string): UserId {
   return raw as UserId;
 }
 
-export function toEffectName(raw: string): EffectName {
+export function toCatalogEffectName(raw: string): CatalogEffectName {
   // Cast: the edge read this string as a catalog effect; this is the one place that says so.
-  return raw as EffectName;
+  return raw as CatalogEffectName;
 }
 
 export function toDashboardControlId(raw: string): DashboardControlId {

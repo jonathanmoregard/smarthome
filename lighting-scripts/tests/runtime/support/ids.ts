@@ -3,7 +3,7 @@
  * never by casting, so tests construct ids the way the parse steps do.
  */
 import {
-  toBulbId, toEffectName, toLampId, toRemoteId, toRoomId, toSwitchId, toUserId,
+  toBulbId, toCatalogEffectName, toLampId, toRemoteId, toRoomId, toSwitchId, toUserId,
 } from '../../../src/parse/ids.ts';
 
 export const id = {
@@ -13,5 +13,5 @@ export const id = {
   switch: toSwitchId,
   remote: toRemoteId,
   user: toUserId,
-  effect: toEffectName,
+  effect: toCatalogEffectName,
 };

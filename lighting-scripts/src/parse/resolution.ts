@@ -47,10 +47,11 @@ import { lampOrRoom } from './lighting-state.ts';
 import type { OverlayKey } from '../domain/types/overlay.ts';
 import { overlayKeyText } from '../domain/types/overlay.ts';
 import { parseOverlayKey } from './overlay-key.ts';
-import { stepBoundsOf, toEffectName, toRoomId, toStep } from './ids.ts';
+import { stepBoundsOf, toCatalogEffectName, toRoomId, toStep } from './ids.ts';
 import { roomText } from './rooms.ts';
 import type { Step } from '../domain/types/remote.ts';
-import type { EffectName, RoomId } from '../domain/types/ids.ts';
+import type { RoomId } from '../domain/types/ids.ts';
+import type { CatalogEffectName } from '../runtime/catalog.ts';
 
 /**
  * A remote's saved `selection`, read once for both of its readers: the
@@ -62,14 +63,14 @@ import type { EffectName, RoomId } from '../domain/types/ids.ts';
  */
 export type SavedSelection =
   | { kind: 'preset'; preset: 'day' | 'cosy' }
-  | { kind: 'effect'; effect: EffectName }
+  | { kind: 'effect'; effect: CatalogEffectName }
   | { kind: 'none' }
   | { kind: 'notText' };
 
 export function savedSelection(raw: JsonValue | undefined): SavedSelection {
   if (raw === undefined || raw === null) return { kind: 'none' };
   if (isPresetText(raw)) return { kind: 'preset', preset: raw };
-  return typeof raw === 'string' ? { kind: 'effect', effect: toEffectName(raw) } : { kind: 'notText' };
+  return typeof raw === 'string' ? { kind: 'effect', effect: toCatalogEffectName(raw) } : { kind: 'notText' };
 }
 
 /** The number JavaScript arithmetic reads from a raw value: `Number(value)`. */

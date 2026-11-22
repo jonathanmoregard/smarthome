@@ -25,8 +25,6 @@ export type RemoteId = Id<'RemoteId'>;
 export type UserId = Id<'UserId'>;
 /** A dashboard control: one control whose lamp overlay it sets, one overlay per control. */
 export type DashboardControlId = Id<'DashboardControlId'>;
-/** An effect the catalog names (`Candle`). */
-export type EffectName = Id<'EffectName'>;
 /**
  * A remote's source, as its input's overlay key carries it
  * (`channels:<source>`). Never begins `ui:` or `native:`, the prefixes of a

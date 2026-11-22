@@ -41,7 +41,7 @@
  */
 import { ParseError, describe, requireArray, requireBoolean, requireObject, requireString } from './parse.ts';
 import type { JsonObject, JsonValue, ScriptContext } from './context.ts';
-import type { BulbId, EffectName, LampId, RemoteId, RemoteSource } from '../domain/types/ids.ts';
+import type { BulbId, Id, LampId, RemoteId, RemoteSource } from '../domain/types/ids.ts';
 import { toBulbId, toLampId, toRemoteId, toRemoteSource } from '../parse/ids.ts';
 
 /**
@@ -127,9 +127,12 @@ function remoteSourceOf(raw: string, context: string): RemoteSource {
   }
 }
 
+/** An effect the catalog names (`Candle`): open text the catalog file defines, not the domain's closed `EffectName`. */
+export type CatalogEffectName = Id<'CatalogEffectName'>;
+
 export interface Catalog {
   /** The effect names the registry knows, each with the channels it drives. */
-  effects: Record<EffectName, CatalogEffect>;
+  effects: Record<CatalogEffectName, CatalogEffect>;
   /** Logical lamp to its physical member entities. Required. */
   members: Record<LampId, BulbId[]>;
   /** Group name to its member entities. Required. */
