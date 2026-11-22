@@ -64,13 +64,32 @@ EXPECTED_RULES = ('power',)
 
 
 def _next_block_start(scenario: Scenario, house: HouseInfo, after_step: int) -> float:
-    """Seconds into `scenario` of the house's first block start after step `after_step`'s checkpoint, placed as
-    the scenarios module describes `ls_base` placing them: a day start on its morning, cosy and night on their
-    evening (a night start before noon in the small hours after it); the `_weekend` start on Friday and Saturday
-    evenings and on Saturday and Sunday mornings."""
+    """Seconds into `scenario` of the house's first block start after step `after_step`'s checkpoint."""
+    return _first_after(scenario, after_step, [start for _, start in _block_starts(scenario, house, after_step)],
+                        'block start')
+
+
+def _next_fade_start(scenario: Scenario, house: HouseInfo, after_step: int) -> float:
+    """Seconds into `scenario` of the first house fade to start after step `after_step`'s checkpoint: the earliest
+    block start less its fade minutes that lies after it (not the earliest start less its fade, which may already
+    be under way at the step). An overlay's next-block reset ends it there."""
     seeds = {seed.entity: seed.state for seed in scenario.seeds}
-    elapsed = sum(step.seconds for step in scenario.steps[:after_step + 1] if isinstance(step, Advance))
-    after = scenario.start.timestamp() + elapsed
+    fades = []
+    for block, start in _block_starts(scenario, house, after_step):
+        entity = house_entity(house, None, None, block, 'fade')
+        if entity is None or entity not in seeds:
+            raise ValueError(f'{scenario.name}: the house {block} block has no fade seeded')
+        fades.append(start - float(seeds[entity]) * 60)
+    return _first_after(scenario, after_step, fades, 'fade start')
+
+
+def _block_starts(scenario: Scenario, house: HouseInfo, after_step: int) -> list[tuple[str, float]]:
+    """The house's block starts (block, timestamp) from the day before step `after_step`'s checkpoint to two days
+    after, placed as the scenarios module describes `ls_base` placing them: a day start on its morning, cosy and
+    night on their evening (a night start before noon in the small hours after it); the `_weekend` start on Friday
+    and Saturday evenings and on Saturday and Sunday mornings."""
+    seeds = {seed.entity: seed.state for seed in scenario.seeds}
+    after = _checkpoint_time(scenario, after_step)
     starts = []
     for offset in range(-1, 3):
         day = (datetime.fromtimestamp(after, LOCAL) + timedelta(days=offset)).date()
@@ -81,15 +100,26 @@ def _next_block_start(scenario: Scenario, house: HouseInfo, after_step: int) -> 
                 continue
             clock = time.fromisoformat(seeds[entity])
             date = day + timedelta(days=1) if block == 'night' and clock.hour < 12 else day
-            starts.append(datetime.combine(date, clock, LOCAL).timestamp())
-    later = [start for start in starts if start > after]
+            starts.append((block, datetime.combine(date, clock, LOCAL).timestamp()))
+    return starts
+
+
+def _first_after(scenario: Scenario, after_step: int, moments: Sequence[float], event: str) -> float:
+    """Seconds into `scenario` of the earliest of `moments` after step `after_step`'s checkpoint."""
+    after = _checkpoint_time(scenario, after_step)
+    later = [moment for moment in moments if moment > after]
     if not later:
-        raise ValueError(f'{scenario.name}: no house block start after step {after_step}')
+        raise ValueError(f'{scenario.name}: no house {event} after step {after_step}')
     return min(later) - scenario.start.timestamp()
 
 
+def _checkpoint_time(scenario: Scenario, step: int) -> float:
+    return scenario.start.timestamp() + sum(s.seconds for s in scenario.steps[:step + 1] if isinstance(s, Advance))
+
+
 ROLES: Mapping[str, Callable[[HouseInfo], str]] = {'subject plug': lambda house: plug_of(house, subject_room(house))}
-UNTIL: Mapping[str, Callable[[Scenario, HouseInfo, int], float]] = {'next block start': _next_block_start}
+UNTIL: Mapping[str, Callable[[Scenario, HouseInfo, int], float]] = {'next block start': _next_block_start,
+                                                                     'next fade start': _next_fade_start}
 
 
 def check_expected(entries: Sequence[ExpectedDifference], built: Scenarios) -> None:

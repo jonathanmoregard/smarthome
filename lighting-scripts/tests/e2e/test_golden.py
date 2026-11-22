@@ -432,6 +432,17 @@ class Expected(unittest.TestCase):
         [window] = windows((entry,), 'midnight_weekend', scenario, self.house)
         self.assertEqual(window.closes_at, (datetime(2026, 11, 21, 8, 40, tzinfo=LOCAL) - scenario.start).total_seconds())
 
+    def test_the_next_fade_start_is_the_first_fade_that_starts_after_the_step(self):
+        # ha_restart_mid_fade: step 1 ends at 17:30, inside the cosy fade (17:00 to 18:00). The next block start
+        # is cosy's, but its fade began before the step: the next fade to start is the night's, 23:00 less 15 min.
+        scenario = scenarios(self.house)['ha_restart_mid_fade']
+        entry = ExpectedDifference('x', 'ha_restart_mid_fade', 'subject plug', 'power', 1, 'next fade start', False)
+        [window] = windows((entry,), 'ha_restart_mid_fade', scenario, self.house)
+        self.assertEqual(window.closes_at, (datetime(2026, 11, 18, 22, 45, tzinfo=LOCAL) - scenario.start).total_seconds())
+        before = replace(entry, after_step=0)   # 16:50, before the cosy fade: that fade is the next
+        [window] = windows((before,), 'ha_restart_mid_fade', scenario, self.house)
+        self.assertEqual(window.closes_at, (datetime(2026, 11, 18, 17, 0, tzinfo=LOCAL) - scenario.start).total_seconds())
+
 
 # --- recordings ------------------------------------------------------------------------------------------
 
