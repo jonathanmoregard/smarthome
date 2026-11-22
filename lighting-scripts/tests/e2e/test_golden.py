@@ -245,9 +245,10 @@ class Scenarios(unittest.TestCase):
         house = self.house
         helpers = {h.entity for h in house.helpers} | {rule.entity for rule in house.overlay_rules}
         bulbs = {bulb for lamp in house.lamps for bulb in lamp.bulbs}
+        wake = {'input_datetime.ls_room_b_wake', 'input_number.ls_room_b_wake_fade'}   # ruling 72: seeded, by pattern
         for name, scenario in self.all.items():
             with self.subTest(name=name):
-                self.assertTrue({seed.entity for seed in scenario.seeds} <= helpers)
+                self.assertTrue({seed.entity for seed in scenario.seeds} <= helpers | (wake if name == 'wake_light' else set()))
                 self.assertEqual(len({seed.entity for seed in scenario.seeds}), len(scenario.seeds))
                 for step in scenario.steps:
                     if isinstance(step, (PowerCut, PowerRestore)):
@@ -346,6 +347,31 @@ class Scenarios(unittest.TestCase):
                 own = [h.entity for h in stores if h.lamp == lamp.lamp]
                 room = [h.entity for h in stores if h.room == lamp.room and h.lamp is None]
                 self.assertEqual(candled, set(own) if has_store else set(room))   # ruling 52
+
+    def test_wake_light_wakes_the_subject_room_inside_the_night_block(self):
+        scenario = self.all['wake_light']
+        seeds = {seed.entity: seed for seed in scenario.seeds}
+        wake, fade = seeds['input_datetime.ls_room_b_wake'], seeds['input_number.ls_room_b_wake_fade']   # room_b
+        when = datetime.fromtimestamp(wake.attributes['timestamp'], LOCAL)
+        self.assertEqual(wake.state, when.strftime('%Y-%m-%d %H:%M:%S'))
+        self.assertEqual({key: wake.attributes[key] for key in ('has_date', 'has_time', 'year', 'month', 'day', 'hour',
+                                                                 'minute', 'second')},
+                         {'has_date': True, 'has_time': True, 'year': when.year, 'month': when.month, 'day': when.day,
+                          'hour': when.hour, 'minute': when.minute, 'second': 0})
+        duration = timedelta(minutes=float(fade.state))
+        self.assertTrue(fade.attributes['min'] <= float(fade.state) <= fade.attributes['max'])
+        day_start, day_fade = (house_entity(self.house, None, None, 'day', setting) for setting in ('start', 'fade'))
+        night_start = house_entity(self.house, None, None, 'night', 'start')
+        state = {seed.entity: seed.state for seed in scenario.seeds}
+        day_fades = (datetime.combine(when.date(), time.fromisoformat(state[day_start]), LOCAL)
+                     - timedelta(minutes=float(state[day_fade])))
+        self.assertGreater(state[night_start], state[day_start])   # the night began the evening before
+        self.assertEqual([(p.first, p.second) for p in scenario.holds], [(1, 2), (4, 5)])
+        self.assertEqual([(p.first, p.second) for p in scenario.proves], [(2, 3), (2, 4)])
+        self.assertTrue(scenario.start < local_at(scenario, 1) < when)                  # night, past HA start,
+        self.assertEqual(local_at(scenario, 2), when)                                   # up to the wake,
+        self.assertTrue(when < local_at(scenario, 3) < when + duration)                 # ramping,
+        self.assertTrue(when + duration < local_at(scenario, 4) < local_at(scenario, 5) < day_fades)   # day, early
 
     def test_next_block_reset_holds_the_change_until_the_fade_then_lets_go(self):
         scenario = self.all['next_block_reset']

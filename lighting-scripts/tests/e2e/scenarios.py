@@ -34,10 +34,7 @@ from tests.e2e.router import LOCAL, Context, HaStart, Mqtt, ScriptCall, StateCha
 
 NAMES = ('schedule_day', 'remote_presses', 'dashboard_block_then_clear', 'range_save', 'person_change_then_expiry',
          'mode_toggle', 'plug_button', 'wall_power_cycle', 'ha_restart_mid_fade', 'midnight_weekend', 'dst_spring',
-         'dst_autumn', 'candle_lamp_evening', 'next_block_reset')
-# No wake light scenario (a named gap, M1 Task 1): the scripts read a room's wake time from
-# `input_datetime.ls_<area id>_wake`, and the captured house names its one wake helper for no area id, so the
-# reference never runs a wake light.
+         'dst_autumn', 'candle_lamp_evening', 'next_block_reset', 'wake_light')
 BLOCKS = ('day', 'cosy', 'night')
 NORMAL, CANDLE = 'Normal light', 'Candle'   # never Breathe or Colour loop
 # The captured overlay expiry rules a scenario sets (system helpers, in `HouseInfo.overlay_rules`). On, the
@@ -51,6 +48,11 @@ PRESS_GAP = 120                  # seconds between remote presses
 SETTLE = 120                     # seconds after an input before its checkpoint is read as settled
 PERSON_LEVEL = 8                 # a person's brightness no seeded light uses (they draw from LEVELS)
 PERSON_KELVIN = 3300             # and a colour unlike the pinned house lights; both channels, so all of it holds
+# A room's wake light, as the scripts read it: the ramp's start (a dated helper) and its minutes (default 37.5).
+WAKE_TIME = 'input_datetime.ls_{room}_wake'
+WAKE_FADE = 'input_number.ls_{room}_wake_fade'
+WAKE_AT = '05:30'                # in the small hours of the night block, before the day block's fade
+WAKE_MINUTES = 30
 LEVELS = (40, 255)               # generated light brightness
 KELVINS = (2200, 6500)
 FADES = (0, 45)                  # generated fade minutes, within each helper's own min/max
@@ -208,6 +210,18 @@ class _Seeds:
         """Overlays end `minutes` after they begin."""
         self.set(AFTER_RULE, 'on')
         self.set(AFTER_MINUTES, _number(minutes))
+
+    def wake(self, room: str, when: datetime, minutes: int) -> None:
+        """The room's wake light: its ramp starts at `when` and lasts `minutes`. Seeded under the scripts' naming
+        for the room (ruling 72: the captured house's wake helper is named for an older area id), with the
+        attributes HA gives a dated `input_datetime` and an `input_number`."""
+        local = when.astimezone(LOCAL)
+        self.seeds[WAKE_TIME.format(room=room)] = Seed(WAKE_TIME.format(room=room), local.strftime('%Y-%m-%d %H:%M:%S'), {
+            'has_date': True, 'has_time': True, 'editable': True, 'year': local.year, 'month': local.month,
+            'day': local.day, 'hour': local.hour, 'minute': local.minute, 'second': local.second,
+            'timestamp': local.timestamp()})
+        self.seeds[WAKE_FADE.format(room=room)] = Seed(WAKE_FADE.format(room=room), _number(minutes), {
+            'editable': True, 'min': 0, 'max': 120, 'step': 0.5, 'mode': 'box', 'unit_of_measurement': 'min'})
 
     def light(self, entity: str | None, light: Mapping) -> None:
         self.set(entity, json.dumps(dict(light)))
@@ -475,11 +489,25 @@ def _next_block_reset(house: HouseInfo, name: str) -> Scenario:
                     (on_lamp(lamp, 1, 2),))
 
 
+def _wake_light(house: HouseInfo, name: str) -> Scenario:
+    # The house's night runs from 23:00 and its day fade from 06:40. The subject room's wake ramp starts at 05:30
+    # and lasts 30 minutes, so its lamps leave the night light at 05:30, show the day light by 06:00 and keep it,
+    # all before the day block starts. From 04:30 (HA start, which the world's first light makes a fade), the
+    # steps end 05:00, 05:30, 05:45, 06:15 and 06:35.
+    room = subject_room(house)
+    seeds = _pinned(house, name)
+    seeds.wake(room, at(WEEKDAY, WAKE_AT), WAKE_MINUTES)
+    steps = (HaStart(), Advance(30 * 60), Advance(30 * 60), Advance(15 * 60), Advance(30 * 60), Advance(20 * 60))
+    # Night up to the wake time (1, 2); the ramp under way (2, 3) and done (2, 4); the day light kept (4, 5).
+    return Scenario(name, at(WEEKDAY, '04:30'), seeds.tuple(), steps, (in_room(house, 2, 3), in_room(house, 2, 4)),
+                    (in_room(house, 1, 2), in_room(house, 4, 5)))
+
+
 BUILDERS = {
     'schedule_day': _schedule_day, 'remote_presses': _remote_presses,
     'dashboard_block_then_clear': _dashboard_block_then_clear, 'range_save': _range_save,
     'person_change_then_expiry': _person_change_then_expiry, 'mode_toggle': _mode_toggle,
     'plug_button': _plug_button, 'wall_power_cycle': _wall_power_cycle, 'ha_restart_mid_fade': _ha_restart_mid_fade,
     'midnight_weekend': _midnight_weekend, 'dst_spring': _dst_spring, 'dst_autumn': _dst_autumn,
-    'candle_lamp_evening': _candle_lamp_evening, 'next_block_reset': _next_block_reset,
+    'candle_lamp_evening': _candle_lamp_evening, 'next_block_reset': _next_block_reset, 'wake_light': _wake_light,
 }
