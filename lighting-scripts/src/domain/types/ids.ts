@@ -23,6 +23,8 @@ export type PowerTarget = LampId | SwitchId;
 export type RemoteId = Id<'RemoteId'>;
 /** A Home Assistant user, as an event's `user_id` names them. */
 export type UserId = Id<'UserId'>;
+/** A dashboard control: one control whose lamp overlay it sets, one overlay per control. */
+export type DashboardControlId = Id<'DashboardControlId'>;
 /** An effect the catalog names (`Candle`). */
 export type EffectName = Id<'EffectName'>;
 /**

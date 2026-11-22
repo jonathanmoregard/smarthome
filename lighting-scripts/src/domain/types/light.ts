@@ -1,4 +1,4 @@
-import type { Effect } from '../effect.ts';
+import type { Effect, EffectName } from '../effect.ts';
 import type { RangeMark, Ranged } from './range.ts';
 import type { Seconds } from './time.ts';
 
@@ -25,7 +25,10 @@ export type RGB = { readonly red: ColourChannel; readonly green: ColourChannel; 
 export type Colour = { kind: 'kelvin'; kelvin: Kelvin } | { kind: 'rgb'; rgb: RGB };
 export type Power = 'on' | 'off';
 export type Transition = { kind: 'scheduled fade'; over: Seconds } | { kind: 'manual' } | { kind: 'effect start' };
-/** A light as a block or a profile saves it. Brightness is HA's 0..255, as saved; M2 turns it into a Level where today's code does. */
-export type SceneLight = { power: 'off' } | { power: 'on'; brightness: Brightness; colour: Colour | undefined };
+/**
+ * A light as a block or a profile saves it. Brightness is HA's 0..255, as saved; M2 turns it into a Level where today's code does.
+ * The effect belongs to the lit light: a block's light can run the candle. Off has no level, colour or effect.
+ */
+export type SceneLight = { power: 'off' } | { power: 'on'; brightness: Brightness; colour: Colour | undefined; effect: EffectName };
 export type OnLight = { power: 'on'; level: Level; colour: Colour; effect: Effect; transition: Transition };
 export type LampLight = { power: 'off' } | OnLight;

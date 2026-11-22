@@ -8,6 +8,13 @@ import type { Ranged } from './range.ts';
  */
 export type Step = Ranged<'Step'>;
 
+/**
+ * A remote's net presses, brighter less dimmer: -40..40, positive is brighter.
+ * Like {@link Step}, not necessarily whole: today's reader admits any finite
+ * number in that range (`inputFacts` in `src/parse/resolution.ts`).
+ */
+export type StepCount = Ranged<'StepCount'>;
+
 /** A command a remote's press acts on. */
 export type RemoteCommand = 'up' | 'down' | 'left' | 'right' | 'toggle' | 'reset' | 'sara_toggle';
 /** Every {@link RemoteCommand}, for the parser that reads a press. */
