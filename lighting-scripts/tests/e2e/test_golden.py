@@ -396,9 +396,11 @@ class Scenarios(unittest.TestCase):
         cosy = datetime.combine(scenario.start.date(), time.fromisoformat(seeds[cosy_start]), LOCAL)
         fade = timedelta(minutes=float(seeds[cosy_fade]))
         self.assertEqual([(p.first, p.second) for p in scenario.holds], [(change, change + 1)])
-        self.assertEqual([(p.first, p.second) for p in scenario.proves], [(change - 1, change), (change + 1, change + 2)])
-        self.assertLess(local_at(scenario, change + 1), cosy - fade)   # held up to just before the fade,
-        self.assertGreater(local_at(scenario, change + 2), cosy)       # then the cosy block's light
+        self.assertEqual([(p.first, p.second) for p in scenario.proves],
+                         [(change - 1, change), (change + 1, change + 2), (change + 1, change + 3)])
+        self.assertLess(local_at(scenario, change + 1), cosy - fade)                  # held up to just before the fade,
+        self.assertTrue(cosy - fade < local_at(scenario, change + 2) < cosy)          # let go and fading at its start,
+        self.assertGreater(local_at(scenario, change + 3), cosy)                      # then the cosy block's light
 
     def test_plug_button_presses_in_cosy_and_looks_inside_the_hold_and_just_after_it(self):
         # The press is an override the next-block reset ends at the night fade's start; the after-age rule is off,

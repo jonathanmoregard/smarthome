@@ -490,16 +490,17 @@ def _candle_lamp_evening(house: HouseInfo, name: str) -> Scenario:
 
 def _next_block_reset(house: HouseInfo, name: str) -> Scenario:
     # A person's change at 15:00 with only the next-block rule on: it holds until the cosy fade starts at 15:50,
-    # then the lamp fades with the schedule into cosy at 16:00. Steps end 15:00, 15:40 and 16:20.
+    # then the lamp fades with the schedule into cosy at 16:00. Steps end 15:00, 15:40, 15:55 (mid-fade) and 16:20.
     seeds = _pinned(house, name, {**HOUSE_TIMES, 'cosy': ('16:00', '16:00', 10)})
     seeds.set(NEXT_BLOCK_RULE, 'on')
     seeds.set(AFTER_RULE, 'off')
     lamp = lamp_in(house, subject_room(house))
     steps = (HaStart(), PersonLightChange([lamp.lamp], {'brightness': PERSON_LEVEL, 'color_temp_kelvin': PERSON_KELVIN}),
-             Advance(40 * 60), Advance(40 * 60))
-    # On the changed lamp only: it takes the change (0, 1), keeps it to the fade (1, 2), follows cosy after (2, 3).
-    return Scenario(name, at(WEEKDAY, '15:00'), seeds.tuple(), steps, (on_lamp(lamp, 0, 1), on_lamp(lamp, 2, 3)),
-                    (on_lamp(lamp, 1, 2),))
+             Advance(40 * 60), Advance(15 * 60), Advance(25 * 60))
+    # On the changed lamp only: it takes the change (0, 1), keeps it to the fade (1, 2), is let go and fading by
+    # 15:55 (2, 3), so a release held back to the block start fails, and follows cosy after (2, 4).
+    return Scenario(name, at(WEEKDAY, '15:00'), seeds.tuple(), steps,
+                    (on_lamp(lamp, 0, 1), on_lamp(lamp, 2, 3), on_lamp(lamp, 2, 4)), (on_lamp(lamp, 1, 2),))
 
 
 def _wake_light(house: HouseInfo, name: str) -> Scenario:
