@@ -78,7 +78,7 @@ test('a missing start helper is no start', () => {
   assert.equal(decode({ 'input_datetime.ls_house_day_weekend': undefined }).house.day.weekendStart, undefined);
 });
 
-for (const text of ['garbage', '', 'unknown', 'inf', '-5']) {
+for (const text of ['garbage', '', 'unknown', 'inf']) {
   test(`an unreadable fade ${JSON.stringify(text)} is twenty minutes`, () => {
     // Break: the fade fallback changes, or an unreadable fade raises.
     assert.equal(DEFAULT_FADE, toMinutes(20));
@@ -175,7 +175,7 @@ test('a helper that is unavailable is its default', () => {
     'input_datetime.ls_room-a_wake': state('unavailable', { timestamp: 1_790_000_000 }),
   });
   assert.equal(config.house.day.fade, DEFAULT_FADE);
-  assert.equal(config.house.day.switchesOn, false);
+  assert.equal(config.house.day.switchesOn, undefined);
   assert.equal(config.house.day.weekdayStart, undefined);
   assert.deepEqual(config.overlayReset, { atNextBlock: false, atSetTime: undefined, afterAge: undefined });
   assert.equal(config.rooms[roomA]!.wakeLight, undefined);
@@ -251,9 +251,15 @@ test('each overlay reset rule reads its own helper', () => {
     { atNextBlock: false, atSetTime: undefined, afterAge: undefined });
 });
 
+test('a negative fade is no fade and a negative after-age is zero minutes, as the schedule treats them', () => {
+  // Break: a negative helper is replaced by the default instead of clamped to zero.
+  assert.equal(decode({ 'input_number.ls_house_day_fade': state('-5') }).house.day.fade, toMinutes(0));
+  assert.equal(decode({ 'input_boolean.ls_ovr_after_on': state('on'), 'input_number.ls_ovr_after_min': state('-1') }).overlayReset.afterAge, toMinutes(0));
+});
+
 test('the after-age rule on with an unreadable limit is the default age', () => {
   assert.equal(DEFAULT_OVERLAY_AGE, toMinutes(180));
-  for (const limit of ['garbage', 'unknown', '-1']) {
+  for (const limit of ['garbage', 'unknown']) {
     assert.equal(decode({ 'input_boolean.ls_ovr_after_on': state('on'), 'input_number.ls_ovr_after_min': state(limit) }).overlayReset.afterAge, DEFAULT_OVERLAY_AGE);
   }
   assert.equal(decode({ 'input_boolean.ls_ovr_after_on': state('on') }).overlayReset.afterAge, DEFAULT_OVERLAY_AGE);
@@ -275,4 +281,49 @@ test('bulbTopics lists every bulb with a topic', () => {
   });
   const partial = parseCatalog({ members: { 'light.lamp_a': ['light.bulb_a1', 'light.bulb_a2'] }, topics: { 'light.bulb_a2': 'zigbee2mqtt/a2' } });
   assert.deepEqual(bulbTopics(partial), { 'light.bulb_a2': 'zigbee2mqtt/a2' });
+});
+
+test('a switch rule no helper states is no rule: the plug is left alone', () => {
+  // Break: a missing, unknown or unavailable on/off helper decodes as off, which would switch the plug off.
+  for (const text of [undefined, 'unknown', 'unavailable']) {
+    const changes = { 'input_boolean.ls_house_day_on_off': text === undefined ? undefined : state(text) };
+    assert.equal(decode(changes).house.day.switchesOn, undefined);
+  }
+});
+
+test('a room whose own on/off helper holds no state follows the house, even with its own-light flag on', () => {
+  const flagOn = { 'input_boolean.ls_room-a_day_own_light': state('on') };
+  assert.deepEqual(roomBlock(decode(flagOn), 'day').switchesOn, { follows: 'house' });
+});
+
+test('with the own-light flag on and the room light unreadable, the house light carries the room\'s effect', () => {
+  // Break: the effect is read from the house profile when the room's light is unreadable.
+  const flagOn = {
+    'input_boolean.ls_room-a_cosy_own_light': state('on'),
+    'light.ls_room-a_cosy': state('unavailable'),
+    'input_text.ls_room-a_cosy': state(JSON.stringify({ effect: 'Candle' })),
+  };
+  const light = roomBlock(decode(flagOn), 'cosy').light;
+  assert.deepEqual(light.follows === 'own' ? light.own : undefined,
+    { power: 'on', brightness: 120, colour: { kind: 'kelvin', kelvin: 2700 }, effect: 'Candle' });
+});
+
+test('the rooms are those with a lamp, a switch or a saved switch range, not a remote alone', () => {
+  // Break: a room holding only a remote gets its own schedule, or a switch-range entity's room is left out.
+  const two = parseCatalog({ ...catalogDocument, remotes: { c: { device_id: 'device-remote-c', source: 'source-c' } } });
+  const rooms = parseRooms({ 'light.lamp_a': 'room-a', 'light.lamp_b': 'room-b', 'device-remote-c': 'room-c', 'switch.ranged': 'room-d' });
+  const base = source({ 'sensor.ls_overrides': state('0', { switch_ranges: { 'switch.ranged': { min: 10, max: 50 } } }) }, { rooms, labels: {} });
+  assert.deepEqual(Object.keys(decodeConfig(base, two).rooms).sort(), ['room-a', 'room-b', 'room-d']);
+});
+
+test('lamps are the house_schedule-labelled lights when the label is present, with their catalog bulbs', () => {
+  // Break: the lamp set comes from the catalog alone, so a labelled light outside it is lost or an unlabelled catalog lamp is kept.
+  const config = decode({}, { labels: { house_schedule: ['light.lamp_a', 'light.other', 'switch.not_a_light'] } });
+  assert.deepEqual(Object.keys(config.lamps).sort(), ['light.lamp_a', 'light.other']);
+  assert.deepEqual(config.lamps[toLampId('light.other')]!.bulbs, []);
+});
+
+test('two catalog remotes on one device are refused', () => {
+  const twice = parseCatalog({ remotes: { a: { device_id: 'device-x', source: 'one' }, b: { device_id: 'device-x', source: 'two' } } });
+  assert.throws(() => decodeConfig(source(), twice), ParseError);
 });

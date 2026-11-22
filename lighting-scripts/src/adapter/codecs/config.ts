@@ -23,7 +23,7 @@ import { toBrightness, toBulbId, toColourChannel, toInstant, toKelvin, toLampId,
   from '../../parse/ids.ts';
 import type { Catalog } from '../../runtime/catalog.ts';
 import type { EntityState, JsonValue } from '../../runtime/context.ts';
-import { isObject, parseFinite } from '../../runtime/parse.ts';
+import { ParseError, isObject, parseFinite } from '../../runtime/parse.ts';
 import type { Rooms } from '../../domain/types/rooms.ts';
 
 /** The HA state the config is read from: each helper's state and attributes, the registry's rooms, the labels. */
@@ -50,7 +50,7 @@ export function decodeConfig(source: ConfigSource, catalog: Catalog): Config {
   return {
     timezone: source.timezone === undefined ? DEFAULT_TIMEZONE : toTimezone(source.timezone),
     house: decodeHouse(source),
-    rooms: decodeRooms(source, [...Object.values(lamps), ...Object.values(switches), ...Object.values(remotes)].map(thing => thing.room)),
+    rooms: decodeRooms(source, [...Object.values(lamps), ...Object.values(switches)].map(thing => thing.room)),
     lamps,
     switches,
     remotes,
@@ -59,10 +59,16 @@ export function decodeConfig(source: ConfigSource, catalog: Catalog): Config {
   };
 }
 
+/**
+ * The lamps are the house_schedule-labelled lights, as the schedule reads them; with no such label, the catalog's.
+ * A lamp the catalog does not list has no bulbs.
+ */
 function decodeLamps(source: ConfigSource, catalog: Catalog): Record<LampId, Lamp> {
-  return Object.fromEntries(Object.entries(catalog.members).map(([lamp, bulbs]) => [toLampId(lamp), {
+  const labelled = source.labels['house_schedule'];
+  const lamps = labelled === undefined ? Object.keys(catalog.members) : labelled.filter(entity => entity.startsWith('light.'));
+  return Object.fromEntries(lamps.map(lamp => [toLampId(lamp), {
     room: roomOf(source.rooms.ofId[lamp]),
-    bulbs: bulbs.map(bulb => bulbInfo(catalog, bulb)),
+    bulbs: (catalog.members[toLampId(lamp)] ?? []).map(bulb => bulbInfo(catalog, bulb)),
   } satisfies Lamp]));
 }
 
@@ -74,6 +80,9 @@ function decodeSwitches(source: ConfigSource): Record<SwitchId, Switch> {
 
 /** A remote's room is its device's room in the registry; a device in none gives a remote that does nothing. */
 function decodeRemotes(source: ConfigSource, catalog: Catalog): Record<RemoteId, Remote> {
+  const devices = Object.values(catalog.remotes).map(remote => remote.device_id);
+  const twice = devices.find((device, index) => devices.indexOf(device) !== index);
+  if (twice !== undefined) throw new ParseError(`catalog.remotes: device ${twice} is listed for more than one remote; a device is one remote`);
   return Object.fromEntries(Object.values(catalog.remotes).map(remote =>
     [remote.device_id, { room: roomOf(source.rooms.ofRemote[remote.device_id]), source: remote.source } satisfies Remote]));
 }
@@ -81,8 +90,8 @@ function decodeRemotes(source: ConfigSource, catalog: Catalog): Record<RemoteId,
 function decodeHouse(source: ConfigSource): Schedule {
   return perBlock(block => ({
     ...decodeTiming(source, 'house', block),
-    light: decodeBlockLight(source, 'house', block),
-    switchesOn: isOn(source, `input_boolean.ls_house_${block}_on_off`),
+    light: decodeBlockLight(source, 'house', 'house', block),
+    switchesOn: onOff(source, 'house', block),
   }) satisfies BlockSchedule);
 }
 
@@ -102,21 +111,30 @@ function timeOf(source: ConfigSource, entity: string): TimeOfDay | undefined {
   return hour > 23 || minute > 59 ? undefined : toTimeOfDay(hour, minute);
 }
 
-/** An `input_number` state as minutes: a number that is not negative, else the fallback. */
+/** An `input_number` state as minutes: a negative number is zero, as the schedule treats it; a non-number is the fallback. */
 function minutesOf(source: ConfigSource, entity: string, fallback: Minutes): Minutes {
   const value = parseFinite(source.states[entity]?.state);
-  return value === undefined || value < 0 ? fallback : toMinutes(value);
+  return value === undefined ? fallback : toMinutes(Math.max(value, 0));
 }
 
-/** The block's light entity as a scene, and the effect its saved profile names. Absent when the light is missing or unreadable. */
-function decodeBlockLight(source: ConfigSource, scope: string, block: Block): SceneLight | undefined {
-  const light = source.states[`light.ls_${scope}_${block}`];
+/** A scope's on/off helper for a block; undefined when it holds no state. */
+function onOff(source: ConfigSource, scope: string, block: Block): boolean | undefined {
+  const entity = `input_boolean.ls_${scope}_${block}_on_off`;
+  return holdsState(source, entity) ? isOn(source, entity) : undefined;
+}
+
+/**
+ * The light entity of `lightScope` as a scene, with the effect the `profileScope` saved profile names.
+ * Absent when the light is missing or unreadable.
+ */
+function decodeBlockLight(source: ConfigSource, lightScope: string, profileScope: string, block: Block): SceneLight | undefined {
+  const light = source.states[`light.ls_${lightScope}_${block}`];
   if (light === undefined) return undefined;
   if (light.state === 'off') return { power: 'off' };
   if (light.state !== 'on') return undefined;
   const level = parseFinite(light.attributes['brightness']);
   if (level === undefined || level < 0 || level >= 256) return undefined;
-  const effect = savedEffect(source, `input_text.ls_${scope}_${block}`);
+  const effect = savedEffect(source, `input_text.ls_${profileScope}_${block}`);
   return { power: 'on', brightness: toBrightness(Math.trunc(level)), colour: decodeColour(light), effect };
 }
 
@@ -134,9 +152,12 @@ function isOn(source: ConfigSource, entity: string): boolean {
   return source.states[entity]?.state === 'on';
 }
 
+/** Only a room with a lamp, a switch or a saved switch range has its own schedule, as the schedule gives them; a remote alone does not. */
 function decodeRooms(source: ConfigSource, placed: readonly (RoomId | undefined)[]): Record<RoomId, Room> {
+  // A '' private-room label (a lamp in no area) names no room, so Room cannot carry it.
   const privateRooms = source.labels['private_room'] ?? [];
-  const rooms = new Set(placed.filter(room => room !== undefined));
+  const ranged = Object.keys(rangeEntities(source)).map(entity => roomOf(source.rooms.ofId[entity]));
+  const rooms = new Set([...placed, ...ranged].filter(room => room !== undefined));
   return Object.fromEntries([...rooms].map(room => [room, {
     blocks: perBlock(block => decodeRoomBlock(source, room, block)),
     wakeLight: decodeWakeLight(source, room),
@@ -144,17 +165,24 @@ function decodeRooms(source: ConfigSource, placed: readonly (RoomId | undefined)
   } satisfies Room]));
 }
 
+/** The entities with a saved switch range: the keys of `sensor.ls_overrides`'s `switch_ranges`. */
+function rangeEntities(source: ConfigSource): Record<string, JsonValue> {
+  const ranges = source.states['sensor.ls_overrides']?.attributes['switch_ranges'];
+  return isObject(ranges) ? ranges : {};
+}
+
 function decodeRoomBlock(source: ConfigSource, room: RoomId, block: Block): RoomBlock {
   const prefix = `ls_${room}_${block}`;
   const ownTiming = isOn(source, `input_boolean.${prefix}_own_timing`);
-  // With its own-light flag on, the room's light and its switch rule apply where their helpers hold a state; otherwise the house's do.
+  // The own-light flag alone picks the room's saved effect; the light entity and the switch rule are the room's
+  // only where their helpers hold a state.
   const ownFlag = isOn(source, `input_boolean.${prefix}_own_light`);
   const own = <T>(value: T): OwnOrHouse<T> => ({ follows: 'own', own: value });
   const house: { follows: 'house' } = { follows: 'house' };
   return {
     timing: ownTiming ? own(decodeTiming(source, room, block)) : house,
-    light: ownFlag && holdsState(source, `light.${prefix}`) ? own(decodeBlockLight(source, room, block)) : house,
-    switchesOn: ownFlag && holdsState(source, `input_boolean.${prefix}_on_off`) ? own(isOn(source, `input_boolean.${prefix}_on_off`)) : house,
+    light: !ownFlag ? house : own(decodeBlockLight(source, holdsState(source, `light.${prefix}`) ? room : 'house', room, block)),
+    switchesOn: ownFlag && holdsState(source, `input_boolean.${prefix}_on_off`) ? own(onOff(source, room, block)) : house,
   };
 }
 

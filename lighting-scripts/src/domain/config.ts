@@ -31,7 +31,8 @@ export type BlockSchedule = {
   weekendStart: TimeOfDay | undefined;
   fade: Minutes;
   light: SceneLight | undefined;
-  switchesOn: boolean;
+  /** Whether switches are on in this block; undefined when no helper says, which leaves a switch as it is. */
+  switchesOn: boolean | undefined;
 };
 
 /** A room follows the house for a block's timing or light unless it has its own. */
@@ -39,7 +40,7 @@ export type OwnOrHouse<T> = { follows: 'house' } | { follows: 'own'; own: T };
 
 export type BlockTiming = Pick<BlockSchedule, 'weekdayStart' | 'weekendStart' | 'fade'>;
 
-export type RoomBlock = { timing: OwnOrHouse<BlockTiming>; light: OwnOrHouse<SceneLight | undefined>; switchesOn: OwnOrHouse<boolean> };
+export type RoomBlock = { timing: OwnOrHouse<BlockTiming>; light: OwnOrHouse<SceneLight | undefined>; switchesOn: OwnOrHouse<boolean | undefined> };
 
 /** A private room is left out of house-wide overlays and the mode overlay. */
 export type Room = { blocks: Record<Block, RoomBlock>; wakeLight: WakeLight | undefined; private: boolean };
