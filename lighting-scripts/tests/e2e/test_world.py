@@ -293,7 +293,7 @@ class FromSim(unittest.TestCase):
     def stub(self):
         catalog = {
             'members': {'light.lamp_a': ['light.bulb_a'], 'light.lamp_ab': ['light.bulb_a', 'light.bulb_b']},
-            'groups': {'light.home': ['light.lamp_a', 'light.lamp_ab']},
+            'groups': {'light.group_x': ['light.lamp_a', 'light.lamp_ab']},
             'topics': {'light.bulb_a': 'zigbee2mqtt/addr_a/set', 'light.bulb_b': 'zigbee2mqtt/Name B/set'},
             'multicast': [
                 {'id': 'fx_x', 'topic': 'zigbee2mqtt/group/ab/set', 'phase_cohort': 'fx_x',
@@ -301,7 +301,7 @@ class FromSim(unittest.TestCase):
                                    'light.bulb_b': 'zigbee2mqtt/Name B/set'}}],
         }
         state = {
-            'light.home': {'attributes': {'entity_id': ['light.lamp_a', 'light.lamp_ab']}},
+            'light.group_x': {'attributes': {'entity_id': ['light.lamp_a', 'light.lamp_ab']}},
             'light.lamp_a': {'attributes': {}},
             'light.ls_profile_x': {'attributes': {}},
             'switch.plug_x': {'attributes': {}},
@@ -317,7 +317,7 @@ class FromSim(unittest.TestCase):
         world.apply(publish('Name B', {'brightness': 30}), 0)
         self.assertEqual(world.bulb('addr_a', 0).level, 20)
         self.assertEqual(world.bulb('Name B', 0).level, 30)
-        world.apply(service('light.turn_off', 'light.home'), 1)
+        world.apply(service('light.turn_off', 'light.group_x'), 1)
         self.assertEqual(world.bulb('addr_a', 1), Off())
         self.assertEqual(world.bulb('Name B', 1), Off())
 
