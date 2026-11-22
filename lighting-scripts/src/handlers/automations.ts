@@ -11,14 +11,14 @@ import { withParsedArgs } from '../runtime/parse.ts';
 import { withFields } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { timestamp } from '../parse/accessors.ts';
-import type { StoredValue } from '../parse/overrides.ts';
+import type { StoredFact, StoredValue } from '../parse/overrides.ts';
 import { attributeFact, attributeMapping, lenientOverrides } from '../parse/sensors.ts';
 import {
   controlTopic, inputNumber, nativeCapture, nativeControlValue, nativeSourceFor, overrideAges, parseLampChangeArgs, parseNativeControlsArgs,
     parseRemoteArgs, parseSaraModeArgs, parseScheduleEngineArgs, parseTriggerIdArgs, parseWriterArgs, stateContextId,
 } from '../parse/automations.ts';
 import type {
-  LampChangeArgs, NativeCapture, NativeControlsArgs, RemoteArgs, RemoteKind, SaraModeArgs, ScheduleEngineArgs, TriggerIdArgs, WriterArgs,
+  LampChangeArgs, NativeCapture, NativeControlsArgs, RemoteArgs, RemoteKind, SaraModeArgs, ScheduleEngineArgs, WriterArgs,
 } from '../parse/automations.ts';
 import { perform, run } from '../runtime/effects.ts';
 import type { Effect, HouseView, Plan } from '../runtime/effects.ts';
@@ -61,8 +61,8 @@ export function* requestRender(): Plan<null> {
 }
 
 /** The native-light-controls refresh forces a full UI sync on start. */
-export function* refreshUi(args: TriggerIdArgs): Plan<null> {
-  yield { kind: 'script', name: 'effects_ui_sync', args: { force: args.id === 'start' } };
+export function* refreshUi(triggerId: StoredFact): Plan<null> {
+  yield { kind: 'script', name: 'effects_ui_sync', args: { force: triggerId === 'start' } };
   return null;
 }
 
@@ -80,14 +80,14 @@ export function* runScheduleEngine(args: ScheduleEngineArgs): Plan<null> {
  * where the captured script reaches it -- after the rule's on-switch passed.
  * Which overlays the after-limit rule ends is {@link expiredOverlays}.
  */
-export function endOverrides(view: HouseView, args: TriggerIdArgs): Effect[] {
+export function endOverrides(view: HouseView, triggerId: StoredFact): Effect[] {
   const overrides = lenientOverrides(view);
-  if (args.id === 'after' && view.get('input_boolean.ls_ovr_after_on') === 'on') {
+  if (triggerId === 'after' && view.get('input_boolean.ls_ovr_after_on') === 'on') {
     const now = timestamp(view.now), limit = inputNumber(view, 'input_number.ls_ovr_after_min', 180) * 60;
     const expired = expiredOverlays(overrideAges(overrides.entries), now, limit).map(overlayKeyText);
     return expired.length > 0 ? [{ kind: 'event', event: 'ls_override', data: { op: 'clear', keys: expired, via: 'rule_after' } }] : [];
   }
-  if (args.id === 'at' && view.get('input_boolean.ls_ovr_at_on') === 'on' && overrides.entries.length > 0) {
+  if (triggerId === 'at' && view.get('input_boolean.ls_ovr_at_on') === 'on' && overrides.entries.length > 0) {
     return [{ kind: 'event', event: 'ls_override', data: { op: 'clear_all', via: 'rule_at' } }];
   }
   return [];
@@ -191,7 +191,7 @@ export const automationHandlers: ScriptHandlers = {
   // Refresh reads trigger.id raw once for comparison only.
   'automation.effects_refresh_native_light_controls': withParsedArgs({
     parse: parseTriggerIdArgs('automation.effects_refresh_native_light_controls'),
-    run: (ctx, args: TriggerIdArgs) => run(ctx, refreshUi(args)),
+    run: (ctx, triggerId: StoredFact) => run(ctx, refreshUi(triggerId)),
   }),
   // Schedule engine reads trigger.id and trigger.entity_id raw once each. The
   // entity is only reached on the lamp-on branch, matching captured control flow.
@@ -203,8 +203,8 @@ export const automationHandlers: ScriptHandlers = {
   // avoids changing the internal override iteration and timestamp semantics.
   'automation.lighting_schedule_end_overrides': withParsedArgs({
     parse: parseTriggerIdArgs('automation.lighting_schedule_end_overrides'),
-    run: (ctx, args: TriggerIdArgs) => {
-    for (const effect of endOverrides(ctx, args)) perform(ctx, effect);
+    run: (ctx, triggerId: StoredFact) => {
+    for (const effect of endOverrides(ctx, triggerId)) perform(ctx, effect);
     return null;
     },
   }),

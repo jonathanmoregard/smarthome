@@ -48,12 +48,12 @@ test('malformed cached gradient is rebuilt while a valid cached curve retains it
   const port = { planGradients: (args: object) => algebra.planGradients(edge.parseGradientPlanArgs(args)) };
   const base = { lamp: { day: { brightness: 220, color: { kelvin: 4000 } }, cosy: { brightness: 110, color: { kelvin: 2200 } } } };
   const first = port.planGradients({ base });
-  assert.deepEqual(first.gradients.lamp.curve.brightness, { floor: 76.5, lower: 110, middle: 110, upper: 35 });
-  assert.deepEqual(algebra.sampleGradient(first.gradients.lamp.curve, 0.5), { brightness: 165, color: { kelvin: 3100 }, position: 0.5 });
-  const broken = structuredClone(first.gradients);
+  assert.deepEqual(first.lamp.curve.brightness, { floor: 76.5, lower: 110, middle: 110, upper: 35 });
+  assert.deepEqual(algebra.sampleGradient(first.lamp.curve, 0.5), { brightness: 165, color: { kelvin: 3100 }, position: 0.5 });
+  const broken = structuredClone(first);
   broken.lamp.curve.colors.middle.start = 'bad';
   assert.deepEqual(port.planGradients({ base, cached: broken }), first);
-  assert.deepEqual(port.planGradients({ base, cached: first.gradients }), first);
+  assert.deepEqual(port.planGradients({ base, cached: first }), first);
 });
 
 test('room input uses its logical level across lamp profiles and down never brightens a dim Night', async () => {

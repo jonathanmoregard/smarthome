@@ -89,7 +89,6 @@ export interface BlockTarget {
   key: () => string | undefined;
 }
 export interface OverrideBlockArgs { scope: BlockTarget; block: string; via: Verbatim }
-export interface ViaArgs { via: Verbatim }
 /** The string each schedule key is scheduled to in the dry-run plan, if any. */
 export type ScheduledBlocks = (key: string | undefined) => string | undefined;
 

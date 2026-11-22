@@ -50,7 +50,7 @@ test('effects_gradient_plan raises on an explicit null warm_end where the signat
   // this test.
   assert.throws(() => planGradients({ base: { lamp: anchors }, warm_end: null }),
     { name: 'TypeError', message: "effects_gradient_plan.warm_end|list: 'NoneType' object is not iterable" });
-  assert.deepEqual(planGradients({ base: {}, warm_end: null }), { gradients: {} });
+  assert.deepEqual(planGradients({ base: {}, warm_end: null }), {});
   assert.deepEqual(planGradients({ base: { lamp: anchors } }), planGradients({ base: { lamp: anchors }, warm_end: [255, 126, 0] }));
 });
 

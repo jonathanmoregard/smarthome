@@ -29,9 +29,9 @@ test('ls_plan with no room asks ls_base for room_only "" ', () => {
         sara_mirror: null } };
     } }),
     effects_catalog: () => ({}),
-    effects_gradient_plan: typed('effects_gradient_plan', { parse: args => args, run: () => ({ gradients: {} }) }),
+    effects_gradient_plan: typed('effects_gradient_plan', { parse: args => args, run: () => ({}) }),
     effects_resolve: typed('effects_resolve', { parse: args => args, run: () => ({ targets: {}, assignments: {} }) }),
-    ls_switch_plan: typed('ls_switch_plan', { parse: args => args, run: () => ({ switches: {} }) }),
+    ls_switch_plan: typed('ls_switch_plan', { parse: args => args, run: () => ({}) }),
   });
   ctx.put('sensor.ls_overrides', '0', { overrides: {} });
   ctx.run('ls_plan', {});
@@ -135,7 +135,7 @@ test('ls_plan reads no room cache for a lamp in no room', () => {
       return { gradients: {} };
     } }),
     effects_resolve: typed('effects_resolve', { parse: args => args, run: () => ({ targets: {}, assignments: {} }) }),
-    ls_switch_plan: typed('ls_switch_plan', { parse: args => args, run: () => ({ switches: {} }) }),
+    ls_switch_plan: typed('ls_switch_plan', { parse: args => args, run: () => ({}) }),
   });
   ctx.members = ['light.hall'];
   ctx.areas = {};

@@ -16,7 +16,7 @@ import type { RemotePlanResult } from '../domain/remote-input.ts';
 import { remoteAnswerDocument, remotePlanDocument } from '../parse/results.ts';
 import { perform } from '../runtime/effects.ts';
 import { acceptedPowerSwitch, planAnswer, remoteCommit, switchPlan } from '../domain/controller.ts';
-import type { ApplyArgs, PlanArgs, PlanResult, PowerSwitch, RemoteCommandArgs } from '../domain/controller.ts';
+import type { ApplyArgs, PlanArgs, PlanDocument, PowerSwitch, RemoteCommandArgs } from '../domain/controller.ts';
 import { overlayKeyText, SARA_MODE } from '../domain/types/overlay.ts';
 import { pressText } from '../domain/types/remote.ts';
 import { roomText } from '../parse/rooms.ts';
@@ -43,7 +43,7 @@ import { roomText } from '../parse/rooms.ts';
  * typed -- then this document has a typed producer and a typed consumer and the
  * question does not arise.
  */
-export function plan(ctx: ScriptContext, args: PlanArgs): PlanResult {
+export function plan(ctx: ScriptContext, args: PlanArgs): PlanDocument {
   const overrides = args.testOverrides === undefined
     ? planOverrides(ctx.attr('sensor.ls_overrides', 'overrides'))
     : args.testOverrides;
@@ -63,7 +63,7 @@ export function plan(ctx: ScriptContext, args: PlanArgs): PlanResult {
     if (area === null) continue;
     cached = { ...cached, ...cachedGradients(ctx.attr(`sensor.ls_cache_${area}`, 'cache')) };
   }
-  const gradients = ctx.call('effects_gradient_plan', { base: baselineTargets, warm_end: warmEnd, cached }).gradients;
+  const gradients = ctx.call('effects_gradient_plan', { base: baselineTargets, warm_end: warmEnd, cached });
   const privateRooms = ctx.labels?.private_room;
   const power = planMapping(ctx.attr('sensor.ls_overrides', 'power'));
   const resolved = ctx.call('effects_resolve', { base: baselineTargets, overrides: active, catalog,
@@ -73,7 +73,7 @@ export function plan(ctx: ScriptContext, args: PlanArgs): PlanResult {
   const ranges = planMapping(ctx.attr('sensor.ls_overrides', 'switch_ranges'));
   const defaults = planRangeDefaults(ctx.attr('sensor.ls_overrides', 'range_defaults'));
   const switches = ctx.call('ls_switch_plan', { targets: resolvedTargets, ranges, defaults });
-  return planAnswer(ctx, { schedule, base: baselineTargets, resolved, gradients, switches: switches.switches, active, reason: args.reason });
+  return planAnswer(ctx, { schedule, base: baselineTargets, resolved, gradients, switches, active, reason: args.reason });
 }
 /**
  * Answers `Verbatim`, and NOT because `ls_plan` is untyped -- because verbatim
@@ -81,7 +81,7 @@ export function plan(ctx: ScriptContext, args: PlanArgs): PlanResult {
  * `tests/parity/test_bridge.py:54-60` stubs `ls_plan` with
  * `{'marker': ['literal', 7]}` and asserts this function returns that object
  * unchanged, so the dry-run path must forward an arbitrary document. Narrowing
- * this to `PlanResult | null` would be a claim the harness disproves, and
+ * this to `{ plan: PlanDocument } | null` would be a claim the harness disproves, and
  * `ctx.call` here would raise on a document with no `plan` key. Carried, it is
  * forwarded unread and is still the very same document.
  */
@@ -123,7 +123,8 @@ function switchPower(ctx: ScriptContext, power: PowerSwitch): void {
 }
 export const controllerHandlers: ScriptHandlers = {
   ls_switch_plan: typed('ls_switch_plan', { parse: parseSwitchPlanArgs, run: (ctx, args) => switchPlan(ctx.rooms.ofId, args) }),
-  ls_plan: withParsedArgs({ parse: parsePlanArgs, run: plan }),
+  // The wire answer is a mapping, so the plan goes out under `plan`.
+  ls_plan: withParsedArgs({ parse: parsePlanArgs, run: (ctx, args) => ({ plan: plan(ctx, args) }) }),
   ls_apply: withParsedArgs({ parse: parseApplyArgs, run: apply }),
   ls_remote_command: withParsedArgs({ parse: parseRemoteCommandArgs, run: (ctx, args) => remoteAnswerDocument(remoteCommand(ctx, args)) }),
 };

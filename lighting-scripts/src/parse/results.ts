@@ -1,6 +1,6 @@
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { TypedResults } from '../runtime/entrypoints.ts';
-import type { SwitchDecision, SwitchPlanResult } from '../domain/controller.ts';
+import type { SwitchDecision } from '../domain/controller.ts';
 import type { AssignResult, EmitResult } from '../domain/transport.ts';
 import type { CommitResult } from '../domain/state-store.ts';
 import type { GroupCommand, GroupPlanResult, RejectedRow } from '../domain/grouping.ts';
@@ -14,7 +14,7 @@ import { carry } from '../runtime/verbatim.ts';
 import { assembledMap, storedFact } from './overrides.ts';
 import { toBulbId, toPowerTarget, toRemoteSource, toRoomId, toSwitchId } from './ids.ts';
 import { overlayKeyText, remoteInputKey, SARA_MODE } from '../domain/types/overlay.ts';
-import type { RemoteSource } from '../domain/types/ids.ts';
+import type { RemoteSource, SwitchId } from '../domain/types/ids.ts';
 
 function decodeStrings(container: JsonObject, key: string, context: string): string[] {
   return requireArray(container, key, context)
@@ -90,13 +90,11 @@ function decodeSwitchDecision(value: JsonValue, context: string): SwitchDecision
  * have fired for a stub, and the strict reading is the one that catches a stub
  * that has drifted from the shape it stands in for.
  */
-function decodeSwitchPlan(value: JsonValue, context: string): SwitchPlanResult {
+function decodeSwitchPlan(value: JsonValue, context: string): Record<SwitchId, SwitchDecision> {
   const result = requireObject({ value }, 'value', context);
   const switches = requireObject(result, 'switches', context);
-  return {
-    switches: Object.fromEntries(Object.entries(switches)
-      .map(([entity, entry]) => [toSwitchId(entity), decodeSwitchDecision(entry, `${context}.switches.${entity}`)])),
-  };
+  return Object.fromEntries(Object.entries(switches)
+    .map(([entity, entry]) => [toSwitchId(entity), decodeSwitchDecision(entry, `${context}.switches.${entity}`)]));
 }
 
 function decodeEmit(value: JsonValue, context: string): EmitResult {
@@ -509,7 +507,8 @@ function decodeScheduledBase(value: JsonValue, context: string): ScheduledBaseRe
  * the typed surface cannot grow a member that the JSON edge cannot serve.
  */
 export const resultCodecs: { [K in keyof TypedResults]: ResultCodec<TypedResults[K]> } = {
-  ls_switch_plan: { encode: result => result, decode: decodeSwitchPlan },
+  // The wire answer is a mapping, so the switches go out under `switches`.
+  ls_switch_plan: { encode: switches => ({ switches }), decode: decodeSwitchPlan },
   // No decoder: a `ResolvedTarget` is `JsonObject`/`JsonValue` fields plus one
   // string, so a decoder could only check that nine keys are present -- and the
   // three stubs that stand in for this entrypoint declare their shape through
@@ -517,7 +516,7 @@ export const resultCodecs: { [K in keyof TypedResults]: ResultCodec<TypedResults
   effects_resolve: { encode: result => result },
   // No decoder, for the opposite reason: `GradientCurve` is a deep structure
   // and its only JSON stub is `{gradients: {}}`.
-  effects_gradient_plan: { encode: result => result },
+  effects_gradient_plan: { encode: gradients => ({ gradients }) },
   // Decoders: both results are small and flat, and `ls_dispatch` reads every
   // field of them, so a drifted stub here would corrupt a dispatch rather than
   // fail loudly.

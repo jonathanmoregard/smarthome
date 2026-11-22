@@ -1,8 +1,9 @@
 import type { JsonObject, ScriptContext, ScriptHandler } from './context.ts';
 import { resultCodecs } from '../parse/results.ts';
-import type { SwitchPlanResult } from '../domain/controller.ts';
+import type { SwitchDecision } from '../domain/controller.ts';
+import type { SwitchId } from '../domain/types/ids.ts';
 import type { ResolutionResult } from '../domain/resolution.ts';
-import type { GradientPlanResult } from '../domain/gradient.ts';
+import type { CompiledGradients } from '../domain/gradient.ts';
 import type { AssignResult, EmitResult } from '../domain/transport.ts';
 import type { DispatchResult } from '../domain/dispatch-render.ts';
 import type { CommitResult } from '../domain/state-store.ts';
@@ -15,7 +16,7 @@ import type { ScheduledBaseResult } from '../domain/schedule.ts';
  * name callers already use.
  *
  * This is the typed dependency surface. `ctx.call('ls_switch_plan', args)`
- * returns `SwitchPlanResult` instead of `JsonValue`, so the caller stops
+ * returns each switch's `SwitchDecision` instead of `JsonValue`, so the caller stops
  * re-dissolving what the callee already built. The name stays a string literal
  * on purpose: `scriptRuns` and the parity trace both record it, and the
  * argument bytes are compared, so only the *result* data flow changes.
@@ -29,9 +30,9 @@ import type { ScheduledBaseResult } from '../domain/schedule.ts';
  * they need no typed surface, only the name-keyed shim they already have.
  */
 export interface TypedResults {
-  ls_switch_plan: SwitchPlanResult;
+  ls_switch_plan: Record<SwitchId, SwitchDecision>;
   effects_resolve: ResolutionResult;
-  effects_gradient_plan: GradientPlanResult;
+  effects_gradient_plan: CompiledGradients;
   effects_emit: EmitResult;
   effects_assign: AssignResult;
   ls_dispatch: DispatchResult;

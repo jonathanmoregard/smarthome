@@ -23,7 +23,7 @@ function planContext() {
     // it is labelled `ls_base.targets` and no longer `ls_plan.baseline`.
     ls_base: () => ({ schedule: { stale_keys: [] } }),
     effects_catalog: () => ({}),
-    effects_gradient_plan: stub('effects_gradient_plan', () => ({ gradients: {} })),
+    effects_gradient_plan: stub('effects_gradient_plan', () => ({})),
     effects_resolve: stub('effects_resolve', () => ({ targets: {}, assignments: {} })),
     ls_switch_plan: () => ({ switches: {} }),
   });

@@ -17,7 +17,7 @@ const parts = (active: Record<string, ReturnType<typeof carry>>, reason = 'tick'
 
 test('the plan overwrites the schedule\'s revision and Sara mirror, and stamps its order from now', () => {
   const view = house({ 'sensor.ls_overrides': { state: '0', attributes: {}, last_updated: REVISION }, 'input_boolean.ls_sara_mode_mirror': 'off' });
-  const { plan } = planAnswer(view, parts({ 'mode:sara': carry({}) }, 'remote'));
+  const plan = planAnswer(view, parts({ 'mode:sara': carry({}) }, 'remote'));
   assert.deepEqual([plan.revision, plan.plan_order, plan.remote, plan.sara_mirror], [REVISION, recordTimestamp(NOW), true, 'on']);
   assert.deepEqual(Object.keys(plan), ['cmds', 'profiles', 'revision', 'stale_keys', 'sched', 'schedule_details', 'mirror', 'sara_mirror',
     'base', 'resolved', 'gradients', 'switches', 'plan_order', 'remote']);
@@ -25,7 +25,7 @@ test('the plan overwrites the schedule\'s revision and Sara mirror, and stamps i
 
 test('a Sara mirror already showing the wanted state asks for nothing', () => {
   const view = house({ 'sensor.ls_overrides': { state: '0', attributes: {}, last_updated: REVISION }, 'input_boolean.ls_sara_mode_mirror': 'off' });
-  assert.equal(planAnswer(view, parts({})).plan.sara_mirror, null);
+  assert.equal(planAnswer(view, parts({})).sara_mirror, null);
 });
 
 test('an overrides sensor with no last_updated raises at the revision read', () => {

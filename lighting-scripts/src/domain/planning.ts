@@ -2,7 +2,7 @@ import { storedEquals, withFields, withoutField } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { BLOCKS, blockOption } from './blocks.ts';
 import type { Block } from './blocks.ts';
-import type { GradientPlanResult } from './gradient.ts';
+import type { CompiledGradients } from './gradient.ts';
 import type { ResolutionResult } from './resolution.ts';
 import type { ScheduleMirror } from './schedule.ts';
 import type { SwitchDecision } from './controller.ts';
@@ -126,7 +126,7 @@ export type Dependencies = {
 };
 export type PeriodRow = [Verbatim, Verbatim, Verbatim, Block, StoredValue, boolean];
 /** Computed on a miss; cached on a hit. */
-export type Gradients = GradientPlanResult['gradients'] | Verbatim;
+export type Gradients = CompiledGradients | Verbatim;
 export type CacheUpdate = {
   version: string;
   room: RoomId;

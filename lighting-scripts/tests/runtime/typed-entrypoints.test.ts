@@ -42,7 +42,7 @@ test('the name-keyed shim still serves the same JSON to the edges', () => {
 
 test('the typed call hands back what the planner built, not a JSON copy', () => {
   const planned = studioContext().call('ls_switch_plan', args);
-  const decision = planned.switches['switch.studio'];
+  const decision = planned['switch.studio'];
   assert.ok(decision !== undefined, 'the studio switch is planned');
   // Reads that need no accessor are the point of the seam: `on` is a boolean
   // and `range` a pair of numbers in the type, so neither needs re-dissolving.
@@ -54,8 +54,8 @@ test('the typed call hands back what the planner built, not a JSON copy', () => 
 test('a name-keyed stub is decoded, so existing stubs keep standing in', () => {
   const stubbed = context({ ls_switch_plan: () => ({ switches: { 'switch.hall': { on: false, room: 'hall', brightness: 0, range: [0, 100] } } }) });
   const planned = stubbed.call('ls_switch_plan', {});
-  assert.equal(planned.switches['switch.hall']?.on, false);
-  assert.equal(planned.switches['switch.hall']?.brightness, 0, 'a brightness of zero survives decoding');
+  assert.equal(planned['switch.hall']?.on, false);
+  assert.equal(planned['switch.hall']?.brightness, 0, 'a brightness of zero survives decoding');
 });
 
 test('an entrypoint with no decoder refuses a JSON stub instead of guessing', () => {

@@ -46,7 +46,7 @@ test('pending output is dirty on an unhandled full version or an unhandled room'
 });
 
 test('refresh and the schedule engine forward their trigger', () => {
-  assert.deepEqual([...refreshUi({ id: 'start' })], [{ kind: 'script', name: 'effects_ui_sync', args: { force: true } }]);
+  assert.deepEqual([...refreshUi('start')], [{ kind: 'script', name: 'effects_ui_sync', args: { force: true } }]);
   assert.deepEqual([...runScheduleEngine({ id: 'lamp_on', entityId: undefined })], [{ kind: 'script', name: 'ls_apply', args: { reason: 'lamp_on', lights: [null] } }]);
   assert.deepEqual([...runScheduleEngine({ id: undefined, entityId: 'light.a' })], [{ kind: 'script', name: 'ls_apply', args: { reason: null } }]);
 });
@@ -55,11 +55,11 @@ test('end-after clears overrides at least the limit old; an off rule never reads
   const now = Date.parse('2026-10-26T12:00:00+01:00');
   const overrides = { old: { when: new Date(now - 3 * 3600e3).toISOString() }, fresh: { when: new Date(now - 60e3).toISOString() } };
   const view = house({ 'input_boolean.ls_ovr_after_on': 'on', 'input_number.ls_ovr_after_min': '120', 'sensor.ls_overrides': ['x', { overrides }] });
-  assert.deepEqual(endOverrides(view, { id: 'after' }), [override({ op: 'clear', keys: ['old'], via: 'rule_after' })]);
+  assert.deepEqual(endOverrides(view, 'after'), [override({ op: 'clear', keys: ['old'], via: 'rule_after' })]);
   const off = house({ 'input_boolean.ls_ovr_after_on': 'off', 'input_number.ls_ovr_after_min': 'garbage', 'sensor.ls_overrides': ['x', { overrides }] });
-  assert.deepEqual(endOverrides(off, { id: 'after' }), []);
+  assert.deepEqual(endOverrides(off, 'after'), []);
   const at = house({ 'input_boolean.ls_ovr_at_on': 'on', 'sensor.ls_overrides': ['x', { overrides }] });
-  assert.deepEqual(endOverrides(at, { id: 'at' }), [override({ op: 'clear_all', via: 'rule_at' })]);
+  assert.deepEqual(endOverrides(at, 'at'), [override({ op: 'clear_all', via: 'rule_at' })]);
 });
 
 test('the Sara switch sets or clears mode:sara only on a change', () => {

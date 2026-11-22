@@ -12,7 +12,7 @@ test('switch planning reads only the areas map', () => {
     ranges: { 'switch.lamp': { profile: 'custom', min: 0, max: 100 } },
     defaults: {},
   }));
-  assert.deepEqual(plan, { switches: { 'switch.lamp': { on: true, room: 'studio', brightness: 100, range: [0, 100] } } });
+  assert.deepEqual(plan, { 'switch.lamp': { on: true, room: 'studio', brightness: 100, range: [0, 100] } });
 });
 
 test('schedule details read the house through a plain view', () => {

@@ -76,10 +76,10 @@ export const stateStoreHandlers: ScriptHandlers = {
   }),
   // Captured via has one `| default('app')` site; explicit null/falsy values
   // survive because Jinja default only replaces Undefined.
-  ls_clear_overrides: withParsedArgs({ parse: parseViaArgs, run: (ctx, args) => run(ctx, clearAllOverrides(args.via)) }),
+  ls_clear_overrides: withParsedArgs({ parse: parseViaArgs, run: (ctx, via) => run(ctx, clearAllOverrides(via)) }),
   // Captured via has two `| default('app')` sites with the same semantics.
   ls_sara_mode: withParsedArgs({
     parse: parseViaArgs,
-    run: (ctx, args) => run(ctx, toggleSaraMode(savedOverridesContain(ctx, SARA_MODE), args.via)),
+    run: (ctx, via) => run(ctx, toggleSaraMode(savedOverridesContain(ctx, SARA_MODE), via)),
   }),
 };

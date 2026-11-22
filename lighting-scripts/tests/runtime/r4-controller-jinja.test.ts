@@ -25,9 +25,9 @@ function planContext(overrides: JsonObject = { sensor: { kind: 'block' } }) {
       cmds: [], profiles: {}, revision: 'r', stale_keys: [], sched: {}, schedule_details: {}, mirror: [], sara_mirror: null,
     } })),
     effects_catalog: () => ({}),
-    effects_gradient_plan: recording(seen, 'effects_gradient_plan', () => ({ gradients: {} })),
+    effects_gradient_plan: recording(seen, 'effects_gradient_plan', () => ({})),
     effects_resolve: recording(seen, 'effects_resolve', () => ({ targets: {}, assignments: {} })),
-    ls_switch_plan: recording(seen, 'ls_switch_plan', () => ({ switches: {} })),
+    ls_switch_plan: recording(seen, 'ls_switch_plan', () => ({})),
     ls_commit: (_ctx, args) => { seen.push({ ls_commit: structuredClone(args) }); return { accepted: true }; },
   });
   ctx.put('sensor.ls_overrides', '0', { overrides });

@@ -27,7 +27,7 @@ test('a switch decision with a range no switch range gives is refused', () => {
     assert.throws(() => decodeSwitches({ on: false, range }),
       refused(/ls_switch_plan\.switches\.switch\.fan\.range must be two bounds with 0 <= low <= high <= 100/), JSON.stringify(range));
   }
-  assert.deepEqual(decodeSwitches({ on: false, range: [true, 100] })?.switches, { 'switch.fan': { on: false, room: 'studio', range: [true, 100] } });
+  assert.deepEqual(decodeSwitches({ on: false, range: [true, 100] }), { 'switch.fan': { on: false, room: 'studio', range: [true, 100] } });
 });
 
 test('a switch decision that is on without a brightness in its range is refused', () => {
@@ -38,7 +38,7 @@ test('a switch decision that is on without a brightness in its range is refused'
       refused(/ls_switch_plan\.switches\.switch\.fan\.on is true only with a brightness within its range/), JSON.stringify(decision));
   }
   const decoded = decodeSwitches({ on: true, brightness: 40, range: [10, 60] });
-  assert.deepEqual(decoded === undefined ? undefined : Object.values(decoded.switches).map(decision => decision.on), [true]);
+  assert.deepEqual(decoded === undefined ? undefined : Object.values(decoded).map(decision => decision.on), [true]);
 });
 
 // effects_group_plan / effects_frame_plan: `planGroups` counts its own

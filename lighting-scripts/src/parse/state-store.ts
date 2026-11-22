@@ -12,7 +12,7 @@ import { isObject, jinjaFloat, jinjaInt, jinjaString, object, ParseError, requir
 import { carry } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import type {
-  BlockTarget, CommitSnapshot, EffectChannels, OverrideBlockArgs, ProfilePatch, ScheduledBlocks, StoredProfile, StoreProfileArgs, ViaArgs,
+  BlockTarget, CommitSnapshot, EffectChannels, OverrideBlockArgs, ProfilePatch, ScheduledBlocks, StoredProfile, StoreProfileArgs,
 } from '../domain/state-store.ts';
 import { opaqueMap, storedFact } from './overrides.ts';
 import { attributeFact, attributeList, attributeMapping, lenientOverrides } from './sensors.ts';
@@ -67,8 +67,9 @@ export function parseOverrideBlockArgs(args: JsonObject): OverrideBlockArgs {
   };
 }
 
-export function parseViaArgs(args: JsonObject): ViaArgs {
-  return { via: via(args) };
+/** A request that carries only who asked: `via`. */
+export function parseViaArgs(args: JsonObject): Verbatim {
+  return via(args);
 }
 
 /**

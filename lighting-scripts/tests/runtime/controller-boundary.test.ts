@@ -23,9 +23,9 @@ function planContext(attributes: JsonObject) {
       cmds: [], profiles: {}, revision: 'r', stale_keys: ['old'], sched: {}, schedule_details: {}, mirror: [], sara_mirror: null,
     } })),
     effects_catalog: () => ({}),
-    effects_gradient_plan: recording(seen, 'effects_gradient_plan', () => ({ gradients: {} })),
+    effects_gradient_plan: recording(seen, 'effects_gradient_plan', () => ({})),
     effects_resolve: recording(seen, 'effects_resolve', () => ({ targets: {}, assignments: {} })),
-    ls_switch_plan: recording(seen, 'ls_switch_plan', () => ({ switches: {} })),
+    ls_switch_plan: recording(seen, 'ls_switch_plan', () => ({})),
   });
   ctx.put('sensor.ls_overrides', '0', attributes);
   ctx.state['sensor.ls_overrides']!.last_updated = ctx.now;

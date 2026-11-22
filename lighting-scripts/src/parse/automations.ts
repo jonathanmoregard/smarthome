@@ -146,20 +146,19 @@ export function parseWriterArgs(args: JsonObject): WriterArgs {
   return { data: carry(data), who: carry(who) };
 }
 
-export interface TriggerIdArgs { id: StoredFact }
-
+/** An automation's `trigger.id`, as stored. */
 export function parseTriggerIdArgs(context: string) {
-  return (args: JsonObject): TriggerIdArgs => ({ id: storedFact(triggerObject(args, context).id) });
+  return (args: JsonObject): StoredFact => storedFact(triggerObject(args, context).id);
 }
 
-export interface ScheduleEngineArgs extends TriggerIdArgs { entityId: StoredFact }
+export interface ScheduleEngineArgs { id: StoredFact; entityId: StoredFact }
 
 export function parseScheduleEngineArgs(args: JsonObject): ScheduleEngineArgs {
   const trigger = triggerObject(args, 'automation.lighting_schedule_engine');
   return { id: storedFact(trigger.id), entityId: storedFact(trigger.entity_id) };
 }
 
-export interface SaraModeArgs extends TriggerIdArgs { who: StoredFact }
+export interface SaraModeArgs { id: StoredFact; who: StoredFact }
 
 export function parseSaraModeArgs(args: JsonObject): SaraModeArgs {
   const trigger = triggerObject(args, 'automation.lighting_schedule_sara_mode_switch');

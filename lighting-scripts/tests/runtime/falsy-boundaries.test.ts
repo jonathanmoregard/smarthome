@@ -220,7 +220,7 @@ test('controller preserves absent-only defaults and rejects explicit nulls', () 
     ...controllerHandlers,
     ls_base: () => ({ schedule: { stale_keys: [] }, targets: {} }),
     effects_catalog: () => ({}),
-    effects_gradient_plan: stub('effects_gradient_plan', () => ({ gradients: {} })),
+    effects_gradient_plan: stub('effects_gradient_plan', () => ({})),
     effects_resolve: stub('effects_resolve', () => ({ targets: {}, assignments: {} })),
     ls_switch_plan: () => ({ switches: {} }),
     ls_commit: () => ({ accepted: true, revision: 'revision', committed_at: 0 }),
@@ -239,7 +239,7 @@ test('controller requires producer-owned plan and remote result fields', () => {
     // `decodeScheduledBase` when `ls_base` became typed, hence the label.
     ls_base: () => ({ schedule: { stale_keys: [] } }),
     effects_catalog: () => ({}),
-    effects_gradient_plan: stub('effects_gradient_plan', () => ({ gradients: {} })),
+    effects_gradient_plan: stub('effects_gradient_plan', () => ({})),
     effects_resolve: stub('effects_resolve', () => ({ targets: {}, assignments: {} })),
     ls_switch_plan: () => ({ switches: {} }),
   });

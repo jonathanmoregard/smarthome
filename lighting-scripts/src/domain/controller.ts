@@ -4,7 +4,7 @@ import { recordTimestamp } from '../parse/resolution.ts';
 import type { OpaqueMap } from '../parse/overrides.ts';
 import { planRevision } from '../parse/controller.ts';
 import type { ResolutionResult } from './resolution.ts';
-import type { GradientPlanResult } from './gradient.ts';
+import type { CompiledGradients } from './gradient.ts';
 import type { RemotePlanResult } from './remote-input.ts';
 import type { HouseView } from '../runtime/effects.ts';
 import type { PowerTarget, RemoteSource, RoomId, SwitchId } from './types/ids.ts';
@@ -77,9 +77,8 @@ export type SwitchDecision = {
   brightness?: number;
   range: [number | boolean, number | boolean];
 };
-export type SwitchPlanResult = { switches: Record<SwitchId, SwitchDecision> };
-
-export function switchPlan(areas: Readonly<Record<string, RoomId>>, args: SwitchPlanArgs): SwitchPlanResult {
+/** Each switch's planned state; `ls_switch_plan` answers it under the wire key `switches`. */
+export function switchPlan(areas: Readonly<Record<string, RoomId>>, args: SwitchPlanArgs): Record<SwitchId, SwitchDecision> {
   const switches: Record<SwitchId, SwitchDecision> = {};
   for (const { entity, range } of args.rules) {
     const room = areas[entity];
@@ -96,7 +95,7 @@ export function switchPlan(areas: Readonly<Record<string, RoomId>>, args: Switch
     switches[entity] = { on: on && brightness !== undefined && low <= brightness && brightness <= high,
       room, ...(brightness === undefined ? {} : { brightness }), range: [...interval.stored] };
   }
-  return { switches };
+  return switches;
 }
 
 /**
@@ -118,14 +117,13 @@ export function switchPlan(areas: Readonly<Record<string, RoomId>>, args: Switch
 export type PlanDocument = Omit<ScheduleEnvelope, 'revision' | 'sara_mirror'> & {
   base: Record<string, TargetEntry>;
   resolved: ResolutionResult;
-  gradients: GradientPlanResult['gradients'];
+  gradients: CompiledGradients;
   switches: Record<SwitchId, SwitchDecision>;
   revision: string;
   plan_order: number;
   remote: boolean;
   sara_mirror: 'on' | 'off' | null;
 };
-export type PlanResult = { plan: PlanDocument };
 
 
 /** The parts `ls_plan` answers with, once every call is done. */
@@ -133,7 +131,7 @@ export interface PlanParts {
   schedule: ScheduleEnvelope;
   base: Record<string, TargetEntry>;
   resolved: ResolutionResult;
-  gradients: GradientPlanResult['gradients'];
+  gradients: CompiledGradients;
   switches: Record<SwitchId, SwitchDecision>;
   /** The overrides the baseline did not mark stale. */
   active: OpaqueMap;
@@ -145,13 +143,13 @@ export interface PlanParts {
  * revision, the plan order and the Sara mirror are read here, after the last
  * call, where the captured script reads them.
  */
-export function planAnswer(view: HouseView, parts: PlanParts): PlanResult {
+export function planAnswer(view: HouseView, parts: PlanParts): PlanDocument {
   const revision = planRevision(view.state['sensor.ls_overrides']?.last_updated);
   const wanted = Object.hasOwn(parts.active, overlayKeyText(SARA_MODE)) ? 'on' : 'off';
-  return { plan: { ...parts.schedule, base: parts.base, resolved: parts.resolved, gradients: parts.gradients,
+  return { ...parts.schedule, base: parts.base, resolved: parts.resolved, gradients: parts.gradients,
     switches: parts.switches, revision,
     plan_order: recordTimestamp(view.now), remote: parts.reason === 'remote',
-    sara_mirror: view.get('input_boolean.ls_sara_mode_mirror') !== wanted ? wanted : null } };
+    sara_mirror: view.get('input_boolean.ls_sara_mode_mirror') !== wanted ? wanted : null };
 }
 
 

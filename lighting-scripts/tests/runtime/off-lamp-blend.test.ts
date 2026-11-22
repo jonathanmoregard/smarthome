@@ -124,13 +124,13 @@ test('the gradient planner compiles no curve for a target with an off end', () =
     lamp: { day: { brightness: 200, color: { kelvin: 4000 } }, cosy: { on: false } },
     lit: { day: { brightness: 200, color: { kelvin: 4000 } }, cosy: { brightness: 80, color: { kelvin: 2200 } } },
   } }));
-  assert.deepEqual(Object.keys(plan.gradients), ['lit']);
+  assert.deepEqual(Object.keys(plan), ['lit']);
 });
 
 test('a switch in an off room is off and reports no brightness', () => {
   const switches = switchPlan({ 'switch.plug': 'studio' }, parseSwitchPlanArgs({
     targets: { 'room:studio': { on: false } }, ranges: { 'switch.plug': { profile: 'custom', min: 0, max: 100 } }, defaults: {},
-  })).switches;
+  }));
   assert.deepEqual(switches, { 'switch.plug': { on: false, room: 'studio', range: [0, 100] } });
 });
 

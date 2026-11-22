@@ -31,7 +31,7 @@ export function roomPlan(ctx: ScriptContext, args: RoomPlanArgs): RoomPlanResult
       reason }), 'ls_room_plan baseline');
     catalog = roomCatalog(ctx.rawCatalog(), () => ctx.run('effects_catalog'));
     gradients = ctx.call('effects_gradient_plan', { base: baseline.targets, warm_end: warmEnd, cached: cache === undefined ?
-      {} : cache.gradients }).gradients;
+      {} : cache.gradients });
     update = missUpdate(ctx, args, opening, baseline, gradients, catalog);
   }
   const refreshed = refreshBaseline(ctx, baseline, hit === undefined ? undefined : hit.validFrom, room, opening.deps, overrides, at);
@@ -46,7 +46,7 @@ export function roomPlan(ctx: ScriptContext, args: RoomPlanArgs): RoomPlanResult
     ranges: args.ranges ?? mappingAttribute(ctx.attr('sensor.ls_overrides', 'switch_ranges')),
     defaults: args.defaults ?? rangeDefaults(ctx.attr('sensor.ls_overrides', 'range_defaults')) });
   return roomPlanAnswer(ctx, { room, reason, revision: opening.revision, refreshed, active, resolved, gradients, catalog,
-    switches: switches.switches, update, hit: hit !== undefined });
+    switches, update, hit: hit !== undefined });
 }
 export const planningHandlers: ScriptHandlers = {
   // Argument parsing, the cache's validity test and every document read live in

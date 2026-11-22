@@ -24,8 +24,8 @@ export type GradientCurve = {
  */
 export type GradientSignature = [number, number, Color, number, Color, RGB];
 export type GradientEntry = { signature: GradientSignature; curve: GradientCurve };
-/** `effects_gradient_plan`'s result. One entry per target that compiled. */
-export type GradientPlanResult = { gradients: Record<string, GradientEntry> };
+/** The compiled gradients: one entry per target that compiled. `effects_gradient_plan` answers them under the wire key `gradients`. */
+export type CompiledGradients = Record<string, GradientEntry>;
 /** One baseline target with both anchors, as `src/parse/gradient.ts` reads it. */
 export type GradientPlanTarget = {
   target: string;
@@ -44,8 +44,8 @@ export type GradientPlanArgs = {
 };
 
 /** `effects_gradient_plan`: reuse a valid cached curve, compile the rest. */
-export function planGradients(args: GradientPlanArgs): GradientPlanResult {
-  const gradients: Record<string, GradientEntry> = {};
+export function planGradients(args: GradientPlanArgs): CompiledGradients {
+  const gradients: CompiledGradients = {};
   for (const { target, anchors, cached } of args.targets) {
     const ends = anchors();
     if (ends === undefined) continue;
@@ -54,7 +54,7 @@ export function planGradients(args: GradientPlanArgs): GradientPlanResult {
     const hit = cached(signature);
     gradients[target] = hit === undefined ? { signature, curve: compileGradient(day, cosy, args.warmEnd()) } : hit;
   }
-  return { gradients };
+  return gradients;
 }
 export function gradientSignature(day: Anchor, cosy: Anchor, warmEnd: RGB): GradientSignature {
   return [1, day.brightness, copyColor(day.color), cosy.brightness, copyColor(cosy.color), [...warmEnd]];

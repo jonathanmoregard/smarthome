@@ -20,7 +20,7 @@ import { parseSwitchPlanArgs } from '../../src/parse/controller.ts';
 function plan(rule: JsonValue, defaults: JsonObject = { bright: [90, 100], cosy: [30, 60] }) {
   return switchPlan({ 'switch.plug': 'studio' }, parseSwitchPlanArgs({
     targets: { 'room:studio': { on: true, level: 255 } }, ranges: { 'switch.plug': rule }, defaults,
-  })).switches;
+  }));
 }
 
 test('a boolean custom bound is a Jinja number: the rule applies and reports its range as stored', () => {
