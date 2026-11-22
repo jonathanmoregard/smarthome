@@ -396,13 +396,20 @@ def _mode_toggle(house: HouseInfo, name: str) -> Scenario:
 
 
 def _plug_button(house: HouseInfo, name: str) -> Scenario:
-    # The plug follows its bright range in the day block; its own button is pressed there, and then the
-    # cosy start at 17:00 takes the room out of the range.
-    seeds = _pinned(house, name, {**HOUSE_TIMES, 'cosy': ('17:00', '17:00', 10)})
+    # The plug follows its bright range: off in cosy, and off again in the night, so a press that is held differs
+    # from one that was let go. Its own button is pressed at 22:02 in cosy. The press is an override (the owner,
+    # 2026-11-22) that the next-block reset ends at the night fade's start, 22:45; the after-age rule is off, so
+    # it cannot end first. Steps end 22:00, 22:02, 22:04, 22:43 (inside the hold, just before the fade start)
+    # and 22:47 (just after it). Today's scripts take the press back within two minutes.
+    seeds = _pinned(house, name)
+    seeds.set(NEXT_BLOCK_RULE, 'on')
+    seeds.set(AFTER_RULE, 'off')
     plug = plug_of(house, subject_room(house))
     steps = (HaStart(), ScriptCall('ls_range_save', {'entity': plug, 'profile': 'bright'}, person()), Advance(SETTLE),
-             PressSwitch(plug), Advance(SETTLE), Advance(3600))
-    return Scenario(name, at(WEEKDAY, '16:00'), seeds.tuple(), steps, (on_plug(house, 0, 2), on_plug(house, 2, 5)), ())
+             PressSwitch(plug), Advance(SETTLE), Advance(39 * 60), Advance(4 * 60))
+    # The press's own checkpoint (2, 3): a pair spanning the release would show the reference, which has already
+    # taken the press back, the same on both sides.
+    return Scenario(name, at(WEEKDAY, '22:00'), seeds.tuple(), steps, (on_plug(house, 2, 3),), ())
 
 
 def _wall_power_cycle(house: HouseInfo, name: str) -> Scenario:

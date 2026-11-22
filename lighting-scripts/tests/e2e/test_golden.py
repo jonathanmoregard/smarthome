@@ -386,6 +386,27 @@ class Scenarios(unittest.TestCase):
         self.assertLess(local_at(scenario, change + 1), cosy - fade)   # held up to just before the fade,
         self.assertGreater(local_at(scenario, change + 2), cosy)       # then the cosy block's light
 
+    def test_plug_button_presses_in_cosy_and_looks_inside_the_hold_and_just_after_it(self):
+        # The press is an override the next-block reset ends at the night fade's start; the after-age rule is off,
+        # so it cannot end first. Cosy and night are both outside the plug's bright range: a held press differs
+        # from a released one. Checkpoints just before and just after the fade start bound when it lets go.
+        scenario = self.all['plug_button']
+        seeds = {seed.entity: seed.state for seed in scenario.seeds}
+        self.assertEqual((seeds[NEXT_BLOCK_RULE], seeds[AFTER_RULE]), ('on', 'off'))
+        [(press, _)] = steps_of(scenario, PressSwitch)
+        self.assertEqual(press, 3)
+        times = {block: datetime.combine(scenario.start.date(), time.fromisoformat(
+            seeds[house_entity(self.house, None, None, block, 'start')]), LOCAL) for block in ('cosy', 'night')}
+        night_fade = times['night'] - timedelta(minutes=float(seeds[house_entity(self.house, None, None, 'night', 'fade')]))
+        self.assertTrue(times['cosy'] < local_at(scenario, press) < night_fade)
+        self.assertTrue(night_fade - timedelta(minutes=2) <= local_at(scenario, press + 2) <= night_fade - timedelta(minutes=1))
+        self.assertTrue(night_fade < local_at(scenario, press + 3) <= night_fade + timedelta(minutes=3))
+        self.assertEqual(len(scenario.steps), press + 4)
+        # The one proof is the press's own checkpoint: the reference takes the press back within two minutes, so a
+        # pair spanning the release would show it the same on both sides.
+        self.assertEqual([(p.first, p.second) for p in scenario.proves], [(press - 1, press)])
+        self.assertEqual(scenario.holds, ())
+
     def test_person_change_then_expiry_keeps_the_hold_past_the_next_block(self):
         # The captured next-block rule would end the hold at the boundary; it is off here, so the hold lasts
         # until the after-duration rule ends it (ruling 51).
@@ -396,7 +417,7 @@ class Scenarios(unittest.TestCase):
 
 # --- expected differences ----------------------------------------------------------------------------------
 
-PRESS = ExpectedDifference('press-held', 'plug_button', 'subject plug', 'power', after_step=3, until='next block start',
+PRESS = ExpectedDifference('press-held', 'plug_button', 'subject plug', 'power', after_step=3, until='next fade start',
                            port_holds=True)
 
 
@@ -409,16 +430,16 @@ class Expected(unittest.TestCase):
 
     def test_an_entry_naming_nothing_real_is_refused(self):
         for wrong in (replace(PRESS, scenario='fuzz_x'), replace(PRESS, role='a plug by its name'),
-                      replace(PRESS, rule='level'), replace(PRESS, after_step=6), replace(PRESS, until='dawn')):
+                      replace(PRESS, rule='level'), replace(PRESS, after_step=7), replace(PRESS, until='dawn')):
             with self.subTest(entry=wrong), self.assertRaises(ValueError):
                 check_expected((wrong,), scenarios(self.house))
 
     def test_an_entry_resolves_to_its_switch_and_window(self):
-        # plug_button starts at 16:00 and presses at step 3; the house's next block, cosy, starts at 17:00.
+        # plug_button starts at 22:00 and presses at step 3; the house's next fade, the night's, starts at 22:45.
         scenario = scenarios(self.house)['plug_button']
         self.assertEqual(scenario.steps[3], PressSwitch('switch.e2e_plug_1'))
         self.assertEqual(windows((PRESS,), 'plug_button', scenario, self.house),
-                         (ExpectedWindow('press-held', 'switch.e2e_plug_1', 'power', 3, 3600.0, True),))
+                         (ExpectedWindow('press-held', 'switch.e2e_plug_1', 'power', 3, 2700.0, True),))
         self.assertEqual(windows((PRESS,), 'range_save', scenarios(self.house)['range_save'], self.house), ())
 
     def test_the_next_block_start_follows_the_weekend_starts(self):
