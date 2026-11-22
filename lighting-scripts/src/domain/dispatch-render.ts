@@ -125,13 +125,13 @@ export function dispatchInit(args: DispatchArgs): DispatchModel {
 export function dispatchUpdate(model: DispatchModel, msg: DispatchMsg): Transition {
   switch (model.tag) {
     case 'opening': {
-      if (msg.tag !== 'start') return unexpected(model, msg);
+      if (msg.tag !== 'start') return throwUnexpected(model, msg);
       const { args } = model, revision = args.revision, house = msg.house;
       if (revision !== overridesRevision(house, 'ls_dispatch') || args.planOrder < dispatchPlanOrder(house)) return done(null);
       return [{ tag: 'cataloguing', run: { revision, planOrder: args.planOrder, details: args.details() } }, [{ tag: 'catalog' }]];
     }
     case 'cataloguing': {
-      if (msg.tag !== 'catalog') return unexpected(model, msg);
+      if (msg.tag !== 'catalog') return throwUnexpected(model, msg);
       const { revision, planOrder, details } = model.run;
       const previous = dispatchRuntime(msg.house);
       const ordinary = ordinaryTargets(msg.house, details, previous);
@@ -140,7 +140,7 @@ export function dispatchUpdate(model: DispatchModel, msg: DispatchMsg): Transiti
       } }]];
     }
     case 'assigning': {
-      if (msg.tag !== 'assigned') return unexpected(model, msg);
+      if (msg.tag !== 'assigned') return throwUnexpected(model, msg);
       const run = { ...model.run, generation: msg.result.generation };
       const { remote, remoteRooms } = run.details;
       return [{ tag: 'framing', run }, [{ tag: 'frame', args: {
@@ -149,33 +149,33 @@ export function dispatchUpdate(model: DispatchModel, msg: DispatchMsg): Transiti
       } }]];
     }
     case 'framing': {
-      if (msg.tag !== 'framed') return unexpected(model, msg);
+      if (msg.tag !== 'framed') return throwUnexpected(model, msg);
       const run = model.run;
       return [{ tag: 'emitting', run }, [{ tag: 'emit', args: { commands: msg.batch.commands, revision: run.revision,
         generation: run.generation } }]];
     }
     case 'emitting': {
-      if (msg.tag !== 'emitted') return unexpected(model, msg);
+      if (msg.tag !== 'emitted') return throwUnexpected(model, msg);
       const commands = bulbStartCommands(msg.house, sentStarts(model.run));
       const run: Lit = { ...model.run, emission: msg.result };
       if (commands.length === 0) return settle(msg.house, run, { published_at: [], completed: true });
       return [{ tag: 'starting', run }, [{ tag: 'emit', args: { commands, revision: run.revision, generation: run.generation } }]];
     }
     case 'starting': {
-      if (msg.tag !== 'emitted') return unexpected(model, msg);
+      if (msg.tag !== 'emitted') return throwUnexpected(model, msg);
       return settle(msg.house, model.run, msg.result);
     }
     case 'switching': {
-      if (msg.tag !== 'performed') return unexpected(model, msg);
+      if (msg.tag !== 'performed') return throwUnexpected(model, msg);
       return switching(msg.house, model.run, model.next);
     }
     case 'finishing': {
-      if (msg.tag !== 'performed') return unexpected(model, msg);
+      if (msg.tag !== 'performed') return throwUnexpected(model, msg);
       const { revision, generation, completed, publishedAt } = model.run;
       return done({ completed: completed && stillCurrent(msg.house, 'ls_dispatch', revision, generation), published_at: publishedAt });
     }
     case 'done':
-      return unexpected(model, msg);
+      return throwUnexpected(model, msg);
     default: {
       const unknown: never = model;
       throw new Error(`Unhandled ls_dispatch phase ${JSON.stringify(unknown)}`);
@@ -186,7 +186,7 @@ export function dispatchUpdate(model: DispatchModel, msg: DispatchMsg): Transiti
 function done(answer: DispatchResult): Transition {
   return [{ tag: 'done', answer }, []];
 }
-function unexpected(model: DispatchModel, msg: DispatchMsg): never {
+function throwUnexpected(model: DispatchModel, msg: DispatchMsg): never {
   throw new Error(`ls_dispatch: phase ${model.tag} cannot take ${msg.tag}`);
 }
 
