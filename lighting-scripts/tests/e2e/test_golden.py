@@ -9,7 +9,7 @@ expected while M0 measures (ruling 2) and stay failing, listed in
 """
 from __future__ import annotations
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 import json
 from pathlib import Path
 import tempfile
@@ -20,13 +20,13 @@ from tests.e2e import env
 from tests.e2e.codec import (Advance, Checkpoint, HelperInfo, HouseInfo, LampInfo, PersonLightChange, PowerCut,
                              PowerRestore, PressSwitch, RemoteInfo, Seed)
 from tests.e2e.backend import SOFTWARE_CANDLE
-from tests.e2e.compare import compare
-from tests.e2e.golden import (GOLDEN, MissingRecording, StaleRecording, differ, load, replay, save, sources_hash,
-                              write_differences)
+from tests.e2e.compare import ExpectedWindow, compare, compare_flow
+from tests.e2e.golden import (EXPECTED, GOLDEN, ExpectedDifference, MissingRecording, Replayed, StaleRecording,
+                              check_expected, differ, load, replay, save, sources_hash, windows, write_differences)
 from tests.e2e.router import LOCAL, HaStart, Mqtt, ScriptCall, StateChanged
 from tests.e2e.runner import BackendRun
 from tests.e2e.scenarios import (AFTER_MINUTES, AFTER_RULE, NAMES, NEXT_BLOCK_RULE, OVERLAY_MINUTES, MissingRole, Proof,
-                                 Scenario, scenarios, seeds_for)
+                                 Scenario, house_entity, scenarios, seeds_for)
 from tests.e2e.world import Kelvin, Off, On
 
 BLOCKS = ('day', 'cosy', 'night')
@@ -187,7 +187,8 @@ class Scenarios(unittest.TestCase):
             'schedule_day': every, 'dst_spring': every, 'dst_autumn': every,
             'range_save': ((), ('switch.e2e_plug_1',)), 'plug_button': ((), ('switch.e2e_plug_1',)),
             'candle_lamp_evening': candle, 'person_change_then_expiry': lamp, 'ha_restart_mid_fade': lamp,
-            'wall_power_cycle': (('bulb_b1',), ())}   # the cut bulb
+            'wall_power_cycle': (('bulb_b1',), ()),   # the cut bulb
+            'next_block_reset': lamp}
         for name, scenario in self.all.items():
             with self.subTest(name=name):
                 self.assertEqual({(proof.bulbs, proof.switches) for proof in (*scenario.proves, *scenario.holds)},
@@ -346,12 +347,64 @@ class Scenarios(unittest.TestCase):
                 room = [h.entity for h in stores if h.room == lamp.room and h.lamp is None]
                 self.assertEqual(candled, set(own) if has_store else set(room))   # ruling 52
 
+    def test_next_block_reset_holds_the_change_until_the_fade_then_lets_go(self):
+        scenario = self.all['next_block_reset']
+        seeds = {seed.entity: seed.state for seed in scenario.seeds}
+        self.assertEqual((seeds[NEXT_BLOCK_RULE], seeds[AFTER_RULE]), ('on', 'off'))   # only the next-block rule
+        [(change, _)] = steps_of(scenario, PersonLightChange)
+        cosy_start, cosy_fade = (house_entity(self.house, None, None, 'cosy', setting) for setting in ('start', 'fade'))
+        cosy = datetime.combine(scenario.start.date(), time.fromisoformat(seeds[cosy_start]), LOCAL)
+        fade = timedelta(minutes=float(seeds[cosy_fade]))
+        self.assertEqual([(p.first, p.second) for p in scenario.holds], [(change, change + 1)])
+        self.assertEqual([(p.first, p.second) for p in scenario.proves], [(change - 1, change), (change + 1, change + 2)])
+        self.assertLess(local_at(scenario, change + 1), cosy - fade)   # held up to just before the fade,
+        self.assertGreater(local_at(scenario, change + 2), cosy)       # then the cosy block's light
+
     def test_person_change_then_expiry_keeps_the_hold_past_the_next_block(self):
         # The captured next-block rule would end the hold at the boundary; it is off here, so the hold lasts
         # until the after-duration rule ends it (ruling 51).
         scenario = self.all['person_change_then_expiry']
         self.assertTrue(any(seed.entity == NEXT_BLOCK_RULE and seed.state == 'off' for seed in scenario.seeds))
         self.assertEqual(len(steps_of(scenario, PersonLightChange)), 1)
+
+
+# --- expected differences ----------------------------------------------------------------------------------
+
+PRESS = ExpectedDifference('press-held', 'plug_button', 'subject plug', 'power', after_step=3, until='next block start',
+                           port_holds=True)
+
+
+class Expected(unittest.TestCase):
+    house = synthetic_house()
+
+    def test_every_entry_names_a_scenario_a_role_a_rule_and_a_step(self):
+        check_expected(EXPECTED, scenarios(self.house))
+        check_expected((PRESS,), scenarios(self.house))
+
+    def test_an_entry_naming_nothing_real_is_refused(self):
+        for wrong in (replace(PRESS, scenario='fuzz_x'), replace(PRESS, role='a plug by its name'),
+                      replace(PRESS, rule='level'), replace(PRESS, after_step=6), replace(PRESS, until='dawn')):
+            with self.subTest(entry=wrong), self.assertRaises(ValueError):
+                check_expected((wrong,), scenarios(self.house))
+
+    def test_an_entry_resolves_to_its_switch_and_window(self):
+        # plug_button starts at 16:00 and presses at step 3; the house's next block, cosy, starts at 17:00.
+        scenario = scenarios(self.house)['plug_button']
+        self.assertEqual(scenario.steps[3], PressSwitch('switch.e2e_plug_1'))
+        self.assertEqual(windows((PRESS,), 'plug_button', scenario, self.house),
+                         (ExpectedWindow('press-held', 'switch.e2e_plug_1', 'power', 3, 3600.0, True),))
+        self.assertEqual(windows((PRESS,), 'range_save', scenarios(self.house)['range_save'], self.house), ())
+
+    def test_the_next_block_start_follows_the_weekend_starts(self):
+        # midnight_weekend from Friday 20:00: past step 2 (23:00) the next start is the weekend night at 23:40, and
+        # past step 3 (00:30 Saturday) the weekend day at 08:40, not the weekday one at 06:10.
+        scenario = scenarios(self.house)['midnight_weekend']
+        entry = ExpectedDifference('x', 'midnight_weekend', 'subject plug', 'power', 2, 'next block start', False)
+        [window] = windows((entry,), 'midnight_weekend', scenario, self.house)
+        self.assertEqual(window.closes_at, (datetime(2026, 11, 20, 23, 40, tzinfo=LOCAL) - scenario.start).total_seconds())
+        entry = replace(entry, after_step=3)
+        [window] = windows((entry,), 'midnight_weekend', scenario, self.house)
+        self.assertEqual(window.closes_at, (datetime(2026, 11, 21, 8, 40, tzinfo=LOCAL) - scenario.start).total_seconds())
 
 
 # --- recordings ------------------------------------------------------------------------------------------
@@ -400,8 +453,10 @@ class Recordings(unittest.TestCase):
         save('golden_x', self.scenario, BackendRun(reference, {}), directory=self.directory)
         with mock.patch('tests.e2e.golden.run_backend', return_value=port):
             result = replay('golden_x', directory=self.directory, current=lambda: {})
-        self.assertEqual(result.differences, ())
-        self.assertEqual(dict(result.adjustments), {'fade-off-to-on-gradual': 1})
+        self.assertIsInstance(result, Replayed)
+        self.assertEqual(result.exact.differences, ())
+        self.assertEqual(dict(result.exact.adjustments), {'fade-off-to-on-gradual': 1})
+        self.assertEqual((result.flow.flow, dict(result.flow.noted)), ((), {'fade-sampling': 1}))
 
     def test_a_missing_recording_is_an_error(self):
         with self.assertRaises(MissingRecording):
@@ -411,15 +466,29 @@ class Recordings(unittest.TestCase):
         self.assertTrue(differ(checkpoint(0, 100), checkpoint(1, 120, 60.0)))
         self.assertFalse(differ(checkpoint(0, 100), checkpoint(1, 101, 60.0)))   # within LEVEL_STEPS
 
+    def test_the_replay_judges_the_flow_with_the_scenarios_proofs(self):
+        # The recording proves steps 0 and 1 differ on bulb_a; a port that does not move fails on it.
+        save('golden_x', self.scenario, self.reference_run, directory=self.directory)
+        still = BackendRun([checkpoint(0, 100), checkpoint(1, 100, 60.0)], {})
+        with mock.patch('tests.e2e.golden.run_backend', return_value=still):
+            result = replay('golden_x', directory=self.directory, current=lambda: {})
+        self.assertEqual([d.rule for d in result.flow.flow], ['reaction'])
+        self.assertEqual(dict(result.flow.noted), {'level': 1})
+
     def test_differences_are_written_only_when_there_are_some(self):
         path = self.directory / 'golden_x.differences.json'
         path.write_text('{"differences": []}')   # an old, empty dump
-        same = compare([checkpoint(0, 100)], [checkpoint(0, 100)])
-        self.assertIsNone(write_differences('golden_x', same, directory=self.directory))
+
+        def replayed(level):
+            reference, port = [checkpoint(0, 100)], [checkpoint(0, level)]
+            return Replayed(compare_flow(reference, port, self.scenario), compare(reference, port))
+        self.assertIsNone(write_differences('golden_x', replayed(100), directory=self.directory))
         self.assertFalse(path.exists())
-        apart = compare([checkpoint(0, 100)], [checkpoint(0, 140)])
+        apart = replayed(140)   # noted only: the exact comparison differs, the flow does not
         self.assertEqual(write_differences('golden_x', apart, directory=self.directory), path)
-        self.assertEqual(len(json.loads(path.read_text())['differences']), len(apart.differences))
+        dump = json.loads(path.read_text())
+        self.assertEqual((len(dump['flow']), len(dump['exact']['differences'])), (0, len(apart.exact.differences)))
+        self.assertEqual(dump['noted'], {'level': 1})
 
     def test_the_hash_covers_the_reference_run_and_the_captures_only(self):
         root = self.directory / 'root'
@@ -465,7 +534,7 @@ class Golden(unittest.TestCase):
     def agrees(self, name):
         result = replay(name)
         dump = write_differences(name, result)   # git-ignored: the differences name catalog entities
-        self.assertEqual(len(result.differences), 0, f'{name}: {len(result.differences)} differences, listed in {dump}')
+        self.assertEqual(len(result.flow.flow), 0, f'{name}: {len(result.flow.flow)} flow differences, listed in {dump}')
 
     def proves(self, name):
         checkpoints = self.recorded(name)

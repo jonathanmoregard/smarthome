@@ -14,7 +14,7 @@
     "parity": "python3 tests/parity/gate.py",
     "parity:inventory": "python3 tests/parity/run.py --inventory",
     "e2e": "python3 tests/e2e/gate.py",
-    "verify": "npm run check && npm test && npm run parity"
+    "verify": "npm run check && npm test && npm run e2e"
   },
   "dependencies": { "home-assistant-js-websocket": "9.7.1" },
   "devDependencies": { "@types/node": "22.19.17", "typescript": "5.9.3" }

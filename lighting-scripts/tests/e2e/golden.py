@@ -10,7 +10,8 @@ whose `live_candidate` turns the captures into what the reference runs (rulings
 the port on the recorded scenario and compares it with the recording. It raises
 `StaleRecording` when that hash has changed, or when the golden scenario of that
 name is no longer the recorded one; a recording no golden scenario names (a fuzz
-failure) replays as recorded.
+failure) replays as recorded. A replay is judged on the user flow (`compare_flow`,
+the gate) and, for information, by the old exact comparison.
 
     python3 -m tests.e2e.golden record [name ...]   # every golden scenario when none is named
     python3 -m tests.e2e.golden replay [name ...]
@@ -19,17 +20,20 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import datetime, time, timedelta
 from functools import cache
 import hashlib
 import json
 from pathlib import Path
 import sys
 
-from tests.e2e.codec import Checkpoint, decode, encode
-from tests.e2e.compare import Comparison, FadeOffToOnGradual, compare
+from tests.e2e.codec import Advance, Checkpoint, HouseInfo, decode, encode
+from tests.e2e.compare import (Comparison, ExpectedWindow, FadeOffToOnGradual, FlowComparison, compare,
+                               compare_flow)
+from tests.e2e.router import LOCAL
 from tests.e2e.runner import ROOT, BackendRun, describe_house, run_backend
-from tests.e2e.scenarios import NAMES, Proof, Scenario, Scenarios, scenarios
+from tests.e2e.scenarios import (BLOCKS, NAMES, Proof, Scenario, Scenarios, house_entity, plug_of, scenarios,
+                                 subject_room)
 
 GOLDEN = ROOT / '.runtime' / 'e2e' / 'golden'
 # What a reference run goes through (ruling 47): these modules and the private captures. Not the tests,
@@ -37,7 +41,82 @@ GOLDEN = ROOT / '.runtime' / 'e2e' / 'golden'
 HASHED_MODULES = ('env', 'world', 'router', 'codec', 'backend', 'runner', 'services')
 CAPTURES = 'reference'
 CANDIDATE = 'tests/parity/portability.py'   # `live_candidate`: the captures as the reference runs them
-ADJUSTMENTS = (FadeOffToOnGradual(),)   # the owner-approved divergences a replay explains, each one counted
+ADJUSTMENTS = (FadeOffToOnGradual(),)   # the owner-approved divergences the exact comparison explains, each counted
+
+
+@dataclass(frozen=True)
+class ExpectedDifference:
+    """A named behaviour change the reference does not have, which the flow gate expects of the port.
+
+    Added only by the owner's ruling (M1 plan, Task 1), each in the commit that makes the change.
+    """
+    name: str                 # e.g. 'plug-press-held'
+    scenario: str             # exactly one scenario
+    role: str                 # exactly one bulb or switch, by its `ROLES` name, never by entity
+    rule: str                 # exactly one flow rule, from `EXPECTED_RULES`
+    after_step: int           # the window opens at the first checkpoint after this step's input ...
+    until: str                # ... and closes at a named event, from `UNTIL`
+    port_holds: bool          # inside the window the port keeps the value it showed at the window's first checkpoint
+
+
+EXPECTED: tuple[ExpectedDifference, ...] = ()     # empty in M1
+EXPECTED_RULES = ('power',)
+
+
+def _next_block_start(scenario: Scenario, house: HouseInfo, after_step: int) -> float:
+    """Seconds into `scenario` of the house's first block start after step `after_step`'s checkpoint, placed as
+    the scenarios module describes `ls_base` placing them: a day start on its morning, cosy and night on their
+    evening (a night start before noon in the small hours after it); the `_weekend` start on Friday and Saturday
+    evenings and on Saturday and Sunday mornings."""
+    seeds = {seed.entity: seed.state for seed in scenario.seeds}
+    elapsed = sum(step.seconds for step in scenario.steps[:after_step + 1] if isinstance(step, Advance))
+    after = scenario.start.timestamp() + elapsed
+    starts = []
+    for offset in range(-1, 3):
+        day = (datetime.fromtimestamp(after, LOCAL) + timedelta(days=offset)).date()
+        for block in BLOCKS:
+            weekend = day.weekday() in ((5, 6) if block == 'day' else (4, 5))
+            entity = house_entity(house, None, None, block, 'weekend' if weekend else 'start')
+            if entity is None or entity not in seeds:
+                continue
+            clock = time.fromisoformat(seeds[entity])
+            date = day + timedelta(days=1) if block == 'night' and clock.hour < 12 else day
+            starts.append(datetime.combine(date, clock, LOCAL).timestamp())
+    later = [start for start in starts if start > after]
+    if not later:
+        raise ValueError(f'{scenario.name}: no house block start after step {after_step}')
+    return min(later) - scenario.start.timestamp()
+
+
+ROLES: Mapping[str, Callable[[HouseInfo], str]] = {'subject plug': lambda house: plug_of(house, subject_room(house))}
+UNTIL: Mapping[str, Callable[[Scenario, HouseInfo, int], float]] = {'next block start': _next_block_start}
+
+
+def check_expected(entries: Sequence[ExpectedDifference], built: Scenarios) -> None:
+    """Raise ValueError on an entry whose scenario, role, rule, step or closing event does not exist."""
+    for entry in entries:
+        if entry.scenario not in NAMES:
+            raise ValueError(f'{entry.name}: no golden scenario {entry.scenario!r}')
+        if entry.role not in ROLES or entry.rule not in EXPECTED_RULES or entry.until not in UNTIL:
+            raise ValueError(f'{entry.name}: unknown role, rule or closing event')
+        scenario = built[entry.scenario]
+        if not 0 <= entry.after_step < len(scenario.steps):
+            raise ValueError(f'{entry.name}: {entry.scenario} has no step {entry.after_step}')
+        windows((entry,), entry.scenario, scenario, built.house)
+
+
+def windows(entries: Sequence[ExpectedDifference], name: str, scenario: Scenario, house: HouseInfo
+            ) -> tuple[ExpectedWindow, ...]:
+    """The entries for scenario `name`, each resolved to its subject and its window in `scenario`."""
+    return tuple(ExpectedWindow(entry.name, ROLES[entry.role](house), entry.rule, entry.after_step,
+                                UNTIL[entry.until](scenario, house, entry.after_step), entry.port_holds)
+                 for entry in entries if entry.scenario == name)
+
+
+@dataclass(frozen=True)
+class Replayed:
+    flow: FlowComparison   # the gate's judgement
+    exact: Comparison      # the old exact comparison, for information
 
 
 class StaleRecording(Exception):
@@ -71,8 +150,9 @@ def record(name: str, scenario: Scenario, *, directory: Path = GOLDEN) -> Path:
 
 
 def replay(name: str, *, directory: Path = GOLDEN,
-           current: Callable[[], Scenarios | Mapping[str, Scenario]] | None = None) -> Comparison:
-    """The port on the recorded scenario, compared with the recording."""
+           current: Callable[[], Scenarios | Mapping[str, Scenario]] | None = None,
+           expected: Sequence[ExpectedDifference] = EXPECTED) -> Replayed:
+    """The port on the recorded scenario, judged against the recording on the flow and exactly."""
     recording = load(name, directory=directory)
     if recording.sources != sources_hash():
         raise StaleRecording(f'{name}: the harness or the captures changed since it was recorded')
@@ -81,10 +161,13 @@ def replay(name: str, *, directory: Path = GOLDEN,
         raise StaleRecording(f'{name}: the scenario changed since it was recorded')
     scenario = recording.scenario
     port = run_backend('port', scenario.steps, scenario.start, scenario.seeds)
-    result = compare(recording.reference.checkpoints, port.checkpoints, ADJUSTMENTS)
+    entries = [entry for entry in expected if entry.scenario == name]
+    resolved = windows(entries, name, scenario, golden.house) if entries else ()   # type: ignore[union-attr]
+    judged = compare_flow(recording.reference.checkpoints, port.checkpoints, scenario, resolved)
+    exact = compare(recording.reference.checkpoints, port.checkpoints, ADJUSTMENTS)
     # The backends' own rules (the reference's software candle) are adjustments as much as compare's are.
-    adjustments = Counter(result.adjustments) + Counter(recording.reference.adjustments) + Counter(port.adjustments)
-    return replace(result, adjustments=dict(adjustments))
+    adjustments = Counter(exact.adjustments) + Counter(recording.reference.adjustments) + Counter(port.adjustments)
+    return Replayed(judged, replace(exact, adjustments=dict(adjustments)))
 
 
 @cache
@@ -145,14 +228,18 @@ def _within(checkpoint: Checkpoint, scope: Proof) -> Checkpoint:
                    in_fade=checkpoint.in_fade & frozenset(scope.bulbs))
 
 
-def write_differences(name: str, result: Comparison, *, directory: Path = GOLDEN) -> Path | None:
-    """`<name>.differences.json` listing the differences, when there are any; an older one is removed when not."""
+def write_differences(name: str, result: Replayed, *, directory: Path = GOLDEN) -> Path | None:
+    """`<name>.differences.json` listing the flow and the exact differences, when there are any of either; an
+    older one is removed when not."""
     path = directory / f'{name}.differences.json'
-    if not result.differences:
+    flow, exact = result.flow, result.exact
+    if not flow.flow and not exact.differences:
         path.unlink(missing_ok=True)
         return None
-    path.write_text(json.dumps({'differences': [vars(d) for d in result.differences],
-                                'adjustments': dict(result.adjustments), 'not_ported': dict(result.not_ported)},
+    path.write_text(json.dumps({'flow': [vars(d) for d in flow.flow], 'noted': dict(flow.noted),
+                                'expected': dict(flow.expected), 'not_ported': dict(flow.not_ported),
+                                'exact': {'differences': [vars(d) for d in exact.differences],
+                                          'adjustments': dict(exact.adjustments)}},
                                indent=1, default=repr))
     return path
 
@@ -170,11 +257,13 @@ def main(argv: Sequence[str]) -> int:
                 print(f'{name}: recorded in {(datetime.now() - started).seconds} s', flush=True)
             elif command == 'replay':
                 result = replay(name)
-                failed += bool(result.differences)
-                fields = Counter(difference.field for difference in result.differences)
-                print(f'{name}: {len(result.differences)} differences {dict(fields)}, adjustments '
-                      f'{dict(result.adjustments)}, not ported {dict(result.not_ported)}, '
-                      f'{(datetime.now() - started).seconds} s', flush=True)
+                failed += bool(result.flow.flow)
+                rules = Counter(difference.rule for difference in result.flow.flow)
+                fields = Counter(difference.field for difference in result.exact.differences)
+                print(f'{name}: {len(result.flow.flow)} flow differences {dict(rules)}, noted {dict(result.flow.noted)}, '
+                      f'expected {dict(result.flow.expected)}, not ported {dict(result.flow.not_ported)}; exact: '
+                      f'{len(result.exact.differences)} differences {dict(fields)}, adjustments '
+                      f'{dict(result.exact.adjustments)}, {(datetime.now() - started).seconds} s', flush=True)
                 write_differences(name, result)
             else:
                 raise SystemExit(f'unknown command {command!r}: record or replay')

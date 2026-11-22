@@ -1,11 +1,14 @@
 """End-state comparator, on synthetic checkpoints only."""
 from __future__ import annotations
 from dataclasses import replace
+from datetime import datetime
 import unittest
 
 from tests.e2e.codec import Checkpoint
-from tests.e2e.compare import (KELVIN_K, LEVEL_STEPS, MID_FADE_LEVEL_PCT, XY_DISTANCE, Difference, FadeOffToOnGradual,
-                               compare)
+from tests.e2e.compare import (KELVIN_FAMILY, KELVIN_K, LEVEL_BAND, LEVEL_STEPS, MID_FADE_LEVEL_PCT, TICK, XY_DISTANCE,
+                               XY_FAMILY, Difference, ExpectedWindow, FadeOffToOnGradual, compare, compare_flow)
+from tests.e2e.router import LOCAL
+from tests.e2e.scenarios import Proof, Scenario
 from tests.e2e.world import Kelvin, Off, On, Rgb
 
 
@@ -282,6 +285,186 @@ class FadeOffToOn(unittest.TestCase):
     def test_not_a_falling_ramp_from_off(self):
         result = self.explained(*ramp([120, 60, 30]))
         self.assertEqual(fields(result), [('bulb_a', 'level')] * 3)
+
+
+# --- the flow gate ---------------------------------------------------------------------------------------
+
+FLOW_START = datetime(2026, 11, 18, 12, tzinfo=LOCAL)
+
+
+def scenario(proves=(), holds=()):
+    return Scenario('flow_x', FLOW_START, (), (), tuple(proves), tuple(holds))
+
+
+def flow(reference, port, proves=(), holds=(), expected=()):
+    return compare_flow(reference, port, scenario(proves, holds), expected)
+
+
+def rules(result):
+    return [(d.subject, d.field, d.rule) for d in result.flow]
+
+
+def steps(*states, **kwargs):
+    """One settled checkpoint per step, a minute apart, with bulb_a in each of `states`."""
+    return [checkpoint(step=n, t=60.0 * n, bulbs={'bulb_a': state}, **kwargs) for n, state in enumerate(states)]
+
+
+def switched(*states, name='plug_a', other='off'):
+    return [checkpoint(step=n, t=60.0 * n, switches={name: state, 'plug_b': other}) for n, state in enumerate(states)]
+
+
+class FlowRules(unittest.TestCase):
+    def test_power_differs_is_flow(self):
+        self.assertEqual(rules(flow([bulb(Off())], [bulb(on())])), [('bulb_a', 'power', 'power')])
+        self.assertEqual(rules(flow(switched('on'), switched('off'))), [('plug_a', 'power', 'power')])
+
+    def test_kelvin_against_rgb_is_flow(self):
+        result = flow([bulb(on(colour=Kelvin(6500)))], [bulb(on(colour=Rgb(255, 255, 255)))])
+        self.assertEqual(rules(result), [('bulb_a', 'colour', 'colour')])
+
+    def test_a_lit_bulb_with_no_colour_on_one_side_is_flow(self):
+        self.assertEqual(rules(flow([bulb(on(colour=None))], [bulb(on())])), [('bulb_a', 'colour', 'colour')])
+
+    def test_kelvin_within_family_is_noted(self):
+        result = flow([bulb(on(colour=Kelvin(2700)))], [bulb(on(colour=Kelvin(2900)))])
+        self.assertEqual((result.flow, dict(result.noted)), ((), {'colour-shade': 1}))
+
+    def test_kelvin_outside_family_is_flow(self):
+        result = flow([bulb(on(colour=Kelvin(2700)))], [bulb(on(colour=Kelvin(4000)))])
+        self.assertEqual(rules(result), [('bulb_a', 'colour', 'colour')])
+        self.assertGreater(2700 * (1 + KELVIN_FAMILY), 2900)
+
+    def test_rgb_outside_family_is_flow(self):
+        red, orange, green = Rgb(255, 0, 0), Rgb(255, 40, 0), Rgb(0, 255, 0)
+        self.assertEqual(dict(flow([bulb(on(colour=red))], [bulb(on(colour=orange))]).noted), {'colour-shade': 1})
+        self.assertEqual(rules(flow([bulb(on(colour=red))], [bulb(on(colour=green))])), [('bulb_a', 'colour', 'colour')])
+        self.assertGreater(XY_FAMILY, XY_DISTANCE)
+
+    def test_candle_against_none_is_flow(self):
+        result = flow([bulb(on(effect='candle'))], [bulb(on(effect='none'))])
+        self.assertEqual(rules(result), [('bulb_a', 'effect', 'effect')])
+
+    def test_level_inside_band_is_noted(self):
+        result = flow([bulb(on(level=120))], [bulb(on(level=150))])
+        self.assertEqual((result.flow, dict(result.noted)), ((), {'level': 1}))
+
+    def test_level_within_the_old_tolerance_is_not_noted(self):
+        result = flow([bulb(on(level=120))], [bulb(on(level=120 + LEVEL_STEPS))])
+        self.assertEqual((result.flow, dict(result.noted)), ((), {}))
+
+    def test_level_outside_band_is_flow(self):
+        self.assertEqual(rules(flow([bulb(on(level=40))], [bulb(on(level=200))])), [('bulb_a', 'level', 'level')])
+        self.assertEqual(LEVEL_BAND, 51)
+
+    def test_level_in_fade_is_never_flow(self):
+        for fading in ('reference', 'port'):
+            with self.subTest(fading=fading):
+                ref = bulb(on(level=40), in_fade={'bulb_a'} if fading == 'reference' else ())
+                port = bulb(on(level=200), in_fade={'bulb_a'} if fading == 'port' else ())
+                result = flow([ref], [port])
+                self.assertEqual((result.flow, dict(result.noted)), ((), {'fade-sampling': 1}))
+
+    def test_candle_level_is_noted(self):
+        result = flow([bulb(on(level=40, effect='candle'))], [bulb(on(level=200, effect='candle'))])
+        self.assertEqual((result.flow, dict(result.noted)), ((), {'candle-level': 1}))
+
+    def test_timing_within_a_tick_is_noted(self):
+        # The port is a tick late switching the bulb off inside a step: gone by the next checkpoint past TICK.
+        ref = [bulb(on()), checkpoint(step=1, t=60.0, bulbs={'bulb_a': Off()}, in_fade={'bulb_a'}),
+               checkpoint(step=1, t=120.0, bulbs={'bulb_a': Off()}),
+               checkpoint(step=1, t=180.0, bulbs={'bulb_a': Off()})]
+        port = [bulb(on()), checkpoint(step=1, t=60.0, bulbs={'bulb_a': on()}, in_fade={'bulb_a'}),
+                checkpoint(step=1, t=120.0, bulbs={'bulb_a': Off()}),
+                checkpoint(step=1, t=180.0, bulbs={'bulb_a': Off()})]
+        result = flow(ref, port)
+        self.assertEqual((result.flow, dict(result.noted)), ((), {'timing-slack': 1}))
+        self.assertEqual(TICK, 60.0)
+
+    def test_timing_beyond_a_tick_is_flow(self):
+        ref = [bulb(on()), *(checkpoint(step=1, t=t, bulbs={'bulb_a': Off()}) for t in (60.0, 180.0, 240.0))]
+        port = [bulb(on()), *(checkpoint(step=1, t=t, bulbs={'bulb_a': on()}) for t in (60.0, 180.0)),
+                checkpoint(step=1, t=240.0, bulbs={'bulb_a': Off()})]
+        result = flow(ref, port)
+        self.assertEqual(rules(result), [('bulb_a', 'power', 'timing')])
+        self.assertEqual((result.flow[0].step, result.flow[0].t), (1, 60.0))
+
+    def test_port_must_react_where_the_reference_proves(self):
+        proof = Proof(0, 1, ('bulb_a',), ())
+        ref = steps(on(level=100), on(level=130))
+        self.assertEqual(rules(flow(ref, steps(on(level=100), on(level=100)), proves=[proof])),
+                         [('steps 0-1', 'reaction', 'reaction')])
+        self.assertEqual(rules(flow(ref, steps(on(level=100), on(level=96)), proves=[proof])),
+                         [('steps 0-1', 'reaction', 'reaction')])   # the wrong way
+        self.assertEqual(flow(ref, steps(on(level=100), on(level=103)), proves=[proof]).flow, ())
+        self.assertEqual(flow(ref, steps(on(level=100), Off()), proves=[Proof(0, 1, ('bulb_a',), ())],
+                              ).flow[0].rule, 'power')   # a flow change reacts, though it differs at the end
+
+    def test_port_must_react_on_a_switch(self):
+        proof = Proof(0, 1, (), ('plug_a',))
+        self.assertIn(('steps 0-1', 'reaction', 'reaction'),
+                      rules(flow(switched('on', 'off'), switched('on', 'on'), proves=[proof])))
+
+    def test_port_must_hold_where_the_reference_holds(self):
+        proof = Proof(0, 1, ('bulb_a',), ())
+        ref = steps(on(level=100), on(level=100))
+        self.assertIn(('steps 0-1', 'hold', 'hold'), rules(flow(ref, steps(on(level=100), Off()), holds=[proof])))
+        result = flow(ref, steps(on(level=100), on(level=120)), holds=[proof])
+        self.assertEqual((result.flow, dict(result.noted)), ((), {'level': 1}))   # inside the band holds
+
+    def test_missing_fade_tick_is_noted(self):
+        ref = [checkpoint(step=0, t=0.0), checkpoint(step=1, t=180.0)]
+        port = [checkpoint(step=0, t=0.0), checkpoint(step=1, t=60.0, in_fade={'bulb_a'}), checkpoint(step=1, t=180.0)]
+        for reference, new in ((ref, port), (port, ref)):
+            result = flow(reference, new)
+            self.assertEqual((result.flow, dict(result.noted)), ((), {'fade-sampling': 1}))
+
+    def test_missing_settled_checkpoint_is_flow(self):
+        both = checkpoint(step=0, t=0.0)
+        result = flow([both, checkpoint(step=1, t=60.0)], [both])
+        self.assertEqual(rules(result), [('checkpoint', 'checkpoint', 'checkpoint')])
+
+    def test_dashboard_difference_is_flow(self):
+        for key in ('switch_ranges', 'range_defaults'):
+            with self.subTest(key=key):
+                result = flow([checkpoint(dashboard={key: {'a': 1}})], [checkpoint(dashboard={key: {'a': 2}})])
+                self.assertEqual(rules(result), [('dashboard', key, 'dashboard')])
+
+    def test_not_ported_is_counted(self):
+        port = [checkpoint(not_ported=('automation_a',))]
+        self.assertEqual(dict(flow([checkpoint()], port).not_ported), {'automation_a': 1})
+
+
+class ExpectedDifferences(unittest.TestCase):
+    # The press at step 1 turns plug_a off on both; the reference takes it back at step 2, the port holds it.
+    # The window closes at step 3's checkpoint (t 180), which is judged as usual.
+    window = ExpectedWindow('press-held', 'plug_a', 'power', after_step=1, closes_at=180.0, port_holds=True)
+
+    def test_expected_difference_excuses_only_its_switch_rule_and_window(self):
+        ref = switched('on', 'off', 'on', 'on')
+        port = switched('on', 'off', 'off', 'on')
+        result = flow(ref, port, expected=[self.window])
+        self.assertEqual((result.flow, dict(result.expected)), ((), {'press-held': 1}))
+        other = flow(switched('on', 'off', 'on', 'on', name='plug_c'), switched('on', 'off', 'off', 'on', name='plug_c'),
+                     expected=[self.window])
+        self.assertIn(('plug_c', 'power', 'power'), rules(other))   # another switch
+        past = flow(ref, switched('on', 'off', 'off', 'off'), expected=[self.window])
+        self.assertEqual([(d.step, d.subject, d.rule) for d in past.flow], [(3, 'plug_a', 'power')])
+        bulb_window = ExpectedWindow('held', 'bulb_a', 'power', after_step=0, closes_at=120.0, port_holds=False)
+        other_rule = flow(steps(on(), Off()), steps(on(colour=Kelvin(5000)), on()), expected=[bulb_window])
+        self.assertEqual(rules(other_rule), [('bulb_a', 'colour', 'colour')])   # another rule on the subject
+        self.assertEqual(dict(other_rule.expected), {'held': 1})
+
+    def test_expected_difference_missing_is_flow(self):
+        same = switched('on', 'off', 'on', 'on')
+        result = flow(same, same, expected=[self.window])
+        self.assertEqual(rules(result), [('plug_a', 'power', 'expected-missing')])
+
+    def test_expected_difference_needs_the_port_to_hold(self):
+        ref = switched('on', 'off', 'off', 'on')
+        port = switched('on', 'off', 'on', 'on')   # differs inside the window, but not at the value it showed first
+        self.assertIn(('plug_a', 'power', 'power'), rules(flow(ref, port, expected=[self.window])))
+        loose = replace(self.window, port_holds=False)
+        self.assertEqual(dict(flow(ref, port, expected=[loose]).expected), {'press-held': 1})
 
 
 if __name__ == '__main__':

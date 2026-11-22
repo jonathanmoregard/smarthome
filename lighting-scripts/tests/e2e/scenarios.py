@@ -34,7 +34,10 @@ from tests.e2e.router import LOCAL, Context, HaStart, Mqtt, ScriptCall, StateCha
 
 NAMES = ('schedule_day', 'remote_presses', 'dashboard_block_then_clear', 'range_save', 'person_change_then_expiry',
          'mode_toggle', 'plug_button', 'wall_power_cycle', 'ha_restart_mid_fade', 'midnight_weekend', 'dst_spring',
-         'dst_autumn', 'candle_lamp_evening')
+         'dst_autumn', 'candle_lamp_evening', 'next_block_reset')
+# No wake light scenario (a named gap, M1 Task 1): the scripts read a room's wake time from
+# `input_datetime.ls_<area id>_wake`, and the captured house names its one wake helper for no area id, so the
+# reference never runs a wake light.
 BLOCKS = ('day', 'cosy', 'night')
 NORMAL, CANDLE = 'Normal light', 'Candle'   # never Breathe or Colour loop
 # The captured overlay expiry rules a scenario sets (system helpers, in `HouseInfo.overlay_rules`). On, the
@@ -458,11 +461,25 @@ def _candle_lamp_evening(house: HouseInfo, name: str) -> Scenario:
                     (Proof(0, 1, bulbs_of(house, lamp=lamp.lamp), ()),), ())
 
 
+def _next_block_reset(house: HouseInfo, name: str) -> Scenario:
+    # A person's change at 15:00 with only the next-block rule on: it holds until the cosy fade starts at 15:50,
+    # then the lamp fades with the schedule into cosy at 16:00. Steps end 15:00, 15:40 and 16:20.
+    seeds = _pinned(house, name, {**HOUSE_TIMES, 'cosy': ('16:00', '16:00', 10)})
+    seeds.set(NEXT_BLOCK_RULE, 'on')
+    seeds.set(AFTER_RULE, 'off')
+    lamp = lamp_in(house, subject_room(house))
+    steps = (HaStart(), PersonLightChange([lamp.lamp], {'brightness': PERSON_LEVEL, 'color_temp_kelvin': PERSON_KELVIN}),
+             Advance(40 * 60), Advance(40 * 60))
+    # On the changed lamp only: it takes the change (0, 1), keeps it to the fade (1, 2), follows cosy after (2, 3).
+    return Scenario(name, at(WEEKDAY, '15:00'), seeds.tuple(), steps, (on_lamp(lamp, 0, 1), on_lamp(lamp, 2, 3)),
+                    (on_lamp(lamp, 1, 2),))
+
+
 BUILDERS = {
     'schedule_day': _schedule_day, 'remote_presses': _remote_presses,
     'dashboard_block_then_clear': _dashboard_block_then_clear, 'range_save': _range_save,
     'person_change_then_expiry': _person_change_then_expiry, 'mode_toggle': _mode_toggle,
     'plug_button': _plug_button, 'wall_power_cycle': _wall_power_cycle, 'ha_restart_mid_fade': _ha_restart_mid_fade,
     'midnight_weekend': _midnight_weekend, 'dst_spring': _dst_spring, 'dst_autumn': _dst_autumn,
-    'candle_lamp_evening': _candle_lamp_evening,
+    'candle_lamp_evening': _candle_lamp_evening, 'next_block_reset': _next_block_reset,
 }

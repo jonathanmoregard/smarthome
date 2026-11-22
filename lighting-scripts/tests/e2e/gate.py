@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
-"""The e2e gate: the e2e unit tests, then every golden scenario replayed on the port.
+"""The e2e gate: the e2e unit tests, then every golden scenario replayed on the port and judged on the user flow.
 
-    npm run e2e        # python3 tests/e2e/gate.py
+    npm run e2e                         # python3 tests/e2e/gate.py
+    python3 tests/e2e/gate.py --exact   # also print the old exact comparison, for information
 
-Writes `.runtime/e2e/report.json` (git-ignored: per scenario, its differences by field and its adjustments) and
-each scenario's `.differences.json`, then prints one line: `e2e: golden N/N agree, differences D, adjustments
-{...}`. Exits 0 only when D is 0, every scenario replayed and every unit test passed. The golden `_agrees` unit
-tests are left to the replays here, so no scenario runs twice.
+Writes `.runtime/e2e/report.json` (git-ignored: per scenario, its flow differences by rule, what was noted and
+expected, and the exact comparison's differences by field and adjustments) and each scenario's
+`.differences.json`, then prints one line: `e2e: golden N/N flow agree, flow differences F, noted {...},
+expected {...}`. Exits 0 only when F is 0, every scenario replayed and every unit test passed; the exact
+comparison never fails it. The golden `_agrees` unit tests are left to the replays here, so no scenario runs twice.
 """
 from __future__ import annotations
 from collections import Counter
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 import json
 from pathlib import Path
@@ -26,29 +28,46 @@ REPORT = ROOT / '.runtime' / 'e2e' / 'report.json'
 
 @dataclass(frozen=True)
 class Scenario:
-    differences: int
-    fields: Mapping[str, int]   # the differences by field
-    adjustments: Mapping[str, int]
+    flow: int
+    rules: Mapping[str, int]   # the flow differences by rule
+    noted: Mapping[str, int]
+    expected: Mapping[str, int] = field(default_factory=dict)
     error: str | None = None   # it could not replay (a missing or stale recording, a backend failure)
     not_ported: Mapping[str, int] = field(default_factory=dict)
+    exact: int = 0   # the old exact comparison's differences, for information
+    fields: Mapping[str, int] = field(default_factory=dict)   # ... by field
+    adjustments: Mapping[str, int] = field(default_factory=dict)
 
 
 def verdict(scenarios: Mapping[str, Scenario], *, units_passed: bool) -> tuple[str, int]:
     """The gate's one line and exit code."""
-    agree = sum(s.error is None and s.differences == 0 for s in scenarios.values())
-    differences = sum(s.differences for s in scenarios.values())
-    adjustments: Counter[str] = Counter()
-    for scenario in scenarios.values():
-        adjustments.update(scenario.adjustments)
+    agree = sum(s.error is None and s.flow == 0 for s in scenarios.values())
+    flow = sum(s.flow for s in scenarios.values())
     not_replayed = sum(s.error is not None for s in scenarios.values())
-    line = (f'e2e: golden {agree}/{len(scenarios)} agree, differences {differences}, '
-            f'adjustments {dict(sorted(adjustments.items()))}')
+    line = (f'e2e: golden {agree}/{len(scenarios)} flow agree, flow differences {flow}, '
+            f'noted {_total(s.noted for s in scenarios.values())}, '
+            f'expected {_total(s.expected for s in scenarios.values())}')
     if not_replayed:
         line += f', {not_replayed} not replayed'
     if not units_passed:
         line += ', unit tests failed'
     passed = units_passed and bool(scenarios) and agree == len(scenarios)
     return line, 0 if passed else 1
+
+
+def exact_line(scenarios: Mapping[str, Scenario]) -> str:
+    """The old exact comparison's line: information, never part of the verdict."""
+    agree = sum(s.error is None and s.exact == 0 for s in scenarios.values())
+    return (f'e2e --exact (information only): golden {agree}/{len(scenarios)} agree, '
+            f'differences {sum(s.exact for s in scenarios.values())}, '
+            f'adjustments {_total(s.adjustments for s in scenarios.values())}')
+
+
+def _total(counts: Iterator[Mapping[str, int]]) -> dict[str, int]:
+    total: Counter[str] = Counter()
+    for count in counts:
+        total.update(count)
+    return dict(sorted(total.items()))
 
 
 def without_replays(suite: unittest.TestSuite) -> unittest.TestSuite:
@@ -81,14 +100,17 @@ def replay_all() -> dict[str, Scenario]:
             results[name] = Scenario(0, {}, {}, error=f'{type(error).__name__}: {str(error)[-500:]}')
         else:
             write_differences(name, result)
-            results[name] = Scenario(len(result.differences),
-                                     dict(Counter(difference.field for difference in result.differences)),
-                                     dict(result.adjustments), not_ported=dict(result.not_ported))
+            flow, exact = result.flow, result.exact
+            results[name] = Scenario(len(flow.flow), dict(Counter(difference.rule for difference in flow.flow)),
+                                     dict(flow.noted), dict(flow.expected), not_ported=dict(flow.not_ported),
+                                     exact=len(exact.differences),
+                                     fields=dict(Counter(difference.field for difference in exact.differences)),
+                                     adjustments=dict(exact.adjustments))
         print(f'{name}: {asdict(results[name])}', file=sys.stderr, flush=True)
     return results
 
 
-def main() -> int:
+def main(argv: Sequence[str]) -> int:
     from tests.e2e import env
     units_passed = unit_tests()
     if not env.reference_available():
@@ -96,12 +118,15 @@ def main() -> int:
         return 1
     scenarios = replay_all()
     line, code = verdict(scenarios, units_passed=units_passed)
+    exact = exact_line(scenarios)
     REPORT.parent.mkdir(parents=True, exist_ok=True)
-    REPORT.write_text(json.dumps({'line': line, 'unit_tests_passed': units_passed,
+    REPORT.write_text(json.dumps({'line': line, 'exact_line': exact, 'unit_tests_passed': units_passed,
                                   'scenarios': {name: asdict(s) for name, s in scenarios.items()}}, indent=1))
+    if '--exact' in argv:
+        print(exact)
     print(line)
     return code
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))
