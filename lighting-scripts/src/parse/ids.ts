@@ -12,7 +12,6 @@ import type { BulbId, DashboardControlId, EffectName, LampId, PowerTarget, Remot
 import type { Brightness, ColourChannel, Kelvin, Level, Percent, PercentRange } from '../domain/types/light.ts';
 import type { Instant, Seconds, TimeOfDay, Timezone } from '../domain/types/time.ts';
 import type { Step, StepCount } from '../domain/types/remote.ts';
-import type { Ranged } from '../domain/types/range.ts';
 import type { Minutes } from '../domain/types/overlay.ts';
 import type { Progress } from '../domain/types/schedule.ts';
 import { ParseError } from '../runtime/parse.ts';
@@ -160,14 +159,6 @@ export function toStepCount(raw: number): StepCount {
   inRange(raw, -40, 40, 'A count of remote steps');
   // Cast: checked just above; this is the one place a number becomes a step count.
   return raw as StepCount;
-}
-
-/** A count of a remote's power presses so far: a whole number, 0 and up. */
-export function toPowerPresses(raw: number): Ranged<'PowerPresses'> {
-  inRange(raw, 0, Infinity, 'A count of power presses');
-  if (!Number.isInteger(raw)) throw new ParseError(`A count of power presses must be a whole number, got ${raw}`);
-  // Cast: checked just above; this is the one place a number becomes a count of power presses.
-  return raw as Ranged<'PowerPresses'>;
 }
 
 /** A percent range: two numbers (not booleans) within 0..100, `low` not above `high`. */

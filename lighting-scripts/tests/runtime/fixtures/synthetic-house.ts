@@ -9,10 +9,12 @@
  * switch with a custom range. A remote in `room-a` and one in no room.
  *
  * Overlays: night held over `room-a`; `remote-a` brighter by three and moved
- * from day onto the candle, so it holds the day block and remembers day; a
- * person's fixed brightness and colour on `lamp-a2`; a dashboard control's
- * candle brightness on `lamp-a1` with the schedule's colour; `room-b` switched
- * off; the mode overlay active.
+ * from day onto the candle, so it holds the day block and remembers day, with
+ * a chord in progress; on `lamp-a1` a dashboard control's candle with the
+ * schedule's colour, then a person's newer fixed brightness and colour, which
+ * leave the candle running at them; a dashboard control's Normal over
+ * `room-a`, whose cosy block runs the candle; `room-b` switched off; the mode
+ * overlay active.
  */
 import type { Block } from '../../../src/domain/blocks.ts';
 import type { BlockSchedule, Config, Room, RoomBlock } from '../../../src/domain/config.ts';
@@ -23,7 +25,7 @@ import type { EffectName } from '../../../src/domain/effect.ts';
 import type { Colour, SceneLight } from '../../../src/domain/types/light.ts';
 import {
   toBrightness, toBulbId, toColourChannel, toDashboardControlId, toInstant, toKelvin, toLampId, toMinutes, toPercentRange,
-  toPowerPresses, toRemoteId, toRemoteSource, toRoomId, toStep, toStepCount, toSwitchId, toTimeOfDay, toTimezone,
+  toRemoteId, toRemoteSource, toRoomId, toStep, toStepCount, toSwitchId, toTimeOfDay, toTimezone,
 } from '../../../src/parse/ids.ts';
 
 /** A fixed moment the house's times count from. */
@@ -109,18 +111,28 @@ export function syntheticHouse(): Model {
       }],
       lamps: [
         {
-          over: { kind: 'lamp', lamp: lampA2 },
-          from: { kind: 'person' },
-          since: at(20),
-          brightness: { kind: 'fixed', brightness: toBrightness(90), at: at(20) },
-          colour: { kind: 'fixed', colour: kelvin(3000), at: at(20) },
-        },
-        {
           over: { kind: 'lamp', lamp: lampA1 },
           from: { kind: 'dashboard', control: toDashboardControlId('control-a') },
           since: at(30),
-          brightness: { kind: 'candle', runsAt: toBrightness(110), at: at(30) },
+          brightness: undefined,
           colour: { kind: 'schedule', at: at(30) },
+          effect: { kind: 'candle', at: at(30) },
+        },
+        {
+          over: { kind: 'lamp', lamp: lampA1 },
+          from: { kind: 'person' },
+          since: at(35),
+          brightness: { kind: 'fixed', brightness: toBrightness(90), at: at(35) },
+          colour: { kind: 'fixed', colour: kelvin(3000), at: at(35) },
+          effect: undefined,
+        },
+        {
+          over: { kind: 'room', room: roomA },
+          from: { kind: 'dashboard', control: toDashboardControlId('control-b') },
+          since: at(45),
+          brightness: undefined,
+          colour: undefined,
+          effect: { kind: 'normal', at: at(45) },
         },
       ],
       roomPower: { [roomB]: 'off' },
@@ -128,8 +140,8 @@ export function syntheticHouse(): Model {
     },
     modeOverlay: { active: true, since: at(60) },
     remotes: {
-      [remoteA]: { chord: { active: false }, powerPresses: toPowerPresses(0), presetButton: 'warm' },
-      [remoteB]: { chord: { active: false }, powerPresses: toPowerPresses(0), presetButton: undefined },
+      [remoteA]: { chord: { active: true, progress: 'power power left', until: at(61) }, power: { presses: 0 }, presetButton: 'warm' },
+      [remoteB]: { chord: { active: false }, power: { presses: 0 }, presetButton: undefined },
     },
     switchRanges: { [plugA]: { kind: 'custom', range: toPercentRange(20, 60) } },
     rangeDefaults: { bright: toPercentRange(90, 100), cosy: toPercentRange(30, 60) },

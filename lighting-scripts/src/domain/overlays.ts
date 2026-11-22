@@ -1,5 +1,6 @@
 import type { Block } from './blocks.ts';
-import type { DashboardControlId, LampId, RemoteSource, RoomId, SwitchId } from './types/ids.ts';
+import type { DashboardControlId, RemoteSource, RoomId, SwitchId } from './types/ids.ts';
+import type { LampOrRoom } from './types/lighting-state.ts';
 import type { Brightness, Colour, Power } from './types/light.ts';
 import type { Step, StepCount } from './types/remote.ts';
 import type { RoomOrHouse } from './types/schedule.ts';
@@ -84,31 +85,44 @@ export type HeldBlock = { block: 'day' | 'cosy'; since: Instant };
 
 export type RememberedPreset = Exclude<RemotePreset, { choice: 'none' }>;
 
+/**
+ * A lamp or a room held by a person or from the dashboard, part by part. Each
+ * part is undefined when this overlay leaves it alone. The effect is a part of
+ * its own: a newer level or colour hold on a candle lamp keeps the candle
+ * running at the new level or colour, and only a newer effect part ends it.
+ */
 export type LampOverlay = {
-  over: { kind: 'lamp'; lamp: LampId } | { kind: 'room'; room: RoomId };
+  over: LampOrRoom;
   /** A person's HA change (one per lamp or room), or a dashboard control (one per control). */
   from: { kind: 'person' } | { kind: 'dashboard'; control: DashboardControlId };
   since: Instant;
-  /** Undefined: this overlay leaves brightness alone. */
   brightness: BrightnessOverlay | undefined;
-  /** Undefined: this overlay leaves colour alone. */
   colour: ColourOverlay | undefined;
+  effect: EffectOverlay | undefined;
 };
 
-/** `at` is when this part was last set (the stored per-channel `updated`): the newest part wins per lamp. */
-export type BrightnessOverlay =
-  | { kind: 'fixed'; brightness: Brightness; at: Instant }
-  /** The candle. `runsAt` is the brightness it runs at (stored `intensity`, else the fixed value kept underneath). */
-  | { kind: 'candle'; runsAt: Brightness | undefined; at: Instant }
-  /** Back to the schedule's brightness, over any older overlay. */
-  | { kind: 'schedule'; at: Instant };
+/** `at` is when this part was last set (the stored per-channel `updated`): the newest part of each kind wins per lamp. */
+export type BrightnessOverlay = BrightnessPart & { at: Instant };
+export type ColourOverlay = ColourPart & { at: Instant };
+export type EffectOverlay = EffectPart & { at: Instant };
 
-export type ColourOverlay =
-  | { kind: 'fixed'; colour: Colour; at: Instant }
-  /** The candle's warm colour. */
-  | { kind: 'candle'; at: Instant }
-  /** Back to the schedule's colour, over any older overlay. */
-  | { kind: 'schedule'; at: Instant };
+/** A brightness: fixed, or back to the schedule's over any older overlay. */
+export type BrightnessPart = { kind: 'fixed'; brightness: Brightness } | { kind: 'schedule' };
+
+/** A colour: fixed, or back to the schedule's over any older overlay. */
+export type ColourPart = { kind: 'fixed'; colour: Colour } | { kind: 'schedule' };
+
+/**
+ * The candle, at whatever level and colour the other parts give; the normal
+ * light, over a block's candle too; or back to the effect the schedule's light names.
+ */
+export type EffectPart = { kind: 'candle' } | { kind: 'normal' } | { kind: 'schedule' };
+
+/** The parts a dashboard control sets, before `update` stamps them: at least one. */
+export type LampOverlayParts =
+  | { brightness: BrightnessPart; colour: ColourPart | undefined; effect: EffectPart | undefined }
+  | { brightness: undefined; colour: ColourPart; effect: EffectPart | undefined }
+  | { brightness: undefined; colour: undefined; effect: EffectPart };
 
 /** The mode overlay: one colour on every lamp outside private rooms and outside the night block. */
 export type ModeOverlay = { active: false } | { active: true; since: Instant };
