@@ -123,7 +123,7 @@ test('a switch with no rule and no on/off setting is left as it is', () => {
 test('a switch in no room follows the house\'s on/off setting, whatever its rule', () => {
   // A rule needs a room to read. Break: a switch in no room is left out, or its rule reads some room.
   const plugC = toSwitchId('switch.plug_c');
-  const model = house(m => { m.config.switches[plugC] = { room: undefined }; m.switchRanges[plugC] = { kind: 'cosy' }; });
+  const model = house(m => { m.config.switches[plugC] = { room: undefined, onOff: true }; m.switchRanges[plugC] = { kind: 'cosy' }; });
   assert.equal(power(model, at('12:00:00'), plugC), 'on');
   assert.equal(power(model, at('23:30:00'), plugC), 'off');
 });
@@ -149,4 +149,39 @@ test('with the next-block rule on, a switch overlay set before the last fade sta
   assert.equal(power(model, at('20:00:00')), 'on');
   model.config.overlayReset.atNextBlock = false;
   assert.equal(power(model, at('20:00:00')), 'off');
+});
+
+/** A switch with a saved range rule that no on/off label names, in the room given. */
+const ranged = toSwitchId('switch.ranged');
+const rangeOnly = (room: typeof roomA | undefined) => (m: Model) => {
+  delete m.switchRanges[plugA];
+  m.config.switches[ranged] = { room, onOff: false };
+  m.switchRanges[ranged] = { kind: 'custom', range: toPercentRange(20, 60) };
+};
+
+test('a range-only switch follows its range rule against its room\'s level', () => {
+  // Break: only on/off-labelled switches are driven, or the rule of a range-only switch is not read.
+  const model = house(rangeOnly(roomA));
+  assert.equal(power(model, at('12:00:00'), ranged), 'off');
+  assert.equal(power(model, at('20:00:00'), ranged), 'on');
+});
+
+test('a range-only switch whose rule decodes to nothing is sent nothing', () => {
+  // The block's on/off setting is for on/off-labelled switches. Break: a range-only switch falls through to it.
+  const model = house(m => { rangeOnly(roomA)(m); delete m.switchRanges[ranged]; });
+  assert.equal(power(model, at('12:00:00'), ranged), undefined);
+  assert.equal(power(model, at('23:30:00'), ranged), undefined);
+});
+
+test('a range-only switch in no room is sent nothing', () => {
+  // A rule needs a room's level. Break: it follows the house's on/off setting, or reads some room.
+  const model = house(rangeOnly(undefined));
+  assert.equal(power(model, at('12:00:00'), ranged), undefined);
+  assert.equal(power(model, at('20:00:00'), ranged), undefined);
+});
+
+test('a range-only switch still obeys its own button', () => {
+  // Break: the overlay is read for on/off-labelled switches only.
+  const model = house(m => { rangeOnly(roomA)(m); m.overlays.switches[ranged] = { power: 'on', since: at('11:00:00') }; });
+  assert.equal(power(model, at('12:00:00'), ranged), 'on');
 });

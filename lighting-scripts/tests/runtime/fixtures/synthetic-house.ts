@@ -86,7 +86,7 @@ const config: Config = {
     [lampA2]: { room: roomA, bulbs: [{ bulb: toBulbId('bulb-a3'), firmware: 'stock' }] },
     [lampB1]: { room: roomB, bulbs: [{ bulb: toBulbId('bulb-b1'), firmware: 'stock' }] },
   },
-  switches: { [plugA]: { room: roomA } },
+  switches: { [plugA]: { room: roomA, onOff: true } },
   remotes: { [remoteA]: { room: roomA, source: sourceA }, [remoteB]: { room: undefined, source: sourceB } },
   overlayReset: { atNextBlock: true, atSetTime: undefined, afterAge: toMinutes(180) },
   warmEnd: { red: toColourChannel(255), green: toColourChannel(126), blue: toColourChannel(0) },

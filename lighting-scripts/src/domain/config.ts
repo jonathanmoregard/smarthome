@@ -51,7 +51,11 @@ export type WakeLight = { at: Instant; fade: Minutes };
 /** A lamp in no room follows the house. */
 export type Lamp = { room: RoomId | undefined; bulbs: readonly BulbInfo[] };
 
-export type Switch = { room: RoomId | undefined };
+/**
+ * A switch is a light or switch labelled on/off, or one with a saved range rule. Only an on/off-labelled one
+ * (`onOff`) follows its block's on/off setting; a range-only switch follows its range rule or is left as it is.
+ */
+export type Switch = { room: RoomId | undefined; onOff: boolean };
 
 /** No room: the remote does nothing. */
 export type Remote = { room: RoomId | undefined; source: RemoteSource };

@@ -72,10 +72,16 @@ function decodeLamps(source: ConfigSource, catalog: Catalog): Record<LampId, Lam
   } satisfies Lamp]));
 }
 
-/** The switches are the entities labelled on/off that are lights or switches. */
+/**
+ * The switches are the entities labelled on/off that are lights or switches, and those with a saved range rule
+ * (as today's switch plan drives them). A range key that is no light or switch is skipped.
+ */
 function decodeSwitches(source: ConfigSource): Record<SwitchId, Switch> {
-  return Object.fromEntries((source.labels['on_off'] ?? []).filter(entity => /^(light|switch)\./.test(entity)).map(entity =>
-    [toSwitchId(entity), { room: roomOf(source.rooms.ofId[entity]) } satisfies Switch]));
+  const isSwitch = (entity: string) => /^(light|switch)\./.test(entity);
+  const labelled = (source.labels['on_off'] ?? []).filter(isSwitch);
+  const ranged = Object.keys(rangeEntities(source)).filter(isSwitch);
+  return Object.fromEntries([...new Set([...labelled, ...ranged])].map(entity =>
+    [toSwitchId(entity), { room: roomOf(source.rooms.ofId[entity]), onOff: labelled.includes(entity) } satisfies Switch]));
 }
 
 /** A remote's room is its device's room in the registry; a device in none gives a remote that does nothing. */
