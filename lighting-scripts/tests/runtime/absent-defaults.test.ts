@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { JsonObject, JsonValue } from '../../src/runtime/context.ts';
 import { stateStoreHandlers } from '../../src/handlers/state-store.ts';
-import { resolveEffects } from '../../src/domain/resolution.ts';
+import { resolveEffects } from '../../src/legacy/domain/resolution.ts';
 import { parseResolveArgs } from '../../src/parse/resolution.ts';
-import { planGradients as planTyped } from '../../src/domain/gradient.ts';
+import { planGradients as planTyped } from '../../src/legacy/domain/gradient.ts';
 import { parseGradientPlanArgs } from '../../src/parse/gradient.ts';
 
 const planGradients = (args: JsonObject) => planTyped(parseGradientPlanArgs(args));

@@ -1,7 +1,7 @@
 /**
  * `gestures`'s handlers: the shells that read the live house, make the
  * inter-handler calls and perform effects, and the name-keyed table.
- * The decisions they run are in `src/domain/gestures.ts`.
+ * The decisions they run are in `src/legacy/domain/gestures.ts`.
  */
 import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
 import { withParsedArgs } from '../runtime/parse.ts';
@@ -11,7 +11,7 @@ import type { PowerQuietRequest } from '../parse/gestures.ts';
 import { run } from '../runtime/effects.ts';
 import type { Plan } from '../runtime/effects.ts';
 import type { RoomId } from '../domain/types/ids.ts';
-import * as Gesture from '../domain/gestures.ts';
+import * as Gesture from '../legacy/domain/gestures.ts';
 
 /**
  * Serialized actor. It never waits for actuator services or the power quiet

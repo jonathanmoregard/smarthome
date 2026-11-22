@@ -5,7 +5,7 @@
  * document into an {@link Anchor} or {@link Color} live in `src/parse/scale.ts`,
  * and `isObject`/`object` moved to `src/runtime/parse.ts`.
  */
-import { ParseError } from '../runtime/parse.ts';
+import { ParseError } from '../../runtime/parse.ts';
 
 export type RGB = [number, number, number];
 export type Color = ({ kelvin: number; rgb?: never } | { rgb: RGB; kelvin?: never });

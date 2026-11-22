@@ -22,10 +22,10 @@ import { requireRgb, warmEndRgb } from './scale.ts';
 import { opaqueMap, storedFact } from './overrides.ts';
 import { savedPlanOrder } from './sensors.ts';
 import type { OpaqueMap, StoredFact } from './overrides.ts';
-import type { RGB } from '../domain/scale.ts';
+import type { RGB } from '../legacy/domain/scale.ts';
 import type {
   AssignRequest, AssignDetails, BulbEffectName, Channel, EmitRequest, FilterRequest, FrameEffect, FramePlanRequest, FrameSource, FrameTarget,
-} from '../domain/transport.ts';
+} from '../legacy/domain/transport.ts';
 import { lampOrRoom } from './lighting-state.ts';
 import { parseOverlayKey } from './overlay-key.ts';
 import type { OverlayKey } from '../domain/types/overlay.ts';

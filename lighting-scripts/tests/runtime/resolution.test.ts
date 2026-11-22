@@ -6,14 +6,14 @@ import test from 'node:test';
 // The retro lamp is the one lamp these cases treat as able to run Candle; in
 // production that comes from the catalog's per-bulb `candle` flag.
 async function resolver(): Promise<(args: any) => any> {
-  const { resolveEffects } = await import('../../src/domain/resolution.ts');
+  const { resolveEffects } = await import('../../src/legacy/domain/resolution.ts');
   const { parseResolveArgs } = await import('../../src/parse/resolution.ts');
   return args => resolveEffects(parseResolveArgs(args), new Set(['light.living_room_yellow_retro_lamp']));
 }
 
 // A changed interpolation branch or JS Math.round replacing Python round breaks these literals.
 test('scale preserves low anchors, clamps tails, and rounds RGB halves to even', async () => {
-  const modulePath = '../../src/domain/scale.ts';
+  const modulePath = '../../src/legacy/domain/scale.ts';
   const port = await import(modulePath).catch(() => ({}));
   assert.equal(typeof port.scaleValue, 'function', 'the pure scale implementation is available');
   const day = { brightness: 220, color: { rgb: [10, 21, 30] } };
@@ -40,7 +40,7 @@ test('new invalid channel cancels its old effect without replacing the other cha
 test('malformed cached gradient is rebuilt while a valid cached curve retains its values', async () => {
   // `parseGradientPlanArgs` reads the raw handler arguments at the edge;
   // `planGradients` and `sampleGradient` are pure domain over the typed value.
-  const algebra = await import('../../src/domain/gradient.ts').catch(() => ({}));
+  const algebra = await import('../../src/legacy/domain/gradient.ts').catch(() => ({}));
   const edge = await import('../../src/parse/gradient.ts').catch(() => ({}));
   assert.equal(typeof algebra.planGradients, 'function', 'the gradient planner is available');
   assert.equal(typeof edge.parseGradientPlanArgs, 'function', 'the gradient argument parser is available');

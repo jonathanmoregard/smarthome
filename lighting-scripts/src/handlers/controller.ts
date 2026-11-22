@@ -1,7 +1,7 @@
 /**
  * `controller`'s handlers: the shells that read the live house, make the
  * inter-handler calls and perform effects, and the name-keyed table.
- * The decisions they run are in `src/domain/controller.ts`.
+ * The decisions they run are in `src/legacy/domain/controller.ts`.
  */
 import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
 import { withParsedArgs } from '../runtime/parse.ts';
@@ -12,11 +12,11 @@ import {
   cachedGradients, parseApplyArgs, parsePlanArgs, parseRemoteCommandArgs, parseSwitchPlanArgs, planMapping, planOverrides, planPassThrough,
     planRangeDefaults, planWarmEnd,
 } from '../parse/controller.ts';
-import type { RemotePlan } from '../domain/remote-input.ts';
+import type { RemotePlan } from '../legacy/domain/remote-input.ts';
 import { remoteAnswerDocument, remotePlanDocument } from '../parse/results.ts';
 import { perform } from '../runtime/effects.ts';
-import { acceptedPowerSwitch, planAnswer, remoteCommit, switchPlan } from '../domain/controller.ts';
-import type { ApplyRequest, PlanRequest, LightingPlan, PowerSwitch, RemoteCommandRequest } from '../domain/controller.ts';
+import { acceptedPowerSwitch, planAnswer, remoteCommit, switchPlan } from '../legacy/domain/controller.ts';
+import type { ApplyRequest, PlanRequest, LightingPlan, PowerSwitch, RemoteCommandRequest } from '../legacy/domain/controller.ts';
 import { overlayKeyText, SARA_MODE } from '../domain/types/overlay.ts';
 import { pressText } from '../domain/types/remote.ts';
 import { roomText } from '../parse/rooms.ts';

@@ -1,6 +1,6 @@
-import { sameDocument } from '../runtime/verbatim.ts';
-import type { Verbatim } from '../runtime/verbatim.ts';
-import type { BulbId } from './types/ids.ts';
+import { sameDocument } from '../../runtime/verbatim.ts';
+import type { Verbatim } from '../../runtime/verbatim.ts';
+import type { BulbId } from '../../domain/types/ids.ts';
 
 /**
  * One endpoint's wanted publish. `payload` is the lamp's MQTT body, assembled

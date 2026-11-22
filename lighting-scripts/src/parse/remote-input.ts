@@ -19,7 +19,7 @@ import { latestRemoteKey, savedSelection, savedWhen } from './resolution.ts';
 import type { SavedSelection } from './resolution.ts';
 import { assembledMap, storedFact } from './overrides.ts';
 import type { Assembled, AssembledMap, StoredFact, StoredValue } from './overrides.ts';
-import type { Adjustment, RemotePlanRequest } from '../domain/remote-input.ts';
+import type { Adjustment, RemotePlanRequest } from '../legacy/domain/remote-input.ts';
 import { stepBoundsOf, toRemoteSource, toRoomId } from './ids.ts';
 import { roomText } from './rooms.ts';
 import type { OverlayKey } from '../domain/types/overlay.ts';

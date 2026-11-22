@@ -1,7 +1,7 @@
 /**
  * `state-store`'s handlers: the shells that read the live house, make the
  * inter-handler calls and perform effects, and the name-keyed table.
- * The decisions they run are in `src/domain/state-store.ts`.
+ * The decisions they run are in `src/legacy/domain/state-store.ts`.
  */
 import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
 import { withParsedArgs } from '../runtime/parse.ts';
@@ -16,8 +16,8 @@ import { overridesRevision, savedOverridesContain } from '../parse/sensors.ts';
 import { run } from '../runtime/effects.ts';
 import type { Plan } from '../runtime/effects.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
-import { houseRooms, planCommit, planOverrideBlock, planStore, toggleSaraMode } from '../domain/state-store.ts';
-import type { CommitRequest, CommitOutcome, StoreProfileRequest } from '../domain/state-store.ts';
+import { houseRooms, planCommit, planOverrideBlock, planStore, toggleSaraMode } from '../legacy/domain/state-store.ts';
+import type { CommitRequest, CommitOutcome, StoreProfileRequest } from '../legacy/domain/state-store.ts';
 import { SARA_MODE } from '../domain/types/overlay.ts';
 
 /**

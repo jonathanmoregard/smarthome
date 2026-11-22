@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { publishCommand, stillCurrent } from '../../src/domain/transport.ts';
-import type { EmitCommand } from '../../src/domain/transport.ts';
+import { publishCommand, stillCurrent } from '../../src/legacy/domain/transport.ts';
+import type { EmitCommand } from '../../src/legacy/domain/transport.ts';
 import type { JsonObject, JsonValue } from '../../src/runtime/context.ts';
 import { house } from './house-view.ts';
 

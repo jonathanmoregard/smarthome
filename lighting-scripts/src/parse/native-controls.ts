@@ -25,10 +25,10 @@ import {
 } from '../runtime/parse.ts';
 import { carry, carryOptional, reveal } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
-import type { RGB } from '../domain/scale.ts';
+import type { RGB } from '../legacy/domain/scale.ts';
 import type { BulbId, LampId, RoomId } from '../domain/types/ids.ts';
 import type { Brightness, Kelvin } from '../domain/types/light.ts';
-import { roundEven } from '../domain/scale.ts';
+import { roundEven } from '../legacy/domain/scale.ts';
 import { toBrightness, toBulbId, toKelvin, toLampId, toRoomId } from './ids.ts';
 
 /** The catalog's `groups`: `source in groups`, and a group's members read on demand. */

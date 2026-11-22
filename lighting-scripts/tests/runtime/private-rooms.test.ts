@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { privateRooms } from '../../src/domain/schedule.ts';
+import { privateRooms } from '../../src/legacy/domain/schedule.ts';
 
 test('the private rooms are the registry\'s private_room label list, none when it is absent or null', () => {
   // Break: the parse step that brands the list stops treating an absent label map, an absent

@@ -17,7 +17,7 @@ import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { HouseView } from '../runtime/effects.ts';
 import { jinjaTruthy, object, parseFinite, parsePythonNumeric, requireObject, requireString } from '../runtime/parse.ts';
 import type { Block } from '../domain/blocks.ts';
-import type { LampColor, LampLight, LampProfile, LampSample, ScheduledBaseRequest } from '../domain/schedule.ts';
+import type { LampColor, LampLight, LampProfile, LampSample, ScheduledBaseRequest } from '../legacy/domain/schedule.ts';
 import { isBlock } from './blocks.ts';
 import { rgbTripleOf } from './scale.ts';
 import { asTimestampOr, num, saved, stateNumberOr, testNow } from './accessors.ts';

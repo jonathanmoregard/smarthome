@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { houseRooms, planCommit, planOverrideBlock, planStore, toggleSaraMode } from '../../src/domain/state-store.ts';
+import { houseRooms, planCommit, planOverrideBlock, planStore, toggleSaraMode } from '../../src/legacy/domain/state-store.ts';
 import { clearAllOverrides } from '../../src/handlers/state-store.ts';
-import type { CommitSnapshot } from '../../src/domain/state-store.ts';
+import type { CommitSnapshot } from '../../src/legacy/domain/state-store.ts';
 import { parseCommitArgs, storedOverrides } from '../../src/parse/overrides.ts';
 import { cachedProfile, parseOverrideBlockArgs, parseStoreProfile } from '../../src/parse/state-store.ts';
 import { carry } from '../../src/runtime/verbatim.ts';

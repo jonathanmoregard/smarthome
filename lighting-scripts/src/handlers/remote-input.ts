@@ -1,16 +1,16 @@
 /**
  * `remote-input`'s handlers: the shells that read the live house, make the
  * inter-handler calls and perform effects, and the name-keyed table.
- * The decisions they run are in `src/domain/remote-input.ts`.
+ * The decisions they run are in `src/legacy/domain/remote-input.ts`.
  */
 import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
 import { catalogOf, emptyCatalog } from '../runtime/catalog.ts';
 import { typed } from '../runtime/entrypoints.ts';
 import { parseRemotePlanArgs, remoteRoomPlan } from '../parse/remote-input.ts';
 import { roomText } from '../parse/rooms.ts';
-import { remoteDecision, remoteOpening } from '../domain/remote-input.ts';
+import { remoteDecision, remoteOpening } from '../legacy/domain/remote-input.ts';
 import { pressCommand } from '../domain/types/remote.ts';
-import type { RemotePlanRequest, RemotePlan } from '../domain/remote-input.ts';
+import type { RemotePlanRequest, RemotePlan } from '../legacy/domain/remote-input.ts';
 
 /**
  * Store button-domain intent; rendered brightness/color belong to the resolver.

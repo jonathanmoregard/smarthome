@@ -1,15 +1,15 @@
-import type { Verbatim } from '../runtime/verbatim.ts';
-import type { Catalog } from '../runtime/catalog.ts';
+import type { Verbatim } from '../../runtime/verbatim.ts';
+import type { Catalog } from '../../runtime/catalog.ts';
 import { gradientSignature, sampleGradient } from './gradient.ts';
 import type { GradientCurve, GradientSignature } from './gradient.ts';
 import { OFF_END_LEVEL, blend, boundedNumber, clamp } from './scale.ts';
 import type { BlendEnd, Blended, Color, RGB } from './scale.ts';
-import { DEFAULT_STEP_BOUNDS, levelNumber } from '../parse/resolution.ts';
-import type { LampOrRoom } from './types/lighting-state.ts';
-import type { OverlayKey } from './types/overlay.ts';
-import { EMPTY_KEY, overlayKeyText, sameOverlayKey, SARA_MODE } from './types/overlay.ts';
-import type { RoomId } from './types/ids.ts';
-import type { Step } from './types/remote.ts';
+import { DEFAULT_STEP_BOUNDS, levelNumber } from '../../parse/resolution.ts';
+import type { LampOrRoom } from '../../domain/types/lighting-state.ts';
+import type { OverlayKey } from '../../domain/types/overlay.ts';
+import { EMPTY_KEY, overlayKeyText, sameOverlayKey, SARA_MODE } from '../../domain/types/overlay.ts';
+import type { RoomId } from '../../domain/types/ids.ts';
+import type { Step } from '../../domain/types/remote.ts';
 
 const CHANNELS = ['brightness', 'color'] as const;
 export type Channel = typeof CHANNELS[number];

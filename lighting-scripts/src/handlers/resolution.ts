@@ -1,17 +1,17 @@
 /**
  * `resolution`'s handlers: the shells that read the live house, make the
  * inter-handler calls and perform effects, and the name-keyed table.
- * The decisions they run are in `src/domain/resolution.ts`.
+ * The decisions they run are in `src/legacy/domain/resolution.ts`.
  */
 import type { ScriptHandlers } from '../runtime/context.ts';
 import { withParsedArgs } from '../runtime/parse.ts';
 import { typed } from '../runtime/entrypoints.ts';
-import { planGradients } from '../domain/gradient.ts';
-import { scaleValue } from '../domain/scale.ts';
+import { planGradients } from '../legacy/domain/gradient.ts';
+import { scaleValue } from '../legacy/domain/scale.ts';
 import { parseGradientPlanArgs } from '../parse/gradient.ts';
 import { parseScaleArgs } from '../parse/scale.ts';
 import { parseResolveArgs } from '../parse/resolution.ts';
-import { candleLamps, resolveEffects } from '../domain/resolution.ts';
+import { candleLamps, resolveEffects } from '../legacy/domain/resolution.ts';
 import type { ScriptContext } from '../runtime/context.ts';
 
 /**

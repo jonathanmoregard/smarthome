@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { planAnswer } from '../../src/domain/controller.ts';
-import type { ScheduleEnvelope } from '../../src/domain/schedule.ts';
+import { planAnswer } from '../../src/legacy/domain/controller.ts';
+import type { ScheduleEnvelope } from '../../src/legacy/domain/schedule.ts';
 import { recordTimestamp } from '../../src/parse/resolution.ts';
 import { carry } from '../../src/runtime/verbatim.ts';
 import { house } from './house-view.ts';

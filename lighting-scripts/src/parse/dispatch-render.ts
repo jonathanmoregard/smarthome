@@ -25,7 +25,7 @@ import { opaqueMap, storedFact } from './overrides.ts';
 import type { OpaqueMap, StoredFact, StoredValue } from './overrides.ts';
 import { storedChannels } from './transport.ts';
 import { savedPlanOrder } from './sensors.ts';
-import type { DispatchRequest, DispatchDetails, DispatchTarget } from '../domain/dispatch-render.ts';
+import type { DispatchRequest, DispatchDetails, DispatchTarget } from '../legacy/domain/dispatch-render.ts';
 import { lampOrRoom } from './lighting-state.ts';
 import { toRoomId } from './ids.ts';
 import type { RoomId } from '../domain/types/ids.ts';

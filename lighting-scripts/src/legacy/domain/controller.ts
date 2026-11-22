@@ -1,16 +1,16 @@
-import type { Verbatim } from '../runtime/verbatim.ts';
+import type { Verbatim } from '../../runtime/verbatim.ts';
 import type { ScheduleEnvelope, TargetEntry } from './schedule.ts';
-import { recordTimestamp } from '../parse/resolution.ts';
-import type { OpaqueMap } from '../parse/overrides.ts';
-import { planRevision } from '../parse/controller.ts';
+import { recordTimestamp } from '../../parse/resolution.ts';
+import type { OpaqueMap } from '../../parse/overrides.ts';
+import { planRevision } from '../../parse/controller.ts';
 import type { Resolution } from './resolution.ts';
 import type { CompiledGradients } from './gradient.ts';
 import type { RemotePlan } from './remote-input.ts';
-import type { HouseView } from '../runtime/effects.ts';
-import type { PowerTarget, RemoteSource, RoomId, SwitchId } from './types/ids.ts';
-import type { RemotePress } from './types/remote.ts';
-import type { Percent } from './types/light.ts';
-import { overlayKeyText, SARA_MODE } from './types/overlay.ts';
+import type { HouseView } from '../../runtime/effects.ts';
+import type { PowerTarget, RemoteSource, RoomId, SwitchId } from '../../domain/types/ids.ts';
+import type { RemotePress } from '../../domain/types/remote.ts';
+import type { Percent } from '../../domain/types/light.ts';
+import { overlayKeyText, SARA_MODE } from '../../domain/types/overlay.ts';
 
 /**
  * A valid switch interval: its bounds as numbers (a boolean bound is Python's

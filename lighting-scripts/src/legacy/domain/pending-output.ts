@@ -1,7 +1,7 @@
-import type { Verbatim } from '../runtime/verbatim.ts';
-import type { StoredFact } from '../parse/overrides.ts';
-import { entriesOf } from './types/ids.ts';
-import type { RoomId } from './types/ids.ts';
+import type { Verbatim } from '../../runtime/verbatim.ts';
+import type { StoredFact } from '../../parse/overrides.ts';
+import { entriesOf } from '../../domain/types/ids.ts';
+import type { RoomId } from '../../domain/types/ids.ts';
 
 /**
  * Output is dirty when the last full render or any pending room was not

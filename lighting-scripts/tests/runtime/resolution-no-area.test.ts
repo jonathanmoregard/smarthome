@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { parseResolveArgs } from '../../src/parse/resolution.ts';
-import { resolveEffects } from '../../src/domain/resolution.ts';
+import { resolveEffects } from '../../src/legacy/domain/resolution.ts';
 import type { JsonObject } from '../../src/runtime/context.ts';
 
 /**

@@ -14,7 +14,7 @@ import { carry } from '../runtime/verbatim.ts';
 import type { RoomId } from '../domain/types/ids.ts';
 import { toRemoteId, toRoomId } from './ids.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
-import type { GestureRequest, Model, Msg, PresetPayload } from '../domain/gestures.ts';
+import type { GestureRequest, Model, Msg, PresetPayload } from '../legacy/domain/gestures.ts';
 
 export interface PowerQuietRequest {
   /** The whole argument document, forwarded into the scheduled `power_done`. */

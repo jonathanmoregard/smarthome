@@ -1,22 +1,22 @@
-import { storedEquals, withFields, withoutField } from '../runtime/verbatim.ts';
-import type { Verbatim } from '../runtime/verbatim.ts';
-import { BLOCKS, blockOption } from './blocks.ts';
-import type { Block } from './blocks.ts';
+import { storedEquals, withFields, withoutField } from '../../runtime/verbatim.ts';
+import type { Verbatim } from '../../runtime/verbatim.ts';
+import { BLOCKS, blockOption } from '../../domain/blocks.ts';
+import type { Block } from '../../domain/blocks.ts';
 import type { CompiledGradients } from './gradient.ts';
 import type { Resolution } from './resolution.ts';
 import type { ScheduleMirror } from './schedule.ts';
 import type { SwitchDecision } from './controller.ts';
-import type { HouseView } from '../runtime/effects.ts';
+import type { HouseView } from '../../runtime/effects.ts';
 import { hasValue, labelled, nextMidnight, privateRooms } from './schedule.ts';
-import { timestamp } from '../parse/accessors.ts';
-import { overridesRevision } from '../parse/sensors.ts';
-import { entityProfile } from '../parse/schedule.ts';
-import type { StoredFact, StoredValue } from '../parse/overrides.ts';
-import { stored, storedList, switchRangeEntities, wakeFadeMinutes, wakeTimestamp, warmEndOf } from '../parse/planning.ts';
-import type { RoomId, SwitchId } from './types/ids.ts';
-import type { LampOrRoom } from './types/lighting-state.ts';
-import { byOverlayKeyText, EMPTY_KEY, overlayKeyText, sameOverlayKey, SARA_MODE } from './types/overlay.ts';
-import type { OverlayKey } from './types/overlay.ts';
+import { timestamp } from '../../parse/accessors.ts';
+import { overridesRevision } from '../../parse/sensors.ts';
+import { entityProfile } from '../../parse/schedule.ts';
+import type { StoredFact, StoredValue } from '../../parse/overrides.ts';
+import { stored, storedList, switchRangeEntities, wakeFadeMinutes, wakeTimestamp, warmEndOf } from '../../parse/planning.ts';
+import type { RoomId, SwitchId } from '../../domain/types/ids.ts';
+import type { LampOrRoom } from '../../domain/types/lighting-state.ts';
+import { byOverlayKeyText, EMPTY_KEY, overlayKeyText, sameOverlayKey, SARA_MODE } from '../../domain/types/overlay.ts';
+import type { OverlayKey } from '../../domain/types/overlay.ts';
 
 /**
  * The oracle's own cache version literal, copied verbatim from

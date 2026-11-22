@@ -13,7 +13,7 @@ import { carry } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import type {
   BlockTarget, CommitSnapshot, EffectChannels, OverrideBlockRequest, ProfilePatch, ScheduledBlocks, StoredProfile, StoreProfileRequest,
-} from '../domain/state-store.ts';
+} from '../legacy/domain/state-store.ts';
 import { opaqueMap, storedFact } from './overrides.ts';
 import { attributeFact, attributeList, attributeMapping, lenientOverrides } from './sensors.ts';
 import type { HouseView } from '../runtime/effects.ts';

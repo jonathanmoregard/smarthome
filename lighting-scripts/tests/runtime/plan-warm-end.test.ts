@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { planWarmEnd } from '../../src/parse/controller.ts';
-import { WARM_END } from '../../src/domain/scale.ts';
+import { WARM_END } from '../../src/legacy/domain/scale.ts';
 
 // Captured ls_plan: `state_attr(..., 'rgb_color') or [255,126,0]` — Jinja `or`,
 // so every falsy value takes the default, not only absent/null.

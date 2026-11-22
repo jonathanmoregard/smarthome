@@ -6,7 +6,7 @@ import { carry } from '../../src/runtime/verbatim.ts';
 import { timestamp } from '../../src/parse/accessors.ts';
 import { parseDispatchArgs } from '../../src/parse/dispatch-render.ts';
 import { dispatch } from '../../src/handlers/dispatch-render.ts';
-import type { EmitOutcome } from '../../src/domain/transport.ts';
+import type { EmitOutcome } from '../../src/legacy/domain/transport.ts';
 import { context, setCatalog } from './gestures-context.ts';
 
 /**

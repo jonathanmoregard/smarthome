@@ -17,8 +17,8 @@
  */
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import { ParseError, isObject, object, requireNumber } from '../runtime/parse.ts';
-import type { Anchor, BlendEnd, Color, RGB, ScaleRequest } from '../domain/scale.ts';
-import { ANCHOR_BRIGHTNESS_MESSAGE, COLOR_SHAPE_MESSAGE, WARM_END, boundedNumber, copyColor } from '../domain/scale.ts';
+import type { Anchor, BlendEnd, Color, RGB, ScaleRequest } from '../legacy/domain/scale.ts';
+import { ANCHOR_BRIGHTNESS_MESSAGE, COLOR_SHAPE_MESSAGE, WARM_END, boundedNumber, copyColor } from '../legacy/domain/scale.ts';
 
 /**
  * One end of the cosy <-> day blend as a target document spells it.

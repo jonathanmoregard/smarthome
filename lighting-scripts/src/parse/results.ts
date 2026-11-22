@@ -1,12 +1,12 @@
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { TypedResults } from '../runtime/entrypoints.ts';
-import type { SwitchDecision } from '../domain/controller.ts';
-import type { AssignedGeneration, EmitOutcome } from '../domain/transport.ts';
-import type { CommitOutcome } from '../domain/state-store.ts';
-import type { GroupCommand, GroupedCommands, RejectedRow } from '../domain/grouping.ts';
-import type { RemoteInputRecord, RemoteModeRecord, RemotePlanOp, RemotePlan } from '../domain/remote-input.ts';
+import type { SwitchDecision } from '../legacy/domain/controller.ts';
+import type { AssignedGeneration, EmitOutcome } from '../legacy/domain/transport.ts';
+import type { CommitOutcome } from '../legacy/domain/state-store.ts';
+import type { GroupCommand, GroupedCommands, RejectedRow } from '../legacy/domain/grouping.ts';
+import type { RemoteInputRecord, RemoteModeRecord, RemotePlanOp, RemotePlan } from '../legacy/domain/remote-input.ts';
 import type { LampColor, LampProfile, LampProfileEntry, ProfileLevel, ScheduleCommand, ScheduleDetails, ScheduleEnvelope, ScheduledBase,
-  ScheduleMirror, TargetEntry } from '../domain/schedule.ts';
+  ScheduleMirror, TargetEntry } from '../legacy/domain/schedule.ts';
 import { optionalBlock, requireBlock } from './blocks.ts';
 import { BLOCKS, blockOption } from '../domain/blocks.ts';
 import { ParseError, requireArray, requireBoolean, requireFinite, requireNumber, requireObject, requireString } from '../runtime/parse.ts';

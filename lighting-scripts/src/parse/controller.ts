@@ -17,13 +17,15 @@ import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import { isObject, jinjaTruthy, lazy, object, requireArray, requireBoolean, requireObject, requireString } from '../runtime/parse.ts';
 import { carry } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
-import type { RGB } from '../domain/scale.ts';
+import type { RGB } from '../legacy/domain/scale.ts';
 import { opaqueMap } from './overrides.ts';
 import type { OpaqueMap } from './overrides.ts';
 import { warmEndRgb } from './scale.ts';
 import { savedMappingOr } from './accessors.ts';
 import { BUILT_IN_RANGES } from './planning.ts';
-import type { ApplyRequest, PlanRequest, PlanOverrides, RemoteCommandRequest, SwitchInterval, SwitchPlanRequest } from '../domain/controller.ts';
+import type {
+  ApplyRequest, PlanRequest, PlanOverrides, RemoteCommandRequest, SwitchInterval, SwitchPlanRequest,
+} from '../legacy/domain/controller.ts';
 import { toPercent, toRemoteSource, toRoomId, toSwitchId } from './ids.ts';
 import { roomOfText } from './rooms.ts';
 import { remotePress } from './remote-input.ts';

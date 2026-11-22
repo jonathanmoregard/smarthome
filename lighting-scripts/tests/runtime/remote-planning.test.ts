@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { remoteDecision, remoteOpening } from '../../src/domain/remote-input.ts';
-import { dependencies, expiry, refreshBaseline, roomOpening, roomPlanAnswer } from '../../src/domain/planning.ts';
+import { remoteDecision, remoteOpening } from '../../src/legacy/domain/remote-input.ts';
+import { dependencies, expiry, refreshBaseline, roomOpening, roomPlanAnswer } from '../../src/legacy/domain/planning.ts';
 import { remotePress, remoteRoomPlan } from '../../src/parse/remote-input.ts';
 import { parseRoomBaseline, parseRoomPlanArgs } from '../../src/parse/planning.ts';
 import { recordTimestamp } from '../../src/parse/resolution.ts';

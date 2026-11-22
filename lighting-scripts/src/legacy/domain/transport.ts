@@ -1,17 +1,17 @@
-import type { OutputGuard } from '../runtime/context.ts';
-import type { Catalog } from '../runtime/catalog.ts';
-import type { Effect, HouseView, Plan } from '../runtime/effects.ts';
-import { withFields } from '../runtime/verbatim.ts';
-import type { Verbatim } from '../runtime/verbatim.ts';
+import type { OutputGuard } from '../../runtime/context.ts';
+import type { Catalog } from '../../runtime/catalog.ts';
+import type { Effect, HouseView, Plan } from '../../runtime/effects.ts';
+import { withFields } from '../../runtime/verbatim.ts';
+import type { Verbatim } from '../../runtime/verbatim.ts';
 import { roundEven, clamp } from './scale.ts';
-import type { OpaqueMap, StoredFact, StoredValue } from '../parse/overrides.ts';
-import { overridesRevision } from '../parse/sensors.ts';
+import type { OpaqueMap, StoredFact, StoredValue } from '../../parse/overrides.ts';
+import { overridesRevision } from '../../parse/sensors.ts';
 import { assignedAs, powerClosed, runtimeGeneration, runtimeGenerationIs, runtimePlanOrder, runtimeState, warmEndColour }
-  from '../parse/transport.ts';
-import type { FrameColour, RuntimeState, StoredChannels } from '../parse/transport.ts';
-import type { LampOrRoom } from './types/lighting-state.ts';
-import type { OverlayKey } from './types/overlay.ts';
-import type { BulbId, LampId } from './types/ids.ts';
+  from '../../parse/transport.ts';
+import type { FrameColour, RuntimeState, StoredChannels } from '../../parse/transport.ts';
+import type { LampOrRoom } from '../../domain/types/lighting-state.ts';
+import type { OverlayKey } from '../../domain/types/overlay.ts';
+import type { BulbId, LampId } from '../../domain/types/ids.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
 

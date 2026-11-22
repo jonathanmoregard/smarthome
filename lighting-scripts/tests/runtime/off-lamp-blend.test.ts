@@ -3,12 +3,12 @@ import test from 'node:test';
 import { execute } from '../../src/runtime/engine.ts';
 import { handlers } from '../../src/runtime/registry.ts';
 import type { JsonObject, JsonValue, Snapshot } from '../../src/runtime/context.ts';
-import { blend } from '../../src/domain/scale.ts';
-import { resolveEffects } from '../../src/domain/resolution.ts';
+import { blend } from '../../src/legacy/domain/scale.ts';
+import { resolveEffects } from '../../src/legacy/domain/resolution.ts';
 import { parseResolveArgs } from '../../src/parse/resolution.ts';
-import { planGradients } from '../../src/domain/gradient.ts';
+import { planGradients } from '../../src/legacy/domain/gradient.ts';
 import { parseGradientPlanArgs } from '../../src/parse/gradient.ts';
-import { switchPlan } from '../../src/domain/controller.ts';
+import { switchPlan } from '../../src/legacy/domain/controller.ts';
 import { parseSwitchPlanArgs } from '../../src/parse/controller.ts';
 
 /**

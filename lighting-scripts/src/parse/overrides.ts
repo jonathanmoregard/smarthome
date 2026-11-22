@@ -18,7 +18,7 @@ import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import { isObject, jinjaTruthy, lazy, object, ParseError, requireArray, requireObject, requireString } from '../runtime/parse.ts';
 import { carry, jsonEqual, reveal } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
-import type { CommitRequest, CommitChange, CommitRecord } from '../domain/state-store.ts';
+import type { CommitRequest, CommitChange, CommitRecord } from '../legacy/domain/state-store.ts';
 import { concatString, haBoolean, mappingKey } from './state-store.ts';
 import { toPercent, toRoomId, toSwitchId } from './ids.ts';
 import type { RoomId } from '../domain/types/ids.ts';

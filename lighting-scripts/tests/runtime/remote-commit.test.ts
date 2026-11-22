@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { acceptedPowerSwitch, remoteCommit } from '../../src/domain/controller.ts';
-import type { RemotePlan } from '../../src/domain/remote-input.ts';
+import { acceptedPowerSwitch, remoteCommit } from '../../src/legacy/domain/controller.ts';
+import type { RemotePlan } from '../../src/legacy/domain/remote-input.ts';
 
 /**
  * The pure parts of `ls_remote_command`: the record a plan is committed as,

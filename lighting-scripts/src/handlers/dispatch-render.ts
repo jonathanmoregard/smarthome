@@ -1,7 +1,7 @@
 /**
  * `dispatch-render`'s handlers: the shells that read the live house, make the
  * inter-handler calls and perform effects, and the name-keyed table.
- * The decisions they run are in `src/domain/dispatch-render.ts`.
+ * The decisions they run are in `src/legacy/domain/dispatch-render.ts`.
  */
 import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
 import { typed } from '../runtime/entrypoints.ts';
@@ -15,10 +15,10 @@ import { dispatchPlanOrder, dispatchRuntime, fullPlan, parseDispatchArgs, roomPl
 import {
   bulbStartCommands, cacheWrite, fullLights, fullReason, gradientUpdates, mergeRoomPlan, ordinaryTargets, renderAck, renderOpening,
     roomPlanRequest, roomsPlan, roomsStart, transitionCap,
-} from '../domain/dispatch-render.ts';
-import type { DispatchDetails, DispatchOutcome, DispatchRequest, RoomsPlan, TransitionCap } from '../domain/dispatch-render.ts';
-import { stillCurrent } from '../domain/transport.ts';
-import type { EmitOutcome } from '../domain/transport.ts';
+} from '../legacy/domain/dispatch-render.ts';
+import type { DispatchDetails, DispatchOutcome, DispatchRequest, RoomsPlan, TransitionCap } from '../legacy/domain/dispatch-render.ts';
+import { stillCurrent } from '../legacy/domain/transport.ts';
+import type { EmitOutcome } from '../legacy/domain/transport.ts';
 import { entriesOf } from '../domain/types/ids.ts';
 import type { RoomId } from '../domain/types/ids.ts';
 

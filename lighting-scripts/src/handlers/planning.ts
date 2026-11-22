@@ -1,16 +1,16 @@
 /**
  * `planning`'s handlers: the shells that read the live house, make the
  * inter-handler calls and perform effects, and the name-keyed table.
- * The decisions they run are in `src/domain/planning.ts`.
+ * The decisions they run are in `src/legacy/domain/planning.ts`.
  */
 import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
 import { withParsedArgs } from '../runtime/parse.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
-import type { Resolution } from '../domain/resolution.ts';
-import { privateRooms } from '../domain/schedule.ts';
+import type { Resolution } from '../legacy/domain/resolution.ts';
+import { privateRooms } from '../legacy/domain/schedule.ts';
 import { mappingAttribute, parseRoomBaseline, parseRoomPlanArgs, rangeDefaults, roomCatalog } from '../parse/planning.ts';
-import { activeOverrides, missUpdate, refreshBaseline, roomOpening, roomPlanAnswer } from '../domain/planning.ts';
-import type { CacheUpdate, Gradients, RoomBaseline, RoomPlanRequest, RoomPlan } from '../domain/planning.ts';
+import { activeOverrides, missUpdate, refreshBaseline, roomOpening, roomPlanAnswer } from '../legacy/domain/planning.ts';
+import type { CacheUpdate, Gradients, RoomBaseline, RoomPlanRequest, RoomPlan } from '../legacy/domain/planning.ts';
 import { overlayKeyText, SARA_MODE } from '../domain/types/overlay.ts';
 
 /**

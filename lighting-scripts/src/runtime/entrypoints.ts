@@ -1,15 +1,15 @@
 import type { JsonObject, ScriptContext, ScriptHandler } from './context.ts';
 import { resultCodecs } from '../parse/results.ts';
-import type { SwitchDecision } from '../domain/controller.ts';
+import type { SwitchDecision } from '../legacy/domain/controller.ts';
 import type { SwitchId } from '../domain/types/ids.ts';
-import type { Resolution } from '../domain/resolution.ts';
-import type { CompiledGradients } from '../domain/gradient.ts';
-import type { AssignedGeneration, EmitOutcome } from '../domain/transport.ts';
-import type { DispatchOutcome } from '../domain/dispatch-render.ts';
-import type { CommitOutcome } from '../domain/state-store.ts';
-import type { GroupedCommands } from '../domain/grouping.ts';
-import type { RemotePlan } from '../domain/remote-input.ts';
-import type { ScheduledBase } from '../domain/schedule.ts';
+import type { Resolution } from '../legacy/domain/resolution.ts';
+import type { CompiledGradients } from '../legacy/domain/gradient.ts';
+import type { AssignedGeneration, EmitOutcome } from '../legacy/domain/transport.ts';
+import type { DispatchOutcome } from '../legacy/domain/dispatch-render.ts';
+import type { CommitOutcome } from '../legacy/domain/state-store.ts';
+import type { GroupedCommands } from '../legacy/domain/grouping.ts';
+import type { RemotePlan } from '../legacy/domain/remote-input.ts';
+import type { ScheduledBase } from '../legacy/domain/schedule.ts';
 
 /**
  * The typed result of each converted internal entrypoint, keyed by the script

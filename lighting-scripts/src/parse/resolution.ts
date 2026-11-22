@@ -36,11 +36,11 @@ import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import { isObject, jinjaTruthy, object } from '../runtime/parse.ts';
 import { carry, carryOptional } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
-import { boundedNumber } from '../domain/scale.ts';
-import type { Color } from '../domain/scale.ts';
-import { latestStream, lexical } from '../domain/resolution.ts';
+import { boundedNumber } from '../legacy/domain/scale.ts';
+import type { Color } from '../legacy/domain/scale.ts';
+import { latestStream, lexical } from '../legacy/domain/resolution.ts';
 import type { BaseItem, Channel, ChannelValue, Claim, InputAnchor, InputClaim, InputFacts, LightValue, OverrideRecord, Patch, RecordScope,
-  ResolveRequest, Stamp, TargetArea } from '../domain/resolution.ts';
+  ResolveRequest, Stamp, TargetArea } from '../legacy/domain/resolution.ts';
 import { blendEnd, canonicalColor, validColor } from './scale.ts';
 import { validGradient, warmEndArgument } from './gradient.ts';
 import { lampOrRoom } from './lighting-state.ts';

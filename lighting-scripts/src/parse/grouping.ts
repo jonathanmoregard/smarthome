@@ -14,7 +14,7 @@
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import { carry } from '../runtime/verbatim.ts';
 import { list } from './accessors.ts';
-import type { EndpointRow, GroupPlanRequest, MulticastGroup } from '../domain/grouping.ts';
+import type { EndpointRow, GroupPlanRequest, MulticastGroup } from '../legacy/domain/grouping.ts';
 import { toBulbId } from './ids.ts';
 
 /** Captured rows/groups are iterated: absence is empty, a malformed present container raises. */

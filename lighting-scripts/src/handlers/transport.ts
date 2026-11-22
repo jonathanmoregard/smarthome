@@ -1,7 +1,7 @@
 /**
  * `transport`'s handlers: the shells that read the live house, make the
  * inter-handler calls and perform effects, and the name-keyed table.
- * The decisions they run are in `src/domain/transport.ts`.
+ * The decisions they run are in `src/legacy/domain/transport.ts`.
  */
 import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
 import { withParsedArgs } from '../runtime/parse.ts';
@@ -15,11 +15,11 @@ import { overridesRevision } from '../parse/sensors.ts';
 import {
   assignedLamps, parseAssignArgs, parseEmitArgs, parseFilterArgs, parseFramePlanArgs, runtimeGeneration,
 } from '../parse/transport.ts';
-import type { GroupedCommands } from '../domain/grouping.ts';
+import type { GroupedCommands } from '../legacy/domain/grouping.ts';
 import {
   assignDecision, filterCommands, frameRows, planAssignUpdate, publishCommand, stillCurrent, stopCommands, stoppedLamps,
-} from '../domain/transport.ts';
-import type { AssignRequest, AssignedGeneration, EmitRequest, EmitOutcome, FramePlanRequest, StopCommand } from '../domain/transport.ts';
+} from '../legacy/domain/transport.ts';
+import type { AssignRequest, AssignedGeneration, EmitRequest, EmitOutcome, FramePlanRequest, StopCommand } from '../legacy/domain/transport.ts';
 
 /**
  * Each lamp's light, sent once. A channel running a bulb effect gets a static

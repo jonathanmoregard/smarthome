@@ -1,17 +1,17 @@
-import { jinjaTruthy } from '../runtime/parse.ts';
-import { withFields } from '../runtime/verbatim.ts';
-import type { Verbatim } from '../runtime/verbatim.ts';
-import { recordTimestamp } from '../parse/resolution.ts';
+import { jinjaTruthy } from '../../runtime/parse.ts';
+import { withFields } from '../../runtime/verbatim.ts';
+import type { Verbatim } from '../../runtime/verbatim.ts';
+import { recordTimestamp } from '../../parse/resolution.ts';
 import { isAreaId, labelled, privateRooms } from './schedule.ts';
-import { roomTarget, storedProfileText } from '../parse/state-store.ts';
-import { affectedRoom, mergedValue, overrideRecord, sameFact, underlyingOf } from '../parse/overrides.ts';
-import type { OpaqueMap, StoredEntry, StoredFact, StoredOverrides, StoredValue } from '../parse/overrides.ts';
-import type { HouseView, Plan } from '../runtime/effects.ts';
-import type { RoomId, SwitchId } from './types/ids.ts';
-import type { Percent } from './types/light.ts';
-import type { Rooms } from './types/rooms.ts';
-import type { OverlayKey } from './types/overlay.ts';
-import { overlayKeyText, SARA_MODE } from './types/overlay.ts';
+import { roomTarget, storedProfileText } from '../../parse/state-store.ts';
+import { affectedRoom, mergedValue, overrideRecord, sameFact, underlyingOf } from '../../parse/overrides.ts';
+import type { OpaqueMap, StoredEntry, StoredFact, StoredOverrides, StoredValue } from '../../parse/overrides.ts';
+import type { HouseView, Plan } from '../../runtime/effects.ts';
+import type { RoomId, SwitchId } from '../../domain/types/ids.ts';
+import type { Percent } from '../../domain/types/light.ts';
+import type { Rooms } from '../../domain/types/rooms.ts';
+import type { OverlayKey } from '../../domain/types/overlay.ts';
+import { overlayKeyText, SARA_MODE } from '../../domain/types/overlay.ts';
 
 /** One channel claim of a `channels` record, as written. */
 export interface ChannelClaim {

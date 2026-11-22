@@ -8,9 +8,9 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { JsonObject } from '../runtime/context.ts';
 import { isObject, lazy, object } from '../runtime/parse.ts';
-import { boundedNumber, WARM_END } from '../domain/scale.ts';
-import type { RGB } from '../domain/scale.ts';
-import type { GradientEntry, GradientPlanRequest, GradientPlanTarget, GradientSignature } from '../domain/gradient.ts';
+import { boundedNumber, WARM_END } from '../legacy/domain/scale.ts';
+import type { RGB } from '../legacy/domain/scale.ts';
+import type { GradientEntry, GradientPlanRequest, GradientPlanTarget, GradientSignature } from '../legacy/domain/gradient.ts';
 import { blendEnd, requireRgb, validColor } from './scale.ts';
 
 /**

@@ -1,19 +1,19 @@
-import type { HouseView } from '../runtime/effects.ts';
-import { BLOCKS, DEFAULT_BLOCK, type Block } from './blocks.ts';
+import type { HouseView } from '../../runtime/effects.ts';
+import { BLOCKS, DEFAULT_BLOCK, type Block } from '../../domain/blocks.ts';
 import { OFF_END_LEVEL, ramp, roundEven } from './scale.ts';
-import { timestamp } from '../parse/accessors.ts';
-import { pythonFloatText } from '../runtime/format.ts';
-import type { StoredValue } from '../parse/overrides.ts';
-import { overridesRevision } from '../parse/sensors.ts';
-import { switchRangeEntities } from '../parse/planning.ts';
+import { timestamp } from '../../parse/accessors.ts';
+import { pythonFloatText } from '../../runtime/format.ts';
+import type { StoredValue } from '../../parse/overrides.ts';
+import { overridesRevision } from '../../parse/sensors.ts';
+import { switchRangeEntities } from '../../parse/planning.ts';
 import {
   entityProfile, entitySample, privateRoomIds, rgbComponent, savedProfile, stateNumber, storedScheduleRecords, wakeInstant,
-} from '../parse/schedule.ts';
-import type { ScheduleRecord, ScheduleRecords } from '../parse/schedule.ts';
-import type { OverlayKey } from './types/overlay.ts';
-import { byOverlayKeyText, EMPTY_KEY, overlayKeyText, sameOverlayKey } from './types/overlay.ts';
-import type { RoomId } from './types/ids.ts';
-import type { RoomOrHouse } from './types/schedule.ts';
+} from '../../parse/schedule.ts';
+import type { ScheduleRecord, ScheduleRecords } from '../../parse/schedule.ts';
+import type { OverlayKey } from '../../domain/types/overlay.ts';
+import { byOverlayKeyText, EMPTY_KEY, overlayKeyText, sameOverlayKey } from '../../domain/types/overlay.ts';
+import type { RoomId } from '../../domain/types/ids.ts';
+import type { RoomOrHouse } from '../../domain/types/schedule.ts';
 
 export const blocks: readonly string[] = BLOCKS;
 /**

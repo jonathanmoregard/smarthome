@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { stopCommands } from '../../src/domain/transport.ts';
-import { uiChoices } from '../../src/domain/ui-state.ts';
+import { stopCommands } from '../../src/legacy/domain/transport.ts';
+import { uiChoices } from '../../src/legacy/domain/ui-state.ts';
 import { parseAssignArgs, runtimeState } from '../../src/parse/transport.ts';
 import { parseCatalog } from '../../src/runtime/catalog.ts';
 import { execute } from '../../src/runtime/engine.ts';

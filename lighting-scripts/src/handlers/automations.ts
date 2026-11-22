@@ -22,10 +22,10 @@ import type {
 } from '../parse/automations.ts';
 import { perform, run } from '../runtime/effects.ts';
 import type { Effect, HouseView, Plan } from '../runtime/effects.ts';
-import { pendingOutputDirty } from '../domain/pending-output.ts';
-import { expiredOverlays } from '../domain/overlay-resets.ts';
-import { saraModeChange } from '../domain/sara-mode.ts';
-import { isRangeDefault } from '../domain/range-defaults.ts';
+import { pendingOutputDirty } from '../legacy/domain/pending-output.ts';
+import { expiredOverlays } from '../legacy/domain/overlay-resets.ts';
+import { saraModeChange } from '../legacy/domain/sara-mode.ts';
+import { isRangeDefault } from '../legacy/domain/range-defaults.ts';
 import { overlayKeyText, SARA_MODE } from '../domain/types/overlay.ts';
 
 /** Set the control, then resync the UI proxies. */

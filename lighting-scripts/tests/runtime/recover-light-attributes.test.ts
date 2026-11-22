@@ -9,7 +9,7 @@ import { proxyKelvin, proxyShowsRgb } from '../../src/parse/ui-state.ts';
 import { storedList, warmEndOf } from '../../src/parse/planning.ts';
 import { planWarmEnd } from '../../src/parse/controller.ts';
 import { carry } from '../../src/runtime/verbatim.ts';
-import { WARM_END } from '../../src/domain/scale.ts';
+import { WARM_END } from '../../src/legacy/domain/scale.ts';
 import { house } from './house-view.ts';
 
 /**

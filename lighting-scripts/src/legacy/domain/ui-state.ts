@@ -1,15 +1,15 @@
-import type { HouseView, Plan } from '../runtime/effects.ts';
-import { storedEquals } from '../runtime/verbatim.ts';
-import type { Verbatim } from '../runtime/verbatim.ts';
+import type { HouseView, Plan } from '../../runtime/effects.ts';
+import { storedEquals } from '../../runtime/verbatim.ts';
+import type { Verbatim } from '../../runtime/verbatim.ts';
 import { roundEven } from './scale.ts';
 import { isAreaId } from './schedule.ts';
 import {
   displayOfColour, lampReading, onOffOnly, ownRange, proxyKelvin, proxyShowsRgb, runtimeTargets, storedRangeBounds, switchText, uiProfile, uiRows,
-} from '../parse/ui-state.ts';
-import type { Display, RangeSaveRequest } from '../parse/ui-state.ts';
-import { payloadNumber } from '../runtime/format.ts';
-import type { SwitchId } from './types/ids.ts';
-import type { Percent } from './types/light.ts';
+} from '../../parse/ui-state.ts';
+import type { Display, RangeSaveRequest } from '../../parse/ui-state.ts';
+import { payloadNumber } from '../../runtime/format.ts';
+import type { SwitchId } from '../../domain/types/ids.ts';
+import type { Percent } from '../../domain/types/light.ts';
 
 /**
  * One MQTT message for the UI proxy. Both fields are built here -- the topic

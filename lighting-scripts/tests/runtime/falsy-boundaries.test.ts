@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { JsonObject, JsonValue } from '../../src/runtime/context.ts';
-import { switchPlan } from '../../src/domain/controller.ts';
+import { switchPlan } from '../../src/legacy/domain/controller.ts';
 import { controllerHandlers } from '../../src/handlers/controller.ts';
 import { parseSwitchPlanArgs } from '../../src/parse/controller.ts';
 import { remoteInputHandlers, remotePlan } from '../../src/handlers/remote-input.ts';

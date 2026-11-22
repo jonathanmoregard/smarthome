@@ -1,17 +1,17 @@
-import type { HouseView } from '../runtime/effects.ts';
-import type { Verbatim } from '../runtime/verbatim.ts';
+import type { HouseView } from '../../runtime/effects.ts';
+import type { Verbatim } from '../../runtime/verbatim.ts';
 import { rgbValue, roundEven } from './scale.ts';
 import type { RGB } from './scale.ts';
-import { recordTimestamp } from '../parse/resolution.ts';
-import { switchRangeIterable } from '../parse/planning.ts';
-import { groupChildren, lampKelvinRange, underlyingColour } from '../parse/native-controls.ts';
+import { recordTimestamp } from '../../parse/resolution.ts';
+import { switchRangeIterable } from '../../parse/planning.ts';
+import { groupChildren, lampKelvinRange, underlyingColour } from '../../parse/native-controls.ts';
 import type {
   BrightnessRequest, ColourRequest, NativeCatalog, NativeCurrent, NativePlanRequest, PlanTarget, SetRequest,
-} from '../parse/native-controls.ts';
-import { overlayKeyText } from './types/overlay.ts';
-import type { OverlayKey } from './types/overlay.ts';
-import type { RoomId } from './types/ids.ts';
-import type { Brightness, Kelvin } from './types/light.ts';
+} from '../../parse/native-controls.ts';
+import { overlayKeyText } from '../../domain/types/overlay.ts';
+import type { OverlayKey } from '../../domain/types/overlay.ts';
+import type { RoomId } from '../../domain/types/ids.ts';
+import type { Brightness, Kelvin } from '../../domain/types/light.ts';
 import { isAreaId } from './schedule.ts';
 
 // Literal CSS colour names from the deployed native adapter.

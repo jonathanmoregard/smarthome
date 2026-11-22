@@ -7,7 +7,7 @@ import { parseCatalog } from '../../src/runtime/catalog.ts';
 import { readRuntimeCatalog } from '../../src/main.ts';
 import { execute } from '../../src/runtime/engine.ts';
 import { handlers } from '../../src/runtime/registry.ts';
-import { candleLamps, resolveEffects } from '../../src/domain/resolution.ts';
+import { candleLamps, resolveEffects } from '../../src/legacy/domain/resolution.ts';
 import { parseResolveArgs } from '../../src/parse/resolution.ts';
 import type { JsonObject } from '../../src/runtime/context.ts';
 

@@ -1,7 +1,7 @@
 /**
  * `ui-state`'s handlers: the shells that read the live house, make the
  * inter-handler calls and perform effects, and the name-keyed table.
- * The decisions they run are in `src/domain/ui-state.ts`.
+ * The decisions they run are in `src/legacy/domain/ui-state.ts`.
  */
 import { isDeepStrictEqual } from 'node:util';
 import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
@@ -11,8 +11,8 @@ import { withFields } from '../runtime/verbatim.ts';
 import { withParsedArgs } from '../runtime/parse.ts';
 import { discoveryRows, parseRangeSaveArgs, parseUiSyncArgs, rangeSaveAnswer } from '../parse/ui-state.ts';
 import type { DiscoveryRow, RangeSaveRequest } from '../parse/ui-state.ts';
-import { decideRangeSave, saveRange, uiChoices, uiMessages } from '../domain/ui-state.ts';
-import type { RangeSaveDecision, UiMessage } from '../domain/ui-state.ts';
+import { decideRangeSave, saveRange, uiChoices, uiMessages } from '../legacy/domain/ui-state.ts';
+import type { RangeSaveDecision, UiMessage } from '../legacy/domain/ui-state.ts';
 
 /** Publish the UI mirror's messages, retained. */
 export function* publishUi(messages: UiMessage[]): Plan<null> {

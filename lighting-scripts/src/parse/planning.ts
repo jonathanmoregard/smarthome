@@ -31,7 +31,7 @@ import { asTimestampOr, jinjaListOf, savedMappingOr, timestamp } from './accesso
 import { NO_WHEN } from './schedule.ts';
 import { storedFact } from './overrides.ts';
 import type { BaselineTarget, DetailField, OverrideFacts, Overrides, RoomBaseline, RoomCache, RoomDetails, RoomPlanRequest,
-  TestNow } from '../domain/planning.ts';
+  TestNow } from '../legacy/domain/planning.ts';
 import { isBlock, savedBlock } from './blocks.ts';
 import { colorShape, readableBlendEnd, warmEndRgb } from './scale.ts';
 import { toRoomId, toSwitchId } from './ids.ts';

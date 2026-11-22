@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { EntityState, JsonObject, JsonValue } from '../../src/runtime/context.ts';
-import { renderAck, renderOpening } from '../../src/domain/dispatch-render.ts';
+import { renderAck, renderOpening } from '../../src/legacy/domain/dispatch-render.ts';
 import { dispatchPlanOrder } from '../../src/parse/dispatch-render.ts';
 import { runtimePlanOrder } from '../../src/parse/transport.ts';
 import { house } from './house-view.ts';

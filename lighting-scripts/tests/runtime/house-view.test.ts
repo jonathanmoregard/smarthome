@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { switchPlan } from '../../src/domain/controller.ts';
-import { scheduleDetails } from '../../src/domain/schedule.ts';
-import { uiMessages } from '../../src/domain/ui-state.ts';
+import { switchPlan } from '../../src/legacy/domain/controller.ts';
+import { scheduleDetails } from '../../src/legacy/domain/schedule.ts';
+import { uiMessages } from '../../src/legacy/domain/ui-state.ts';
 import { parseSwitchPlanArgs } from '../../src/parse/controller.ts';
 import { house } from './house-view.ts';
 
