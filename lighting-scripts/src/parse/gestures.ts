@@ -2,9 +2,10 @@
  * Parsing for `ls_remote_gesture` and `ls_remote_power_quiet`.
  *
  * Captured command is membership-tested, token is length-tested, and payload is
- * dereferenced only by preset. Missing command/token are empty; malformed
- * present values raise, and branch-only fields are thunks so they raise only on
- * the branch that read them, in source order.
+ * dereferenced only by preset. The command is parsed into the reducer's `Msg`
+ * here; any other command is none. Missing command/token are empty; malformed
+ * present values raise, and the sender is a thunk so it raises only where a
+ * command is sent, in source order.
  */
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { HouseView } from '../runtime/effects.ts';
@@ -12,7 +13,7 @@ import { isObject, jinjaFloat, jinjaInt, lazy, ParseError, requireString } from 
 import { carry } from '../runtime/verbatim.ts';
 import type { RoomId } from '../domain/types/ids.ts';
 import { toRemoteId, toRoomId } from './ids.ts';
-import type { GestureArgs, GestureState, PowerQuietArgs, PresetPayload } from '../domain/gestures.ts';
+import type { GestureArgs, Model, Msg, PowerQuietArgs, PresetPayload } from '../domain/gestures.ts';
 
 function roomArg(args: JsonObject): RoomId {
   const room = requireString(args, 'room', 'ls_remote_gesture');
@@ -42,18 +43,33 @@ function presetPayload(value: JsonValue | undefined): PresetPayload | undefined 
   };
 }
 
+/**
+ * A command as the reducer's message. A missing command is empty, and empty
+ * or any other text is no message: the captured script tests membership and
+ * does nothing. `power_done` is the combo's quiet window closing, and only it
+ * reads a token (missing is empty, as under the captured length test).
+ */
+function gestureMsg(command: string, args: JsonObject): Msg | undefined {
+  switch (command) {
+    case 'left': case 'right': case 'up': case 'down': return { tag: 'direction', direction: command };
+    case 'cancel': return { tag: 'cancel' };
+    case 'power': return { tag: 'power' };
+    case 'preset': return { tag: 'preset', payload: presetPayload(args.payload) };
+    case 'power_done':
+      return { tag: 'combo_timeout', token: args.token === undefined ? '' : requireString(args, 'token', 'ls_remote_gesture') };
+    default: return undefined;
+  }
+}
+
 export function parseGestureArgs(args: JsonObject): GestureArgs {
+  // Read in the captured order: the command, the room, then the token.
   const command = args.command === undefined ? '' : requireString(args, 'command', 'ls_remote_gesture');
+  const room = roomArg(args);
   return {
-    room: roomArg(args),
-    command,
-    // Missing is empty under the captured length/membership operations. A
-    // present value is still typed, and branch-only data stays branch-lazy.
-    token: command === 'power_done'
-      ? args.token === undefined ? '' : requireString(args, 'token', 'ls_remote_gesture')
-      : '',
-    payload: lazy(() => presetPayload(args.payload)),
-    delivery: lazy(() => ({
+    room,
+    msg: gestureMsg(command, args),
+    // A present sender field is still typed, but read only where a command is sent.
+    sender: lazy(() => ({
       deviceId: args.device_id === undefined ? undefined : toRemoteId(requireString(args, 'device_id', 'ls_remote_gesture')),
       source: args.source === undefined ? '' : requireString(args, 'source', 'ls_remote_gesture'),
     })),
@@ -79,7 +95,7 @@ export function helperInt(ctx: HouseView, entity: string, fallback = 0): number 
  * captured script reads it only on the preset branch, before any write there --
  * changes nothing observable.
  */
-export function gestureState(ctx: HouseView, room: RoomId): GestureState {
+export function gestureState(ctx: HouseView, room: RoomId): Model {
   const prefix = `ls_${room}_remote_`;
   const saved = ctx.get(`input_text.${prefix}power_token`);
   return {

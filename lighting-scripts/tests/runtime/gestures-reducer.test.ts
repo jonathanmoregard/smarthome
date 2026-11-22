@@ -1,17 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { gesture, launchPowerQuiet, powerQuiet, stampPowerToken } from '../../src/domain/gestures.ts';
-import type { GestureInput, GestureState } from '../../src/domain/gestures.ts';
+import { launchPowerQuiet, powerQuiet, stampPowerToken, update } from '../../src/domain/gestures.ts';
+import type { Model, Remote } from '../../src/domain/gestures.ts';
+import { gestureHandlers } from '../../src/handlers/gestures.ts';
 import type { Effect, Plan } from '../../src/runtime/effects.ts';
 import { carry } from '../../src/runtime/verbatim.ts';
+import { context } from './gestures-context.ts';
 
-const idle: GestureState = { chordStep: 0, chordActive: false, powerCount: 0, powerToken: '', preset: -2 };
+const idle: Model = { chordStep: 0, chordActive: false, powerCount: 0, powerToken: '', preset: -2 };
 const NOW = '2026-10-26T12:00:00+01:00';
-function input(command: string, extra: Partial<GestureInput> = {}): GestureInput {
+function remote(extra: Partial<Remote> = {}): Remote {
   return {
-    room: 'studio', command, token: '',
-    payload: () => undefined,
-    delivery: () => ({ deviceId: 'studio_remote', source: 'remote_ieee' }),
+    room: 'studio',
+    sender: () => ({ deviceId: 'studio_remote', source: 'remote_ieee' }),
     remoteRooms: { studio_remote: 'studio' }, now: NOW, ...extra,
   };
 }
@@ -42,14 +43,14 @@ const command = (logical: string, area = 'studio', source = 'remote_ieee') => ({
 });
 
 test('a first power press resets the preset, counts one click and arms the chord; the token is the shell\'s', () => {
-  const { effects, result } = drain(gesture(idle, input('power')));
+  const { effects, result } = drain(update(idle, { tag: 'power' }, remote()));
   assert.deepEqual(effects, [...helper('preset', -1), ...helper('power_count', 1), ...helper('chord_step', -1), ...timer(true)]);
   assert.deepEqual(result, { chordStep: -1, chordActive: true, powerCount: 1, powerToken: '', preset: -1 });
 });
 
 test('a power press after the quiet window first completes the old burst', () => {
-  const state: GestureState = { ...idle, powerCount: 1, powerToken: '2026-10-26T11:59:00+01:00' };
-  const { effects } = drain(gesture(state, input('power')));
+  const state: Model = { ...idle, powerCount: 1, powerToken: '2026-10-26T11:59:00+01:00' };
+  const { effects } = drain(update(state, { tag: 'power' }, remote()));
   assert.deepEqual(effects, [
     ...helper('preset', -1), ...helper('power_count', 0), ...token(''), ...helper('chord_step', 0), ...timer(false), command('toggle'),
     ...helper('power_count', 1), ...helper('chord_step', -1), ...timer(true),
@@ -57,54 +58,57 @@ test('a power press after the quiet window first completes the old burst', () =>
 });
 
 test('power_done with the stored token completes a single click as a toggle', () => {
-  const state: GestureState = { ...idle, powerCount: 1, powerToken: NOW };
-  const { effects, result } = drain(gesture(state, input('power_done', { token: NOW })));
+  const state: Model = { ...idle, powerCount: 1, powerToken: NOW };
+  const { effects, result } = drain(update(state, { tag: 'combo_timeout', token: NOW }, remote()));
   assert.deepEqual(effects, [...helper('power_count', 0), ...token(''), ...helper('chord_step', 0), ...timer(false), command('toggle')]);
   assert.deepEqual(result, { ...idle, preset: -2 });
 });
 
 test('power_done with a stale token does nothing', () => {
-  const state: GestureState = { ...idle, powerCount: 1, powerToken: NOW };
-  assert.deepEqual(drain(gesture(state, input('power_done', { token: 'older' }))).effects, []);
+  const state: Model = { ...idle, powerCount: 1, powerToken: NOW };
+  assert.deepEqual(drain(update(state, { tag: 'combo_timeout', token: 'older' }, remote())).effects, []);
 });
 
-test('the delivery thunk raises only where the send happens, after the chord is cleared', () => {
-  const state: GestureState = { ...idle, powerCount: 3, powerToken: NOW };
-  const plan = gesture(state, input('power_done', { token: NOW, delivery: () => { throw new Error('source must be a string'); } }));
+test('the sender thunk raises only where the send happens, after the chord is cleared', () => {
+  const state: Model = { ...idle, powerCount: 3, powerToken: NOW };
+  const plan = update(state, { tag: 'combo_timeout', token: NOW }, remote({ sender: () => { throw new Error('source must be a string'); } }));
   const seen: Effect[] = [];
   assert.throws(() => { for (const effect of plan) seen.push(effect); }, /source must be a string/);
   assert.deepEqual(seen, [...helper('power_count', 0), ...token(''), ...helper('chord_step', 0), ...timer(false)]);
 });
 
 test('a device area resolves through the remotes\' rooms; an unknown device sends nothing', () => {
-  const at = (deviceId: string) => input('up', { delivery: () => ({ deviceId, source: 's' }), remoteRooms: { remote_device: 'kitchen' } });
-  assert.deepEqual(drain(gesture(idle, at('remote_device'))).effects, [command('up', 'kitchen', 's')]);
-  assert.deepEqual(drain(gesture(idle, at('missing'))).effects, []);
+  const at = (deviceId: string) => remote({ sender: () => ({ deviceId, source: 's' }), remoteRooms: { remote_device: 'kitchen' } });
+  assert.deepEqual(drain(update(idle, { tag: 'direction', direction: 'up' }, at('remote_device'))).effects, [command('up', 'kitchen', 's')]);
+  assert.deepEqual(drain(update(idle, { tag: 'direction', direction: 'up' }, at('missing'))).effects, []);
 });
 
 test('a remote with no device has no area, so its gesture sends nothing', () => {
   // Break: falling back to the gesture's room (the generalised form of the
   // oracle kitchen remote's `area_id(device) or 'kitchen'`) sends a command
   // for an area the remote's configuration never named.
-  const plan = gesture(idle, input('up', { delivery: () => ({ deviceId: undefined, source: 's' }) }));
+  const plan = update(idle, { tag: 'direction', direction: 'up' }, remote({ sender: () => ({ deviceId: undefined, source: 's' }) }));
   assert.deepEqual(drain(plan).effects, []);
 });
 
 test('a canonical preset step to the right navigates right', () => {
-  const state: GestureState = { ...idle, preset: 0 };
-  const payload = () => ({ action: 'color_temperature_move', preset: 285 });
-  const { effects, result } = drain(gesture(state, input('preset', { payload })));
+  const state: Model = { ...idle, preset: 0 };
+  const payload = { action: 'color_temperature_move', preset: 285 };
+  const { effects, result } = drain(update(state, { tag: 'preset', payload }, remote()));
   assert.deepEqual(effects, [...helper('preset', 1), command('right')]);
   assert.equal(result.preset, 1);
 });
 
 test('the fourth chord step sends sara_toggle', () => {
-  const state: GestureState = { ...idle, chordStep: 4, chordActive: true };
-  assert.deepEqual(drain(gesture(state, input('right'))).effects, [...helper('chord_step', 0), ...timer(false), command('sara_toggle')]);
+  const state: Model = { ...idle, chordStep: 4, chordActive: true };
+  assert.deepEqual(drain(update(state, { tag: 'direction', direction: 'right' }, remote())).effects, [...helper('chord_step', 0), ...timer(false), command('sara_toggle')]);
 });
 
 test('an unaccepted command does nothing', () => {
-  assert.deepEqual(drain(gesture(idle, input('dance'))).effects, []);
+  // An unaccepted command is no message, so it never reaches the reducer; the handler performs nothing for it.
+  const ctx = context(gestureHandlers);
+  ctx.run('ls_remote_gesture', { room: 'studio', command: 'dance' });
+  assert.deepEqual([ctx.calls, ctx.state], [[], {}]);
 });
 
 test('the shell stamps the power token and launches the quiet script from a live now', () => {
