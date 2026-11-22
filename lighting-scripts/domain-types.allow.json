@@ -256,7 +256,7 @@
     { "file": "src/domain/range-defaults.ts", "ceiling": 2, "reason": "Moved out of src/domain/automations.ts (FB-001): the two input_number bounds as read, before the rule decides they make a range. A ratchet: it only falls." },
     { "file": "src/domain/blocks.ts", "ceiling": 2, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/domain/controller.ts", "ceiling": 10, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
-    { "file": "src/domain/dispatch-render.ts", "ceiling": 33, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
+    { "file": "src/domain/dispatch-render.ts", "ceiling": 20, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/domain/gestures.ts", "ceiling": 10, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
     { "file": "src/domain/gradient.ts", "ceiling": 13, "reason": "Arithmetic results; typed in V3 (spec 3.4 row 2): every number site here is a computed real, and the entry points take range types in V3. A ratchet: it only falls. The two string sites (GradientPlanResult.gradients, GradientPlanTarget.target) are lighting-state entry keys (lamp or room:<room>), kept until the catalog's lamp keys are branded." },
     { "file": "src/domain/grouping.ts", "ceiling": 10, "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls." },
