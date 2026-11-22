@@ -117,6 +117,31 @@ class Seeds(unittest.TestCase):
         self.assertEqual(sim.state['input_text.ls_x_day']['attributes'], {'max': 255})
         self.assertEqual(sim.state['light.ls_x_day']['state'], 'off')
 
+    def test_a_profile_store_changed_by_a_step_goes_through_its_template_light(self):
+        # Ruling 63: a step writing the store reaches the template light as a seed does, and the change is
+        # routed with the store's new text.
+        follow = {'automation_follow': {'triggers': [{'trigger': 'state', 'entity_id': 'input_text.ls_x_day'}],
+                                        'actions': []}}
+        sim = ProfileStandIn({'automation_follow': lambda sim, trigger: None}, state={
+            'input_text.ls_x_day': {'state': '{"on": true, "b": 150}', 'attributes': {'max': 255}},
+            'light.ls_x_day': {'state': 'on', 'attributes': {'brightness': 150}}})
+        text = '{"on": false, "b": 40}'
+        session(sim, follow, world()).run(
+            [StateChanged('input_text.ls_x_day', None, {'state': text, 'attributes': {'max': 255}}, Context('c', None))])
+        self.assertEqual(sim.stored, [('input_text.ls_x_day', {'on': False, 'b': 40})])
+        self.assertEqual((sim.state['input_text.ls_x_day']['state'], sim.state['input_text.ls_x_day']['attributes']),
+                         (text, {'max': 255}))
+        self.assertEqual(sim.state['light.ls_x_day']['state'], 'off')
+        [(_, _, trigger)] = [entry for entry in sim.log if entry[0] == 'automation_follow']
+        self.assertEqual(trigger['to_state']['state'], text)
+
+    def test_a_step_on_a_store_with_no_template_light_is_written_as_it_is(self):
+        sim = ProfileStandIn(state={'input_text.x': {'state': '{"a": 0}', 'attributes': {}}})
+        session(sim, {}, world()).run([StateChanged('input_text.x', None, {'state': '{"a": 1}', 'attributes': {}},
+                                                    Context('c', None))])
+        self.assertEqual(sim.stored, [])
+        self.assertEqual(sim.state['input_text.x']['state'], '{"a": 1}')
+
     def test_a_seed_with_no_template_light_is_put_as_it_is(self):
         sim = ProfileStandIn()
         session(sim, {}, world(), seeds=[Seed('input_text.x', '{"a": 1}', {}), Seed('input_number.y', '3', {})])

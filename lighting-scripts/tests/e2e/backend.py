@@ -108,7 +108,7 @@ class Session:
                 # does not know would be half seeded (ruling 41).
                 raise BackendError(backend, 'MalformedRequest', f'seed {seed.entity}: lights and switches are the world\'s')
             sim.put(seed.entity, seed.state, copy.deepcopy(dict(seed.attributes)))
-            profile = _profile(sim, seed)
+            profile = _profile(sim, seed.entity, seed.state)
             if profile is not None:
                 # A block light (`light.ls_*`) is HA's template light over this store, and the scripts read
                 # both: the simulator's own store writes the pair, keeping the attributes just put.
@@ -349,6 +349,11 @@ class Session:
         return changes
 
     def _write(self, entity: str, new: Mapping, context: Context) -> None:
+        """A step's write. A block light's store takes its template light with it, as a seed does (ruling 63);
+        the store keeps the text and attributes the step wrote."""
+        profile = _profile(self.sim, entity, new['state'])
+        if profile is not None:
+            self.sim.store(entity, profile)
         self.sim.put(entity, new['state'], copy.deepcopy(new.get('attributes', {})))
         self.known[entity] = self._known(self.sim.state[entity], context)
 
@@ -432,13 +437,12 @@ def enabled_automations(automations: Mapping[str, dict], captured: Mapping[str, 
             if name not in off_names and not ('id' in config and str(config['id']) in off_ids)}
 
 
-def _profile(sim, seed: Seed) -> dict | None:
-    """The saved block light a seed writes, when it is a store whose template light exists; else None."""
-    if not seed.entity.startswith(PROFILE_STORE) \
-            or seed.entity.replace(PROFILE_STORE, PROFILE_LIGHT, 1) not in sim.state:
+def _profile(sim, entity: str, text: str) -> dict | None:
+    """The saved block light `text` is, when `entity` is a store whose template light exists; else None."""
+    if not entity.startswith(PROFILE_STORE) or entity.replace(PROFILE_STORE, PROFILE_LIGHT, 1) not in sim.state:
         return None
     try:
-        value = json.loads(seed.state)
+        value = json.loads(text)
     except ValueError:
         return None
     return value if isinstance(value, dict) else None
