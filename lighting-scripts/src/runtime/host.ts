@@ -41,10 +41,6 @@ export interface OutputScope {
   /** An entity this process keeps to itself: its writes stay local and, once it holds a value, Home Assistant's is not read back. */
   keeps(entity: string, house: Snapshot): boolean;
 }
-export interface HostOptions {
-  path: string; initial: Snapshot; program: Program; transport: OutputTransport; scope: OutputScope;
-  autoTimers?: boolean; connected?: boolean; now?: () => number; report?: (message: string) => void;
-}
 interface Journal { version: 1; snapshot: Snapshot; uncertain: boolean; pending: number; held?: ScheduledTask[] }
 interface Batch { calls: ServiceCall[]; events: EventRecord[]; epoch: number; topology: unknown; deferred: Map<string,
   JsonObject>; tasks: ScheduledTask[]; started: number; versions: Map<ServiceCall, Map<string, number>>; revision?: string; origin: Origin }
@@ -72,6 +68,14 @@ function topology(snapshot: Snapshot): unknown {
     snapshot.state['binary_sensor.zigbee2mqtt_bridge_connection_state']];
 }
 
+/**
+ * What {@link LightingHost.open} takes. Kept as a record: the host is opened from many places (the
+ * entry point and every host test), and the optional fields have defaults each caller partly overrides.
+ */
+export interface HostOptions {
+  path: string; initial: Snapshot; program: Program; transport: OutputTransport; scope: OutputScope;
+  autoTimers?: boolean; connected?: boolean; now?: () => number; report?: (message: string) => void;
+}
 /** One process owns the journal and writer. Ambiguous in-flight calls are never replayed. */
 export class LightingHost {
   private state: Snapshot;

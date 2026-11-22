@@ -46,11 +46,6 @@ export interface DispatchDetails {
   staleKeys: () => StoredValue[];
   saraMirror: StoredFact;
 }
-export interface DispatchRequest {
-  revision: string;
-  planOrder: number;
-  details: () => DispatchDetails;
-}
 
 /**
  * `ls_dispatch`'s result. `null` is one of its real answers -- every
@@ -118,6 +113,11 @@ export type DispatchCmd =
   | { tag: 'plan'; plan: Plan<void> };
 type Transition = [DispatchModel, DispatchCmd[]];
 
+export interface DispatchRequest {
+  revision: string;
+  planOrder: number;
+  details: () => DispatchDetails;
+}
 export function dispatchInit(args: DispatchRequest): DispatchModel {
   return { tag: 'opening', args };
 }

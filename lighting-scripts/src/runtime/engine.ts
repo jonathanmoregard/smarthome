@@ -9,6 +9,18 @@ import { parseRooms } from '../parse/rooms.ts';
 
 export interface ExecutionRequest { script: string; args: JsonObject; snapshot: Snapshot }
 export interface ExecutionOutcome { result: JsonValue; snapshot: Snapshot; calls: ServiceCall[]; events: EventRecord[] }
+
+function finite(value: unknown): void {
+  if (typeof value === 'number' && !Number.isFinite(value)) throw new Error('JSON output must contain finite numbers');
+  if (Array.isArray(value)) value.forEach(finite);
+  else if (value && typeof value === 'object') Object.values(value).forEach(finite);
+}
+
+/**
+ * The hooks {@link execute} (and the context it builds) takes. Kept as a
+ * record: every hook is optional, defaulting to none, and each caller sets
+ * only the ones it needs.
+ */
 export interface ExecutionHooks {
   beforeService?: (call: ServiceCall, context: ScriptContext) => void;
   afterService?: (call: ServiceCall, context: ScriptContext) => void;
@@ -21,12 +33,6 @@ export interface ExecutionHooks {
    * name and the arguments.
    */
   afterScript?: (name: string, args: JsonObject, context: ScriptContext) => void;
-}
-
-function finite(value: unknown): void {
-  if (typeof value === 'number' && !Number.isFinite(value)) throw new Error('JSON output must contain finite numbers');
-  if (Array.isArray(value)) value.forEach(finite);
-  else if (value && typeof value === 'object') Object.values(value).forEach(finite);
 }
 
 class Context implements ScriptContext {

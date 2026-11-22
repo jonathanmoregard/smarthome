@@ -153,19 +153,6 @@ export type BaseItem = {
   brightness: Verbatim | undefined;
   claims: { observedBrightness: Claim; observedColor: Claim; brightness: Claim; color: Claim };
 };
-export type ResolveRequest = {
-  targets: Array<{ target: string; item: BaseItem }>;
-  records: OverrideRecord[];
-  channelsOf(effect: string | undefined): Channel[];
-  adjustsByGradient(processor: string): boolean;
-  private: RoomId[];
-  /** The room's saved power; a target in no room has none, so the default. */
-  power(room: RoomId | undefined): Verbatim;
-  gradient(target: string, signature: GradientSignature): GradientCurve | undefined;
-  /** Read where the signature lists it (`warm_end|list`); see `warmEndArgument`. */
-  warmEnd: () => RGB;
-  sara: boolean;
-};
 
 type Updated = number | Verbatim;
 /**
@@ -283,6 +270,19 @@ function effectClaim(effect: string | undefined, key: string, intensity: number 
   return { kind: 'effect', effect, instance: key.length > 0 ? key : undefined, intensity, carried: undefined, updated: undefined };
 }
 
+export type ResolveRequest = {
+  targets: Array<{ target: string; item: BaseItem }>;
+  records: OverrideRecord[];
+  channelsOf(effect: string | undefined): Channel[];
+  adjustsByGradient(processor: string): boolean;
+  private: RoomId[];
+  /** The room's saved power; a target in no room has none, so the default. */
+  power(room: RoomId | undefined): Verbatim;
+  gradient(target: string, signature: GradientSignature): GradientCurve | undefined;
+  /** Read where the signature lists it (`warm_end|list`); see `warmEndArgument`. */
+  warmEnd: () => RGB;
+  sara: boolean;
+};
 /** The channels a `light` record sets on this target. */
 function lightPatch(light: LightValue, key: string, item: BaseItem, args: ResolveRequest): Patch {
   if (light.kind === 'unset') return { brightness: item.claims.observedBrightness, color: item.claims.observedColor };

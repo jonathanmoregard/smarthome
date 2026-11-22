@@ -18,12 +18,6 @@ import { remoteInputKey, sameOverlayKey, SARA_MODE } from './types/overlay.ts';
 const omit = (v: AssembledMap, keys: string[]): AssembledMap => Object.fromEntries(Object.entries(v).filter(([k]) => !keys.includes(k)));
 const pick = (v: AssembledMap, keys: string[]): AssembledMap => Object.fromEntries(Object.entries(v).filter(([k]) => keys.includes(k)));
 
-export interface RemotePlanRequest {
-  source: RemoteSource;
-  area: RoomId;
-  command: RemotePress;
-}
-
 /**
  * An input adjustment as the planner carries it: the document (stored keys in
  * place), and the numbers it reads from it. A stored adjustment's numbers are
@@ -108,6 +102,11 @@ export interface RemoteOpening {
   cache: Verbatim;
 }
 
+export interface RemotePlanRequest {
+  source: RemoteSource;
+  area: RoomId;
+  command: RemotePress;
+}
 export function remoteOpening(view: HouseView, args: RemotePlanRequest): RemoteOpening {
   const command = pressCommand(args.command), area = args.area;
   const room = Object.values(view.rooms.ofId).includes(area) ? area : undefined;

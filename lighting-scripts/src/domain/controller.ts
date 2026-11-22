@@ -18,13 +18,6 @@ import { overlayKeyText, SARA_MODE } from './types/overlay.ts';
  */
 export interface SwitchInterval { low: Percent; high: Percent; stored: [number | boolean, number | boolean] }
 
-export interface SwitchPlanRequest {
-  /** Each switch-range rule, its interval read at its turn, or `undefined` unless valid. */
-  rules: Array<{ entity: SwitchId; range: () => SwitchInterval | undefined }>;
-  /** The resolved room target a rule follows, read leniently; `on` is required once read. */
-  roomTarget(room: RoomId): { populated: boolean; level: () => number | undefined; on: () => boolean };
-}
-
 /** The override mapping `ls_plan` plans with: as stored (forwarded to the baseline), and entry by entry. */
 export interface PlanOverrides {
   document: Verbatim;
@@ -55,13 +48,6 @@ export interface ApplyRequest {
   lights: () => Verbatim;
 }
 
-export interface RemoteCommandRequest {
-  source: RemoteSource;
-  area: RoomId;
-  command: RemotePress;
-  dryRun: boolean;
-}
-
 /**
  * One switch's planned state.
  *
@@ -77,6 +63,12 @@ export type SwitchDecision = {
   brightness?: number;
   range: [number | boolean, number | boolean];
 };
+export interface SwitchPlanRequest {
+  /** Each switch-range rule, its interval read at its turn, or `undefined` unless valid. */
+  rules: Array<{ entity: SwitchId; range: () => SwitchInterval | undefined }>;
+  /** The resolved room target a rule follows, read leniently; `on` is required once read. */
+  roomTarget(room: RoomId): { populated: boolean; level: () => number | undefined; on: () => boolean };
+}
 /** Each switch's planned state; `ls_switch_plan` answers it under the wire key `switches`. */
 export function switchPlan(areas: Readonly<Record<string, RoomId>>, args: SwitchPlanRequest): Record<SwitchId, SwitchDecision> {
   const switches: Record<SwitchId, SwitchDecision> = {};
@@ -156,6 +148,12 @@ export function planAnswer(view: HouseView, parts: PlanParts): LightingPlan {
 /** A planned change, committed against the revision it was planned at. */
 export type RemoteCommit = RemotePlan & { expected_revision: string; area: RoomId; via: 'remote'; source: RemoteSource };
 
+export interface RemoteCommandRequest {
+  source: RemoteSource;
+  area: RoomId;
+  command: RemotePress;
+  dryRun: boolean;
+}
 /** A remote's planned change as the store is asked to commit it: against the revision it was planned at, from its remote. */
 export function remoteCommit(plan: RemotePlan, command: RemoteCommandRequest): RemoteCommit {
   return { ...plan, expected_revision: plan.input_revision, area: command.area, via: 'remote', source: command.source };

@@ -102,16 +102,6 @@ export type RoomCache = {
   validUntil: number;
 };
 export type TestNow = { document: Verbatim | undefined; instant(now: string): number };
-export type RoomPlanRequest = {
-  room: RoomId;
-  reason: string;
-  testNow: TestNow;
-  overrides: Overrides;
-  cache: RoomCache | undefined;
-  power: Verbatim | undefined;
-  ranges: Verbatim | undefined;
-  defaults: Verbatim | undefined;
-};
 
 /** What the cache fingerprints. Attribute values are stored as observed. */
 export type Dependencies = {
@@ -287,6 +277,16 @@ export interface RoomOpening {
   hit: RoomCache | undefined;
 }
 
+export type RoomPlanRequest = {
+  room: RoomId;
+  reason: string;
+  testNow: TestNow;
+  overrides: Overrides;
+  cache: RoomCache | undefined;
+  power: Verbatim | undefined;
+  ranges: Verbatim | undefined;
+  defaults: Verbatim | undefined;
+};
 export function roomOpening(view: HouseView, args: RoomPlanRequest): RoomOpening {
   const { room, reason, overrides, cache } = args;
   const at = args.testNow.instant(view.now);

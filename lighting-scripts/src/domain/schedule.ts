@@ -117,14 +117,6 @@ export type ScheduleDetails = {
   left: number;
   cur_ts: number;
 };
-export interface ScheduledBaseRequest {
-  testNow: number | undefined;
-  reason: string;
-  overrides: ScheduleRecords | undefined;
-  /** The one room to plan; none when the request names none or `''` (captured `default('')`). */
-  roomOnly: RoomId | undefined;
-  includeDebug: boolean;
-}
 export function scheduleDetails(view: HouseView, scope: string, at: number): ScheduleDetails {
   const zone = view.timezone ?? 'Europe/Stockholm';
   const [year, month, day] = localParts(at, zone) as [number, number, number];
@@ -369,6 +361,14 @@ export type ScheduledBase = {
 type Chosen = { present: boolean; block: Block | undefined; when: () => number };
 const NOTHING_CHOSEN: Chosen = { present: false, block: undefined, when: () => 0 };
 
+export interface ScheduledBaseRequest {
+  testNow: number | undefined;
+  reason: string;
+  overrides: ScheduleRecords | undefined;
+  /** The one room to plan; none when the request names none or `''` (captured `default('')`). */
+  roomOnly: RoomId | undefined;
+  includeDebug: boolean;
+}
 export function scheduledBase(view: HouseView, args: ScheduledBaseRequest, roomLocal = false): ScheduledBase {
   const at = args.testNow === undefined ? timestamp(view.now) : args.testNow;
   const why = args.reason;

@@ -128,19 +128,6 @@ export interface FrameTarget {
   /** The target's area as stored, compared by identity with the transition rooms. */
   area: StoredFact;
 }
-export interface FramePlanRequest {
-  catalog: {
-    /** Each lamp's bulbs. */
-    members: Record<LampId, BulbId[]>;
-    /** Each bulb's MQTT command topic. */
-    topics: Record<BulbId, string>;
-    /** The multicast groups, forwarded to the group planner unread. */
-    multicast: () => Verbatim;
-  };
-  targets: Record<string, FrameTarget>;
-  transitionCap: number | null;
-  transitionRooms: StoredValue[] | null;
-}
 /** One lamp's light. Keys are written in the order the captured payload has them. */
 type FramePayload = { brightness?: number; color_temp?: number; color?: { rgb: string }; state?: 'OFF'; transition?: number };
 export type FrameRow = { entity: string; owner: string; topic: string | null; payload: FramePayload };
@@ -189,6 +176,19 @@ export interface FilterRequest {
 }
 
 
+export interface FramePlanRequest {
+  catalog: {
+    /** Each lamp's bulbs. */
+    members: Record<LampId, BulbId[]>;
+    /** Each bulb's MQTT command topic. */
+    topics: Record<BulbId, string>;
+    /** The multicast groups, forwarded to the group planner unread. */
+    multicast: () => Verbatim;
+  };
+  targets: Record<string, FrameTarget>;
+  transitionCap: number | null;
+  transitionRooms: StoredValue[] | null;
+}
 /** One row per on member of each on lamp, carrying that lamp's light. */
 export function frameRows(view: HouseView, args: FramePlanRequest): FrameRow[] {
   const catalog = args.catalog, rows: FrameRow[] = [];
