@@ -19,13 +19,11 @@ const runtime = 'sensor.ls_effects_runtime';
  * The effects the bulbs render themselves: the channel each one runs on, and
  * the Zigbee2MQTT light `effect` that starts it. The port sends a lamp its
  * light once, then the start, and streams nothing; leaving one sends
- * `stop_colorloop` and `stop_effect` first.
+ * `stop_effect` first.
  *
  * - Candle: the Innr RB 282 C firmware's Identify TriggerEffect 0x0b
  *   (`channel_change`) flickers under whatever level the lamp is at, holds the
  *   lamp's colour, and stops on `stop_effect`, Off, or any brightness command.
- * - Breathe and Colour loop: the bulbs' own Zigbee effects (`breathe`,
- *   `colorloop`), stopped by `stop_effect` and `stop_colorloop`.
  */
 export type Channel = 'brightness' | 'color';
 /**
@@ -33,25 +31,11 @@ export type Channel = 'brightness' | 'color';
  * turns an effect name into one of these, or into {@link FrameEffect}'s other
  * cases, once; nothing downstream holds an effect name as an open string.
  */
-export type BulbEffectName = 'Candle' | 'Breathe' | 'Colour loop';
+export type BulbEffectName = 'Candle';
 export type BulbEffect = {
   /** The channel the bulb animates; the start is sent only when this channel runs the effect. */
   readonly channel: Channel;
   readonly start: string;
-  /**
-   * The colour sent before the start when the effect claims the colour
-   * channel. Candle holds the warm end its software renderer used to return;
-   * a loop owns the colour from its start on, so nothing is sent for it.
-   */
-  readonly colour: 'warm end' | 'none';
-  /**
-   * Is a lamp whose previous assignment names this effect at its top level
-   * told to stop it, whatever its channels say? The captured rule is
-   * `old.get(L,{}).get('effect') in ['Breathe','Colour loop']`: written when
-   * Candle was the software renderer, so a Candle named there stops nothing by
-   * name (its stop comes from the channel it runs, {@link runningIn}).
-   */
-  readonly stoppedByName: boolean;
 };
 /**
  * What a frame source's effect means to the frame plan, decided at the parse
@@ -65,12 +49,6 @@ export type FrameEffect =
    * the channel.
    */
   | { kind: 'bulb effect'; name: BulbEffectName; intensity: () => number }
-  /**
-   * A name the catalog does not list. The oracle's membership test is false,
-   * so it sends the source as its value (`value | float` for brightness, the
-   * strict colour read for colour); so does the port, deliberately.
-   */
-  | { kind: 'uncatalogued effect'; name: string }
   | { kind: 'not an effect' }
   /**
    * The channel shows nothing (`{kind: 'none'}`: an off lamp's channel, or a
@@ -182,7 +160,7 @@ export function stoppedLamps(targetViews: ReturnType<AssignDetails['targetViews'
     if (target.lampOrRoom.kind === 'room') continue;
     const lamp = target.lampOrRoom.lamp;
     const previous = stored.previous(lamp);
-    let needed = previous.effect !== undefined && bulbEffect(previous.effect).stoppedByName;
+    let needed = false;
     for (const channel of ['brightness', 'color'] as const) {
       const source = target.channels[channel];
       // A lamp leaving an effect its bulbs run is told to stop it, before its new light.
@@ -214,10 +192,17 @@ function runningOn(channel: Channel, name: BulbEffectName | undefined): BulbEffe
 }
 
 
+export function bulbEffect(name: BulbEffectName): BulbEffect {
+  switch (name) {
+    case 'Candle': return { channel: 'brightness', start: 'channel_change' };
+    default: { const unknown: never = name; throw new Error(`Unhandled bulb effect ${JSON.stringify(unknown)}`); }
+  }
+}
 export interface FilterRequest {
   /** Each command as given, and its ids. */
   commands: Array<{ document: Verbatim; ids: string[] }>;
 }
+
 /**
  * Drop the assigned lamps from each command: a group id with an assigned
  * member becomes its unassigned members, and a command left with no id goes.
@@ -256,7 +241,6 @@ type FrameDetails = ReturnType<FrameSource['details']>;
  * call made, so nothing is passed through and the type is lossless.
  */
 export type EmitOutcome = { published_at: number[]; completed: boolean };
-
 /**
  * `effects_assign`'s result.
  *
@@ -266,8 +250,9 @@ export type EmitOutcome = { published_at: number[]; completed: boolean };
  * the gate compares.
  */
 export type AssignedGeneration = { generation: Verbatim };
-export type StopCommand = { topic: string; payload: { effect: string }; members: BulbId[]; owners: string[]; group: false };
 
+
+export type StopCommand = { topic: string; payload: { effect: string }; members: BulbId[]; owners: string[]; group: false };
 
 /** What `effects_assign` decides from the runtime as it stood before the store. */
 export interface AssignDecision {
@@ -316,43 +301,33 @@ export function frameRows(view: HouseView, args: FramePlanRequest): FrameRow[] {
   return rows;
 }
 
+
 /** A brightness source's level: a bulb effect runs at its intensity, anything else is its value. */
 function frameLevel(effect: FrameEffect, details: FrameDetails): number {
   switch (effect.kind) {
     case 'bulb effect': return effect.intensity();
-    case 'uncatalogued effect':
     case 'not an effect': return details.level;
     case 'no value': throw new Error('A channel that shows nothing has no level');
     default: { const unknown: never = effect; throw new Error(`Unhandled frame effect ${JSON.stringify(unknown)}`); }
   }
 }
 
-
-/** A colour source's colour, or `undefined` when the bulb effect owns the colour and nothing is sent. */
+/** A colour source's colour: the candle holds the warm end its software renderer used to return, before its start. */
 function frameColourOf(view: HouseView, effect: FrameEffect, details: FrameDetails, context: string): FrameColour | undefined {
   switch (effect.kind) {
-    case 'bulb effect': {
-      const held = bulbEffect(effect.name).colour;
-      switch (held) {
-        case 'warm end': return warmEndColour(view);
-        case 'none': return undefined;
-        default: { const unknown: never = held; throw new Error(`Unhandled bulb effect colour ${JSON.stringify(unknown)}`); }
-      }
-    }
-    case 'uncatalogued effect':
+    case 'bulb effect': return warmEndColour(view);
     case 'not an effect': return details.colour(context);
     case 'no value': return undefined;
     default: { const unknown: never = effect; throw new Error(`Unhandled frame effect ${JSON.stringify(unknown)}`); }
   }
 }
 
-export function bulbEffect(name: BulbEffectName): BulbEffect {
-  switch (name) {
-    case 'Candle': return { channel: 'brightness', start: 'channel_change', colour: 'warm end', stoppedByName: false };
-    case 'Breathe': return { channel: 'brightness', start: 'breathe', colour: 'none', stoppedByName: true };
-    case 'Colour loop': return { channel: 'color', start: 'colorloop', colour: 'none', stoppedByName: true };
-    default: { const unknown: never = name; throw new Error(`Unhandled bulb effect ${JSON.stringify(unknown)}`); }
-  }
+/**
+ * Effects a catalog may still list that the lamps no longer run. A saved
+ * profile naming one shows the lamp's normal light; no menu offers one.
+ */
+export function isRemovedEffect(name: string): boolean {
+  return name === 'Breathe' || name === 'Colour loop';
 }
 
 /**
@@ -392,7 +367,7 @@ export function* planAssignUpdate(decision: AssignDecision, revision: string, de
   };
 }
 
-/** The stops for each {@link stoppedLamps} lamp: `stop_colorloop` then `stop_effect`, per on member. */
+/** The stops for each {@link stoppedLamps} lamp: `stop_effect`, per on member. */
 export function stopCommands(view: HouseView, catalog: Catalog, targetViews: ReturnType<AssignDetails['targetViews']>,
   stored: RuntimeState): StopCommand[] {
   const commands: StopCommand[] = [];
@@ -407,8 +382,7 @@ export function stopCommands(view: HouseView, catalog: Catalog, targetViews: Ret
       // aborted the whole dispatch.
       const topic = catalog.topics[member];
       if (topic === undefined) continue;
-      for (const effect of ['stop_colorloop', 'stop_effect']) commands.push({ topic,
-        payload: { effect }, members: [member], owners: [lamp], group: false });
+      commands.push({ topic, payload: { effect: 'stop_effect' }, members: [member], owners: [lamp], group: false });
     }
   }
   return commands;

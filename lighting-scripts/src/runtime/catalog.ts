@@ -48,8 +48,8 @@ import { toBulbId, toLampId, toRemoteId, toRemoteSource } from '../parse/ids.ts'
  * The channels an effect drives.
  *
  * `renderer` is deliberately absent. The document still names one per effect,
- * but the bulbs run Candle, Breathe and Colour loop themselves, so nothing
- * renders a frame and nothing reads it. An earlier revision required it here
+ * but the bulbs run Candle themselves, so nothing renders a frame and
+ * nothing reads it. An earlier revision required it here
  * and `ls_apply` started failing on a document whose `effects.Breathe` carries
  * no renderer; the parity gate caught it in
  * `lighting-algebra/tests/test_integration.py` — 8 failures, every one

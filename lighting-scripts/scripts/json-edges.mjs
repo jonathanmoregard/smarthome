@@ -311,9 +311,9 @@ const HANDLERS = join(ROOT, 'src/handlers');
  * fallback, the `previousReason &&` truthiness) are unchanged and marked
  * `// divergence:` for their own commits.
  *
- * Breathe and Colour loop now run on the bulbs, like Candle (a deliberate
- * behaviour change, not a representation step): the frame renderers
- * (`frames.ts`), the engine and its tick (`effects_engine`,
+ * Breathe and Colour loop ran on the bulbs, like Candle, until they were
+ * removed (a deliberate behaviour change, not a representation step): the
+ * frame renderers (`frames.ts`), the engine and its tick (`effects_engine`,
  * `effects_engine_tick`: admission, rotation, `served`) and
  * `automation.effects_lifecycle` were deleted rather than converted, and the
  * frame plan stopped parsing `renderer`, `phases`, `timestamp` and

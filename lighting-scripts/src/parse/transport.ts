@@ -51,57 +51,6 @@ function frameColour(value: JsonValue | undefined, context: string): FrameColour
 }
 
 /**
- * The names the frame plan's catalog lists, read only when a source names an
- * effect the bulbs do not run. Absent `effects` lists nothing: the oracle's
- * `source.effect in catalog.effects` is then false.
- */
-type CatalogEffectNames = () => ReadonlySet<string>;
-
-function parseFrameSource(target: JsonObject, channel: Channel, catalogEffects: CatalogEffectNames, context: string): FrameSource {
-  const source = requireObject(target, channel, context);
-  const kind = requireString(source, 'kind', `${context}.${channel}`);
-  const intensity = lazy(() => requireNumber(source, 'intensity', `${context}.${channel}`));
-  const effect = frameEffect(kind, source, intensity, catalogEffects, `${context}.${channel}`);
-  return {
-    kind,
-    effect,
-    // Read when the plan reaches the channel, which it does for both. An
-    // effect source's `intensity` is required on either channel -- a bulb
-    // effect's colour included, though nothing on the colour channel uses it --
-    // matching the oracle, which hands `source.intensity` to the effect's
-    // renderer for every effect channel. `value` is read as a level here and as
-    // a colour only when the colour is sent.
-    details: lazy(() => {
-      if (kind === 'effect') intensity();
-      return {
-        // `value | float`, for the brightness channel.
-        level: jinjaFloat(source.value),
-        // The strict colour read, for the colour channel when it is sent.
-        colour: colourContext => frameColour(source.value, colourContext),
-      };
-    }),
-  };
-}
-
-/**
- * A frame source's effect, decided once. A name the catalog lists that the
- * bulbs cannot run raises: the oracle would hand it to that effect's software
- * renderer, which the port does not have, and sending it as a plain level
- * would light the lamp at brightness 1.
- */
-function frameEffect(kind: string, source: JsonObject, intensity: () => number, catalogEffects: CatalogEffectNames, context: string): FrameEffect {
-  if (kind === 'none') return { kind: 'no value' };
-  if (kind !== 'effect') return { kind: 'not an effect' };
-  const name = requireString(source, 'effect', context);
-  const bulb = bulbEffectName(name);
-  if (bulb !== undefined) return { kind: 'bulb effect', name: bulb, intensity };
-  if (catalogEffects().has(name)) {
-    throw new ParseError(`${context}.effect '${name}' is in the catalog but is not an effect the bulbs run (Candle, Breathe, Colour loop)`);
-  }
-  return { kind: 'uncatalogued effect', name };
-}
-
-/**
  * A stored target or assignment's channels, read without raising: a
  * non-mapping target or channel has none. Only a channel naming a bulb effect
  * answers; any other effect name runs nothing on the bulbs.
@@ -123,12 +72,6 @@ export function storedChannels(value: JsonValue | undefined): StoredChannels {
 
 /** One lamp's previous runtime assignment and target, as the stop check reads them. */
 export interface PreviousLamp {
-  /**
-   * The bulb effect the previous assignment names at its top level (captured
-   * `old.get(L,{}).get('effect')`), compared as the captured `in` does: only
-   * a string equal to a name; anything else is `undefined`.
-   */
-  effect: BulbEffectName | undefined;
   channels: StoredChannels;
   /** The previous target's `channel.updated`, as stored, for an identity comparison. */
   updated(channel: Channel): StoredFact;
@@ -152,7 +95,6 @@ export function runtimeState(ctx: HouseView): RuntimeState {
     previous: lamp => {
       const previous = object(old[lamp]);
       return {
-        effect: typeof previous.effect === 'string' ? bulbEffectName(previous.effect) : undefined,
         channels: storedChannels(previous),
         updated: channel => storedFact(object(object(oldTargets[lamp])[channel]).updated),
       };
@@ -205,17 +147,13 @@ function requireStrings(container: JsonObject, key: string, context: string): st
 
 function parseFrameTargets(args: JsonObject): Record<string, FrameTarget> {
   const targets = requireObject(args, 'targets', 'effects_frame_plan');
-  const catalogEffects: CatalogEffectNames = lazy(() => {
-    const catalog = requireObject(args, 'catalog', 'effects_frame_plan');
-    return new Set(catalog.effects === undefined ? [] : Object.keys(requireObject(catalog, 'effects', 'effects_frame_plan.catalog')));
-  });
   return Object.fromEntries(Object.entries(targets).map(([lamp, raw]) => {
     const context = `effects_frame_plan.targets.${lamp}`;
     const target = requireObject({ raw }, 'raw', context);
     const owners = target.owners === undefined ? {} : requireObject(target, 'owners', context);
     return [lamp, {
-      brightness: parseFrameSource(target, 'brightness', catalogEffects, context),
-      color: parseFrameSource(target, 'color', catalogEffects, context),
+      brightness: parseFrameSource(target, 'brightness', context),
+      color: parseFrameSource(target, 'color', context),
       manual: Object.entries(owners).some(([key, value]) =>
         requireString({ value }, 'value', `${context}.owners.${key}`).startsWith('channels:')),
       on: jinjaTruthy(target.on),
@@ -225,6 +163,54 @@ function parseFrameTargets(args: JsonObject): Record<string, FrameTarget> {
       area: storedFact(target.area),
     }];
   }));
+}
+
+function parseFrameSource(target: JsonObject, channel: Channel, context: string): FrameSource {
+  const source = requireObject(target, channel, context);
+  const kind = requireString(source, 'kind', `${context}.${channel}`);
+  const intensity = lazy(() => requireNumber(source, 'intensity', `${context}.${channel}`));
+  const effect = frameEffect(kind, source, intensity, `${context}.${channel}`);
+  return {
+    kind,
+    effect,
+    // Read when the plan reaches the channel, which it does for both. An
+    // effect source's `intensity` is required on either channel -- a bulb
+    // effect's colour included, though nothing on the colour channel uses it --
+    // matching the oracle, which hands `source.intensity` to the effect's
+    // renderer for every effect channel. `value` is read as a level here and as
+    // a colour only when the colour is sent.
+    details: lazy(() => {
+      if (kind === 'effect') intensity();
+      return {
+        // `value | float`, for the brightness channel.
+        level: jinjaFloat(source.value),
+        // The strict colour read, for the colour channel when it is sent.
+        colour: colourContext => frameColour(source.value, colourContext),
+      };
+    }),
+  };
+}
+
+/**
+ * A frame source's effect, decided once. Any name but Candle is a normal
+ * light, catalogued or not: Breathe and Colour loop are gone, so a saved
+ * profile naming one shows the lamp's normal light.
+ */
+function frameEffect(kind: string, source: JsonObject, intensity: () => number, context: string): FrameEffect {
+  if (kind === 'none') return { kind: 'no value' };
+  if (kind !== 'effect') return { kind: 'not an effect' };
+  const name = requireString(source, 'effect', context);
+  const bulb = bulbEffectName(name);
+  if (bulb !== undefined) return { kind: 'bulb effect', name: bulb, intensity };
+  return { kind: 'not an effect' };
+}
+
+/**
+ * The bulb effect an effect name names, or `undefined` for every other name.
+ * The one place an effect name becomes a {@link BulbEffectName}.
+ */
+export function bulbEffectName(name: string): BulbEffectName | undefined {
+  return name === 'Candle' ? name : undefined;
 }
 
 // Captured `commands`, `revision`, and `generation` are raw (1, 2, and 4
@@ -295,14 +281,6 @@ function parseAssignTargetViews(targets: JsonObject): ReturnType<AssignDetails['
       owners: { brightness: owner('brightness'), color: owner('color') },
     }];
   }));
-}
-
-/**
- * The bulb effect an effect name names, or `undefined` for every other name.
- * The one place an effect name becomes a {@link BulbEffectName}.
- */
-export function bulbEffectName(name: string): BulbEffectName | undefined {
-  return name === 'Candle' || name === 'Breathe' || name === 'Colour loop' ? name : undefined;
 }
 
 // Captured `commands` is raw at both sites and nested `ids` is raw nine

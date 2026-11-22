@@ -38,10 +38,10 @@ test('an effect without a renderer is accepted, because nothing renders frames',
   // An earlier revision required `renderer` here. That promoted a mid-frame
   // error into a load-time one for every catalog reader, and `ls_apply` — which
   // never renders a frame — began failing on a real document whose
-  // `effects.Breathe` carries no renderer: 8 failures against 20 clean
-  // reference tests. The bulbs now run every effect, so no path reads a
+  // `effects.Breathe` (since removed) carries no renderer: 8 failures against
+  // 20 clean reference tests. The bulbs run the effect, so no path reads a
   // renderer at all.
-  assert.deepEqual(parseCatalog({ ...minimal, effects: { Breathe: {} } }).effects.Breathe, { channels: [] });
+  assert.deepEqual(parseCatalog({ ...minimal, effects: { Pulse: {} } }).effects.Pulse, { channels: [] });
   assert.deepEqual(parseCatalog({ ...minimal, effects: { Candle: { renderer: 7 } } }).effects.Candle, { channels: [] });
   const parsed = parseCatalog({ ...minimal, effects: { Candle: { renderer: 'fx_candle', channels: ['brightness'] } } });
   assert.deepEqual(parsed.effects.Candle, { channels: ['brightness'] });

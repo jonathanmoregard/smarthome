@@ -8,6 +8,7 @@ import { contextEntries, noInputRecord, presetSelection, remoteCache, remoteOver
 import { switchRangeIterable } from '../parse/planning.ts';
 import type { RemoteOverrides, RemoteRoomPlan } from '../parse/remote-input.ts';
 import { clamp } from './scale.ts';
+import { isRemovedEffect } from './transport.ts';
 import type { PowerTarget, RemoteSource, RoomId } from './types/ids.ts';
 import { entriesOf } from './types/ids.ts';
 import type { RemotePress } from './types/remote.ts';
@@ -189,8 +190,8 @@ export function remoteDecision(view: HouseView, args: RemotePlanRequest, opening
           updated: stamp, last: command, has_up: hasUp };
         next.adjustment = fields;
       } else {
-        const choices = ['day', 'cosy', 'Candle', ...Object.keys(catalog.effects).filter(k => !['Candle', 'Colour loop', 'Breathe',
-          'Normal light'].includes(k))];
+        const choices = ['day', 'cosy', 'Candle', ...Object.keys(catalog.effects).filter(k =>
+          k !== 'Candle' && k !== 'Normal light' && !isRemovedEffect(k))];
         // `undefined`: a saved selection that is not text names no choice, and has no name to save its context under.
         const current = presetSelection(value.selection, plan.roomPeriod(room));
         const names = ['period', 'period_updated', 'selection_updated', 'selection_input', 'selection_instance', 'legacy_channels'];

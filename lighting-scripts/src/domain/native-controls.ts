@@ -283,8 +283,7 @@ export function planNativeControls(view: HouseView, args: NativePlanRequest): Na
     if (sd.effect !== undefined) {
       const requestedEffect = sd.effect.toLowerCase();
       let selected: string | undefined;
-      for (const effect of catalog.effects.names) if (effect.toLowerCase() === requestedEffect || (effect === 'Colour loop' &&
-        requestedEffect === 'colorloop')) selected = effect;
+      for (const effect of catalog.effects.names) if (effect.toLowerCase() === requestedEffect) selected = effect;
       if (selected) {
         for (const channel of catalog.effects.channels(selected)) channels[channel] = { kind: 'effect', effect: selected,
           instance: `native:${[...requested, ...areas, ...devices, ...labels].sort().join('|')}:${selected}`, updated: args.stamp(),

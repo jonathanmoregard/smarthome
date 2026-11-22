@@ -5,7 +5,7 @@ import { planStops } from '../../src/handlers/transport.ts';
 import type { EmitCommand } from '../../src/domain/transport.ts';
 import { parseAssignArgs, parseFilterArgs, parseFramePlanArgs, runtimeState } from '../../src/parse/transport.ts';
 import { parseCatalog } from '../../src/runtime/catalog.ts';
-import type { JsonObject, JsonValue } from '../../src/runtime/context.ts';
+import type { JsonObject } from '../../src/runtime/context.ts';
 import type { Effect } from '../../src/runtime/effects.ts';
 import { house } from './house-view.ts';
 
@@ -19,7 +19,7 @@ const catalogDocument: JsonObject = {
   groups: { 'light.group': ['light.lamp', 'light.other'] }, multicast: [],
 };
 const steady: JsonObject = { on: true, brightness: { kind: 'constant', value: 100 }, color: { kind: 'constant', value: { kelvin: 2500 } } };
-const breathe: JsonObject = { on: true, brightness: { kind: 'effect', effect: 'Breathe', intensity: 80, updated: 1 }, color: { kind: 'constant', value: { kelvin: 2500 } } };
+const candle: JsonObject = { on: true, brightness: { kind: 'effect', effect: 'Candle', intensity: 80, updated: 1 }, color: { kind: 'constant', value: { kelvin: 2500 } } };
 
 // effects_frame_plan
 
@@ -90,7 +90,7 @@ test('effect targets gate on the runtime assignment and ride in the guard', () =
   const matching = publishCommand(live(assigned), gate({ effectTargets: { 'light.lamp': { effect: 'Candle' } } }));
   assert.ok(matching !== undefined && matching.kind === 'service');
   assert.deepEqual(matching.guard?.effectTargets, { 'light.lamp': { effect: 'Candle' } });
-  assert.equal(publishCommand(live(assigned), gate({ effectTargets: { 'light.lamp': { effect: 'Breathe' } } })), undefined);
+  assert.equal(publishCommand(live(assigned), gate({ effectTargets: { 'light.lamp': { effect: 'Pulse' } } })), undefined);
   assert.equal(publishCommand(live(assigned), gate({ effectTargets: { 'light.other': {} } })), undefined);
 });
 
@@ -144,13 +144,12 @@ test('a non-number stored plan order reads as the captured default 0 when the re
 test('a lamp leaving a bulb effect stops it on every on member that has a topic', () => {
   const catalog = parseCatalog(catalogDocument);
   const view = house({
-    [runtime]: ['g0', { assignments: { 'light.lamp': { effect: 'Breathe', ...breathe } }, targets: { 'light.lamp': breathe } }],
+    [runtime]: ['g0', { assignments: { 'light.lamp': { effect: 'Candle', ...candle } }, targets: { 'light.lamp': candle } }],
     'light.bulb': 'on', 'light.bare': 'on',
   });
   const parsed = details({ targets: { 'light.lamp': steady } });
   const commands = stopCommands(view, catalog, parsed.targetViews(), runtimeState(view));
   assert.deepEqual(commands, [
-    { topic: 'z2m/bulb/set', payload: { effect: 'stop_colorloop' }, members: ['light.bulb'], owners: ['light.lamp'], group: false },
     { topic: 'z2m/bulb/set', payload: { effect: 'stop_effect' }, members: ['light.bulb'], owners: ['light.lamp'], group: false },
   ]);
   assert.deepEqual(stopCommands(house({ [runtime]: ['g0', {}], 'light.bulb': 'on' }), catalog, parsed.targetViews(), runtimeState(view)), commands,
@@ -162,25 +161,8 @@ test('a room target and a lamp that ran no bulb effect are not told to stop', ()
   const catalog = parseCatalog(catalogDocument);
   const view = house({ [runtime]: ['g0', { assignments: { 'light.lamp': {} } }], 'light.bulb': 'on' });
   assert.deepEqual(stopCommands(view, catalog, details({ targets: { 'light.lamp': steady } }).targetViews(), runtimeState(view)), []);
-  const was = house({ [runtime]: ['g0', { assignments: { 'light.lamp': { effect: 'Breathe' } } }], 'light.bulb': 'on' });
+  const was = house({ [runtime]: ['g0', { assignments: { 'light.lamp': { effect: 'Candle' } } }], 'light.bulb': 'on' });
   assert.deepEqual(stopCommands(was, catalog, details({ targets: { 'light.lamp': { ...steady, is_room: true } } }).targetViews(), runtimeState(was)), []);
-});
-
-test("a previous assignment's top-level effect stops by the captured `.get('effect') in ['Breathe','Colour loop']`", () => {
-  // The captured rule compares the raw value: only those two exact strings
-  // match. Candle is not in it (it was the software renderer when the rule was
-  // written; its stop comes from the channel it runs), and a non-string never
-  // equals a name, whatever it would print as.
-  const catalog = parseCatalog(catalogDocument);
-  const stops = (effect: JsonValue) => {
-    const view = house({ [runtime]: ['g0', { assignments: { 'light.lamp': { effect } } }], 'light.bulb': 'on' });
-    return stopCommands(view, catalog, details({ targets: { 'light.lamp': steady } }).targetViews(), runtimeState(view))
-      .map(command => command.payload.effect);
-  };
-  for (const name of ['Breathe', 'Colour loop']) assert.deepEqual(stops(name), ['stop_colorloop', 'stop_effect'], name);
-  for (const other of ['Candle', 'breathe', ['Breathe'], ['Colour loop'], null, 0] as JsonValue[]) {
-    assert.deepEqual(stops(other), [], JSON.stringify(other));
-  }
 });
 
 test('the stops go to effects_emit as one inter-handler run, even when there are none', () => {

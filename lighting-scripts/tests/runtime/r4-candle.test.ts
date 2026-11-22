@@ -22,7 +22,6 @@ const topics = { 'light.bulb_1': 'zigbee2mqtt/bulb_1/set', 'light.bulb_2': 'zigb
 const catalog: JsonObject = {
   effects: {
     Candle: { renderer: 'script.effect_candle_frame', channels: ['brightness', 'color'] },
-    Breathe: { renderer: 'script.effect_breathe_frame', channels: ['brightness'] },
   },
   members: { 'light.lamp': ['light.bulb_1', 'light.bulb_2'] },
   topics,

@@ -27,7 +27,6 @@ const topics = { 'light.bulb_1': 'zigbee2mqtt/bulb_1/set', 'light.bulb_2': 'zigb
 const catalog: JsonObject = {
   effects: {
     Candle: { renderer: 'script.effect_candle_frame', channels: ['brightness', 'color'] },
-    Breathe: { renderer: 'script.effect_breathe_frame', channels: ['brightness'] },
   },
   members: { 'light.lamp': ['light.bulb_1', 'light.bulb_2'] },
   topics,
@@ -121,7 +120,7 @@ test('a constant colour claimed over the candle is sent before the trigger', () 
   ]);
 });
 
-const leftCandle = [{ effect: 'stop_colorloop' }, { effect: 'stop_effect' }, { brightness: 100, color_temp: 400, transition: 3 }];
+const leftCandle = [{ effect: 'stop_effect' }, { brightness: 100, color_temp: 400, transition: 3 }];
 
 test('leaving the candle sends each bulb the stops, then the new light, and nothing else', () => {
   const calls = dispatch(steady, { assignments: { 'light.lamp': candle }, targets: { 'light.lamp': candle } });
@@ -214,7 +213,7 @@ test('a candle stopped on a lamp ls_dispatch skipped is started again when the l
     resolved: { targets: { 'light.lamp': steady }, assignments: {} } };
   const left = execute({ script: 'ls_dispatch', args: { plan: skipped, lights: [] }, snapshot: snapshot(holding(candle)) }, handlers);
   for (const topic of Object.values(topics)) {
-    assert.deepEqual(received(left.calls, topic), [{ effect: 'stop_colorloop' }, { effect: 'stop_effect' }], `precondition: ${topic}`);
+    assert.deepEqual(received(left.calls, topic), [{ effect: 'stop_effect' }], `precondition: ${topic}`);
   }
   const back = { revision: now, plan_order: 2, base: {}, resolved: { targets: { 'light.lamp': candle }, assignments: { 'light.lamp': candle } } };
   const again = execute({ script: 'ls_dispatch', args: { plan: back, lights: [] }, snapshot: left.snapshot }, handlers);

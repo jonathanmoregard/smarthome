@@ -30,7 +30,7 @@ test('UI mirror suppresses unchanged messages and mixed effect ownership is blan
   setCatalog(ctx, { ui_rows: [row('light.group', ['light.a', 'light.b'])] });
   ctx.put('light.group', 'on', { brightness: 20, color_mode: 'rgb', rgb_color: [1, 2, 3] });
   ctx.put('light.ep_test', 'on', { effect: '', brightness: 20, color_mode: 'rgb', rgb_color: [1, 2, 3] });
-  ctx.put('sensor.ls_effects_runtime', '2', { targets: { 'light.a': { brightness: { kind: 'effect', effect: 'Candle' }, level: 10 }, 'light.b': { color: { kind: 'effect', effect: 'Colour loop' }, level: 30 } } });
+  ctx.put('sensor.ls_effects_runtime', '2', { targets: { 'light.a': { brightness: { kind: 'effect', effect: 'Candle' }, level: 10 }, 'light.b': { color: { kind: 'effect', effect: 'Pulse' }, level: 30 } } });
   assert.deepEqual(ctx.run('effects_ui_sync', { dry_run: true }), { messages: [] });
 });
 
@@ -137,13 +137,13 @@ test('a constant colour with a non-numeric kelvin wins over its rgb and mirrors 
 test('UI discovery republishes the stored config with effect_list replaced in place', async () => {
   // The payload is `{...config, effect_list}` serialised: an existing key keeps its position.
   const ctx = await load();
-  setCatalog(ctx, { ui_choices: ['Normal Light', 'Breathe'], ui_discovery: [
+  setCatalog(ctx, { ui_choices: ['Normal Light', 'Candle'], ui_discovery: [
     { entity: 'light.ep_a', config: { unique_id: 'ep_a', effect_list: ['old'], name: 'A' } },
     { entity: 'light.ep_b', config: { unique_id: 'ep_b', name: 'B' } },
   ] });
-  ctx.put('light.ep_b', 'on', { effect_list: ['Normal Light', 'Breathe'] });
+  ctx.put('light.ep_b', 'on', { effect_list: ['Normal Light', 'Candle'] });
   ctx.run('effects_ui_catalog');
   assert.deepEqual(ctx.calls.map(c => [c.data.topic, c.data.payload]), [
-    ['homeassistant/light/ep_a/config', '{"unique_id":"ep_a","effect_list":["Normal Light","Breathe"],"name":"A"}'],
+    ['homeassistant/light/ep_a/config', '{"unique_id":"ep_a","effect_list":["Normal Light","Candle"],"name":"A"}'],
   ]);
 });

@@ -8,6 +8,7 @@ import {
 } from '../parse/ui-state.ts';
 import type { Display, RangeSaveRequest } from '../parse/ui-state.ts';
 import { payloadNumber } from '../runtime/format.ts';
+import { isRemovedEffect } from './transport.ts';
 import type { SwitchId } from './types/ids.ts';
 import type { Percent } from './types/light.ts';
 
@@ -132,7 +133,12 @@ export function* saveRange(result: RangeSaveDecision): Plan<RangeSaveDecision> {
     via: 'schedule-ui' } };
   return result;
 }
-/** The UI's effect choices: the catalog's, or these two when it names none (a malformed list was already rejected). */
+/**
+ * The UI's effect choices: the catalog's, or these two when it names none (a
+ * malformed list was already rejected). Breathe and Colour loop are removed
+ * effects and are never offered, whatever the catalog lists.
+ */
 export function uiChoices(view: HouseView): string[] {
-  return view.catalog.ui_choices === undefined ? ['Normal Light', 'Candle'] : view.catalog.ui_choices;
+  const listed = view.catalog.ui_choices === undefined ? ['Normal Light', 'Candle'] : view.catalog.ui_choices;
+  return listed.filter(choice => !isRemovedEffect(choice));
 }

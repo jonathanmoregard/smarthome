@@ -12,9 +12,8 @@ import type { JsonObject, Snapshot } from '../../src/runtime/context.ts';
 // used to say the opposite; this pins the behaviour the code (and the oracle)
 // has.
 //
-// Exercised with a Candle colour claim (it holds the warm end) rather than
-// Colour loop: the user directive bars bulb tests for Breathe / Colour loop,
-// and the raising line is the same for every effect on the colour channel.
+// Exercised with a Candle colour claim (it holds the warm end), the one effect
+// the bulbs run.
 
 const now = '2026-10-26T12:00:00.000Z';
 const catalog: JsonObject = { members: { 'light.lamp': ['light.bulb_1'] }, topics: { 'light.bulb_1': 'zigbee2mqtt/bulb_1/set' }, multicast: [] };
