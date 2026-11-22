@@ -13,7 +13,7 @@
  * a chord in progress; on `light.lamp_a1` a dashboard control's candle with the
  * schedule's colour, then a person's newer fixed brightness and colour, which
  * leave the candle running at them; a dashboard control's Normal over
- * `room-a`, whose cosy block runs the candle; `room-b` switched off; the mode
+ * `room-a` (both parts handed back to the schedule), whose cosy block runs the candle; `room-b` switched off; the mode
  * overlay active.
  */
 import type { Block } from '../../../src/domain/blocks.ts';
@@ -135,8 +135,8 @@ export function syntheticHouse(): Model {
           over: { kind: 'room', room: roomA },
           from: { kind: 'dashboard', control: toDashboardControlId('control-b') },
           since: at(45),
-          brightness: undefined,
-          colour: undefined,
+          brightness: { kind: 'schedule', at: at(45) },
+          colour: { kind: 'schedule', at: at(45) },
           effect: { kind: 'normal', at: at(45) },
         },
       ],
@@ -217,10 +217,10 @@ const storedOverrides: JsonObject = {
   },
   'channels:ui:control-b': {
     kind: 'channels', key: 'channels:ui:control-b', source: 'ui:control-b', scope: 'room', target: roomA,
-    value: { channels: {
-      brightness: { kind: 'effect', effect: 'Normal light', instance: 'ui:control-b:Normal light', updated: at(45) },
-      color: { kind: 'effect', effect: 'Normal light', instance: 'ui:control-b:Normal light', updated: at(45) },
-    } },
+    value: {
+      channels: { brightness: { kind: 'constant', updated: at(45) }, color: { kind: 'constant', updated: at(45) } },
+      selection: 'Normal light',
+    },
     when: iso(45), created: iso(45), who: null, via: 'effects-house',
   },
   'mode:sara': { kind: 'mode', target: 'sara', value: 'on', when: iso(60), created: iso(60), who: null, via: 'remote' },

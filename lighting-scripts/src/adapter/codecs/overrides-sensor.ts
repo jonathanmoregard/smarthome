@@ -40,6 +40,7 @@ import {
 import { parseOverlayKey } from '../../parse/overlay-key.ts';
 import type { JsonObject, JsonValue } from '../../runtime/context.ts';
 import { isObject, jinjaTruthy } from '../../runtime/parse.ts';
+import { dateSeconds } from './time-text.ts';
 
 /** What the overrides sensor holds of the Model. */
 export type OverridesState = Pick<Model, 'overlays' | 'modeOverlay' | 'switchRanges' | 'rangeDefaults'>;
@@ -63,7 +64,7 @@ const EFFECT_NAMES: Record<EffectOverlay['kind'], string> = { candle: 'Candle', 
 const UNDERLYING_DEPTH = 8;
 
 /** The fields a remote value keeps its current preset in; a changed preset clears them before writing its own. */
-const PRESET_FIELDS = ['selection', 'period', 'period_updated', 'selection_updated', 'selection_input', 'selection_instance'];
+const PRESET_FIELDS = ['selection', 'period', 'period_updated', 'selection_updated', 'selection_input', 'selection_instance', 'legacy_channels'];
 
 /** The preset choices a remote remembers a context for, each under its selection's name. */
 const PRESET_CHOICES: readonly PresetChoice[] = ['day', 'cosy', 'candle'];
@@ -321,7 +322,10 @@ function decodeRemote(source: RemoteOverlay['source'], raw: JsonObject): StoredO
   const value = raw['value'], target = raw['target'];
   if (raw['kind'] !== 'input' || raw['scope'] !== 'room' || typeof target !== 'string' || target === '' || !isObject(value)) return undefined;
   const since = savedWhen(raw['when']);
-  const range = value['step_range'];
+  const range = value['step_range'], stored = value['adjustment'], chosen = value['selection'];
+  // An effect chosen over an old channels record (`legacy_channels`) claims nothing in today's resolver: not the
+  // effect, not its input, and not an adjustment equal to that input.
+  const overOldRecord = isObject(value['legacy_channels']) && chosen !== undefined && chosen !== null && chosen !== 'day' && chosen !== 'cosy';
   return {
     kind: 'remote',
     overlay: {
@@ -330,7 +334,8 @@ function decodeRemote(source: RemoteOverlay['source'], raw: JsonObject): StoredO
       since,
       stepRange: !Object.hasOwn(value, 'step_range') || !isObject(range) ? DEFAULT_STEP_RANGE
         : stepBoundsOf(range['min'], range['max']) ?? DEFAULT_STEP_RANGE,
-      adjustment: isObject(value['adjustment']) ? decodeAdjustment(value['adjustment'], since) : undefined,
+      adjustment: !isObject(stored) || overOldRecord && isDeepStrictEqual(stored, value['selection_input']) ? undefined
+        : decodeAdjustment(stored, since, value['period']),
       preset: decodePreset(value['selection'], value, since),
       remembered: decodeRemembered(value['preset_contexts'], since),
     },
@@ -352,8 +357,8 @@ function decodeLamp(keyed: LampOverlay['over'] | undefined, from: LampOverlay['f
   const channels = value['channels'];
   const brightness = channelPart('brightness', channels, since, BRIGHTNESS), colour = channelPart('color', channels, since, COLOUR);
   let effect = newest(brightness.effect, colour.effect);
-  // Today's dashboard Normal light saves the held level and colour and names the pick; it ends a candle.
-  if (from.kind === 'dashboard' && value['selection'] === 'Normal light' && effect === undefined
+  // A reset to normal light saves the held level and colour and names the pick; it ends a candle.
+  if (value['selection'] === 'Normal light' && effect === undefined
     && brightness.part !== undefined && colour.part !== undefined) {
     effect = { kind: 'normal', at: brightness.part.at < colour.part.at ? brightness.part.at : colour.part.at };
   }
@@ -452,7 +457,7 @@ function nativeOver(base: string): LampOverlay['over'] {
  * ordered pair inside -20..20, as the resolver accepts them; none otherwise.
  * An `updated` the adjustment does not hold is the entry's `when`, as today.
  */
-function decodeAdjustment(stored: JsonObject, when: Instant): RemoteAdjustment | undefined {
+function decodeAdjustment(stored: JsonObject, when: Instant, period: JsonValue | undefined): RemoteAdjustment | undefined {
   const count = (key: string) => {
     const value = stored[key];
     return typeof value === 'number' && Number.isFinite(value) && value >= -40 && value <= 40 ? value : undefined;
@@ -464,7 +469,8 @@ function decodeAdjustment(stored: JsonObject, when: Instant): RemoteAdjustment |
     steps: toStepCount(steps),
     lower: toStep(lower),
     upper: toStep(upper),
-    from: anchor === 'day' || anchor === 'cosy' || anchor === 'current' ? anchor : DEFAULT_ANCHOR,
+    from: anchor === 'day' || anchor === 'cosy' ? (period === 'day' || period === 'cosy' ? period : anchor)
+      : anchor === 'current' ? anchor : DEFAULT_ANCHOR,
     at: savedStamp(stored['updated'], when),
     lastPress: last === 'up' || last === 'down' ? last : undefined,
     everBrighter: jinjaTruthy(stored['has_up']),
@@ -485,12 +491,12 @@ function savedStamp(value: JsonValue | undefined, when: Instant): Instant {
  */
 function decodePreset(selection: JsonValue | undefined, stored: JsonObject, when: Instant): RemotePreset {
   if (selection === 'day' || selection === 'cosy') return { choice: selection, since: savedStamp(stored['period_updated'], when) };
-  if (selection !== 'Candle') return { choice: 'none' };
+  if (selection !== 'Candle' || isObject(stored['legacy_channels'])) return { choice: 'none' };
   const period = stored['period'], input = stored['selection_input'];
   return {
     choice: 'candle',
     since: savedStamp(stored['selection_updated'], when),
-    adjustment: isObject(input) ? decodeAdjustment(input, when) : undefined,
+    adjustment: isObject(input) ? decodeAdjustment(input, when, period) : undefined,
     block: period === 'day' || period === 'cosy' ? { block: period, since: savedStamp(stored['period_updated'], when) } : undefined,
   };
 }
@@ -621,28 +627,25 @@ function storedContexts(overlay: RemoteOverlay, before: RemoteOverlay['remembere
 
 /**
  * A lamp overlay's stored value: its two channel claims, each written only
- * when what it says changed. A channel runs the overlay's effect when the
- * effect is newer than (or as new as) the channel's own part, which it then
- * keeps underneath, as `ls_commit` keeps an older constant under a newer
- * effect; otherwise the channel holds its part. An effect older than both
- * parts runs on the brightness channel, over the newer level.
+ * when what it says changed.
  *
- * A dashboard control's Normal light over a held level and colour is saved as
- * today's pick saves it: the two constants and the pick's name.
+ * The normal light is written as today's reset writes it: both channels held
+ * as constants, a part older than the reset held from the reset's time and a
+ * channel with no part claimed with no value (the schedule's), and the pick's
+ * name, which reads it back as the normal light. Today's resolver reads a
+ * `Normal light` effect claim as no source, so it is never written.
+ *
+ * Another effect runs on a channel when it is newer than (or as new as) the
+ * channel's own part, which it keeps underneath, as `ls_commit` keeps an older
+ * constant under a newer effect; otherwise the channel holds its part. An
+ * effect older than both parts runs on the brightness channel from that part's
+ * time at its level (`intensity`), as today's resolver drops a constant kept
+ * under an effect that is newer than the effect.
  */
 function lampValue(overlay: LampOverlay, found: JsonObject, foundWhen: Instant | undefined): JsonObject {
   const foundChannels = isObject(found['channels']) ? found['channels'] : {};
-  const parts: { brightness: BrightnessOverlay | undefined; color: ColourOverlay | undefined } =
-    { brightness: overlay.brightness, color: overlay.colour };
   const effect = overlay.effect;
-  const held = overlay.from.kind === 'dashboard' && effect?.kind === 'normal' && parts.brightness !== undefined && parts.color !== undefined
-    && (parts.brightness.at < parts.color.at ? parts.brightness.at : parts.color.at) === effect.at;
-  const runs = (part: BrightnessOverlay | ColourOverlay | undefined) => effect !== undefined && !held && (part === undefined || effect.at >= part.at);
-  const onBrightness = runs(parts.brightness) || effect !== undefined && !held && !runs(parts.color);
-  const wanted: Record<Channel, ChannelPart<BrightnessOverlay | ColourOverlay>> = {
-    brightness: { part: parts.brightness, effect: onBrightness ? effect : undefined },
-    color: { part: parts.color, effect: runs(parts.color) ? effect : undefined },
-  };
+  const wanted = effect?.kind === 'normal' ? heldChannels(overlay, effect.at) : effectChannels(overlay, effect);
   const channels: JsonObject = { ...foundChannels };
   for (const channel of ['brightness', 'color'] as const) {
     const before: ChannelPart<BrightnessOverlay | ColourOverlay> = foundWhen === undefined ? { part: undefined, effect: undefined }
@@ -653,11 +656,32 @@ function lampValue(overlay: LampOverlay, found: JsonObject, foundWhen: Instant |
     if (claim === undefined) delete channels[channel]; else channels[channel] = claim;
   }
   const value: JsonObject = { ...found, channels };
-  const selection = found['selection'];
-  if (held) value['selection'] = 'Normal light';
+  if (effect?.kind === 'normal') value['selection'] = 'Normal light';
   else if (overlay.from.kind === 'dashboard' && effect?.kind === 'candle') value['selection'] = 'Candle';
-  else if (selection === 'Normal light') delete value['selection'];
+  else if (found['selection'] === 'Normal light') delete value['selection'];
   return value;
+}
+
+/** The two channels a reset to normal light at `at` holds: each part from the reset's time on, the schedule's where there is none. */
+function heldChannels(overlay: LampOverlay, at: Instant): Record<Channel, ChannelPart<BrightnessOverlay | ColourOverlay>> {
+  const brightness: BrightnessOverlay = overlay.brightness === undefined ? { kind: 'schedule', at }
+    : overlay.brightness.at < at ? { ...overlay.brightness, at } : overlay.brightness;
+  const colour: ColourOverlay = overlay.colour === undefined ? { kind: 'schedule', at }
+    : overlay.colour.at < at ? { ...overlay.colour, at } : overlay.colour;
+  return { brightness: { part: brightness, effect: undefined }, color: { part: colour, effect: undefined } };
+}
+
+/** Which channel runs the overlay's effect (none, the candle or the schedule's): see `lampValue`. */
+function effectChannels(overlay: LampOverlay, effect: EffectOverlay | undefined): Record<Channel, ChannelPart<BrightnessOverlay | ColourOverlay>> {
+  const brightness = overlay.brightness, colour = overlay.colour;
+  const runs = (part: BrightnessOverlay | ColourOverlay | undefined) => effect !== undefined && (part === undefined || effect.at >= part.at);
+  if (effect !== undefined && brightness !== undefined && !runs(brightness) && !runs(colour)) {
+    return { brightness: { part: brightness, effect: { ...effect, at: brightness.at } }, color: { part: colour, effect: undefined } };
+  }
+  return {
+    brightness: { part: brightness, effect: runs(brightness) ? effect : undefined },
+    color: { part: colour, effect: runs(colour) ? effect : undefined },
+  };
 }
 
 /** One channel claim, as the controls write it: an effect with what it keeps underneath, or a constant. */
@@ -717,13 +741,6 @@ function isoText(instant: Instant): string {
   let whole = Math.floor(instant), micros = Math.round((instant - whole) * 1e6);
   if (micros === 1e6) { whole += 1; micros = 0; }
   return `${new Date(whole * 1000).toISOString().slice(0, 19)}.${String(micros).padStart(6, '0')}Z`;
-}
-
-/** Date text as seconds since the epoch, microseconds kept (Home Assistant orders entries by them); none when it is not a date. */
-function dateSeconds(text: string): number | undefined {
-  const fraction = /(?:T| )\d{2}:\d{2}:\d{2}\.(\d+)/.exec(text)?.[1];
-  const parsed = Date.parse(fraction === undefined ? text : text.replace(/(\d{2}:\d{2}:\d{2})\.\d+/, '$1'));
-  return Number.isNaN(parsed) ? undefined : parsed / 1000 + (fraction === undefined ? 0 : Number(`0.${fraction.slice(0, 6)}`));
 }
 
 /** A number the resolver accepts as a stamp: finite, within ±1e20. */

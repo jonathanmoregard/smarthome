@@ -4,6 +4,7 @@ import { BUILT_IN_RANGE_DEFAULTS, DEFAULT_STEP_RANGE, EPOCH, decodeOverrides, en
 import type { OverridesState } from '../../src/adapter/codecs/overrides-sensor.ts';
 import type { LampOverlay, RemoteAdjustment, RemoteOverlay } from '../../src/domain/overlays.ts';
 import type { JsonObject, JsonValue } from '../../src/runtime/context.ts';
+import { isObject } from '../../src/runtime/parse.ts';
 import { toBrightness, toDashboardControlId, toInstant, toKelvin, toPercentRange, toRemoteSource, toStep, toStepCount } from '../../src/parse/ids.ts';
 import { syntheticHouse } from './fixtures/synthetic-house.ts';
 import { id } from './support/ids.ts';
@@ -155,6 +156,40 @@ test("today's dashboard Normal light: the held level and colour, and the normal 
     { kind: 'fixed', brightness: toBrightness(120), at: at(6) }, { kind: 'fixed', colour: kelvin(2700), at: at(6) }, { kind: 'normal', at: at(6) }]);
 });
 
+test("a person's reset to normal light, marked as the pick, ends a candle as the dashboard pick does", () => {
+  // Review item 1. Break: only a dashboard entry's marker is read, so a person's reset leaves an older candle running.
+  const value = { channels: { brightness: constant(120, 6), color: constant({ kelvin: 2700 }, 6) }, selection: 'Normal light' };
+  const [overlay] = decode({ [`channels:native:${lampA1}`]: { ...nativeEntry('lamp', lampA1, {}, 6), value } }).overlays.lamps;
+  assert.deepEqual([overlay?.from, overlay?.effect], [{ kind: 'person' }, { kind: 'normal', at: at(6) }]);
+});
+
+test('a candle preset over an old channels record (legacy_channels) runs no candle and claims no input, as the resolver reads it', () => {
+  // Review item 4. Break: the candle is read although today's resolver emits no candle or selection_input claim for it.
+  const selectionInput = storedAdjustment(2, -18, 20, 50, 'up');
+  const value = {
+    selection: 'Candle', adjustment: selectionInput, selection_input: selectionInput, selection_updated: sec(55),
+    period: 'day', period_updated: sec(40), legacy_channels: { brightness: constant(80, 20) },
+  };
+  const [overlay] = decode({ 'channels:remote-a': inputEntry(value, 55) }).overlays.remotes;
+  assert.deepEqual([overlay?.preset, overlay?.adjustment], [{ choice: 'none' }, undefined]);
+  const moved = { ...value, adjustment: storedAdjustment(3, -17, 20, 56, 'up') };
+  const [pressed] = decode({ 'channels:remote-a': inputEntry(moved, 56) }).overlays.remotes;
+  assert.deepEqual(pressed?.adjustment, adjustment(3, -17, 20, 56, 'up'));
+});
+
+test("an adjustment anchored on day or cosy follows the remote's held period, as the resolver reads it", () => {
+  // Review item 6. Break: the saved anchor is kept where today's reader swaps in `period`.
+  const read = (anchor: JsonValue, period: JsonValue) => {
+    const value = { adjustment: { ...storedAdjustment(1, -19, 20, 3, 'up'), anchor }, ...period === undefined ? {} : { period } };
+    return decode({ 'channels:remote-a': inputEntry(value, 3) }).overlays.remotes[0]?.adjustment?.from;
+  };
+  assert.deepEqual([read('cosy', 'day'), read('day', 'cosy'), read('cosy', 'night'), read('cosy', undefined), read('current', 'day')],
+    ['day', 'cosy', 'cosy', 'cosy', 'current']);
+  const input = { ...storedAdjustment(1, -19, 20, 3, 'up'), anchor: 'day' };
+  const [candle] = decode({ 'channels:remote-a': inputEntry({ selection: 'Candle', selection_input: input, period: 'cosy' }, 3) }).overlays.remotes;
+  assert.equal(candle?.preset.choice === 'candle' ? candle.preset.adjustment?.from : 'none', 'cosy');
+});
+
 test('the candle preset remembers the day preset it left', () => {
   // Break: the remembered day loses its time, or the candle drops the day block it holds.
   const selectionInput = storedAdjustment(3, -17, 20, 50, 'up');
@@ -288,9 +323,60 @@ test("the Model's overlays written into an empty store decode back to the same o
   const state: OverridesState = { overlays: house.overlays, modeOverlay: house.modeOverlay, switchRanges: house.switchRanges, rangeDefaults: house.rangeDefaults };
   const written = encodeOverrides(state, {}, allRooms, config);
   assert.deepEqual(decodeOverrides(written), state);
+  // A candle older than both parts runs from the level's time (review item 3); what is written then reads back as itself.
   const level = { ...state.overlays.lamps[1]!, effect: { kind: 'candle', at: at(30) } } satisfies LampOverlay;
   const mixed: OverridesState = { ...state, overlays: { ...state.overlays, lamps: [level] } };
-  assert.deepEqual(decodeOverrides(encodeOverrides(mixed, {}, allRooms, config)).overlays.lamps, [level]);
+  const fromLevel = { ...level, effect: { kind: 'candle', at: at(35) } } satisfies LampOverlay;
+  const once = decodeOverrides(encodeOverrides(mixed, {}, allRooms, config));
+  assert.deepEqual(once.overlays.lamps, [fromLevel]);
+  assert.deepEqual(decodeOverrides(encodeOverrides(once, {}, allRooms, config)), once);
+});
+
+test("the normal light is written as today's reset writes it: both channels held as constants, and the pick's name", () => {
+  // Review items 1 and 2. Break: the normal light is written as `Normal light` effect claims, which today's resolver reads as
+  // an invalid source (the effect names no channels), or a person's reset is written without the marker that reads it back.
+  const schedule = (minute: number) => ({ kind: 'schedule', at: at(minute) }) as const;
+  const person: LampOverlay = { over: { kind: 'lamp', lamp: lampA1 }, from: { kind: 'person' }, since: at(7),
+    brightness: { kind: 'fixed', brightness: toBrightness(120), at: at(7) }, colour: schedule(7), effect: { kind: 'normal', at: at(7) } };
+  const room: LampOverlay = { over: { kind: 'room', room: roomA }, from: { kind: 'dashboard', control: toDashboardControlId('control-n') },
+    since: at(8), brightness: schedule(8), colour: schedule(8), effect: { kind: 'normal', at: at(8) } };
+  const state: OverridesState = { ...decodeOverrides({}), overlays: { ...decodeOverrides({}).overlays, lamps: [person, room] } };
+  const written = encodeOverrides(state, {}, allRooms, config);
+  assert.deepEqual(written.overrides, {
+    [`channels:native:${lampA1}`]: { ...nativeEntry('lamp', lampA1, {}, 7),
+      value: { channels: { brightness: constant(120, 7), color: { kind: 'constant', updated: sec(7) } }, selection: 'Normal light' } },
+    'channels:ui:control-n': uiEntry('control-n', 'room', roomA,
+      { channels: { brightness: { kind: 'constant', updated: sec(8) }, color: { kind: 'constant', updated: sec(8) } }, selection: 'Normal light' }, 8),
+  });
+  assert.deepEqual(decodeOverrides(written).overlays.lamps, [person, room]);
+});
+
+test('a candle older than both its parts runs at the new level, which the old resolver reads as its intensity', () => {
+  // Review item 3. Break: the new level is kept as an underlying newer than the candle, which today's resolver drops,
+  // so the lamp runs the candle at the stale level.
+  const overlay: LampOverlay = { over: { kind: 'lamp', lamp: lampA1 }, from: { kind: 'person' }, since: at(35),
+    brightness: { kind: 'fixed', brightness: toBrightness(90), at: at(35) }, colour: { kind: 'fixed', colour: kelvin(3000), at: at(36) },
+    effect: { kind: 'candle', at: at(30) } };
+  const state: OverridesState = { ...decodeOverrides({}), overlays: { ...decodeOverrides({}).overlays, lamps: [overlay] } };
+  const written = encodeOverrides(state, {}, allRooms, config);
+  const entry = isObject(written.overrides) ? written.overrides[`channels:native:${lampA1}`] : undefined;
+  assert.deepEqual(isObject(entry) && isObject(entry['value']) ? entry['value']['channels'] : undefined, {
+    brightness: { kind: 'effect', effect: 'Candle', instance: `native:${lampA1}:Candle`, updated: sec(35), intensity: 90 },
+    color: constant({ kelvin: 3000 }, 36),
+  });
+});
+
+test('a preset change clears the old channels record the remote kept (legacy_channels), as the remote plan does', () => {
+  // Review item 4. Break: legacy_channels is kept, and today's resolver then drops the candle the Model chose.
+  const value = { step_range: { min: -20, max: 20 }, selection: 'Candle', selection_updated: sec(55), legacy_channels: { brightness: constant(80, 20) } };
+  const found = { overrides: { 'channels:remote-a': inputEntry(value, 55) } };
+  const state = decodeOverrides(found);
+  const remote = state.overlays.remotes[0]!;
+  const chosen: RemoteOverlay = { ...remote, preset: { choice: 'candle', since: at(57), adjustment: undefined, block: undefined } };
+  const written = encodeOverrides({ ...state, overlays: { ...state.overlays, remotes: [chosen] } }, found, allRooms, config);
+  const entry = isObject(written.overrides) ? written.overrides['channels:remote-a'] : undefined;
+  assert.equal(isObject(entry) && isObject(entry['value']) ? Object.hasOwn(entry['value'], 'legacy_channels') : 'no entry', false);
+  assert.deepEqual(decodeOverrides(written).overlays.remotes[0]?.preset, chosen.preset);
 });
 
 test('a new overlay is written as today\'s writers write it', () => {

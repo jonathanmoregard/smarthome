@@ -82,7 +82,7 @@ test('remoteHelperWrites writes only the helpers that changed, in the order toda
     { helper: 'power count', value: { kind: 'number', value: 1 } },
     { helper: 'chord step', value: { kind: 'number', value: -1 } },
     { helper: 'chord timer', value: { kind: 'timer', running: true, until: toInstant(T0 + 3) } },
-    { helper: 'power token', value: { kind: 'text', value: iso(T0) } },
+    { helper: 'power token', value: { kind: 'text', value: '2026-09-21T14:13:20.000000Z' } },
   ]);
   assert.deepEqual(remoteHelperWrites(pressed, { ...pressed, presetButton: 'cool' }), [{ helper: 'preset', value: { kind: 'number', value: 1 } }]);
   assert.deepEqual(remoteHelperWrites(pressed, IDLE_REMOTE), [
@@ -108,4 +108,13 @@ test('the writes decode back to the state they wrote', () => {
       : helper(String(value.value));
   }
   assert.deepEqual(decodeRemoteModel(source(states), room), pressed);
+});
+
+test("the power token is written as today's now text, microseconds kept, so the quiet window's token matches it", () => {
+  // Review item 5. Today's token is the script's `now` (six fractional digits) and the quiet script compares it by text.
+  // Break: the token is written to the millisecond, or read back to the millisecond, so a burst's token no longer matches.
+  const token = '2026-09-21T14:13:20.123456Z';
+  const read = decodeRemoteModel(helpers({ count: '1', token }), room);
+  const writes = remoteHelperWrites(IDLE_REMOTE, read);
+  assert.deepEqual(writes.find(write => write.helper === 'power token')?.value, { kind: 'text', value: token });
 });

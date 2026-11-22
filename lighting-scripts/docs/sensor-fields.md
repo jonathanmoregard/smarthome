@@ -77,7 +77,7 @@ An entry is shared across rooms when its key is `block:house` or `mode:sara`, or
 | 10 | `key`, `source` inside the entry | ls_commit | no | left out: 1 (the entry's key is the identity) |
 | 11 | `value.step_range` (remote) | ls_remote_plan, effects_resolve | no | `remotes[].stepRange` |
 | 12 | `value.adjustment.steps`, `.lower`, `.upper` | ls_remote_plan, effects_resolve | no | `remotes[].adjustment.steps`, `.lower`, `.upper` |
-| 13 | `value.adjustment.anchor` | ls_remote_plan, effects_resolve | no | `remotes[].adjustment.from` |
+| 13 | `value.adjustment.anchor` | ls_remote_plan, effects_resolve | no | `remotes[].adjustment.from` (`day` or `cosy` reads as `value.period` when that is `day` or `cosy`, as the resolver swaps it) |
 | 14 | `value.adjustment.updated` | ls_remote_plan, effects_resolve | no | `remotes[].adjustment.at` |
 | 15 | `value.adjustment.last` | effects_resolve | no | `remotes[].adjustment.lastPress` |
 | 16 | `value.adjustment.has_up` | ls_remote_plan, effects_resolve | no | `remotes[].adjustment.everBrighter` |
@@ -89,15 +89,15 @@ An entry is shared across rooms when its key is `block:house` or `mode:sara`, or
 | 22 | `value.selection_instance` | effects_resolve | no | left out: 2 |
 | 23 | `value.preset_contexts` | ls_remote_plan | no | `remotes[].remembered` (an entry for a removed effect: left out: 4) |
 | 24 | `value.remote_valid_until`, `value.remote_timing_revision` | ls_remote_plan | no | left out: 3 |
-| 25 | `value.legacy_channels`, `value.position` | effects_resolve, ls_remote_plan | no | left out: 4 |
+| 25 | `value.legacy_channels`, `value.position` | effects_resolve, ls_remote_plan | no | left out: 4; a `legacy_channels` mapping under a chosen effect makes the preset none and drops an adjustment equal to `selection_input`, as the resolver claims neither; a preset change clears it |
 | 26 | `value.channels.brightness`, `value.channels.color` of kind `constant` | effects_resolve, ls_remote_plan (brightness `updated`), ls_commit | no | `lamps[].brightness`, `lamps[].colour` (`fixed` with a value, `schedule` without) |
-| 27 | the same, of kind `effect` | effects_resolve, ls_commit | no | `lamps[].effect` (`Candle` is the candle, `Normal light` the normal light, any other name `schedule`) |
+| 27 | the same, of kind `effect` | effects_resolve, ls_commit | no | `lamps[].effect` (`Candle` is the candle, `Normal light` the normal light, any other name `schedule`); the normal light is written as held constants (row 33), never as an effect claim |
 | 28 | the same, of kind `scale` or `input` | effects_resolve | no | left out: 4 |
 | 29 | `...effect.instance` | effects_resolve, effects_frame_plan | no | left out: 2 |
-| 30 | `...effect.intensity` | effects_resolve, effects_frame_plan | no | `lamps[].brightness` (`fixed`, at the effect's time) |
+| 30 | `...effect.intensity` | effects_resolve, effects_frame_plan | no | `lamps[].brightness` (`fixed`, at the effect's time); an effect older than both parts is written from the level's time at the level |
 | 31 | `...effect.underlying` | effects_resolve, ls_commit | no | `lamps[].brightness`, `lamps[].colour` (the part held under the effect) |
 | 32 | `...updated` of a channel | effects_resolve, ls_remote_plan, ls_commit | no | the part's `at` |
-| 33 | `value.selection` (dashboard effect pick) | none | no | `Normal light` with held constants: `lamps[].effect` `normal`; otherwise left out: 1 |
+| 33 | `value.selection` (dashboard effect pick; the port also writes it on a person's reset) | none | no | `Normal light` with both channels held as constants: `lamps[].effect` `normal` at the earlier constant's time, from any control; otherwise left out: 1. Today's person reset (effects_native_plan) writes no `selection`, so a stored one reads as fixed parts only |
 | 34 | an entry of kind `light`, or a `channels` entry with scope `house` | ls_base, effects_resolve | yes for scope `house` | left out: 4 |
 
 ## `sensor.ls_effects_runtime` attributes

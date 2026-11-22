@@ -19,6 +19,7 @@ import type { Instant } from '../../domain/types/time.ts';
 import { toInstant } from '../../parse/ids.ts';
 import { jinjaFloat, jinjaInt } from '../../runtime/parse.ts';
 import type { ConfigSource } from './config.ts';
+import { dateSeconds, nowText } from './time-text.ts';
 
 /** A remote nobody has pressed: no chord, no power burst, no preset button. */
 export const IDLE_REMOTE: RemoteModel = { chord: { active: false }, power: { presses: 0 }, presetButton: undefined };
@@ -88,16 +89,16 @@ export function remoteHelperWrites(before: RemoteModel, after: RemoteModel): Hel
   return WRITE_ORDER.filter(helper => !sameValue(was[helper], now[helper])).map(helper => ({ helper, value: now[helper] }));
 }
 
-/** Each helper's value for a state, as the gesture writes it. */
+/** Each helper's value for a state, as the gesture writes it: the token is the press's `now` text. */
 function helperValues(model: RemoteModel): Record<RemoteHelper, HelperValue> {
   const chord = model.chord, power = model.power;
-  const tokenStamp = power.presses === 0 ? undefined : Math.round((power.until - POWER_WINDOW_SECONDS) * 1000);
+  const token = power.presses === 0 ? '' : nowText(toInstant(power.until - POWER_WINDOW_SECONDS));
   return {
     'preset': { kind: 'number', value: model.presetButton === undefined ? NO_PRESET_CURSOR : PRESET_BUTTONS.indexOf(model.presetButton) },
     'power count': { kind: 'number', value: power.presses },
     'chord step': { kind: 'number', value: chord.active ? CHORD_STEPS[chord.progress] : 0 },
     'chord timer': chord.active ? { kind: 'timer', running: true, until: chord.until } : { kind: 'timer', running: false },
-    'power token': { kind: 'text', value: tokenStamp === undefined ? '' : new Date(tokenStamp).toISOString() },
+    'power token': { kind: 'text', value: token },
   };
 }
 
@@ -126,12 +127,13 @@ function decodeChord(step: number, running: boolean, finishesAt: unknown): Remot
 
 /**
  * A burst of power presses: today's count stops at three, and the burst is
- * open until 600 ms after its token. A count with no readable token has closed.
+ * open until 600 ms after its token, read to the microsecond it was written
+ * with. A count with no readable token has closed.
  */
 function decodePower(count: number, token: string | undefined): RemoteModel['power'] {
   if (count <= 0) return { presses: 0 };
-  const stamp = token === undefined || token === '' ? NaN : Date.parse(token);
-  const until = Number.isNaN(stamp) ? EPOCH : toInstant(stamp / 1000 + POWER_WINDOW_SECONDS);
+  const stamp = token === undefined ? undefined : dateSeconds(token);
+  const until = stamp === undefined ? EPOCH : toInstant(stamp + POWER_WINDOW_SECONDS);
   return { presses: count >= 3 ? 3 : count === 2 ? 2 : 1, until };
 }
 
