@@ -6,11 +6,13 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
 import { perform, run } from '../runtime/effects.ts';
+import type { Effect, Plan } from '../runtime/effects.ts';
+import { withFields } from '../runtime/verbatim.ts';
 import { withParsedArgs } from '../runtime/parse.ts';
 import { discoveryRows, parseRangeSaveArgs, parseUiSyncArgs, rangeSaveAnswer } from '../parse/ui-state.ts';
-import type { RangeSaveArgs } from '../parse/ui-state.ts';
-import { decideRangeSave, discoveryPublish, publishUi, saveRange, uiChoices, uiMessages } from '../domain/ui-state.ts';
-import type { RangeSaveResult } from '../domain/ui-state.ts';
+import type { DiscoveryRow, RangeSaveArgs } from '../parse/ui-state.ts';
+import { decideRangeSave, saveRange, uiChoices, uiMessages } from '../domain/ui-state.ts';
+import type { RangeSaveResult, UiMessage } from '../domain/ui-state.ts';
 
 /**
  * A shell: each row's current effect list is read live, after the previous
@@ -22,6 +24,21 @@ function uiCatalog(ctx: ScriptContext): null {
   for (const row of discoveryRows(ctx)) {
     if (!isDeepStrictEqual(ctx.attr(row.entity, 'effect_list'), choices)) perform(ctx, discoveryPublish(row, choices));
   }
+  return null;
+}
+/** Republish one discovery row's config with the choices as its effect list. */
+export function discoveryPublish(row: DiscoveryRow, choices: string[]): Effect {
+  return {
+    kind: 'service', service: 'mqtt.publish',
+    data: {
+      topic: `homeassistant/light/${row.uniqueId}/config`,
+      payload: JSON.stringify(withFields(row.config, { effect_list: choices })), qos: 0, retain: true,
+    },
+  };
+}
+/** Publish the UI mirror's messages, retained. */
+export function* publishUi(messages: UiMessage[]): Plan<null> {
+  for (const message of messages) yield { kind: 'service', service: 'mqtt.publish', data: { ...message, qos: 0, retain: true } };
   return null;
 }
 export function rangeSave(ctx: ScriptContext, args: RangeSaveArgs): RangeSaveResult {

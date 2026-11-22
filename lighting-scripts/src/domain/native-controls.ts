@@ -1,4 +1,4 @@
-import type { HouseView, Plan } from '../runtime/effects.ts';
+import type { HouseView } from '../runtime/effects.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { rgbValue, roundEven } from './scale.ts';
 import type { RGB } from './scale.ts';
@@ -455,16 +455,3 @@ export function planUIControls(view: HouseView, args: SetArgs, catalog: NativeCa
 }
 
 
-/**
- * A control plan's effects: an invalid plan raises its errors before anything
- * is sent; a valid one fires its override events, then performs its commands
- * in order (the store as an inter-handler run whose answer is not read).
- */
-export function* controlEffects(result: ControlPlan): Plan<void> {
-  if (!result.valid) throw new Error(result.errors.join(' '));
-  for (const event of result.events) yield { kind: 'event', event: 'ls_override', data: event };
-  for (const command of result.commands) {
-    if (command.action === 'script.ls_store') yield { kind: 'script', name: 'ls_store', args: command.data };
-    else yield { kind: 'service', service: command.action, data: command.data, target: command.target };
-  }
-}

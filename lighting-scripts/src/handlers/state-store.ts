@@ -14,7 +14,9 @@ import { parseCommitArgs } from '../parse/overrides.ts';
 import { commitSnapshot } from '../parse/state-store.ts';
 import { overridesRevision, savedOverridesContain } from '../parse/sensors.ts';
 import { run } from '../runtime/effects.ts';
-import { clearAllOverrides, houseRooms, planCommit, planOverrideBlock, planStore, toggleSaraMode } from '../domain/state-store.ts';
+import type { Plan } from '../runtime/effects.ts';
+import type { Verbatim } from '../runtime/verbatim.ts';
+import { houseRooms, planCommit, planOverrideBlock, planStore, toggleSaraMode } from '../domain/state-store.ts';
 import type { CommitArgs, CommitResult, StoreProfileArgs } from '../domain/state-store.ts';
 import { SARA_MODE } from '../domain/types/overlay.ts';
 
@@ -40,6 +42,11 @@ export function storeProfile(ctx: ScriptContext, args: StoreProfileArgs): null {
   // the `effects_catalog` call is recorded in `scriptRuns`, so it stays a call.
   return run(ctx, planStore(args, current, catalogEffectChannels(ctx.run('effects_catalog'))));
 }
+export function* clearAllOverrides(via: Verbatim): Plan<null> {
+  yield { kind: 'event', event: 'ls_override', data: { op: 'clear_all', via } };
+  return null;
+}
+
 export const stateStoreHandlers: ScriptHandlers = {
   // Captured `data` is accessed as a mapping throughout. Its nested fields are:
   // expected_revision raw once; op raw four times with one `get(..., 'set')`;

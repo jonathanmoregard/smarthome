@@ -1,5 +1,3 @@
-import { withFields } from '../runtime/verbatim.ts';
-import type { Verbatim } from '../runtime/verbatim.ts';
 import { stateText } from '../runtime/format.ts';
 import type { Plan } from '../runtime/effects.ts';
 import type { RemoteId, RoomId } from './types/ids.ts';
@@ -34,11 +32,6 @@ export interface GestureArgs {
   msg: Msg | undefined;
   /** Read only when a command is sent, so a malformed sender raises only there, after the writes before it. */
   sender: () => Sender;
-}
-export interface PowerQuietArgs {
-  /** The whole argument document, forwarded into the scheduled `power_done`. */
-  document: Verbatim;
-  room: RoomId;
 }
 
 /**
@@ -98,7 +91,7 @@ export function remoteArea(deviceId: RemoteId | undefined, remoteRooms: Readonly
  * repeated writes are observable (`power_count` goes to 0, then to the new
  * count). A `power` press stops before its token: the token and the quiet
  * script both carry `now` as read after these writes, so the caller stamps
- * them with {@link stampPowerToken} and {@link launchPowerQuiet}.
+ * them with {@link stampPowerToken} and the handler's `launchPowerQuiet`.
  */
 export function* update(model: Model, msg: Msg, remote: Remote): Plan<Model> {
   const room = remote.room;
@@ -189,19 +182,4 @@ export function* update(model: Model, msg: Msg, remote: Remote): Plan<Model> {
 /** A power press's token, stamped with `now` as read after the press's writes. */
 export function* stampPowerToken(room: RoomId, now: string): Plan<void> {
   yield* setHelper(room, 'power_token', now);
-}
-/**
- * Launch the restartable quiet script. The host runs it; keeping the HA service
- * boundary lets the same recorder and event router execute this actor.
- */
-export function* launchPowerQuiet(room: RoomId, now: string): Plan<void> {
-  yield {
-    kind: 'service', service: 'script.turn_on',
-    data: { variables: { token: now } }, target: { entity_id: `script.ls_remote_power_quiet_${room}` },
-  };
-}
-/** The quiet window: schedule `power_done` with the whole argument document carried. */
-export function* powerQuiet(args: PowerQuietArgs): Plan<null> {
-  yield { kind: 'schedule', script: 'ls_remote_gesture', args: withFields(args.document, { room: args.room, command: 'power_done' }), delayMs: 600 };
-  return null;
 }

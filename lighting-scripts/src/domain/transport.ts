@@ -314,7 +314,7 @@ export function stillCurrent(view: HouseView, script: string, revision: string, 
   return revision === overridesRevision(view, script) && runtimeGenerationIs(view, generation);
 }
 
-type StopCommand = { topic: string; payload: { effect: string }; members: BulbId[]; owners: string[]; group: false };
+export type StopCommand = { topic: string; payload: { effect: string }; members: BulbId[]; owners: string[]; group: false };
 
 
 /** What `effects_assign` decides from the runtime as it stood before the store. */
@@ -402,11 +402,6 @@ export function stopCommands(view: HouseView, catalog: Catalog, targetViews: Ret
     }
   }
   return commands;
-}
-
-/** The stops go out through `effects_emit`, an inter-handler run whose answer is not read. */
-export function* planStops(commands: StopCommand[], revision: string, generation: Verbatim | string): Plan<void> {
-  yield { kind: 'script', name: 'effects_emit', args: { commands, revision, generation } };
 }
 
 /**

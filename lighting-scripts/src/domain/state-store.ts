@@ -316,11 +316,6 @@ export function* planOverrideBlock(args: OverrideBlockArgs, rooms: RoomId[], sch
   return null;
 }
 
-export function* clearAllOverrides(via: Verbatim): Plan<null> {
-  yield { kind: 'event', event: 'ls_override', data: { op: 'clear_all', via } };
-  return null;
-}
-
 /** Sara mode flips the stored `mode:sara` override. */
 export function* toggleSaraMode(active: boolean, via: Verbatim): Plan<null> {
   yield { kind: 'event', event: 'ls_override', data: active

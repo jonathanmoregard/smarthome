@@ -1,12 +1,12 @@
-import type { Effect, HouseView, Plan } from '../runtime/effects.ts';
-import { storedEquals, withFields } from '../runtime/verbatim.ts';
+import type { HouseView, Plan } from '../runtime/effects.ts';
+import { storedEquals } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { roundEven } from './scale.ts';
 import { isAreaId } from './schedule.ts';
 import {
   displayOfColour, lampReading, onOffOnly, ownRange, proxyKelvin, proxyShowsRgb, runtimeTargets, storedRangeBounds, switchText, uiProfile, uiRows,
 } from '../parse/ui-state.ts';
-import type { DiscoveryRow, Display, RangeSaveArgs } from '../parse/ui-state.ts';
+import type { Display, RangeSaveArgs } from '../parse/ui-state.ts';
 import { payloadNumber } from '../runtime/format.ts';
 import type { SwitchId } from './types/ids.ts';
 import type { Percent } from './types/light.ts';
@@ -81,21 +81,6 @@ export function uiMessages(view: HouseView, force: boolean): UiMessage[] {
 /** The UI's effect choices: the catalog's, or these two when it names none (a malformed list was already rejected). */
 export function uiChoices(view: HouseView): string[] {
   return view.catalog.ui_choices === undefined ? ['Normal Light', 'Candle'] : view.catalog.ui_choices;
-}
-/** Republish one discovery row's config with the choices as its effect list. */
-export function discoveryPublish(row: DiscoveryRow, choices: string[]): Effect {
-  return {
-    kind: 'service', service: 'mqtt.publish',
-    data: {
-      topic: `homeassistant/light/${row.uniqueId}/config`,
-      payload: JSON.stringify(withFields(row.config, { effect_list: choices })), qos: 0, retain: true,
-    },
-  };
-}
-/** Publish the UI mirror's messages, retained. */
-export function* publishUi(messages: UiMessage[]): Plan<null> {
-  for (const message of messages) yield { kind: 'service', service: 'mqtt.publish', data: { ...message, qos: 0, retain: true } };
-  return null;
 }
 /**
  * One switch's stored range rule. `min`/`max` are present only for the

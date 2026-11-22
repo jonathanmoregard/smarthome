@@ -13,7 +13,8 @@ import { isObject, jinjaFloat, jinjaInt, lazy, ParseError, requireString } from 
 import { carry } from '../runtime/verbatim.ts';
 import type { RoomId } from '../domain/types/ids.ts';
 import { toRemoteId, toRoomId } from './ids.ts';
-import type { GestureArgs, Model, Msg, PowerQuietArgs, PresetPayload } from '../domain/gestures.ts';
+import type { Verbatim } from '../runtime/verbatim.ts';
+import type { GestureArgs, Model, Msg, PresetPayload } from '../domain/gestures.ts';
 
 function roomArg(args: JsonObject): RoomId {
   const room = requireString(args, 'room', 'ls_remote_gesture');
@@ -74,6 +75,12 @@ export function parseGestureArgs(args: JsonObject): GestureArgs {
       source: args.source === undefined ? '' : requireString(args, 'source', 'ls_remote_gesture'),
     })),
   };
+}
+
+export interface PowerQuietArgs {
+  /** The whole argument document, forwarded into the scheduled `power_done`. */
+  document: Verbatim;
+  room: RoomId;
 }
 
 /**

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { launchPowerQuiet, powerQuiet, stampPowerToken, update } from '../../src/domain/gestures.ts';
+import { stampPowerToken, update } from '../../src/domain/gestures.ts';
 import type { Model, Remote } from '../../src/domain/gestures.ts';
-import { gestureHandlers } from '../../src/handlers/gestures.ts';
+import { gestureHandlers, launchPowerQuiet, powerQuiet } from '../../src/handlers/gestures.ts';
 import type { Effect, Plan } from '../../src/runtime/effects.ts';
 import { carry } from '../../src/runtime/verbatim.ts';
 import { context } from './gestures-context.ts';

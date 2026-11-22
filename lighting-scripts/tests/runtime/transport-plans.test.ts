@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { assignDecision, filterCommands, frameRows, planAssignUpdate, planStops, publishCommand, stillCurrent, stopCommands } from '../../src/domain/transport.ts';
+import { assignDecision, filterCommands, frameRows, planAssignUpdate, publishCommand, stillCurrent, stopCommands } from '../../src/domain/transport.ts';
+import { planStops } from '../../src/handlers/transport.ts';
 import type { EmitCommand } from '../../src/domain/transport.ts';
 import { parseAssignArgs, parseFilterArgs, parseFramePlanArgs, runtimeState } from '../../src/parse/transport.ts';
 import { parseCatalog } from '../../src/runtime/catalog.ts';

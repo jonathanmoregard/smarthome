@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { controlEffects } from '../../src/domain/native-controls.ts';
+import { controlEffects } from '../../src/handlers/native-controls.ts';
 import type { ControlPlan } from '../../src/domain/native-controls.ts';
 
 const plan = (fields: Partial<ControlPlan>): ControlPlan => ({ valid: true, errors: [], events: [], commands: [], records: [], ...fields });

@@ -7,6 +7,8 @@ import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
 import { withParsedArgs } from '../runtime/parse.ts';
 import { catalogOf } from '../runtime/catalog.ts';
 import { perform, run } from '../runtime/effects.ts';
+import type { Plan } from '../runtime/effects.ts';
+import type { Verbatim } from '../runtime/verbatim.ts';
 import { typed } from '../runtime/entrypoints.ts';
 import { recordTimestamp } from '../parse/resolution.ts';
 import { overridesRevision } from '../parse/sensors.ts';
@@ -15,9 +17,9 @@ import {
 } from '../parse/transport.ts';
 import type { GroupPlanResult } from '../domain/grouping.ts';
 import {
-  assignDecision, filterCommands, frameRows, planAssignUpdate, planStops, publishCommand, stillCurrent, stopCommands, stoppedLamps,
+  assignDecision, filterCommands, frameRows, planAssignUpdate, publishCommand, stillCurrent, stopCommands, stoppedLamps,
 } from '../domain/transport.ts';
-import type { AssignArgs, AssignResult, EmitArgs, EmitResult, FramePlanArgs } from '../domain/transport.ts';
+import type { AssignArgs, AssignResult, EmitArgs, EmitResult, FramePlanArgs, StopCommand } from '../domain/transport.ts';
 
 /**
  * Each lamp's light, sent once. A channel running a bulb effect gets a static
@@ -75,6 +77,11 @@ export function assignEffects(ctx: ScriptContext, args: AssignArgs): AssignResul
   }
   return { generation: runtimeGeneration(ctx) };
 }
+/** The stops go out through `effects_emit`, an inter-handler run whose answer is not read. */
+export function* planStops(commands: StopCommand[], revision: string, generation: Verbatim | string): Plan<void> {
+  yield { kind: 'script', name: 'effects_emit', args: { commands, revision, generation } };
+}
+
 export const transportHandlers: ScriptHandlers = {
   effects_frame_plan: typed('effects_frame_plan', { parse: parseFramePlanArgs, run: framePlan }),
   effects_emit: typed('effects_emit', { parse: parseEmitArgs, run: emitCommands }),
