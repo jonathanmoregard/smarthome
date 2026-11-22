@@ -1,4 +1,4 @@
-import type { RemoteId, RoomId } from './ids.ts';
+import type { RemoteId, RoomId } from '../../domain/types/ids.ts';
 
 /**
  * Which room the Home Assistant registry puts each thing in, parsed once from

@@ -10,7 +10,7 @@ import type { HouseView } from '../../runtime/effects.ts';
 import type { PowerTarget, RemoteSource, RoomId, SwitchId } from '../../domain/types/ids.ts';
 import type { RemotePress } from '../../domain/types/remote.ts';
 import type { Percent } from '../../domain/types/light.ts';
-import { overlayKeyText, SARA_MODE } from '../../domain/types/overlay.ts';
+import { overlayKeyText, SARA_MODE } from '../../adapter/codecs/overlay-key.ts';
 
 /**
  * A valid switch interval: its bounds as numbers (a boolean bound is Python's

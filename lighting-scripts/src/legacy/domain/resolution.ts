@@ -6,8 +6,8 @@ import { OFF_END_LEVEL, blend, boundedNumber, clamp } from './scale.ts';
 import type { BlendEnd, Blended, Color, RGB } from './scale.ts';
 import { DEFAULT_STEP_BOUNDS, levelNumber } from '../../parse/resolution.ts';
 import type { LampOrRoom } from '../../domain/types/lighting-state.ts';
-import type { OverlayKey } from '../../domain/types/overlay.ts';
-import { EMPTY_KEY, overlayKeyText, sameOverlayKey, SARA_MODE } from '../../domain/types/overlay.ts';
+import type { OverlayKey } from '../../adapter/codecs/overlay-key.ts';
+import { EMPTY_KEY, overlayKeyText, sameOverlayKey, SARA_MODE } from '../../adapter/codecs/overlay-key.ts';
 import type { RoomId } from '../../domain/types/ids.ts';
 import type { Step } from '../../domain/types/remote.ts';
 

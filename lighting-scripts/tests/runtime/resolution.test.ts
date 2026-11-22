@@ -92,7 +92,7 @@ test('explicit null input bounds are rejected instead of being replaced with def
 
 test('record timestamps retain microseconds so newest remote snapshots win within a millisecond', async () => {
   const { latestRemoteKey, recordTimestamp } = await import('../../src/parse/resolution.ts');
-  const { overlayKeyText } = await import('../../src/domain/types/overlay.ts');
+  const { overlayKeyText } = await import('../../src/adapter/codecs/overlay-key.ts');
   assert.equal(recordTimestamp('2026-10-26T12:00:00.000001+01:00'), 1793012400.000001);
   assert.equal(overlayKeyText(latestRemoteKey({ z: { kind: 'input', scope: 'room', target: 'living', when: '2026-10-26T12:00:00.000001+01:00' }, a: { kind: 'input', scope: 'room', target: 'living', when: '2026-10-26T12:00:00.000002+01:00' } }, 'living')), 'a');
 });

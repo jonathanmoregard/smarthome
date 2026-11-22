@@ -22,8 +22,8 @@ import type { Assembled, AssembledMap, StoredFact, StoredValue } from './overrid
 import type { Adjustment, RemotePlanRequest } from '../legacy/domain/remote-input.ts';
 import { stepBoundsOf, toRemoteSource, toRoomId } from './ids.ts';
 import { roomText } from './rooms.ts';
-import type { OverlayKey } from '../domain/types/overlay.ts';
-import { overlayKeyText } from '../domain/types/overlay.ts';
+import type { OverlayKey } from '../adapter/codecs/overlay-key.ts';
+import { overlayKeyText } from '../adapter/codecs/overlay-key.ts';
 import { parseOverlayKey } from './overlay-key.ts';
 import type { RoomId } from '../domain/types/ids.ts';
 import type { RemotePress, Step } from '../domain/types/remote.ts';

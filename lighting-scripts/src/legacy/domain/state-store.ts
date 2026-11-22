@@ -9,9 +9,9 @@ import type { OpaqueMap, StoredEntry, StoredFact, StoredOverrides, StoredValue }
 import type { HouseView, Plan } from '../../runtime/effects.ts';
 import type { RoomId, SwitchId } from '../../domain/types/ids.ts';
 import type { Percent } from '../../domain/types/light.ts';
-import type { Rooms } from '../../domain/types/rooms.ts';
-import type { OverlayKey } from '../../domain/types/overlay.ts';
-import { overlayKeyText, SARA_MODE } from '../../domain/types/overlay.ts';
+import type { Rooms } from '../../adapter/codecs/rooms.ts';
+import type { OverlayKey } from '../../adapter/codecs/overlay-key.ts';
+import { overlayKeyText, SARA_MODE } from '../../adapter/codecs/overlay-key.ts';
 
 /** One channel claim of a `channels` record, as written. */
 export interface ChannelClaim {

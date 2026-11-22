@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { parseOverlayKey } from '../../src/parse/overlay-key.ts';
 import { parseRemotePlanArgs } from '../../src/parse/remote-input.ts';
-import { overlayKeyText } from '../../src/domain/types/overlay.ts';
+import { overlayKeyText } from '../../src/adapter/codecs/overlay-key.ts';
 
 /**
  * `overlayKeyText` is the exact inverse of `parseOverlayKey` both ways: a key

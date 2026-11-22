@@ -28,7 +28,7 @@ import type {
 } from '../legacy/domain/transport.ts';
 import { lampOrRoom } from './lighting-state.ts';
 import { parseOverlayKey } from './overlay-key.ts';
-import type { OverlayKey } from '../domain/types/overlay.ts';
+import type { OverlayKey } from '../adapter/codecs/overlay-key.ts';
 import { toBulbId, toLampId } from './ids.ts';
 
 const runtime = 'sensor.ls_effects_runtime';

@@ -10,8 +10,8 @@ import {
   entityProfile, entitySample, privateRoomIds, rgbComponent, savedProfile, stateNumber, storedScheduleRecords, wakeInstant,
 } from '../../parse/schedule.ts';
 import type { ScheduleRecord, ScheduleRecords } from '../../parse/schedule.ts';
-import type { OverlayKey } from '../../domain/types/overlay.ts';
-import { byOverlayKeyText, EMPTY_KEY, overlayKeyText, sameOverlayKey } from '../../domain/types/overlay.ts';
+import type { OverlayKey } from '../../adapter/codecs/overlay-key.ts';
+import { byOverlayKeyText, EMPTY_KEY, overlayKeyText, sameOverlayKey } from '../../adapter/codecs/overlay-key.ts';
 import type { RoomId } from '../../domain/types/ids.ts';
 import type { RoomOrHouse } from '../../domain/types/schedule.ts';
 

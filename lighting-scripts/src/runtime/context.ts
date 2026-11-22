@@ -1,6 +1,6 @@
 import type { Catalog } from './catalog.ts';
 import type { TypedResults } from './entrypoints.ts';
-import type { Rooms } from '../domain/types/rooms.ts';
+import type { Rooms } from '../adapter/codecs/rooms.ts';
 
 /** Explicit, serializable boundary between lighting decisions and HA I/O. */
 export type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject;

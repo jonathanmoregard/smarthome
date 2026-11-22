@@ -10,7 +10,7 @@ import { assignedAs, powerClosed, runtimeGeneration, runtimeGenerationIs, runtim
   from '../../parse/transport.ts';
 import type { FrameColour, RuntimeState, StoredChannels } from '../../parse/transport.ts';
 import type { LampOrRoom } from '../../domain/types/lighting-state.ts';
-import type { OverlayKey } from '../../domain/types/overlay.ts';
+import type { OverlayKey } from '../../adapter/codecs/overlay-key.ts';
 import type { BulbId, LampId } from '../../domain/types/ids.ts';
 
 const runtime = 'sensor.ls_effects_runtime';

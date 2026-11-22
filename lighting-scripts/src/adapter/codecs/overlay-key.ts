@@ -1,5 +1,4 @@
-import type { Ranged } from './range.ts';
-import type { RemoteSource, SavedOverlayKey } from './ids.ts';
+import type { RemoteSource, SavedOverlayKey } from '../../domain/types/ids.ts';
 
 /**
  * The key an overlay is saved under in the overlay store, as the overlay it
@@ -59,9 +58,6 @@ export function byOverlayKeyText(a: OverlayKey, b: OverlayKey): number {
 export function remoteInputKey(source: RemoteSource): OverlayKey {
   return { kind: 'remote input', source };
 }
-
-/** A count of minutes, finite and not negative (the overlay reset's age limit). */
-export type Minutes = Ranged<'Minutes'>;
 
 /** The Sara mode overlay's key. */
 export const SARA_MODE: OverlayKey = { kind: 'sara mode' };

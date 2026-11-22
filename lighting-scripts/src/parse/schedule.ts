@@ -24,8 +24,8 @@ import { asTimestampOr, num, saved, stateNumberOr, testNow } from './accessors.t
 import { haBooleanOr } from './state-store.ts';
 import { storedFact } from './overrides.ts';
 import type { StoredFact, StoredValue } from './overrides.ts';
-import type { OverlayKey } from '../domain/types/overlay.ts';
-import { overlayKeyText } from '../domain/types/overlay.ts';
+import type { OverlayKey } from '../adapter/codecs/overlay-key.ts';
+import { overlayKeyText } from '../adapter/codecs/overlay-key.ts';
 import { parseOverlayKey } from './overlay-key.ts';
 import type { RoomId } from '../domain/types/ids.ts';
 import { toRoomId } from './ids.ts';

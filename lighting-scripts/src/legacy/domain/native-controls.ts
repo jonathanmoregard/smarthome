@@ -8,8 +8,8 @@ import { groupChildren, lampKelvinRange, underlyingColour } from '../../parse/na
 import type {
   BrightnessRequest, ColourRequest, NativeCatalog, NativeCurrent, NativePlanRequest, PlanTarget, SetRequest,
 } from '../../parse/native-controls.ts';
-import { overlayKeyText } from '../../domain/types/overlay.ts';
-import type { OverlayKey } from '../../domain/types/overlay.ts';
+import { overlayKeyText } from '../../adapter/codecs/overlay-key.ts';
+import type { OverlayKey } from '../../adapter/codecs/overlay-key.ts';
 import type { RoomId } from '../../domain/types/ids.ts';
 import type { Brightness, Kelvin } from '../../domain/types/light.ts';
 import { isAreaId } from './schedule.ts';

@@ -11,26 +11,6 @@
       "reason": "Generic over every id: K is the record's own key type (RoomId, LampId, ...), so its bound is string."
     },
     {
-      "file": "src/domain/types/rooms.ts",
-      "symbol": "Rooms.ofId",
-      "reason": "D1: ofId is keyed by the registry's own entity or device id. Its readers look up lists that mix lamps, bulbs, on/off lights and switches (a switch range can be set on an on/off light), so no one id kind fits until those lists are split (V3)."
-    },
-    {
-      "file": "src/domain/types/overlay.ts",
-      "symbol": "OverlayKey",
-      "reason": "D3: each case's payload is the text the scripts join into the saved key: a block's scope (a room, or house, joined as Jinja `~` joins any value), a remote's source id, a dashboard control's light and scope suffix, a native control's base (`room:<room>` or a lamp), and a saved key of no known shape, kept unread (spec 3.4 row 5). They narrow to ids as their producers are typed."
-    },
-    {
-      "file": "src/domain/types/overlay.ts",
-      "symbol": "overlayKeyText",
-      "reason": "D3: the overlay key's saved text, the wire form at the save edge."
-    },
-    {
-      "file": "src/domain/types/overlay.ts",
-      "symbol": "byOverlayKeyText",
-      "reason": "A sort comparator's result."
-    },
-    {
       "file": "src/domain/types/remote.ts",
       "symbol": "RemotePress",
       "reason": "Review round 3, item 3: the unknown press's text is whatever a remote sent that is no command. It is never read; it is kept only so ls_remote_command forwards the press to ls_remote_plan as the bytes it was sent. Open text by nature."

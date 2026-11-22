@@ -1,4 +1,4 @@
-import type { OverlayKey } from '../../domain/types/overlay.ts';
+import type { OverlayKey } from '../../adapter/codecs/overlay-key.ts';
 
 /**
  * The overlays an after-limit reset ends: those at least `limit` seconds old

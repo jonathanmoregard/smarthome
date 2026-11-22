@@ -2,7 +2,7 @@ import type { Block } from './blocks.ts';
 import type { BulbInfo } from './effect.ts';
 import type { LampId, RemoteId, RemoteSource, RoomId, SwitchId } from './types/ids.ts';
 import type { RGB, SceneLight } from './types/light.ts';
-import type { Minutes } from './types/overlay.ts';
+import type { Minutes } from './types/range.ts';
 import type { Instant, TimeOfDay, Timezone } from './types/time.ts';
 
 /**

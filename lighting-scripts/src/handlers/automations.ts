@@ -26,7 +26,7 @@ import { pendingOutputDirty } from '../legacy/domain/pending-output.ts';
 import { expiredOverlays } from '../legacy/domain/overlay-resets.ts';
 import { saraModeChange } from '../legacy/domain/sara-mode.ts';
 import { isRangeDefault } from '../legacy/domain/range-defaults.ts';
-import { overlayKeyText, SARA_MODE } from '../domain/types/overlay.ts';
+import { overlayKeyText, SARA_MODE } from '../adapter/codecs/overlay-key.ts';
 
 /** Set the control, then resync the UI proxies. */
 export function* forwardNativeControl(source: string, attribute: string, value: Verbatim): Plan<null> {

@@ -13,7 +13,7 @@ import { ParseError, requireArray, requireBoolean, requireFinite, requireNumber,
 import { carry } from '../runtime/verbatim.ts';
 import { assembledMap, storedFact } from './overrides.ts';
 import { toBulbId, toPowerTarget, toRemoteSource, toRoomId, toSwitchId } from './ids.ts';
-import { overlayKeyText, remoteInputKey, SARA_MODE } from '../domain/types/overlay.ts';
+import { overlayKeyText, remoteInputKey, SARA_MODE } from '../adapter/codecs/overlay-key.ts';
 import type { RemoteSource, SwitchId } from '../domain/types/ids.ts';
 
 /**

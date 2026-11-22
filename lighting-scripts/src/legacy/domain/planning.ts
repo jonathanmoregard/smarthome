@@ -15,8 +15,8 @@ import type { StoredFact, StoredValue } from '../../parse/overrides.ts';
 import { stored, storedList, switchRangeEntities, wakeFadeMinutes, wakeTimestamp, warmEndOf } from '../../parse/planning.ts';
 import type { RoomId, SwitchId } from '../../domain/types/ids.ts';
 import type { LampOrRoom } from '../../domain/types/lighting-state.ts';
-import { byOverlayKeyText, EMPTY_KEY, overlayKeyText, sameOverlayKey, SARA_MODE } from '../../domain/types/overlay.ts';
-import type { OverlayKey } from '../../domain/types/overlay.ts';
+import { byOverlayKeyText, EMPTY_KEY, overlayKeyText, sameOverlayKey, SARA_MODE } from '../../adapter/codecs/overlay-key.ts';
+import type { OverlayKey } from '../../adapter/codecs/overlay-key.ts';
 
 /**
  * The oracle's own cache version literal, copied verbatim from

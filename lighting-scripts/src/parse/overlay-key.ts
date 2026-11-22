@@ -4,7 +4,7 @@
  * as saved (`{ kind: 'saved' }`), never rejected and never dropped, so the
  * store still round-trips it.
  */
-import type { OverlayKey } from '../domain/types/overlay.ts';
+import type { OverlayKey } from '../adapter/codecs/overlay-key.ts';
 import { toRemoteSource, toSavedOverlayKey } from './ids.ts';
 
 export function parseOverlayKey(text: string): OverlayKey {

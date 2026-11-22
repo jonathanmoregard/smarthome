@@ -4,7 +4,7 @@
  * rooms, so it may brand them.
  */
 import type { RemoteId, RoomId } from '../domain/types/ids.ts';
-import type { Rooms } from '../domain/types/rooms.ts';
+import type { Rooms } from '../adapter/codecs/rooms.ts';
 import { toRemoteId, toRoomId } from './ids.ts';
 
 /**

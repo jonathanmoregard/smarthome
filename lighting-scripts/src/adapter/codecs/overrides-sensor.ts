@@ -29,8 +29,8 @@ import type {
 import type { RoomId, SwitchId } from '../../domain/types/ids.ts';
 import { entriesOf } from '../../domain/types/ids.ts';
 import type { Colour, PercentRange, Power } from '../../domain/types/light.ts';
-import { overlayKeyText, SARA_MODE } from '../../domain/types/overlay.ts';
-import type { OverlayKey } from '../../domain/types/overlay.ts';
+import { overlayKeyText, SARA_MODE } from './overlay-key.ts';
+import type { OverlayKey } from './overlay-key.ts';
 import type { RoomOrHouse } from '../../domain/types/schedule.ts';
 import type { Instant } from '../../domain/types/time.ts';
 import {

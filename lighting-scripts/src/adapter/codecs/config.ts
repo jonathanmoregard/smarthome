@@ -17,14 +17,14 @@ import type {
 import type { BulbInfo } from '../../domain/effect.ts';
 import type { BulbId, LampId, RemoteId, RoomId, SwitchId } from '../../domain/types/ids.ts';
 import type { Colour, RGB, SceneLight } from '../../domain/types/light.ts';
-import type { Minutes } from '../../domain/types/overlay.ts';
+import type { Minutes } from '../../domain/types/range.ts';
 import type { TimeOfDay, Timezone } from '../../domain/types/time.ts';
 import { toBrightness, toBulbId, toColourChannel, toInstant, toKelvin, toLampId, toMinutes, toRoomId, toSwitchId, toTimeOfDay, toTimezone }
   from '../../parse/ids.ts';
 import type { Catalog } from '../../runtime/catalog.ts';
 import type { EntityState, JsonValue } from '../../runtime/context.ts';
 import { ParseError, isObject, parseFinite } from '../../runtime/parse.ts';
-import type { Rooms } from '../../domain/types/rooms.ts';
+import type { Rooms } from './rooms.ts';
 
 /** The HA state the config is read from: each helper's state and attributes, the registry's rooms, the labels. */
 export type ConfigSource = {

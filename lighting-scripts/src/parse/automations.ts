@@ -20,7 +20,7 @@ import { storedFact } from './overrides.ts';
 import type { StoredEntry, StoredFact, StoredValue } from './overrides.ts';
 import { toRemoteId, toRoomId } from './ids.ts';
 import type { RemoteId, RoomId } from '../domain/types/ids.ts';
-import type { OverlayKey } from '../domain/types/overlay.ts';
+import type { OverlayKey } from '../adapter/codecs/overlay-key.ts';
 
 export type RemoteKind = 'power' | 'directions' | 'preset';
 

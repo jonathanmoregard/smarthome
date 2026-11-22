@@ -3,7 +3,7 @@ import test from 'node:test';
 import type { JsonObject } from '../../src/runtime/context.ts';
 import { resultCodecs } from '../../src/parse/results.ts';
 import { ParseError } from '../../src/runtime/parse.ts';
-import { SARA_MODE } from '../../src/domain/types/overlay.ts';
+import { SARA_MODE } from '../../src/adapter/codecs/overlay-key.ts';
 
 /*
  * Review round 2, items 3, 4 and 8: what `ls_remote_plan` answers, as the

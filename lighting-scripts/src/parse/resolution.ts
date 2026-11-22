@@ -44,8 +44,8 @@ import type { BaseItem, Channel, ChannelValue, Claim, InputAnchor, InputClaim, I
 import { blendEnd, canonicalColor, validColor } from './scale.ts';
 import { validGradient, warmEndArgument } from './gradient.ts';
 import { lampOrRoom } from './lighting-state.ts';
-import type { OverlayKey } from '../domain/types/overlay.ts';
-import { overlayKeyText } from '../domain/types/overlay.ts';
+import type { OverlayKey } from '../adapter/codecs/overlay-key.ts';
+import { overlayKeyText } from '../adapter/codecs/overlay-key.ts';
 import { parseOverlayKey } from './overlay-key.ts';
 import { stepBoundsOf, toCatalogEffectName, toRoomId, toStep } from './ids.ts';
 import { roomText } from './rooms.ts';

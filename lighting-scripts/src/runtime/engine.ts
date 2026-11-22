@@ -2,7 +2,7 @@ import type { EntityState, EventRecord, JsonObject, JsonValue, OutputGuard, Sche
   Snapshot } from './context.ts';
 import type { Catalog } from './catalog.ts';
 import type { TypedResults } from './entrypoints.ts';
-import type { Rooms } from '../domain/types/rooms.ts';
+import type { Rooms } from '../adapter/codecs/rooms.ts';
 import { emptyCatalog, parseCatalog } from './catalog.ts';
 import { typedDispatch } from './entrypoints.ts';
 import { parseRooms } from '../parse/rooms.ts';

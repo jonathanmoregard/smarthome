@@ -23,8 +23,8 @@ import { concatString, haBoolean, mappingKey } from './state-store.ts';
 import { toPercent, toRoomId, toSwitchId } from './ids.ts';
 import type { RoomId } from '../domain/types/ids.ts';
 import type { Percent } from '../domain/types/light.ts';
-import type { OverlayKey } from '../domain/types/overlay.ts';
-import { overlayKeyText } from '../domain/types/overlay.ts';
+import type { OverlayKey } from '../adapter/codecs/overlay-key.ts';
+import { overlayKeyText } from '../adapter/codecs/overlay-key.ts';
 import { parseOverlayKey } from './overlay-key.ts';
 
 /** A stored value compared by identity: scalars as themselves, containers opaque. */

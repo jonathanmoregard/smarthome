@@ -10,7 +10,6 @@
  */
 import type { BlendPosition } from '../blend.ts';
 import type { Brightness, ColourChannel, Kelvin, Level, Percent, PercentRange } from './light.ts';
-import type { Minutes } from './overlay.ts';
 import type { Step, StepCount } from './remote.ts';
 import type { Progress } from './schedule.ts';
 import type { Instant, Seconds, TimeOfDay } from './time.ts';
@@ -23,11 +22,33 @@ export type RangeMark<Name extends string> = { readonly [range]: Name };
 export const PERCENT_BOUNDS = { low: 0, high: 100 };
 export const STEP_BOUNDS = { low: -20, high: 20 };
 
+/** A count of minutes, finite and not negative (a fade's length, the overlay reset's age limit). */
+export type Minutes = Ranged<'Minutes'>;
+
+export function minutesOrThrow(raw: number): Minutes {
+  mustBeWithin(raw, 0, Infinity, 'A count of minutes');
+  // Cast: checked just above; this is the one place a number becomes minutes.
+  return raw as Minutes;
+}
+
 export function levelOrThrow(raw: number): Level {
   mustBeWithin(raw, 1, 254, 'A level');
   mustBeWhole(raw, 'A level');
   // Cast: checked just above; this is the one place a number becomes a level.
   return raw as Level;
+}
+
+function mustBeWithin(raw: number, low: number, high: number, what: string): void {
+  if (!isWithin(raw, low, high)) throw new RangeError(`${what} must be ${low}..${high}, got ${raw}`);
+}
+
+/** Is the number finite and within the bounds, both ends included? */
+export function isWithin(raw: number, low: number, high: number): boolean {
+  return Number.isFinite(raw) && raw >= low && raw <= high;
+}
+
+function mustBeWhole(raw: number, what: string): void {
+  if (!Number.isInteger(raw)) throw new RangeError(`${what} must be a whole number, got ${raw}`);
 }
 
 export function brightnessOrThrow(raw: number): Brightness {
@@ -53,12 +74,6 @@ export function blendPositionOrThrow(raw: number): BlendPosition {
   mustBeWithin(raw, -2, 2, 'A blend position');
   // Cast: checked just above; this is the one place a number becomes a blend position.
   return raw as BlendPosition;
-}
-
-export function minutesOrThrow(raw: number): Minutes {
-  mustBeWithin(raw, 0, Infinity, 'A count of minutes');
-  // Cast: checked just above; this is the one place a number becomes minutes.
-  return raw as Minutes;
 }
 
 export function stepOrThrow(raw: number): Step {
@@ -112,17 +127,4 @@ export function timeOfDayOrThrow(hour: number, minute: number): TimeOfDay {
   }
   // Cast: both checked just above; this is the one place two numbers become a time of day.
   return { hour: hour as TimeOfDay['hour'], minute: minute as TimeOfDay['minute'] };
-}
-
-function mustBeWithin(raw: number, low: number, high: number, what: string): void {
-  if (!isWithin(raw, low, high)) throw new RangeError(`${what} must be ${low}..${high}, got ${raw}`);
-}
-
-/** Is the number finite and within the bounds, both ends included? */
-export function isWithin(raw: number, low: number, high: number): boolean {
-  return Number.isFinite(raw) && raw >= low && raw <= high;
-}
-
-function mustBeWhole(raw: number, what: string): void {
-  if (!Number.isInteger(raw)) throw new RangeError(`${what} must be a whole number, got ${raw}`);
 }

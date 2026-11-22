@@ -12,8 +12,8 @@ import type { PowerTarget, RemoteSource, RoomId } from '../../domain/types/ids.t
 import { entriesOf } from '../../domain/types/ids.ts';
 import type { RemotePress } from '../../domain/types/remote.ts';
 import { pressCommand } from '../../domain/types/remote.ts';
-import type { OverlayKey } from '../../domain/types/overlay.ts';
-import { remoteInputKey, sameOverlayKey, SARA_MODE } from '../../domain/types/overlay.ts';
+import type { OverlayKey } from '../../adapter/codecs/overlay-key.ts';
+import { remoteInputKey, sameOverlayKey, SARA_MODE } from '../../adapter/codecs/overlay-key.ts';
 
 const omit = (v: AssembledMap, keys: string[]): AssembledMap => Object.fromEntries(Object.entries(v).filter(([k]) => !keys.includes(k)));
 const pick = (v: AssembledMap, keys: string[]): AssembledMap => Object.fromEntries(Object.entries(v).filter(([k]) => keys.includes(k)));

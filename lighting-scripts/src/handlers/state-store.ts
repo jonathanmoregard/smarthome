@@ -18,7 +18,7 @@ import type { Plan } from '../runtime/effects.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { houseRooms, planCommit, planOverrideBlock, planStore, toggleSaraMode } from '../legacy/domain/state-store.ts';
 import type { CommitRequest, CommitOutcome, StoreProfileRequest } from '../legacy/domain/state-store.ts';
-import { SARA_MODE } from '../domain/types/overlay.ts';
+import { SARA_MODE } from '../adapter/codecs/overlay-key.ts';
 
 /**
  * The single override writer: stale-revision stop, then the decision, then a

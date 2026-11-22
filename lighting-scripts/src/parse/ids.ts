@@ -14,7 +14,7 @@ import type { CatalogEffectName } from '../runtime/catalog.ts';
 import type { Brightness, ColourChannel, Kelvin, Level, Percent, PercentRange } from '../domain/types/light.ts';
 import type { Instant, Seconds, TimeOfDay, Timezone } from '../domain/types/time.ts';
 import type { Step, StepCount } from '../domain/types/remote.ts';
-import type { Minutes } from '../domain/types/overlay.ts';
+import type { Minutes } from '../domain/types/range.ts';
 import type { Progress } from '../domain/types/schedule.ts';
 import {
   brightnessOrThrow, colourChannelOrThrow, instantOrThrow, isWithin, kelvinOrThrow, levelOrThrow, minutesOrThrow, percentOrThrow,

@@ -10,8 +10,8 @@ import type { HouseView } from '../runtime/effects.ts';
 import { isObject, object, ParseError } from '../runtime/parse.ts';
 import { opaqueMap, storedFact, storedOverrides } from './overrides.ts';
 import type { OpaqueMap, StoredFact, StoredOverrides, StoredValue } from './overrides.ts';
-import type { OverlayKey } from '../domain/types/overlay.ts';
-import { overlayKeyText } from '../domain/types/overlay.ts';
+import type { OverlayKey } from '../adapter/codecs/overlay-key.ts';
+import { overlayKeyText } from '../adapter/codecs/overlay-key.ts';
 
 export const OVERRIDES_SENSOR = 'sensor.ls_overrides';
 

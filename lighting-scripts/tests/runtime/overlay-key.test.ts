@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { parseOverlayKey } from '../../src/parse/overlay-key.ts';
-import { overlayKeyText } from '../../src/domain/types/overlay.ts';
+import { overlayKeyText } from '../../src/adapter/codecs/overlay-key.ts';
 
 test('each saved key shape reads as the overlay it names', () => {
   // Break: mis-ordered prefixes would read `channels:native:...` as a remote's input.

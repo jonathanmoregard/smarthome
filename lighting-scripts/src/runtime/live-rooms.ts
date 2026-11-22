@@ -15,7 +15,7 @@ import type { JsonObject, JsonValue, ServiceCall, Snapshot } from './context.ts'
 import type { Origin, OutputScope } from './host.ts';
 import type { Catalog } from './catalog.ts';
 import type { RoomId } from '../domain/types/ids.ts';
-import type { Rooms } from '../domain/types/rooms.ts';
+import type { Rooms } from '../adapter/codecs/rooms.ts';
 import type { LiveRooms } from '../parse/live-rooms.ts';
 import { emptyCatalog, parseCatalog } from './catalog.ts';
 import { parseRooms } from '../parse/rooms.ts';

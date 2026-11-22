@@ -11,7 +11,7 @@ import { privateRooms } from '../legacy/domain/schedule.ts';
 import { mappingAttribute, parseRoomBaseline, parseRoomPlanArgs, rangeDefaults, roomCatalog } from '../parse/planning.ts';
 import { activeOverrides, missUpdate, refreshBaseline, roomOpening, roomPlanAnswer } from '../legacy/domain/planning.ts';
 import type { CacheUpdate, Gradients, RoomBaseline, RoomPlanRequest, RoomPlan } from '../legacy/domain/planning.ts';
-import { overlayKeyText, SARA_MODE } from '../domain/types/overlay.ts';
+import { overlayKeyText, SARA_MODE } from '../adapter/codecs/overlay-key.ts';
 
 /**
  * Plan one room: the opening reads, then the cache hit or the miss's three
