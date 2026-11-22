@@ -5,12 +5,12 @@
  *
  * Two rooms, `room-b` private; `room-a` has its own timing and light for the
  * cosy block, a light that runs the candle, while its day block follows the
- * house's plain colour. Three lamps, `lamp-a1` with a candle bulb and a stock bulb. One
- * switch with a custom range. A remote in `room-a` and one in no room.
+ * house's plain colour. Three lamps, `light.lamp_a1` with a candle bulb and a stock bulb. One
+ * switch, `switch.plug_a`, with a custom range. A remote in `room-a` and one in no room.
  *
  * Overlays: night held over `room-a`; `remote-a` brighter by three and moved
  * from day onto the candle, so it holds the day block and remembers day, with
- * a chord in progress; on `lamp-a1` a dashboard control's candle with the
+ * a chord in progress; on `light.lamp_a1` a dashboard control's candle with the
  * schedule's colour, then a person's newer fixed brightness and colour, which
  * leave the candle running at them; a dashboard control's Normal over
  * `room-a`, whose cosy block runs the candle; `room-b` switched off; the mode
@@ -27,14 +27,19 @@ import {
   toBrightness, toBulbId, toColourChannel, toDashboardControlId, toInstant, toKelvin, toLampId, toMinutes, toPercentRange,
   toRemoteId, toRemoteSource, toRoomId, toStep, toStepCount, toSwitchId, toTimeOfDay, toTimezone,
 } from '../../../src/parse/ids.ts';
+import type { ConfigSource } from '../../../src/adapter/codecs/config.ts';
+import { parseCatalog } from '../../../src/runtime/catalog.ts';
+import type { Catalog } from '../../../src/runtime/catalog.ts';
+import type { EntityState, JsonObject } from '../../../src/runtime/context.ts';
+import { parseRooms } from '../../../src/parse/rooms.ts';
 
 /** A fixed moment the house's times count from. */
 const T0 = 1_790_000_000;
 const at = (minutesAfter: number) => toInstant(T0 + minutesAfter * 60);
 
 const roomA = toRoomId('room-a'), roomB = toRoomId('room-b');
-const lampA1 = toLampId('lamp-a1'), lampA2 = toLampId('lamp-a2'), lampB1 = toLampId('lamp-b1');
-const plugA = toSwitchId('plug-a');
+const lampA1 = toLampId('light.lamp_a1'), lampA2 = toLampId('light.lamp_a2'), lampB1 = toLampId('light.lamp_b1');
+const plugA = toSwitchId('switch.plug_a');
 const remoteA = toRemoteId('remote-a'), remoteB = toRemoteId('remote-b');
 const sourceA = toRemoteSource('remote-a'), sourceB = toRemoteSource('remote-b');
 
@@ -150,5 +155,125 @@ export function syntheticHouse(): Model {
       [lampA2]: followsRoom,
       [lampB1]: followsRoom,
     },
+  };
+}
+
+/*
+ * The same house as Home Assistant stores it: the helpers, the registry's
+ * rooms and labels, the catalog, the overrides sensor, the remote helpers and
+ * the lamp profile stores, each in the shape today's writers leave it. The
+ * Model codecs decode this into `syntheticHouse()`.
+ */
+
+/** An instant as today's writers stamp `when`: ISO text. */
+const iso = (minutesAfter: number) => new Date(at(minutesAfter) * 1000).toISOString();
+const helper = (state: string, attributes: JsonObject = {}): EntityState => ({ state, attributes });
+
+/** The catalog: the three lamps and their bulbs, the candle bulb flagged, and the two remotes. */
+export function syntheticCatalog(): Catalog {
+  return parseCatalog({
+    members: { [lampA1]: ['bulb-a1', 'bulb-a2'], [lampA2]: ['bulb-a3'], [lampB1]: ['bulb-b1'] },
+    bulbs: { 'bulb-a1': { candle: true } },
+    remotes: { [roomA]: { device_id: remoteA, source: sourceA }, unplaced: { device_id: remoteB, source: sourceB } },
+  });
+}
+
+/** The stored overlays: each one the shape `ls_commit` leaves after today's writer of its kind. */
+const storedOverrides: JsonObject = {
+  [`block:${roomA}`]: { kind: 'block', target: roomA, value: 'night', when: iso(10), created: iso(10), who: null, via: 'app' },
+  [`channels:${sourceA}`]: {
+    kind: 'input', key: `channels:${sourceA}`, source: sourceA, scope: 'room', target: roomA,
+    value: {
+      step_range: { min: -20, max: 20 },
+      selection: 'Candle',
+      adjustment: { steps: 3, lower: -17, upper: 20, anchor: 'current', updated: at(50), last: 'up', has_up: true },
+      preset_contexts: { day: { period: 'day', period_updated: at(40), selection_updated: at(40) } },
+      period: 'day', period_updated: at(40), selection_updated: at(55),
+      selection_input: { steps: 3, lower: -17, upper: 20, anchor: 'current', updated: at(50), last: 'up', has_up: true },
+      selection_instance: `${sourceA}:Candle`,
+      remote_valid_until: at(600), remote_timing_revision: 0,
+    },
+    when: iso(55), created: iso(41), who: null, via: 'remote',
+  },
+  'channels:ui:control-a': {
+    kind: 'channels', key: 'channels:ui:control-a', source: 'ui:control-a', scope: 'lamp', target: lampA1,
+    value: {
+      channels: {
+        brightness: { kind: 'effect', effect: 'Candle', instance: 'ui:control-a:Candle', updated: at(30) },
+        color: { kind: 'effect', effect: 'Candle', instance: 'ui:control-a:Candle', updated: at(30),
+          underlying: { kind: 'constant', updated: at(30) } },
+      },
+      selection: 'Candle',
+    },
+    when: iso(30), created: iso(30), who: null, via: 'effects-house',
+  },
+  [`channels:native:${lampA1}`]: {
+    kind: 'channels', key: `channels:native:${lampA1}`, source: `native:${lampA1}`, scope: 'lamp', target: lampA1,
+    value: { channels: {
+      brightness: { kind: 'constant', value: 90, updated: at(35) },
+      color: { kind: 'constant', value: { kelvin: 3000 }, updated: at(35) },
+    } },
+    when: iso(35), created: iso(35), who: null, via: 'app',
+  },
+  'channels:ui:control-b': {
+    kind: 'channels', key: 'channels:ui:control-b', source: 'ui:control-b', scope: 'room', target: roomA,
+    value: { channels: {
+      brightness: { kind: 'effect', effect: 'Normal light', instance: 'ui:control-b:Normal light', updated: at(45) },
+      color: { kind: 'effect', effect: 'Normal light', instance: 'ui:control-b:Normal light', updated: at(45) },
+    } },
+    when: iso(45), created: iso(45), who: null, via: 'effects-house',
+  },
+  'mode:sara': { kind: 'mode', target: 'sara', value: 'on', when: iso(60), created: iso(60), who: null, via: 'remote' },
+};
+
+/** The house's helpers, registry and labels, the overrides sensor and the remote and lamp stores. */
+export function syntheticSource(): ConfigSource {
+  const states: Record<string, EntityState> = {
+    'input_datetime.ls_house_day_start': helper('07:00:00'),
+    'input_datetime.ls_house_day_weekend': helper('09:00:00'),
+    'input_number.ls_house_day_fade': helper('20'),
+    'light.ls_house_day': helper('on', { brightness: 220, color_mode: 'color_temp', color_temp_kelvin: 4000 }),
+    'input_boolean.ls_house_day_on_off': helper('on'),
+    'input_datetime.ls_house_cosy_start': helper('18:00:00'),
+    'input_datetime.ls_house_cosy_weekend': helper('18:00:00'),
+    'input_number.ls_house_cosy_fade': helper('30'),
+    'light.ls_house_cosy': helper('on', { brightness: 120, color_mode: 'color_temp', color_temp_kelvin: 2700 }),
+    'input_boolean.ls_house_cosy_on_off': helper('on'),
+    'input_datetime.ls_house_night_start': helper('22:30:00'),
+    'input_datetime.ls_house_night_weekend': helper('unknown'),
+    'input_number.ls_house_night_fade': helper('30'),
+    'light.ls_house_night': helper('off'),
+    'input_boolean.ls_house_night_on_off': helper('off'),
+    [`input_boolean.ls_${roomA}_cosy_own_timing`]: helper('on'),
+    [`input_datetime.ls_${roomA}_cosy_start`]: helper('17:30:00'),
+    [`input_datetime.ls_${roomA}_cosy_weekend`]: helper('19:00:00'),
+    [`input_number.ls_${roomA}_cosy_fade`]: helper('45'),
+    [`input_boolean.ls_${roomA}_cosy_own_light`]: helper('on'),
+    [`light.ls_${roomA}_cosy`]: helper('on', { brightness: 90, color_mode: 'rgb', rgb_color: [255, 150, 60] }),
+    [`input_text.ls_${roomA}_cosy`]: helper(JSON.stringify({ on: true, effect: 'Candle' })),
+    [`input_datetime.ls_${roomB}_wake`]: helper('06:00:00', { timestamp: at(6 * 60) }),
+    [`input_number.ls_${roomB}_wake_fade`]: helper('30'),
+    'input_boolean.ls_ovr_next_block_on': helper('on'),
+    'input_boolean.ls_ovr_at_on': helper('off'),
+    'input_boolean.ls_ovr_after_on': helper('on'),
+    'input_number.ls_ovr_after_min': helper('180'),
+    'sensor.ls_overrides': helper('2026-09-21T14:13:20+00:00', {
+      overrides: storedOverrides,
+      power: { [roomB]: false },
+      switch_ranges: { [plugA]: { profile: 'custom', min: 20, max: 60 } },
+      range_defaults: { bright: [90, 100], cosy: [30, 60] },
+    }),
+    [`input_number.ls_${roomA}_remote_chord_step`]: helper('2.0'),
+    [`timer.ls_${roomA}_remote_chord`]: helper('active', { duration: '0:00:03', finishes_at: iso(61) }),
+    [`input_number.ls_${roomA}_remote_power_count`]: helper('0.0'),
+    [`input_text.ls_${roomA}_remote_power_token`]: helper(''),
+    [`input_number.ls_${roomA}_remote_preset`]: helper('3.0'),
+    'input_text.ls_lamp_lamp_a1_cosy': helper(JSON.stringify({ on: true, own: true, b: 100, effect: 'Candle', effect_channels: ['brightness', 'color'] })),
+  };
+  return {
+    states,
+    rooms: parseRooms({ [lampA1]: roomA, [lampA2]: roomA, [lampB1]: roomB, [plugA]: roomA, [remoteA]: roomA }),
+    labels: { on_off: [plugA], private_room: [roomB] },
+    timezone: 'UTC',
   };
 }
