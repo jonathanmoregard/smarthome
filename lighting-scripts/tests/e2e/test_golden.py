@@ -276,11 +276,25 @@ class Scenarios(unittest.TestCase):
         scenario = self.all['remote_presses']
         presses = steps_of(scenario, Mqtt)
         remote = next(remote for remote in self.house.remotes if remote.room is not None)
-        # The last press twice, so an overlay unlike the schedule is left for the expiry to end.
-        self.assertEqual([step.payload for _, step in presses], [*remote.presses, remote.presses[-1]])
+        # In the day block a step up from the day light barely moves it, so dimmer comes before brighter; a last
+        # dimmer leaves an overlay unlike the schedule for the expiry to end.
+        self.assertEqual([step.payload for _, step in presses],
+                         ['on', 'off', 'brightness_step_down', 'brightness_step_up', 'brightness_step_down'])
         self.assertEqual({step.topic for _, step in presses}, {remote.topic})
         for (first, _), (second, _) in zip(presses, presses[1:]):
             self.assertEqual(sum(step.seconds for step in scenario.steps[first:second] if isinstance(step, Advance)), 120)
+        # Each press shows on the room (before it, after its gap), and so does the expiry after the last.
+        last = len(scenario.steps) - 1
+        self.assertEqual([(p.first, p.second) for p in scenario.proves],
+                         [*((index - 1, index + 1) for index, _ in presses), (last - 1, last)])
+        day_fade = datetime.combine(scenario.start.date(), time(17, 30), LOCAL)   # HOUSE_TIMES: cosy 18:00, 30 min
+        self.assertLess(local_at(scenario, last), day_fade)   # the whole run stays in the day block
+
+    def test_remote_presses_needs_a_dimmer_and_a_brighter(self):
+        remote = next(remote for remote in self.house.remotes if remote.room is not None)
+        house = replace(self.house, remotes=(replace(remote, presses=('on', 'off', 'brightness_step_up')),))
+        with self.assertRaises(MissingRole):
+            scenarios(house)['remote_presses']
 
     def test_schedule_day_is_a_start_then_24_hours(self):
         scenario = self.all['schedule_day']

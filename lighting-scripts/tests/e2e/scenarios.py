@@ -45,6 +45,7 @@ AFTER_MINUTES = 'input_number.ls_ovr_after_min'
 OVERLAY_MINUTES = 180            # what the scenarios that expire an overlay set it to (the live value)
 PERSON = 'e2e-person'
 PRESS_GAP = 120                  # seconds between remote presses
+DIMMER, BRIGHTER = 'brightness_step_down', 'brightness_step_up'   # remote payloads, as the captured triggers name them
 SETTLE = 120                     # seconds after an input before its checkpoint is read as settled
 PERSON_LEVEL = 8                 # a person's brightness no seeded light uses (they draw from LEVELS)
 PERSON_KELVIN = 3300             # and a colour unlike the pinned house lights; both channels, so all of it holds
@@ -338,18 +339,23 @@ def _schedule_day(house: HouseInfo, name: str) -> Scenario:
 
 
 def _remote_presses(house: HouseInfo, name: str) -> Scenario:
-    # Midday, inside the day block: each press kind once, then on past the after-duration rule (the next block,
-    # cosy, is later still). The last press comes twice: a step up and a step down cancel, and the expiry
-    # needs an overlay that is not the schedule's own light to end.
+    # Midday, inside the day block: each press kind once, then on past the after-duration rule; the run ends
+    # about 16:10, before the cosy fade at 17:30. The day light is the bright end, so a step up from it barely
+    # moves the lamps: dimmer comes before brighter, and a last dimmer leaves an overlay that is not the
+    # schedule's own light for the expiry to end.
     remote = placed_remote(house)
+    if DIMMER not in remote.presses or BRIGHTER not in remote.presses:
+        raise MissingRole('the placed remote has no dimmer and brighter press')
     seeds = _pinned(house, name)
     seeds.overlay_after()
     steps: list[Step] = [HaStart()]
-    for press in (*remote.presses, remote.presses[-1]):
+    for press in (*(p for p in remote.presses if p not in (DIMMER, BRIGHTER)), DIMMER, BRIGHTER, DIMMER):
         steps += [Mqtt(remote.topic, press), Advance(PRESS_GAP)]
     steps.append(Advance(OVERLAY_MINUTES * 60 + 3600))
+    # Each press k (step 2k + 1) shows on the room from before it to the end of its gap; the expiry after the last.
+    presses = tuple(in_room(house, index - 1, index + 1) for index, step in enumerate(steps) if isinstance(step, Mqtt))
     return Scenario(name, at(WEEKDAY, '12:00'), seeds.tuple(), tuple(steps),
-                    (in_room(house, 0, 2), in_room(house, len(steps) - 2, len(steps) - 1)), ())
+                    (*presses, in_room(house, len(steps) - 2, len(steps) - 1)), ())
 
 
 def _dashboard_block_then_clear(house: HouseInfo, name: str) -> Scenario:
