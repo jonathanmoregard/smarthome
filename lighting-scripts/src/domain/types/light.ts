@@ -24,11 +24,22 @@ export type ColourChannel = Ranged<'ColourChannel'>;
 export type RGB = { readonly red: ColourChannel; readonly green: ColourChannel; readonly blue: ColourChannel };
 export type Colour = { kind: 'kelvin'; kelvin: Kelvin } | { kind: 'rgb'; rgb: RGB };
 export type Power = 'on' | 'off';
-export type Transition = { kind: 'scheduled fade'; over: Seconds } | { kind: 'manual' } | { kind: 'effect start' };
+/**
+ * How a lamp moves to its light: one step of a scheduled fade, or a change
+ * made at once. Starting the candle has no case of its own: the lighting state
+ * cannot know what a bulb already shows, so the reconciler picks the effect
+ * start's fade from its own record.
+ */
+export type Transition = { kind: 'scheduled fade'; over: Seconds } | { kind: 'manual' };
 /**
  * A light as a block or a profile saves it. Brightness is HA's 0..255, as saved; M2 turns it into a Level where today's code does.
  * The effect belongs to the lit light: a block's light can run the candle. Off has no level, colour or effect.
  */
 export type SceneLight = { power: 'off' } | { power: 'on'; brightness: Brightness; colour: Colour | undefined; effect: EffectName };
-export type OnLight = { power: 'on'; level: Level; colour: Colour; effect: Effect; transition: Transition };
+/**
+ * A lit lamp. `colour` is undefined only where the schedule names no colour
+ * for the lamp in any block: each bulb then keeps the colour it shows, and the
+ * reconciler sends the level alone.
+ */
+export type OnLight = { power: 'on'; level: Level; colour: Colour | undefined; effect: Effect; transition: Transition };
 export type LampLight = { power: 'off' } | OnLight;

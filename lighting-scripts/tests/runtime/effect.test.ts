@@ -40,6 +40,13 @@ test('a normal lamp shows the same on every bulb', () => {
   assert.deepEqual(bulbAppearance(lamp, candleBulb), bulbAppearance(lamp, stockBulb));
 });
 
+test('a lamp the schedule names no colour for leaves each bulb its own', () => {
+  // Break: a colour is invented for the bulb (white, the warm end) where the lamp has none.
+  const lamp: LampLight = { ...lit(candle), colour: undefined };
+  assert.deepEqual(bulbAppearance(lamp, candleBulb), { power: 'on', level, colour: undefined, firmwareEffect: 'candle' });
+  assert.deepEqual(bulbAppearance(lamp, stockBulb), { power: 'on', level, colour: undefined, firmwareEffect: 'none' });
+});
+
 test('an off lamp is off on every bulb', () => {
   const lamp: LampLight = { power: 'off' };
   assert.deepEqual(bulbAppearance(lamp, candleBulb), { power: 'off' });

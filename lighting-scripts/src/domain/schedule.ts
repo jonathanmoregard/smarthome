@@ -16,7 +16,7 @@ import type { RoomId } from './types/ids.ts';
 import type { Colour, SceneLight } from './types/light.ts';
 import { brightnessOrThrow, instantOrThrow, kelvinOrThrow, progressOrThrow, secondsOrThrow } from './types/range.ts';
 import type { Progress } from './types/schedule.ts';
-import type { Instant, Seconds, Timezone } from './types/time.ts';
+import type { Instant, Seconds, TimeOfDay, Timezone } from './types/time.ts';
 
 /**
  * Where a room (or the house) is in its blocks at an instant (today's
@@ -202,6 +202,13 @@ function roomBlock(config: Config, room: RoomId | undefined, block: Block): Room
 export function nextMidnight(at: Instant, zone: Timezone): Instant {
   const today = localParts(at, zone);
   return instantOrThrow(localTime(today.year, today.month, today.day + 1, 0, 0, zone));
+}
+
+/** The first instant after `at` at which the clock in `zone` shows `time`: today's, or else tomorrow's. */
+export function nextTimeOfDay(at: Instant, time: TimeOfDay, zone: Timezone): Instant {
+  const today = localParts(at, zone);
+  const sameDay = localTime(today.year, today.month, today.day, time.hour, time.minute, zone);
+  return instantOrThrow(sameDay > at ? sameDay : localTime(today.year, today.month, today.day + 1, time.hour, time.minute, zone));
 }
 
 /**
