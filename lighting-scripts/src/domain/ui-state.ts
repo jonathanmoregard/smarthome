@@ -6,7 +6,7 @@ import { isAreaId } from './schedule.ts';
 import {
   displayOfColour, lampReading, onOffOnly, ownRange, proxyKelvin, proxyShowsRgb, runtimeTargets, storedRangeBounds, switchText, uiProfile, uiRows,
 } from '../parse/ui-state.ts';
-import type { Display, RangeSaveArgs } from '../parse/ui-state.ts';
+import type { Display, RangeSaveRequest } from '../parse/ui-state.ts';
 import { payloadNumber } from '../runtime/format.ts';
 import type { SwitchId } from './types/ids.ts';
 import type { Percent } from './types/light.ts';
@@ -89,14 +89,14 @@ export function uiChoices(view: HouseView): string[] {
  */
 export type RangeConfig = { profile: string; min?: Percent; max?: Percent };
 /** A valid rule names its switch; an invalid request may name none. */
-export type RangeSaveResult = { errors: string[]; config: RangeConfig }
+export type RangeSaveDecision = { errors: string[]; config: RangeConfig }
   & ({ valid: true; entity: SwitchId } | { valid: false; entity: SwitchId | undefined });
 
 /**
  * Decide a switch's range rule. Not a generator: it reads the house through
  * the view; the colour-mode read is made only on the branch that needs it.
  */
-export function decideRangeSave(view: HouseView, args: RangeSaveArgs): RangeSaveResult {
+export function decideRangeSave(view: HouseView, args: RangeSaveRequest): RangeSaveDecision {
   const { entity, profile } = args;
   // Every check reads the switch by name; a request naming none is read as the empty name.
   const e = switchText(entity);
@@ -127,7 +127,7 @@ export function decideRangeSave(view: HouseView, args: RangeSaveArgs): RangeSave
   return errors.length === 0 && entity !== undefined ? { valid: true, errors, entity, config } : { valid: false, errors, entity, config };
 }
 /** Save a decided rule: refuse an invalid one, else fire the range override. */
-export function* saveRange(result: RangeSaveResult): Plan<RangeSaveResult> {
+export function* saveRange(result: RangeSaveDecision): Plan<RangeSaveDecision> {
   if (!result.valid) throw new Error(result.errors.join(' '));
   const config = result.config;
   yield { kind: 'event', event: 'ls_override', data: { op: 'range_set', entity: result.entity, profile: config.profile,

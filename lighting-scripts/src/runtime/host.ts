@@ -5,10 +5,10 @@ import type { FileHandle } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { EntityState, EventRecord, JsonObject, JsonValue, ScheduledTask, ServiceCall, Snapshot } from './context.ts';
-import type { ExecutionRequest, ExecutionResult } from './engine.ts';
+import type { ExecutionRequest, ExecutionOutcome } from './engine.ts';
 import type { RoomId } from '../domain/types/ids.ts';
 
-export type Program = (request: ExecutionRequest) => ExecutionResult;
+export type Program = (request: ExecutionRequest) => ExecutionOutcome;
 export interface OutputAcknowledgement { states?: Record<string, EntityState> }
 export interface OutputTransport {
   send(call: ServiceCall): Promise<void | OutputAcknowledgement>;

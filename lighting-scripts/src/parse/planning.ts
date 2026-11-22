@@ -30,7 +30,7 @@ import type { Verbatim } from '../runtime/verbatim.ts';
 import { asTimestampOr, jinjaListOf, savedMappingOr, timestamp } from './accessors.ts';
 import { NO_WHEN } from './schedule.ts';
 import { storedFact } from './overrides.ts';
-import type { BaselineTarget, DetailField, OverrideFacts, Overrides, RoomBaseline, RoomCache, RoomDetails, RoomPlanArgs,
+import type { BaselineTarget, DetailField, OverrideFacts, Overrides, RoomBaseline, RoomCache, RoomDetails, RoomPlanRequest,
   TestNow } from '../domain/planning.ts';
 import { isBlock, savedBlock } from './blocks.ts';
 import { colorShape, readableBlendEnd, warmEndRgb } from './scale.ts';
@@ -225,7 +225,7 @@ function validCache(value: JsonValue | undefined, room: string): RoomCache | und
  * guard and one source default, so malformed or absent values retain the
  * captured runtime fallbacks.
  */
-export function parseRoomPlanArgs(args: JsonObject): RoomPlanArgs {
+export function parseRoomPlanArgs(args: JsonObject): RoomPlanRequest {
   const room = toRoomId(requireString(args, 'room', 'ls_room_plan'));
   return {
     room,

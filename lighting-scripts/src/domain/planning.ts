@@ -3,7 +3,7 @@ import type { Verbatim } from '../runtime/verbatim.ts';
 import { BLOCKS, blockOption } from './blocks.ts';
 import type { Block } from './blocks.ts';
 import type { CompiledGradients } from './gradient.ts';
-import type { ResolutionResult } from './resolution.ts';
+import type { Resolution } from './resolution.ts';
 import type { ScheduleMirror } from './schedule.ts';
 import type { SwitchDecision } from './controller.ts';
 import type { HouseView } from '../runtime/effects.ts';
@@ -102,7 +102,7 @@ export type RoomCache = {
   validUntil: number;
 };
 export type TestNow = { document: Verbatim | undefined; instant(now: string): number };
-export type RoomPlanArgs = {
+export type RoomPlanRequest = {
   room: RoomId;
   reason: string;
   testNow: TestNow;
@@ -143,7 +143,7 @@ export type CacheUpdate = {
  * plan's own fields over it, so it is carried: on a hit, that schedule is
  * whatever the cache's writer persisted.
  */
-export type RoomPlanResult = { plan: Verbatim; cache_update: CacheUpdate | null; cache_hit: boolean };
+export type RoomPlan = { plan: Verbatim; cache_update: CacheUpdate | null; cache_hit: boolean };
 
 function isRemote(r: OverrideFacts): boolean { return r.kind === 'input' || (r.kind === 'channels' && r.via === 'remote'); }
 function byKey(entries: OverrideEntry[]): OverrideEntry[] {
@@ -287,7 +287,7 @@ export interface RoomOpening {
   hit: RoomCache | undefined;
 }
 
-export function roomOpening(view: HouseView, args: RoomPlanArgs): RoomOpening {
+export function roomOpening(view: HouseView, args: RoomPlanRequest): RoomOpening {
   const { room, reason, overrides, cache } = args;
   const at = args.testNow.instant(view.now);
   // Captured: the first variables block reads the revision bare, after `at` and
@@ -304,7 +304,7 @@ export function roomOpening(view: HouseView, args: RoomPlanArgs): RoomOpening {
 }
 
 /** A miss's new cache, read after the baseline, catalog and gradient runs. */
-export function missUpdate(view: HouseView, args: RoomPlanArgs, opening: RoomOpening, baseline: RoomBaseline, gradients: Gradients,
+export function missUpdate(view: HouseView, args: RoomPlanRequest, opening: RoomOpening, baseline: RoomBaseline, gradients: Gradients,
   catalog: Verbatim): CacheUpdate {
   const { room } = args, { at, deps } = opening;
   const details = baseline.details(room, 'ls_room_plan.baseline.schedule.schedule_details');
@@ -326,7 +326,7 @@ export interface RoomPlanParts {
   revision: string;
   refreshed: Refreshed;
   active: Record<string, Verbatim>;
-  resolved: ResolutionResult;
+  resolved: Resolution;
   gradients: Gradients;
   catalog: Verbatim;
   switches: Record<SwitchId, SwitchDecision>;
@@ -335,7 +335,7 @@ export interface RoomPlanParts {
 }
 
 /** The answer: the refreshed schedule with the plan over it, stamped with `now` as read last. */
-export function roomPlanAnswer(view: HouseView, parts: RoomPlanParts): RoomPlanResult {
+export function roomPlanAnswer(view: HouseView, parts: RoomPlanParts): RoomPlan {
   const { room, reason, refreshed, active } = parts;
   const wanted = Object.hasOwn(active, overlayKeyText(SARA_MODE)) ? 'on' : 'off';
   return { plan: withFields(refreshed.schedule, { room, base: refreshed.targets, resolved: parts.resolved, gradients: parts.gradients,

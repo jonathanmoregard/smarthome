@@ -15,11 +15,11 @@ import { overridesRevision } from '../parse/sensors.ts';
 import {
   assignedLamps, parseAssignArgs, parseEmitArgs, parseFilterArgs, parseFramePlanArgs, runtimeGeneration,
 } from '../parse/transport.ts';
-import type { GroupPlanResult } from '../domain/grouping.ts';
+import type { GroupedCommands } from '../domain/grouping.ts';
 import {
   assignDecision, filterCommands, frameRows, planAssignUpdate, publishCommand, stillCurrent, stopCommands, stoppedLamps,
 } from '../domain/transport.ts';
-import type { AssignArgs, AssignResult, EmitArgs, EmitResult, FramePlanArgs, StopCommand } from '../domain/transport.ts';
+import type { AssignRequest, AssignedGeneration, EmitRequest, EmitOutcome, FramePlanRequest, StopCommand } from '../domain/transport.ts';
 
 /**
  * Each lamp's light, sent once. A channel running a bulb effect gets a static
@@ -30,7 +30,7 @@ import type { AssignArgs, AssignResult, EmitArgs, EmitResult, FramePlanArgs, Sto
  * The rows go to the group planner, an inter-handler call whose result is this
  * script's answer, so the call stays in the handler.
  */
-export function framePlan(ctx: ScriptContext, args: FramePlanArgs): GroupPlanResult {
+export function framePlan(ctx: ScriptContext, args: FramePlanRequest): GroupedCommands {
   const rows = frameRows(ctx, args);
   // `ctx.call`, not `ctx.run`: this result is what `effects_frame_plan`
   // answers, so it must arrive typed. The call itself is unchanged -- same
@@ -42,7 +42,7 @@ export function framePlan(ctx: ScriptContext, args: FramePlanArgs): GroupPlanRes
  * is read live, after the publishes before it: the revision first (it raises
  * on a missing sensor, ahead of the command's own parse), then the command.
  */
-export function emitCommands(ctx: ScriptContext, args: EmitArgs): EmitResult {
+export function emitCommands(ctx: ScriptContext, args: EmitRequest): EmitOutcome {
   const revision = args.revision, generation = args.generation;
   let completed = true;
   const published: number[] = [];
@@ -61,7 +61,7 @@ export function emitCommands(ctx: ScriptContext, args: EmitArgs): EmitResult {
  * commands read member states after the store and the catalog run, live, and
  * the answer re-reads the generation the store left.
  */
-export function assignEffects(ctx: ScriptContext, args: AssignArgs): AssignResult {
+export function assignEffects(ctx: ScriptContext, args: AssignRequest): AssignedGeneration {
   if (args.revision !== overridesRevision(ctx, 'effects_assign')) return { generation: runtimeGeneration(ctx) };
   const details = args.details();
   const decision = assignDecision(ctx, args.revision, details);

@@ -17,7 +17,7 @@
  */
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import { ParseError, isObject, object, requireNumber } from '../runtime/parse.ts';
-import type { Anchor, BlendEnd, Color, RGB, ScaleArgs } from '../domain/scale.ts';
+import type { Anchor, BlendEnd, Color, RGB, ScaleRequest } from '../domain/scale.ts';
 import { ANCHOR_BRIGHTNESS_MESSAGE, COLOR_SHAPE_MESSAGE, WARM_END, boundedNumber, copyColor } from '../domain/scale.ts';
 
 /**
@@ -130,7 +130,7 @@ export function warmEndRgb(value: JsonValue | undefined): RGB {
  * oracle raises on a malformed value and the strict readers are the faithful
  * choice. `warm_end` falls back to the field default only when absent.
  */
-export function parseScaleArgs(args: JsonObject): ScaleArgs {
+export function parseScaleArgs(args: JsonObject): ScaleRequest {
   return {
     day: anchor(args.day),
     cosy: anchor(args.cosy),

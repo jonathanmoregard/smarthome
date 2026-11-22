@@ -14,7 +14,7 @@ import { carry } from '../runtime/verbatim.ts';
 import type { RoomId } from '../domain/types/ids.ts';
 import { toRemoteId, toRoomId } from './ids.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
-import type { GestureArgs, Model, Msg, PresetPayload } from '../domain/gestures.ts';
+import type { GestureRequest, Model, Msg, PresetPayload } from '../domain/gestures.ts';
 
 function roomArg(args: JsonObject): RoomId {
   const room = requireString(args, 'room', 'ls_remote_gesture');
@@ -62,7 +62,7 @@ function gestureMsg(command: string, args: JsonObject): Msg | undefined {
   }
 }
 
-export function parseGestureArgs(args: JsonObject): GestureArgs {
+export function parseGestureArgs(args: JsonObject): GestureRequest {
   // Read in the captured order: the command, the room, then the token.
   const command = args.command === undefined ? '' : requireString(args, 'command', 'ls_remote_gesture');
   const room = roomArg(args);
@@ -77,7 +77,7 @@ export function parseGestureArgs(args: JsonObject): GestureArgs {
   };
 }
 
-export interface PowerQuietArgs {
+export interface PowerQuietRequest {
   /** The whole argument document, forwarded into the scheduled `power_done`. */
   document: Verbatim;
   room: RoomId;
@@ -87,7 +87,7 @@ export interface PowerQuietArgs {
  * The quiet script forwards its whole argument document into the scheduled
  * `power_done`, which is compared, so the document is carried unread.
  */
-export function parsePowerQuietArgs(args: JsonObject): PowerQuietArgs {
+export function parsePowerQuietArgs(args: JsonObject): PowerQuietRequest {
   return { document: carry(args), room: roomArg(args) };
 }
 

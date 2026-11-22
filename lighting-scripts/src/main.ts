@@ -5,7 +5,7 @@ import { basename, dirname, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { EntityState, JsonObject, ScriptHandlers, Snapshot } from './runtime/context.ts';
-import type { ExecutionRequest, ExecutionResult } from './runtime/engine.ts';
+import type { ExecutionRequest, ExecutionOutcome } from './runtime/engine.ts';
 import { parseCatalog } from './runtime/catalog.ts';
 import { LightingHost } from './runtime/host.ts';
 import type { Program, OutputTransport } from './runtime/host.ts';
@@ -25,7 +25,7 @@ export async function loadProgram(directory?: string): Promise<Program> {
   const extension = directory ? 'js' : 'ts';
   const [engine, registry] = await Promise.all([
     import(new URL(`runtime/engine.${extension}`, base).href) as Promise<{ execute: (request: ExecutionRequest, handlers: ScriptHandlers) =>
-      ExecutionResult }>,
+      ExecutionOutcome }>,
     import(new URL(`runtime/registry.${extension}`, base).href) as Promise<{ handlers: ScriptHandlers }>,
   ]);
   if (typeof engine.execute !== 'function' || !registry.handlers) throw new Error('Candidate does not export its execution boundary');

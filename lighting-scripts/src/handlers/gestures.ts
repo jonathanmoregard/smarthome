@@ -7,7 +7,7 @@ import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
 import { withParsedArgs } from '../runtime/parse.ts';
 import { withFields } from '../runtime/verbatim.ts';
 import { gestureState, parseGestureArgs, parsePowerQuietArgs } from '../parse/gestures.ts';
-import type { PowerQuietArgs } from '../parse/gestures.ts';
+import type { PowerQuietRequest } from '../parse/gestures.ts';
 import { run } from '../runtime/effects.ts';
 import type { Plan } from '../runtime/effects.ts';
 import type { RoomId } from '../domain/types/ids.ts';
@@ -19,7 +19,7 @@ import * as Gesture from '../domain/gestures.ts';
  * the token and launches the quiet script with `now` re-read after each write,
  * where the captured script reads it: the clock is live mid-transaction.
  */
-export function remoteGesture(ctx: ScriptContext, args: Gesture.GestureArgs): null {
+export function remoteGesture(ctx: ScriptContext, args: Gesture.GestureRequest): null {
   const { room, msg, sender } = args;
   if (msg === undefined) return null;
   run(ctx, Gesture.update(gestureState(ctx, room), msg, { room, remoteRooms: ctx.rooms.ofRemote, now: ctx.now, sender }));
@@ -40,7 +40,7 @@ export function* launchPowerQuiet(room: RoomId, now: string): Plan<void> {
   };
 }
 /** The quiet window: schedule `power_done` with the whole argument document carried. */
-export function* powerQuiet(args: PowerQuietArgs): Plan<null> {
+export function* powerQuiet(args: PowerQuietRequest): Plan<null> {
   yield { kind: 'schedule', script: 'ls_remote_gesture', args: withFields(args.document, { room: args.room, command: 'power_done' }), delayMs: 600 };
   return null;
 }

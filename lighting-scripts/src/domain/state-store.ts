@@ -40,7 +40,7 @@ export interface CommitRecord {
  * A bound is saved as given: a percent, or that boolean (read as 1 or 0 by the check).
  */
 export type RangeRule = { profile: 'bright' | 'cosy' } | { profile: 'custom'; min: Percent | boolean; max: Percent | boolean };
-export interface CommitData {
+export interface CommitChange {
   /** `data.get('op', 'set')`, only ever compared with literals. */
   op: StoredValue;
   /** The raw op when it is a string, else `''`: the full-render test's spelling. */
@@ -57,9 +57,9 @@ export interface CommitData {
   remoteAck: () => { source: string; requestId: StoredValue } | undefined;
   full: () => { reason: StoredValue; lights: StoredValue[] };
 }
-export interface CommitArgs {
+export interface CommitRequest {
   expectedRevision: StoredFact;
-  details: () => CommitData;
+  details: () => CommitChange;
 }
 /** The attributes `ls_commit` writes, in the order it writes them. */
 export type OverridesPatch = {
@@ -88,7 +88,7 @@ export interface BlockTarget {
   keyText: string;
   key: () => string | undefined;
 }
-export interface OverrideBlockArgs { scope: BlockTarget; block: string; via: Verbatim }
+export interface OverrideBlockRequest { scope: BlockTarget; block: string; via: Verbatim }
 /** The string each schedule key is scheduled to in the dry-run plan, if any. */
 export type ScheduledBlocks = (key: string | undefined) => string | undefined;
 
@@ -100,7 +100,7 @@ export type ScheduledBlocks = (key: string | undefined) => string | undefined;
  * the success answers all three fields. Spelling it as one optional-field shape
  * would invent keys on the refusal, and those bytes are compared.
  */
-export type CommitResult = { accepted: false } | { accepted: true; revision: string; committed_at: number };
+export type CommitOutcome = { accepted: false } | { accepted: true; revision: string; committed_at: number };
 
 /**
  * What a commit reads of the house, all lenient (none of these reads can
@@ -124,7 +124,7 @@ export interface CommitSnapshot {
 
 
 /** The sensor patch a commit writes, then the render request. Preserves unrelated attributes and channel timestamps. */
-export function* planCommit(snapshot: CommitSnapshot, parsed: CommitData): Plan<void> {
+export function* planCommit(snapshot: CommitSnapshot, parsed: CommitChange): Plan<void> {
   const entity = 'sensor.ls_overrides';
   const now = snapshot.now, before = snapshot.before;
   let overrides = before.clone();
@@ -220,7 +220,7 @@ export function* planCommit(snapshot: CommitSnapshot, parsed: CommitData): Plan<
   yield { kind: 'service', service: 'script.turn_on', data: {}, target: { entity_id: 'script.ls_render' } };
 }
 
-export interface StoreProfileArgs {
+export interface StoreProfileRequest {
   entity: string;
   on: boolean | undefined;
   own: boolean | undefined;
@@ -262,7 +262,7 @@ export type ProfilePatch = {
 
 
 /** The profile store write, then the lamp-store change event for a lamp's store. */
-export function* planStore(args: StoreProfileArgs, current: StoredProfile, catalogChannels: EffectChannels): Plan<null> {
+export function* planStore(args: StoreProfileRequest, current: StoredProfile, catalogChannels: EffectChannels): Plan<null> {
   const entity = args.entity;
   const patch: ProfilePatch = {};
   if (args.on !== undefined) patch.on = args.on;
@@ -304,7 +304,7 @@ export function houseRooms(view: HouseView): RoomId[] {
  * where the schedule already says so. A target's schedule key raises for an
  * unhashable scope, here, where the lookup happens.
  */
-export function* planOverrideBlock(args: OverrideBlockArgs, rooms: RoomId[], scheduledTo: ScheduledBlocks): Plan<null> {
+export function* planOverrideBlock(args: OverrideBlockRequest, rooms: RoomId[], scheduledTo: ScheduledBlocks): Plan<null> {
   const block = args.block;
   const targets: BlockTarget[] = [args.scope, ...rooms.map(roomTarget)];
   const scheduled = (target: BlockTarget) => scheduledTo(target.key());

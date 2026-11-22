@@ -40,7 +40,7 @@ import { boundedNumber } from '../domain/scale.ts';
 import type { Color } from '../domain/scale.ts';
 import { latestStream, lexical } from '../domain/resolution.ts';
 import type { BaseItem, Channel, ChannelValue, Claim, InputAnchor, InputClaim, InputFacts, LightValue, OverrideRecord, Patch, RecordScope,
-  ResolveArgs, Stamp, TargetArea } from '../domain/resolution.ts';
+  ResolveRequest, Stamp, TargetArea } from '../domain/resolution.ts';
 import { blendEnd, canonicalColor, validColor } from './scale.ts';
 import { validGradient, warmEndArgument } from './gradient.ts';
 import { lampOrRoom } from './lighting-state.ts';
@@ -339,7 +339,7 @@ function effectChannels(catalog: JsonObject, name: string | undefined): Channel[
  * same reader `effects_gradient_plan` uses: the field default only when
  * absent, read where the resolver first lists it in a gradient signature.
  */
-export function parseResolveArgs(args: JsonObject): ResolveArgs {
+export function parseResolveArgs(args: JsonObject): ResolveRequest {
   const base = object(args.base), overrides = object(args.overrides), catalog = object(args.catalog);
   const privateRooms = Array.isArray(args.private) ? args.private : [];
   const power = object(args.power), gradients = object(args.gradients);

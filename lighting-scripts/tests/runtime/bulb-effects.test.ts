@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { execute } from '../../src/runtime/engine.ts';
 import { handlers } from '../../src/runtime/registry.ts';
-import type { ExecutionResult } from '../../src/runtime/engine.ts';
+import type { ExecutionOutcome } from '../../src/runtime/engine.ts';
 import type { JsonObject, ServiceCall, Snapshot } from '../../src/runtime/context.ts';
 
 /**
@@ -51,7 +51,7 @@ function isEffect(source: unknown): boolean {
   return typeof source === 'object' && source !== null && (source as JsonObject).kind === 'effect';
 }
 
-function dispatch(target: JsonObject, runtime: JsonObject = {}, lights: string[] = ['light.lamp']): ExecutionResult {
+function dispatch(target: JsonObject, runtime: JsonObject = {}, lights: string[] = ['light.lamp']): ExecutionOutcome {
   const assignments = isEffect(target.brightness) || isEffect(target.color) ? { 'light.lamp': target } : {};
   const plan = { revision: now, plan_order: 1, base: {}, resolved: { targets: { 'light.lamp': target }, assignments } };
   return execute({ script: 'ls_dispatch', args: { plan, lights }, snapshot: snapshot(runtime) }, handlers);

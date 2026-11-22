@@ -37,14 +37,14 @@ export type GradientPlanTarget = {
   /** The cached entry for this target when it is valid for the signature. */
   cached: (signature: GradientSignature) => GradientEntry | undefined;
 };
-export type GradientPlanArgs = {
+export type GradientPlanRequest = {
   targets: GradientPlanTarget[];
   /** Read where the signature lists it (`warm_end|list`); see `warmEndArgument`. */
   warmEnd: () => RGB;
 };
 
 /** `effects_gradient_plan`: reuse a valid cached curve, compile the rest. */
-export function planGradients(args: GradientPlanArgs): CompiledGradients {
+export function planGradients(args: GradientPlanRequest): CompiledGradients {
   const gradients: CompiledGradients = {};
   for (const { target, anchors, cached } of args.targets) {
     const ends = anchors();

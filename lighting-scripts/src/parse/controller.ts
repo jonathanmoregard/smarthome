@@ -23,7 +23,7 @@ import type { OpaqueMap } from './overrides.ts';
 import { warmEndRgb } from './scale.ts';
 import { savedMappingOr } from './accessors.ts';
 import { BUILT_IN_RANGES } from './planning.ts';
-import type { ApplyArgs, PlanArgs, PlanOverrides, RemoteCommandArgs, SwitchInterval, SwitchPlanArgs } from '../domain/controller.ts';
+import type { ApplyRequest, PlanRequest, PlanOverrides, RemoteCommandRequest, SwitchInterval, SwitchPlanRequest } from '../domain/controller.ts';
 import { toPercent, toRemoteSource, toRoomId, toSwitchId } from './ids.ts';
 import { roomOfText } from './rooms.ts';
 import { remotePress } from './remote-input.ts';
@@ -73,7 +73,7 @@ function switchRange(rule: JsonObject, defaults: JsonObject): SwitchInterval | u
 // mapping.items once; all three therefore require real mappings. A rule and a
 // room target are read leniently; the target's `on` is required only once its
 // rule and target both apply.
-export function parseSwitchPlanArgs(args: JsonObject): SwitchPlanArgs {
+export function parseSwitchPlanArgs(args: JsonObject): SwitchPlanRequest {
   const targets = requireObject(args, 'targets', 'ls_switch_plan');
   const ranges = requireObject(args, 'ranges', 'ls_switch_plan');
   const defaults = requireObject(args, 'defaults', 'ls_switch_plan');
@@ -95,7 +95,7 @@ export function parseSwitchPlanArgs(args: JsonObject): SwitchPlanArgs {
 
 // Captured test_now has one default(none), reason two default('config')
 // sites, room one default(''), and test_overrides is optional at two sites.
-export function parsePlanArgs(args: JsonObject): PlanArgs {
+export function parsePlanArgs(args: JsonObject): PlanRequest {
   // Captured `test_overrides if test_overrides|default(none) is mapping else
   // <stored overrides>`: anything that is not a mapping takes the fallback.
   const testOverrides = args.test_overrides;
@@ -111,7 +111,7 @@ export function parsePlanArgs(args: JsonObject): PlanArgs {
 // Captured dry_run/force_all use boolean defaults, test_now and
 // test_overrides are definition-guarded, reason defaults only when absent,
 // and lights is consumed only after the dry-run/test guard.
-export function parseApplyArgs(args: JsonObject): ApplyArgs {
+export function parseApplyArgs(args: JsonObject): ApplyRequest {
   const dryRun = optionalScriptBoolean(args.dry_run, 'ls_apply.dry_run');
   const forceAll = optionalScriptBoolean(args.force_all, 'ls_apply.force_all');
   const hasTestOverrides = Object.hasOwn(args, 'test_overrides');
@@ -131,7 +131,7 @@ export function parseApplyArgs(args: JsonObject): ApplyArgs {
 
 // Captured source/area/command are raw at four/four/two sites and drive
 // identifiers and command dispatch; dry_run has default(false).
-export function parseRemoteCommandArgs(args: JsonObject): RemoteCommandArgs {
+export function parseRemoteCommandArgs(args: JsonObject): RemoteCommandRequest {
   return {
     source: toRemoteSource(requireString(args, 'source', 'ls_remote_command')),
     area: toRoomId(requireString(args, 'area', 'ls_remote_command')),

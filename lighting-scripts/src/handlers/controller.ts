@@ -12,11 +12,11 @@ import {
   cachedGradients, parseApplyArgs, parsePlanArgs, parseRemoteCommandArgs, parseSwitchPlanArgs, planMapping, planOverrides, planPassThrough,
     planRangeDefaults, planWarmEnd,
 } from '../parse/controller.ts';
-import type { RemotePlanResult } from '../domain/remote-input.ts';
+import type { RemotePlan } from '../domain/remote-input.ts';
 import { remoteAnswerDocument, remotePlanDocument } from '../parse/results.ts';
 import { perform } from '../runtime/effects.ts';
 import { acceptedPowerSwitch, planAnswer, remoteCommit, switchPlan } from '../domain/controller.ts';
-import type { ApplyArgs, PlanArgs, PlanDocument, PowerSwitch, RemoteCommandArgs } from '../domain/controller.ts';
+import type { ApplyRequest, PlanRequest, LightingPlan, PowerSwitch, RemoteCommandRequest } from '../domain/controller.ts';
 import { overlayKeyText, SARA_MODE } from '../domain/types/overlay.ts';
 import { pressText } from '../domain/types/remote.ts';
 import { roomText } from '../parse/rooms.ts';
@@ -43,7 +43,7 @@ import { roomText } from '../parse/rooms.ts';
  * typed -- then this document has a typed producer and a typed consumer and the
  * question does not arise.
  */
-export function plan(ctx: ScriptContext, args: PlanArgs): PlanDocument {
+export function plan(ctx: ScriptContext, args: PlanRequest): LightingPlan {
   const overrides = args.testOverrides === undefined
     ? planOverrides(ctx.attr('sensor.ls_overrides', 'overrides'))
     : args.testOverrides;
@@ -81,11 +81,11 @@ export function plan(ctx: ScriptContext, args: PlanArgs): PlanDocument {
  * `tests/parity/test_bridge.py:54-60` stubs `ls_plan` with
  * `{'marker': ['literal', 7]}` and asserts this function returns that object
  * unchanged, so the dry-run path must forward an arbitrary document. Narrowing
- * this to `{ plan: PlanDocument } | null` would be a claim the harness disproves, and
+ * this to `{ plan: LightingPlan } | null` would be a claim the harness disproves, and
  * `ctx.call` here would raise on a document with no `plan` key. Carried, it is
  * forwarded unread and is still the very same document.
  */
-function apply(ctx: ScriptContext, args: ApplyArgs): Verbatim | null {
+function apply(ctx: ScriptContext, args: ApplyRequest): Verbatim | null {
   if (!args.dryRun && (args.testNowGiven || args.hasTestOverrides || args.forceAll)) return null;
   if (args.dryRun) return planPassThrough(ctx.run('ls_plan', { reason: args.reason, test_now: args.testNow, test_overrides: args.testOverrides }));
   ctx.run('ls_commit', { data: { op: 'render_request', via: 'render_request', reason: args.reason, lights: args.lights() } });
@@ -100,7 +100,7 @@ const REMOTE_ATTEMPTS = 1_000;
  * {@link REMOTE_ATTEMPTS} times. A dry run answers the first plan; a noop is
  * accepted without a commit; an accepted change answers nothing.
  */
-function remoteCommand(ctx: ScriptContext, args: RemoteCommandArgs): RemotePlanResult | null {
+function remoteCommand(ctx: ScriptContext, args: RemoteCommandRequest): RemotePlan | null {
   // The press goes out as the text the remote sent, whatever it is.
   const request = { source: args.source, area: args.area, command: pressText(args.command) };
   for (let attempt = 0; attempt < REMOTE_ATTEMPTS; attempt++) {

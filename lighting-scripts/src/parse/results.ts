@@ -1,11 +1,11 @@
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { TypedResults } from '../runtime/entrypoints.ts';
 import type { SwitchDecision } from '../domain/controller.ts';
-import type { AssignResult, EmitResult } from '../domain/transport.ts';
-import type { CommitResult } from '../domain/state-store.ts';
-import type { GroupCommand, GroupPlanResult, RejectedRow } from '../domain/grouping.ts';
-import type { RemoteInputRecord, RemoteModeRecord, RemotePlanOp, RemotePlanResult } from '../domain/remote-input.ts';
-import type { LampColor, LampProfile, LampProfileEntry, ProfileLevel, ScheduleCommand, ScheduleDetails, ScheduleEnvelope, ScheduledBaseResult,
+import type { AssignedGeneration, EmitOutcome } from '../domain/transport.ts';
+import type { CommitOutcome } from '../domain/state-store.ts';
+import type { GroupCommand, GroupedCommands, RejectedRow } from '../domain/grouping.ts';
+import type { RemoteInputRecord, RemoteModeRecord, RemotePlanOp, RemotePlan } from '../domain/remote-input.ts';
+import type { LampColor, LampProfile, LampProfileEntry, ProfileLevel, ScheduleCommand, ScheduleDetails, ScheduleEnvelope, ScheduledBase,
   ScheduleMirror, TargetEntry } from '../domain/schedule.ts';
 import { optionalBlock, requireBlock } from './blocks.ts';
 import { BLOCKS, blockOption } from '../domain/blocks.ts';
@@ -97,7 +97,7 @@ function decodeSwitchPlan(value: JsonValue, context: string): Record<SwitchId, S
     .map(([entity, entry]) => [toSwitchId(entity), decodeSwitchDecision(entry, `${context}.switches.${entity}`)]));
 }
 
-function decodeEmit(value: JsonValue, context: string): EmitResult {
+function decodeEmit(value: JsonValue, context: string): EmitOutcome {
   const result = requireObject({ value }, 'value', context);
   const published = requireArray(result, 'published_at', context);
   return {
@@ -107,7 +107,7 @@ function decodeEmit(value: JsonValue, context: string): EmitResult {
 }
 
 /** `generation` must be *present* and may legitimately be null; it is raw. */
-function decodeAssign(value: JsonValue, context: string): AssignResult {
+function decodeAssign(value: JsonValue, context: string): AssignedGeneration {
   const result = requireObject({ value }, 'value', context);
   if (!Object.hasOwn(result, 'generation')) throw new ParseError(`${context}.generation must be present, got undefined`);
   return { generation: carry(result.generation ?? null) };
@@ -118,7 +118,7 @@ function decodeAssign(value: JsonValue, context: string): AssignResult {
  * two fields -- so a stub claiming a commit succeeded has to say what it
  * committed, which is the shape the real handler always returns.
  */
-function decodeCommit(value: JsonValue, context: string): CommitResult {
+function decodeCommit(value: JsonValue, context: string): CommitOutcome {
   const result = requireObject({ value }, 'value', context);
   if (!requireBoolean(result.accepted, `${context}.accepted`)) return { accepted: false };
   return {
@@ -158,7 +158,7 @@ function decodeGroupCommand(value: JsonValue, context: string): GroupCommand {
  * where that leniency now lives, and it is strict: a stub standing in for a
  * frame plan has to say what it planned.
  */
-function decodeGroupPlan(value: JsonValue, context: string): GroupPlanResult {
+function decodeGroupPlan(value: JsonValue, context: string): GroupedCommands {
   const result = requireObject({ value }, 'value', context);
   const commands = requireArray(result, 'commands', context);
   const rejected = requireArray(result, 'rejected', context);
@@ -286,7 +286,7 @@ export function remotePlanDocument<P extends RemotePlanOp>(plan: P): JsonObject 
 }
 
 /** `ls_remote_command`'s answer: the plan as its document, or `null` when it has none. */
-export function remoteAnswerDocument(answer: RemotePlanResult | null): JsonObject | null {
+export function remoteAnswerDocument(answer: RemotePlan | null): JsonObject | null {
   return answer === null ? null : remotePlanDocument(answer);
 }
 
@@ -303,7 +303,7 @@ function requestSource(requestId: string, receivedAt: number, context: string): 
   return toRemoteSource(requestId.slice(0, -suffix.length));
 }
 
-function decodeRemotePlan(value: JsonValue, context: string): RemotePlanResult {
+function decodeRemotePlan(value: JsonValue, context: string): RemotePlan {
   const result = requireObject({ value }, 'value', context);
   const op = decodeRemoteOp(result, context);
   const input_revision = requireString(result, 'input_revision', context);
@@ -463,7 +463,7 @@ function mirrorRow(entity: string, option: string, scopes: string[], context: st
  * `dbg` is copied only when present: the producer adds it under
  * `includeDebug`, and an absent key is not the same bytes as a null one.
  */
-function decodeScheduledBase(value: JsonValue, context: string): ScheduledBaseResult {
+function decodeScheduledBase(value: JsonValue, context: string): ScheduledBase {
   const result = requireObject({ value }, 'value', context);
   const targets = requireObject(result, 'targets', context);
   const schedule = requireObject(result, 'schedule', context);

@@ -12,7 +12,7 @@ import { isObject, jinjaFloat, jinjaInt, jinjaString, object, ParseError, requir
 import { carry } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import type {
-  BlockTarget, CommitSnapshot, EffectChannels, OverrideBlockArgs, ProfilePatch, ScheduledBlocks, StoredProfile, StoreProfileArgs,
+  BlockTarget, CommitSnapshot, EffectChannels, OverrideBlockRequest, ProfilePatch, ScheduledBlocks, StoredProfile, StoreProfileRequest,
 } from '../domain/state-store.ts';
 import { opaqueMap, storedFact } from './overrides.ts';
 import { attributeFact, attributeList, attributeMapping, lenientOverrides } from './sensors.ts';
@@ -59,7 +59,7 @@ export function roomTarget(room: string): BlockTarget {
  * one `| lower`, and via has two `| default('app')` sites. Raw scope remains
  * raw; the case filter coerces through Jinja string spelling.
  */
-export function parseOverrideBlockArgs(args: JsonObject): OverrideBlockArgs {
+export function parseOverrideBlockArgs(args: JsonObject): OverrideBlockRequest {
   return {
     scope: blockTarget(args.scope),
     block: jinjaString(args.block).toLowerCase(),
@@ -161,7 +161,7 @@ function huePair(hs: JsonValue | undefined): { h: number; s: number } {
  * a mireds that does not convert, are read as not supplied -- the saved value
  * stays, and an unconverted mireds releases no colour channel.
  */
-export function parseStoreProfile(args: JsonObject): StoreProfileArgs {
+export function parseStoreProfile(args: JsonObject): StoreProfileRequest {
   const mireds = !supplied(args.kelvin) && supplied(args.mireds) ? miredKelvin(args.mireds) : undefined;
   return {
     // The captured tail evaluates `store.startswith('input_text.ls_lamp_')`,

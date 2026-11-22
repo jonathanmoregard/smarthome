@@ -62,7 +62,7 @@
     },
     {
       "file": "src/domain/transport.ts",
-      "symbol": "FramePlanArgs.catalog.topics",
+      "symbol": "FramePlanRequest.catalog.topics",
       "reason": "V1 bulb site, kept: the key is a BulbId; the string left is the bulb's MQTT command topic, an address outside V1's id brands (other-id, named in V2)."
     },
     {
@@ -72,13 +72,13 @@
     },
     {
       "file": "src/domain/controller.ts",
-      "symbol": "SwitchPlanArgs.roomTarget.return.level",
+      "symbol": "SwitchPlanRequest.roomTarget.return.level",
       "reason": "V1 level site, kept: the resolved room target's `level`, read with JavaScript `Number(...)` and no range check (src/parse/controller.ts), so a non-numeric or out-of-range level passes today; a range type needs a decision on those, and today's code has no default."
     },
     {
       "file": "src/domain/controller.ts",
       "symbol": "SwitchDecision.brightness",
-      "reason": "V1 level site, kept: not a brightness but the room's level in percent, `level * 100 / 255`, arithmetic on the unchecked room target level (`SwitchPlanArgs.roomTarget`); a Percent once that level is typed (V3)."
+      "reason": "V1 level site, kept: not a brightness but the room's level in percent, `level * 100 / 255`, arithmetic on the unchecked room target level (`SwitchPlanRequest.roomTarget`); a Percent once that level is typed (V3)."
     },
     {
       "file": "src/domain/native-controls.ts",
@@ -147,7 +147,7 @@
     },
     {
       "file": "src/domain/state-store.ts",
-      "symbol": "StoreProfileArgs.brightness",
+      "symbol": "StoreProfileRequest.brightness",
       "reason": "V1 level site, kept (ground rule 1): `ls_store`'s request argument, read with `| int` (kelvin also from mireds, `1000000 / mireds`) and no range check (src/parse/state-store.ts), and stored as given. A range type would raise where today it stores, and today's code has no default."
     },
     {
@@ -157,7 +157,7 @@
     },
     {
       "file": "src/domain/state-store.ts",
-      "symbol": "StoreProfileArgs.kelvin",
+      "symbol": "StoreProfileRequest.kelvin",
       "reason": "V1 kelvin site, kept (ground rule 1): `ls_store`'s request argument, read with `| int` (kelvin also from mireds, `1000000 / mireds`) and no range check (src/parse/state-store.ts), and stored as given. A range type would raise where today it stores, and today's code has no default."
     },
     {
@@ -202,13 +202,13 @@
     },
     {
       "file": "src/domain/state-store.ts",
-      "symbol": "StoreProfileArgs.hs.s",
+      "symbol": "StoreProfileRequest.hs.s",
       "reason": "V1 percent site, kept (ground rule 1): `ls_store`'s request `hs` saturation, `| float` per element with no range check (src/parse/state-store.ts), stored as given; a `Percent` would raise where today it stores, and today's code has no default."
     },
     {
       "file": "src/domain/state-store.ts",
       "symbol": "ProfilePatch.s",
-      "reason": "V1 percent site, kept (ground rule 1): the saturation `ls_store` writes, the request's unchecked `hs` saturation (`StoreProfileArgs.hs`)."
+      "reason": "V1 percent site, kept (ground rule 1): the saturation `ls_store` writes, the request's unchecked `hs` saturation (`StoreProfileRequest.hs`)."
     },
     {
       "file": "src/parse/native-controls.ts",

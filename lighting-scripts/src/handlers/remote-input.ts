@@ -10,7 +10,7 @@ import { parseRemotePlanArgs, remoteRoomPlan } from '../parse/remote-input.ts';
 import { roomText } from '../parse/rooms.ts';
 import { remoteDecision, remoteOpening } from '../domain/remote-input.ts';
 import { pressCommand } from '../domain/types/remote.ts';
-import type { RemotePlanArgs, RemotePlanResult } from '../domain/remote-input.ts';
+import type { RemotePlanRequest, RemotePlan } from '../domain/remote-input.ts';
 
 /**
  * Store button-domain intent; rendered brightness/color belong to the resolver.
@@ -19,7 +19,7 @@ import type { RemotePlanArgs, RemotePlanResult } from '../domain/remote-input.ts
  * its context, the catalog for three commands), then decide on the house as
  * it stands after them.
  */
-export function remotePlan(ctx: ScriptContext, args: RemotePlanArgs): RemotePlanResult {
+export function remotePlan(ctx: ScriptContext, args: RemotePlanRequest): RemotePlan {
   const opening = remoteOpening(ctx, args);
   const plan = remoteRoomPlan(opening.needsContext ? ctx.run('ls_room_plan', { room: roomText(opening.room), overrides: opening.overrides.document,
     cache: opening.cache, reason: 'remote' }) : undefined);

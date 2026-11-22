@@ -8,11 +8,11 @@ import { run } from '../runtime/effects.ts';
 import type { Plan } from '../runtime/effects.ts';
 import { withParsedArgs } from '../runtime/parse.ts';
 import { parseNativeCatalog, parseNativeCurrent, parseNativePlanArgs, parseSetArgs } from '../parse/native-controls.ts';
-import type { SetArgs } from '../parse/native-controls.ts';
+import type { SetRequest } from '../parse/native-controls.ts';
 import { planNativeControls, planUIControls } from '../domain/native-controls.ts';
 import type { ControlPlan } from '../domain/native-controls.ts';
 
-function setControls(ctx: ScriptContext, args: SetArgs): ControlPlan {
+function setControls(ctx: ScriptContext, args: SetRequest): ControlPlan {
   const catalog = parseNativeCatalog(ctx.run('effects_catalog'), 'effects_set.catalog');
   const current = !args.source.startsWith('light.ls_') && args.attribute !== 'power' ? parseNativeCurrent(ctx.run('ls_plan',
     { reason: 'config' }), 'effects_set.current') : undefined;

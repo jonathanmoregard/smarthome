@@ -117,7 +117,7 @@ export type ScheduleDetails = {
   left: number;
   cur_ts: number;
 };
-export interface ScheduledBaseArgs {
+export interface ScheduledBaseRequest {
   testNow: number | undefined;
   reason: string;
   overrides: ScheduleRecords | undefined;
@@ -360,7 +360,7 @@ export type RoomTargetEntry = ({ on: false } | { on: true; brightness: number; c
   ignore_overrides: string[];
 };
 export type TargetEntry = LampTargetEntry | RoomTargetEntry;
-export type ScheduledBaseResult = {
+export type ScheduledBase = {
   targets: Record<string, TargetEntry>;
   schedule: ScheduleEnvelope;
 };
@@ -369,7 +369,7 @@ export type ScheduledBaseResult = {
 type Chosen = { present: boolean; block: Block | undefined; when: () => number };
 const NOTHING_CHOSEN: Chosen = { present: false, block: undefined, when: () => 0 };
 
-export function scheduledBase(view: HouseView, args: ScheduledBaseArgs, roomLocal = false): ScheduledBaseResult {
+export function scheduledBase(view: HouseView, args: ScheduledBaseRequest, roomLocal = false): ScheduledBase {
   const at = args.testNow === undefined ? timestamp(view.now) : args.testNow;
   const why = args.reason;
   const records = args.overrides === undefined

@@ -24,7 +24,7 @@ import { savedPlanOrder } from './sensors.ts';
 import type { OpaqueMap, StoredFact } from './overrides.ts';
 import type { RGB } from '../domain/scale.ts';
 import type {
-  AssignArgs, AssignDetails, BulbEffectName, Channel, EmitArgs, FilterArgs, FrameEffect, FramePlanArgs, FrameSource, FrameTarget,
+  AssignRequest, AssignDetails, BulbEffectName, Channel, EmitRequest, FilterRequest, FrameEffect, FramePlanRequest, FrameSource, FrameTarget,
 } from '../domain/transport.ts';
 import { lampOrRoom } from './lighting-state.ts';
 import { parseOverlayKey } from './overlay-key.ts';
@@ -114,7 +114,7 @@ function parseFrameSource(target: JsonObject, channel: Channel, catalogEffects: 
   };
 }
 
-function parseFrameCatalog(args: JsonObject): FramePlanArgs['catalog'] {
+function parseFrameCatalog(args: JsonObject): FramePlanRequest['catalog'] {
   // `phases` is not read: no effect is rendered here any more. `effects` is
   // read by the target parse, and only for a name the bulbs do not run.
   const catalog = requireObject(args, 'catalog', 'effects_frame_plan');
@@ -165,7 +165,7 @@ function parseFrameTargets(args: JsonObject): Record<string, FrameTarget> {
 // `timestamp`, `animation_tick`, `effects` and `phases` fed the software
 // renderers and the frame engine, both gone: callers may still pass them,
 // and nothing reads them.
-export function parseFramePlanArgs(args: JsonObject): FramePlanArgs {
+export function parseFramePlanArgs(args: JsonObject): FramePlanRequest {
   return {
     catalog: parseFrameCatalog(args),
     targets: parseFrameTargets(args),
@@ -180,7 +180,7 @@ export function parseFramePlanArgs(args: JsonObject): FramePlanArgs {
 // sites); `effect_targets` is raw twice with one `| default({})` fallback.
 // Nested payload/owners/members/topic are raw (2/2/1/1), so commands get a
 // strict object/string-array/string parser rather than permissive casts.
-export function parseEmitArgs(args: JsonObject): EmitArgs {
+export function parseEmitArgs(args: JsonObject): EmitRequest {
   return {
     commands: requireArray(args, 'commands', 'effects_emit').map((raw, index) => lazy(() => {
       const context = `effects_emit.commands[${index}]`;
@@ -229,7 +229,7 @@ function parseAssignTargetViews(targets: JsonObject): ReturnType<AssignDetails['
 // times with one runtime-attribute default. Nested is_room/kind are raw once,
 // effect five times, owners twice, brightness/color once, and updated twice;
 // typed target views parse those fields without altering persisted targets.
-export function parseAssignArgs(args: JsonObject): AssignArgs {
+export function parseAssignArgs(args: JsonObject): AssignRequest {
   return {
     revision: requireString(args, 'revision', 'effects_assign'),
     // The captured stale-revision stop precedes every other argument read.
@@ -249,7 +249,7 @@ export function parseAssignArgs(args: JsonObject): AssignArgs {
 // Captured `commands` is raw at both sites and nested `ids` is raw nine
 // times, so both the command list and each id list are parsed strictly. The
 // rest of each command is forwarded unread.
-export function parseFilterArgs(args: JsonObject): FilterArgs {
+export function parseFilterArgs(args: JsonObject): FilterRequest {
   return {
     commands: requireArray(args, 'commands', 'effects_filter_commands').map((raw, index) => {
       const command = requireObject({ raw }, 'raw', `effects_filter_commands.commands[${index}]`);

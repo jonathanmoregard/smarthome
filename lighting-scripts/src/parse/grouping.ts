@@ -14,7 +14,7 @@
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import { carry } from '../runtime/verbatim.ts';
 import { list } from './accessors.ts';
-import type { EndpointRow, GroupPlanArgs, MulticastGroup } from '../domain/grouping.ts';
+import type { EndpointRow, GroupPlanRequest, MulticastGroup } from '../domain/grouping.ts';
 import { toBulbId } from './ids.ts';
 
 function mapping(value: JsonValue | undefined): value is JsonObject {
@@ -43,7 +43,7 @@ function multicastGroup(g: JsonValue): MulticastGroup | undefined {
 }
 
 /** Captured rows/groups are iterated: absence is empty, a malformed present container raises. */
-export function parseGroupPlanArgs(args: JsonObject): GroupPlanArgs {
+export function parseGroupPlanArgs(args: JsonObject): GroupPlanRequest {
   const rows = list(args.rows), groups = list(args.groups);
   return {
     rows: rows.map(endpointRow),

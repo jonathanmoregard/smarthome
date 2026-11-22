@@ -2,10 +2,10 @@ import { jinjaTruthy } from '../runtime/parse.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import type { Effect, HouseView, Plan } from '../runtime/effects.ts';
 import type { BulbId, RoomId } from './types/ids.ts';
-import type { GroupCommand, GroupPlanResult } from './grouping.ts';
+import type { GroupCommand, GroupedCommands } from './grouping.ts';
 import { hasValue } from './schedule.ts';
 import { bulbEffect, runningIn, stillCurrent } from './transport.ts';
-import type { AssignResult, EmitResult } from './transport.ts';
+import type { AssignedGeneration, EmitOutcome } from './transport.ts';
 import { timestamp } from '../parse/accessors.ts';
 import type { OpaqueMap, StoredFact, StoredValue } from '../parse/overrides.ts';
 import { attributeFact, attributeMapping, overridesRevision } from '../parse/sensors.ts';
@@ -46,7 +46,7 @@ export interface DispatchDetails {
   staleKeys: () => StoredValue[];
   saraMirror: StoredFact;
 }
-export interface DispatchArgs {
+export interface DispatchRequest {
   revision: string;
   planOrder: number;
   details: () => DispatchDetails;
@@ -57,16 +57,16 @@ export interface DispatchArgs {
  * revision-moved and stale-plan guard returns it -- so it is in the type rather
  * than hidden behind a lenient read at the caller.
  */
-export type DispatchResult = { completed: boolean; published_at: number[] } | null;
+export type DispatchOutcome = { completed: boolean; published_at: number[] } | null;
 
 /** What a dispatch carries once its plan is accepted. */
 type Accepted = { revision: string; planOrder: number; details: DispatchDetails };
 /** ...once the catalog is fetched and the lamps to send are chosen against the runtime as it stood. */
 type Chosen = Accepted & { catalog: Verbatim; previous: DispatchRuntime; ordinary: OpaqueMap };
 /** ...once the assignment answered its generation. */
-type Assigned = Chosen & { generation: AssignResult['generation'] };
+type Assigned = Chosen & { generation: AssignedGeneration['generation'] };
 /** ...once the light went out. */
-type Lit = Assigned & { emission: EmitResult };
+type Lit = Assigned & { emission: EmitOutcome };
 /** ...once every publish is done: whether all completed, and when each went out. */
 type Settled = Assigned & { completed: boolean; publishedAt: number[] };
 
@@ -78,7 +78,7 @@ type Settled = Assigned & { completed: boolean; publishedAt: number[] };
  * then the guarded runtime record, the switches one by one, and the tail.
  */
 export type DispatchModel =
-  | { tag: 'opening'; args: DispatchArgs }
+  | { tag: 'opening'; args: DispatchRequest }
   | { tag: 'cataloguing'; run: Accepted }
   | { tag: 'assigning'; run: Chosen }
   | { tag: 'framing'; run: Assigned }
@@ -87,7 +87,7 @@ export type DispatchModel =
   /** The switches from `next` on are still to be checked. */
   | { tag: 'switching'; run: Settled; next: number }
   | { tag: 'finishing'; run: Settled }
-  | { tag: 'done'; answer: DispatchResult };
+  | { tag: 'done'; answer: DispatchOutcome };
 /**
  * Every message carries the house as it stands after the command that
  * answered: a step's reads are made on it, and never cross the commands that
@@ -96,9 +96,9 @@ export type DispatchModel =
 export type DispatchMsg =
   | { tag: 'start'; house: HouseView }
   | { tag: 'catalog'; catalog: Verbatim; house: HouseView }
-  | { tag: 'assigned'; result: AssignResult; house: HouseView }
-  | { tag: 'framed'; batch: GroupPlanResult; house: HouseView }
-  | { tag: 'emitted'; result: EmitResult; house: HouseView }
+  | { tag: 'assigned'; result: AssignedGeneration; house: HouseView }
+  | { tag: 'framed'; batch: GroupedCommands; house: HouseView }
+  | { tag: 'emitted'; result: EmitOutcome; house: HouseView }
   | { tag: 'performed'; house: HouseView };
 type StartCommand = { topic: string; payload: { effect: string }; members: BulbId[]; owners: string[]; group: null };
 export type DispatchCmd =
@@ -111,14 +111,14 @@ export type DispatchCmd =
     targets: OpaqueMap; catalog: Verbatim; timestamp: number; transition_cap: number | null; transition_rooms: StoredValue[] | null;
   } }
   /** Call `effects_emit`; answers `emitted`. */
-  | { tag: 'emit'; args: { commands: GroupCommand[] | StartCommand[]; revision: string; generation: AssignResult['generation'] } }
+  | { tag: 'emit'; args: { commands: GroupCommand[] | StartCommand[]; revision: string; generation: AssignedGeneration['generation'] } }
   /** Perform one effect; answers `performed`. */
   | { tag: 'effect'; effect: Effect }
   /** Perform a lazy plan, whose raising reads sit between its effects; answers `performed`. */
   | { tag: 'plan'; plan: Plan<void> };
 type Transition = [DispatchModel, DispatchCmd[]];
 
-export function dispatchInit(args: DispatchArgs): DispatchModel {
+export function dispatchInit(args: DispatchRequest): DispatchModel {
   return { tag: 'opening', args };
 }
 
@@ -183,7 +183,7 @@ export function dispatchUpdate(model: DispatchModel, msg: DispatchMsg): Transiti
   }
 }
 
-function done(answer: DispatchResult): Transition {
+function done(answer: DispatchOutcome): Transition {
   return [{ tag: 'done', answer }, []];
 }
 function throwUnexpected(model: DispatchModel, msg: DispatchMsg): never {
@@ -233,7 +233,7 @@ function sentStarts(run: Chosen): Array<[string, string[]]> {
  * stays on, waits for the lamp's next send (a target change, a request, or the
  * lamp itself coming back on, which `lamp_on` requests).
  */
-function settle(house: HouseView, run: Lit, started: EmitResult): Transition {
+function settle(house: HouseView, run: Lit, started: EmitOutcome): Transition {
   const { revision, generation, ordinary } = run;
   // `requireBoolean(emission.completed)`, `?? null` on the generation and
   // `?? []` on published_at are all gone: `emitCommands` builds both fields
@@ -273,7 +273,7 @@ function switching(house: HouseView, run: Settled, next: number): Transition {
 }
 
 /** The room selects, the Sara mirror and the stale-key clear. Each mirror parses where it is sent. */
-export function* tailEffects(details: DispatchDetails, revision: string, generation: AssignResult['generation']): Plan<void> {
+export function* tailEffects(details: DispatchDetails, revision: string, generation: AssignedGeneration['generation']): Plan<void> {
   for (const parseMirror of details.mirrors()) {
     const mirror = parseMirror();
     yield { kind: 'service', service: 'input_select.select_option', data: { option: mirror.option }, target: { entity_id: mirror.entity },
@@ -460,7 +460,7 @@ export function cacheWrite(view: HouseView, room: RoomId, cache: Verbatim): Effe
  * revision: the handled versions and the latency record, guarded on output
  * success. `undefined` for a stale plan, incomplete output or a moved revision.
  */
-export function renderAck(view: HouseView, opening: RenderOpening, plannedAt: number, emission: DispatchResult): Effect | undefined {
+export function renderAck(view: HouseView, opening: RenderOpening, plannedAt: number, emission: DispatchOutcome): Effect | undefined {
   // `requireObject`, `requireBoolean` and `?? []` are gone: `null` is in the
   // type, and `dispatch` builds both fields whenever it returns an object.
   if (emission === null || !emission.completed || opening.revision !== overridesRevision(view, 'ls_render')) return undefined;

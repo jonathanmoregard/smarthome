@@ -25,7 +25,7 @@ import { opaqueMap, storedFact } from './overrides.ts';
 import type { OpaqueMap, StoredFact, StoredValue } from './overrides.ts';
 import { storedChannels } from './transport.ts';
 import { savedPlanOrder } from './sensors.ts';
-import type { DispatchArgs, DispatchDetails, DispatchTarget } from '../domain/dispatch-render.ts';
+import type { DispatchRequest, DispatchDetails, DispatchTarget } from '../domain/dispatch-render.ts';
 import { lampOrRoom } from './lighting-state.ts';
 import { toRoomId } from './ids.ts';
 import type { RoomId } from '../domain/types/ids.ts';
@@ -114,7 +114,7 @@ function parseDispatchDetails(plan: JsonObject, lights: JsonValue | undefined): 
 // and sara_mirror retain their raw values. Boolean-context fields is_room,
 // send, remote, on use Python truthiness (1/1/2/5 raw sites). `lights` has
 // four raw uses and one `| default(none)`, preserved by its parser.
-export function parseDispatchArgs(args: JsonObject): DispatchArgs {
+export function parseDispatchArgs(args: JsonObject): DispatchRequest {
   const plan = requireObject(args, 'plan', 'ls_dispatch');
   return {
     revision: requireString(plan, 'revision', 'ls_dispatch.plan'),

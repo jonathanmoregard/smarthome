@@ -27,7 +27,7 @@ function triggerObject(args: JsonObject, context: string): JsonObject {
 }
 
 export type RemoteKind = 'power' | 'directions' | 'preset';
-export interface RemoteArgs {
+export interface RemoteTrigger {
   room: RoomId;
   /** The gesture command: the kind itself, or directions' `trigger.id` as stored. */
   command: StoredValue;
@@ -37,7 +37,7 @@ export interface RemoteArgs {
   deviceId: RemoteId | undefined;
 }
 
-export function parseRemoteArgs(kind: RemoteKind, args: JsonObject): RemoteArgs {
+export function parseRemoteArgs(kind: RemoteKind, args: JsonObject): RemoteTrigger {
   const room = toRoomId(requireString(args, 'room', `automation.remote_${kind}`));
   if (!/^[a-z0-9_]+$/.test(room)) throw new ParseError('Remote automation requires a runtime room ID');
   // Center never reads trigger. Directions and preset reach distinct raw
@@ -56,7 +56,7 @@ export function parseRemoteArgs(kind: RemoteKind, args: JsonObject): RemoteArgs 
   };
 }
 
-export interface NativeControlsArgs {
+export interface NativeControlTrigger {
   topic: string;
   /** The MQTT payload as received, or absent. */
   payload: Verbatim;
@@ -64,7 +64,7 @@ export interface NativeControlsArgs {
   source: (alias: string) => string | undefined;
 }
 
-export function parseNativeControlsArgs(args: JsonObject): NativeControlsArgs {
+export function parseNativeControlsArgs(args: JsonObject): NativeControlTrigger {
   const trigger = triggerObject(args, 'automation.effects_native_light_controls');
   const sources = lazy(() => args.sources === undefined
     ? {}
@@ -126,7 +126,7 @@ export function nativeControlValue(payload: Verbatim, attribute: string): Verbat
   return carry(value);
 }
 
-export interface WriterArgs {
+export interface OverrideWriterTrigger {
   /** The event data, forwarded with `who` replaced. */
   data: Verbatim;
   who: Verbatim;
@@ -135,7 +135,7 @@ export interface WriterArgs {
 // Writer reads trigger.event.data as a mapping once, data.who raw once in an
 // `or` chain, and event.context.user_id raw once. Jinja `or` replaces empty
 // containers too, so use jinjaTruthy rather than JavaScript `||`.
-export function parseWriterArgs(args: JsonObject): WriterArgs {
+export function parseWriterArgs(args: JsonObject): OverrideWriterTrigger {
   const trigger = triggerObject(args, 'automation.lighting_schedule_override_store_writer');
   const event = requireObject(trigger, 'event', 'automation.lighting_schedule_override_store_writer.trigger');
   const data = requireObject(event, 'data', 'automation.lighting_schedule_override_store_writer.trigger.event');
@@ -151,23 +151,23 @@ export function parseTriggerIdArgs(context: string) {
   return (args: JsonObject): StoredFact => storedFact(triggerObject(args, context).id);
 }
 
-export interface ScheduleEngineArgs { id: StoredFact; entityId: StoredFact }
+export interface ScheduleEngineTrigger { id: StoredFact; entityId: StoredFact }
 
-export function parseScheduleEngineArgs(args: JsonObject): ScheduleEngineArgs {
+export function parseScheduleEngineArgs(args: JsonObject): ScheduleEngineTrigger {
   const trigger = triggerObject(args, 'automation.lighting_schedule_engine');
   return { id: storedFact(trigger.id), entityId: storedFact(trigger.entity_id) };
 }
 
-export interface SaraModeArgs { id: StoredFact; who: StoredFact }
+export interface SaraModeTrigger { id: StoredFact; who: StoredFact }
 
-export function parseSaraModeArgs(args: JsonObject): SaraModeArgs {
+export function parseSaraModeArgs(args: JsonObject): SaraModeTrigger {
   const trigger = triggerObject(args, 'automation.lighting_schedule_sara_mode_switch');
   const toState = requireObject(trigger, 'to_state', 'automation.lighting_schedule_sara_mode_switch.trigger');
   const stateContext = requireObject(toState, 'context', 'automation.lighting_schedule_sara_mode_switch.trigger.to_state');
   return { id: storedFact(trigger.id), who: storedFact(stateContext.user_id) };
 }
 
-export interface LampChangeArgs {
+export interface LampChangeTrigger {
   who: StoredFact;
   details: () => {
     service: StoredFact;
@@ -177,7 +177,7 @@ export interface LampChangeArgs {
   };
 }
 
-export function parseLampChangeArgs(args: JsonObject): LampChangeArgs {
+export function parseLampChangeArgs(args: JsonObject): LampChangeTrigger {
   const trigger = triggerObject(args, 'automation.lighting_schedule_lamp_change_detector');
   const event = requireObject(trigger, 'event', 'automation.lighting_schedule_lamp_change_detector.trigger');
   const eventContext = requireObject(event, 'context', 'automation.lighting_schedule_lamp_change_detector.trigger.event');

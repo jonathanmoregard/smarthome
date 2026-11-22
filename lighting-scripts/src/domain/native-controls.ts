@@ -6,7 +6,7 @@ import { recordTimestamp } from '../parse/resolution.ts';
 import { switchRangeIterable } from '../parse/planning.ts';
 import { groupChildren, lampKelvinRange, underlyingColour } from '../parse/native-controls.ts';
 import type {
-  BrightnessRequest, ColourRequest, NativeCatalog, NativeCurrent, NativePlanArgs, PlanTarget, SetArgs,
+  BrightnessRequest, ColourRequest, NativeCatalog, NativeCurrent, NativePlanRequest, PlanTarget, SetRequest,
 } from '../parse/native-controls.ts';
 import { overlayKeyText } from './types/overlay.ts';
 import type { OverlayKey } from './types/overlay.ts';
@@ -299,7 +299,7 @@ function held(base: PlanTarget, resolved: PlanTarget, context: string, stamp: St
     color: constant(underlyingColour(base, resolved), stamp) };
 }
 
-export function planNativeControls(view: HouseView, args: NativePlanArgs): NativePlan {
+export function planNativeControls(view: HouseView, args: NativePlanRequest): NativePlan {
   const { sd, catalog, areas, devices, labels, requested } = args;
   const members = catalog.members;
   for (const area of areas) requested.push(...Object.keys(view.rooms.ofId).filter(entity => view.rooms.ofId[entity] === area));
@@ -360,7 +360,7 @@ export function planNativeControls(view: HouseView, args: NativePlanArgs): Nativ
   return { records, power };
 }
 
-export function planUIControls(view: HouseView, args: SetArgs, catalog: NativeCatalog, current: NativeCurrent | undefined): ControlPlan {
+export function planUIControls(view: HouseView, args: SetRequest, catalog: NativeCatalog, current: NativeCurrent | undefined): ControlPlan {
   const { source, attribute, value } = args;
   const profile = source.startsWith('light.ls_'), members = catalog.members;
   const targets = catalog.groups.has(source) ? catalog.groups.members(source) : [source];

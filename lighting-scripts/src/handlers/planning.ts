@@ -6,11 +6,11 @@
 import type { ScriptContext, ScriptHandlers } from '../runtime/context.ts';
 import { withParsedArgs } from '../runtime/parse.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
-import type { ResolutionResult } from '../domain/resolution.ts';
+import type { Resolution } from '../domain/resolution.ts';
 import { privateRooms } from '../domain/schedule.ts';
 import { mappingAttribute, parseRoomBaseline, parseRoomPlanArgs, rangeDefaults, roomCatalog } from '../parse/planning.ts';
 import { activeOverrides, missUpdate, refreshBaseline, roomOpening, roomPlanAnswer } from '../domain/planning.ts';
-import type { CacheUpdate, Gradients, RoomBaseline, RoomPlanArgs, RoomPlanResult } from '../domain/planning.ts';
+import type { CacheUpdate, Gradients, RoomBaseline, RoomPlanRequest, RoomPlan } from '../domain/planning.ts';
 import { overlayKeyText, SARA_MODE } from '../domain/types/overlay.ts';
 
 /**
@@ -18,7 +18,7 @@ import { overlayKeyText, SARA_MODE } from '../domain/types/overlay.ts';
  * inter-handler runs, then the refresh, `effects_resolve` and `ls_switch_plan`.
  * Every read after a run is made on the house as that run left it.
  */
-export function roomPlan(ctx: ScriptContext, args: RoomPlanArgs): RoomPlanResult {
+export function roomPlan(ctx: ScriptContext, args: RoomPlanRequest): RoomPlan {
   const { room, reason, overrides, cache } = args;
   const opening = roomOpening(ctx, args);
   const { at, warmEnd } = opening;
@@ -36,7 +36,7 @@ export function roomPlan(ctx: ScriptContext, args: RoomPlanArgs): RoomPlanResult
   }
   const refreshed = refreshBaseline(ctx, baseline, hit === undefined ? undefined : hit.validFrom, room, opening.deps, overrides, at);
   const active = activeOverrides(overrides, refreshed.stale);
-  const resolved: ResolutionResult = ctx.call('effects_resolve', { base: refreshed.targets, overrides: active, catalog,
+  const resolved: Resolution = ctx.call('effects_resolve', { base: refreshed.targets, overrides: active, catalog,
     sara: Object.hasOwn(active, overlayKeyText(SARA_MODE)), private: privateRooms(ctx),
     power: args.power ?? mappingAttribute(ctx.attr('sensor.ls_overrides', 'power')), warm_end: warmEnd, gradients });
   // `?? {}` on both results is gone, not dropped as decoration: `switchPlan`

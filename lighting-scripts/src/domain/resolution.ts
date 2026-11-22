@@ -153,7 +153,7 @@ export type BaseItem = {
   brightness: Verbatim | undefined;
   claims: { observedBrightness: Claim; observedColor: Claim; brightness: Claim; color: Claim };
 };
-export type ResolveArgs = {
+export type ResolveRequest = {
   targets: Array<{ target: string; item: BaseItem }>;
   records: OverrideRecord[];
   channelsOf(effect: string | undefined): Channel[];
@@ -202,7 +202,7 @@ export type ResolvedTarget = {
   owners: { brightness: string; color: string };
   transition: Verbatim;
 };
-export type ResolutionResult = { targets: Record<string, ResolvedTarget>; assignments: Record<string, ResolvedTarget> };
+export type Resolution = { targets: Record<string, ResolvedTarget>; assignments: Record<string, ResolvedTarget> };
 
 type Candidate = { key: OverlayKey; updated: Stamp; claim: Claim; baselineOnly: boolean };
 type InputPosition = { position: number; level: number };
@@ -284,7 +284,7 @@ function effectClaim(effect: string | undefined, key: string, intensity: number 
 }
 
 /** The channels a `light` record sets on this target. */
-function lightPatch(light: LightValue, key: string, item: BaseItem, args: ResolveArgs): Patch {
+function lightPatch(light: LightValue, key: string, item: BaseItem, args: ResolveRequest): Patch {
   if (light.kind === 'unset') return { brightness: item.claims.observedBrightness, color: item.claims.observedColor };
   if (light.kind === 'other') return {};
   if (light.effectPresent && light.effect !== 'Normal light') {
@@ -306,7 +306,7 @@ function lightPatch(light: LightValue, key: string, item: BaseItem, args: Resolv
  * ownership. `candle` is the lamps that may run Candle ({@link candleLamps});
  * Candle from a baseline or a claim is dropped on every other lamp.
  */
-export function resolveEffects(args: ResolveArgs, candle: ReadonlySet<string>): ResolutionResult {
+export function resolveEffects(args: ResolveRequest, candle: ReadonlySet<string>): Resolution {
   const targets: Record<string, ResolvedTarget> = {}, assignments: Record<string, ResolvedTarget> = {};
   const inputs = new Map<string, InputPosition>(), streams = new Map<RoomId | undefined, OverlayKey>();
   const entries = [...args.targets].sort((a, b) => lexical(a.target, b.target));

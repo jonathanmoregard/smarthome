@@ -19,7 +19,7 @@ import { latestRemoteKey, savedSelection, savedWhen } from './resolution.ts';
 import type { SavedSelection } from './resolution.ts';
 import { assembledMap, storedFact } from './overrides.ts';
 import type { Assembled, AssembledMap, StoredFact, StoredValue } from './overrides.ts';
-import type { Adjustment, RemotePlanArgs } from '../domain/remote-input.ts';
+import type { Adjustment, RemotePlanRequest } from '../domain/remote-input.ts';
 import { stepBoundsOf, toRemoteSource, toRoomId } from './ids.ts';
 import { roomText } from './rooms.ts';
 import type { OverlayKey } from '../domain/types/overlay.ts';
@@ -236,7 +236,7 @@ export function roomPower(ctx: HouseView, room: string): boolean | undefined {
  * 7/4/15 sites and form identifiers, mapping keys and command branches, so a
  * missing or malformed value raises.
  */
-export function parseRemotePlanArgs(args: JsonObject): RemotePlanArgs {
+export function parseRemotePlanArgs(args: JsonObject): RemotePlanRequest {
   return {
     source: toRemoteSource(requireString(args, 'source', 'ls_remote_plan')),
     area: toRoomId(requireString(args, 'area', 'ls_remote_plan')),

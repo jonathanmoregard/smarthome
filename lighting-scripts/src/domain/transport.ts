@@ -128,7 +128,7 @@ export interface FrameTarget {
   /** The target's area as stored, compared by identity with the transition rooms. */
   area: StoredFact;
 }
-export interface FramePlanArgs {
+export interface FramePlanRequest {
   catalog: {
     /** Each lamp's bulbs. */
     members: Record<LampId, BulbId[]>;
@@ -155,7 +155,7 @@ export interface EmitCommand {
   members: BulbId[];
   topic: string;
 }
-export interface EmitArgs {
+export interface EmitRequest {
   commands: Array<() => EmitCommand>;
   revision: string;
   generation: string | null;
@@ -163,7 +163,7 @@ export interface EmitArgs {
   effectTargets: () => OpaqueMap;
 }
 
-export interface AssignArgs {
+export interface AssignRequest {
   revision: string;
   details: () => AssignDetails;
 }
@@ -183,14 +183,14 @@ export interface AssignDetails {
   invalidate: StoredValue[];
   planOrder: number | undefined;
 }
-export interface FilterArgs {
+export interface FilterRequest {
   /** Each command as given, and its ids. */
   commands: Array<{ document: Verbatim; ids: string[] }>;
 }
 
 
 /** One row per on member of each on lamp, carrying that lamp's light. */
-export function frameRows(view: HouseView, args: FramePlanArgs): FrameRow[] {
+export function frameRows(view: HouseView, args: FramePlanRequest): FrameRow[] {
   const catalog = args.catalog, rows: FrameRow[] = [];
   // The targets are lighting-state entry keys, plain text until those lists are parsed; look their lamps up as text.
   const membersByText: Readonly<Record<string, BulbId[] | undefined>> = catalog.members;
@@ -259,7 +259,7 @@ function frameColourOf(view: HouseView, effect: FrameEffect, details: FrameDetai
  * `effects_emit`'s result. Both fields are built here from the publishes this
  * call made, so nothing is passed through and the type is lossless.
  */
-export type EmitResult = { published_at: number[]; completed: boolean };
+export type EmitOutcome = { published_at: number[]; completed: boolean };
 /**
  * `effects_assign`'s result.
  *
@@ -268,7 +268,7 @@ export type EmitResult = { published_at: number[]; completed: boolean };
  * same attribute. Narrowing it to a string would be a projection of a value
  * the gate compares.
  */
-export type AssignResult = { generation: Verbatim };
+export type AssignedGeneration = { generation: Verbatim };
 
 
 /** One command's gate: the request, the revision read for it, and the command itself. */
@@ -408,7 +408,7 @@ export function stopCommands(view: HouseView, catalog: Catalog, targetViews: Ret
  * Drop the assigned lamps from each command: a group id with an assigned
  * member becomes its unassigned members, and a command left with no id goes.
  */
-export function filterCommands(catalog: Catalog, active: string[], commands: FilterArgs['commands']): { commands: Verbatim[] } {
+export function filterCommands(catalog: Catalog, active: string[], commands: FilterRequest['commands']): { commands: Verbatim[] } {
   const kept: Verbatim[] = [];
   for (const command of commands) {
     const ids: string[] = [];

@@ -242,7 +242,7 @@ export function groupChildren(ctx: HouseView, entity: string, zone: boolean): st
   return Array.isArray(children) ? children.map(String) : undefined;
 }
 
-export interface NativePlanArgs {
+export interface NativePlanRequest {
   sd: ServiceData;
   /** The call's `area_id` selector, as rooms. */
   areas: RoomId[];
@@ -264,7 +264,7 @@ export interface NativePlanArgs {
 // `| int(2000)`. Nested members/groups/effects and plan/base/resolved/targets
 // are indexed raw structures. Stamp is a raw pass-through payload; current,
 // its resolved subtree, and stamp stay lazy until selected work needs them.
-export function parseNativePlanArgs(args: JsonObject): NativePlanArgs {
+export function parseNativePlanArgs(args: JsonObject): NativePlanRequest {
   const sd = requireObject(args, 'sd', 'effects_native_plan');
   return {
     sd: serviceData(sd),
@@ -337,7 +337,7 @@ function controlValue(value: JsonValue | undefined): ControlValue {
   };
 }
 
-export interface SetArgs {
+export interface SetRequest {
   source: string;
   attribute: string;
   /** The control value, 'Normal Light' already read as 'Normal light' for an effect. */
@@ -349,7 +349,7 @@ export interface SetArgs {
 // 18 times plus `| float(-1)` four times and `| int` twice, and dry_run once
 // through `| default(false)`. Preserve both numeric filters: float for range
 // checks/temperature arithmetic, int for emitted brightness/RGB values.
-export function parseSetArgs(args: JsonObject): SetArgs {
+export function parseSetArgs(args: JsonObject): SetRequest {
   const source = requireString(args, 'source', 'effects_set');
   const attribute = requireString(args, 'attribute', 'effects_set');
   return {

@@ -10,9 +10,9 @@ import type { Effect, Plan } from '../runtime/effects.ts';
 import { withFields } from '../runtime/verbatim.ts';
 import { withParsedArgs } from '../runtime/parse.ts';
 import { discoveryRows, parseRangeSaveArgs, parseUiSyncArgs, rangeSaveAnswer } from '../parse/ui-state.ts';
-import type { DiscoveryRow, RangeSaveArgs } from '../parse/ui-state.ts';
+import type { DiscoveryRow, RangeSaveRequest } from '../parse/ui-state.ts';
 import { decideRangeSave, saveRange, uiChoices, uiMessages } from '../domain/ui-state.ts';
-import type { RangeSaveResult, UiMessage } from '../domain/ui-state.ts';
+import type { RangeSaveDecision, UiMessage } from '../domain/ui-state.ts';
 
 /**
  * A shell: each row's current effect list is read live, after the previous
@@ -41,7 +41,7 @@ export function* publishUi(messages: UiMessage[]): Plan<null> {
   for (const message of messages) yield { kind: 'service', service: 'mqtt.publish', data: { ...message, qos: 0, retain: true } };
   return null;
 }
-export function rangeSave(ctx: ScriptContext, args: RangeSaveArgs): RangeSaveResult {
+export function rangeSave(ctx: ScriptContext, args: RangeSaveRequest): RangeSaveDecision {
   const result = decideRangeSave(ctx, args);
   return args.dryRun ? result : run(ctx, saveRange(result));
 }

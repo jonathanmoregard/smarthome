@@ -304,7 +304,7 @@ function bound(value: JsonValue | undefined): RangeBound {
   return Array.isArray(value) || isObject(value) ? carry(value) : value;
 }
 
-export interface RangeSaveArgs {
+export interface RangeSaveRequest {
   /** The switch to configure; none when the request names none or `''` (captured `default('')`). */
   entity: SwitchId | undefined;
   profile: string;
@@ -313,7 +313,7 @@ export interface RangeSaveArgs {
   maximum: RangeBound;
 }
 
-export function parseRangeSaveArgs(args: JsonObject): RangeSaveArgs {
+export function parseRangeSaveArgs(args: JsonObject): RangeSaveRequest {
   return {
     entity: args.entity === undefined ? undefined : switchOfText(requireString(args, 'entity', 'ls_range_save')),
     profile: args.profile === undefined ? 'bright' : requireString(args, 'profile', 'ls_range_save'),

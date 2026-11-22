@@ -10,7 +10,7 @@ import type { JsonObject } from '../runtime/context.ts';
 import { isObject, lazy, object } from '../runtime/parse.ts';
 import { boundedNumber, WARM_END } from '../domain/scale.ts';
 import type { RGB } from '../domain/scale.ts';
-import type { GradientEntry, GradientPlanArgs, GradientPlanTarget, GradientSignature } from '../domain/gradient.ts';
+import type { GradientEntry, GradientPlanRequest, GradientPlanTarget, GradientSignature } from '../domain/gradient.ts';
 import { blendEnd, requireRgb, validColor } from './scale.ts';
 
 function validGradientColor(value: unknown): boolean {
@@ -71,7 +71,7 @@ export function warmEndArgument(args: JsonObject, context: string): () => RGB {
  * off end (`{on: false}`) compiles nothing: there is no curve between a scene
  * and the lamp being off.
  */
-export function parseGradientPlanArgs(args: JsonObject): GradientPlanArgs {
+export function parseGradientPlanArgs(args: JsonObject): GradientPlanRequest {
   const cache = object(args.cached);
   const targets: GradientPlanTarget[] = [];
   for (const [target, item] of Object.entries(object(args.base))) {

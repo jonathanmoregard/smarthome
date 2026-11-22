@@ -17,7 +17,7 @@ import { run } from '../runtime/effects.ts';
 import type { Plan } from '../runtime/effects.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { houseRooms, planCommit, planOverrideBlock, planStore, toggleSaraMode } from '../domain/state-store.ts';
-import type { CommitArgs, CommitResult, StoreProfileArgs } from '../domain/state-store.ts';
+import type { CommitRequest, CommitOutcome, StoreProfileRequest } from '../domain/state-store.ts';
 import { SARA_MODE } from '../domain/types/overlay.ts';
 
 /**
@@ -25,7 +25,7 @@ import { SARA_MODE } from '../domain/types/overlay.ts';
  * live re-read. The answer's revision and `committed_at` are read after the
  * writes, where the captured script reads them; the clock is live.
  */
-export function commit(ctx: ScriptContext, args: CommitArgs): CommitResult {
+export function commit(ctx: ScriptContext, args: CommitRequest): CommitOutcome {
   // Captured: `data.get('expected_revision') in [none, <bare read>]` builds the
   // list whatever the expected revision is, so the read always happens here.
   const currentRevision = overridesRevision(ctx, 'ls_commit');
@@ -35,7 +35,7 @@ export function commit(ctx: ScriptContext, args: CommitArgs): CommitResult {
   return { accepted: true, revision: overridesRevision(ctx, 'ls_commit'), committed_at: recordTimestamp(ctx.now) };
 }
 /** Writes the profile store and answers nothing; every path returns null. */
-export function storeProfile(ctx: ScriptContext, args: StoreProfileArgs): null {
+export function storeProfile(ctx: ScriptContext, args: StoreProfileRequest): null {
   // The saved profile raises on a non-mapping cache before the catalog is fetched.
   const current = cachedProfile(ctx.get(args.entity));
   // `catalog.effects.get(key, {}).get('channels', [])`, over the raw result:

@@ -18,7 +18,7 @@ import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import { isObject, jinjaTruthy, lazy, object, ParseError, requireArray, requireObject, requireString } from '../runtime/parse.ts';
 import { carry, jsonEqual, reveal } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
-import type { CommitArgs, CommitData, CommitRecord } from '../domain/state-store.ts';
+import type { CommitRequest, CommitChange, CommitRecord } from '../domain/state-store.ts';
 import { concatString, haBoolean, mappingKey } from './state-store.ts';
 import { toPercent, toRoomId, toSwitchId } from './ids.ts';
 import type { RoomId } from '../domain/types/ids.ts';
@@ -227,7 +227,7 @@ function validRangePair(value: JsonValue | undefined, context: string): boolean 
   return 0 <= low.numeric && low.numeric <= high.numeric && high.numeric <= 100;
 }
 
-function parseCommitData(data: JsonObject): CommitData {
+function parseCommitData(data: JsonObject): CommitChange {
   const records = parseRecords(data.records, 'ls_commit.data.records');
   const via = storedFact(data.via);
   const who = data.who;
@@ -278,7 +278,7 @@ function parseCommitData(data: JsonObject): CommitData {
  * and operation-specific strict fields are lazy inside that, matching the
  * captured short-circuit order.
  */
-export function parseCommitArgs(args: JsonObject): CommitArgs {
+export function parseCommitArgs(args: JsonObject): CommitRequest {
   const data = requireObject(args, 'data', 'ls_commit');
   return {
     expectedRevision: storedFact(data.expected_revision),

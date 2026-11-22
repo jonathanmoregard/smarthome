@@ -17,7 +17,7 @@ import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { HouseView } from '../runtime/effects.ts';
 import { jinjaTruthy, object, parseFinite, parsePythonNumeric, requireObject, requireString } from '../runtime/parse.ts';
 import type { Block } from '../domain/blocks.ts';
-import type { LampColor, LampLight, LampProfile, LampSample, ScheduledBaseArgs } from '../domain/schedule.ts';
+import type { LampColor, LampLight, LampProfile, LampSample, ScheduledBaseRequest } from '../domain/schedule.ts';
 import { isBlock } from './blocks.ts';
 import { rgbTripleOf } from './scale.ts';
 import { asTimestampOr, num, saved, stateNumberOr, testNow } from './accessors.ts';
@@ -232,7 +232,7 @@ export function wakeInstant(ctx: HouseView, entity: string): number | undefined 
  * producer's explicit "use the state attribute" spelling.
  */
 /** `ls_base`'s arguments. `room_only` is read first, as the inline parse read it. */
-export function parseBaseArgs(args: JsonObject): ScheduledBaseArgs {
+export function parseBaseArgs(args: JsonObject): ScheduledBaseRequest {
   const roomOnly = args.room_only === undefined ? undefined : roomOfText(requireString(args, 'room_only', 'ls_base'));
   return parseScheduledBaseArgs(args, 'ls_base', roomOnly);
 }
@@ -242,12 +242,12 @@ export function parseBaseArgs(args: JsonObject): ScheduledBaseArgs {
  * required, and it drives entity names, comparisons and indexing rather than
  * iteration or membership; it is read first.
  */
-export function parseRoomBaseArgs(args: JsonObject): ScheduledBaseArgs {
+export function parseRoomBaseArgs(args: JsonObject): ScheduledBaseRequest {
   const room = roomOfText(requireString(args, 'room', 'ls_room_base'));
   return parseScheduledBaseArgs(args, 'ls_room_base', room);
 }
 
-function parseScheduledBaseArgs(args: JsonObject, context: string, roomOnly: RoomId | undefined): ScheduledBaseArgs {
+function parseScheduledBaseArgs(args: JsonObject, context: string, roomOnly: RoomId | undefined): ScheduledBaseRequest {
   return {
     testNow: testNow(args.test_now),
     reason: args.reason === undefined ? 'config' : requireString(args, 'reason', context),

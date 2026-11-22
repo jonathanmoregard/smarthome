@@ -3,9 +3,9 @@ import type { ScheduleEnvelope, TargetEntry } from './schedule.ts';
 import { recordTimestamp } from '../parse/resolution.ts';
 import type { OpaqueMap } from '../parse/overrides.ts';
 import { planRevision } from '../parse/controller.ts';
-import type { ResolutionResult } from './resolution.ts';
+import type { Resolution } from './resolution.ts';
 import type { CompiledGradients } from './gradient.ts';
-import type { RemotePlanResult } from './remote-input.ts';
+import type { RemotePlan } from './remote-input.ts';
 import type { HouseView } from '../runtime/effects.ts';
 import type { PowerTarget, RemoteSource, RoomId, SwitchId } from './types/ids.ts';
 import type { RemotePress } from './types/remote.ts';
@@ -18,7 +18,7 @@ import { overlayKeyText, SARA_MODE } from './types/overlay.ts';
  */
 export interface SwitchInterval { low: Percent; high: Percent; stored: [number | boolean, number | boolean] }
 
-export interface SwitchPlanArgs {
+export interface SwitchPlanRequest {
   /** Each switch-range rule, its interval read at its turn, or `undefined` unless valid. */
   rules: Array<{ entity: SwitchId; range: () => SwitchInterval | undefined }>;
   /** The resolved room target a rule follows, read leniently; `on` is required once read. */
@@ -31,7 +31,7 @@ export interface PlanOverrides {
   entries: OpaqueMap;
 }
 
-export interface PlanArgs {
+export interface PlanRequest {
   testOverrides: PlanOverrides | undefined;
   /** Forwarded to `ls_base` unread (`null` when absent); `ls_base` parses it. */
   testNow: Verbatim;
@@ -40,7 +40,7 @@ export interface PlanArgs {
   room: RoomId | undefined;
 }
 
-export interface ApplyArgs {
+export interface ApplyRequest {
   dryRun: boolean;
   forceAll: boolean;
   /** Is test_now defined and Jinja-truthy? */
@@ -55,7 +55,7 @@ export interface ApplyArgs {
   lights: () => Verbatim;
 }
 
-export interface RemoteCommandArgs {
+export interface RemoteCommandRequest {
   source: RemoteSource;
   area: RoomId;
   command: RemotePress;
@@ -78,7 +78,7 @@ export type SwitchDecision = {
   range: [number | boolean, number | boolean];
 };
 /** Each switch's planned state; `ls_switch_plan` answers it under the wire key `switches`. */
-export function switchPlan(areas: Readonly<Record<string, RoomId>>, args: SwitchPlanArgs): Record<SwitchId, SwitchDecision> {
+export function switchPlan(areas: Readonly<Record<string, RoomId>>, args: SwitchPlanRequest): Record<SwitchId, SwitchDecision> {
   const switches: Record<SwitchId, SwitchDecision> = {};
   for (const { entity, range } of args.rules) {
     const room = areas[entity];
@@ -114,9 +114,9 @@ export function switchPlan(areas: Readonly<Record<string, RoomId>>, args: Switch
  * own loosely-typed fields keep the reasons written at their declarations in
  * `schedule.ts`.
  */
-export type PlanDocument = Omit<ScheduleEnvelope, 'revision' | 'sara_mirror'> & {
+export type LightingPlan = Omit<ScheduleEnvelope, 'revision' | 'sara_mirror'> & {
   base: Record<string, TargetEntry>;
-  resolved: ResolutionResult;
+  resolved: Resolution;
   gradients: CompiledGradients;
   switches: Record<SwitchId, SwitchDecision>;
   revision: string;
@@ -130,7 +130,7 @@ export type PlanDocument = Omit<ScheduleEnvelope, 'revision' | 'sara_mirror'> & 
 export interface PlanParts {
   schedule: ScheduleEnvelope;
   base: Record<string, TargetEntry>;
-  resolved: ResolutionResult;
+  resolved: Resolution;
   gradients: CompiledGradients;
   switches: Record<SwitchId, SwitchDecision>;
   /** The overrides the baseline did not mark stale. */
@@ -143,7 +143,7 @@ export interface PlanParts {
  * revision, the plan order and the Sara mirror are read here, after the last
  * call, where the captured script reads them.
  */
-export function planAnswer(view: HouseView, parts: PlanParts): PlanDocument {
+export function planAnswer(view: HouseView, parts: PlanParts): LightingPlan {
   const revision = planRevision(view.state['sensor.ls_overrides']?.last_updated);
   const wanted = Object.hasOwn(parts.active, overlayKeyText(SARA_MODE)) ? 'on' : 'off';
   return { ...parts.schedule, base: parts.base, resolved: parts.resolved, gradients: parts.gradients,
@@ -154,10 +154,10 @@ export function planAnswer(view: HouseView, parts: PlanParts): PlanDocument {
 
 
 /** A planned change, committed against the revision it was planned at. */
-export type RemoteCommit = RemotePlanResult & { expected_revision: string; area: RoomId; via: 'remote'; source: RemoteSource };
+export type RemoteCommit = RemotePlan & { expected_revision: string; area: RoomId; via: 'remote'; source: RemoteSource };
 
 /** A remote's planned change as the store is asked to commit it: against the revision it was planned at, from its remote. */
-export function remoteCommit(plan: RemotePlanResult, command: RemoteCommandArgs): RemoteCommit {
+export function remoteCommit(plan: RemotePlan, command: RemoteCommandRequest): RemoteCommit {
   return { ...plan, expected_revision: plan.input_revision, area: command.area, via: 'remote', source: command.source };
 }
 
@@ -167,7 +167,7 @@ export type PowerSwitch =
   | { tag: 'on_then_render'; targets: PowerTarget[] };
 
 /** What an accepted remote change switches: a power change its targets, any other change nothing. */
-export function acceptedPowerSwitch(plan: RemotePlanResult): PowerSwitch | undefined {
+export function acceptedPowerSwitch(plan: RemotePlan): PowerSwitch | undefined {
   if (plan.op !== 'power') return undefined;
   return { tag: plan.on ? 'on_then_render' : 'off', targets: plan.targets };
 }

@@ -16,12 +16,12 @@ import {
   cacheWrite, dispatchInit, dispatchUpdate, fullLights, fullReason, gradientUpdates, mergeRoomPlan, renderAck, renderOpening,
     roomPlanRequest, roomsPlan, roomsStart,
 } from '../domain/dispatch-render.ts';
-import type { DispatchArgs, DispatchCmd, DispatchMsg, DispatchResult, RoomsPlan } from '../domain/dispatch-render.ts';
+import type { DispatchRequest, DispatchCmd, DispatchMsg, DispatchOutcome, RoomsPlan } from '../domain/dispatch-render.ts';
 import { entriesOf } from '../domain/types/ids.ts';
 import type { RoomId } from '../domain/types/ids.ts';
 
 /** Delta output actor: invalidate touched lamps before sending, acknowledge only complete batches. */
-export function dispatch(ctx: ScriptContext, args: DispatchArgs): DispatchResult {
+export function dispatch(ctx: ScriptContext, args: DispatchRequest): DispatchOutcome {
   return drive(dispatchUpdate, dispatchInit(args), { tag: 'start', house: ctx }, (cmd: DispatchCmd): DispatchMsg => {
     switch (cmd.tag) {
       case 'catalog': return { tag: 'catalog', catalog: carry(ctx.run('effects_catalog')), house: ctx };

@@ -18,7 +18,7 @@ import { remoteInputKey, sameOverlayKey, SARA_MODE } from './types/overlay.ts';
 const omit = (v: AssembledMap, keys: string[]): AssembledMap => Object.fromEntries(Object.entries(v).filter(([k]) => !keys.includes(k)));
 const pick = (v: AssembledMap, keys: string[]): AssembledMap => Object.fromEntries(Object.entries(v).filter(([k]) => keys.includes(k)));
 
-export interface RemotePlanArgs {
+export interface RemotePlanRequest {
   source: RemoteSource;
   area: RoomId;
   command: RemotePress;
@@ -86,7 +86,7 @@ export type RemotePlanOp =
   | { op: 'power'; area: RoomId; on: boolean; targets: PowerTarget[]; via: 'remote' }
   | { op: 'set'; records: (RemoteModeRecord | RemoteInputRecord)[]; via: 'remote' };
 /** The envelope every answer carries, whatever the operation. */
-export type RemotePlanResult = RemotePlanOp & {
+export type RemotePlan = RemotePlanOp & {
   input_revision: string;
   received_at: number;
   request_id: string;
@@ -108,7 +108,7 @@ export interface RemoteOpening {
   cache: Verbatim;
 }
 
-export function remoteOpening(view: HouseView, args: RemotePlanArgs): RemoteOpening {
+export function remoteOpening(view: HouseView, args: RemotePlanRequest): RemoteOpening {
   const command = pressCommand(args.command), area = args.area;
   const room = Object.values(view.rooms.ofId).includes(area) ? area : undefined;
   const overrides = remoteOverrides(view, room);
@@ -133,8 +133,8 @@ export function remoteOpening(view: HouseView, args: RemotePlanArgs): RemoteOpen
 }
 
 /** The command's operation, from the opening reads, the room plan and the catalog, on the house after both runs. */
-export function remoteDecision(view: HouseView, args: RemotePlanArgs, opening: RemoteOpening, plan: RemoteRoomPlan,
-  catalog: Catalog): RemotePlanResult {
+export function remoteDecision(view: HouseView, args: RemotePlanRequest, opening: RemoteOpening, plan: RemoteRoomPlan,
+  catalog: Catalog): RemotePlan {
   // No command: a press that does nothing, the scripts' noop.
   const source = args.source, command = pressCommand(args.command);
   const { room, overrides, stamp, revision, timingRevision } = opening;

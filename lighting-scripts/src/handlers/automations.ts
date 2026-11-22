@@ -18,7 +18,7 @@ import {
     parseRemoteArgs, parseSaraModeArgs, parseScheduleEngineArgs, parseTriggerIdArgs, parseWriterArgs, stateContextId,
 } from '../parse/automations.ts';
 import type {
-  LampChangeArgs, NativeCapture, NativeControlsArgs, RemoteArgs, RemoteKind, SaraModeArgs, ScheduleEngineArgs, WriterArgs,
+  LampChangeTrigger, NativeCapture, NativeControlTrigger, RemoteTrigger, RemoteKind, SaraModeTrigger, ScheduleEngineTrigger, OverrideWriterTrigger,
 } from '../parse/automations.ts';
 import { perform, run } from '../runtime/effects.ts';
 import type { Effect, HouseView, Plan } from '../runtime/effects.ts';
@@ -33,7 +33,7 @@ function turnOn(script: string): Effect {
 }
 
 /** A remote's gesture, forwarded to the room's gesture script; optional fields only when they are strings. */
-export function* forwardRemote(kind: RemoteKind, args: RemoteArgs): Plan<null> {
+export function* forwardRemote(kind: RemoteKind, args: RemoteTrigger): Plan<null> {
   const data: { command: StoredValue; payload?: Verbatim; source?: string; device_id?: string } = { command: args.command };
   if (kind === 'preset') data.payload = args.payload;
   if (args.source !== undefined) data.source = args.source;
@@ -50,7 +50,7 @@ export function* forwardNativeControl(source: string, attribute: string, value: 
 }
 
 /** The override store writer commits the event's data with `who` replaced. */
-export function* forwardOverride(args: WriterArgs): Plan<null> {
+export function* forwardOverride(args: OverrideWriterTrigger): Plan<null> {
   yield { kind: 'script', name: 'ls_commit', args: { data: withFields(args.data, { who: args.who }) } };
   return null;
 }
@@ -67,7 +67,7 @@ export function* refreshUi(triggerId: StoredFact): Plan<null> {
 }
 
 /** The schedule engine applies with the trigger as its reason; an absent id or entity is forwarded as null. */
-export function* runScheduleEngine(args: ScheduleEngineArgs): Plan<null> {
+export function* runScheduleEngine(args: ScheduleEngineTrigger): Plan<null> {
   const data: { reason: StoredValue; lights?: StoredValue[] } = { reason: args.id === undefined ? null : args.id };
   if (args.id === 'lamp_on') data.lights = [args.entityId === undefined ? null : args.entityId];
   yield { kind: 'script', name: 'ls_apply', args: data };
@@ -94,7 +94,7 @@ export function endOverrides(view: HouseView, triggerId: StoredFact): Effect[] {
 }
 
 /** The Sara mode switch sets or clears `mode:sara` as {@link saraModeChange} decides; no user, no change. */
-export function* saraModeSwitch(args: SaraModeArgs, active: boolean): Plan<null> {
+export function* saraModeSwitch(args: SaraModeTrigger, active: boolean): Plan<null> {
   const who = args.who;
   if (who === null || who === undefined) return null;
   const wanted = args.id === 'on' ? true : args.id === 'off' ? false : undefined;
@@ -137,7 +137,7 @@ export function houseRangeDefaults(view: HouseView): Effect[] {
 }
 
 function remote(kind: RemoteKind): ScriptHandler {
-  return withParsedArgs({ parse: args => parseRemoteArgs(kind, args), run: (ctx, args: RemoteArgs) => run(ctx, forwardRemote(kind, args)) });
+  return withParsedArgs({ parse: args => parseRemoteArgs(kind, args), run: (ctx, args: RemoteTrigger) => run(ctx, forwardRemote(kind, args)) });
 }
 const runtime = 'sensor.ls_effects_runtime';
 const store = 'sensor.ls_overrides';
@@ -164,7 +164,7 @@ export const automationHandlers: ScriptHandlers = {
   // required string; sources stays lazy until a supported attribute survives.
   'automation.effects_native_light_controls': withParsedArgs({
     parse: parseNativeControlsArgs,
-    run: (ctx, args: NativeControlsArgs) => {
+    run: (ctx, args: NativeControlTrigger) => {
     const control = controlTopic(args.topic);
     if (control === undefined) return null;
     // The catalog is parsed on first read, so it is read only once the topic passed.
@@ -176,7 +176,7 @@ export const automationHandlers: ScriptHandlers = {
   }),
   'automation.lighting_schedule_override_store_writer': withParsedArgs({
     parse: parseWriterArgs,
-    run: (ctx, args: WriterArgs) => run(ctx, forwardOverride(args)),
+    run: (ctx, args: OverrideWriterTrigger) => run(ctx, forwardOverride(args)),
   }),
   'automation.lighting_recover_pending_output': ctx => {
     if (ctx.get('binary_sensor.zigbee2mqtt_bridge_connection_state') !== 'on') return null;
@@ -197,7 +197,7 @@ export const automationHandlers: ScriptHandlers = {
   // entity is only reached on the lamp-on branch, matching captured control flow.
   'automation.lighting_schedule_engine': withParsedArgs({
     parse: parseScheduleEngineArgs,
-    run: (ctx, args: ScheduleEngineArgs) => run(ctx, runScheduleEngine(args)),
+    run: (ctx, args: ScheduleEngineTrigger) => run(ctx, runScheduleEngine(args)),
   }),
   // End-overrides selects native trigger IDs; parsing only the trigger mapping
   // avoids changing the internal override iteration and timestamp semantics.
@@ -212,7 +212,7 @@ export const automationHandlers: ScriptHandlers = {
   // the nested attribute chain is strict, while trigger.id is branch-only.
   'automation.lighting_schedule_sara_mode_switch': withParsedArgs({
     parse: parseSaraModeArgs,
-    run: (ctx, args: SaraModeArgs) => run(ctx, saraModeSwitch(args, lenientOverrides(ctx).has(SARA_MODE))),
+    run: (ctx, args: SaraModeTrigger) => run(ctx, saraModeSwitch(args, lenientOverrides(ctx).has(SARA_MODE))),
   }),
   // Lamp change detection reads event.context.user_id/id raw 3/1 times,
   // event.data.service raw once, and service_data once through `default({})`.
@@ -220,7 +220,7 @@ export const automationHandlers: ScriptHandlers = {
   // A shell: it makes three result-bearing runs.
   'automation.lighting_schedule_lamp_change_detector': withParsedArgs({
     parse: parseLampChangeArgs,
-    run: (ctx, args: LampChangeArgs) => {
+    run: (ctx, args: LampChangeTrigger) => {
     // The HA bridge preserves the original running-script context condition.
     const who = args.who;
     if (who === null || who === undefined) return null;

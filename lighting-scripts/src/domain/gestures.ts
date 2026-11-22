@@ -27,7 +27,7 @@ export type Msg =
 
 /** Who sent a press: the remote's device and its source, as the command it causes is sent. */
 export interface Sender { deviceId: RemoteId | undefined; source: string }
-export interface GestureArgs {
+export interface GestureRequest {
   room: RoomId;
   msg: Msg | undefined;
   /** Read only when a command is sent, so a malformed sender raises only there, after the writes before it. */

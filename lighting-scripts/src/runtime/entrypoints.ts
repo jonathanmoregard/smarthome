@@ -2,14 +2,14 @@ import type { JsonObject, ScriptContext, ScriptHandler } from './context.ts';
 import { resultCodecs } from '../parse/results.ts';
 import type { SwitchDecision } from '../domain/controller.ts';
 import type { SwitchId } from '../domain/types/ids.ts';
-import type { ResolutionResult } from '../domain/resolution.ts';
+import type { Resolution } from '../domain/resolution.ts';
 import type { CompiledGradients } from '../domain/gradient.ts';
-import type { AssignResult, EmitResult } from '../domain/transport.ts';
-import type { DispatchResult } from '../domain/dispatch-render.ts';
-import type { CommitResult } from '../domain/state-store.ts';
-import type { GroupPlanResult } from '../domain/grouping.ts';
-import type { RemotePlanResult } from '../domain/remote-input.ts';
-import type { ScheduledBaseResult } from '../domain/schedule.ts';
+import type { AssignedGeneration, EmitOutcome } from '../domain/transport.ts';
+import type { DispatchOutcome } from '../domain/dispatch-render.ts';
+import type { CommitOutcome } from '../domain/state-store.ts';
+import type { GroupedCommands } from '../domain/grouping.ts';
+import type { RemotePlan } from '../domain/remote-input.ts';
+import type { ScheduledBase } from '../domain/schedule.ts';
 
 /**
  * The typed result of each converted internal entrypoint, keyed by the script
@@ -31,23 +31,23 @@ import type { ScheduledBaseResult } from '../domain/schedule.ts';
  */
 export interface TypedResults {
   ls_switch_plan: Record<SwitchId, SwitchDecision>;
-  effects_resolve: ResolutionResult;
+  effects_resolve: Resolution;
   effects_gradient_plan: CompiledGradients;
-  effects_emit: EmitResult;
-  effects_assign: AssignResult;
-  ls_dispatch: DispatchResult;
-  ls_commit: CommitResult;
+  effects_emit: EmitOutcome;
+  effects_assign: AssignedGeneration;
+  ls_dispatch: DispatchOutcome;
+  ls_commit: CommitOutcome;
   // One type for two names, because `framePlan` returns
   // `ctx.call('effects_group_plan', ...)` unchanged. Registering both keeps the
   // two addressable by name for HA and the parity RPC while making it
   // impossible for their results to drift apart.
-  effects_group_plan: GroupPlanResult;
-  effects_frame_plan: GroupPlanResult;
-  ls_remote_plan: RemotePlanResult;
+  effects_group_plan: GroupedCommands;
+  effects_frame_plan: GroupedCommands;
+  ls_remote_plan: RemotePlan;
   // One type, two names again: both run `scheduledBase`, which differs only in
   // the `roomLocal` flag, never in the shape it answers.
-  ls_base: ScheduledBaseResult;
-  ls_room_base: ScheduledBaseResult;
+  ls_base: ScheduledBase;
+  ls_room_base: ScheduledBase;
 }
 
 export type TypedName = keyof TypedResults;

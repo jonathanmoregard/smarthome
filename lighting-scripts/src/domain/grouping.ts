@@ -21,7 +21,7 @@ export type EndpointRow = { entity: BulbId; owner: string; topic: string; payloa
  */
 export type MulticastGroup = { id: Verbatim; topic: string; members: BulbId[] };
 /** `undefined` in `rows` is a row that failed to parse; it is rejected by index. */
-export type GroupPlanArgs = { rows: Array<EndpointRow | undefined>; groups: MulticastGroup[] };
+export type GroupPlanRequest = { rows: Array<EndpointRow | undefined>; groups: MulticastGroup[] };
 
 /**
  * One MQTT publish the planner decided on.
@@ -51,7 +51,7 @@ export type RejectedRow =
  * `effects_group_plan`'s result -- and `effects_frame_plan`'s, which returns
  * this unchanged (`transport.ts`), so one type keeps the two from drifting.
  */
-export type GroupPlanResult = {
+export type GroupedCommands = {
   commands: GroupCommand[];
   rejected: RejectedRow[];
   input_count: number;
@@ -60,7 +60,7 @@ export type GroupPlanResult = {
 };
 
 /** Exact live effects_group_plan: only verified complete groups may replace unicast. */
-export function planGroups(rows: Array<EndpointRow | undefined>, groups: MulticastGroup[]): GroupPlanResult {
+export function planGroups(rows: Array<EndpointRow | undefined>, groups: MulticastGroup[]): GroupedCommands {
   const byEntity = new Map<BulbId, EndpointRow>();
   const blocked = new Set<string>();
   const rejected: RejectedRow[] = [];

@@ -8,7 +8,7 @@ import { typedDispatch } from './entrypoints.ts';
 import { parseRooms } from '../parse/rooms.ts';
 
 export interface ExecutionRequest { script: string; args: JsonObject; snapshot: Snapshot }
-export interface ExecutionResult { result: JsonValue; snapshot: Snapshot; calls: ServiceCall[]; events: EventRecord[] }
+export interface ExecutionOutcome { result: JsonValue; snapshot: Snapshot; calls: ServiceCall[]; events: EventRecord[] }
 export interface ExecutionHooks {
   beforeService?: (call: ServiceCall, context: ScriptContext) => void;
   afterService?: (call: ServiceCall, context: ScriptContext) => void;
@@ -202,7 +202,9 @@ class Context implements ScriptContext {
 }
 
 /** Each request is an isolated transaction; the host decides how to persist and emit it. */
-export function execute(request: ExecutionRequest, handlers: ScriptHandlers, hooks: ExecutionHooks = {}): ExecutionResult & { scriptRuns: string[] } {
+export function execute(
+  request: ExecutionRequest, handlers: ScriptHandlers, hooks: ExecutionHooks = {},
+): ExecutionOutcome & { scriptRuns: string[] } {
   const context = new Context(request.snapshot, handlers, hooks);
   const result = context.run(request.script, request.args);
   const output = { result, snapshot: context.snapshot(), calls: context.calls, events: context.events, scriptRuns: context.scriptRuns };
