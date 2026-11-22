@@ -97,6 +97,24 @@ class Transitions(unittest.TestCase):
         line = Line(start=Off(), end=On(200, None, 'none'), t0=0.0, t1=10.0)
         self.assertEqual((line.t0, line.t1), (0.0, 10.0))
 
+    def test_effect_or_colour_alone_leaves_a_running_level_line(self):
+        # Zigbee level and colour are separate clusters: a send with neither brightness nor state
+        # does not stop a level move in progress.
+        world = make_world()
+        world.apply(publish('bulb_a', {'brightness': 200, 'transition': 10}), 0)
+        world.apply(publish('bulb_a', {'effect': 'channel_change'}), 2)
+        world.apply(publish('bulb_a', {'color': {'rgb': '1,2,3'}}), 4)
+        self.assertEqual(world.bulb('bulb_a', 5), On(227, Rgb(1, 2, 3), 'candle'))
+        self.assertEqual(world.fading(5), frozenset({'bulb_a'}))
+        self.assertEqual(world.bulb('bulb_a', 10), On(200, Rgb(1, 2, 3), 'candle'))
+
+    def test_colour_alone_during_a_fade_to_off_keeps_the_fade(self):
+        world = make_world()
+        world.apply(publish('bulb_a', {'state': 'OFF', 'transition': 10}), 0)
+        world.apply(publish('bulb_a', {'color_temp': 400}), 5)
+        self.assertEqual(world.bulb('bulb_a', 5), On(127, Kelvin(2500), 'none'))
+        self.assertEqual(world.bulb('bulb_a', 10), Off())
+
     def test_fading_names_bulbs_with_a_line_from_t0_until_t1(self):
         world = make_world()
         world.apply(publish('bulb_a', {'state': 'OFF'}), 0)

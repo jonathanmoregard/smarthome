@@ -14,7 +14,7 @@ import unittest
 from zoneinfo import ZoneInfo
 
 from tests.e2e import env
-from tests.e2e.backend import SOFTWARE_CANDLE, Session, enabled_automations, failure
+from tests.e2e.backend import SOFTWARE_CANDLE, Session, enabled_automations, failure, parse_request
 from tests.e2e.codec import Advance, PersonLightChange, PressSwitch, decode, encode
 from tests.e2e.compare import compare
 from tests.e2e.router import Context, HaStart, StateChanged
@@ -149,6 +149,12 @@ class Settle(unittest.TestCase):
 
 
 class Errors(unittest.TestCase):
+    def test_a_bare_tick_is_not_a_step(self):
+        from tests.e2e.router import Tick
+        with self.assertRaises(BackendError) as raised:
+            parse_request('port', encode({'start': START, 'steps': [Tick(START)]}))
+        self.assertEqual(raised.exception.kind, 'UnknownStep')
+
     def test_backend_error_is_structured(self):
         with self.assertRaises(BackendError) as raised:
             run_backend('reference', [{'kind': 'Teleport'}], START)
@@ -201,24 +207,52 @@ class Time(unittest.TestCase):
         sim = StandIn({'automation_a': queue, 'ls_later': later}, scheduled=[])
         checkpoints = session(sim, on_start(), world('bulb_a'), backend='port').run([HaStart(), Advance(60)])
         self.assertEqual([(c.step, c.t) for c in checkpoints], [(0, 0.0), (1, 60.0)])
-        self.assertIsInstance(checkpoints[0].bulbs['bulb_a'], On)
-        self.assertEqual(checkpoints[1].bulbs['bulb_a'], Off())
+        # Drained before the step's checkpoint, as the reference's inline wait would have run it.
+        self.assertEqual(checkpoints[0].bulbs['bulb_a'], Off())
         [(name, now, data)] = [entry for entry in sim.log if entry[0] == 'ls_later']
         self.assertEqual((now, data), (due, {'k': 1}))
         self.assertEqual(sim._parity_extra['scheduled'], [])
 
-    def test_continuations_due_inside_a_tick_run_before_its_routing(self):
-        automations = {**on_start(), 'automation_tick': {'triggers': [
-            {'trigger': 'time_pattern', 'minutes': '/1'}], 'actions': []}}
+    def test_queued_continuations_drain_in_time_order_each_at_its_instant(self):
+        def queue(sim, trigger):
+            sim._parity_extra['scheduled'].append({'script': 'ls_second', 'args': {}, 'due': at(50)})
+            sim._parity_extra['scheduled'].append({'script': 'ls_first', 'args': {}, 'due': at(30)})
+
+        def first(sim, data):   # a continuation that queues another one
+            sim._parity_extra['scheduled'].append({'script': 'ls_third', 'args': {}, 'due': at(40)})
+
+        def at(seconds):
+            return (START + timedelta(seconds=seconds)).timestamp() * 1000
+
+        sim = StandIn({'automation_a': queue, 'ls_first': first, 'ls_second': lambda sim, data: None,
+                       'ls_third': lambda sim, data: None}, scheduled=[])
+        session(sim, on_start(), world(), backend='port').run([HaStart()])
+        self.assertEqual([(name, (now - START).total_seconds()) for name, now, _ in sim.log[1:]],
+                         [('ls_first', 30), ('ls_third', 40), ('ls_second', 50)])
+
+    def test_a_ticks_continuations_drain_before_its_checkpoint(self):
+        automations = {'automation_tick': {'triggers': [{'trigger': 'time_pattern', 'minutes': '/1'}], 'actions': []}}
 
         def queue(sim, trigger):
             sim._parity_extra['scheduled'].append(
-                {'script': 'ls_later', 'args': {}, 'due': (START + timedelta(seconds=60)).timestamp() * 1000})
+                {'script': 'ls_later', 'args': {}, 'due': (sim.now + timedelta(seconds=5)).timestamp() * 1000})
 
-        sim = StandIn({'automation_a': queue, 'ls_later': lambda sim, data: None,
-                       'automation_tick': lambda sim, trigger: None}, scheduled=[])
-        session(sim, automations, world(), backend='port').run([HaStart(), Advance(60)])
-        self.assertEqual([name for name, *_ in sim.log], ['automation_a', 'ls_later', 'automation_tick'])
+        sim = StandIn({'automation_tick': queue, 'ls_later': lambda sim, data: publish(sim, 'bulb_a', {'state': 'OFF'})},
+                      scheduled=[])
+        [checkpoint] = session(sim, automations, world('bulb_a'), backend='port').run([Advance(60)])
+        self.assertEqual(checkpoint.bulbs['bulb_a'], Off())
+        self.assertEqual([(name, (now - START).total_seconds()) for name, now, _ in sim.log],
+                         [('automation_tick', 60), ('ls_later', 65)])
+
+    def test_a_wait_past_the_next_tick_is_refused(self):
+        def wait(sim, trigger):
+            sim.now += timedelta(seconds=90)   # an inline reference delay longer than a tick
+            sim.elapsed += 90
+
+        sim = StandIn({'automation_a': wait})
+        with self.assertRaises(BackendError) as raised:
+            session(sim, on_start(), world()).run([HaStart(), Advance(60)])
+        self.assertEqual(raised.exception.kind, 'ClockBackwards')
 
     def test_ticks_land_on_absolute_instants_despite_a_drifting_clock(self):
         automations = {'automation_tick': {'triggers': [{'trigger': 'time_pattern', 'minutes': '/1'}], 'actions': []}}
@@ -238,6 +272,16 @@ class Time(unittest.TestCase):
         session(sim, automations, world()).run([Advance(120)])
         self.assertEqual([trigger['now'] for _, _, trigger in sim.log],
                          [(START + timedelta(seconds=s)).isoformat() for s in (60, 120)])
+
+    def test_two_sub_minute_triggers_of_one_automation_each_fire_once_per_tick(self):
+        automations = {'automation_fast': {'triggers': [{'trigger': 'time_pattern', 'seconds': '/15', 'id': 'quarter'},
+                                                        {'trigger': 'time_pattern', 'seconds': '/5', 'id': 'five'}],
+                                           'actions': []}}
+        sim = StandIn({'automation_fast': lambda sim, trigger: None})
+        session(sim, automations, world()).run([Advance(60)])
+        self.assertEqual([(trigger['id'], trigger['now']) for _, _, trigger in sim.log],
+                         [('five', (START + timedelta(seconds=55)).isoformat()),
+                          ('quarter', (START + timedelta(seconds=60)).isoformat())])
 
     def test_fade_sampled_at_each_tick_while_a_line_runs(self):
         automations = {**on_start(), 'automation_tick': {'triggers': [
@@ -326,11 +370,13 @@ class Enabled(unittest.TestCase):
     CAPTURE = {'automation.renamed_entity': {'state': 'off', 'attributes': {'id': '17'}},
                'automation.b': {'state': 'off', 'attributes': {'id': 'other'}},
                'automation.c': {'state': 'on', 'attributes': {'id': 'c'}},
-               'automation.no_id': {'state': 'off', 'attributes': {}}}
+               'automation.no_id': {'state': 'off', 'attributes': {}},
+               'automation.gone': {'state': 'unavailable', 'attributes': {'id': 'g'}},
+               'script.u': {'state': 'off', 'attributes': {'id': 'u'}}}
 
     def test_automations_off_in_the_live_capture_are_not_routed(self):
         automations = {'automation_a': {'id': '17'}, 'automation_b': {'id': 'b'}, 'automation_c': {'id': 'c'},
-                       'automation_unlisted': {'id': 'u'}, 'automation_without_id': {}}
+                       'automation_unlisted': {'id': 'u'}, 'automation_without_id': {}, 'automation_gone': {'id': 'g'}}
         self.assertEqual(list(enabled_automations(automations, self.CAPTURE)),
                          ['automation_c', 'automation_unlisted', 'automation_without_id'])
 
@@ -364,7 +410,6 @@ class RealBackends(unittest.TestCase):
             import json
             from datetime import datetime, timezone
             from tests.e2e.backend import Session
-            from tests.e2e.codec import Advance
             from tests.e2e.env import open_sim
             from tests.e2e.router import Context, HaStart, StateChanged
             start = datetime(2026, 10, 23, 10, tzinfo=timezone.utc)
@@ -374,22 +419,28 @@ class RealBackends(unittest.TestCase):
                 room = sorted(sim._parity_catalog['remotes'])[0]
                 sim.calls.append({'time': sim.elapsed, 'action': 'script.turn_on', 'data': {'variables': {'command': 'power'}},
                                   'target': {'entity_id': 'script.ls_remote_gesture_' + room}})
-                ran, run = [], sim.run
+                ran, wrote, run = [], {}, sim.run
                 def recording(name, **args):
-                    if args.get('command') == 'power_done':
-                        ran.append(sim.now.timestamp() - start.timestamp())
-                    return run(name, **args)
+                    if args.get('command') != 'power_done':
+                        return run(name, **args)
+                    ran.append(sim.now.timestamp() - start.timestamp())
+                    before = {entity: value['state'] for entity, value in sim.state.items()}
+                    result = run(name, **args)
+                    wrote.update({entity: value['state'] for entity, value in sim.state.items()
+                                  if before.get(entity) != value['state']})
+                    return result
                 sim.run = recording
                 marker = StateChanged('input_text.e2e_marker', None, {'state': 'x', 'attributes': {}}, Context('m', None))
                 session.run([marker])
-                pending = len(sim._parity_extra.get('scheduled', []))
-                session.run([Advance(60)])
-                print(json.dumps({'pending': pending, 'ran': ran, 'left': len(sim._parity_extra.get('scheduled', []))}))
+                print(json.dumps({'ran': ran, 'wrote': len(wrote), 'left': len(sim._parity_extra.get('scheduled', [])),
+                                  'kept': all(sim.state[entity]['state'] == state for entity, state in wrote.items())}))
         ''')
-        self.assertEqual(result['pending'], 1)            # the step settled with power_done still queued
+        # Drained within the step, at its own instant, as the reference's inline 600 ms wait runs it.
         self.assertEqual(len(result['ran']), 1)
-        self.assertAlmostEqual(result['ran'][0], 0.6, delta=0.01)   # at its own instant, not at the tick
+        self.assertAlmostEqual(result['ran'][0], 0.6, delta=0.01)
         self.assertEqual(result['left'], 0)
+        self.assertGreater(result['wrote'], 0)
+        self.assertTrue(result['kept'])   # what it wrote is the state the step's checkpoint is taken in
 
     def test_plugs_seeded(self):
         from tests.e2e.test_env import isolated

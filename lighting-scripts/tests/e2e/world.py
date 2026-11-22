@@ -238,6 +238,16 @@ class World:
 
     def _change(self, names: list[str], change: _Change, now: float) -> None:
         for name in names:
+            line = self._lines.get(name)
+            if change.power is None and change.level is None and line is not None and line.t0 <= now < line.t1:
+                # Level and colour are separate Zigbee clusters: a send that moves neither level nor power
+                # restyles both ends of the level move in progress and leaves it running.
+                if change.colour is not None:
+                    self._last_colour[name] = change.colour
+                restyled = Line(self._restyle(line.start, change), self._restyle(line.end, change), line.t0, line.t1)
+                self._lines[name] = restyled
+                self._settled[name] = restyled.end
+                continue
             start = self.bulb(name, now)
             end = self._end(name, start, change)
             if isinstance(end, On):
@@ -269,6 +279,14 @@ class World:
         elif change.effect == 'stop':
             effect = 'none'
         return On(level, colour, effect)
+
+    @staticmethod
+    def _restyle(state: BulbState, change: _Change) -> BulbState:
+        """`state` with the colour and effect a send that moves neither level nor power asks for."""
+        if isinstance(state, Off):
+            return state
+        effect = {'start': 'candle', 'stop': 'none', None: state.effect}[change.effect]
+        return On(state.level, state.colour if change.colour is None else change.colour, effect)
 
     @staticmethod
     def _along(line: Line, now: float) -> On:

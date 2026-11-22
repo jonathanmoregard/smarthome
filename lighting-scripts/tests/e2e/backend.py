@@ -44,9 +44,10 @@ RENDER = 'script.ls_render'          # queued for drain_output, never started he
 # software-candle rule at each checkpoint.
 NEVER_STARTED = ('script.effects_engine',)
 LIVE_STATES = 'automation-states.json'
+NOT_ENABLED = ('off', 'unavailable')   # HA fires neither a disabled nor an unavailable automation
 PERSON = 'e2e-person'   # the user id a person's own change carries
 INPUTS = (HaStart, Tick, StateChanged, Event, Mqtt, ScriptCall)
-STEPS = (*INPUTS, Advance, PressSwitch, PersonLightChange)
+STEPS = (*(kind for kind in INPUTS if kind is not Tick), Advance, PressSwitch, PersonLightChange)   # Advance owns time
 # `adapters.simulator` refuses these before any RPC: the harness routed something the
 # adapter cannot map, a setup fault rather than port behaviour (ruling 25).
 ROUTING_ERRORS = ('Unsupported historical automation', 'Historical center automation')
@@ -67,7 +68,7 @@ class Session:
         self.adjustments: Counter[str] = Counter()
         self.contexts = 0
         self.seen_calls = len(sim.calls)
-        self._set_clock(self.start)
+        self.sim.now, self.sim.elapsed = self.start.astimezone(LOCAL), 0.0
         self._write_back()                # silent: the world's first light is not a change anybody made
         self.known = {entity: self._known(value, None) for entity, value in sim.state.items()}
 
@@ -118,6 +119,7 @@ class Session:
         else:
             self._dispatch(step)
         self._settle()
+        self._drain()
         return []
 
     def _advance(self, index: int, seconds: float) -> list[Checkpoint]:
@@ -127,19 +129,19 @@ class Session:
         tick = math.floor(self.t / TICK_SECONDS) + 1
         while tick * TICK_SECONDS <= target:
             instant = self._instant(tick * TICK_SECONDS)
-            self._continue_until(instant)
             self.t = float(tick * TICK_SECONDS)
             self._set_clock(instant)
             self._dispatch(Tick(instant))
             self.previous_tick = instant
             self._settle()
+            self._drain()
             if self.world.fading(self.sim.elapsed):
                 sampled.append(self._checkpoint(index))
             tick += 1
         end = self._instant(target)
-        self._continue_until(end)
         self.t = target
-        self._set_clock(end)
+        if end > self._sim_instant():   # a target on the last tick: a drained continuation may sit past it
+            self._set_clock(end)
         return sampled
 
     # --- routing and runs ----------------------------------------------------
@@ -159,9 +161,10 @@ class Session:
         last = {}
         for position, run in enumerate(runs):
             if isinstance(run, AutomationRun) and self._sub_minute(run):
-                last[run.name] = position
+                last[run.name, run.trigger['idx']] = position
         return [run for position, run in enumerate(runs)
-                if not (isinstance(run, AutomationRun) and self._sub_minute(run)) or last[run.name] == position]
+                if not (isinstance(run, AutomationRun) and self._sub_minute(run))
+                or last[run.name, run.trigger['idx']] == position]
 
     def _sub_minute(self, run: AutomationRun) -> bool:
         config = self.automations[run.name]
@@ -191,7 +194,7 @@ class Session:
             if self.sim.output_jobs:
                 self.sim.drain_output()
                 moved = True
-            moved = self._continue_until(self.sim.now, settle=False) or moved
+            moved = self._continue_due() or moved
             self._write_back()
             changes = self._changes()
             for change in changes:
@@ -223,28 +226,41 @@ class Session:
         if self.sim.state.get(script, {}).get('state') == 'on':
             self.sim.put(script, 'off', self.sim.state[script].get('attributes', {}))
 
-    def _continue_until(self, instant: datetime, settle: bool = True) -> bool:
-        """Run the port's queued continuations due by `instant`, in time order, each at its own instant.
+    def _continue_due(self) -> bool:
+        """Run the port's queued continuations already due by the sim clock (a zero delay), in time order."""
+        ran = False
+        while self.backend == 'port':
+            tasks = self.sim._parity_extra.get('scheduled', [])
+            due = [task for task in tasks if task['due'] <= self._sim_instant().timestamp() * 1000]
+            if not due:
+                break
+            self._continue(min(due, key=lambda item: item['due']))
+            ran = True
+        return ran
 
-        The reference has none to run: it runs every `delay` inline, moving its own clock.
+    def _drain(self) -> None:
+        """Every queued port continuation, in time order, each at its own instant and settled.
+
+        The reference runs each `delay` inline, so its step ends after the wait and what follows it;
+        the port queues that tail instead. Draining it before the checkpoint gives both backends the
+        same moment (as `tests/parity/adapters.py` `drain(until=None)` does).
         """
         if self.backend != 'port':
-            return False
-        ran = False
-        while True:
+            return
+        for _ in range(SETTLE_LIMIT + 1):
             tasks = self.sim._parity_extra.get('scheduled', [])
-            due = [task for task in tasks if task['due'] <= instant.timestamp() * 1000]
-            if not due:
-                return ran
-            task = min(due, key=lambda item: item['due'])
-            tasks.remove(task)
-            at = datetime.fromtimestamp(task['due'] / 1000, timezone.utc)
-            if at > self.sim.now:   # an overdue task runs now; the clock never steps back for it
-                self._set_clock(at)
-            self._run_continuation(task)
-            ran = True
-            if settle:
-                self._settle()
+            if not tasks:
+                return
+            self._continue(min(tasks, key=lambda item: item['due']))
+            self._settle()
+        raise SettleLoop(list(self.recent))
+
+    def _continue(self, task: dict) -> None:
+        self.sim._parity_extra['scheduled'].remove(task)
+        at = datetime.fromtimestamp(task['due'] / 1000, timezone.utc)
+        if at > self._sim_instant():   # an overdue task runs now; the clock never steps back for it
+            self._set_clock(at)
+        self._run_continuation(task)
 
     def _run_continuation(self, task: dict) -> None:
         try:
@@ -300,7 +316,18 @@ class Session:
     def _instant(self, seconds: float) -> datetime:
         return self.start + timedelta(seconds=seconds)
 
+    def _sim_instant(self) -> datetime:
+        return self.sim.now.astimezone(timezone.utc)
+
     def _set_clock(self, instant: datetime) -> None:
+        """Move the sim clock forward to `instant`; the World's time never runs backwards.
+
+        It would if a wait ran past the next tick: the reference's inline delay, or a port continuation
+        drained at its own instant.
+        """
+        if instant < self._sim_instant():
+            raise BackendError(self.backend, 'ClockBackwards',
+                               f'the sim clock is at {self._sim_instant().isoformat()}, past {instant.isoformat()}')
         self.sim.now = instant.astimezone(LOCAL)
         self.sim.elapsed = (instant - self.start).total_seconds()
 
@@ -334,16 +361,16 @@ class Session:
 
 
 def enabled_automations(automations: Mapping[str, dict], captured: Mapping[str, dict]) -> dict[str, dict]:
-    """The automations HA would fire: those not off in the live capture.
+    """The automations HA would fire: those not off (or unavailable) in the live capture.
 
     The capture records the state of only some automations; one it does not list is taken as enabled,
     HA's default for a configured automation. A record matches its automation by the `id` attribute
     (the entity id follows the alias, not the file name) or by the entity's object id.
     """
-    off_ids = {str(record['attributes']['id']) for record in captured.values()
-               if record['state'] == 'off' and 'id' in record.get('attributes', {})}
-    off_names = {'automation_' + entity.removeprefix('automation.') for entity, record in captured.items()
-                 if record['state'] == 'off'}
+    off = {entity: record for entity, record in captured.items()
+           if entity.startswith('automation.') and record['state'] in NOT_ENABLED}
+    off_ids = {str(record['attributes']['id']) for record in off.values() if 'id' in record.get('attributes', {})}
+    off_names = {'automation_' + entity.removeprefix('automation.') for entity in off}
     return {name: config for name, config in automations.items()
             if name not in off_names and not ('id' in config and str(config['id']) in off_ids)}
 
@@ -376,6 +403,8 @@ def parse_request(backend: str, payload: object) -> tuple[datetime, list[Step]]:
     if not isinstance(start, datetime) or not isinstance(steps, list):
         raise BackendError(backend, 'MalformedRequest', f'start {start!r}, steps {type(steps).__name__}')
     for index, step in enumerate(steps):
+        if isinstance(step, Tick):
+            raise BackendError(backend, 'UnknownStep', f'step {index}: a bare Tick is not a step; Advance owns time')
         if not isinstance(step, STEPS):
             raise BackendError(backend, 'UnknownStep', f'step {index}: {step!r}')
     return start, steps
