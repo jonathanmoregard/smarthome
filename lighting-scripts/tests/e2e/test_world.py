@@ -97,6 +97,24 @@ class Transitions(unittest.TestCase):
         line = Line(start=Off(), end=On(200, None, 'none'), t0=0.0, t1=10.0)
         self.assertEqual((line.t0, line.t1), (0.0, 10.0))
 
+    def test_fading_names_bulbs_with_a_line_from_t0_until_t1(self):
+        world = make_world()
+        world.apply(publish('bulb_a', {'state': 'OFF'}), 0)
+        world.apply(publish('bulb_a', {'state': 'ON', 'brightness': 200, 'transition': 10}), 0)
+        world.apply(publish('bulb_b', {'brightness': 9}), 0)
+        self.assertEqual(world.fading(0), frozenset({'bulb_a'}))
+        self.assertEqual(world.fading(9.5), frozenset({'bulb_a'}))
+        self.assertEqual(world.fading(10), frozenset())
+
+
+class Inventory(unittest.TestCase):
+    def test_names_and_lamp_membership(self):
+        world = make_world()
+        self.assertEqual(world.bulb_names(), ['bulb_a', 'bulb_b', 'bulb_c'])
+        self.assertEqual(world.switch_names(), ['switch.plug_x'])
+        self.assertEqual(world.bulbs_of('light.group_ab'), ['bulb_a', 'bulb_b'])
+        self.assertEqual(world.bulbs_of('light.not_a_lamp'), [])
+
 
 class Candle(unittest.TestCase):
     def candle_world(self):

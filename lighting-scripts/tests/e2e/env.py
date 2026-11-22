@@ -84,14 +84,23 @@ def open_sim(backend: Backend) -> Iterator['DrySim']:
             for key in CANDIDATE_VARIABLES:
                 os.environ[key] = str(candidate)
             sys.path.insert(0, str(stage.path / DRY_HARNESS_DIR))
+            dry = importlib.import_module('dry_harness')
+            # Captured before `adapters.simulator` patches `render` to refuse every
+            # template but the frozen wake oracle; the harness renders mqtt
+            # value_templates with it, identically on both backends.
+            render = dry.DrySim.render
             if backend == 'reference':
-                yield importlib.import_module('dry_harness').DrySim()
+                sim = dry.DrySim()
+                sim.e2e_render = render.__get__(sim)
+                yield sim
                 return
             from adapters import simulator
             from rpc import Rpc
             rpc = Rpc()
             try:
-                yield simulator(stage.path, rpc).DrySim()
+                sim = simulator(stage.path, rpc).DrySim()
+                sim.e2e_render = render.__get__(sim)
+                yield sim
             finally:
                 rpc.close()
     finally:

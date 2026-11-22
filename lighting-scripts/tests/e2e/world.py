@@ -136,6 +136,20 @@ class World:
             return self._along(line, now)
         return self._settled[name]
 
+    def fading(self, now: float) -> frozenset[str]:
+        """Bulbs with a transition in progress at `now` (from `t0`, until before `t1`)."""
+        return frozenset(name for name, line in self._lines.items() if line.t0 <= now < line.t1)
+
+    def bulb_names(self) -> list[str]:
+        return list(self._bulbs)
+
+    def switch_names(self) -> list[str]:
+        return list(self._switches)
+
+    def bulbs_of(self, entity: str) -> list[str]:
+        """The bulbs an HA light entity drives; none for an entity the world does not know."""
+        return list(self._ha_lights.get(entity, []))
+
     def switch(self, entity: str) -> Literal['on', 'off']:
         return self._switches[entity]
 

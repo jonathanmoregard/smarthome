@@ -72,6 +72,17 @@ class OpenSimTests(unittest.TestCase):
         ''')
         self.assertTrue(result['refused'])
 
+    def test_both_backends_expose_the_unpatched_renderer(self):
+        for backend in ('reference', 'port'):
+            with self.subTest(backend=backend):
+                result = isolated(f'''
+                    import json
+                    from tests.e2e.env import open_sim
+                    with open_sim({backend!r}) as sim:
+                        print(json.dumps({{'x': sim.e2e_render('{{{{ value | int + 1 }}}}', {{'value': '41'}})}}))
+                ''')
+                self.assertEqual(result['x'], 42)
+
     def test_port_closes_node_and_stage_on_exit(self):
         result = isolated(prelude=CHILDREN, body='''
             import json, os
