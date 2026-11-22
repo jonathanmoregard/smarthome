@@ -53,7 +53,7 @@ export function decodeLampProfile(storeText: string): LampProfile {
 }
 
 /** The store as a mapping; none when it is not JSON or not a mapping. */
-function storeOf(text: string): JsonObject | undefined {
+export function storeOf(text: string): JsonObject | undefined {
   let parsed: JsonValue;
   try { parsed = JSON.parse(text) as JsonValue; } catch { return undefined; }
   return isObject(parsed) ? parsed : undefined;

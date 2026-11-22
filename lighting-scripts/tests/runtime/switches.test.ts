@@ -185,3 +185,56 @@ test('a range-only switch still obeys its own button', () => {
   const model = house(m => { rangeOnly(roomA)(m); m.overlays.switches[ranged] = { power: 'on', since: at('11:00:00') }; });
   assert.equal(power(model, at('12:00:00'), ranged), 'on');
 });
+
+/** `switch.plug_a` with its own on/off profile for one block (the rest follow the room). */
+const ownProfile = (block: 'day' | 'cosy' | 'night', power: Power) => (m: Model) => {
+  m.switchProfiles[plugA] = { ...m.switchProfiles[plugA]!, [block]: { follows: 'own', power } };
+};
+
+test('a plug\'s own on/off profile wins over its block\'s setting', () => {
+  // Today a plug's own lamp profile wins per block. Break: the block setting wins, or the profile is read for another block.
+  const night = house(m => { delete m.switchRanges[plugA]; ownProfile('night', 'on')(m); });
+  assert.equal(power(night, at('23:30:00')), 'on');
+  const day = house(m => { delete m.switchRanges[plugA]; ownProfile('day', 'off')(m); });
+  assert.equal(power(day, at('12:00:00')), 'off');
+});
+
+test('a plug\'s own profile is the one of the block the stage holds', () => {
+  // Break: the profile of another block (the first, the scheduled) is read.
+  const model = house(m => { delete m.switchRanges[plugA]; ownProfile('night', 'off')(m); });
+  assert.equal(power(model, at('12:00:00')), 'on');
+  const held = house(m => {
+    delete m.switchRanges[plugA]; ownProfile('day', 'off')(m); ownProfile('night', 'on')(m);
+    m.overlays.blocks[roomA] = { block: 'night', since: at('11:00:00') };
+  });
+  assert.equal(power(held, at('12:00:00')), 'on');
+});
+
+test('a range rule wins over a plug\'s own profile', () => {
+  // The order is overlay, range rule, own profile, block setting. Break: the profile outranks the rule.
+  const model = house(m => { ownProfile('day', 'on')(m); ownProfile('cosy', 'off')(m); });
+  assert.equal(power(model, at('12:00:00')), 'off');
+  assert.equal(power(model, at('20:00:00')), 'on');
+});
+
+test('a switch overlay wins over a plug\'s own profile', () => {
+  // Break: the profile outranks the plug's own button.
+  const model = house(m => { delete m.switchRanges[plugA]; ownProfile('day', 'on')(m); m.overlays.switches[plugA] = { power: 'off', since: at('11:00:00') }; });
+  assert.equal(power(model, at('12:00:00')), 'off');
+});
+
+test('a plug\'s own profile is left alone while its room\'s stage moves', () => {
+  // Break: the profile is sent through a fade, as the block setting is not.
+  const model = house(m => { delete m.switchRanges[plugA]; ownProfile('cosy', 'off')(m); ownProfile('night', 'off')(m); });
+  assert.equal(power(model, at('22:15:00')), undefined);
+});
+
+test('a range-only switch ignores a profile of its own', () => {
+  // Only on/off-labelled switches read it. Break: the profile is read for a switch the label does not name.
+  const model = house(m => {
+    rangeOnly(roomA)(m);
+    delete m.switchRanges[ranged];
+    m.switchProfiles[ranged] = { day: { follows: 'own', power: 'on' }, cosy: { follows: 'own', power: 'on' }, night: { follows: 'own', power: 'on' } };
+  });
+  assert.equal(power(model, at('12:00:00'), ranged), undefined);
+});

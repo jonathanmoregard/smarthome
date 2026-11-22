@@ -150,6 +150,7 @@ export function syntheticHouse(): Model {
     },
     switchRanges: { [plugA]: { kind: 'custom', range: toPercentRange(20, 60) } },
     rangeDefaults: { bright: toPercentRange(90, 100), cosy: toPercentRange(30, 60) },
+    switchProfiles: { [plugA]: { day: { follows: 'room' }, cosy: { follows: 'room' }, night: { follows: 'room' } } },
     lampProfiles: {
       [lampA1]: { ...followsRoom, cosy: { follows: 'own', light: lit(100, undefined, 'Candle') } },
       [lampA2]: followsRoom,

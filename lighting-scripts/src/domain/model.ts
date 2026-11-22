@@ -22,6 +22,7 @@ export type Model = {
   /** Saved from the dashboard's range helpers at run time, so Model, not Config. */
   rangeDefaults: RangeDefaults;
   lampProfiles: Record<LampId, Record<Block, LampProfile>>;
+  switchProfiles: Record<SwitchId, Record<Block, SwitchProfile>>;
 };
 
 /** Which levels of its room a switch is on for: the bright or cosy default range, or its own. */
@@ -31,6 +32,9 @@ export type RangeDefaults = Record<'bright' | 'cosy', PercentRange>;
 
 /** A lamp's saved light for a block: the room's, or its own (whose effect its light names). */
 export type LampProfile = { follows: 'room' } | { follows: 'own'; light: SceneLight };
+
+/** A plug's saved on/off for a block: its room's block setting, or its own power (on/off only, never a light). */
+export type SwitchProfile = { follows: 'room' } | { follows: 'own'; power: Power };
 
 /**
  * A remote's gesture state, which `update` owns (the gesture reducer moves
