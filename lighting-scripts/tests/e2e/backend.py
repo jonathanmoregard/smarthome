@@ -1,10 +1,14 @@
 """Run one scenario on one backend: `python3 -m tests.e2e.backend <reference|port> <result file>`.
 
-Reads the encoded `{start, steps}` from stdin, runs the steps on a fresh
+Reads the encoded `{start, steps, seeds}` from stdin, runs the steps on a fresh
 simulator and writes exactly one encoded outcome to the result file:
 `{'checkpoints': [...]}`, or `{'error': {'kind', 'message'}}` (plus
 `last_inputs` for a settle loop). Stdout stays free for logs.
+`python3 -m tests.e2e.backend describe <result file>` writes `{'house': HouseInfo}` instead.
 
+The seeds are written before the first step, silently. Each captured remote's
+device is placed in the area its gesture script is named for, when that is one
+of the house's areas, identically on both backends; otherwise it has no area.
 Only the automations enabled live are routed. Each step is applied, routed to
 the automations Home Assistant would run, run, and then settled: the calls the
 backend recorded move the `World`, the scripts they started (`script.turn_on`)
@@ -24,10 +28,12 @@ from pathlib import Path
 import sys
 import traceback
 
-from tests.e2e.codec import Advance, Checkpoint, PersonLightChange, PressSwitch, Step, decode, encode
-from tests.e2e.router import (LOCAL, AutomationRun, Context, Event, HaStart, House, Input, Mqtt, Run, ScriptCall,
-                              StateChanged, Tick, load_automations, route)
+from tests.e2e.codec import (Advance, Checkpoint, HelperInfo, HouseInfo, LampInfo, PersonLightChange, PowerCut,
+                              PowerRestore, PressSwitch, RemoteInfo, Seed, Step, decode, encode)
+from tests.e2e.router import (DASHBOARD_SCRIPTS, LOCAL, AutomationRun, Context, Event, HaStart, House, Input, Mqtt, Run,
+                              ScriptCall, StateChanged, Tick, load_automations, route)
 from tests.e2e.runner import LAST_INPUTS, SETTLE_LIMIT, BackendError, SettleLoop
+from tests.e2e import services
 from tests.e2e.world import On, World
 
 TICK_SECONDS = 60
@@ -47,7 +53,21 @@ LIVE_STATES = 'automation-states.json'
 NOT_ENABLED = ('off', 'unavailable')   # HA fires neither a disabled nor an unavailable automation
 PERSON = 'e2e-person'   # the user id a person's own change carries
 INPUTS = (HaStart, Tick, StateChanged, Event, Mqtt, ScriptCall)
-STEPS = (*(kind for kind in INPUTS if kind is not Tick), Advance, PressSwitch, PersonLightChange)   # Advance owns time
+STEPS = (*(kind for kind in INPUTS if kind is not Tick), Advance, PressSwitch, PersonLightChange,   # Advance owns time
+         PowerCut, PowerRestore)
+GESTURE_CAPTURE = 'ls_remote_gesture_'   # + room key: the file stem of a captured gesture script
+BLOCKS = ('day', 'cosy', 'night')
+# setting -> the helper's entity id, from a scope (`house`, a room or `lamp_<lamp object id>`) and a block,
+# spelled as the captured scripts build them.
+HELPER_NAMES = {
+    'light': 'input_text.ls_{scope}_{block}',
+    'start': 'input_datetime.ls_{scope}_{block}_start',
+    'weekend': 'input_datetime.ls_{scope}_{block}_weekend',
+    'fade': 'input_number.ls_{scope}_{block}_fade',
+    'own_light': 'input_boolean.ls_{scope}_{block}_own_light',
+    'own_timing': 'input_boolean.ls_{scope}_{block}_own_timing',
+}
+DESCRIBE_START = datetime(2026, 10, 23, 12, tzinfo=LOCAL)   # any instant: the description does not depend on it
 # `adapters.simulator` refuses these before any RPC: the harness routed something the
 # adapter cannot map, a setup fault rather than port behaviour (ruling 25).
 ROUTING_ERRORS = ('Unsupported historical automation', 'Historical center automation')
@@ -58,7 +78,7 @@ class Session:
     """One backend's simulator, its world and the scenario clock."""
 
     def __init__(self, sim, backend: str, automations: Mapping[str, dict], plugs: Sequence[str], world: World,
-                 start: datetime):
+                 start: datetime, seeds: Sequence[Seed] = ()):
         self.sim, self.backend, self.automations, self.plugs, self.world = sim, backend, automations, list(plugs), world
         self.start = start.astimezone(timezone.utc)
         self.t = 0.0                      # nominal seconds since start; never the drifting sim clock
@@ -69,17 +89,26 @@ class Session:
         self.contexts = 0
         self.seen_calls = len(sim.calls)
         self.sim.now, self.sim.elapsed = self.start.astimezone(LOCAL), 0.0
+        owned = world.ha_states(math.inf)
+        for seed in seeds:   # silent, like the world's first light: the captured state the scenario starts in
+            if seed.entity in owned:
+                raise BackendError(backend, 'MalformedRequest',
+                                   f'seed {seed.entity}: the world writes its own state there, over any seed')
+            sim.put(seed.entity, seed.state, copy.deepcopy(dict(seed.attributes)))
         self._write_back()                # silent: the world's first light is not a change anybody made
         self.known = {entity: self._known(value, None) for entity, value in sim.state.items()}
 
     @staticmethod
-    def open(sim, backend: str, start: datetime) -> 'Session':
-        """Seed the synthetic plugs, then build the house's automations and world from the simulator."""
+    def open(sim, backend: str, start: datetime, seeds: Sequence[Seed] = ()) -> 'Session':
+        """Seed the synthetic plugs and the remotes' areas, then build the house's automations and world."""
         from tests.e2e.env import LIVE
         plugs = seed_plugs(sim, backend)
+        seed_remote_areas(sim, backend)
+        if backend == 'reference':
+            services.install(sim)
         captured = json.loads((LIVE / LIVE_STATES).read_text())['data']['states']
         automations = enabled_automations(load_automations(sim), captured)
-        return Session(sim, backend, automations, plugs, World.from_sim(sim), start)
+        return Session(sim, backend, automations, plugs, World.from_sim(sim), start, seeds)
 
     def run(self, steps: Sequence[Step]) -> list[Checkpoint]:
         checkpoints: list[Checkpoint] = []
@@ -116,6 +145,10 @@ class Session:
                               'target': {'entity_id': list(step.entities)}, 'data': dict(step.service_data)},
                              self.sim.elapsed)
             self._dispatch(event)
+        elif isinstance(step, PowerCut):   # settling writes the lights back unavailable and routes that
+            self.world.power_cut(step.bulbs, self.sim.elapsed)
+        elif isinstance(step, PowerRestore):   # ... and back from unavailable
+            self.world.power_restore(step.bulbs, self.sim.elapsed)
         else:
             self._dispatch(step)
         self._settle()
@@ -395,30 +428,137 @@ def seed_plugs(sim, backend: str) -> list[str]:
     return plugs
 
 
-def parse_request(backend: str, payload: object) -> tuple[datetime, list[Step]]:
+def remote_bindings() -> dict[str, tuple[str, str]]:
+    """Each captured gesture script's room key -> its remote's (device id, source), as the port adapter reads them."""
+    from adapters import remote_binding
+    from tests.e2e.env import LIVE
+    bindings = {}
+    for path in sorted((LIVE / 'scripts').glob(GESTURE_CAPTURE + '*.json')):
+        value = json.loads(path.read_text())
+        bindings[path.stem.removeprefix(GESTURE_CAPTURE)] = remote_binding(value.get('config', value))
+    return bindings
+
+
+def seed_remote_areas(sim, backend: str) -> None:
+    """Each remote's device in the area its gesture script is named for, when that is a house area, on both backends.
+
+    The captures hold no device registry, so a remote whose room key is not an area keeps no area,
+    and a press on it does nothing: config says what it says, no room is assumed.
+    """
+    rooms = set(sim.areas.values())
+    for key, (device, _) in remote_bindings().items():
+        if key in rooms:
+            sim.areas[device] = key
+    if backend == 'reference':
+        # HA's area_entities lists entities only; the reference's stub reads sim.areas, which now holds devices too.
+        sim.env.globals['area_entities'] = lambda area: [
+            entity for entity, value in sim.areas.items() if value == area and '.' in entity]
+
+
+def describe(backend: str = 'reference') -> HouseInfo:
+    """The house as a scenario picks from it: rooms, lamps, remotes, plugs, schedule helpers, dashboard options."""
+    from tests.e2e.env import open_sim
+    with open_sim(backend) as sim:
+        return house_info(Session.open(sim, backend, DESCRIBE_START))
+
+
+def house_info(session: Session) -> HouseInfo:
+    sim, world = session.sim, session.world
+    rooms = tuple(sorted(set(sim.areas.values())))
+    lamps = tuple(LampInfo(lamp, sim.areas[lamp], tuple(world.bulbs_of(lamp)),
+                           all(world.candle_capable(bulb) for bulb in world.bulbs_of(lamp)))
+                  for lamp in sorted(sim.members))
+    return HouseInfo(rooms=rooms, lamps=lamps, remotes=_remotes(session), plugs=tuple(session.plugs),
+                     helpers=_helpers(sim, rooms, lamps), dashboard_options=_dashboard_options(sim))
+
+
+def _remotes(session: Session) -> tuple[RemoteInfo, ...]:
+    """Per topic, the payloads the enabled remote automations' mqtt triggers fire on, and its device's area."""
+    from adapters import remote_gesture_room
+    bindings = remote_bindings()
+    presses: dict[str, list[str]] = {}
+    keys: dict[str, str] = {}
+    for config in session.automations.values():
+        key = remote_gesture_room(config)
+        if key is None:
+            continue
+        for trigger in config.get('triggers', config.get('trigger', [])):
+            if trigger.get('trigger', trigger.get('platform')) == 'mqtt' and 'payload' in trigger:
+                if keys.setdefault(trigger['topic'], key) != key:
+                    raise ValueError(f"remote topic {trigger['topic']} starts two gesture scripts")
+                presses.setdefault(trigger['topic'], [])
+                if trigger['payload'] not in presses[trigger['topic']]:
+                    presses[trigger['topic']].append(trigger['payload'])
+    return tuple(RemoteInfo(session.sim.areas.get(bindings[keys[topic]][0]), topic, tuple(payloads))
+                 for topic, payloads in sorted(presses.items()))
+
+
+def _helpers(sim, rooms: Sequence[str], lamps: Sequence[LampInfo]) -> tuple[HelperInfo, ...]:
+    """The schedule helpers present in the simulator, for the house, each room and each lamp.
+
+    Named as the scripts build them; a helper named for a scope that is no room is one they never read.
+    """
+    scopes = [('house', None, None), *((room, room, None) for room in rooms),
+              *(('lamp_' + lamp.lamp.removeprefix('light.'), lamp.room, lamp.lamp) for lamp in lamps)]
+    helpers: dict[str, HelperInfo] = {}
+    for scope, room, lamp in scopes:
+        for block in BLOCKS:
+            for setting, name in HELPER_NAMES.items():
+                entity = name.format(scope=scope, block=block)
+                if entity in sim.state:
+                    if entity in helpers:
+                        raise ValueError(f'helper {entity} belongs to two scopes')
+                    helpers[entity] = HelperInfo(entity, room, lamp, block, setting)
+    return tuple(helpers[entity] for entity in sorted(helpers))
+
+
+def _dashboard_options(sim) -> dict[str, tuple]:
+    """'<dashboard script>.<field>' -> the values of the field's select options, from the captured scripts."""
+    options = {}
+    for script in DASHBOARD_SCRIPTS:
+        for field, spec in sim.config[script].get('fields', {}).items():
+            select = spec.get('selector', {}).get('select')
+            if select is not None:
+                options[f'{script}.{field}'] = tuple(
+                    option['value'] if isinstance(option, Mapping) else option for option in select['options'])
+    return options
+
+
+def parse_request(backend: str, payload: object) -> tuple[datetime, list[Step], list[Seed]]:
     request = decode(payload)
-    if not isinstance(request, dict) or set(request) != {'start', 'steps'}:
-        raise BackendError(backend, 'MalformedRequest', f'expected {{start, steps}}, got {request!r}')
-    start, steps = request['start'], request['steps']
-    if not isinstance(start, datetime) or not isinstance(steps, list):
-        raise BackendError(backend, 'MalformedRequest', f'start {start!r}, steps {type(steps).__name__}')
+    if not isinstance(request, dict) or set(request) not in ({'start', 'steps'}, {'start', 'steps', 'seeds'}):
+        raise BackendError(backend, 'MalformedRequest', f'expected {{start, steps, seeds}}, got {request!r}')
+    start, steps, seeds = request['start'], request['steps'], request.get('seeds', [])
+    if not isinstance(start, datetime) or not isinstance(steps, list) or not isinstance(seeds, list):
+        raise BackendError(backend, 'MalformedRequest',
+                           f'start {start!r}, steps {type(steps).__name__}, seeds {type(seeds).__name__}')
     for index, step in enumerate(steps):
         if isinstance(step, Tick):
             raise BackendError(backend, 'UnknownStep', f'step {index}: a bare Tick is not a step; Advance owns time')
         if not isinstance(step, STEPS):
             raise BackendError(backend, 'UnknownStep', f'step {index}: {step!r}')
-    return start, steps
+    for index, seed in enumerate(seeds):
+        if not isinstance(seed, Seed):
+            raise BackendError(backend, 'MalformedRequest', f'seed {index}: {seed!r}')
+    return start, steps, seeds
 
 
 def execute(backend: str, text: str) -> dict:
     """The outcome of one scenario, every failure included; never raises."""
     try:
-        start, steps = parse_request(backend, json.loads(text))
+        start, steps, seeds = parse_request(backend, json.loads(text))
         from tests.e2e.env import open_sim
         with open_sim(backend) as sim:
-            session = Session.open(sim, backend, start)
+            session = Session.open(sim, backend, start, seeds)
             checkpoints = session.run(steps)
             return {'checkpoints': checkpoints, 'adjustments': dict(session.adjustments)}
+    except Exception as error:
+        return failure(error)
+
+
+def execute_describe() -> dict:
+    try:
+        return {'house': describe()}
     except Exception as error:
         return failure(error)
 
@@ -432,8 +572,8 @@ def failure(error: Exception) -> dict:
 
 
 def main(argv: Sequence[str]) -> int:
-    backend, result = argv
-    outcome = execute(backend, sys.stdin.read())
+    command, result = argv
+    outcome = execute_describe() if command == 'describe' else execute(command, sys.stdin.read())
     try:
         text = json.dumps(encode(outcome))
     except (TypeError, ValueError) as error:   # an outcome the codec cannot carry is itself a failure

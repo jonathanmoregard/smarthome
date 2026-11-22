@@ -6,8 +6,9 @@ frozenset stays a frozenset, a datetime keeps its offset, and a plain dict is
 wrapped so that a payload which happens to hold a `kind` key is never taken for
 a tag. Only str, int, float, bool, None and list pass through unwrapped.
 
-Also home to the scenario `Step` variants and `Checkpoint`, which only exist to
-be carried: the runner builds them, the backends and the comparator read them.
+Also home to the scenario `Step` variants, `Seed`, `Checkpoint` and the house
+description (`HouseInfo`), which only exist to be carried: the runner builds
+them, the backends and the comparator read them.
 """
 from __future__ import annotations
 from collections.abc import Mapping
@@ -38,7 +39,69 @@ class PersonLightChange:
     service_data: dict
 
 
-Step = Union[Input, Advance, PressSwitch, PersonLightChange]
+@dataclass(frozen=True)
+class PowerCut:
+    """The wall power to these bulbs goes: their lights become unavailable and they ignore every command."""
+    bulbs: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class PowerRestore:
+    """The power comes back: each bulb returns as it was at the cut (Zigbee2MQTT `power_on_behavior: previous`)."""
+    bulbs: tuple[str, ...]
+
+
+Step = Union[Input, Advance, PressSwitch, PersonLightChange, PowerCut, PowerRestore]
+
+
+@dataclass(frozen=True)
+class Seed:
+    """An entity's state written before the first step, silently: a captured initial state, not an input."""
+    entity: str
+    state: str
+    attributes: Mapping[str, object]
+
+
+# --- the house, as a scenario picks its entities by role ---------------------------------------------------
+
+@dataclass(frozen=True)
+class LampInfo:
+    lamp: str   # the lamp's light entity, one of the house schedule's members
+    room: str
+    bulbs: tuple[str, ...]
+    candle_capable: bool   # every bulb of the lamp can run the firmware candle
+
+
+@dataclass(frozen=True)
+class RemoteInfo:
+    room: str | None   # the area of the remote's device; None: it has none, so a press does nothing
+    topic: str
+    presses: tuple[str, ...]   # the payloads the captured mqtt triggers on `topic` fire on
+
+
+@dataclass(frozen=True)
+class HelperInfo:
+    """A schedule helper: a block's light (`input_text`), start or weekend start (`input_datetime`), fade
+    (`input_number`), or own light / own timing switch (`input_boolean`).
+
+    `room` and `lamp` are both None for the house's own helpers; a lamp's helper names its lamp and the lamp's room.
+    (`setting`, not `kind`: `kind` is the codec's tag.)
+    """
+    entity: str
+    room: str | None
+    lamp: str | None
+    block: str | None
+    setting: Literal['light', 'start', 'weekend', 'fade', 'own_light', 'own_timing']
+
+
+@dataclass(frozen=True)
+class HouseInfo:
+    rooms: tuple[str, ...]
+    lamps: tuple[LampInfo, ...]
+    remotes: tuple[RemoteInfo, ...]
+    plugs: tuple[str, ...]
+    helpers: tuple[HelperInfo, ...]
+    dashboard_options: Mapping[str, tuple]   # '<dashboard script>.<field>' -> the field's select options
 
 
 @dataclass(frozen=True)
@@ -64,8 +127,12 @@ class MalformedKind(ValueError):
 
 _KINDS = {cls.__name__: cls for cls in (
     HaStart, Tick, StateChanged, Event, Mqtt, ScriptCall, Context,
-    Advance, PressSwitch, PersonLightChange,
+    Advance, PressSwitch, PersonLightChange, PowerCut, PowerRestore, Seed,
+    LampInfo, RemoteInfo, HelperInfo, HouseInfo,
     Off, On, Kelvin, Rgb, Checkpoint)}
+_TAGGED = [name for name, cls in _KINDS.items() if 'kind' in {f.name for f in fields(cls)}]
+if _TAGGED:
+    raise TypeError(f'a field named kind would overwrite the tag: {_TAGGED}')
 
 
 def encode(value: object) -> object:

@@ -70,6 +70,29 @@ def remote_binding(config):
     return device_ids.pop(), source_ids.pop()
 
 
+GESTURE_SCRIPT = 'script.ls_remote_gesture_'
+
+
+def remote_gesture_room(config):
+    """The room key of the gesture script a captured remote automation starts, or None for any other automation."""
+    rooms = set()
+
+    def find(value):
+        if isinstance(value, dict):
+            action = value.get('action')
+            if isinstance(action, str) and action.startswith(GESTURE_SCRIPT):
+                rooms.add(action.removeprefix(GESTURE_SCRIPT))
+            for child in value.values():
+                find(child)
+        elif isinstance(value, list):
+            for child in value:
+                find(child)
+
+    find(config.get('actions', []))
+    assert len(rooms) <= 1, f'Remote automation starts {len(rooms)} gesture scripts'
+    return rooms.pop() if rooms else None
+
+
 def pure_templates(module, rpc, compare=False):
     if hasattr(module, 'TEMPLATES'):
         module.TEMPLATES = {name: RpcTemplate(rpc, name, template if compare else None) for name, template in module.TEMPLATES.items()}
@@ -98,20 +121,25 @@ def simulator(stage, rpc, module_path=None):
     # oracle. Permit only that exact preserved oracle, never a script fallback.
     legacy_apply = json.loads((stage / 'lighting-algebra/before/ls_apply.json').read_text())
     wake_oracle = legacy_apply['config']['sequence'][0]['variables']['plan']
+    # Every room whose remote has a captured gesture script, each bound from that script.
     remote_catalog = {}
     candidate = Path(os.environ['LIGHTING_CANDIDATE'])
-    for alias in ('gesture_script_bedroom', 'gesture_script_living_room'):
-        config = json.loads((candidate / (alias + '.json')).read_text())
-        device_id, source = remote_binding(config)
-        remote_catalog[alias.removeprefix('gesture_script_')] = {
+    for path in sorted(candidate.glob(GESTURE_SCRIPT.removeprefix('script.') + '*.json')):
+        device_id, source = remote_binding(json.loads(path.read_text()))
+        remote_catalog[path.stem.removeprefix(GESTURE_SCRIPT.removeprefix('script.'))] = {
             'device_id': device_id, 'source': source,
         }
     automation_names = {}
+    remote_rooms = {}   # captured remote automation -> the room of the gesture script it starts
     for path in (ROOT / 'reference/live/automations').glob('*.json'):
         document = json.loads(path.read_text())
         config = document.get('config', document)
+        room = remote_gesture_room(config)
+        assert room is None or room in remote_catalog, 'Remote automation starts a gesture script with no capture'
         for key in (path.stem, str(config.get('id', path.stem))):
             automation_names['automation_' + key] = path.stem
+            if room is not None:
+                remote_rooms['automation_' + key] = room
     legacy_routes = {
         alias.removeprefix('gesture_'): {'entrypoint': current, 'role': alias.split('_')[1], 'room': alias.split('_', 2)[2]}
         for alias, current in LEGACY_AUTOMATION_ALIASES.items()
@@ -360,6 +388,13 @@ def simulator(stage, rpc, module_path=None):
             room = lookup('parity.remote')
             assert isinstance(room, str) and room, 'Historical center automation resolved no fixture room'
             return self.run('automation.remote_center', room=room, trigger=trigger)
+        if name in remote_rooms:
+            # A captured remote automation, as HA runs it: the room, device and source come from its
+            # gesture script's binding.
+            room = remote_rooms[name]
+            binding = remote_catalog[room]
+            return self.run('automation.' + automation_names[name], room=room, device_id=binding['device_id'],
+                            source=binding['source'], trigger=trigger)
         assert name in automation_names, 'Unsupported historical automation: ' + name
         return self.run('automation.' + automation_names[name], trigger=trigger)
 

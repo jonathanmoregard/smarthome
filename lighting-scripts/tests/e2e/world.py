@@ -13,9 +13,14 @@ Assumptions (the plan gives no ruling, so they are stated here):
 - A colour-only send to an off bulb is remembered and leaves it off.
 - A transition ramps the level only; the colour takes its end value at once.
 - Time never runs backwards between calls.
+- A bulb whose wall power is cut is dark (`Off`), ignores every command, and its
+  light is `unavailable` in HA; a light of several bulbs only once all are. Power
+  back, it returns as it was at the cut (Zigbee2MQTT `power_on_behavior:
+  previous`): off if it was off, else on at the level it had reached and its
+  colour. The firmware candle does not survive the cut.
 """
 from __future__ import annotations
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 import json
 from typing import TYPE_CHECKING, Literal
@@ -115,6 +120,7 @@ class World:
         self._lines: dict[str, Line] = {}
         self._last_level = {name: FIRST_LEVEL for name in self._bulbs}
         self._last_colour: dict[str, Colour | None] = {name: None for name in self._bulbs}
+        self._unpowered: dict[str, BulbState] = {}   # bulb -> its state when the power went
 
     def apply(self, call: dict, now: float) -> None:
         action = call['action']
@@ -131,6 +137,8 @@ class World:
             self._service(action, call['target'], data, now, set(), light=True, switch=True)
 
     def bulb(self, name: str, now: float) -> BulbState:
+        if name in self._unpowered:
+            return Off()
         line = self._lines.get(name)
         if line is not None and line.t0 <= now < line.t1:
             return self._along(line, now)
@@ -156,9 +164,30 @@ class World:
     def press_switch_button(self, entity: str) -> None:
         self._switches[entity] = 'off' if self._switches[entity] == 'on' else 'on'
 
+    def candle_capable(self, name: str) -> bool:
+        return self._bulbs[name].candle_capable
+
+    def power_cut(self, names: Iterable[str], now: float) -> None:
+        """The wall power to `names` goes: each keeps what it showed at `now`, to come back to."""
+        for name in self._known(names):
+            if name in self._unpowered:
+                raise ValueError(f'{name} has no power to cut')
+            state = self.bulb(name, now)
+            self._unpowered[name] = On(state.level, state.colour, 'none') if isinstance(state, On) else state
+            self._lines.pop(name, None)
+
+    def power_restore(self, names: Iterable[str], now: float) -> None:
+        for name in self._known(names):
+            if name not in self._unpowered:
+                raise ValueError(f'{name} has power already')
+            self._settled[name] = self._unpowered.pop(name)
+
     def ha_states(self, now: float) -> dict[str, dict]:
         states: dict[str, dict] = {}
         for entity, names in self._ha_lights.items():
+            if all(name in self._unpowered for name in names):
+                states[entity] = {'entity_id': entity, 'state': 'unavailable', 'attributes': {}}
+                continue
             lit = [state for state in (self.bulb(name, now) for name in names) if isinstance(state, On)]
             states[entity] = {'entity_id': entity, 'state': 'on' if lit else 'off',
                               'attributes': self._attributes(lit[0]) if lit else {}}
@@ -236,8 +265,17 @@ class World:
         if names:
             self._change(list(dict.fromkeys(names)), _parse_light(on, data), now)
 
+    def _known(self, names: Iterable[str]) -> list[str]:
+        names = list(names)
+        unknown = [name for name in names if name not in self._bulbs]
+        if unknown:
+            raise UnknownTarget(f'bulbs {unknown}')
+        return names
+
     def _change(self, names: list[str], change: _Change, now: float) -> None:
         for name in names:
+            if name in self._unpowered:
+                continue   # no power, no radio: the command is lost
             line = self._lines.get(name)
             if change.power is None and change.level is None and line is not None and line.t0 <= now < line.t1:
                 # Level and colour are separate Zigbee clusters: a send that moves neither level nor power

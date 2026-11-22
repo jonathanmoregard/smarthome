@@ -19,7 +19,7 @@ import sys
 import tempfile
 from typing import Literal
 
-from tests.e2e.codec import Checkpoint, Step, decode, encode
+from tests.e2e.codec import Checkpoint, HouseInfo, Seed, Step, decode, encode
 
 ROOT = Path(__file__).resolve().parents[2]
 SETTLE_LIMIT = 200   # settle rounds per step or tick before the backend gives up
@@ -48,23 +48,36 @@ class BackendRun:
     adjustments: Mapping[str, int]   # how often each named rule applied inside the backend
 
 
-def run_backend(backend: Literal['reference', 'port'], steps: Sequence[Step], start: datetime) -> BackendRun:
-    payload = json.dumps(encode({'start': start, 'steps': list(steps)}))
+def run_backend(backend: Literal['reference', 'port'], steps: Sequence[Step], start: datetime,
+                seeds: Sequence[Seed] = ()) -> BackendRun:
+    """`steps` from `start` on `backend`, after writing `seeds` silently."""
+    payload = json.dumps(encode({'start': start, 'steps': list(steps), 'seeds': list(seeds)}))
+    return run_of(backend, _child(backend, [backend], payload))
+
+
+def run_both(steps: Sequence[Step], start: datetime, seeds: Sequence[Seed] = ()) -> tuple[BackendRun, BackendRun]:
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        reference = pool.submit(run_backend, 'reference', steps, start, seeds)
+        port = pool.submit(run_backend, 'port', steps, start, seeds)
+        return reference.result(), port.result()
+
+
+def describe_house() -> HouseInfo:
+    """The house as the reference backend sets it up (`python3 -m tests.e2e.backend describe`)."""
+    outcome = _child('reference', ['describe'], '')
+    if 'error' in outcome:
+        raise BackendError('reference', outcome['error']['kind'], outcome['error']['message'])
+    return outcome['house']
+
+
+def _child(backend: str, command: list[str], payload: str) -> dict:
     with tempfile.TemporaryDirectory(prefix='e2e-backend-') as directory:
         result = Path(directory) / 'result.json'
-        completed = subprocess.run([sys.executable, '-m', 'tests.e2e.backend', backend, str(result)],
+        completed = subprocess.run([sys.executable, '-m', 'tests.e2e.backend', *command, str(result)],
                                    cwd=ROOT, input=payload, text=True)
         if not result.is_file():
             raise BackendError(backend, 'Crashed', f'exit status {completed.returncode}, no result written')
-        outcome = decode(json.loads(result.read_text()))
-    return run_of(backend, outcome)
-
-
-def run_both(steps: Sequence[Step], start: datetime) -> tuple[BackendRun, BackendRun]:
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        reference = pool.submit(run_backend, 'reference', steps, start)
-        port = pool.submit(run_backend, 'port', steps, start)
-        return reference.result(), port.result()
+        return decode(json.loads(result.read_text()))
 
 
 def run_of(backend: str, outcome: dict) -> BackendRun:
