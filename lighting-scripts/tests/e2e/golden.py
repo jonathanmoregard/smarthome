@@ -4,7 +4,8 @@
 `.runtime/e2e/golden/<name>.json` (git-ignored: it names catalog entities). It
 holds the scenario (its steps and seeds through the codec), the reference's
 checkpoints and adjustments, and a hash of what made them: the modules the
-reference run goes through and the private captures (ruling 47). `replay` runs
+reference run goes through, the private captures and `live_candidate`, which
+turns the captures into what the reference runs (rulings 47, 56). `replay` runs
 the port on the recorded scenario and compares it with the recording. It raises
 `StaleRecording` when that hash has changed, or when the golden scenario of that
 name is no longer the recorded one; a recording no golden scenario names (a fuzz
@@ -20,14 +21,17 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 from functools import cache
 import hashlib
+import inspect
 import json
 from pathlib import Path
 import sys
 
+from tests.e2e import env   # noqa: F401  (puts tests/parity, and with it `portability`, on the path)
 from tests.e2e.codec import Checkpoint, decode, encode
 from tests.e2e.compare import Comparison, compare
 from tests.e2e.runner import ROOT, BackendRun, describe_house, run_backend
-from tests.e2e.scenarios import NAMES, Scenario, scenarios
+from tests.e2e.scenarios import NAMES, Proof, Scenario, scenarios
+import portability  # noqa: E402
 
 GOLDEN = ROOT / '.runtime' / 'e2e' / 'golden'
 # What a reference run goes through (ruling 47): these modules and the private captures. Not the tests,
@@ -51,13 +55,21 @@ class Recording:
     sources: str
 
 
-def sources_hash(root: Path = ROOT) -> str:
+def sources_hash(root: Path = ROOT, candidate: str | None = None) -> str:
+    """The hashed modules and captures under `root`, and `candidate` (by default `candidate_source()`)."""
     digest = hashlib.sha256()
     files = [root / 'tests' / 'e2e' / f'{name}.py' for name in HASHED_MODULES]
     files += sorted(path for path in (root / CAPTURES).rglob('*') if path.is_file())
     for path in files:
         digest.update(str(path.relative_to(root)).encode() + b'\0' + path.read_bytes() + b'\0')
+    digest.update((candidate_source() if candidate is None else candidate).encode())
     return digest.hexdigest()
+
+
+def candidate_source() -> str:
+    """`portability.live_candidate` and the alias tables it reads: how the captures become the candidate."""
+    return inspect.getsource(portability.live_candidate) + json.dumps(
+        [portability.LEGACY_SCRIPT_ALIASES, portability.LEGACY_AUTOMATION_ALIASES], sort_keys=True)
 
 
 def record(name: str, scenario: Scenario, *, directory: Path = GOLDEN) -> Path:
@@ -109,7 +121,7 @@ def load(name: str, *, directory: Path = GOLDEN) -> Recording:
     checkpoints = decode(document['reference']['checkpoints'])
     return Recording(
         scenario=Scenario(scenario['name'], decode(scenario['start']), tuple(decode(scenario['seeds'])),
-                          tuple(decode(scenario['steps'])), tuple(tuple(pair) for pair in scenario['proves'])),
+                          tuple(decode(scenario['steps'])), _proofs(scenario['proves']), _proofs(scenario['holds'])),
         reference=BackendRun(list(checkpoints), dict(document['reference']['adjustments'])),
         sources=document['sources'])
 
@@ -117,13 +129,40 @@ def load(name: str, *, directory: Path = GOLDEN) -> Recording:
 def _scenario_json(scenario: Scenario) -> dict:
     return json.loads(json.dumps({
         'name': scenario.name, 'start': encode(scenario.start), 'seeds': encode(list(scenario.seeds)),
-        'steps': encode(list(scenario.steps)), 'proves': [list(pair) for pair in scenario.proves]}))
+        'steps': encode(list(scenario.steps)), 'proves': [vars(proof) for proof in scenario.proves],
+        'holds': [vars(proof) for proof in scenario.holds]}))
 
 
-def differ(first: Checkpoint, second: Checkpoint) -> bool:
-    """Two checkpoints show different lamps, switches or dashboard values, by the comparator's own tolerances."""
+def _proofs(document: list[dict]) -> tuple[Proof, ...]:
+    return tuple(Proof(proof['first'], proof['second'], tuple(proof['bulbs']), tuple(proof['switches']))
+                 for proof in document)
+
+
+def differ(first: Checkpoint, second: Checkpoint, scope: Proof | None = None) -> bool:
+    """Two checkpoints show different lamps, switches or dashboard values, by the comparator's own tolerances;
+    with a `scope`, only its bulbs and switches."""
+    if scope is not None:
+        first, second = _within(first, scope), _within(second, scope)
     aligned = replace(second, step=first.step, t=first.t)
     return bool(compare([first], [aligned]).differences)
+
+
+def _within(checkpoint: Checkpoint, scope: Proof) -> Checkpoint:
+    return replace(checkpoint, bulbs={bulb: checkpoint.bulbs[bulb] for bulb in scope.bulbs},
+                   switches={switch: checkpoint.switches[switch] for switch in scope.switches}, dashboard={},
+                   in_fade=checkpoint.in_fade & frozenset(scope.bulbs))
+
+
+def write_differences(name: str, result: Comparison, *, directory: Path = GOLDEN) -> Path | None:
+    """`<name>.differences.json` listing the differences, when there are any; an older one is removed when not."""
+    path = directory / f'{name}.differences.json'
+    if not result.differences:
+        path.unlink(missing_ok=True)
+        return None
+    path.write_text(json.dumps({'differences': [vars(d) for d in result.differences],
+                                'adjustments': dict(result.adjustments), 'not_ported': dict(result.not_ported)},
+                               indent=1, default=repr))
+    return path
 
 
 def main(argv: Sequence[str]) -> int:
@@ -144,9 +183,7 @@ def main(argv: Sequence[str]) -> int:
                 print(f'{name}: {len(result.differences)} differences {dict(fields)}, adjustments '
                       f'{dict(result.adjustments)}, not ported {dict(result.not_ported)}, '
                       f'{(datetime.now() - started).seconds} s', flush=True)
-                (GOLDEN / f'{name}.differences.json').write_text(json.dumps(
-                    {'differences': [vars(d) for d in result.differences], 'adjustments': dict(result.adjustments),
-                     'not_ported': dict(result.not_ported)}, indent=1, default=repr))
+                write_differences(name, result)
             else:
                 raise SystemExit(f'unknown command {command!r}: record or replay')
         except Exception as error:   # one scenario's failure is reported, and the others still run

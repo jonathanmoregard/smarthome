@@ -18,11 +18,14 @@ import unittest
 from tests.e2e import env
 from tests.e2e.codec import (Advance, Checkpoint, HelperInfo, HouseInfo, LampInfo, PersonLightChange, PowerCut,
                              PowerRestore, PressSwitch, RemoteInfo, Seed)
+from tests.e2e.backend import SOFTWARE_CANDLE
 from tests.e2e.compare import compare
-from tests.e2e.golden import (GOLDEN, MissingRecording, StaleRecording, differ, load, replay, save, sources_hash)
+from tests.e2e.golden import (GOLDEN, MissingRecording, StaleRecording, candidate_source, differ, load, replay, save,
+                              sources_hash, write_differences)
 from tests.e2e.router import LOCAL, HaStart, Mqtt, ScriptCall, StateChanged
 from tests.e2e.runner import BackendRun
-from tests.e2e.scenarios import NAMES, OVERLAY_RULES, Scenario, scenarios, seeds_for
+from tests.e2e.scenarios import (AFTER_MINUTES, AFTER_RULE, NAMES, NEXT_BLOCK_RULE, OVERLAY_MINUTES, MissingRole, Proof,
+                                 Scenario, scenarios, seeds_for)
 from tests.e2e.world import Kelvin, Off, On
 
 BLOCKS = ('day', 'cosy', 'night')
@@ -37,6 +40,11 @@ def helper(entity, room, lamp, block, setting):
                          'weekend': ('07:00:00', DATETIME), 'fade': ('20', FADE),
                          'own_light': ('off', {}), 'own_timing': ('off', {})}[setting]
     return HelperInfo(entity, room, lamp, block, setting, state, dict(attributes))
+
+
+OVERLAY_RULE_SEEDS = (Seed('input_boolean.ls_ovr_after_on', 'on', {'icon': 'after'}),
+                      Seed('input_boolean.ls_ovr_next_block_on', 'on', {'icon': 'next'}),
+                      Seed('input_number.ls_ovr_after_min', '180.0', {'min': 15, 'max': 720, 'step': 15}))
 
 
 def synthetic_house(candle_lamp_has_store=True) -> HouseInfo:
@@ -64,7 +72,8 @@ def synthetic_house(candle_lamp_has_store=True) -> HouseInfo:
                               RemoteInfo('room_b', 'zigbee2mqtt/remote_y/action',
                                          ('on', 'off', 'brightness_step_up', 'brightness_step_down'))),
                      plugs=('switch.e2e_plug_0', 'switch.e2e_plug_1'), helpers=tuple(sorted(helpers, key=lambda h: h.entity)),
-                     dashboard_options={'ls_override_block.block': BLOCKS}, mode_switch='input_boolean.mode_x')
+                     dashboard_options={'ls_override_block.block': BLOCKS}, mode_switch='input_boolean.mode_x',
+                     candle_lamps=('light.lamp_a1', 'light.lamp_b1'), overlay_rules=OVERLAY_RULE_SEEDS)
 
 
 def steps_of(scenario, kind):
@@ -115,6 +124,11 @@ class Seeds(unittest.TestCase):
                            and (h.room, h.lamp, h.block) == (start.room, start.lamp, start.block))
             self.assertNotEqual(seeds[start.entity], seeds[weekend.entity])
 
+    def test_a_fade_helper_without_bounds_is_refused(self):
+        unbounded = replace(next(h for h in self.house.helpers if h.setting == 'fade'), attributes={})
+        with self.assertRaises(KeyError):
+            seeds_for(replace(self.house, helpers=(unbounded,)), 7)
+
     def test_values_are_valid_for_their_helper(self):
         for seed in seeds_for(self.house, 7):
             info = next(h for h in self.house.helpers if h.entity == seed.entity)
@@ -149,16 +163,81 @@ class Scenarios(unittest.TestCase):
             self.assertEqual(scenario.name, name)
             self.assertIsInstance(scenario, Scenario)
 
-    def test_each_scenario_proves_with_pairs_of_its_steps(self):
+    def test_each_scenario_proves_with_scoped_pairs_of_its_steps(self):
+        bulbs = {bulb for lamp in self.house.lamps for bulb in lamp.bulbs}
         for name, scenario in self.all.items():
             with self.subTest(name=name):
                 self.assertTrue(scenario.proves)
-                for first, second in scenario.proves:
-                    self.assertTrue(0 <= first < second < len(scenario.steps))
+                for proof in (*scenario.proves, *scenario.holds):
+                    self.assertIsInstance(proof, Proof)
+                    self.assertTrue(0 <= proof.first < proof.second < len(scenario.steps))
+                    self.assertTrue(proof.bulbs or proof.switches)
+                    self.assertTrue(set(proof.bulbs) <= bulbs and set(proof.switches) <= set(self.house.plugs))
+
+    def test_each_proof_looks_only_at_what_its_scenario_acts_on(self):
+        # Ruling 55: a whole-house diff cannot fail when the scenario's own input does nothing.
+        house = self.house
+        every = (tuple(sorted(bulb for lamp in house.lamps for bulb in lamp.bulbs)), tuple(house.plugs))
+        subject = (('bulb_b1', 'bulb_b2', 'bulb_b3'), ())   # room_b: the room of the one placed remote
+        candle = (('bulb_b1', 'bulb_b2'), ())   # lamp_b1: the first reference candle lamp with the firmware candle
+        expected = {name: subject for name in NAMES} | {
+            'schedule_day': every, 'dst_spring': every, 'dst_autumn': every,
+            'range_save': ((), ('switch.e2e_plug_1',)), 'plug_button': ((), ('switch.e2e_plug_1',)),
+            'candle_lamp_evening': candle}
+        for name, scenario in self.all.items():
+            with self.subTest(name=name):
+                self.assertEqual({(proof.bulbs, proof.switches) for proof in (*scenario.proves, *scenario.holds)},
+                                 {expected[name]})
+
+    def test_midnight_weekend_holds_the_subject_room_across_the_weekday_starts(self):
+        scenario = self.all['midnight_weekend']
+        self.assertEqual([(proof.first, proof.second) for proof in scenario.holds], [(1, 2), (4, 5)])
+        for proof in scenario.holds:
+            before, after = local_at(scenario, proof.first), local_at(scenario, proof.second)
+            weekday = {seed.entity: seed.state for seed in scenario.seeds}
+            starts = [weekday['input_datetime.ls_house_night_start'], weekday['input_datetime.ls_house_day_start']]
+            self.assertTrue(any(before.strftime('%H:%M:%S') < start < after.strftime('%H:%M:%S') for start in starts))
+
+    def test_one_missing_role_fails_only_its_own_scenarios(self):
+        house = replace(self.house, mode_switch=None, candle_lamps=())
+        built = scenarios(house)
+        self.assertEqual(tuple(built), NAMES)
+        for name in ('mode_toggle', 'candle_lamp_evening'):
+            with self.subTest(name=name), self.assertRaises(MissingRole):
+                built[name]
+        self.assertEqual(built['schedule_day'], self.all['schedule_day'])
+
+    def test_a_scenario_that_cannot_be_built_is_still_a_golden_name(self):
+        # `replay` checks a golden name against its recording; a builder's KeyError must not hide the name.
+        built = scenarios(replace(self.house, overlay_rules=()))
+        self.assertIn('person_change_then_expiry', built)
+        self.assertNotIn('fuzz_x', built)
+
+    def test_the_candle_lamp_is_the_first_reference_candle_lamp_that_is_firmware_candle_capable(self):
+        no_firmware = replace(self.house, candle_lamps=('light.lamp_a1',))
+        with self.assertRaises(MissingRole):
+            scenarios(no_firmware)['candle_lamp_evening']
+
+    def test_overlay_rules_are_seeded_with_their_captured_attributes(self):
+        captured = {rule.entity: rule for rule in self.house.overlay_rules}
+        for name, scenario in self.all.items():
+            for seed in scenario.seeds:
+                if seed.entity in captured:
+                    with self.subTest(name=name, rule=seed.entity):
+                        self.assertEqual(seed.attributes, captured[seed.entity].attributes)
+        for name in ('remote_presses', 'person_change_then_expiry'):
+            with self.subTest(name=name):
+                seeds = {seed.entity: seed.state for seed in self.all[name].seeds}
+                self.assertEqual((seeds[AFTER_RULE], float(seeds[AFTER_MINUTES])), ('on', OVERLAY_MINUTES))
+
+    def test_a_rule_the_house_did_not_capture_is_not_invented(self):
+        house = replace(self.house, overlay_rules=())
+        with self.assertRaises(KeyError):
+            scenarios(house)['person_change_then_expiry']
 
     def test_scenarios_use_only_the_house_entities(self):
         house = self.house
-        helpers = {h.entity for h in house.helpers} | set(OVERLAY_RULES)
+        helpers = {h.entity for h in house.helpers} | {rule.entity for rule in house.overlay_rules}
         bulbs = {bulb for lamp in house.lamps for bulb in lamp.bulbs}
         for name, scenario in self.all.items():
             with self.subTest(name=name):
@@ -226,8 +305,8 @@ class Scenarios(unittest.TestCase):
         [(cut, step)], [(restore, back)] = steps_of(scenario, PowerCut), steps_of(scenario, PowerRestore)
         self.assertEqual(step.bulbs, back.bulbs)
         self.assertEqual(scenario.steps[cut + 1:restore], (Advance(300),))
-        for first, second in scenario.proves:   # not proved by the cut or the restore alone (the world moving itself)
-            self.assertFalse(first == cut - 1 and second in (cut, restore))
+        for proof in scenario.proves:   # not proved by the cut or the restore alone (the world moving itself)
+            self.assertFalse(proof.first == cut - 1 and proof.second in (cut, restore))
 
     def test_candle_lamp_evening_gives_the_candle_lamp_the_candle(self):
         for has_store in (True, False):
@@ -235,7 +314,7 @@ class Scenarios(unittest.TestCase):
                 house = synthetic_house(candle_lamp_has_store=has_store)
                 scenario = scenarios(house)['candle_lamp_evening']
                 candled = {entity for entity, profile in profiles(scenario).items() if profile['effect'] == 'Candle'}
-                lamp = next(lamp for lamp in house.lamps if lamp.candle_capable)
+                lamp = next(lamp for lamp in house.lamps if lamp.lamp == 'light.lamp_b1')
                 stores = [h for h in house.helpers if h.setting == 'light' and h.block == 'cosy']
                 own = [h.entity for h in stores if h.lamp == lamp.lamp]
                 room = [h.entity for h in stores if h.room == lamp.room and h.lamp is None]
@@ -245,7 +324,7 @@ class Scenarios(unittest.TestCase):
         # The captured next-block rule would end the hold at the boundary; it is off here, so the hold lasts
         # until the after-duration rule ends it (ruling 51).
         scenario = self.all['person_change_then_expiry']
-        self.assertTrue(any(seed.entity in OVERLAY_RULES and seed.state == 'off' for seed in scenario.seeds))
+        self.assertTrue(any(seed.entity == NEXT_BLOCK_RULE and seed.state == 'off' for seed in scenario.seeds))
         self.assertEqual(len(steps_of(scenario, PersonLightChange)), 1)
 
 
@@ -261,7 +340,7 @@ def checkpoint(step, level, t=0.0):
 
 class Recordings(unittest.TestCase):
     scenario = Scenario('golden_x', START, (Seed('input_text.x', 'v', {'max': 255}),),
-                        (HaStart(), Advance(60)), ((0, 1),))
+                        (HaStart(), Advance(60)), (Proof(0, 1, ('bulb_a',), ()),), (Proof(0, 1, ('bulb_b',), ()),))
     reference_run = BackendRun([checkpoint(0, 100), checkpoint(1, 120, 60.0)], {'software-candle-is-firmware-candle': 2})
 
     def setUp(self):
@@ -293,6 +372,23 @@ class Recordings(unittest.TestCase):
     def test_differ_uses_the_comparator(self):
         self.assertTrue(differ(checkpoint(0, 100), checkpoint(1, 120, 60.0)))
         self.assertFalse(differ(checkpoint(0, 100), checkpoint(1, 101, 60.0)))   # within LEVEL_STEPS
+
+    def test_the_hash_covers_the_live_candidate(self):
+        # Ruling 56: the captures reach the reference through `live_candidate` and its alias tables.
+        self.assertIn('def live_candidate', candidate_source())
+        self.assertIn('LEGACY_AUTOMATION_ALIASES', candidate_source())
+        self.assertNotEqual(sources_hash(candidate='one'), sources_hash(candidate='another'))
+        self.assertEqual(sources_hash(), sources_hash(candidate=candidate_source()))
+
+    def test_differences_are_written_only_when_there_are_some(self):
+        path = self.directory / 'golden_x.differences.json'
+        path.write_text('{"differences": []}')   # an old, empty dump
+        same = compare([checkpoint(0, 100)], [checkpoint(0, 100)])
+        self.assertIsNone(write_differences('golden_x', same, directory=self.directory))
+        self.assertFalse(path.exists())
+        apart = compare([checkpoint(0, 100)], [checkpoint(0, 140)])
+        self.assertEqual(write_differences('golden_x', apart, directory=self.directory), path)
+        self.assertEqual(len(json.loads(path.read_text())['differences']), len(apart.differences))
 
     def test_the_hash_covers_the_reference_run_and_the_captures_only(self):
         root = self.directory / 'root'
@@ -334,21 +430,24 @@ class Golden(unittest.TestCase):
 
     def agrees(self, name):
         result = replay(name)
-        dump = GOLDEN / f'{name}.differences.json'   # git-ignored: the differences name catalog entities
-        if result.differences:
-            dump.write_text(json.dumps({'differences': [vars(d) for d in result.differences],
-                                        'adjustments': dict(result.adjustments),
-                                        'not_ported': dict(result.not_ported)}, indent=1, default=repr))
-        elif dump.exists():
-            dump.unlink()
+        dump = write_differences(name, result)   # git-ignored: the differences name catalog entities
         self.assertEqual(len(result.differences), 0, f'{name}: {len(result.differences)} differences, listed in {dump}')
 
     def proves(self, name):
         checkpoints = self.recorded(name)
-        for first, second in self.scenarios[name].proves:
-            with self.subTest(pair=(first, second)):
-                self.assertTrue(differ(last_of(checkpoints, first), last_of(checkpoints, second)),
-                                f'{name}: the reference shows the same lamps after steps {first} and {second}')
+        scenario = self.scenarios[name]   # a missing role raises here, in this scenario's test only
+        for proof in scenario.proves:
+            with self.subTest(proves=(proof.first, proof.second)):
+                self.assertTrue(differ(last_of(checkpoints, proof.first), last_of(checkpoints, proof.second), proof),
+                                f'{name}: the reference shows the same scope after steps {proof.first} and {proof.second}')
+        for proof in scenario.holds:
+            with self.subTest(holds=(proof.first, proof.second)):
+                self.assertFalse(differ(last_of(checkpoints, proof.first), last_of(checkpoints, proof.second), proof),
+                                 f'{name}: the reference changed the scope between steps {proof.first} and {proof.second}')
+
+    def test_candle_lamp_evening_runs_the_reference_candle(self):
+        # Ruling 56: the scenario's lamp is one the reference runs its software candle on.
+        self.assertGreater(load('candle_lamp_evening').reference.adjustments.get(SOFTWARE_CANDLE, 0), 0)
 
     def test_ha_restart_mid_fade_restarts_inside_a_fade(self):
         scenario = self.scenarios['ha_restart_mid_fade']

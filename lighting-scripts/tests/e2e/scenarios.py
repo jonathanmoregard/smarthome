@@ -1,14 +1,18 @@
 """The golden scenarios, built from the house description at run time.
 
 Every entity a scenario uses is picked by role from `HouseInfo` (the first room
-with a placed remote, the first candle-capable lamp, that room's plug, the mode
-switch), never by name, so no household name is written here.
+with a placed remote, the reference's candle lamp, that room's plug, the mode
+switch), never by name, so no household name is written here. A role the house
+does not have raises `MissingRole` in the scenarios that need it, and only there.
 
 Each scenario starts from `seeds_for`: every schedule helper the house has gets
 a generated value of its own (ruling 9). A scenario then pins what its proof
 needs: the house's block times and lights, and its subject room following the
-house. `proves` names pairs of steps whose reference checkpoints must differ,
-chosen so that the scripts, not the world moving by itself, make the change.
+house. `proves` names pairs of steps whose reference checkpoints must differ on
+what the scenario's own input acts on (ruling 55): the subject room's bulbs, the
+plug, the candle lamp; the whole house only for the schedule and DST. The pairs
+are chosen so the scripts, not the world moving by itself, make the change.
+`holds` names pairs that must not differ there.
 
 Blocks, as the captured `ls_base` places them: a day start belongs to the
 morning after its evening; cosy and night belong to their evening, a night
@@ -17,7 +21,7 @@ and Saturday and Sunday mornings, use the `_weekend` starts. A fade ends at its
 block's start.
 """
 from __future__ import annotations
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 import json
@@ -33,13 +37,15 @@ NAMES = ('schedule_day', 'remote_presses', 'dashboard_block_then_clear', 'range_
          'dst_autumn', 'candle_lamp_evening')
 BLOCKS = ('day', 'cosy', 'night')
 NORMAL, CANDLE = 'Normal light', 'Candle'   # never Breathe or Colour loop
-# The captured next-block overlay rule: on, an overlay ends at the next block's fade. Not a schedule helper.
+# The captured overlay expiry rules a scenario sets (system helpers, in `HouseInfo.overlay_rules`). On, the
+# next-block rule ends an overlay at the next block's fade; the after rule ends it `AFTER_MINUTES` after it began.
 NEXT_BLOCK_RULE = 'input_boolean.ls_ovr_next_block_on'
-OVERLAY_RULES = (NEXT_BLOCK_RULE,)
+AFTER_RULE = 'input_boolean.ls_ovr_after_on'
+AFTER_MINUTES = 'input_number.ls_ovr_after_min'
+OVERLAY_MINUTES = 180            # what the scenarios that expire an overlay set it to (the live value)
 PERSON = 'e2e-person'
 PRESS_GAP = 120                  # seconds between remote presses
 SETTLE = 120                     # seconds after an input before its checkpoint is read as settled
-REMOTE_OVERLAY_SECONDS = 180 * 60   # the captured after-duration rule (`ls_ovr_after_min`, 180 min live)
 PERSON_LEVEL = 8                 # a person's brightness no seeded light uses (they draw from LEVELS)
 PERSON_KELVIN = 3300             # and a colour unlike the pinned house lights; both channels, so all of it holds
 LEVELS = (40, 255)               # generated light brightness
@@ -61,17 +67,53 @@ HOUSE_LIGHTS = {
 }
 
 
+class MissingRole(LookupError):
+    """The house has nothing to play a role a scenario needs: a named coverage gap, never a stand-in."""
+
+
+@dataclass(frozen=True)
+class Proof:
+    """Steps `first` and `second`, compared on these bulbs and switches only (never the dashboard)."""
+    first: int
+    second: int
+    bulbs: tuple[str, ...]
+    switches: tuple[str, ...]
+
+
 @dataclass(frozen=True)
 class Scenario:
     name: str
     start: datetime
     seeds: tuple[Seed, ...]
     steps: tuple[Step, ...]
-    proves: tuple[tuple[int, int], ...]   # step pairs whose reference checkpoints must differ
+    proves: tuple[Proof, ...]    # their reference checkpoints differ in scope
+    holds: tuple[Proof, ...]     # their reference checkpoints agree in scope
 
 
-def scenarios(house: HouseInfo) -> dict[str, Scenario]:
-    return {name: BUILDERS[name](house, name) for name in NAMES}
+class Scenarios(Mapping[str, Scenario]):
+    """Every golden scenario by name, each built when it is asked for: one missing role fails only its own."""
+
+    def __init__(self, house: HouseInfo):
+        self.house = house
+        self.built: dict[str, Scenario] = {}
+
+    def __getitem__(self, name: str) -> Scenario:
+        if name not in self.built:
+            self.built[name] = BUILDERS[name](self.house, name)
+        return self.built[name]
+
+    def __contains__(self, name: object) -> bool:   # by name: Mapping's own would build it, and hide a KeyError
+        return name in NAMES
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(NAMES)
+
+    def __len__(self) -> int:
+        return len(NAMES)
+
+
+def scenarios(house: HouseInfo) -> Scenarios:
+    return Scenarios(house)
 
 
 # --- seeds -----------------------------------------------------------------------------------------------
@@ -104,7 +146,7 @@ def seeds_for(house: HouseInfo, rng_seed: int) -> tuple[Seed, ...]:
                 while weekday is not None and any(seed.entity == weekday and seed.state == state for seed in seeds):
                     state = fresh(lambda: _time(rng.randrange(*START_WINDOWS[helper.block])))
         elif helper.setting == 'fade':
-            low, high = helper.attributes.get('min', FADES[0]), helper.attributes.get('max', FADES[1])
+            low, high = helper.attributes['min'], helper.attributes['max']   # an input_number has both
             state = fresh(lambda: _number(rng.randint(max(low, FADES[0]), min(high, FADES[1]))))
         else:
             state = 'on'
@@ -145,10 +187,20 @@ class _Seeds:
         self.seeds = {seed.entity: seed for seed in seeds_for(house, zlib.crc32(name.encode()))}
 
     def set(self, entity: str | None, state: str) -> None:
+        """Pin `entity` (None: the house has no such helper, so nothing is pinned), keeping its captured attributes.
+
+        A schedule helper's come from its seed, an overlay rule's from the house; any other entity raises.
+        """
         if entity is None:
             return
-        attributes = self.seeds[entity].attributes if entity in self.seeds else {}
+        rules = {rule.entity: rule for rule in self.house.overlay_rules}
+        attributes = self.seeds[entity].attributes if entity in self.seeds else rules[entity].attributes
         self.seeds[entity] = Seed(entity, state, attributes)
+
+    def overlay_after(self, minutes: int = OVERLAY_MINUTES) -> None:
+        """Overlays end `minutes` after they begin."""
+        self.set(AFTER_RULE, 'on')
+        self.set(AFTER_MINUTES, _number(minutes))
 
     def light(self, entity: str | None, light: Mapping) -> None:
         self.set(entity, json.dumps(dict(light)))
@@ -180,7 +232,10 @@ class _Seeds:
 
 def placed_remote(house: HouseInfo) -> RemoteInfo:
     """The first remote whose device has a room: one with none does nothing on either backend (ruling 42)."""
-    return next(remote for remote in house.remotes if remote.room is not None)
+    for remote in house.remotes:
+        if remote.room is not None:
+            return remote
+    raise MissingRole('no remote has a room')
 
 
 def subject_room(house: HouseInfo) -> str:
@@ -191,15 +246,44 @@ def subject_room(house: HouseInfo) -> str:
 
 def plug_of(house: HouseInfo, room: str) -> str:
     """The room's synthetic plug: the backend seeds plug n into room n of the sorted rooms."""
+    if len(house.plugs) != len(house.rooms):
+        raise MissingRole(f'{len(house.plugs)} plugs for {len(house.rooms)} rooms')
     return house.plugs[house.rooms.index(room)]
 
 
 def lamp_in(house: HouseInfo, room: str) -> LampInfo:
-    return next(lamp for lamp in house.lamps if lamp.room == room)
+    for lamp in house.lamps:
+        if lamp.room == room:
+            return lamp
+    raise MissingRole('the subject room has no lamp')
 
 
 def candle_lamp(house: HouseInfo) -> LampInfo:
-    return next(lamp for lamp in house.lamps if lamp.candle_capable)
+    """The first lamp the reference ran a Candle on that can run the firmware candle (ruling 56)."""
+    lamps = {lamp.lamp: lamp for lamp in house.lamps}
+    for name in house.candle_lamps:
+        if lamps[name].candle_capable:
+            return lamps[name]
+    raise MissingRole(f'coverage gap: the reference ran a Candle on {len(house.candle_lamps)} lamps, '
+                      'none of them firmware candle-capable')
+
+
+def bulbs_of(house: HouseInfo, room: str | None = None, lamp: str | None = None) -> tuple[str, ...]:
+    """The bulbs of one lamp, of one room's lamps, or (neither named) of the house."""
+    return tuple(sorted(bulb for info in house.lamps if room in (None, info.room) and lamp in (None, info.lamp)
+                        for bulb in info.bulbs))
+
+
+def in_room(house: HouseInfo, first: int, second: int) -> Proof:
+    return Proof(first, second, bulbs_of(house, subject_room(house)), ())
+
+
+def in_house(house: HouseInfo, first: int, second: int) -> Proof:
+    return Proof(first, second, bulbs_of(house), tuple(house.plugs))
+
+
+def on_plug(house: HouseInfo, first: int, second: int) -> Proof:
+    return Proof(first, second, (), (plug_of(house, subject_room(house)),))
 
 
 def at(day: datetime, clock: str) -> datetime:
@@ -224,7 +308,8 @@ def _schedule_day(house: HouseInfo, name: str) -> Scenario:
     # From 00:30, step k ends at k:30: night at 06:30, day at 08:30, day at 17:30, cosy at 19:30 and 22:30,
     # night again at 00:30.
     steps = (HaStart(), *[Advance(3600)] * 24)
-    return Scenario(name, at(WEEKDAY, '00:30'), _pinned(house, name).tuple(), steps, ((6, 8), (17, 19), (22, 24)))
+    return Scenario(name, at(WEEKDAY, '00:30'), _pinned(house, name).tuple(), steps,
+                    tuple(in_house(house, *pair) for pair in ((6, 8), (17, 19), (22, 24))), ())
 
 
 def _remote_presses(house: HouseInfo, name: str) -> Scenario:
@@ -232,27 +317,32 @@ def _remote_presses(house: HouseInfo, name: str) -> Scenario:
     # cosy, is later still). The last press comes twice: a step up and a step down cancel, and the expiry
     # needs an overlay that is not the schedule's own light to end.
     remote = placed_remote(house)
+    seeds = _pinned(house, name)
+    seeds.overlay_after()
     steps: list[Step] = [HaStart()]
     for press in (*remote.presses, remote.presses[-1]):
         steps += [Mqtt(remote.topic, press), Advance(PRESS_GAP)]
-    steps.append(Advance(REMOTE_OVERLAY_SECONDS + 3600))
-    return Scenario(name, at(WEEKDAY, '12:00'), _pinned(house, name).tuple(), tuple(steps),
-                    ((0, 2), (len(steps) - 2, len(steps) - 1)))
+    steps.append(Advance(OVERLAY_MINUTES * 60 + 3600))
+    return Scenario(name, at(WEEKDAY, '12:00'), seeds.tuple(), tuple(steps),
+                    (in_room(house, 0, 2), in_room(house, len(steps) - 2, len(steps) - 1)), ())
 
 
 def _dashboard_block_then_clear(house: HouseInfo, name: str) -> Scenario:
     # The house's night light at midday, then cleared back to the day light.
     steps = (HaStart(), ScriptCall('ls_override_block', {'scope': 'house', 'block': 'night'}, person()), Advance(SETTLE),
              ScriptCall('ls_clear_overrides', {}, person()), Advance(SETTLE))
-    return Scenario(name, at(WEEKDAY, '12:00'), _pinned(house, name).tuple(), steps, ((0, 2), (2, 4)))
+    return Scenario(name, at(WEEKDAY, '12:00'), _pinned(house, name).tuple(), steps,
+                    (in_room(house, 0, 2), in_room(house, 2, 4)), ())
 
 
 def _range_save(house: HouseInfo, name: str) -> Scenario:
-    # Saved at night (dim, outside the bright range), into the day block (inside it), then into cosy (outside).
+    # Saved at night (dim, outside the bright range: the plug stays off), into the day block (inside it: on),
+    # then into cosy (outside: off).
     plug = plug_of(house, subject_room(house))
     steps = (HaStart(), ScriptCall('ls_range_save', {'entity': plug, 'profile': 'bright'}, person()),
              Advance(3 * 3600), Advance(11 * 3600))
-    return Scenario(name, at(WEEKDAY, '05:00'), _pinned(house, name).tuple(), steps, ((0, 1), (1, 2), (2, 3)))
+    return Scenario(name, at(WEEKDAY, '05:00'), _pinned(house, name).tuple(), steps,
+                    (on_plug(house, 1, 2), on_plug(house, 2, 3)), ())
 
 
 def _person_change_then_expiry(house: HouseInfo, name: str) -> Scenario:
@@ -260,19 +350,22 @@ def _person_change_then_expiry(house: HouseInfo, name: str) -> Scenario:
     # rule clears it. The next-block rule is off, or it would end the hold at 16:00 (ruling 51).
     seeds = _pinned(house, name, {**HOUSE_TIMES, 'cosy': ('16:00', '16:00', 10)})
     seeds.set(NEXT_BLOCK_RULE, 'off')
+    seeds.overlay_after()
     lamp = lamp_in(house, subject_room(house))
+    held = 90 * 60   # to 16:30, past the cosy start
     steps = (HaStart(), PersonLightChange([lamp.lamp], {'brightness': PERSON_LEVEL, 'color_temp_kelvin': PERSON_KELVIN}),
-             Advance(90 * 60), Advance(150 * 60))
-    return Scenario(name, at(WEEKDAY, '15:00'), seeds.tuple(), steps, ((1, 2), (2, 3)))
+             Advance(held), Advance(OVERLAY_MINUTES * 60 - held + 3600))   # to 19:00, an hour past the expiry
+    return Scenario(name, at(WEEKDAY, '15:00'), seeds.tuple(), steps, (in_room(house, 1, 2), in_room(house, 2, 3)), ())
 
 
 def _mode_toggle(house: HouseInfo, name: str) -> Scenario:
     if house.mode_switch is None:
-        raise ValueError('the house has no mode switch')
+        raise MissingRole('the house has no mode switch')
     flip = [StateChanged(house.mode_switch, None, {'state': state, 'attributes': {}},
                          Context(id=f'e2e-mode-{state}', user_id=PERSON)) for state in ('on', 'off')]
     steps = (HaStart(), flip[0], Advance(SETTLE), flip[1], Advance(SETTLE))
-    return Scenario(name, at(WEEKDAY, '12:00'), _pinned(house, name).tuple(), steps, ((0, 2), (2, 4)))
+    return Scenario(name, at(WEEKDAY, '12:00'), _pinned(house, name).tuple(), steps,
+                    (in_room(house, 0, 2), in_room(house, 2, 4)), ())
 
 
 def _plug_button(house: HouseInfo, name: str) -> Scenario:
@@ -282,7 +375,7 @@ def _plug_button(house: HouseInfo, name: str) -> Scenario:
     plug = plug_of(house, subject_room(house))
     steps = (HaStart(), ScriptCall('ls_range_save', {'entity': plug, 'profile': 'bright'}, person()), Advance(SETTLE),
              PressSwitch(plug), Advance(SETTLE), Advance(3600))
-    return Scenario(name, at(WEEKDAY, '16:00'), seeds.tuple(), steps, ((0, 2), (2, 5)))
+    return Scenario(name, at(WEEKDAY, '16:00'), seeds.tuple(), steps, (on_plug(house, 0, 2), on_plug(house, 2, 5)), ())
 
 
 def _wall_power_cycle(house: HouseInfo, name: str) -> Scenario:
@@ -291,14 +384,14 @@ def _wall_power_cycle(house: HouseInfo, name: str) -> Scenario:
     seeds = _pinned(house, name, {**HOUSE_TIMES, 'cosy': ('18:00', '18:00', 0)})
     bulb = (lamp_in(house, subject_room(house)).bulbs[0],)
     steps = (HaStart(), Advance(SETTLE), PowerCut(bulb), Advance(300), PowerRestore(bulb), Advance(SETTLE))
-    return Scenario(name, at(WEEKDAY, '17:54'), seeds.tuple(), steps, ((1, 5),))
+    return Scenario(name, at(WEEKDAY, '17:54'), seeds.tuple(), steps, (in_room(house, 1, 5),), ())
 
 
 def _ha_restart_mid_fade(house: HouseInfo, name: str) -> Scenario:
     # The hour-long fade into cosy runs 17:00..18:00; HA starts again at 17:30.
     seeds = _pinned(house, name, {**HOUSE_TIMES, 'cosy': ('18:00', '18:00', 60)})
     steps = (HaStart(), Advance(40 * 60), HaStart(), Advance(60 * 60))
-    return Scenario(name, at(WEEKDAY, '16:50'), seeds.tuple(), steps, ((0, 3),))
+    return Scenario(name, at(WEEKDAY, '16:50'), seeds.tuple(), steps, (in_room(house, 0, 3),), ())
 
 
 def _midnight_weekend(house: HouseInfo, name: str) -> Scenario:
@@ -308,7 +401,8 @@ def _midnight_weekend(house: HouseInfo, name: str) -> Scenario:
     steps = (HaStart(), Advance(110 * 60), Advance(70 * 60), Advance(90 * 60), Advance(330 * 60), Advance(60 * 60),
              Advance(150 * 60))
     # 20:00 start; steps end 21:50, 23:00, 00:30, 06:00, 07:00, 09:30.
-    return Scenario(name, at(FRIDAY, '20:00'), _pinned(house, name, times).tuple(), steps, ((2, 3), (5, 6)))
+    return Scenario(name, at(FRIDAY, '20:00'), _pinned(house, name, times).tuple(), steps,
+                    (in_room(house, 2, 3), in_room(house, 5, 6)), (in_room(house, 1, 2), in_room(house, 4, 5)))
 
 
 def _dst(house: HouseInfo, name: str, eve: datetime, before: float, after: float) -> Scenario:
@@ -316,7 +410,7 @@ def _dst(house: HouseInfo, name: str, eve: datetime, before: float, after: float
     # the hour the clocks skip (March) or repeat (October), with a fade.
     times = {**HOUSE_TIMES, 'night': ('01:20', '02:30', 20)}
     steps = (HaStart(), Advance(before), Advance(after))
-    return Scenario(name, at(eve, '23:30'), _pinned(house, name, times).tuple(), steps, ((1, 2),))
+    return Scenario(name, at(eve, '23:30'), _pinned(house, name, times).tuple(), steps, (in_house(house, 1, 2),), ())
 
 
 def _dst_spring(house: HouseInfo, name: str) -> Scenario:
@@ -329,7 +423,8 @@ def _dst_autumn(house: HouseInfo, name: str) -> Scenario:
 
 def _candle_lamp_evening(house: HouseInfo, name: str) -> Scenario:
     # The candle lamp's cosy light is the candle from 18:00. Its own store carries it; a lamp with none takes
-    # it from its room's store, or the house's when the room has none either (ruling 52).
+    # it from its room's store, or the house's when the room has none either (ruling 52). The lamp is one the
+    # reference runs its candle on (ruling 56), so its software candle meets the port's firmware one.
     lamp = candle_lamp(house)
     seeds = _pinned(house, name)
     seeds.follow_house(lamp.room)
@@ -344,7 +439,8 @@ def _candle_lamp_evening(house: HouseInfo, name: str) -> Scenario:
     else:
         seeds.light(house_entity(house, None, None, 'cosy', 'light'), candle)
     steps = (HaStart(), Advance(90 * 60), Advance(30 * 60))
-    return Scenario(name, at(WEEKDAY, '17:00'), seeds.tuple(), steps, ((0, 1),))
+    return Scenario(name, at(WEEKDAY, '17:00'), seeds.tuple(), steps,
+                    (Proof(0, 1, bulbs_of(house, lamp=lamp.lamp), ()),), ())
 
 
 BUILDERS = {

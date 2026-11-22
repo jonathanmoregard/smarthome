@@ -15,7 +15,7 @@ import unittest
 from zoneinfo import ZoneInfo
 
 from tests.e2e import env
-from tests.e2e.backend import Session, parse_request
+from tests.e2e.backend import PROBE_START, Session, _mode_switch, candle_probe_seeds, parse_request
 from tests.e2e.codec import (Advance, HelperInfo, HouseInfo, LampInfo, PowerCut, PowerRestore, RemoteInfo, Seed,
                              decode, encode)
 from tests.e2e.router import Context, HaStart, Mqtt, StateChanged
@@ -66,7 +66,8 @@ class Codec(unittest.TestCase):
                                    HelperInfo('input_number.y', 'room_a', 'light.lamp_a', 'cosy', 'fade', '20',
                                               {'min': 0, 'max': 120})),
                           dashboard_options={'script_a.block': ('day', 'cosy')},
-                          mode_switch='input_boolean.mode_x')
+                          mode_switch='input_boolean.mode_x', candle_lamps=('light.lamp_a',),
+                          overlay_rules=(Seed('input_number.ls_ovr_after_min', '180.0', {'min': 15}),))
         for value in (house, Seed('input_text.x', 'v', {'a': [1, 2]}), PowerCut(('bulb_a',)), PowerRestore(('bulb_a',))):
             with self.subTest(kind=type(value).__name__):
                 self.assertEqual(decode(json.loads(json.dumps(encode(value)))), value)
@@ -128,6 +129,50 @@ class Seeds(unittest.TestCase):
             with self.subTest(entity=entity), self.assertRaises(BackendError) as raised:
                 session(StandIn(), {}, world('bulb_a'), seeds=[Seed(entity, 'on', {})])
             self.assertEqual(raised.exception.kind, 'MalformedRequest')
+
+
+def probe_helper(entity, room, lamp, block, setting, state='x'):
+    return HelperInfo(entity, room, lamp, block, setting, state, {'captured': entity})
+
+
+class Describe(unittest.TestCase):
+    def test_the_candle_probe_gives_each_candle_capable_lamp_a_candle_in_cosy(self):
+        # Ruling 56: the lamp's own cosy store when it has one, else its room's (with the room's own light on),
+        # else the house's; the house's starts put the probe's instant in cosy. Captured attributes are kept.
+        lamps = (LampInfo('light.lamp_a1', 'room_a', ('bulb_a1',), True),
+                 LampInfo('light.lamp_b1', 'room_b', ('bulb_b1',), True),
+                 LampInfo('light.lamp_c1', 'room_c', ('bulb_c1',), True),
+                 LampInfo('light.lamp_d1', 'room_d', ('bulb_d1',), False))
+        helpers = [probe_helper('input_text.ls_lamp_lamp_a1_cosy', 'room_a', 'light.lamp_a1', 'cosy', 'light'),
+                   probe_helper('input_text.ls_room_b_cosy', 'room_b', None, 'cosy', 'light'),
+                   probe_helper('input_boolean.ls_room_b_cosy_own_light', 'room_b', None, 'cosy', 'own_light'),
+                   probe_helper('input_text.ls_lamp_lamp_d1_cosy', 'room_d', 'light.lamp_d1', 'cosy', 'light')]
+        for block in BLOCKS:
+            helpers += [probe_helper(f'input_text.ls_house_{block}', None, None, block, 'light'),
+                        probe_helper(f'input_datetime.ls_house_{block}_start', None, None, block, 'start'),
+                        probe_helper(f'input_datetime.ls_house_{block}_weekend', None, None, block, 'weekend')]
+        seeds = {seed.entity: seed for seed in candle_probe_seeds(helpers, lamps)}
+        for seed in seeds.values():
+            self.assertEqual(seed.attributes, {'captured': seed.entity})
+        effects = {entity: json.loads(seed.state) for entity, seed in seeds.items() if entity.startswith('input_text.')}
+        self.assertEqual({entity for entity, light in effects.items() if light['effect'] == 'Candle'},
+                         {'input_text.ls_lamp_lamp_a1_cosy', 'input_text.ls_room_b_cosy', 'input_text.ls_house_cosy'})
+        self.assertTrue(effects['input_text.ls_lamp_lamp_a1_cosy']['own'])
+        self.assertEqual(seeds['input_boolean.ls_room_b_cosy_own_light'].state, 'on')
+        starts = {block: seeds[f'input_datetime.ls_house_{block}_start'].state for block in BLOCKS}
+        for block in BLOCKS:
+            self.assertEqual(seeds[f'input_datetime.ls_house_{block}_weekend'].state, starts[block])
+        probe = PROBE_START.strftime('%H:%M:%S')
+        self.assertTrue(starts['day'] < starts['cosy'] <= probe < starts['night'])
+
+    def test_a_mode_switch_needs_one_entity_flipped_both_ways(self):
+        flips = [{'trigger': 'state', 'entity_id': 'input_boolean.m', 'from': 'off', 'to': 'on'},
+                 {'trigger': 'state', 'entity_id': 'input_boolean.m', 'from': 'on', 'to': 'off'}]
+        self.assertEqual(_mode_switch({'a': {'triggers': flips}}), 'input_boolean.m')
+        unnamed = [{key: value for key, value in trigger.items() if key != 'entity_id'} for trigger in flips]
+        self.assertIsNone(_mode_switch({'a': {'triggers': unnamed}}))
+        either = [{'trigger': 'state', 'entity_id': 'input_boolean.m', 'to': 'on'}, flips[1]]
+        self.assertIsNone(_mode_switch({'a': {'triggers': either}}))
 
 
 class Power(unittest.TestCase):
@@ -412,6 +457,17 @@ class RealBackends(unittest.TestCase):
         for helper in self.house.helpers:
             with self.subTest(helper=helper.setting):
                 self.assertEqual([helper.state, dict(helper.attributes)], captured[helper.entity])
+        rules = {entity for entity in captured if entity.split('.', 1)[1].startswith('ls_ovr_')}
+        self.assertTrue(rules)
+        self.assertEqual({rule.entity for rule in self.house.overlay_rules}, rules)
+        for rule in self.house.overlay_rules:
+            self.assertEqual([rule.state, dict(rule.attributes)], captured[rule.entity])
+
+    def test_candle_lamps_are_lamps_the_reference_ran_a_candle_on(self):
+        lamps = {lamp.lamp for lamp in self.house.lamps}
+        self.assertTrue(self.house.candle_lamps)
+        self.assertTrue(set(self.house.candle_lamps) <= lamps)
+        self.assertEqual(list(self.house.candle_lamps), sorted(set(self.house.candle_lamps)))
 
     def test_a_profile_seed_reaches_its_template_light_on_both_backends(self):
         from tests.e2e.test_env import isolated

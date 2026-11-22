@@ -109,6 +109,62 @@ class OpenSimTests(unittest.TestCase):
         self.assertGreater(result['counts'][0], 0)
         self.assertEqual(result['counts'][0], result['counts'][1])
 
+    def test_both_backends_nudge_a_commit_by_a_millisecond(self):
+        # Ruling 53: the simulators' 1 µs nudge before each ls_commit is below the port's millisecond clock.
+        for backend in ('reference', 'port'):
+            with self.subTest(backend=backend):
+                result = isolated(f'''
+                    import json
+                    from tests.e2e.env import COMMIT_NUDGE, open_sim
+                    with open_sim({backend!r}) as sim:
+                        steps = []
+                        for seconds in (.000001, 2.5, 60):
+                            before = sim.elapsed
+                            sim.advance(seconds)
+                            steps.append(sim.elapsed - before)
+                        print(json.dumps({{'steps': steps, 'nudge': COMMIT_NUDGE}}))
+                ''')
+                self.assertEqual(result['nudge'], 0.001)
+                for step, expected in zip(result['steps'], (0.001, 2.5, 60)):
+                    self.assertAlmostEqual(step, expected, places=9)
+
+    def test_a_stored_profile_gives_its_template_light_the_colour_ha_derives(self):
+        # Ruling 54, as live HA reports a template light: 2197 K is rgb [255, 146, 39], hs from the kelvin;
+        # an hs light has no kelvin.
+        for backend in ('reference', 'port'):
+            with self.subTest(backend=backend):
+                result = isolated(f'''
+                    import json
+                    from tests.e2e.env import open_sim
+                    with open_sim({backend!r}) as sim:
+                        lights = {{}}
+                        for block, profile in (('day', {{'on': True, 'b': 100, 'm': 'ct', 'k': 2197}}),
+                                               ('night', {{'on': True, 'b': 20, 'm': 'hs', 'h': 20.0, 's': 80.0}})):
+                            sim.store(f'input_text.ls_house_{{block}}', profile)
+                            lights[block] = sim.state[f'light.ls_house_{{block}}']
+                        print(json.dumps(lights))
+                ''')
+                day, night = result['day']['attributes'], result['night']['attributes']
+                self.assertEqual((day['brightness'], day['color_mode'], day['color_temp_kelvin'], day['rgb_color']),
+                                 (100, 'color_temp', 2197, [255, 146, 39]))
+                self.assertEqual(day['hs_color'], [29.808, 84.78])
+                self.assertEqual((night['color_mode'], night['color_temp_kelvin'], night['hs_color']),
+                                 ('hs', None, [20.0, 80.0]))
+                self.assertEqual(night['rgb_color'], [255, 119, 51])
+
+    def test_a_profile_a_script_saves_reaches_its_template_light_on_both_backends(self):
+        # Finding 5: the reference's own store mirrors a saved profile; the port's simulator writes the text only.
+        for backend in ('reference', 'port'):
+            with self.subTest(backend=backend):
+                result = isolated(f'''
+                    import json
+                    from tests.e2e.env import open_sim
+                    with open_sim({backend!r}) as sim:
+                        sim.run('ls_store', store='input_text.ls_house_day', kelvin=4651)
+                        print(json.dumps(sim.state['light.ls_house_day']['attributes']))
+                ''')
+                self.assertEqual((result['color_temp_kelvin'], result['rgb_color']), (4651, [255, 221, 193]))
+
     def test_mixing_backends_in_one_process_raises(self):
         result = isolated('''
             import json

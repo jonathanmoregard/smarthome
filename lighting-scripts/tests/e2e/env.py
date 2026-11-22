@@ -15,6 +15,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 import importlib
+import json
 import os
 from pathlib import Path
 import sys
@@ -40,6 +41,16 @@ DRY_HARNESS_DIR = 'lighting-algebra/tests'
 # later `open_sim` must import them again from its own stage.
 STAGED_MODULES = ('dry_harness', 'harness')
 LIVE = ROOT / 'reference' / 'live'
+# The simulators move their clock this far before each ls_commit, so two commits never share an instant
+# (dry_harness `DrySim.run`; adapters, in the patched run and in the ls_commit callback).
+SIM_COMMIT_NUDGE = .000001
+# The nudge both backends take instead (ruling 53): the port's clock counts milliseconds, so it never saw 1 µs,
+# and the reference ran a step at an instant the port could not reach. HA never runs two commits 1 µs apart.
+COMMIT_NUDGE = 0.001
+PROFILE_STORE, TEMPLATE_LIGHT = 'input_text.', 'light.'   # a block light's store and its template light
+# What the reference's template-light shim (`harness.Sim.store`) shows for a field a profile leaves out. Its
+# own values, kept; only the colours it derived are replaced (ruling 54).
+SHIM_DEFAULTS = {'on': True, 'b': 150, 'k': 3000, 'h': 0, 's': 0}
 
 
 class BackendMixed(RuntimeError):
@@ -92,7 +103,7 @@ def open_sim(backend: Backend) -> Iterator['DrySim']:
             if backend == 'reference':
                 sim = dry.DrySim()
                 sim.e2e_render = render.__get__(sim)
-                yield sim
+                yield harnessed(sim, backend)
                 return
             from adapters import simulator
             from rpc import Rpc
@@ -100,7 +111,7 @@ def open_sim(backend: Backend) -> Iterator['DrySim']:
             try:
                 sim = simulator(stage.path, rpc).DrySim()
                 sim.e2e_render = render.__get__(sim)
-                yield sim
+                yield harnessed(sim, backend)
             finally:
                 rpc.close()
     finally:
@@ -112,3 +123,73 @@ def open_sim(backend: Backend) -> Iterator['DrySim']:
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = value
+
+
+def harnessed(sim: 'DrySim', backend: Backend) -> 'DrySim':
+    """`sim` with the clock and the template lights both backends share, set on the instance.
+
+    1. Advance: the commit nudge is `COMMIT_NUDGE`; every other advance is as asked.
+    2. Store: a saved profile writes its store and its template light, coloured as HA colours a light.
+    3. On the port, a profile a script saves reaches its template light when the run returns. The reference's
+       own service routes it through `store` as the script runs. That is the same state: the only captured
+       script that saves a profile (`ls_store`, from `effects_set`) reads no template light after it.
+    """
+    advance = sim.advance
+
+    def nudged(seconds=1):
+        return advance(COMMIT_NUDGE if seconds == SIM_COMMIT_NUDGE else seconds)
+
+    def store(entity: str, profile: dict) -> None:
+        sim.put(entity, json.dumps(profile))
+        template_light(sim, entity, profile)
+
+    sim.advance, sim.store = nudged, store
+    if backend == 'port':
+        run = sim.run
+
+        def mirrored(name, **context):
+            seen = len(sim.calls)
+            try:
+                return run(name, **context)
+            finally:
+                for call in sim.calls[seen:]:
+                    profile = _saved_profile(call)
+                    if profile is not None:
+                        for entity in _targets(call):
+                            template_light(sim, entity, profile)
+
+        sim.run = mirrored
+    return sim
+
+
+def template_light(sim: 'DrySim', store: str, profile: dict) -> None:
+    """The template light over `store` showing `profile`, its colours as HA derives them for a light state."""
+    dependencies()
+    from homeassistant.util import color
+    shown = SHIM_DEFAULTS | profile
+    if profile.get('m') == 'hs':
+        mode, kelvin, hs = 'hs', None, (shown['h'], shown['s'])
+    else:
+        mode, kelvin = 'color_temp', shown['k']
+        hs = color.color_temperature_to_hs(kelvin)
+    hs = [round(float(hs[0]), 3), round(float(hs[1]), 3)]
+    sim.put(store.replace(PROFILE_STORE, TEMPLATE_LIGHT, 1), 'on' if shown['on'] else 'off', {
+        'brightness': shown['b'], 'color_mode': mode, 'rgb_color': list(color.color_hs_to_RGB(*hs)),
+        'hs_color': hs, 'color_temp_kelvin': kelvin})
+
+
+def _saved_profile(call: dict) -> dict | None:
+    """The profile an `input_text.set_value` call saves (a JSON object as its value); None for any other call."""
+    if call.get('action') != 'input_text.set_value' or not isinstance(call.get('data', {}).get('value'), str):
+        return None
+    try:
+        value = json.loads(call['data']['value'])
+    except ValueError:
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _targets(call: dict) -> list[str]:
+    """The entities as the reference's service reads them: the target's `entity_id`."""
+    ids = call.get('target', {}).get('entity_id', [])
+    return [ids] if isinstance(ids, str) else list(ids)

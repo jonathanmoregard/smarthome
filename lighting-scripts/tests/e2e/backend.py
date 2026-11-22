@@ -73,6 +73,14 @@ PLUG_DEVICE = 'e2e_plug_device_{}'   # a synthetic plug's device id
 UNAVAILABLE = 'unavailable'
 STRUCTURAL_ATTRIBUTES = ('entity_id',)   # what an unavailable light keeps: a group's members
 DESCRIBE_START = datetime(2026, 10, 23, 12, tzinfo=LOCAL)   # any instant: the description does not depend on it
+# The candle probe (ruling 56): every candle-capable lamp gets a Candle cosy light, and the reference runs into
+# cosy; the lamps it then runs a Candle on are the house's candle lamps. The house's starts, weekday and weekend
+# alike, put the probe's Friday evening in cosy.
+PROBE_START = DESCRIBE_START.replace(hour=20)
+PROBE_STARTS = {'day': '07:00:00', 'cosy': '18:00:00', 'night': '23:00:00'}
+PROBE_CANDLE = {'on': True, 'b': 120, 'm': 'ct', 'k': 2200, 'effect': CANDLE}
+PROBE_STEPS = (HaStart(), Advance(120))
+OVERLAY_RULE = 'ls_ovr_'   # the object id prefix of the overlay expiry rules
 # `adapters.simulator` refuses these before any RPC: the harness routed something the
 # adapter cannot map, a setup fault rather than port behaviour (ruling 25).
 ROUTING_ERRORS = ('Unsupported historical automation', 'Historical center automation')
@@ -498,14 +506,54 @@ def describe(backend: str = 'reference') -> HouseInfo:
 
 
 def house_info(session: Session) -> HouseInfo:
+    """The house as captured, then the candle probe run on the same simulator (it changes the state it reads)."""
     sim, world = session.sim, session.world
     rooms = tuple(sorted(set(sim.areas.values())))
     lamps = tuple(LampInfo(lamp, sim.areas[lamp], tuple(world.bulbs_of(lamp)),
                            all(world.candle_capable(bulb) for bulb in world.bulbs_of(lamp)))
                   for lamp in sorted(sim.members))
-    return HouseInfo(rooms=rooms, lamps=lamps, remotes=_remotes(session), plugs=tuple(session.plugs),
-                     helpers=_helpers(sim, rooms, lamps), dashboard_options=_dashboard_options(sim),
-                     mode_switch=_mode_switch(session.automations))
+    helpers = _helpers(sim, rooms, lamps)
+    captured = dict(rooms=rooms, lamps=lamps, remotes=_remotes(session), plugs=tuple(session.plugs), helpers=helpers,
+                    dashboard_options=_dashboard_options(sim), mode_switch=_mode_switch(session.automations),
+                    overlay_rules=_overlay_rules(sim))
+    probe = Session(sim, session.backend, session.automations, session.plugs, World.from_sim(sim), PROBE_START,
+                    candle_probe_seeds(helpers, lamps))
+    probe.run(PROBE_STEPS)
+    return HouseInfo(**captured, candle_lamps=tuple(sorted(probe._candle_lamps())))
+
+
+def candle_probe_seeds(helpers: Sequence[HelperInfo], lamps: Sequence[LampInfo]) -> list[Seed]:
+    """A Candle cosy light for every candle-capable lamp, where the scripts read it (ruling 52): the lamp's own
+    store, else its room's with the room's own light on, else the house's. The house's starts as `PROBE_STARTS`.
+    Each helper keeps its captured attributes; one the house lacks raises, nothing is invented.
+    """
+    by_scope = {(helper.room, helper.lamp, helper.block, helper.setting): helper for helper in helpers}
+    seeds: dict[str, Seed] = {}
+
+    def seed(scope: tuple, state: str) -> None:
+        helper = by_scope[scope]
+        seeds[helper.entity] = Seed(helper.entity, state, copy.deepcopy(dict(helper.attributes)))
+
+    for block, start in PROBE_STARTS.items():
+        for setting in ('start', 'weekend'):
+            seed((None, None, block, setting), start)
+    for lamp in lamps:
+        if not lamp.candle_capable:
+            continue
+        if (lamp.room, lamp.lamp, 'cosy', 'light') in by_scope:
+            seed((lamp.room, lamp.lamp, 'cosy', 'light'), json.dumps({**PROBE_CANDLE, 'own': True}))
+        elif (lamp.room, None, 'cosy', 'light') in by_scope:
+            seed((lamp.room, None, 'cosy', 'light'), json.dumps(PROBE_CANDLE))
+            seed((lamp.room, None, 'cosy', 'own_light'), 'on')
+        else:
+            seed((None, None, 'cosy', 'light'), json.dumps(PROBE_CANDLE))
+    return list(seeds.values())
+
+
+def _overlay_rules(sim) -> tuple[Seed, ...]:
+    return tuple(Seed(entity, value['state'], copy.deepcopy(value.get('attributes', {})))
+                 for entity, value in sorted(sim.state.items())
+                 if entity.split('.', 1)[1].startswith(OVERLAY_RULE))
 
 
 def _mode_switch(automations: Mapping[str, dict]) -> str | None:
@@ -515,10 +563,12 @@ def _mode_switch(automations: Mapping[str, dict]) -> str | None:
     found = set()
     for config in automations.values():
         triggers = config.get('triggers', config.get('trigger', []))
-        entities = {str(trigger.get('entity_id')) for trigger in triggers}
-        flips = {(str(trigger.get('from')), str(trigger.get('to'))) for trigger in triggers
-                 if trigger.get('trigger', trigger.get('platform')) == 'state'}
-        if len(entities) == 1 and flips == {('off', 'on'), ('on', 'off')} and len(flips) == len(triggers):
+        flips = [trigger for trigger in triggers if trigger.get('trigger', trigger.get('platform')) == 'state'
+                 and all(isinstance(trigger.get(key), str) for key in ('entity_id', 'from', 'to'))]
+        if not triggers or len(flips) != len(triggers):   # a trigger with no single entity, `from` and `to`
+            continue
+        entities = {trigger['entity_id'] for trigger in flips}
+        if len(entities) == 1 and {(trigger['from'], trigger['to']) for trigger in flips} == {('off', 'on'), ('on', 'off')}:
             entity = entities.pop()
             if entity.startswith('input_boolean.'):
                 found.add(entity)

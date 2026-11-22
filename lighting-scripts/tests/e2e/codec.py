@@ -106,13 +106,18 @@ class HouseInfo:
     helpers: tuple[HelperInfo, ...]
     dashboard_options: Mapping[str, tuple]   # '<dashboard script>.<field>' -> the field's select options
     mode_switch: str | None   # the input_boolean a person flips to turn the house mode on and off; None: none captured
+    # The lamps the reference runs a Candle light on, found by running it (ruling 56); none: a coverage gap.
+    candle_lamps: tuple[str, ...]
+    # The overlay expiry rules (`*.ls_ovr_*`: next block, after a duration, at a time) as captured, so a scenario
+    # that changes one keeps its attributes.
+    overlay_rules: tuple[Seed, ...]
 
 
 @dataclass(frozen=True)
 class Checkpoint:
     step: int  # index of the step this checkpoint belongs to; several per step while fading
     # Nominal seconds since scenario start, from the runner's step clock. Never the
-    # sim clock: ls_commit nudges that by 1e-6 s and reference delays advance it inline.
+    # sim clock: ls_commit nudges that by `env.COMMIT_NUDGE` (1 ms) and reference delays advance it inline.
     t: float
     bulbs: Mapping[str, BulbState]
     switches: Mapping[str, Literal['on', 'off']]
