@@ -47,13 +47,6 @@ export interface Model {
   powerToken: string;
   preset: number;
 }
-/** What the reducer reads besides its model and message: the room, the remotes' rooms, the opening `now`, and the sender. */
-export interface Remote {
-  room: RoomId;
-  remoteRooms: Readonly<Record<RemoteId, RoomId>>;
-  now: string;
-  sender: () => Sender;
-}
 type HelperKey = 'chord_step' | 'power_count' | 'power_token' | 'preset';
 
 function helperDomain(key: HelperKey): string { return key === 'power_token' ? 'input_text' : 'input_number'; }
@@ -92,8 +85,13 @@ export function remoteArea(deviceId: RemoteId | undefined, remoteRooms: Readonly
  * count). A `power` press stops before its token: the token and the quiet
  * script both carry `now` as read after these writes, so the caller stamps
  * them with {@link stampPowerToken} and the handler's `launchPowerQuiet`.
+ *
+ * Besides its model and message it reads the room, the remotes' rooms, the
+ * opening `now`, and the sender.
  */
-export function* update(model: Model, msg: Msg, remote: Remote): Plan<Model> {
+export function* update(model: Model, msg: Msg, remote: {
+  room: RoomId; remoteRooms: Readonly<Record<RemoteId, RoomId>>; now: string; sender: () => Sender;
+}): Plan<Model> {
   const room = remote.room;
   const next = { ...model };
   const set = function* (key: Exclude<HelperKey, 'power_token'>, value: number): Plan<void> {

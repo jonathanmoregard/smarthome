@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { stampPowerToken, update } from '../../src/domain/gestures.ts';
-import type { Model, Remote } from '../../src/domain/gestures.ts';
+import type { Model } from '../../src/domain/gestures.ts';
 import { gestureHandlers, launchPowerQuiet, powerQuiet } from '../../src/handlers/gestures.ts';
 import type { Effect, Plan } from '../../src/runtime/effects.ts';
 import { carry } from '../../src/runtime/verbatim.ts';
@@ -9,6 +9,7 @@ import { context } from './gestures-context.ts';
 
 const idle: Model = { chordStep: 0, chordActive: false, powerCount: 0, powerToken: '', preset: -2 };
 const NOW = '2026-10-26T12:00:00+01:00';
+type Remote = Parameters<typeof update>[2];
 function remote(extra: Partial<Remote> = {}): Remote {
   return {
     room: 'studio',

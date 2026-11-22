@@ -118,24 +118,17 @@ export type LightingPlan = Omit<ScheduleEnvelope, 'revision' | 'sara_mirror'> & 
 };
 
 
-/** The parts `ls_plan` answers with, once every call is done. */
-export interface PlanParts {
-  schedule: ScheduleEnvelope;
-  base: Record<string, TargetEntry>;
-  resolved: Resolution;
-  gradients: CompiledGradients;
-  switches: Record<SwitchId, SwitchDecision>;
-  /** The overrides the baseline did not mark stale. */
-  active: OpaqueMap;
-  reason: string;
-}
-
 /**
- * The plan document: the schedule with the plan's fields over it. The
- * revision, the plan order and the Sara mirror are read here, after the last
- * call, where the captured script reads them.
+ * The plan document: the schedule with the plan's fields over it, from the
+ * parts `ls_plan` answers with once every call is done (`active` is the
+ * overrides the baseline did not mark stale). The revision, the plan order
+ * and the Sara mirror are read here, after the last call, where the captured
+ * script reads them.
  */
-export function planAnswer(view: HouseView, parts: PlanParts): LightingPlan {
+export function planAnswer(view: HouseView, parts: {
+  schedule: ScheduleEnvelope; base: Record<string, TargetEntry>; resolved: Resolution; gradients: CompiledGradients;
+  switches: Record<SwitchId, SwitchDecision>; active: OpaqueMap; reason: string;
+}): LightingPlan {
   const revision = planRevision(view.state['sensor.ls_overrides']?.last_updated);
   const wanted = Object.hasOwn(parts.active, overlayKeyText(SARA_MODE)) ? 'on' : 'off';
   return { ...parts.schedule, base: parts.base, resolved: parts.resolved, gradients: parts.gradients,

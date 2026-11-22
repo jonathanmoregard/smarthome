@@ -271,24 +271,17 @@ export type EmitOutcome = { published_at: number[]; completed: boolean };
 export type AssignedGeneration = { generation: Verbatim };
 
 
-/** One command's gate: the request, the revision read for it, and the command itself. */
-export interface EmitGate {
-  revision: string;
-  generation: string | null;
-  /** The overrides revision as read for this command. */
-  current: string;
-  command: EmitCommand;
-  effectTargets: OpaqueMap;
-}
-
 /**
  * The guarded publish of a command the house still allows, or `undefined`.
  * Allowed while the revision and runtime generation are the request's, every
  * owner and member is on, an owner's area power gate is not closed (an OFF
  * passes it), each owner is assigned the effect target it carries, and the
- * MQTT bridge is connected.
+ * MQTT bridge is connected. The gate is the request, the overrides revision
+ * as read for this command (`current`), and the command itself.
  */
-export function publishCommand(view: HouseView, gate: EmitGate): Effect | undefined {
+export function publishCommand(view: HouseView, gate: {
+  revision: string; generation: string | null; current: string; command: EmitCommand; effectTargets: OpaqueMap;
+}): Effect | undefined {
   const { revision, generation, command, effectTargets } = gate;
   const owners = command.owners, members = command.members;
   let allowed = revision === gate.current && runtimeGenerationIs(view, generation);

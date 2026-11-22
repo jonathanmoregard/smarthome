@@ -319,23 +319,15 @@ export function activeOverrides(overrides: Overrides, stale: OverlayKey[]): Reco
     .map(entry => [overlayKeyText(entry.key), entry.document]));
 }
 
-/** The parts `ls_room_plan` answers with, once every run is done. */
-export interface RoomPlanParts {
-  room: RoomId;
-  reason: string;
-  revision: string;
-  refreshed: Refreshed;
-  active: Record<string, Verbatim>;
-  resolved: Resolution;
-  gradients: Gradients;
-  catalog: Verbatim;
-  switches: Record<SwitchId, SwitchDecision>;
-  update: CacheUpdate | null;
-  hit: boolean;
-}
-
-/** The answer: the refreshed schedule with the plan over it, stamped with `now` as read last. */
-export function roomPlanAnswer(view: HouseView, parts: RoomPlanParts): RoomPlan {
+/**
+ * The answer: the refreshed schedule with the plan over it, stamped with
+ * `now` as read last, from the parts `ls_room_plan` answers with once every
+ * run is done.
+ */
+export function roomPlanAnswer(view: HouseView, parts: {
+  room: RoomId; reason: string; revision: string; refreshed: Refreshed; active: Record<string, Verbatim>; resolved: Resolution;
+  gradients: Gradients; catalog: Verbatim; switches: Record<SwitchId, SwitchDecision>; update: CacheUpdate | null; hit: boolean;
+}): RoomPlan {
   const { room, reason, refreshed, active } = parts;
   const wanted = Object.hasOwn(active, overlayKeyText(SARA_MODE)) ? 'on' : 'off';
   return { plan: withFields(refreshed.schedule, { room, base: refreshed.targets, resolved: parts.resolved, gradients: parts.gradients,
