@@ -28,6 +28,7 @@ scope: lighting-scripts/
 5. Leaving a candle sends `stop_effect` only.
 6. Acceptance is the user flow, not exact values (owner, 2026-11-22: "don't sweat about getting the handle or the fade or whatever exactly right. Just get the general user flow"). The gate fails on flow differences and only notes level differences. Its rules are in Task 1 and bind every later task and milestone.
 7. This plan is the first of two. M2 to M6 are in `docs/superpowers/plans/2026-11-22-m2-m6-redesign-build.md`.
+8. **Named behaviour change: a press on a plug's own button is an overlay** (owner, 2026-11-22: "I ordered this and I wanted plug presses on the bottom to be an override"; bottom = button). The press holds that switch on or off over its range rule and its block, and is released like every other overlay: by the next-block reset, the after-age reset, the at-set-time reset, clear all, and a reset of its room. Today's scripts take the press back at the next tick; that is a bug against what was ordered. The type is in Task 5 (`SwitchOverlay`), the behaviour in M3 Task 1 and M4 Task 1, and the gate's treatment of `plug_button` in Task 1 (expected differences).
 
 ## Global Constraints
 
@@ -75,7 +76,7 @@ This is today's behaviour, read from `schedule.ts`, `resolution.ts`, `remote-inp
 | 3 | Dashboard block held over the house, then clear all | `BlockOverlay` | `dashboard_block_then_clear` |
 | 4 | Mode overlay on, then off | `ModeOverlay` | `mode_toggle` |
 | 5 | A switch's range rule against the room's level across blocks | `RangeRule`, `RangeDefaults` | `range_save` |
-| 6 | A switch's own button, then the range takes it back | `RangeRule`, `Switch` | `plug_button` |
+| 6 | A switch's own button holds the switch over its range rule until a reset (decision 8; today the range takes it back at the next tick) | `SwitchOverlay`, `RangeRule`, `Switch` | `plug_button`, with its expected difference |
 | 7 | State read back after an HA restart gives the same lighting state | every decoder | `ha_restart_mid_fade` |
 | 8 | Blocks, transitions, weekend starts, daylight saving | `Schedule`, `Room` | `schedule_day`, `midnight_weekend`, `dst_spring`, `dst_autumn` |
 
@@ -154,14 +155,27 @@ The gate every later task is judged by. Worker: `worker-hard`. Review: one Opus 
   7. **Reaction:** for each of the scenario's `proves` pairs, the port's two settled checkpoints must differ in that scope by rule 1, 2, 3 or 4, or by a level change of at least 3 steps in the direction the reference moved. For each `holds` pair, the port's must not differ by rule 1, 2, 3 or 4. This is what catches a press, a hold or a reset that the port ignores.
   8. A settled checkpoint that one side lacks.
 - Noted, never failing: `level` (a level difference beyond the old tolerance that rule 4 does not fail), `colour-shade` (a colour difference inside its family), `fade-sampling` (a checkpoint inside a step that one side lacks, or a level inside a fade), `candle-level`, `timing-slack`.
-- `gate.py` judges with `compare_flow` and prints `e2e: golden N/N flow agree, flow differences F, noted {...}`; exit 0 only when F is 0, every scenario replayed and the unit tests passed. `gate.py --exact` prints the old exact comparison (with `FadeOffToOnGradual`) for information and never fails on it. The report file lists both.
+- **Expected differences**, for a named behaviour change the reference does not have. In `golden.py`, beside `ADJUSTMENTS`:
+  ```python
+  @dataclass(frozen=True) class ExpectedDifference:
+      name: str                 # e.g. 'plug-press-held'
+      scenario: str             # exactly one scenario
+      role: str                 # exactly one bulb or switch, by its HouseInfo role, never by name
+      rule: str                 # exactly one flow rule: 'power'
+      after_step: int           # the window opens at the first checkpoint after this step's input ...
+      until: str                # ... and closes at a named event: 'next block start'
+      port_holds: bool          # inside the window the port must keep the value it showed at the window's first checkpoint
+  EXPECTED: tuple[ExpectedDifference, ...] = ()     # empty in M1
+  ```
+  `compare_flow` takes the entries for its scenario. Inside an entry's window, a difference under that one rule (and rule 6 timing for it) on that one bulb or switch is counted under `expected {name: n}` and does not fail, provided the port's value there is the one `port_holds` demands. Everything else in the scenario is judged as usual: other bulbs and switches, other rules on the same switch, and every checkpoint outside the window, including the settled checkpoint that closes it. An entry is also a demand: if the port shows no such difference in the window (it agrees with the reference there), that is a flow difference, `expected difference missing`. An entry whose scenario, role or step does not exist fails the gate's unit tests. Task 1 builds the mechanism with `EXPECTED` empty; M4 Task 1 adds the one entry for `plug_button` in the commit that makes the press an overlay, and no other task may add one without the owner's ruling.
+- `gate.py` judges with `compare_flow` and prints `e2e: golden N/N flow agree, flow differences F, noted {...}, expected {...}`; exit 0 only when F is 0, every scenario replayed and the unit tests passed. `gate.py --exact` prints the old exact comparison (with `FadeOffToOnGradual`) for information and never fails on it. The report file lists both.
 - Two scenarios are added, because the owner named the morning wake light and overlay resets as flow that must be right and no scenario covers them:
   1. `wake_light`: a room's wake time set inside the night block; advance through the wake fade and past it. Proves the room's lamps change before the day block starts.
   2. `next_block_reset`: the next-block rule on; a person's change of one lamp before a block's fade starts; advance past the block start. Proves the lamp is held before the fade and follows the schedule after it.
 
   Entities by role from `HouseInfo`, never by name. If the reference cannot run one (a missing role or an unsupported trigger), record that as a named gap in the ledger and go on without it.
 
-- [ ] **Step 1: Write failing tests** in `test_compare.py`, one per rule, on synthetic checkpoints: `test_power_differs_is_flow`; `test_kelvin_against_rgb_is_flow`; `test_kelvin_within_family_is_noted` (2700 against 2900) and `test_kelvin_outside_family_is_flow` (2700 against 4000); `test_candle_against_none_is_flow`; `test_level_inside_band_is_noted` (120 against 150) and `test_level_outside_band_is_flow` (40 against 200); `test_level_in_fade_is_never_flow`; `test_candle_level_is_noted`; `test_timing_within_a_tick_is_noted` and `test_timing_beyond_a_tick_is_flow`; `test_port_must_react_where_the_reference_proves` (reference changes, port stays → flow); `test_port_must_hold_where_the_reference_holds`; `test_missing_fade_tick_is_noted` and `test_missing_settled_checkpoint_is_flow`; `test_dashboard_difference_is_flow`. In `test_golden.py`: the two new scenarios are not vacuous.
+- [ ] **Step 1: Write failing tests** in `test_compare.py`, one per rule, on synthetic checkpoints: `test_power_differs_is_flow`; `test_kelvin_against_rgb_is_flow`; `test_kelvin_within_family_is_noted` (2700 against 2900) and `test_kelvin_outside_family_is_flow` (2700 against 4000); `test_candle_against_none_is_flow`; `test_level_inside_band_is_noted` (120 against 150) and `test_level_outside_band_is_flow` (40 against 200); `test_level_in_fade_is_never_flow`; `test_candle_level_is_noted`; `test_timing_within_a_tick_is_noted` and `test_timing_beyond_a_tick_is_flow`; `test_port_must_react_where_the_reference_proves` (reference changes, port stays → flow); `test_port_must_hold_where_the_reference_holds`; `test_missing_fade_tick_is_noted` and `test_missing_settled_checkpoint_is_flow`; `test_dashboard_difference_is_flow`; `test_expected_difference_excuses_only_its_switch_rule_and_window` (the same difference on another switch, under another rule, or one checkpoint past the window is flow); `test_expected_difference_missing_is_flow`; `test_expected_difference_needs_the_port_to_hold`. In `test_golden.py`: the two new scenarios are not vacuous.
 - [ ] **Step 2:** Run `python3 -m unittest tests/e2e/test_compare.py` → fail.
 - [ ] **Step 3:** Implement `compare_flow`; switch `gate.py` and `golden.replay` to it; add the two scenarios and record them (only they need recording: `compare.py`, `gate.py` and `golden.py` are outside the recording hash, and an unchanged scenario stays valid).
 - [ ] **Step 4:** Run `npm run e2e` detached on today's port. Expected: flow differences 0; the 114 known differences all land in `noted` (`fade-sampling` and `level` from the gradual fade, `candle-level` 5). Write the noted counts to the ledger as the baseline. If F is not 0, list each flow difference with its scenario, step and rule, and stop: each is a rule that needs a ruling or a real flow difference in today's port.
@@ -325,7 +339,12 @@ Types only, plus the fixture every later test builds on. This is the task that c
     lamps: readonly LampOverlay[];
     /** A room switched off or on. A room not listed is on. */
     roomPower: Partial<Record<RoomId, Power>>;
+    /** A switch held on or off by a press on its own button: at most one each (decision 8). */
+    switches: Partial<Record<SwitchId, SwitchOverlay>>;
   };
+
+  /** Holds the switch over its range rule and its block until a reset removes it. New: no stored field today. */
+  export type SwitchOverlay = { power: Power; since: Instant };
 
   /** `since` is when the overlay was last set (stored `when`): what the next-block and after-age resets measure. */
   export type BlockOverlay = { block: Block; since: Instant };
@@ -506,6 +525,7 @@ Worker: `worker-hard`. Review: one Opus pass (a wrong write here breaks rooms th
   | 4 | kind `channels`, key `channels:ui:<control>` | the same, `from: dashboard` with the control's id |
   | 5 | key of the mode overlay | `modeOverlay` active, `since` = `when` |
   | 6 | attribute `power` | `overlays.roomPower` |
+  | 6a | attribute `switch_overlays` (new; a mapping of switch to `{power, when}`, written by this port only, so the old scripts' loop over the overlay entries never meets it) | `overlays.switches`; missing or not a mapping → none; an entry with a bad `power` or `when` is dropped |
   | 7 | attributes `switch_ranges`, `range_defaults` | `switchRanges`, `rangeDefaults` |
   | 8 | anything else (rows 4 and 5 of Task 5's left-out list, unknown kinds, unknown keys) | not in the `Model`; kept in the bytes |
 
