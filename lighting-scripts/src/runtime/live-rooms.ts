@@ -20,8 +20,7 @@ import type { LiveRooms } from '../parse/live-rooms.ts';
 import { emptyCatalog, parseCatalog } from './catalog.ts';
 import { parseRooms } from '../parse/rooms.ts';
 import { toBulbId } from '../parse/ids.ts';
-import { nativeSourceFor } from '../parse/automations.ts';
-import { controlTopic } from '../domain/automations.ts';
+import { controlTopic, nativeSourceFor } from '../parse/automations.ts';
 
 /** The render bookkeeping the old scripts keep in the same sensor. */
 const RUNTIME = 'sensor.ls_effects_runtime';

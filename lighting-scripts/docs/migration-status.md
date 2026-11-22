@@ -92,7 +92,7 @@ Five shimmed originals return a response: `effects_set`, `effects_ui_sync`,
 response-bearing callers. Both now execute wholly inside TypeScript:
 
 1. `lighting_schedule_lamp_change_detector` calls it directly in
-   [`src/domain/automations.ts`](../src/domain/automations.ts).
+   [`src/handlers/automations.ts`](../src/handlers/automations.ts).
 2. `ls_override_block` calls it directly in
    [`src/domain/state-store.ts`](../src/domain/state-store.ts).
 

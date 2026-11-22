@@ -1,25 +1,140 @@
 /**
- * `automations`'s handlers: the shells that read the live house, make the
- * inter-handler calls and perform effects, and the name-keyed table.
- * The decisions they run are in `src/domain/automations.ts`.
+ * `automations`'s handlers: the shells that turn Home Assistant automation
+ * triggers and MQTT topics into script calls and service effects, read the
+ * live house, make the inter-handler calls and perform effects, and the
+ * name-keyed table. The decisions they run are pure, in `src/domain`:
+ * `pending-output.ts`, `overlay-resets.ts`, `sara-mode.ts` and
+ * `range-defaults.ts`.
  */
 import type { ScriptHandler, ScriptHandlers } from '../runtime/context.ts';
 import { withParsedArgs } from '../runtime/parse.ts';
+import { withFields } from '../runtime/verbatim.ts';
+import type { Verbatim } from '../runtime/verbatim.ts';
 import { timestamp } from '../parse/accessors.ts';
+import type { StoredValue } from '../parse/overrides.ts';
 import { attributeFact, attributeMapping, lenientOverrides } from '../parse/sensors.ts';
 import {
-  nativeCapture, nativeControlValue, nativeSourceFor, parseLampChangeArgs, parseNativeControlsArgs, parseRemoteArgs, parseSaraModeArgs,
-    parseScheduleEngineArgs, parseTriggerIdArgs, parseWriterArgs, stateContextId,
+  controlTopic, inputNumber, nativeCapture, nativeControlValue, nativeSourceFor, overrideAges, parseLampChangeArgs, parseNativeControlsArgs,
+    parseRemoteArgs, parseSaraModeArgs, parseScheduleEngineArgs, parseTriggerIdArgs, parseWriterArgs, stateContextId,
+} from '../parse/automations.ts';
+import type {
+  LampChangeArgs, NativeCapture, NativeControlsArgs, RemoteArgs, RemoteKind, SaraModeArgs, ScheduleEngineArgs, TriggerIdArgs, WriterArgs,
 } from '../parse/automations.ts';
 import { perform, run } from '../runtime/effects.ts';
-import {
-  controlTopic, endOverrides, forwardNativeControl, forwardOverride, forwardRemote, houseRangeDefaults, lampChangeOverrides,
-    pendingOutputDirty, refreshUi, requestRender, runScheduleEngine, saraModeSwitch,
-} from '../domain/automations.ts';
-import type {
-  LampChangeArgs, NativeControlsArgs, RemoteArgs, RemoteKind, SaraModeArgs, ScheduleEngineArgs, TriggerIdArgs, WriterArgs,
-} from '../domain/automations.ts';
-import { SARA_MODE } from '../domain/types/overlay.ts';
+import type { Effect, HouseView, Plan } from '../runtime/effects.ts';
+import { pendingOutputDirty } from '../domain/pending-output.ts';
+import { expiredOverlays } from '../domain/overlay-resets.ts';
+import { saraModeChange } from '../domain/sara-mode.ts';
+import { isRangeDefault } from '../domain/range-defaults.ts';
+import { overlayKeyText, SARA_MODE } from '../domain/types/overlay.ts';
+
+function turnOn(script: string): Effect {
+  return { kind: 'service', service: 'script.turn_on', data: {}, target: { entity_id: `script.${script}` } };
+}
+
+/** A remote's gesture, forwarded to the room's gesture script; optional fields only when they are strings. */
+export function* forwardRemote(kind: RemoteKind, args: RemoteArgs): Plan<null> {
+  const data: { command: StoredValue; payload?: Verbatim; source?: string; device_id?: string } = { command: args.command };
+  if (kind === 'preset') data.payload = args.payload;
+  if (args.source !== undefined) data.source = args.source;
+  if (args.deviceId !== undefined) data.device_id = args.deviceId;
+  yield { kind: 'script', name: `ls_remote_gesture_${args.room}`, args: data };
+  return null;
+}
+
+/** Set the control, then resync the UI proxies. */
+export function* forwardNativeControl(source: string, attribute: string, value: Verbatim): Plan<null> {
+  yield { kind: 'script', name: 'effects_set', args: { source, attribute, value } };
+  yield turnOn('effects_ui_sync');
+  return null;
+}
+
+/** The override store writer commits the event's data with `who` replaced. */
+export function* forwardOverride(args: WriterArgs): Plan<null> {
+  yield { kind: 'script', name: 'ls_commit', args: { data: withFields(args.data, { who: args.who }) } };
+  return null;
+}
+
+export function* requestRender(): Plan<null> {
+  yield turnOn('ls_render');
+  return null;
+}
+
+/** The native-light-controls refresh forces a full UI sync on start. */
+export function* refreshUi(args: TriggerIdArgs): Plan<null> {
+  yield { kind: 'script', name: 'effects_ui_sync', args: { force: args.id === 'start' } };
+  return null;
+}
+
+/** The schedule engine applies with the trigger as its reason; an absent id or entity is forwarded as null. */
+export function* runScheduleEngine(args: ScheduleEngineArgs): Plan<null> {
+  const data: { reason: StoredValue; lights?: StoredValue[] } = { reason: args.id === undefined ? null : args.id };
+  if (args.id === 'lamp_on') data.lights = [args.entityId === undefined ? null : args.entityId];
+  yield { kind: 'script', name: 'ls_apply', args: data };
+  return null;
+}
+
+/**
+ * End-overrides rules. Not a generator: it reads the house through the view,
+ * and the after-limit read raises on a malformed state, so it happens only
+ * where the captured script reaches it -- after the rule's on-switch passed.
+ * Which overlays the after-limit rule ends is {@link expiredOverlays}.
+ */
+export function endOverrides(view: HouseView, args: TriggerIdArgs): Effect[] {
+  const overrides = lenientOverrides(view);
+  if (args.id === 'after' && view.get('input_boolean.ls_ovr_after_on') === 'on') {
+    const now = timestamp(view.now), limit = inputNumber(view, 'input_number.ls_ovr_after_min', 180) * 60;
+    const expired = expiredOverlays(overrideAges(overrides.entries), now, limit).map(overlayKeyText);
+    return expired.length > 0 ? [{ kind: 'event', event: 'ls_override', data: { op: 'clear', keys: expired, via: 'rule_after' } }] : [];
+  }
+  if (args.id === 'at' && view.get('input_boolean.ls_ovr_at_on') === 'on' && overrides.entries.length > 0) {
+    return [{ kind: 'event', event: 'ls_override', data: { op: 'clear_all', via: 'rule_at' } }];
+  }
+  return [];
+}
+
+/** The Sara mode switch sets or clears `mode:sara` as {@link saraModeChange} decides; no user, no change. */
+export function* saraModeSwitch(args: SaraModeArgs, active: boolean): Plan<null> {
+  const who = args.who;
+  if (who === null || who === undefined) return null;
+  const wanted = args.id === 'on' ? true : args.id === 'off' ? false : undefined;
+  if (wanted === undefined) return null;
+  const change = saraModeChange(wanted, active);
+  if (change === 'set') {
+    yield { kind: 'event', event: 'ls_override', data: { op: 'set', records: [{ kind: 'mode', target: 'sara', value: 'on' }], via: 'app', who } };
+  } else if (change === 'clear') {
+    yield { kind: 'event', event: 'ls_override', data: { op: 'clear', keys: [overlayKeyText(SARA_MODE)], via: 'app', who } };
+  }
+  return null;
+}
+
+/**
+ * A lamp change's overrides: power its areas, then the channel records. The
+ * records list is read only after the power events, where the inline read
+ * sat, so a malformed list raises after them.
+ */
+export function* lampChangeOverrides(capture: NativeCapture, who: StoredValue): Plan<null> {
+  for (const area of capture.powerAreas) yield { kind: 'event', event: 'ls_override', data: { op: 'power', area, on: true, via: 'app', who } };
+  const records = capture.records();
+  if (records.count > 0) yield { kind: 'event', event: 'ls_override', data: { op: 'set', records: records.document, via: 'app', who } };
+  return null;
+}
+
+/**
+ * House range defaults, fired only when both profiles hold a valid range
+ * ({@link isRangeDefault}). Not a generator: each profile's two reads raise on
+ * a malformed state, so cosy is read only once bright has passed, as the
+ * captured loop does.
+ */
+export function houseRangeDefaults(view: HouseView): Effect[] {
+  const ranges: Record<string, [number, number]> = {};
+  for (const profile of ['bright', 'cosy']) {
+    const lo = inputNumber(view, `input_number.ls_range_${profile}_min`, -1), hi = inputNumber(view, `input_number.ls_range_${profile}_max`, -1);
+    if (!isRangeDefault(lo, hi)) return [];
+    ranges[profile] = [lo, hi];
+  }
+  return [{ kind: 'event', event: 'ls_override', data: { op: 'range_defaults', ranges, via: 'schedule-ui' } }];
+}
 
 function remote(kind: RemoteKind): ScriptHandler {
   return withParsedArgs({ parse: args => parseRemoteArgs(kind, args), run: (ctx, args: RemoteArgs) => run(ctx, forwardRemote(kind, args)) });

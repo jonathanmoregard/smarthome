@@ -17,16 +17,24 @@ import { carry, carryOptional, reveal } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import { list, nativeScalar, stateNumberOr } from './accessors.ts';
 import { storedFact } from './overrides.ts';
-import type { StoredEntry, StoredFact } from './overrides.ts';
-import type {
-  LampChangeArgs, NativeCapture, NativeControlsArgs, RemoteArgs, RemoteKind, SaraModeArgs, ScheduleEngineArgs,
-  TriggerIdArgs, WriterArgs,
-} from '../domain/automations.ts';
+import type { StoredEntry, StoredFact, StoredValue } from './overrides.ts';
 import { toRemoteId, toRoomId } from './ids.ts';
+import type { RemoteId, RoomId } from '../domain/types/ids.ts';
 import type { OverlayKey } from '../domain/types/overlay.ts';
 
 function triggerObject(args: JsonObject, context: string): JsonObject {
   return requireObject(args, 'trigger', context);
+}
+
+export type RemoteKind = 'power' | 'directions' | 'preset';
+export interface RemoteArgs {
+  room: RoomId;
+  /** The gesture command: the kind itself, or directions' `trigger.id` as stored. */
+  command: StoredValue;
+  /** Preset's `trigger.payload_json` as stored, `null` when absent. */
+  payload: Verbatim;
+  source: string | undefined;
+  deviceId: RemoteId | undefined;
 }
 
 export function parseRemoteArgs(kind: RemoteKind, args: JsonObject): RemoteArgs {
@@ -48,6 +56,14 @@ export function parseRemoteArgs(kind: RemoteKind, args: JsonObject): RemoteArgs 
   };
 }
 
+export interface NativeControlsArgs {
+  topic: string;
+  /** The MQTT payload as received, or absent. */
+  payload: Verbatim;
+  /** The bridge's alias -> source mapping (parsed on first use); a non-string entry is `undefined`. */
+  source: (alias: string) => string | undefined;
+}
+
 export function parseNativeControlsArgs(args: JsonObject): NativeControlsArgs {
   const trigger = triggerObject(args, 'automation.effects_native_light_controls');
   const sources = lazy(() => args.sources === undefined
@@ -66,6 +82,13 @@ export function parseNativeControlsArgs(args: JsonObject): NativeControlsArgs {
       return typeof value === 'string' ? value : undefined;
     },
   };
+}
+
+const CONTROLLED = ['power', 'brightness', 'rgb', 'temperature', 'effect'];
+/** A native-control MQTT topic's alias (fourth segment) and attribute (last), when the attribute is one this controls. */
+export function controlTopic(topic: string): { alias: string; attribute: string } | undefined {
+  const parts = topic.split('/'), alias = parts[3] ?? '', attribute = parts.at(-1) ?? '';
+  return CONTROLLED.includes(attribute) ? { alias, attribute } : undefined;
 }
 
 /**
@@ -103,6 +126,12 @@ export function nativeControlValue(payload: Verbatim, attribute: string): Verbat
   return carry(value);
 }
 
+export interface WriterArgs {
+  /** The event data, forwarded with `who` replaced. */
+  data: Verbatim;
+  who: Verbatim;
+}
+
 // Writer reads trigger.event.data as a mapping once, data.who raw once in an
 // `or` chain, and event.context.user_id raw once. Jinja `or` replaces empty
 // containers too, so use jinjaTruthy rather than JavaScript `||`.
@@ -117,20 +146,36 @@ export function parseWriterArgs(args: JsonObject): WriterArgs {
   return { data: carry(data), who: carry(who) };
 }
 
+export interface TriggerIdArgs { id: StoredFact }
+
 export function parseTriggerIdArgs(context: string) {
   return (args: JsonObject): TriggerIdArgs => ({ id: storedFact(triggerObject(args, context).id) });
 }
+
+export interface ScheduleEngineArgs extends TriggerIdArgs { entityId: StoredFact }
 
 export function parseScheduleEngineArgs(args: JsonObject): ScheduleEngineArgs {
   const trigger = triggerObject(args, 'automation.lighting_schedule_engine');
   return { id: storedFact(trigger.id), entityId: storedFact(trigger.entity_id) };
 }
 
+export interface SaraModeArgs extends TriggerIdArgs { who: StoredFact }
+
 export function parseSaraModeArgs(args: JsonObject): SaraModeArgs {
   const trigger = triggerObject(args, 'automation.lighting_schedule_sara_mode_switch');
   const toState = requireObject(trigger, 'to_state', 'automation.lighting_schedule_sara_mode_switch.trigger');
   const stateContext = requireObject(toState, 'context', 'automation.lighting_schedule_sara_mode_switch.trigger.to_state');
   return { id: storedFact(trigger.id), who: storedFact(stateContext.user_id) };
+}
+
+export interface LampChangeArgs {
+  who: StoredFact;
+  details: () => {
+    service: StoredFact;
+    /** `service_data | default({})`, forwarded to `effects_native_plan` as `sd`. */
+    serviceData: () => Verbatim;
+    contextId: StoredFact;
+  };
 }
 
 export function parseLampChangeArgs(args: JsonObject): LampChangeArgs {
@@ -155,6 +200,12 @@ export function parseLampChangeArgs(args: JsonObject): LampChangeArgs {
 /** A state's `context.id`, read leniently: a missing or non-mapping context has none. */
 export function stateContextId(state: EntityState): StoredFact {
   return storedFact(object(state.context).id);
+}
+
+/** What the capture reads of `effects_native_plan`'s answer. */
+export interface NativeCapture {
+  powerAreas: StoredValue[];
+  records: () => { document: Verbatim; count: number };
 }
 
 /**
