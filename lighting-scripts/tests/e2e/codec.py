@@ -85,13 +85,16 @@ class HelperInfo:
     (`input_number`), or own light / own timing switch (`input_boolean`).
 
     `room` and `lamp` are both None for the house's own helpers; a lamp's helper names its lamp and the lamp's room.
-    (`setting`, not `kind`: `kind` is the codec's tag.)
+    (`setting`, not `kind`: `kind` is the codec's tag.) `state` and `attributes` are the helper as the simulator
+    holds it before the first step, so a seed can change the state and keep the attributes (`min`, `max`, ...).
     """
     entity: str
     room: str | None
     lamp: str | None
     block: Literal['day', 'cosy', 'night']
     setting: Literal['light', 'start', 'weekend', 'fade', 'own_light', 'own_timing']
+    state: str
+    attributes: Mapping[str, object]
 
 
 @dataclass(frozen=True)
@@ -102,6 +105,7 @@ class HouseInfo:
     plugs: tuple[str, ...]
     helpers: tuple[HelperInfo, ...]
     dashboard_options: Mapping[str, tuple]   # '<dashboard script>.<field>' -> the field's select options
+    mode_switch: str | None   # the input_boolean a person flips to turn the house mode on and off; None: none captured
 
 
 @dataclass(frozen=True)

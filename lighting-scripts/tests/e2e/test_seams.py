@@ -32,6 +32,20 @@ BLOCKS = ('day', 'cosy', 'night')
 HELPER_SETTINGS = {'light', 'start', 'weekend', 'fade', 'own_light', 'own_timing'}
 
 
+class ProfileStandIn(StandIn):
+    """A stand-in with the simulator's profile store: the `input_text` and its template light, as `Sim.store` writes."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.stored = []
+
+    def store(self, entity, value):
+        self.stored.append((entity, value))
+        self.put(entity, json.dumps(value), self.state.get(entity, {}).get('attributes'))
+        self.put(entity.replace('input_text.', 'light.'), 'on' if value.get('on', True) else 'off',
+                 {'brightness': value.get('b', 150)})
+
+
 def session(sim, automations, the_world, backend='reference', seeds=()):
     return Session(sim, backend, automations, plugs=[], world=the_world, start=START, seeds=seeds)
 
@@ -48,9 +62,11 @@ class Codec(unittest.TestCase):
                           remotes=(RemoteInfo('room_a', 'zigbee2mqtt/remote_a/action', ('on', 'off')),
                                    RemoteInfo(None, 'zigbee2mqtt/remote_b/action', ('on',))),
                           plugs=('switch.plug_x',),
-                          helpers=(HelperInfo('input_text.x', None, None, 'day', 'light'),
-                                   HelperInfo('input_number.y', 'room_a', 'light.lamp_a', 'cosy', 'fade')),
-                          dashboard_options={'script_a.block': ('day', 'cosy')})
+                          helpers=(HelperInfo('input_text.x', None, None, 'day', 'light', '{"on": true}', {'max': 255}),
+                                   HelperInfo('input_number.y', 'room_a', 'light.lamp_a', 'cosy', 'fade', '20',
+                                              {'min': 0, 'max': 120})),
+                          dashboard_options={'script_a.block': ('day', 'cosy')},
+                          mode_switch='input_boolean.mode_x')
         for value in (house, Seed('input_text.x', 'v', {'a': [1, 2]}), PowerCut(('bulb_a',)), PowerRestore(('bulb_a',))):
             with self.subTest(kind=type(value).__name__):
                 self.assertEqual(decode(json.loads(json.dumps(encode(value)))), value)
@@ -90,6 +106,21 @@ class Seeds(unittest.TestCase):
         with self.assertRaises(BackendError) as raised:
             session(sim, {}, world('bulb_a'), seeds=[Seed('light.lamp_bulb_a', 'off', {})])
         self.assertEqual(raised.exception.kind, 'MalformedRequest')
+
+    def test_a_profile_seed_goes_through_its_template_light(self):
+        # In HA the block light `light.ls_*` is a template light over its `input_text` store, and the scripts
+        # read both, so a seeded profile reaches the light too, as the simulator's own store writes it.
+        sim = ProfileStandIn(state={'light.ls_x_day': {'state': 'on', 'attributes': {'brightness': 150}}})
+        session(sim, {}, world(), seeds=[Seed('input_text.ls_x_day', '{"on": false, "b": 40}', {'max': 255})])
+        self.assertEqual(sim.stored, [('input_text.ls_x_day', {'on': False, 'b': 40})])
+        self.assertEqual(sim.state['input_text.ls_x_day']['attributes'], {'max': 255})
+        self.assertEqual(sim.state['light.ls_x_day']['state'], 'off')
+
+    def test_a_seed_with_no_template_light_is_put_as_it_is(self):
+        sim = ProfileStandIn()
+        session(sim, {}, world(), seeds=[Seed('input_text.x', '{"a": 1}', {}), Seed('input_number.y', '3', {})])
+        self.assertEqual(sim.stored, [])
+        self.assertEqual((sim.state['input_text.x']['state'], sim.state['input_number.y']['state']), ('{"a": 1}', '3'))
 
     def test_a_seed_on_any_light_or_switch_is_refused(self):
         # The world is built before the seeds, so a light or switch it does not know would be half seeded (ruling 41).
@@ -366,6 +397,51 @@ class RealBackends(unittest.TestCase):
                         <= house_light)
         self.assertTrue(any(helper.lamp is not None for helper in house.helpers))
         self.assertEqual(house.dashboard_options['ls_override_block.block'], BLOCKS)
+        self.assertTrue(house.mode_switch.startswith('input_boolean.'))
+
+    def test_helpers_carry_their_captured_state(self):
+        from tests.e2e.test_env import isolated
+        captured = isolated('''
+            import json
+            from tests.e2e.backend import DESCRIBE_START, Session
+            from tests.e2e.env import open_sim
+            with open_sim('reference') as sim:
+                Session.open(sim, 'reference', DESCRIBE_START)
+                print(json.dumps({entity: [value['state'], value['attributes']] for entity, value in sim.state.items()}))
+        ''')
+        for helper in self.house.helpers:
+            with self.subTest(helper=helper.setting):
+                self.assertEqual([helper.state, dict(helper.attributes)], captured[helper.entity])
+
+    def test_a_profile_seed_reaches_its_template_light_on_both_backends(self):
+        from tests.e2e.test_env import isolated
+        store = next(helper for helper in self.house.helpers if helper.setting == 'light')
+        profile = {'on': True, 'b': 37, 'm': 'ct', 'k': 2500, 'own': False, 'effect': 'Normal light'}
+        for backend in ('reference', 'port'):
+            with self.subTest(backend=backend):
+                light = isolated(f'''
+                    import json
+                    from tests.e2e.backend import DESCRIBE_START, Session
+                    from tests.e2e.codec import Seed
+                    from tests.e2e.env import open_sim
+                    with open_sim({backend!r}) as sim:
+                        Session.open(sim, {backend!r}, DESCRIBE_START,
+                                     [Seed({store.entity!r}, {json.dumps(profile)!r}, {dict(store.attributes)!r})])
+                        print(json.dumps(sim.state[{store.entity.replace('input_text.', 'light.')!r}]))
+                ''')
+                self.assertEqual((light['state'], light['attributes']['brightness'],
+                                  light['attributes']['color_temp_kelvin']), ('on', 37, 2500))
+
+    def test_a_range_saved_for_a_plug_reaches_the_dashboard_on_both_backends(self):
+        # The range save refuses a switch with no device; each synthetic plug has one, on both backends.
+        from tests.e2e.router import ScriptCall
+        from tests.e2e.runner import run_backend
+        plug = self.house.plugs[0]
+        steps = [HaStart(), ScriptCall('ls_range_save', {'entity': plug, 'profile': 'bright'}, Context('e2e-r', 'e2e-person'))]
+        for backend in ('reference', 'port'):
+            with self.subTest(backend=backend):
+                final = run_backend(backend, steps, START).checkpoints[-1]
+                self.assertEqual(final.dashboard['switch_ranges'][plug]['profile'], 'bright')
 
     def test_remote_press_runs_on_both_backends(self):
         # Each press reaches its remote's own gesture script. A remote whose device has an area goes on to

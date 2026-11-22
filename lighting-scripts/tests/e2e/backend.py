@@ -68,6 +68,8 @@ HELPER_NAMES = {
     'own_timing': 'input_boolean.ls_{scope}_{block}_own_timing',
 }
 WORLD_DOMAINS = ('light.', 'switch.')   # the world's entities: never seeded
+PROFILE_STORE, PROFILE_LIGHT = 'input_text.', 'light.'   # a block light's store and its template light: same object id
+PLUG_DEVICE = 'e2e_plug_device_{}'   # a synthetic plug's device id
 UNAVAILABLE = 'unavailable'
 STRUCTURAL_ATTRIBUTES = ('entity_id',)   # what an unavailable light keeps: a group's members
 DESCRIBE_START = datetime(2026, 10, 23, 12, tzinfo=LOCAL)   # any instant: the description does not depend on it
@@ -98,6 +100,11 @@ class Session:
                 # does not know would be half seeded (ruling 41).
                 raise BackendError(backend, 'MalformedRequest', f'seed {seed.entity}: lights and switches are the world\'s')
             sim.put(seed.entity, seed.state, copy.deepcopy(dict(seed.attributes)))
+            profile = _profile(sim, seed)
+            if profile is not None:
+                # A block light (`light.ls_*`) is HA's template light over this store, and the scripts read
+                # both: the simulator's own store writes the pair, keeping the attributes just put.
+                sim.store(seed.entity, profile)
         self._write_back()                # silent: the world's first light is not a change anybody made
         self.known = {entity: self._known(value, None) for entity, value in sim.state.items()}
 
@@ -417,23 +424,42 @@ def enabled_automations(automations: Mapping[str, dict], captured: Mapping[str, 
             if name not in off_names and not ('id' in config and str(config['id']) in off_ids)}
 
 
+def _profile(sim, seed: Seed) -> dict | None:
+    """The saved block light a seed writes, when it is a store whose template light exists; else None."""
+    if not seed.entity.startswith(PROFILE_STORE) \
+            or seed.entity.replace(PROFILE_STORE, PROFILE_LIGHT, 1) not in sim.state:
+        return None
+    try:
+        value = json.loads(seed.state)
+    except ValueError:
+        return None
+    return value if isinstance(value, dict) else None
+
+
 def _entities(target: Mapping) -> list[str]:
     entities = target.get('entity_id', [])
     return [entities] if isinstance(entities, str) else list(entities)
 
 
 def seed_plugs(sim, backend: str) -> list[str]:
-    """One synthetic plug per room, off, in that room, labelled `on_off`, identically on both backends."""
+    """One synthetic plug per room, off, in that room, labelled `on_off`, identically on both backends.
+
+    Each plug is a device of its own, as a real smart plug is: the range save refuses a switch with no device.
+    No other entity has a device here, so HA's `device_id` gives None for it (the captures hold no registry).
+    """
     rooms = sorted(set(sim.areas.values()))
     plugs = [PLUG.format(n) for n in range(len(rooms))]
+    devices = {plug: PLUG_DEVICE.format(n) for n, plug in enumerate(plugs)}
     for plug, room in zip(plugs, rooms):
         sim.put(plug, 'off', {})
         sim.areas[plug] = room
     if backend == 'reference':
         stub = sim.env.globals['label_entities']
         sim.env.globals['label_entities'] = lambda label: list(plugs) if label == PLUG_LABEL else stub(label)
+        sim.env.globals['device_id'] = devices.get
     else:
         sim._parity_extra['labels'][PLUG_LABEL] = list(plugs)
+        sim._parity_extra['devices'] = {device: [plug] for plug, device in devices.items()}
     return plugs
 
 
@@ -478,7 +504,27 @@ def house_info(session: Session) -> HouseInfo:
                            all(world.candle_capable(bulb) for bulb in world.bulbs_of(lamp)))
                   for lamp in sorted(sim.members))
     return HouseInfo(rooms=rooms, lamps=lamps, remotes=_remotes(session), plugs=tuple(session.plugs),
-                     helpers=_helpers(sim, rooms, lamps), dashboard_options=_dashboard_options(sim))
+                     helpers=_helpers(sim, rooms, lamps), dashboard_options=_dashboard_options(sim),
+                     mode_switch=_mode_switch(session.automations))
+
+
+def _mode_switch(automations: Mapping[str, dict]) -> str | None:
+    """The input_boolean a person flips for the house mode: the one entity an enabled automation watches go
+    from off to on and from on to off, with no other trigger. Found by shape; its name is the house's own.
+    """
+    found = set()
+    for config in automations.values():
+        triggers = config.get('triggers', config.get('trigger', []))
+        entities = {str(trigger.get('entity_id')) for trigger in triggers}
+        flips = {(str(trigger.get('from')), str(trigger.get('to'))) for trigger in triggers
+                 if trigger.get('trigger', trigger.get('platform')) == 'state'}
+        if len(entities) == 1 and flips == {('off', 'on'), ('on', 'off')} and len(flips) == len(triggers):
+            entity = entities.pop()
+            if entity.startswith('input_boolean.'):
+                found.add(entity)
+    if len(found) > 1:
+        raise ValueError(f'{len(found)} mode switches')
+    return found.pop() if found else None
 
 
 def _remotes(session: Session) -> tuple[RemoteInfo, ...]:
@@ -517,7 +563,8 @@ def _helpers(sim, rooms: Sequence[str], lamps: Sequence[LampInfo]) -> tuple[Help
                 if entity in sim.state:
                     if entity in helpers:
                         raise ValueError(f'helper {entity} belongs to two scopes')
-                    helpers[entity] = HelperInfo(entity, room, lamp, block, setting)
+                    helpers[entity] = HelperInfo(entity, room, lamp, block, setting, sim.state[entity]['state'],
+                                                 copy.deepcopy(sim.state[entity].get('attributes', {})))
     return tuple(helpers[entity] for entity in sorted(helpers))
 
 
