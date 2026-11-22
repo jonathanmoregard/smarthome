@@ -170,12 +170,24 @@ class TimeTests(unittest.TestCase):
         self.assertEqual(len(runs), 1)
         self.assertEqual(route(h, Tick(datetime(2026, 3, 29, 2, 31, tzinfo=utc)), datetime(2026, 3, 29, 2, 29, tzinfo=utc)), [])
 
-    def test_literal_across_fall_back_fires_once(self):
+    def test_literal_across_fall_back_fires_in_both_folds(self):
+        # HA fires an ambiguous local time in both folds: homeassistant/util/dt.py
+        # find_next_time_expression_time (lines 524-552), reached via async_track_time_change.
         h = house({'trigger': 'time', 'at': '02:30:00'})
         utc = timezone.utc
-        # 2026-10-25: 03:00 CEST falls back to 02:00 CET; 02:30 happens twice, the rule fires on the first.
+        # 2026-10-25: 03:00 CEST falls back to 02:00 CET; 02:30 is 00:30 UTC (CEST) and 01:30 UTC (CET).
         runs = route(h, Tick(datetime(2026, 10, 25, 2, 0, tzinfo=utc)), datetime(2026, 10, 24, 22, 0, tzinfo=utc))
-        self.assertEqual(len(runs), 1)
+        self.assertEqual([run.trigger['now'] for run in runs], ['2026-10-25T02:30:00+02:00', '2026-10-25T02:30:00+01:00'])
+
+    def test_literal_in_the_skipped_hour_does_not_fire_that_day(self):
+        h = house({'trigger': 'time', 'at': '02:30:00'})
+        # 2026-03-29 02:00 CET jumps to 03:00 CEST, so 02:30 does not exist; it fires the next day.
+        runs = route(h, Tick(at('2026-03-30T03:00:00')), at('2026-03-28T03:00:00'))
+        self.assertEqual([run.trigger['now'] for run in runs], ['2026-03-30T02:30:00+02:00'])
+
+    def test_literal_accepts_hours_and_minutes(self):
+        h = house({'trigger': 'time', 'at': '08:00'})
+        self.assertEqual(len(route(h, Tick(at('2026-01-01T08:00:30')), at('2026-01-01T07:59:30'))), 1)
 
     def test_helper_time_fires_only_when_crossed(self):
         h = house({'trigger': 'time', 'at': 'input_datetime.wake'},
@@ -220,6 +232,30 @@ class TimeTests(unittest.TestCase):
         h = house({'trigger': 'time', 'at': '08:00:00', 'id': 'day'})
         [run] = route(h, Tick(at('2026-01-01T08:00:30')), at('2026-01-01T07:59:30'))
         self.assertEqual(run.trigger, {'platform': 'time', 'now': '2026-01-01T08:00:00+01:00', 'id': 'day', 'idx': '0'})
+
+
+class TimePatternDstTests(unittest.TestCase):
+    def instants(self, pattern, start, end):
+        h = house({'trigger': 'time_pattern', **pattern})
+        return [run.trigger['now'] for run in route(h, Tick(end), start)]
+
+    def test_minutes_across_spring_forward_skip_the_missing_hour(self):
+        utc = timezone.utc
+        # The clocks jump at 01:00 UTC (02:00 CET -> 03:00 CEST); no local 02:xx exists.
+        got = self.instants({'minutes': '/30'}, datetime(2026, 3, 29, 0, 45, tzinfo=utc), datetime(2026, 3, 29, 2, 15, tzinfo=utc))
+        self.assertEqual(got, ['2026-03-29T03:00:00+02:00', '2026-03-29T03:30:00+02:00', '2026-03-29T04:00:00+02:00'])
+
+    def test_seconds_across_fall_back_fire_in_both_folds_without_duplicates(self):
+        utc = timezone.utc
+        # The clocks fall back at 01:00 UTC (03:00 CEST -> 02:00 CET).
+        got = self.instants({'seconds': '/30'}, datetime(2026, 10, 25, 0, 59, 15, tzinfo=utc), datetime(2026, 10, 25, 1, 0, 45, tzinfo=utc))
+        self.assertEqual(got, ['2026-10-25T02:59:30+02:00', '2026-10-25T02:00:00+01:00', '2026-10-25T02:00:30+01:00'])
+
+    def test_minutes_across_fall_back_fire_once_per_real_instant(self):
+        utc = timezone.utc
+        got = self.instants({'minutes': '/30'}, datetime(2026, 10, 24, 23, 45, tzinfo=utc), datetime(2026, 10, 25, 2, 15, tzinfo=utc))
+        self.assertEqual(got, ['2026-10-25T02:00:00+02:00', '2026-10-25T02:30:00+02:00', '2026-10-25T02:00:00+01:00',
+                               '2026-10-25T02:30:00+01:00', '2026-10-25T03:00:00+01:00'])
 
 
 class EventTests(unittest.TestCase):
@@ -271,27 +307,44 @@ class MqttTests(unittest.TestCase):
         [run] = route(h, Mqtt('t', 'plain'), None)
         self.assertNotIn('payload_json', run.trigger)
 
-    def test_value_template_truthy_fires(self):
+    def test_value_template_without_payload_fires_whatever_it_renders(self):
+        # HA only renders the template to compare it with `payload`; with no `payload` it fires unconditionally.
+        def render(template, context):
+            raise AssertionError('not rendered')
+
+        h = house({'trigger': 'mqtt', 'topic': 't', 'value_template': '{{ tpl }}'}, render=render)
+        self.assertEqual(len(route(h, Mqtt('t', '{"ok": false}'), None)), 1)
+
+    def test_value_template_output_is_compared_with_payload(self):
         seen = []
 
         def render(template, context):
             seen.append((template, context))
-            return context.get('value_json', {}).get('ok', False)
+            return 'failed' if context.get('value') == 'raw' else 'fine'
 
-        h = house({'trigger': 'mqtt', 'topic': 't', 'value_template': '{{ tpl }}'}, render=render)
-        self.assertEqual(len(route(h, Mqtt('t', '{"ok": true}'), None)), 1)
-        self.assertEqual(route(h, Mqtt('t', '{"ok": false}'), None), [])
-        self.assertEqual(seen[0], ('{{ tpl }}', {'value': '{"ok": true}', 'value_json': {'ok': True}}))
-
-    def test_value_template_output_is_compared_with_payload(self):
-        h = house({'trigger': 'mqtt', 'topic': 't', 'payload': 'failed', 'value_template': '{{ tpl }}'},
-                  render=lambda template, context: 'failed' if context.get('value') == 'raw' else 'fine')
+        h = house({'trigger': 'mqtt', 'topic': 't', 'payload': 'failed', 'value_template': '{{ tpl }}'}, render=render)
         [run] = route(h, Mqtt('t', 'raw'), None)
-        self.assertEqual(run.trigger['payload'], 'failed')
+        self.assertEqual(run.trigger['payload'], 'raw')   # the trigger carries the raw message
         self.assertEqual(route(h, Mqtt('t', 'other'), None), [])
+        self.assertEqual(seen[0], ('{{ tpl }}', {'value': 'raw'}))
 
-    def test_value_template_without_renderer_is_an_error(self):
-        h = house({'trigger': 'mqtt', 'topic': 't', 'value_template': '{{ tpl }}'})
+    def test_value_template_sees_value_json_of_a_json_message(self):
+        seen = []
+        h = house({'trigger': 'mqtt', 'topic': 't', 'payload': 'x', 'value_template': '{{ tpl }}'},
+                  render=lambda template, context: seen.append(context) or 'x')
+        [run] = route(h, Mqtt('t', '{"a": 1}'), None)
+        self.assertEqual(seen, [{'value': '{"a": 1}', 'value_json': {'a': 1}}])
+        self.assertEqual(run.trigger['payload_json'], {'a': 1})   # parsed from the raw message
+
+    def test_value_template_render_error_never_matches(self):
+        def render(template, context):
+            raise ValueError('boom')
+
+        h = house({'trigger': 'mqtt', 'topic': 't', 'payload': 'failed', 'value_template': '{{ tpl }}'}, render=render)
+        self.assertEqual(route(h, Mqtt('t', 'x'), None), [])
+
+    def test_value_template_with_payload_needs_a_renderer(self):
+        h = house({'trigger': 'mqtt', 'topic': 't', 'payload': 'x', 'value_template': '{{ tpl }}'})
         with self.assertRaises(RuntimeError):
             route(h, Mqtt('t', 'x'), None)
 
@@ -400,6 +453,27 @@ class LoadTests(unittest.TestCase):
                         {'trigger': 'homeassistant', 'event': 'shutdown'},
                         {'trigger': 'mqtt', 'topic': 'a/#'},
                         {'trigger': 'time', 'at': '10:00:00', 'weekday': ['mon']}):
+            with self.subTest(trigger=trigger):
+                sim = self.FakeSim({'automation_a': {'triggers': [trigger], 'actions': []}})
+                with self.assertRaises(UnsupportedTrigger):
+                    load_automations(sim, captured=['a'])
+
+    def test_malformed_shapes_raise_at_load(self):
+        for trigger in ({'trigger': 'time', 'at': 'not a time'},
+                        {'trigger': 'time', 'at': '25:00:00'},
+                        {'trigger': 'time', 'at': 7},
+                        {'trigger': 'time', 'at': ['08:00:00']},
+                        {'trigger': 'time', 'at': 'light.lamp'},
+                        {'trigger': 'time'},
+                        {'trigger': 'time', 'at': {'entity_id': 'sensor.x', 'offset': 'soon'}},
+                        {'trigger': 'time', 'at': {'entity_id': 'sensor.x', 'extra': 1}},
+                        {'trigger': 'time', 'at': {'offset': '00:30:00'}},
+                        {'trigger': 'event'},
+                        {'trigger': 'event', 'event_type': ['a']},
+                        {'trigger': 'event', 'event_type': 'a', 'event_data': 'x'},
+                        {'trigger': 'light.turned_on'},
+                        {'trigger': 'light.turned_on', 'target': {'entity_id': 'light.a'}},
+                        {'trigger': 'light.turned_on', 'target': {'label_id': 3}}):
             with self.subTest(trigger=trigger):
                 sim = self.FakeSim({'automation_a': {'triggers': [trigger], 'actions': []}})
                 with self.assertRaises(UnsupportedTrigger):

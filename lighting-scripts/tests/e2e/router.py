@@ -13,9 +13,9 @@ instant is its own firing.
 from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 import json
-from pathlib import Path
+import re
 from typing import Union
 from zoneinfo import ZoneInfo
 
@@ -27,6 +27,8 @@ INLINE_EVENTS = ('ls_override',)
 COMMON_OPTIONS = frozenset({'trigger', 'platform', 'id', 'note'})
 STATE_OPTIONS = frozenset({'entity_id', 'to', 'from', 'not_to', 'attribute'})
 UNAVAILABLE = ('unknown', 'unavailable', '')
+_TIME_ENTITY = re.compile(r'(input_datetime|sensor)\.[a-z0-9_]+')
+_OFFSET = re.compile(r'-?\d+:\d{2}(:\d{2})?')
 
 
 class UnsupportedTrigger(ValueError):
@@ -141,10 +143,24 @@ def route(house: House, inp: Input, previous_tick: datetime | None) -> list[Run]
 # --- trigger parsing -------------------------------------------------------
 
 @dataclass(frozen=True)
+class AtTime:
+    """`time` trigger at a literal local time of day."""
+    at: time
+
+
+@dataclass(frozen=True)
+class AtEntity:
+    """`time` trigger at the value of an input_datetime or timestamp sensor, shifted by `offset`."""
+    entity: str
+    offset: timedelta
+
+
+@dataclass(frozen=True)
 class Trigger:
     kind: str
     options: Mapping
     index: int
+    at: AtTime | AtEntity | None = None
 
     @property
     def id(self) -> str:
@@ -164,23 +180,65 @@ def _triggers(name: str, config: Mapping) -> list[Trigger]:
         unknown = set(raw) - COMMON_OPTIONS - allowed
         if unknown:
             raise UnsupportedTrigger(f'{name}[{index}]: {kind} option(s) {sorted(unknown)}')
-        _check_values(name, index, kind, raw)
-        triggers.append(Trigger(kind, raw, index))
+        triggers.append(_parse(f'{name}[{index}]', kind, raw, index))
     return triggers
 
 
-def _check_values(name: str, index: int, kind: str, raw: Mapping) -> None:
-    where = f'{name}[{index}]'
+def _parse(where: str, kind: str, raw: Mapping, index: int) -> Trigger:
+    at = None
     if kind == 'homeassistant' and raw.get('event') != 'start':
         raise UnsupportedTrigger(f'{where}: homeassistant event {raw.get("event")!r}')
-    if kind == 'time_pattern' and not (raw.keys() & {'seconds', 'minutes'}):
-        raise UnsupportedTrigger(f'{where}: time_pattern needs seconds or minutes')
     if kind == 'time_pattern':
+        if not (raw.keys() & {'seconds', 'minutes'}):
+            raise UnsupportedTrigger(f'{where}: time_pattern needs seconds or minutes')
         for field in ('seconds', 'minutes'):
             if field in raw:
                 _pattern(where, raw[field])
-    if kind == 'mqtt' and '#' in raw['topic']:
-        raise UnsupportedTrigger(f'{where}: mqtt topic wildcard #')
+    if kind == 'time':
+        at = _parse_at(where, raw.get('at'))
+    if kind == 'event':
+        if not isinstance(raw.get('event_type'), str):
+            raise UnsupportedTrigger(f'{where}: event_type {raw.get("event_type")!r}')
+        if not isinstance(raw.get('event_data', {}), Mapping):
+            raise UnsupportedTrigger(f'{where}: event_data {raw["event_data"]!r}')
+    if kind == 'mqtt':
+        if not isinstance(raw.get('topic'), str) or '#' in raw['topic']:
+            raise UnsupportedTrigger(f'{where}: mqtt topic {raw.get("topic")!r}')
+    if kind == 'state' and not all(isinstance(entity, str) for entity in _as_list(raw.get('entity_id'))):
+        raise UnsupportedTrigger(f'{where}: state entity_id {raw.get("entity_id")!r}')
+    if kind == 'light.turned_on':
+        target = raw.get('target')
+        labels = target.get('label_id') if isinstance(target, Mapping) and set(target) == {'label_id'} else None
+        if labels is None or not all(isinstance(label, str) for label in _as_list(labels)):
+            raise UnsupportedTrigger(f'{where}: light.turned_on target {target!r}')
+    return Trigger(kind, raw, index, at)
+
+
+def _parse_at(where: str, value) -> AtTime | AtEntity:
+    """HA's `time` `at`: "HH:MM", "HH:MM:SS", an entity id, or {entity_id, offset}."""
+    if isinstance(value, str):
+        literal = _parse_time(value)
+        if literal is not None:
+            return AtTime(literal)
+        if _TIME_ENTITY.fullmatch(value):
+            return AtEntity(value, timedelta(0))
+    elif isinstance(value, Mapping) and set(value) <= {'entity_id', 'offset'}:
+        entity, offset = value.get('entity_id'), value.get('offset', '00:00:00')
+        if isinstance(entity, str) and _TIME_ENTITY.fullmatch(entity) and isinstance(offset, str) \
+                and _OFFSET.fullmatch(offset):
+            return AtEntity(entity, _offset(offset))
+    raise UnsupportedTrigger(f'{where}: time at {value!r}')
+
+
+def _parse_time(text: str) -> time | None:
+    parts = text.split(':')
+    if len(parts) not in (2, 3):
+        return None
+    try:
+        hour, minute, second = (int(part) for part in (parts + ['0'])[:3])
+        return time(hour, minute, second)
+    except ValueError:
+        return None
 
 
 KINDS: dict[str, frozenset[str]] = {
@@ -227,11 +285,11 @@ def _fire(house: House, trigger: Trigger, inp: Input, previous_tick: datetime | 
             if fields is not None:
                 yield None, fields
     elif isinstance(inp, Tick) and previous_tick is not None:
-        window = _local(previous_tick), _local(inp.now)
+        window = _utc(previous_tick), _utc(inp.now)
         instants = _pattern_instants(options, *window) if trigger.kind == 'time_pattern' \
-            else _time_instants(house, options['at'], *window)
+            else _time_instants(house, trigger.at, *window)
         for instant in instants:
-            yield instant, {'now': instant.isoformat()}
+            yield instant, {'now': instant.astimezone(LOCAL).isoformat()}
 
 
 def _state_fields(inp: StateChanged) -> dict:
@@ -286,24 +344,26 @@ def _context(context: Context) -> dict:
 
 
 def _mqtt_fields(house: House, options: Mapping, inp: Mqtt) -> dict | None:
+    """As HA's mqtt trigger: `payload` is only checked when given, against the rendered value (if any)."""
     if not _topic_matches(options['topic'], inp.topic):
         return None
     try:
         parsed = {'payload_json': json.loads(inp.payload)}
     except ValueError:
         parsed = {}
-    payload = inp.payload
-    if 'value_template' in options:
-        if house.render is None:
-            raise RuntimeError('An mqtt value_template needs House.render')
-        result = house.render(options['value_template'], {'value': inp.payload, **(
-            {'value_json': parsed['payload_json']} if parsed else {})})
-        if 'payload' not in options and not result:
+    if 'payload' in options:
+        rendered = inp.payload
+        if 'value_template' in options:
+            if house.render is None:
+                raise RuntimeError('An mqtt value_template needs House.render')
+            try:
+                rendered = house.render(options['value_template'], {'value': inp.payload, **(
+                    {'value_json': parsed['payload_json']} if parsed else {})})
+            except Exception:
+                rendered = ''   # HA's error_value: a template that fails never matches
+        if rendered != options['payload']:
             return None
-        payload = result   # Home Assistant compares the rendered value with `payload`
-    if 'payload' in options and payload != options['payload']:
-        return None
-    return {'topic': inp.topic, 'payload': payload, **parsed}
+    return {'topic': inp.topic, 'payload': inp.payload, **parsed}
 
 
 def _topic_matches(pattern: str, topic: str) -> bool:
@@ -312,9 +372,15 @@ def _topic_matches(pattern: str, topic: str) -> bool:
 
 
 # --- time ------------------------------------------------------------------
+# Instants are compared and stepped in UTC. Wall-clock arithmetic on aware
+# datetimes ignores DST. For a literal time and for time_pattern, Home Assistant
+# fires on every existing local instant that matches: an ambiguous time (clocks
+# back) fires in both folds, a skipped time (clocks forward) does not fire that
+# day (homeassistant/util/dt.py find_next_time_expression_time, used through
+# helpers/event.py async_track_time_change).
 
-def _local(moment: datetime) -> datetime:
-    return moment.replace(tzinfo=LOCAL) if moment.tzinfo is None else moment.astimezone(LOCAL)
+def _utc(moment: datetime) -> datetime:
+    return (moment.replace(tzinfo=LOCAL) if moment.tzinfo is None else moment).astimezone(timezone.utc)
 
 
 def _pattern(where: str, value) -> tuple[str, int]:
@@ -334,7 +400,7 @@ def _pattern_matches(pattern: tuple[str, int], value: int) -> bool:
 
 
 def _pattern_instants(options: Mapping, after: datetime, until: datetime) -> list[datetime]:
-    """Whole seconds in (after, until] whose minute and second match the pattern."""
+    """Whole UTC seconds in (after, until] whose local minute and second match the pattern."""
     seconds = _pattern('', options['seconds']) if 'seconds' in options else ('=', 0)
     minutes = _pattern('', options['minutes']) if 'minutes' in options else (
         ('*', 1) if 'seconds' in options else ('=', 0))
@@ -344,50 +410,52 @@ def _pattern_instants(options: Mapping, after: datetime, until: datetime) -> lis
         moment += timedelta(seconds=1)
     end = until.replace(microsecond=0)
     while moment <= end:
-        if _pattern_matches(seconds, moment.second) and _pattern_matches(minutes, moment.minute):
+        local = moment.astimezone(LOCAL)
+        if _pattern_matches(seconds, local.second) and _pattern_matches(minutes, local.minute):
             instants.append(moment)
         moment += timedelta(seconds=1)
     return instants
 
 
-def _time_instants(house: House, at, after: datetime, until: datetime) -> list[datetime]:
+def _time_instants(house: House, at: AtTime | AtEntity, after: datetime, until: datetime) -> list[datetime]:
     """Instants of the `time` trigger's `at` that fall in (after, until]."""
-    if isinstance(at, Mapping):
-        return _entity_instants(house, at['entity_id'], after, until, _offset(at.get('offset', '00:00:00')))
-    if _is_literal(at):
-        return _daily(time.fromisoformat(at), after, until, timedelta(0))
-    return _entity_instants(house, at, after, until, timedelta(0))
-
-
-def _is_literal(at: str) -> bool:
-    return len(at) == 8 and at[2] == ':' and at[5] == ':'
+    if isinstance(at, AtTime):
+        return _daily(at.at, after, until, timedelta(0))
+    return _entity_instants(house, at, after, until)
 
 
 def _offset(text: str) -> timedelta:
     sign = -1 if text.startswith('-') else 1
-    hours, minutes, seconds = (int(part) for part in text.lstrip('+-').split(':'))
+    parts = [int(part) for part in text.lstrip('-').split(':')]
+    hours, minutes, seconds = (parts + [0])[:3]
     return sign * timedelta(hours=hours, minutes=minutes, seconds=seconds)
 
 
 def _daily(at: time, after: datetime, until: datetime, offset: timedelta) -> list[datetime]:
-    """`at` local time on every day, shifted by `offset`, falling in (after, until]."""
+    """Each existing local `at` (both folds when ambiguous), shifted by `offset`, in (after, until]."""
     instants = []
-    day = after.date() - timedelta(days=2)
-    while day <= until.date() + timedelta(days=2):
-        moment = _local_instant(day, at) + offset
-        if after < moment <= until:
-            instants.append(moment)
+    day = after.astimezone(LOCAL).date() - timedelta(days=2)
+    while day <= until.astimezone(LOCAL).date() + timedelta(days=2):
+        for moment in _local_instants(day, at):
+            if after < moment + offset <= until:
+                instants.append(moment + offset)
         day += timedelta(days=1)
+    return sorted(instants)
+
+
+def _local_instants(day: date, at: time) -> set[datetime]:
+    """UTC instants at which the Stockholm wall clock reads `at` on `day`; empty when the time is skipped."""
+    wall = datetime.combine(day, at)
+    instants = set()
+    for fold in (0, 1):
+        moment = wall.replace(tzinfo=LOCAL, fold=fold).astimezone(timezone.utc)
+        if moment.astimezone(LOCAL).replace(tzinfo=None) == wall:   # a skipped time does not round-trip
+            instants.add(moment)
     return instants
 
 
-def _local_instant(day: date, at: time) -> datetime:
-    """The first occurrence of `at` on `day` in Stockholm (fold=0 picks the earlier of an ambiguous time)."""
-    return datetime.combine(day, at, tzinfo=LOCAL).astimezone(LOCAL)
-
-
-def _entity_instants(house: House, entity: str, after: datetime, until: datetime, offset: timedelta) -> list[datetime]:
-    helper = house.helpers.get(entity)
+def _entity_instants(house: House, at: AtEntity, after: datetime, until: datetime) -> list[datetime]:
+    helper = house.helpers.get(at.entity)
     if helper is None or helper['state'] in UNAVAILABLE:
         return []
     value = helper['state']
@@ -395,10 +463,10 @@ def _entity_instants(house: House, entity: str, after: datetime, until: datetime
     has_date = attributes['has_date'] if 'has_date' in attributes else '-' in value and not value.endswith('Z')
     has_time = attributes['has_time'] if 'has_time' in attributes else ':' in value
     if has_time and not has_date:
-        return _daily(time.fromisoformat(value), after, until, offset)
+        return _daily(time.fromisoformat(value), after, until, at.offset)
     if has_date and not has_time:
-        moments = [_local_instant(date.fromisoformat(value), time(0, 0, 0))]
+        moments = _local_instants(date.fromisoformat(value), time(0, 0, 0))
     else:
         parsed = datetime.fromisoformat(value)
-        moments = [parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=LOCAL)]
-    return [moment for moment in (m.astimezone(LOCAL) + offset for m in moments) if after < moment <= until]
+        moments = {_utc(parsed)}
+    return sorted(moment + at.offset for moment in moments if after < moment + at.offset <= until)
