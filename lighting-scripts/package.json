@@ -6,6 +6,7 @@
   "engines": { "node": ">=22.18" },
   "scripts": {
     "check": "tsc --noEmit && node scripts/json-edges.mjs && node scripts/effects-edge.mjs && node scripts/domain-types.mjs && node scripts/domain-words.mjs && node scripts/stringified.mjs",
+    "fix:item-order": "node scripts/item-order.mjs --fix",
     "build": "tsc",
     "test": "node --experimental-strip-types --test --experimental-test-isolation=none tests/runtime/*.test.ts",
     "dev": "node scripts/dev.mjs",
