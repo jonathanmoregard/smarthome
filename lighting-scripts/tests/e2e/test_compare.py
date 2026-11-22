@@ -466,6 +466,21 @@ class ExpectedDifferences(unittest.TestCase):
         loose = replace(self.window, port_holds=False)
         self.assertEqual(dict(flow(ref, port, expected=[loose]).expected), {'press-held': 1})
 
+    def test_a_port_that_lets_go_inside_the_window_is_flow_where_it_agrees_with_the_reference(self):
+        # The window now runs to t 240 (steps 1 to 3). The port holds at step 2, then lets go at step 3, where it
+        # shows what the reference shows: no difference there, but the port did not hold.
+        window = replace(self.window, closes_at=240.0)
+        ref = switched('on', 'off', 'on', 'on', 'on')
+        port = switched('on', 'off', 'off', 'on', 'on')
+        result = flow(ref, port, expected=[window])
+        self.assertEqual([(d.step, d.subject, d.rule, d.reference, d.port) for d in result.flow],
+                         [(3, 'plug_a', 'expected-not-held', 'off', 'on')])
+        self.assertEqual(dict(result.expected), {'press-held': 1})
+        held = flow(ref, switched('on', 'off', 'off', 'off', 'on'), expected=[window])
+        self.assertEqual((held.flow, dict(held.expected)), ((), {'press-held': 2}))
+        loose = flow(ref, port, expected=[replace(window, port_holds=False)])
+        self.assertEqual(loose.flow, ())
+
 
 if __name__ == '__main__':
     unittest.main()

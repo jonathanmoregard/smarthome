@@ -68,7 +68,8 @@ class ExpectedWindow:
     Inside the window (checkpoints of step `after_step` on, before `closes_at`) a `rule` difference on `subject`,
     at a settled checkpoint or as rule-6 timing inside a step, is counted under `name` instead of failing; with
     `port_holds`, only where the port shows the value it showed at the window's first checkpoint. A window that
-    excuses nothing is itself a flow difference: the change it names did not happen.
+    excuses nothing is itself a flow difference: the change it names did not happen. With `port_holds`, a checkpoint
+    in the window where the port no longer shows that value is one too, whether or not it differs there.
     """
     name: str
     subject: str
@@ -476,7 +477,12 @@ def _proof_difference(proof: Proof, pair: tuple[tuple[Checkpoint, Checkpoint], t
 
 def _apply_expected(found: Sequence[tuple[Difference, Checkpoint | None]], port: Sequence[Checkpoint],
                     windows: Sequence[ExpectedWindow]) -> tuple[list[Difference], Counter[str]]:
-    """Flow differences an expected window excuses are counted under its name; a window that excuses none is one."""
+    """Flow differences an expected window excuses are counted under its name; a window that excuses none is one.
+
+    With `port_holds`, every port checkpoint in the window is checked, not only the ones that differ: one where the
+    port no longer shows the held value is `expected-not-held`, even where it agrees with the reference. A window
+    that excuses nothing is only `expected-missing`.
+    """
     flow: list[Difference] = []
     excused: Counter[str] = Counter()
     held = {window: _held_value(port, window) for window in windows}
@@ -496,15 +502,23 @@ def _apply_expected(found: Sequence[tuple[Difference, Checkpoint | None]], port:
         if window not in seen:
             flow.append(Difference(window.after_step, window.closes_at, window.subject, window.rule, None, None,
                                    rule='expected-missing'))
+        elif window.port_holds:
+            flow.extend(Difference(checkpoint.step, checkpoint.t, window.subject, window.rule, held[window], shown,
+                                   rule='expected-not-held')
+                        for checkpoint in port if window.covers(checkpoint)
+                        for shown in (_power_of(checkpoint, window.subject),) if shown != held[window])
     return flow, excused
 
 
 def _held_value(port: Sequence[Checkpoint], window: ExpectedWindow) -> object:
     """The port's `power` of the window's subject at the window's first checkpoint (None: the window is empty)."""
     first = next((checkpoint for checkpoint in port if window.covers(checkpoint)), None)
-    if first is None:
-        return None
-    if window.subject in first.switches:
-        return first.switches[window.subject]
-    state = first.bulbs.get(window.subject)
+    return None if first is None else _power_of(first, window.subject)
+
+
+def _power_of(checkpoint: Checkpoint, subject: str) -> str | None:
+    """A switch's or a bulb's power at `checkpoint` (None: it has no such subject)."""
+    if subject in checkpoint.switches:
+        return checkpoint.switches[subject]
+    state = checkpoint.bulbs.get(subject)
     return None if state is None else ('off' if isinstance(state, Off) else 'on')
