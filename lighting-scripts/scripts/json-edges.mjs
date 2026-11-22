@@ -7,8 +7,8 @@
 // stay legal, and invalid states stay representable.
 //
 // The legitimate JSON edges are the HA transport, the parity harness RPC and
-// on-disk state -- under src/runtime, src/parse or src/live.ts. src/domain is
-// not an edge, and inter-handler calls are not an edge either.
+// on-disk state -- under src/runtime, src/parse, src/adapter or src/live.ts.
+// src/domain is not an edge, and inter-handler calls are not an edge either.
 //
 // Read this honestly: these counts cover src/domain ONLY, so moving a parser
 // into src/parse lowers them without deleting a single `JsonObject`. That is
