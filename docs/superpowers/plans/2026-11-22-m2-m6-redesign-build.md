@@ -443,6 +443,11 @@ Controller, not a worker.
 3. **Candle survives a person's brightness or colour change** (owner, 2026-11-22). A hold that changes level or colour on a candle lamp keeps the candle at the new level/colour; only choosing normal light ends it. The reconciler re-sends colour + level, then `channel_change`, because the firmware ends the candle on any On or brightness move.
 4. Changing blocks: a lamp keeps the current block's effect through the fade and switches at the block start, as today.
 
+5. **M1 layer check (Fable, 2026-11-22): drifts assigned to later milestones.**
+   1. M2: move `src/domain/types/overlay.ts` (the stored key format: `mode:sara`, `channels:ui:`, `saved`, `empty`) to `src/adapter/codecs/`; move `src/domain/types/rooms.ts` (HA registry map) to the adapter. M2 T3: fade constants (`MANUAL_FADE`, `EFFECT_START_FADE`) move from `src/parse/ids.ts` to the adapter's encoder/reconciler.
+   2. M3: `types/remote.ts` drops `sara_toggle`, `pressText` and the `unknown` press (the adapter drops unknown presses); key remotes by `RemoteId`, not the wire `RemoteSource`.
+   3. M5: `blocks.ts` `blockOption` (an input_select label) and `UserId` leave the domain; `parseCatalog` lands in `src/adapter/codecs/catalog.ts`; extend `json-edges.mjs` to check `src/adapter` outside `codecs/`, and `domain-imports.mjs` to catch `import('…')` type references.
+
 ## Self-review notes
 
 1. Spec coverage: section 3 → M2 Tasks 1 and 2, M3 Tasks 1 and 2; section 4 → M1, M3 Task 3, M5 (journal), M6 Task 1 (4.4); section 5.1 and 5.2 → M3 Task 3; 5.3 → M2 Task 3 and M4; 5.4 → M6 Task 1; section 6 → M1 Task 1 (the flow gate replaces exact comparison and fuzzing by the owner's later decisions); section 7 → the milestones here.
