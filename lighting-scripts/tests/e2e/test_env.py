@@ -182,5 +182,73 @@ class OpenSimTests(unittest.TestCase):
         self.assertTrue(result['raised'])
 
 
+# --- the port's saved-profile mirror runs at the end of a run (env.harnessed, point 3) ----------------------
+
+WRITE_THEN_READ = {'a': {'sequence': [
+    {'action': 'input_text.set_value', 'target': {'entity_id': '{{ store }}'}, 'data': {'value': '{{ v }}'}},
+    {'variables': {'k': "{{ state_attr(store.replace('input_text.', 'light.'), 'color_temp_kelvin') }}"}}]}}
+
+
+@unittest.skipUnless(reference_available(), 'private reference or HA wrapper missing')
+class ProfileMirrorTests(unittest.TestCase):
+    """No captured run reads a template light after saving a profile, so mirroring at the run's end is exact."""
+
+    def violations(self, scripts, automations=None):
+        from tests.e2e.captures import reads_after_profile_save
+        return reads_after_profile_save(scripts, automations or {})
+
+    def test_a_read_after_a_save_in_the_same_script_is_found(self):
+        self.assertEqual(len(self.violations(WRITE_THEN_READ)), 1)
+
+    def test_a_read_before_the_save_is_not(self):
+        script = {'sequence': list(reversed(WRITE_THEN_READ['a']['sequence']))}
+        self.assertEqual(self.violations({'a': script}), [])
+
+    def test_a_read_in_a_script_called_after_the_save_is_found(self):
+        save, read = WRITE_THEN_READ['a']['sequence']
+        scripts = {'a': {'sequence': [save, {'action': 'script.b'}]}, 'b': {'sequence': [read]}}
+        self.assertTrue(self.violations(scripts))
+        # ... and in the automation that called the saving script, after it returns.
+        automation = {'actions': [{'action': 'script.turn_on', 'target': {'entity_id': 'script.a'}}, read]}
+        found = self.violations({'a': {'sequence': [save]}}, {'x': automation})
+        self.assertEqual([entry for entry, *_ in found], ['automation x'])
+
+    def test_a_read_earlier_in_a_loop_body_follows_the_save_of_the_last_pass(self):
+        save, read = WRITE_THEN_READ['a']['sequence']
+        script = {'sequence': [{'repeat': {'count': 2, 'sequence': [read, save]}}]}
+        self.assertTrue(self.violations({'a': script}))
+
+    def test_a_literal_template_light_in_a_condition_is_a_read(self):
+        save = WRITE_THEN_READ['a']['sequence'][0]
+        condition = {'condition': 'state', 'entity_id': 'light.ls_house_day', 'state': 'on'}
+        self.assertTrue(self.violations({'a': {'sequence': [save, condition]}}))
+
+    def test_an_action_the_checker_cannot_name_after_a_save_is_a_violation(self):
+        save = WRITE_THEN_READ['a']['sequence'][0]
+        dynamic = {'action': '{{ catalog.renderer }}'}
+        self.assertTrue(self.violations({'a': {'sequence': [save, dynamic]}}))
+        named = {'action': "{{ 'light.turn_on' if on else 'light.turn_off' }}"}
+        self.assertEqual(self.violations({'a': {'sequence': [save, named]}}), [])
+
+    def test_a_save_to_a_literal_store_that_is_no_profile_is_not_a_save(self):
+        token = {'action': 'input_text.set_value', 'target': {'entity_id': 'input_text.ls_x_remote_power_token'},
+                 'data': {'value': ''}}
+        read = WRITE_THEN_READ['a']['sequence'][1]
+        self.assertEqual(self.violations({'a': {'sequence': [token, read]}}), [])
+
+    def test_no_captured_run_reads_a_template_light_after_saving_a_profile(self):
+        from tests.e2e.captures import captured, profile_savers, reads_after_profile_save
+        scripts, automations = captured()
+        savers = profile_savers(scripts, automations)
+        self.assertTrue(savers)   # the check sees the captured save, so it is not vacuous
+        self.assertEqual(reads_after_profile_save(scripts, automations), [])
+        # ... and it would see a read there: one appended to each saving script is found.
+        read = WRITE_THEN_READ['a']['sequence'][1]
+        named = {entry.removeprefix('script ') for entry in savers if entry.startswith('script ')}
+        changed = {name: {**config, 'sequence': [*config['sequence'], read]} if name in named else config
+                   for name, config in scripts.items()}
+        self.assertTrue(reads_after_profile_save(changed, automations))
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -4,8 +4,9 @@
 `.runtime/e2e/golden/<name>.json` (git-ignored: it names catalog entities). It
 holds the scenario (its steps and seeds through the codec), the reference's
 checkpoints and adjustments, and a hash of what made them: the modules the
-reference run goes through, the private captures and `live_candidate`, which
-turns the captures into what the reference runs (rulings 47, 56). `replay` runs
+reference run goes through, the private captures and `tests/parity/portability.py`,
+whose `live_candidate` turns the captures into what the reference runs (rulings
+47, 56). `replay` runs
 the port on the recorded scenario and compares it with the recording. It raises
 `StaleRecording` when that hash has changed, or when the golden scenario of that
 name is no longer the recorded one; a recording no golden scenario names (a fuzz
@@ -21,23 +22,21 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 from functools import cache
 import hashlib
-import inspect
 import json
 from pathlib import Path
 import sys
 
-from tests.e2e import env   # noqa: F401  (puts tests/parity, and with it `portability`, on the path)
 from tests.e2e.codec import Checkpoint, decode, encode
 from tests.e2e.compare import Comparison, compare
 from tests.e2e.runner import ROOT, BackendRun, describe_house, run_backend
-from tests.e2e.scenarios import NAMES, Proof, Scenario, scenarios
-import portability  # noqa: E402
+from tests.e2e.scenarios import NAMES, Proof, Scenario, Scenarios, scenarios
 
 GOLDEN = ROOT / '.runtime' / 'e2e' / 'golden'
 # What a reference run goes through (ruling 47): these modules and the private captures. Not the tests,
 # compare.py (it runs at replay), this module, or the port's sources.
 HASHED_MODULES = ('env', 'world', 'router', 'codec', 'backend', 'runner', 'services')
 CAPTURES = 'reference'
+CANDIDATE = 'tests/parity/portability.py'   # `live_candidate`: the captures as the reference runs them
 
 
 class StaleRecording(Exception):
@@ -55,21 +54,13 @@ class Recording:
     sources: str
 
 
-def sources_hash(root: Path = ROOT, candidate: str | None = None) -> str:
-    """The hashed modules and captures under `root`, and `candidate` (by default `candidate_source()`)."""
+def sources_hash(root: Path = ROOT) -> str:
     digest = hashlib.sha256()
-    files = [root / 'tests' / 'e2e' / f'{name}.py' for name in HASHED_MODULES]
+    files = [root / 'tests' / 'e2e' / f'{name}.py' for name in HASHED_MODULES] + [root / CANDIDATE]
     files += sorted(path for path in (root / CAPTURES).rglob('*') if path.is_file())
     for path in files:
         digest.update(str(path.relative_to(root)).encode() + b'\0' + path.read_bytes() + b'\0')
-    digest.update((candidate_source() if candidate is None else candidate).encode())
     return digest.hexdigest()
-
-
-def candidate_source() -> str:
-    """`portability.live_candidate` and the alias tables it reads: how the captures become the candidate."""
-    return inspect.getsource(portability.live_candidate) + json.dumps(
-        [portability.LEGACY_SCRIPT_ALIASES, portability.LEGACY_AUTOMATION_ALIASES], sort_keys=True)
 
 
 def record(name: str, scenario: Scenario, *, directory: Path = GOLDEN) -> Path:
@@ -79,7 +70,7 @@ def record(name: str, scenario: Scenario, *, directory: Path = GOLDEN) -> Path:
 
 
 def replay(name: str, *, directory: Path = GOLDEN,
-           current: Callable[[], Mapping[str, Scenario]] | None = None) -> Comparison:
+           current: Callable[[], Scenarios | Mapping[str, Scenario]] | None = None) -> Comparison:
     """The port on the recorded scenario, compared with the recording."""
     recording = load(name, directory=directory)
     if recording.sources != sources_hash():
@@ -96,7 +87,7 @@ def replay(name: str, *, directory: Path = GOLDEN,
 
 
 @cache
-def current_scenarios() -> Mapping[str, Scenario]:
+def current_scenarios() -> Scenarios:
     return scenarios(describe_house())
 
 

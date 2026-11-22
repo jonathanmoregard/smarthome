@@ -20,8 +20,8 @@ from tests.e2e.codec import (Advance, Checkpoint, HelperInfo, HouseInfo, LampInf
                              PowerRestore, PressSwitch, RemoteInfo, Seed)
 from tests.e2e.backend import SOFTWARE_CANDLE
 from tests.e2e.compare import compare
-from tests.e2e.golden import (GOLDEN, MissingRecording, StaleRecording, candidate_source, differ, load, replay, save,
-                              sources_hash, write_differences)
+from tests.e2e.golden import (GOLDEN, MissingRecording, StaleRecording, differ, load, replay, save, sources_hash,
+                              write_differences)
 from tests.e2e.router import LOCAL, HaStart, Mqtt, ScriptCall, StateChanged
 from tests.e2e.runner import BackendRun
 from tests.e2e.scenarios import (AFTER_MINUTES, AFTER_RULE, NAMES, NEXT_BLOCK_RULE, OVERLAY_MINUTES, MissingRole, Proof,
@@ -155,7 +155,8 @@ class Scenarios(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.all = scenarios(cls.house)
+        built = scenarios(cls.house)
+        cls.all = {name: built[name] for name in built.names}
 
     def test_the_named_scenarios(self):
         self.assertEqual(tuple(self.all), NAMES)
@@ -179,11 +180,13 @@ class Scenarios(unittest.TestCase):
         house = self.house
         every = (tuple(sorted(bulb for lamp in house.lamps for bulb in lamp.bulbs)), tuple(house.plugs))
         subject = (('bulb_b1', 'bulb_b2', 'bulb_b3'), ())   # room_b: the room of the one placed remote
+        lamp = (('bulb_b1', 'bulb_b2'), ())   # room_b's first lamp: the held lamp, the mid-fade lamp
         candle = (('bulb_b1', 'bulb_b2'), ())   # lamp_b1: the first reference candle lamp with the firmware candle
         expected = {name: subject for name in NAMES} | {
             'schedule_day': every, 'dst_spring': every, 'dst_autumn': every,
             'range_save': ((), ('switch.e2e_plug_1',)), 'plug_button': ((), ('switch.e2e_plug_1',)),
-            'candle_lamp_evening': candle}
+            'candle_lamp_evening': candle, 'person_change_then_expiry': lamp, 'ha_restart_mid_fade': lamp,
+            'wall_power_cycle': (('bulb_b1',), ())}   # the cut bulb
         for name, scenario in self.all.items():
             with self.subTest(name=name):
                 self.assertEqual({(proof.bulbs, proof.switches) for proof in (*scenario.proves, *scenario.holds)},
@@ -201,7 +204,7 @@ class Scenarios(unittest.TestCase):
     def test_one_missing_role_fails_only_its_own_scenarios(self):
         house = replace(self.house, mode_switch=None, candle_lamps=())
         built = scenarios(house)
-        self.assertEqual(tuple(built), NAMES)
+        self.assertEqual(built.names, NAMES)
         for name in ('mode_toggle', 'candle_lamp_evening'):
             with self.subTest(name=name), self.assertRaises(MissingRole):
                 built[name]
@@ -212,6 +215,7 @@ class Scenarios(unittest.TestCase):
         built = scenarios(replace(self.house, overlay_rules=()))
         self.assertIn('person_change_then_expiry', built)
         self.assertNotIn('fuzz_x', built)
+        self.assertFalse(hasattr(built, 'get'))   # nothing that could turn a builder's error into a default
 
     def test_the_candle_lamp_is_the_first_reference_candle_lamp_that_is_firmware_candle_capable(self):
         no_firmware = replace(self.house, candle_lamps=('light.lamp_a1',))
@@ -232,7 +236,7 @@ class Scenarios(unittest.TestCase):
 
     def test_a_rule_the_house_did_not_capture_is_not_invented(self):
         house = replace(self.house, overlay_rules=())
-        with self.assertRaises(KeyError):
+        with self.assertRaises(MissingRole):
             scenarios(house)['person_change_then_expiry']
 
     def test_scenarios_use_only_the_house_entities(self):
@@ -299,6 +303,27 @@ class Scenarios(unittest.TestCase):
 
     def test_ha_restart_mid_fade_starts_twice(self):
         self.assertEqual(len(steps_of(self.all['ha_restart_mid_fade'], HaStart)), 2)
+
+    def test_ha_restart_mid_fade_proves_the_fade_runs_on_through_the_restart(self):
+        # The restart's right effect is none: the lamp is where it was just after it, and still fades after.
+        scenario = self.all['ha_restart_mid_fade']
+        second = steps_of(scenario, HaStart)[1][0]
+        self.assertEqual([(proof.first, proof.second) for proof in scenario.holds], [(second - 1, second)])
+        self.assertEqual([(proof.first, proof.second) for proof in scenario.proves], [(second, second + 1)])
+
+    def test_wall_power_cycle_proves_the_restored_bulb_is_put_back(self):
+        # After the restore the bulb is back at its old light; the scripts then give it the new block's. With no
+        # cut it would show the new block at both, and with no recovery its old light at both.
+        scenario = self.all['wall_power_cycle']
+        [(restore, back)] = steps_of(scenario, PowerRestore)
+        self.assertEqual([(p.first, p.second, p.bulbs) for p in scenario.proves], [(restore, restore + 1, back.bulbs)])
+
+    def test_person_change_proves_the_hold_and_its_end_on_the_held_lamp(self):
+        scenario = self.all['person_change_then_expiry']
+        [(change, step)] = steps_of(scenario, PersonLightChange)
+        held = tuple(sorted(b for lamp in self.house.lamps if lamp.lamp in step.entities for b in lamp.bulbs))
+        self.assertEqual([(p.first, p.second, p.bulbs) for p in scenario.holds], [(change, change + 1, held)])
+        self.assertEqual([(p.first, p.second, p.bulbs) for p in scenario.proves], [(change + 1, change + 2, held)])
 
     def test_wall_power_cycle_cuts_for_five_minutes(self):
         scenario = self.all['wall_power_cycle']
@@ -373,13 +398,6 @@ class Recordings(unittest.TestCase):
         self.assertTrue(differ(checkpoint(0, 100), checkpoint(1, 120, 60.0)))
         self.assertFalse(differ(checkpoint(0, 100), checkpoint(1, 101, 60.0)))   # within LEVEL_STEPS
 
-    def test_the_hash_covers_the_live_candidate(self):
-        # Ruling 56: the captures reach the reference through `live_candidate` and its alias tables.
-        self.assertIn('def live_candidate', candidate_source())
-        self.assertIn('LEGACY_AUTOMATION_ALIASES', candidate_source())
-        self.assertNotEqual(sources_hash(candidate='one'), sources_hash(candidate='another'))
-        self.assertEqual(sources_hash(), sources_hash(candidate=candidate_source()))
-
     def test_differences_are_written_only_when_there_are_some(self):
         path = self.directory / 'golden_x.differences.json'
         path.write_text('{"differences": []}')   # an old, empty dump
@@ -398,11 +416,14 @@ class Recordings(unittest.TestCase):
         for name in ('env', 'world', 'router', 'codec', 'backend', 'runner', 'services', 'compare', 'golden', 'test_x'):
             (modules / f'{name}.py').write_text(name)
         (root / 'reference' / 'live' / 'capture.json').write_text('{}')
+        (root / 'tests' / 'parity').mkdir()
+        (root / 'tests' / 'parity' / 'portability.py').write_text('live_candidate')   # ruling 56: the whole module
         first = sources_hash(root)
         for name in ('compare', 'golden', 'test_x'):
             (modules / f'{name}.py').write_text('changed')
         self.assertEqual(sources_hash(root), first)
-        for changed in (modules / 'world.py', root / 'reference' / 'live' / 'capture.json'):
+        for changed in (modules / 'world.py', root / 'reference' / 'live' / 'capture.json',
+                        root / 'tests' / 'parity' / 'portability.py'):
             with self.subTest(changed=changed.name):
                 before = sources_hash(root)
                 changed.write_text('changed ' + changed.name)
@@ -452,7 +473,9 @@ class Golden(unittest.TestCase):
     def test_ha_restart_mid_fade_restarts_inside_a_fade(self):
         scenario = self.scenarios['ha_restart_mid_fade']
         second = steps_of(scenario, HaStart)[1][0]
-        self.assertTrue(last_of(self.recorded('ha_restart_mid_fade'), second - 1).in_fade)
+        fading = last_of(self.recorded('ha_restart_mid_fade'), second - 1).in_fade
+        for proof in (*scenario.proves, *scenario.holds):   # the proof's own bulbs fade at the restart
+            self.assertTrue(set(proof.bulbs) <= fading)
 
     def test_wall_power_cycle_cuts_a_lit_bulb(self):
         scenario = self.scenarios['wall_power_cycle']

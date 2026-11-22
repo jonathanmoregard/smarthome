@@ -21,7 +21,7 @@ and Saturday and Sunday mornings, use the `_weekend` starts. A fade ends at its
 block's start.
 """
 from __future__ import annotations
-from collections.abc import Iterator, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 import json
@@ -90,8 +90,12 @@ class Scenario:
     holds: tuple[Proof, ...]     # their reference checkpoints agree in scope
 
 
-class Scenarios(Mapping[str, Scenario]):
-    """Every golden scenario by name, each built when it is asked for: one missing role fails only its own."""
+class Scenarios:
+    """Every golden scenario by name, each built when it is asked for: one missing role fails only its own.
+
+    Not a Mapping: its `get` and `in` would build the scenario and turn a builder's KeyError into a default.
+    """
+    names = NAMES
 
     def __init__(self, house: HouseInfo):
         self.house = house
@@ -102,14 +106,8 @@ class Scenarios(Mapping[str, Scenario]):
             self.built[name] = BUILDERS[name](self.house, name)
         return self.built[name]
 
-    def __contains__(self, name: object) -> bool:   # by name: Mapping's own would build it, and hide a KeyError
+    def __contains__(self, name: object) -> bool:
         return name in NAMES
-
-    def __iter__(self) -> Iterator[str]:
-        return iter(NAMES)
-
-    def __len__(self) -> int:
-        return len(NAMES)
 
 
 def scenarios(house: HouseInfo) -> Scenarios:
@@ -189,12 +187,18 @@ class _Seeds:
     def set(self, entity: str | None, state: str) -> None:
         """Pin `entity` (None: the house has no such helper, so nothing is pinned), keeping its captured attributes.
 
-        A schedule helper's come from its seed, an overlay rule's from the house; any other entity raises.
+        A schedule helper's come from its seed, an overlay rule's from the house; an entity that is neither is a
+        role the house does not have.
         """
         if entity is None:
             return
         rules = {rule.entity: rule for rule in self.house.overlay_rules}
-        attributes = self.seeds[entity].attributes if entity in self.seeds else rules[entity].attributes
+        if entity in self.seeds:
+            attributes = self.seeds[entity].attributes
+        elif entity in rules:
+            attributes = rules[entity].attributes
+        else:
+            raise MissingRole(f'the house captured no {entity}')
         self.seeds[entity] = Seed(entity, state, attributes)
 
     def overlay_after(self, minutes: int = OVERLAY_MINUTES) -> None:
@@ -272,6 +276,10 @@ def bulbs_of(house: HouseInfo, room: str | None = None, lamp: str | None = None)
     """The bulbs of one lamp, of one room's lamps, or (neither named) of the house."""
     return tuple(sorted(bulb for info in house.lamps if room in (None, info.room) and lamp in (None, info.lamp)
                         for bulb in info.bulbs))
+
+
+def on_lamp(lamp: LampInfo, first: int, second: int) -> Proof:
+    return Proof(first, second, tuple(sorted(lamp.bulbs)), ())
 
 
 def in_room(house: HouseInfo, first: int, second: int) -> Proof:
@@ -355,7 +363,9 @@ def _person_change_then_expiry(house: HouseInfo, name: str) -> Scenario:
     held = 90 * 60   # to 16:30, past the cosy start
     steps = (HaStart(), PersonLightChange([lamp.lamp], {'brightness': PERSON_LEVEL, 'color_temp_kelvin': PERSON_KELVIN}),
              Advance(held), Advance(OVERLAY_MINUTES * 60 - held + 3600))   # to 19:00, an hour past the expiry
-    return Scenario(name, at(WEEKDAY, '15:00'), seeds.tuple(), steps, (in_room(house, 1, 2), in_room(house, 2, 3)), ())
+    # On the held lamp only: the rest of the room follows the cosy start, which would prove nothing. Held across
+    # it (1, 2), it would follow cosy with no hold; let go after (2, 3), it would stay held with no expiry.
+    return Scenario(name, at(WEEKDAY, '15:00'), seeds.tuple(), steps, (on_lamp(lamp, 2, 3),), (on_lamp(lamp, 1, 2),))
 
 
 def _mode_toggle(house: HouseInfo, name: str) -> Scenario:
@@ -384,14 +394,19 @@ def _wall_power_cycle(house: HouseInfo, name: str) -> Scenario:
     seeds = _pinned(house, name, {**HOUSE_TIMES, 'cosy': ('18:00', '18:00', 0)})
     bulb = (lamp_in(house, subject_room(house)).bulbs[0],)
     steps = (HaStart(), Advance(SETTLE), PowerCut(bulb), Advance(300), PowerRestore(bulb), Advance(SETTLE))
-    return Scenario(name, at(WEEKDAY, '17:54'), seeds.tuple(), steps, (in_room(house, 1, 5),), ())
+    # On the cut bulb, from the restore (back at its day light) to cosy: with no cut it shows cosy at both,
+    # and with no recovery its day light at both.
+    return Scenario(name, at(WEEKDAY, '17:54'), seeds.tuple(), steps, (Proof(4, 5, bulb, ()),), ())
 
 
 def _ha_restart_mid_fade(house: HouseInfo, name: str) -> Scenario:
     # The hour-long fade into cosy runs 17:00..18:00; HA starts again at 17:30.
     seeds = _pinned(house, name, {**HOUSE_TIMES, 'cosy': ('18:00', '18:00', 60)})
     steps = (HaStart(), Advance(40 * 60), HaStart(), Advance(60 * 60))
-    return Scenario(name, at(WEEKDAY, '16:50'), seeds.tuple(), steps, (in_room(house, 0, 3),), ())
+    # The restart's right effect is none. On a lamp of the subject room, mid-fade at 17:30: the restart leaves it
+    # where it was (1, 2), and the fade goes on to cosy after it (2, 3).
+    lamp = lamp_in(house, subject_room(house))
+    return Scenario(name, at(WEEKDAY, '16:50'), seeds.tuple(), steps, (on_lamp(lamp, 2, 3),), (on_lamp(lamp, 1, 2),))
 
 
 def _midnight_weekend(house: HouseInfo, name: str) -> Scenario:
