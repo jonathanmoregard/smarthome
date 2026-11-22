@@ -5,14 +5,6 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 
-export async function compileCandidate(root, output) {
-  await mkdir(output, { recursive: true });
-  return new Promise(resolveResult => {
-    const child = spawn(process.execPath, ['node_modules/typescript/bin/tsc', '--outDir', output, '--noEmitOnError'], { cwd: root, stdio: 'inherit' });
-    child.once('error', () => resolveResult(false));
-    child.once('exit', code => resolveResult(code === 0));
-  });
-}
 export async function develop(root = fileURLToPath(new URL('../', import.meta.url))) {
   const builds = await mkdtemp(join(tmpdir(), 'smarthome-dev-'));
   let child, building = false, requested = true, stopped = false, sequence = 0, timer;
@@ -39,5 +31,13 @@ export async function develop(root = fileURLToPath(new URL('../', import.meta.ur
   const stop = () => { stopped = true; clearTimeout(timer); watcher.close(); child?.kill('SIGTERM'); };
   process.once('SIGINT', stop); process.once('SIGTERM', stop);
   await build();
+}
+export async function compileCandidate(root, output) {
+  await mkdir(output, { recursive: true });
+  return new Promise(resolveResult => {
+    const child = spawn(process.execPath, ['node_modules/typescript/bin/tsc', '--outDir', output, '--noEmitOnError'], { cwd: root, stdio: 'inherit' });
+    child.once('error', () => resolveResult(false));
+    child.once('exit', code => resolveResult(code === 0));
+  });
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) await develop();

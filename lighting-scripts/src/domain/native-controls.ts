@@ -172,55 +172,6 @@ interface ScopeItem { scope: 'room' | 'lamp'; target: string; base: string; suff
 type Stamp = Verbatim | number;
 /** A colour a claim holds: what a native call or the UI asked for, or the colour a reset returns to. */
 export type ClaimColour = { kelvin: Verbatim | number } | { rgb: number[] } | Verbatim;
-/** `value` absent: the claim holds nothing, so the resolver drops the channel to its base (an invalid source). */
-export type ConstantClaim = { kind: 'constant'; value?: number | boolean | ClaimColour; updated: Stamp };
-export type EffectClaim = { kind: 'effect'; effect: string; instance: string; updated: Stamp; intensity?: number | boolean };
-export type ChannelClaim = ConstantClaim | EffectClaim;
-/** One `channels` override record, as `ls_override` stores it. */
-export type ChannelRecord = {
-  kind: 'channels';
-  key: string;
-  source: string;
-  scope: 'room' | 'lamp';
-  target: string;
-  value: { channels: Record<string, ChannelClaim>; selection?: string };
-};
-export type PowerEvent = { op: 'power'; area: RoomId; on: boolean; via: string };
-export type SetEvent = { op: 'set'; records: ChannelRecord[]; via: string };
-type LightData = Record<string, never> | { brightness: Brightness } | { rgb_color: number[] } | { color_temp_kelvin: Kelvin };
-export type ControlCommand =
-  | { action: 'script.ls_store'; data: { store: string; effect: string }; target: Record<string, never> }
-  | {
-    action: 'light.turn_off' | 'light.turn_on' | 'homeassistant.turn_on' | 'homeassistant.turn_off';
-    target: { entity_id: string | string[] }; data: LightData;
-  };
-export type NativePlan = { records: ChannelRecord[]; power: PowerEvent[] };
-export type ControlPlan = {
-  valid: boolean; errors: string[]; events: Array<PowerEvent | SetEvent>; commands: ControlCommand[]; records: ChannelRecord[];
-};
-
-function unique<T>(values: T[]): T[] { return [...new Set(values)]; }
-function constant(value: number | boolean | ClaimColour, stamp: Stamp): ConstantClaim { return { kind: 'constant', value, updated: stamp }; }
-/** The rooms the entities are in, each once; an entity with no room adds none. */
-function areasOf(view: HouseView, entities: string[]): RoomId[] {
-  return unique(entities.map(entity => view.rooms.ofId[entity]).filter(isAreaId));
-}
-function expandedEntities(view: HouseView, entities: string[]): string[] {
-  const pending = [...entities], seen = new Set<string>(), result: string[] = [];
-  while (pending.length) {
-    const entity = pending.shift()!;
-    if (seen.has(entity)) continue;
-    seen.add(entity);
-    if (!view.state[entity]) continue;
-    const sources = view.entitySources;
-    const group = entity.startsWith('group.') || sources?.[entity] === 'group';
-    const zone = entity.startsWith('zone.');
-    if (group || zone) { const children = groupChildren(view, entity, zone); if (children !== undefined) pending.push(...children); }
-    else result.push(entity);
-  }
-  return result;
-}
-
 /** Convert native HA colour payloads to the existing logical RGB/Kelvin form; `undefined` when none is asked for. */
 export function nativeColor(view: HouseView, request: ColourRequest, lamp: string): ClaimColour | undefined {
   if (request.kind === 'kelvin') return { kelvin: request.kelvin };
@@ -262,42 +213,29 @@ export function nativeColor(view: HouseView, request: ColourRequest, lamp: strin
   }
   return request.kind === 'white' ? { rgb: [255, 255, 255] } : undefined;
 }
-
-/**
- * Where a brightness step starts on a lamp that shows no level (it is off):
- * 0, as Home Assistant's own `brightness_step` steps an off light.
- */
-const STEP_FROM_OFF = 0;
-
-/** The level a step starts from: the item's resolved level, or {@link STEP_FROM_OFF} when it has none. */
-function stepFrom(resolved: PlanTarget, context: string): number {
-  const level = resolved.level(context);
-  return level === undefined ? STEP_FROM_OFF : level;
-}
-
-/** The brightness a call asks of one scope item; a computed kind reads the item's resolved level first. */
-function requestedBrightness(request: BrightnessRequest, resolved: PlanTarget): number | boolean | undefined {
-  const context = 'effects_native_plan resolved target';
-  if (request.kind === 'absolute') return request.value;
-  if (request.kind === 'percent') return request.percent() * 255 / 100;
-  if (request.kind === 'step') return stepFrom(resolved, context) + request.step();
-  if (request.kind === 'step percent') return stepFrom(resolved, context) + request.step() * 255 / 100;
-  return undefined;
-}
-
-/**
- * What a reset to normal light holds: the item's level, then its underlying
- * colour. Both channels are always claimed, so the reset outranks older claims;
- * a channel with nothing underneath (an off lamp has no level and no colour) is
- * claimed with no value, which the resolver reads as an invalid source and
- * drops to the schedule -- the spelling the captured reset already wrote for an
- * absent colour.
- */
-function held(base: PlanTarget, resolved: PlanTarget, context: string, stamp: Stamp): Record<string, ChannelClaim> {
-  const level = resolved.level(context);
-  return { brightness: level === undefined ? { kind: 'constant', updated: stamp } : constant(level, stamp),
-    color: constant(underlyingColour(base, resolved), stamp) };
-}
+/** `value` absent: the claim holds nothing, so the resolver drops the channel to its base (an invalid source). */
+export type ConstantClaim = { kind: 'constant'; value?: number | boolean | ClaimColour; updated: Stamp };
+export type EffectClaim = { kind: 'effect'; effect: string; instance: string; updated: Stamp; intensity?: number | boolean };
+export type ChannelClaim = ConstantClaim | EffectClaim;
+/** One `channels` override record, as `ls_override` stores it. */
+export type ChannelRecord = {
+  kind: 'channels';
+  key: string;
+  source: string;
+  scope: 'room' | 'lamp';
+  target: string;
+  value: { channels: Record<string, ChannelClaim>; selection?: string };
+};
+export type PowerEvent = { op: 'power'; area: RoomId; on: boolean; via: string };
+export type SetEvent = { op: 'set'; records: ChannelRecord[]; via: string };
+type LightData = Record<string, never> | { brightness: Brightness } | { rgb_color: number[] } | { color_temp_kelvin: Kelvin };
+export type ControlCommand =
+  | { action: 'script.ls_store'; data: { store: string; effect: string }; target: Record<string, never> }
+  | {
+    action: 'light.turn_off' | 'light.turn_on' | 'homeassistant.turn_on' | 'homeassistant.turn_off';
+    target: { entity_id: string | string[] }; data: LightData;
+  };
+export type NativePlan = { records: ChannelRecord[]; power: PowerEvent[] };
 
 export function planNativeControls(view: HouseView, args: NativePlanRequest): NativePlan {
   const { sd, catalog, areas, devices, labels, requested } = args;
@@ -359,6 +297,45 @@ export function planNativeControls(view: HouseView, args: NativePlanRequest): Na
   }
   return { records, power };
 }
+function expandedEntities(view: HouseView, entities: string[]): string[] {
+  const pending = [...entities], seen = new Set<string>(), result: string[] = [];
+  while (pending.length) {
+    const entity = pending.shift()!;
+    if (seen.has(entity)) continue;
+    seen.add(entity);
+    if (!view.state[entity]) continue;
+    const sources = view.entitySources;
+    const group = entity.startsWith('group.') || sources?.[entity] === 'group';
+    const zone = entity.startsWith('zone.');
+    if (group || zone) { const children = groupChildren(view, entity, zone); if (children !== undefined) pending.push(...children); }
+    else result.push(entity);
+  }
+  return result;
+}
+/** The brightness a call asks of one scope item; a computed kind reads the item's resolved level first. */
+function requestedBrightness(request: BrightnessRequest, resolved: PlanTarget): number | boolean | undefined {
+  const context = 'effects_native_plan resolved target';
+  if (request.kind === 'absolute') return request.value;
+  if (request.kind === 'percent') return request.percent() * 255 / 100;
+  if (request.kind === 'step') return stepFrom(resolved, context) + request.step();
+  if (request.kind === 'step percent') return stepFrom(resolved, context) + request.step() * 255 / 100;
+  return undefined;
+}
+/** The level a step starts from: the item's resolved level, or {@link STEP_FROM_OFF} when it has none. */
+function stepFrom(resolved: PlanTarget, context: string): number {
+  const level = resolved.level(context);
+  return level === undefined ? STEP_FROM_OFF : level;
+}
+
+export type ControlPlan = {
+  valid: boolean; errors: string[]; events: Array<PowerEvent | SetEvent>; commands: ControlCommand[]; records: ChannelRecord[];
+};
+
+/**
+ * Where a brightness step starts on a lamp that shows no level (it is off):
+ * 0, as Home Assistant's own `brightness_step` steps an off light.
+ */
+const STEP_FROM_OFF = 0;
 
 export function planUIControls(view: HouseView, args: SetRequest, catalog: NativeCatalog, current: NativeCurrent | undefined): ControlPlan {
   const { source, attribute, value } = args;
@@ -453,5 +430,28 @@ export function planUIControls(view: HouseView, args: SetRequest, catalog: Nativ
   return { valid: errors.length === 0, errors, events: errors.length ? [] : events, commands: errors.length ? [] : commands,
     records: errors.length ? [] : records };
 }
+
+/** The rooms the entities are in, each once; an entity with no room adds none. */
+function areasOf(view: HouseView, entities: string[]): RoomId[] {
+  return unique(entities.map(entity => view.rooms.ofId[entity]).filter(isAreaId));
+}
+
+function unique<T>(values: T[]): T[] { return [...new Set(values)]; }
+
+/**
+ * What a reset to normal light holds: the item's level, then its underlying
+ * colour. Both channels are always claimed, so the reset outranks older claims;
+ * a channel with nothing underneath (an off lamp has no level and no colour) is
+ * claimed with no value, which the resolver reads as an invalid source and
+ * drops to the schedule -- the spelling the captured reset already wrote for an
+ * absent colour.
+ */
+function held(base: PlanTarget, resolved: PlanTarget, context: string, stamp: Stamp): Record<string, ChannelClaim> {
+  const level = resolved.level(context);
+  return { brightness: level === undefined ? { kind: 'constant', updated: stamp } : constant(level, stamp),
+    color: constant(underlyingColour(base, resolved), stamp) };
+}
+
+function constant(value: number | boolean | ClaimColour, stamp: Stamp): ConstantClaim { return { kind: 'constant', value, updated: stamp }; }
 
 

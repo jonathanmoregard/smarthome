@@ -46,8 +46,14 @@ interface Batch { calls: ServiceCall[]; events: EventRecord[]; epoch: number; to
   JsonObject>; tasks: ScheduledTask[]; started: number; versions: Map<ServiceCall, Map<string, number>>; revision?: string; origin: Origin }
 const successFields = ['applied', 'handled_rooms', 'handled_full', 'last_latency'];
 const object = (value: unknown): JsonObject => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as JsonObject : {};
-function ids(call: ServiceCall): string[] { const value = call.target?.entity_id ?? call.data.entity_id; return Array.isArray(value) ?
-  value.map(String) : typeof value === 'string' ? [value] : []; }
+/**
+ * What {@link LightingHost.open} takes. Kept as a record: the host is opened from many places (the
+ * entry point and every host test), and the optional fields have defaults each caller partly overrides.
+ */
+export interface HostOptions {
+  path: string; initial: Snapshot; program: Program; transport: OutputTransport; scope: OutputScope;
+  autoTimers?: boolean; connected?: boolean; now?: () => number; report?: (message: string) => void;
+}
 /**
  * Handlers deleted from the program whose scheduled tasks may still sit in a
  * journal (or an HA snapshot) written before the deletion. Listed by name, so
@@ -63,19 +69,6 @@ function ids(call: ServiceCall): string[] { const value = call.target?.entity_id
 const RETIRED_SCRIPTS: ReadonlySet<string> = new Set([
   'effects_engine_tick', 'effects_candle_sync_timeout', 'effects_candle_sync_published',
 ]);
-function topology(snapshot: Snapshot): unknown {
-  return [snapshot.areas, snapshot.members, snapshot.devices, snapshot.entitySources, snapshot.catalog,
-    snapshot.state['binary_sensor.zigbee2mqtt_bridge_connection_state']];
-}
-
-/**
- * What {@link LightingHost.open} takes. Kept as a record: the host is opened from many places (the
- * entry point and every host test), and the optional fields have defaults each caller partly overrides.
- */
-export interface HostOptions {
-  path: string; initial: Snapshot; program: Program; transport: OutputTransport; scope: OutputScope;
-  autoTimers?: boolean; connected?: boolean; now?: () => number; report?: (message: string) => void;
-}
 /** One process owns the journal and writer. Ambiguous in-flight calls are never replayed. */
 export class LightingHost {
   private state: Snapshot;
@@ -131,18 +124,6 @@ export class LightingHost {
       await host.save(); host.armTimer(); return host;
     } catch (error) { await host.owner.close(); throw error; }
   }
-  snapshot(): Snapshot { return structuredClone(this.state); }
-  /** Remove scheduled tasks for {@link RETIRED_SCRIPTS}, logging each. Answers whether any went. */
-  private dropRetired(state: Snapshot): boolean {
-    const scheduled = state.scheduled ?? [];
-    const kept = scheduled.filter(task => !RETIRED_SCRIPTS.has(task.script));
-    if (kept.length === scheduled.length) return false;
-    for (const task of scheduled) {
-      if (RETIRED_SCRIPTS.has(task.script)) this.options.report?.(`Dropped a scheduled task for the retired script ${task.script}`);
-    }
-    state.scheduled = kept;
-    return true;
-  }
   async refresh(read: (previous: Snapshot) => Promise<Snapshot>): Promise<void> {
     const version = ++this.refreshVersion, previous = this.snapshot(), refreshed = await read(previous);
     await this.update(state => {
@@ -162,7 +143,16 @@ export class LightingHost {
       }
     });
   }
-  private now(): number { return this.options.now?.() ?? Date.now(); }
+  snapshot(): Snapshot { return structuredClone(this.state); }
+  async update(change: (snapshot: Snapshot) => void): Promise<void> {
+    await this.mutation(async () =>
+      { if (this.closing) return; const next = this.snapshot(); change(next); this.state = next; await this.save(); this.armTimer(); });
+  }
+  private mutation<T>(action: () => Promise<T>): Promise<T> {
+    const result = this.serial.then(action);
+    this.serial = result.catch(() => undefined);
+    return result;
+  }
   private async save(): Promise<void> {
     const temporary = `${this.options.path}.${randomUUID()}.tmp`;
     const file = await open(temporary, 'wx', 0o600);
@@ -175,33 +165,37 @@ export class LightingHost {
     const directory = await open(dirname(this.options.path), 'r');
     try { await directory.sync(); } finally { await directory.close(); }
   }
-  private mutation<T>(action: () => Promise<T>): Promise<T> {
-    const result = this.serial.then(action);
-    this.serial = result.catch(() => undefined);
-    return result;
+  private armTimer(): void {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = undefined;
+    if (this.options.autoTimers === false || this.closing || !this.connected) return;
+    const due = Math.min(...(this.state.scheduled ?? []).filter(task => !this.held.has(JSON.stringify(task))).map(task => task.due));
+    if (!Number.isFinite(due)) return;
+    this.timer = setTimeout(() => { void this.runDue().catch(error => this.options.report?.(String(error))); }, Math.max(0,
+      Math.min(2_147_483_647, due - this.now())));
   }
-  async ingestState(entity: string, incoming: EntityState | null): Promise<void> {
-    await this.update(state => { this.mergeIncoming(state, entity, incoming); });
+  async runDue(): Promise<void> {
+    while (!this.closing && this.connected) {
+      const task = (this.snapshot().scheduled ?? []).filter(item => item.due <= this.now() && !this.held.has(JSON.stringify(item))).sort((a,
+        b) => a.due - b.due)[0];
+      if (!task) break;
+      if (RETIRED_SCRIPTS.has(task.script)) { await this.update(state => { this.dropRetired(state); }); continue; }
+      await this.transaction(task.script, task.args, task);
+    }
+    this.armTimer();
   }
-  private mergeIncoming(state: Snapshot, entity: string, incoming: EntityState | null): void {
-    if (this.pendingWrites.get(entity)?.size) return;
-    // A kept entity is read once, to start from, and is the process's own after that.
-    if (state.state[entity] !== undefined && this.options.scope.keeps(entity, state)) return;
-    const previous = state.state[entity];
-    const time = (iso: string) => Date.parse(iso) + Number((/\.(\d{6})/.exec(iso)?.[1] ?? '000000').slice(3)) / 1000;
-    if (incoming?.last_updated && previous?.last_updated && time(incoming.last_updated) < time(previous.last_updated)) return;
-    if (incoming) state.state[entity] = structuredClone(incoming); else delete state.state[entity];
+  private now(): number { return this.options.now?.() ?? Date.now(); }
+  /** Remove scheduled tasks for {@link RETIRED_SCRIPTS}, logging each. Answers whether any went. */
+  private dropRetired(state: Snapshot): boolean {
+    const scheduled = state.scheduled ?? [];
+    const kept = scheduled.filter(task => !RETIRED_SCRIPTS.has(task.script));
+    if (kept.length === scheduled.length) return false;
+    for (const task of scheduled) {
+      if (RETIRED_SCRIPTS.has(task.script)) this.options.report?.(`Dropped a scheduled task for the retired script ${task.script}`);
+    }
+    state.scheduled = kept;
+    return true;
   }
-  async update(change: (snapshot: Snapshot) => void): Promise<void> {
-    await this.mutation(async () =>
-      { if (this.closing) return; const next = this.snapshot(); change(next); this.state = next; await this.save(); this.armTimer(); });
-  }
-  /**
-   * Run an input. Without `origin` the scope decides, against the house as it
-   * stands when the run starts, whose input it is; one that is not this
-   * process's is not run.
-   */
-  dispatch(script: string, args: JsonObject = {}, origin?: Origin): Promise<JsonValue> { return this.transaction(script, args, undefined, origin); }
   private async transaction(script: string, args: JsonObject, task?: ScheduledTask, given?: Origin): Promise<JsonValue> {
     return this.mutation(async () => {
       if (this.closing) throw new Error('Runtime is closing');
@@ -296,33 +290,6 @@ export class LightingHost {
       return result.result;
     });
   }
-  /** Candidate import/compile must finish before this atomic replacement. */
-  async replaceProgram(program: Program): Promise<void> {
-    await this.mutation(async () => { this.epoch++; this.program = program; this.armTimer(); await this.save(); });
-  }
-  async connectionChanged(connected: boolean): Promise<void> {
-    await this.mutation(async () => { this.connected = connected; this.epoch++; if (!connected &&
-      this.pending) this.recoveryRequired = true; await this.save(); this.armTimer(); });
-  }
-  private allowed(call: ServiceCall, batch: Batch): boolean {
-    if (this.closing || !this.connected || batch.epoch !== this.epoch) return false;
-    const guard = call.guard;
-    if (!guard) return true;
-    const runtime = this.state.state['sensor.ls_effects_runtime']?.attributes ?? {};
-    if (this.state.state['sensor.ls_overrides']?.last_updated !== (this.revisionAliases.get(guard.revision) ?? guard.revision) ||
-      !isDeepStrictEqual(runtime.generation, guard.generation) || !isDeepStrictEqual(topology(this.state), batch.topology)) return false;
-    for (const owner of guard.owners ?? []) if (this.state.state[owner]?.state !== 'on') return false;
-    for (const member of guard.members ?? []) if (this.state.state[member]?.state !== 'on') return false;
-    for (const [entity, target] of Object.entries(guard.effectTargets ?? {})) if (!isDeepStrictEqual(object(runtime.assignments)[entity],
-      target)) return false;
-    let payload: JsonObject = {};
-    try { payload = object(typeof call.data.payload === 'string' ? JSON.parse(call.data.payload) : call.data.payload); } catch { return false; }
-    if (payload.state !== 'OFF') for (const owner of guard.owners ?? []) {
-      const area = this.state.areas[owner];
-      if (area && object(this.state.state['sensor.ls_overrides']?.attributes.power)[area] === false) return false;
-    }
-    return true;
-  }
   private startPump(): void {
     if (this.pumping) return;
     this.pumping = true;
@@ -391,25 +358,50 @@ export class LightingHost {
       });
     }
   }
-  async drain(): Promise<void> { do { await this.serial; await this.output; } while (this.pumping || this.batches.length); }
-  private armTimer(): void {
-    if (this.timer) clearTimeout(this.timer);
-    this.timer = undefined;
-    if (this.options.autoTimers === false || this.closing || !this.connected) return;
-    const due = Math.min(...(this.state.scheduled ?? []).filter(task => !this.held.has(JSON.stringify(task))).map(task => task.due));
-    if (!Number.isFinite(due)) return;
-    this.timer = setTimeout(() => { void this.runDue().catch(error => this.options.report?.(String(error))); }, Math.max(0,
-      Math.min(2_147_483_647, due - this.now())));
-  }
-  async runDue(): Promise<void> {
-    while (!this.closing && this.connected) {
-      const task = (this.snapshot().scheduled ?? []).filter(item => item.due <= this.now() && !this.held.has(JSON.stringify(item))).sort((a,
-        b) => a.due - b.due)[0];
-      if (!task) break;
-      if (RETIRED_SCRIPTS.has(task.script)) { await this.update(state => { this.dropRetired(state); }); continue; }
-      await this.transaction(task.script, task.args, task);
+  /**
+   * Run an input. Without `origin` the scope decides, against the house as it
+   * stands when the run starts, whose input it is; one that is not this
+   * process's is not run.
+   */
+  dispatch(script: string, args: JsonObject = {}, origin?: Origin): Promise<JsonValue> { return this.transaction(script, args, undefined, origin); }
+  private allowed(call: ServiceCall, batch: Batch): boolean {
+    if (this.closing || !this.connected || batch.epoch !== this.epoch) return false;
+    const guard = call.guard;
+    if (!guard) return true;
+    const runtime = this.state.state['sensor.ls_effects_runtime']?.attributes ?? {};
+    if (this.state.state['sensor.ls_overrides']?.last_updated !== (this.revisionAliases.get(guard.revision) ?? guard.revision) ||
+      !isDeepStrictEqual(runtime.generation, guard.generation) || !isDeepStrictEqual(topology(this.state), batch.topology)) return false;
+    for (const owner of guard.owners ?? []) if (this.state.state[owner]?.state !== 'on') return false;
+    for (const member of guard.members ?? []) if (this.state.state[member]?.state !== 'on') return false;
+    for (const [entity, target] of Object.entries(guard.effectTargets ?? {})) if (!isDeepStrictEqual(object(runtime.assignments)[entity],
+      target)) return false;
+    let payload: JsonObject = {};
+    try { payload = object(typeof call.data.payload === 'string' ? JSON.parse(call.data.payload) : call.data.payload); } catch { return false; }
+    if (payload.state !== 'OFF') for (const owner of guard.owners ?? []) {
+      const area = this.state.areas[owner];
+      if (area && object(this.state.state['sensor.ls_overrides']?.attributes.power)[area] === false) return false;
     }
-    this.armTimer();
+    return true;
+  }
+  private mergeIncoming(state: Snapshot, entity: string, incoming: EntityState | null): void {
+    if (this.pendingWrites.get(entity)?.size) return;
+    // A kept entity is read once, to start from, and is the process's own after that.
+    if (state.state[entity] !== undefined && this.options.scope.keeps(entity, state)) return;
+    const previous = state.state[entity];
+    const time = (iso: string) => Date.parse(iso) + Number((/\.(\d{6})/.exec(iso)?.[1] ?? '000000').slice(3)) / 1000;
+    if (incoming?.last_updated && previous?.last_updated && time(incoming.last_updated) < time(previous.last_updated)) return;
+    if (incoming) state.state[entity] = structuredClone(incoming); else delete state.state[entity];
+  }
+  async ingestState(entity: string, incoming: EntityState | null): Promise<void> {
+    await this.update(state => { this.mergeIncoming(state, entity, incoming); });
+  }
+  /** Candidate import/compile must finish before this atomic replacement. */
+  async replaceProgram(program: Program): Promise<void> {
+    await this.mutation(async () => { this.epoch++; this.program = program; this.armTimer(); await this.save(); });
+  }
+  async connectionChanged(connected: boolean): Promise<void> {
+    await this.mutation(async () => { this.connected = connected; this.epoch++; if (!connected &&
+      this.pending) this.recoveryRequired = true; await this.save(); this.armTimer(); });
   }
   close(): Promise<void> {
     return this.shutdown ??= this.finishClose();
@@ -420,4 +412,12 @@ export class LightingHost {
     await this.options.transport.close(); await this.drain();
     await this.owner.close();
   }
+  async drain(): Promise<void> { do { await this.serial; await this.output; } while (this.pumping || this.batches.length); }
+}
+
+function ids(call: ServiceCall): string[] { const value = call.target?.entity_id ?? call.data.entity_id; return Array.isArray(value) ?
+  value.map(String) : typeof value === 'string' ? [value] : []; }
+function topology(snapshot: Snapshot): unknown {
+  return [snapshot.areas, snapshot.members, snapshot.devices, snapshot.entitySources, snapshot.catalog,
+    snapshot.state['binary_sensor.zigbee2mqtt_bridge_connection_state']];
 }

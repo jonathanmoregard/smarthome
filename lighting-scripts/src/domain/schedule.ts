@@ -16,37 +16,6 @@ import type { RoomId } from './types/ids.ts';
 import type { RoomOrHouse } from './types/schedule.ts';
 
 export const blocks: readonly string[] = BLOCKS;
-export function isAreaId<Room extends string>(value: Room | undefined): value is Room { return value !== undefined && value.length > 0; }
-export function hasValue(view: HouseView, entity: string): boolean { return !['unknown', 'unavailable'].includes(view.get(entity)); }
-export function labelled(view: HouseView, label: string): string[] {
-  // Registry snapshots supply label members, including device-expanded entities.
-  const entities = view.labels?.[label] ?? (label === 'house_schedule' ? view.members : []);
-  return [...new Set(entities.flatMap(e => view.devices?.[e] ?? [e]))];
-}
-export function privateRooms(view: HouseView): RoomId[] { return privateRoomIds(view); }
-/**
- * Is this room one of the private rooms? A lamp in no room is private only
- * when the list names the empty room, as the scripts' `area_id(L) or ''`
- * lookup reads it.
- */
-function isPrivateRoom(view: HouseView, room: RoomId | undefined): boolean {
-  const rooms: readonly string[] = privateRooms(view);
-  return room === undefined ? rooms.includes('') : rooms.includes(room);
-}
-export function latestRemote(records: ScheduleRecords, room: RoomOrHouse): OverlayKey {
-  // The scripts start from the empty key and keep it when no remote record applies.
-  let key: OverlayKey = EMPTY_KEY, stamp = -1;
-  for (const k of [...records.keys].sort(byOverlayKeyText)) {
-    const r = records.get(k);
-    if (r.scope !== 'room' || r.target !== room || !isRemote(r)) continue;
-    const ts = r.when();
-    if (ts >= stamp) { key = k; stamp = ts; }
-  }
-  return key;
-}
-/** The captured `kind in ['channels','input']`, compared as stored. */
-function isClaim(r: ScheduleRecord): boolean { return r.kind === 'channels' || r.kind === 'input'; }
-export function isRemote(r: ScheduleRecord): boolean { return r.kind === 'input' || (r.kind === 'channels' && r.via === 'remote'); }
 /**
  * A lamp's colour as the schedule carries it.
  *
@@ -76,36 +45,6 @@ export type LampLight = { on: false } | { on: true; brightness: number; color?: 
 export type LampProfile = { on: false } | { on?: never; brightness: number; color?: LampColor };
 /** A light plus the raw rgb triple {@link interpolate} mixes with, read only for a lit light. */
 export type LampSample = { on: false } | { on: true; brightness: number; color?: LampColor; rgb: StoredValue[] | undefined };
-
-const formatters = new Map<string, Intl.DateTimeFormat>();
-export function localParts(at: number, timezone: string): number[] {
-  let formatter = formatters.get(timezone);
-  if (!formatter) {
-    formatter = new Intl.DateTimeFormat('en-GB', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit',
-      minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
-    formatters.set(timezone, formatter);
-  }
-  const p = Object.fromEntries(formatter.formatToParts(new Date(at * 1000)).map(v => [v.type, v.value]));
-  return ['year', 'month', 'day', 'hour', 'minute', 'second'].map(k => Number(p[k]));
-}
-/** Resolve a wall-clock instant with ZoneInfo's default first-fold policy. */
-export function localTime(year: number, month: number, day: number, hour: number, minute: number, timezone: string): number {
-  const wall = Date.UTC(year, month - 1, day, hour, minute) / 1000;
-  const offsets = new Set([-86400, 0, 86400].map(delta => {
-    const [y, m, d, h, min, s] = localParts(wall + delta, timezone) as [number, number, number, number, number, number];
-    return Date.UTC(y, m - 1, d, h, min, s) / 1000 - wall - delta;
-  }));
-  const candidates = [...offsets].map(offset => wall - offset);
-  const valid = candidates.filter(candidate => {
-    const [y, m, d, h, min] = localParts(candidate, timezone) as [number, number, number, number, number];
-    return Date.UTC(y, m - 1, d, h, min) / 1000 === wall;
-  });
-  return valid.length ? Math.min(...valid) : Math.max(...candidates);
-}
-export function nextMidnight(at: number, timezone: string): number {
-  const [year, month, day] = localParts(at, timezone) as [number, number, number];
-  return localTime(year, month, day + 1, 0, 0, timezone);
-}
 export type ScheduleDetails = {
   cur: Block | null;
   nxt: Block | null;
@@ -146,102 +85,6 @@ export function scheduleDetails(view: HouseView, scope: string, at: number): Sch
   return { cur, nxt, fading, p: fading ? 1 - left / nextFade : 0, edge: at - curTs < 90, last_fs: lastFs, next_fs: nextFs, left, cur_ts: curTs };
 }
 interface Stage { from: string; to: string; p: number; moving: boolean; edge: boolean; source: string }
-function initialStage(S: ScheduleDetails): Stage {
-  const cur = S.cur === null ? DEFAULT_BLOCK : S.cur;
-  const next = S.fading ? S.nxt : S.cur;
-  // `S.p` is computed finite by `scheduleDetails`, so the `num()` that used to
-  // re-read it here could never raise or change it.
-  return { from: cur, to: next === null ? DEFAULT_BLOCK : next, p: S.p, moving: S.fading, edge: S.edge, source: 'schedule' };
-}
-function wakeStage(view: HouseView, area: string, S: ScheduleDetails, at: number, stage: Stage): Stage {
-  const entity = `input_datetime.ls_${area}_wake`;
-  const wake = hasValue(view, entity) ? wakeInstant(view, entity) : undefined;
-  if (wake === undefined) return stage;
-  const duration = stateNumber(view, `input_number.ls_${area}_wake_fade`, 37.5) * 60;
-  const elapsed = at - wake;
-  if (S.cur !== 'night' || S.cur_ts > wake) return stage;
-  if (elapsed >= 0 && elapsed < duration) return { ...stage, from: 'night', to: 'day', p: elapsed / duration, moving: true, source: 'wake' };
-  const hour = localParts(wake, view.timezone ?? 'Europe/Stockholm')[3]!;
-  // This is the deployed completed-wake hold, separate from the alarm's 05–12 input window.
-  if (elapsed >= duration && elapsed < 86400 && hour >= 4 && hour < 11 && (!S.fading || S.nxt === 'day')) {
-    return { from: 'day', to: 'day', p: 0, moving: false, edge: elapsed - duration < 90, source: 'wake' };
-  }
-  return stage;
-}
-/**
- * A lamp's object id, captured `lamp.split('.')[1]`: the text after its domain,
- * up to any further dot. The schedule's lamps are filtered to `light.` and
- * `switch.` ids, so the part is always there; an id without it is not a lamp.
- */
-function lampObjectId(lamp: string): string {
-  const [, objectId] = lamp.split('.');
-  if (objectId === undefined) throw new Error(`schedule lamp ${lamp} has no object id`);
-  return objectId;
-}
-/** The room's own light when it has one on for the block; the house's otherwise, and for a lamp in no room. */
-function scopeFor(view: HouseView, area: RoomId | undefined, block: string): string { return area !== undefined &&
-  view.get(`input_boolean.ls_${area}_${block}_own_light`) === 'on' ? area : 'house'; }
-function sourceEntity(view: HouseView, lamp: string | null, area: RoomId | undefined, block: string, fallback = true): string {
-  if (block === 'lamp' && lamp) return lamp;
-  const scope = scopeFor(view, area, block);
-  const lampProfile = lamp === null ? undefined : savedProfile(view, `input_text.ls_lamp_${lampObjectId(lamp)}_${block}`);
-  const own = lampProfile === undefined ? false : lampProfile.own;
-  const candidates = [...(own && lamp !== null ? [`light.ls_lamp_${lampObjectId(lamp)}_${block}`] : []), `light.ls_${scope}_${block}`,
-    ...(fallback ? [`light.ls_house_${block}`] : [])];
-  return (fallback ? candidates.find(e => hasValue(view, e)) : candidates[0]) ?? candidates[0]!;
-}
-/** A sample's light, without the rgb it carried for mixing. */
-function lightOf(sample: LampSample): LampLight {
-  if (!sample.on) return { on: false };
-  return sample.color === undefined ? { on: true, brightness: sample.brightness }
-    : { on: true, brightness: sample.brightness, color: sample.color };
-}
-/**
- * The colour part way between two lit samples. Two colour temperatures mix in
- * kelvin; otherwise the reported rgb triples mix. An end that reports no colour
- * (or no rgb to mix in) gives the fade nothing to mix from: it shows the colour
- * there is, the destination's first.
- */
-function mixedColour(A: Extract<LampSample, { on: true }>, B: Extract<LampSample, { on: true }>, p: number): LampColor | undefined {
-  const a = A.color, b = B.color, ra = A.rgb, rb = B.rgb;
-  if (a !== undefined && b !== undefined && a.kelvin !== undefined && b.kelvin !== undefined) {
-    return { kelvin: roundEven(a.kelvin + (b.kelvin - a.kelvin) * p) };
-  }
-  if (a !== undefined && b !== undefined && ra !== undefined && rb !== undefined) {
-    return { rgb: [0, 1, 2].map(i => roundEven(rgbComponent(ra, i) + (rgbComponent(rb, i) - rgbComponent(ra, i)) * p)) };
-  }
-  return b !== undefined ? b : a;
-}
-/**
- * The light part way through a stage. Off -> on switches the lamp on at
- * {@link OFF_END_LEVEL} in the lit end's colour and ramps the level up to the
- * lit end's over the stage (the remote blend's {@link ramp}, rounded); on -> off
- * dims the lit end towards level 1 and switches off when the stage ends; on -> on
- * mixes level and colour. Both off, or not moving: the destination.
- *
- * Divergence from today's scripts, named (2026-11-20, "Scheduled fades are
- * gradual in both directions"): they jump an off -> on fade straight to the lit
- * end. Unlike the remote blend, which is off AT its off end, a moving fade is lit
- * from p = 0, mirroring on -> off staying lit until the stage ends.
- */
-function interpolate(A: LampSample, B: LampSample, stage: Stage): LampLight {
-  if (!stage.moving) return lightOf(B);
-  if (!A.on) {
-    if (!B.on) return lightOf(B);
-    const brightness = Math.max(OFF_END_LEVEL, roundEven(ramp(B.brightness, stage.p)));
-    return B.color === undefined ? { on: true, brightness } : { on: true, brightness, color: B.color };
-  }
-  if (!B.on) return { ...lightOf(A), on: true, brightness: Math.max(1, roundEven(A.brightness * (1 - stage.p))) };
-  const color = mixedColour(A, B, stage.p), brightness = roundEven(A.brightness + (B.brightness - A.brightness) * stage.p);
-  return color === undefined ? { on: true, brightness } : { on: true, brightness, color };
-}
-function applies(r: ScheduleRecord, key: OverlayKey, lamp: string | null, room: string, privateRoom: boolean): boolean {
-  return (r.kind === 'light' && r.target === lamp && lamp !== null)
-    || (isClaim(r) && ((r.scope === 'lamp' && lamp !== null && r.target === lamp) ||
-      (r.scope === 'room' && r.target === room) || (r.scope === 'house' && !privateRoom)))
-    || (key.kind === 'sara mode' && !privateRoom);
-}
-
 /** One `input_select` the schedule wants moved to match the effective block. */
 export type ScheduleMirror = { entity: string; option: string };
 /**
@@ -319,6 +162,8 @@ export type LampProfileEntry = { effect: StoredValue } & ProfileLevel & {
   send: boolean;
   ignore_overrides: string[];
 };
+
+const formatters = new Map<string, Intl.DateTimeFormat>();
 /** A scheduled lamp's level, as `schedule.profiles` carries it: an off lamp has none. */
 export type ProfileLevel = { on: false } | { brightness: number; on: true };
 /**
@@ -356,11 +201,8 @@ export type ScheduledBase = {
   targets: Record<string, TargetEntry>;
   schedule: ScheduleEnvelope;
 };
-
 /** The override a lamp follows: the block it names, if any, and its record's `when`. */
 type Chosen = { present: boolean; block: Block | undefined; when: () => number };
-const NOTHING_CHOSEN: Chosen = { present: false, block: undefined, when: () => 0 };
-
 export interface ScheduledBaseRequest {
   testNow: number | undefined;
   reason: string;
@@ -368,6 +210,34 @@ export interface ScheduledBaseRequest {
   /** The one room to plan; none when the request names none or `''` (captured `default('')`). */
   roomOnly: RoomId | undefined;
   includeDebug: boolean;
+}
+export function nextMidnight(at: number, timezone: string): number {
+  const [year, month, day] = localParts(at, timezone) as [number, number, number];
+  return localTime(year, month, day + 1, 0, 0, timezone);
+}
+export function localParts(at: number, timezone: string): number[] {
+  let formatter = formatters.get(timezone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-GB', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit',
+      minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
+    formatters.set(timezone, formatter);
+  }
+  const p = Object.fromEntries(formatter.formatToParts(new Date(at * 1000)).map(v => [v.type, v.value]));
+  return ['year', 'month', 'day', 'hour', 'minute', 'second'].map(k => Number(p[k]));
+}
+/** Resolve a wall-clock instant with ZoneInfo's default first-fold policy. */
+export function localTime(year: number, month: number, day: number, hour: number, minute: number, timezone: string): number {
+  const wall = Date.UTC(year, month - 1, day, hour, minute) / 1000;
+  const offsets = new Set([-86400, 0, 86400].map(delta => {
+    const [y, m, d, h, min, s] = localParts(wall + delta, timezone) as [number, number, number, number, number, number];
+    return Date.UTC(y, m - 1, d, h, min, s) / 1000 - wall - delta;
+  }));
+  const candidates = [...offsets].map(offset => wall - offset);
+  const valid = candidates.filter(candidate => {
+    const [y, m, d, h, min] = localParts(candidate, timezone) as [number, number, number, number, number];
+    return Date.UTC(y, m - 1, d, h, min) / 1000 === wall;
+  });
+  return valid.length ? Math.min(...valid) : Math.max(...candidates);
 }
 export function scheduledBase(view: HouseView, args: ScheduledBaseRequest, roomLocal = false): ScheduledBase {
   const at = args.testNow === undefined ? timestamp(view.now) : args.testNow;
@@ -542,4 +412,134 @@ export function scheduledBase(view: HouseView, args: ScheduledBaseRequest, roomL
       'off' : null };
   if (args.includeDebug === true) schedule.dbg = debug;
   return { targets, schedule };
+}
+export function labelled(view: HouseView, label: string): string[] {
+  // Registry snapshots supply label members, including device-expanded entities.
+  const entities = view.labels?.[label] ?? (label === 'house_schedule' ? view.members : []);
+  return [...new Set(entities.flatMap(e => view.devices?.[e] ?? [e]))];
+}
+export function isAreaId<Room extends string>(value: Room | undefined): value is Room { return value !== undefined && value.length > 0; }
+/**
+ * Is this room one of the private rooms? A lamp in no room is private only
+ * when the list names the empty room, as the scripts' `area_id(L) or ''`
+ * lookup reads it.
+ */
+function isPrivateRoom(view: HouseView, room: RoomId | undefined): boolean {
+  const rooms: readonly string[] = privateRooms(view);
+  return room === undefined ? rooms.includes('') : rooms.includes(room);
+}
+export function privateRooms(view: HouseView): RoomId[] { return privateRoomIds(view); }
+
+export function latestRemote(records: ScheduleRecords, room: RoomOrHouse): OverlayKey {
+  // The scripts start from the empty key and keep it when no remote record applies.
+  let key: OverlayKey = EMPTY_KEY, stamp = -1;
+  for (const k of [...records.keys].sort(byOverlayKeyText)) {
+    const r = records.get(k);
+    if (r.scope !== 'room' || r.target !== room || !isRemote(r)) continue;
+    const ts = r.when();
+    if (ts >= stamp) { key = k; stamp = ts; }
+  }
+  return key;
+}
+export function isRemote(r: ScheduleRecord): boolean { return r.kind === 'input' || (r.kind === 'channels' && r.via === 'remote'); }
+/** The captured `kind in ['channels','input']`, compared as stored. */
+function isClaim(r: ScheduleRecord): boolean { return r.kind === 'channels' || r.kind === 'input'; }
+function applies(r: ScheduleRecord, key: OverlayKey, lamp: string | null, room: string, privateRoom: boolean): boolean {
+  return (r.kind === 'light' && r.target === lamp && lamp !== null)
+    || (isClaim(r) && ((r.scope === 'lamp' && lamp !== null && r.target === lamp) ||
+      (r.scope === 'room' && r.target === room) || (r.scope === 'house' && !privateRoom)))
+    || (key.kind === 'sara mode' && !privateRoom);
+}
+function initialStage(S: ScheduleDetails): Stage {
+  const cur = S.cur === null ? DEFAULT_BLOCK : S.cur;
+  const next = S.fading ? S.nxt : S.cur;
+  // `S.p` is computed finite by `scheduleDetails`, so the `num()` that used to
+  // re-read it here could never raise or change it.
+  return { from: cur, to: next === null ? DEFAULT_BLOCK : next, p: S.p, moving: S.fading, edge: S.edge, source: 'schedule' };
+}
+function wakeStage(view: HouseView, area: string, S: ScheduleDetails, at: number, stage: Stage): Stage {
+  const entity = `input_datetime.ls_${area}_wake`;
+  const wake = hasValue(view, entity) ? wakeInstant(view, entity) : undefined;
+  if (wake === undefined) return stage;
+  const duration = stateNumber(view, `input_number.ls_${area}_wake_fade`, 37.5) * 60;
+  const elapsed = at - wake;
+  if (S.cur !== 'night' || S.cur_ts > wake) return stage;
+  if (elapsed >= 0 && elapsed < duration) return { ...stage, from: 'night', to: 'day', p: elapsed / duration, moving: true, source: 'wake' };
+  const hour = localParts(wake, view.timezone ?? 'Europe/Stockholm')[3]!;
+  // This is the deployed completed-wake hold, separate from the alarm's 05–12 input window.
+  if (elapsed >= duration && elapsed < 86400 && hour >= 4 && hour < 11 && (!S.fading || S.nxt === 'day')) {
+    return { from: 'day', to: 'day', p: 0, moving: false, edge: elapsed - duration < 90, source: 'wake' };
+  }
+  return stage;
+}
+export function hasValue(view: HouseView, entity: string): boolean { return !['unknown', 'unavailable'].includes(view.get(entity)); }
+/** The room's own light when it has one on for the block; the house's otherwise, and for a lamp in no room. */
+function scopeFor(view: HouseView, area: RoomId | undefined, block: string): string { return area !== undefined &&
+  view.get(`input_boolean.ls_${area}_${block}_own_light`) === 'on' ? area : 'house'; }
+/**
+ * A lamp's object id, captured `lamp.split('.')[1]`: the text after its domain,
+ * up to any further dot. The schedule's lamps are filtered to `light.` and
+ * `switch.` ids, so the part is always there; an id without it is not a lamp.
+ */
+function lampObjectId(lamp: string): string {
+  const [, objectId] = lamp.split('.');
+  if (objectId === undefined) throw new Error(`schedule lamp ${lamp} has no object id`);
+  return objectId;
+}
+function sourceEntity(view: HouseView, lamp: string | null, area: RoomId | undefined, block: string, fallback = true): string {
+  if (block === 'lamp' && lamp) return lamp;
+  const scope = scopeFor(view, area, block);
+  const lampProfile = lamp === null ? undefined : savedProfile(view, `input_text.ls_lamp_${lampObjectId(lamp)}_${block}`);
+  const own = lampProfile === undefined ? false : lampProfile.own;
+  const candidates = [...(own && lamp !== null ? [`light.ls_lamp_${lampObjectId(lamp)}_${block}`] : []), `light.ls_${scope}_${block}`,
+    ...(fallback ? [`light.ls_house_${block}`] : [])];
+  return (fallback ? candidates.find(e => hasValue(view, e)) : candidates[0]) ?? candidates[0]!;
+}
+
+/**
+ * The light part way through a stage. Off -> on switches the lamp on at
+ * {@link OFF_END_LEVEL} in the lit end's colour and ramps the level up to the
+ * lit end's over the stage (the remote blend's {@link ramp}, rounded); on -> off
+ * dims the lit end towards level 1 and switches off when the stage ends; on -> on
+ * mixes level and colour. Both off, or not moving: the destination.
+ *
+ * Divergence from today's scripts, named (2026-11-20, "Scheduled fades are
+ * gradual in both directions"): they jump an off -> on fade straight to the lit
+ * end. Unlike the remote blend, which is off AT its off end, a moving fade is lit
+ * from p = 0, mirroring on -> off staying lit until the stage ends.
+ */
+function interpolate(A: LampSample, B: LampSample, stage: Stage): LampLight {
+  if (!stage.moving) return lightOf(B);
+  if (!A.on) {
+    if (!B.on) return lightOf(B);
+    const brightness = Math.max(OFF_END_LEVEL, roundEven(ramp(B.brightness, stage.p)));
+    return B.color === undefined ? { on: true, brightness } : { on: true, brightness, color: B.color };
+  }
+  if (!B.on) return { ...lightOf(A), on: true, brightness: Math.max(1, roundEven(A.brightness * (1 - stage.p))) };
+  const color = mixedColour(A, B, stage.p), brightness = roundEven(A.brightness + (B.brightness - A.brightness) * stage.p);
+  return color === undefined ? { on: true, brightness } : { on: true, brightness, color };
+}
+const NOTHING_CHOSEN: Chosen = { present: false, block: undefined, when: () => 0 };
+
+/** A sample's light, without the rgb it carried for mixing. */
+function lightOf(sample: LampSample): LampLight {
+  if (!sample.on) return { on: false };
+  return sample.color === undefined ? { on: true, brightness: sample.brightness }
+    : { on: true, brightness: sample.brightness, color: sample.color };
+}
+/**
+ * The colour part way between two lit samples. Two colour temperatures mix in
+ * kelvin; otherwise the reported rgb triples mix. An end that reports no colour
+ * (or no rgb to mix in) gives the fade nothing to mix from: it shows the colour
+ * there is, the destination's first.
+ */
+function mixedColour(A: Extract<LampSample, { on: true }>, B: Extract<LampSample, { on: true }>, p: number): LampColor | undefined {
+  const a = A.color, b = B.color, ra = A.rgb, rb = B.rgb;
+  if (a !== undefined && b !== undefined && a.kelvin !== undefined && b.kelvin !== undefined) {
+    return { kelvin: roundEven(a.kelvin + (b.kelvin - a.kelvin) * p) };
+  }
+  if (a !== undefined && b !== undefined && ra !== undefined && rb !== undefined) {
+    return { rgb: [0, 1, 2].map(i => roundEven(rgbComponent(ra, i) + (rgbComponent(rb, i) - rgbComponent(ra, i)) * p)) };
+  }
+  return b !== undefined ? b : a;
 }

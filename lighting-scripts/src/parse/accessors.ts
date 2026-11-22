@@ -38,6 +38,9 @@ export function nativeScalar(value: JsonValue): JsonValue {
   const numeric = /^[+-]?(?!0\d)\d*(?:\.\d*)?$/.test(text) && /\d/.test(text);
   return numeric && Number.isFinite(Number(text)) ? Number(text) : value;
 }
+export function optionalTimestamp(value: JsonValue | undefined): number | undefined {
+  return value === undefined || value === null ? undefined : timestamp(value);
+}
 export function timestamp(value: JsonValue | undefined): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   const ts = typeof value === 'string' ? Date.parse(value) / 1000 : NaN;
@@ -45,9 +48,6 @@ export function timestamp(value: JsonValue | undefined): number {
     throw new ParseError(`schedule timestamp must be a finite epoch or date string, got ${JSON.stringify(value) ?? 'undefined'}`);
   }
   return ts;
-}
-export function optionalTimestamp(value: JsonValue | undefined): number | undefined {
-  return value === undefined || value === null ? undefined : timestamp(value);
 }
 /**
  * A `test_now` argument, read as the captured `test_now is defined and test_now`:

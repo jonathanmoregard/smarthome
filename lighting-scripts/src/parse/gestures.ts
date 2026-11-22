@@ -16,10 +16,57 @@ import { toRemoteId, toRoomId } from './ids.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import type { GestureRequest, Model, Msg, PresetPayload } from '../domain/gestures.ts';
 
+export interface PowerQuietRequest {
+  /** The whole argument document, forwarded into the scheduled `power_done`. */
+  document: Verbatim;
+  room: RoomId;
+}
+
+/**
+ * The quiet script forwards its whole argument document into the scheduled
+ * `power_done`, which is compared, so the document is carried unread.
+ */
+export function parsePowerQuietArgs(args: JsonObject): PowerQuietRequest {
+  return { document: carry(args), room: roomArg(args) };
+}
+
+export function parseGestureArgs(args: JsonObject): GestureRequest {
+  // Read in the captured order: the command, the room, then the token.
+  const command = args.command === undefined ? '' : requireString(args, 'command', 'ls_remote_gesture');
+  const room = roomArg(args);
+  return {
+    room,
+    msg: gestureMsg(command, args),
+    // A present sender field is still typed, but read only where a command is sent.
+    sender: lazy(() => ({
+      deviceId: args.device_id === undefined ? undefined : toRemoteId(requireString(args, 'device_id', 'ls_remote_gesture')),
+      source: args.source === undefined ? '' : requireString(args, 'source', 'ls_remote_gesture'),
+    })),
+  };
+}
+
 function roomArg(args: JsonObject): RoomId {
   const room = requireString(args, 'room', 'ls_remote_gesture');
   if (!/^[a-z0-9_]+$/.test(room)) throw new ParseError('Gesture room must be a runtime room ID');
   return toRoomId(room);
+}
+
+/**
+ * A command as the reducer's message. A missing command is empty, and empty
+ * or any other text is no message: the captured script tests membership and
+ * does nothing. `power_done` is the combo's quiet window closing, and only it
+ * reads a token (missing is empty, as under the captured length test).
+ */
+function gestureMsg(command: string, args: JsonObject): Msg | undefined {
+  switch (command) {
+    case 'left': case 'right': case 'up': case 'down': return { tag: 'direction', direction: command };
+    case 'cancel': return { tag: 'cancel' };
+    case 'power': return { tag: 'power' };
+    case 'preset': return { tag: 'preset', payload: presetPayload(args.payload) };
+    case 'power_done':
+      return { tag: 'combo_timeout', token: args.token === undefined ? '' : requireString(args, 'token', 'ls_remote_gesture') };
+    default: return undefined;
+  }
 }
 
 /**
@@ -45,58 +92,6 @@ function presetPayload(value: JsonValue | undefined): PresetPayload | undefined 
 }
 
 /**
- * A command as the reducer's message. A missing command is empty, and empty
- * or any other text is no message: the captured script tests membership and
- * does nothing. `power_done` is the combo's quiet window closing, and only it
- * reads a token (missing is empty, as under the captured length test).
- */
-function gestureMsg(command: string, args: JsonObject): Msg | undefined {
-  switch (command) {
-    case 'left': case 'right': case 'up': case 'down': return { tag: 'direction', direction: command };
-    case 'cancel': return { tag: 'cancel' };
-    case 'power': return { tag: 'power' };
-    case 'preset': return { tag: 'preset', payload: presetPayload(args.payload) };
-    case 'power_done':
-      return { tag: 'combo_timeout', token: args.token === undefined ? '' : requireString(args, 'token', 'ls_remote_gesture') };
-    default: return undefined;
-  }
-}
-
-export function parseGestureArgs(args: JsonObject): GestureRequest {
-  // Read in the captured order: the command, the room, then the token.
-  const command = args.command === undefined ? '' : requireString(args, 'command', 'ls_remote_gesture');
-  const room = roomArg(args);
-  return {
-    room,
-    msg: gestureMsg(command, args),
-    // A present sender field is still typed, but read only where a command is sent.
-    sender: lazy(() => ({
-      deviceId: args.device_id === undefined ? undefined : toRemoteId(requireString(args, 'device_id', 'ls_remote_gesture')),
-      source: args.source === undefined ? '' : requireString(args, 'source', 'ls_remote_gesture'),
-    })),
-  };
-}
-
-export interface PowerQuietRequest {
-  /** The whole argument document, forwarded into the scheduled `power_done`. */
-  document: Verbatim;
-  room: RoomId;
-}
-
-/**
- * The quiet script forwards its whole argument document into the scheduled
- * `power_done`, which is compared, so the document is carried unread.
- */
-export function parsePowerQuietArgs(args: JsonObject): PowerQuietRequest {
-  return { document: carry(args), room: roomArg(args) };
-}
-
-/** A gesture helper's state as the captured script reads it: `states(helper) | int(fallback)`. */
-export function helperInt(ctx: HouseView, entity: string, fallback = 0): number {
-  return jinjaInt(ctx.get(entity), fallback);
-}
-
-/**
  * The remote's helpers as the gesture reads them, all before its first write.
  * None of these reads can raise, so reading the preset cursor up front -- the
  * captured script reads it only on the preset branch, before any write there --
@@ -113,4 +108,9 @@ export function gestureState(ctx: HouseView, room: RoomId): Model {
     // Captured `states(...)|float(-2)`: a fractional cursor is kept, never truncated to an index.
     preset: jinjaFloat(ctx.get(`input_number.${prefix}preset`), -2),
   };
+}
+
+/** A gesture helper's state as the captured script reads it: `states(helper) | int(fallback)`. */
+export function helperInt(ctx: HouseView, entity: string, fallback = 0): number {
+  return jinjaInt(ctx.get(entity), fallback);
 }

@@ -29,17 +29,30 @@ import { parseOverlayKey } from './overlay-key.ts';
 
 /** A stored value compared by identity: scalars as themselves, containers opaque. */
 export type StoredValue = string | number | boolean | null | Verbatim;
+function factDocument(fact: StoredValue): JsonValue {
+  return fact === null || typeof fact !== 'object' ? fact : reveal(fact);
+}
+
 /** A {@link StoredValue}, or `undefined` for an absent key. */
 export type StoredFact = StoredValue | undefined;
 
-export function storedFact(value: JsonValue): StoredValue;
-export function storedFact(value: JsonValue | undefined): StoredFact;
-export function storedFact(value: JsonValue | undefined): StoredFact {
-  return Array.isArray(value) || isObject(value) ? carry(value) : value;
+/** Python `==` over two stored facts: containers by value (an absent fact equals only another). */
+export function sameFact(a: StoredFact, b: StoredFact): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  return jsonEqual(factDocument(a), factDocument(b));
 }
 
+/** A room the commit marks pending: a string, or the captured `affected` refusal. */
+export function affectedRoom(room: StoredFact, index: number): RoomId {
+  return toRoomId(requireString({ room: room ?? null }, 'room', `ls_commit affected[${index}]`));
+}
 /** A documents map whose entries are carried unread: `{...map}` is the stored bytes. */
 export type OpaqueMap = Record<string, Verbatim>;
+
+/** `.get(key, {})`-style leniency: a non-mapping is `{}`; every entry is carried. */
+export function opaqueMap(value: JsonValue | undefined): OpaqueMap {
+  return Object.fromEntries(Object.entries(object(value)).map(([key, entry]) => [key, carry(entry)]));
+}
 
 /**
  * A document assembled from stored pieces: stored values as they are, and
@@ -48,16 +61,12 @@ export type OpaqueMap = Record<string, Verbatim>;
  * carried unread, in place.
  */
 export type Assembled = StoredValue | AssembledMap;
+
 export type AssembledMap = { [key: string]: Assembled };
 
 /** A mapping's entries as stored facts, in stored order: `{...map}` is the stored bytes. */
 export function assembledMap(value: JsonObject): AssembledMap {
   return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, storedFact(entry)]));
-}
-
-/** `.get(key, {})`-style leniency: a non-mapping is `{}`; every entry is carried. */
-export function opaqueMap(value: JsonValue | undefined): OpaqueMap {
-  return Object.fromEntries(Object.entries(object(value)).map(([key, entry]) => [key, carry(entry)]));
 }
 
 /**
@@ -99,7 +108,6 @@ function recordView(entry: unknown): OverrideRecord {
 }
 
 export interface StoredEntry { key: OverlayKey; document: Verbatim; record: OverrideRecord }
-
 /** The `overrides` attribute as one mapping of records. */
 export interface StoredOverrides {
   /** The mapping as stored. */
@@ -112,15 +120,6 @@ export interface StoredOverrides {
   lookup(key: OverlayKey | undefined): OverrideRecord;
   /** A deep copy of the mapping, for a writer that replaces entries. */
   clone(): OpaqueMap;
-}
-
-/** Python `==` over two stored facts: containers by value (an absent fact equals only another). */
-export function sameFact(a: StoredFact, b: StoredFact): boolean {
-  if (a === undefined || b === undefined) return a === b;
-  return jsonEqual(factDocument(a), factDocument(b));
-}
-function factDocument(fact: StoredValue): JsonValue {
-  return fact === null || typeof fact !== 'object' ? fact : reveal(fact);
 }
 
 export function storedOverrides(value: JsonObject): StoredOverrides {
@@ -151,9 +150,69 @@ export function mergedValue(prior: Verbatim, value: StoredValue, channels: Opaqu
   return carry({ ...object(prior), ...object(value), channels });
 }
 
-/** A room the commit marks pending: a string, or the captured `affected` refusal. */
-export function affectedRoom(room: StoredFact, index: number): RoomId {
-  return toRoomId(requireString({ room: room ?? null }, 'room', `ls_commit affected[${index}]`));
+/**
+ * Captured `data` is accessed as a mapping throughout; see `stateStoreHandlers`
+ * for the per-field read counts. The stale-revision stop runs ahead of every
+ * other parse, so the details are one lazy parse the domain triggers after it,
+ * and operation-specific strict fields are lazy inside that, matching the
+ * captured short-circuit order.
+ */
+export function parseCommitArgs(args: JsonObject): CommitRequest {
+  const data = requireObject(args, 'data', 'ls_commit');
+  return {
+    expectedRevision: storedFact(data.expected_revision),
+    details: lazy(() => parseCommitData(data)),
+  };
+}
+
+export function storedFact(value: JsonValue): StoredValue;
+export function storedFact(value: JsonValue | undefined): StoredFact;
+export function storedFact(value: JsonValue | undefined): StoredFact {
+  return Array.isArray(value) || isObject(value) ? carry(value) : value;
+}
+
+function parseCommitData(data: JsonObject): CommitChange {
+  const records = parseRecords(data.records, 'ls_commit.data.records');
+  const via = storedFact(data.via);
+  const who = data.who;
+  return {
+    op: data.op === undefined ? 'set' : storedFact(data.op),
+    opText: typeof data.op === 'string' ? data.op : '',
+    records,
+    via,
+    who: who !== undefined && jinjaTruthy(who) ? storedFact(who) : null,
+    area: storedFact(data.area),
+    receivedAt: storedFact(data.received_at),
+    clearContains: lazy(() => membership(data.keys, 'ls_commit.data.keys')),
+    power: lazy(() => ({
+      area: toRoomId(requireString(data, 'area', 'ls_commit.data')),
+      on: haBoolean(data.on, 'ls_commit.data.on'),
+    })),
+    range: lazy(() => {
+      const profile = data.profile;
+      if (profile === 'bright' || profile === 'cosy') {
+        return { entity: toSwitchId(requireString(data, 'entity', 'ls_commit.data')), rule: { profile } };
+      }
+      if (profile !== 'custom') return undefined;
+      const min = testedNumber(data.min), max = testedNumber(data.max);
+      if (min === undefined || max === undefined || min.numeric < 0 || min.numeric > max.numeric || max.numeric > 100) return undefined;
+      return { entity: toSwitchId(requireString(data, 'entity', 'ls_commit.data')), rule: { profile, min: savedBound(min), max: savedBound(max) } };
+    }),
+    ranges: lazy(() => {
+      const ranges = data.ranges === undefined ? {} : requireObject(data, 'ranges', 'ls_commit.data');
+      return validRangePair(ranges.bright, 'ls_commit.data.ranges.bright') && validRangePair(ranges.cosy, 'ls_commit.data.ranges.cosy') ?
+        carry(ranges) : undefined;
+    }),
+    remoteAck: lazy(() => {
+      const requestId = data.request_id;
+      if (via !== 'remote' || !jinjaTruthy(data.source) || requestId === undefined || !jinjaTruthy(requestId)) return undefined;
+      return { source: requireString(data, 'source', 'ls_commit.data'), requestId: storedFact(requestId) };
+    }),
+    full: lazy(() => ({
+      reason: data.reason === undefined ? (via === 'remote' ? 'remote' : 'config') : storedFact(data.reason),
+      lights: data.lights === undefined ? [] : requireArray(data, 'lights', 'ls_commit.data').map(light => storedFact(light)),
+    })),
+  };
 }
 
 function parseRecords(value: JsonValue | undefined, context: string): CommitRecord[] {
@@ -225,63 +284,4 @@ function validRangePair(value: JsonValue | undefined, context: string): boolean 
     throw new ParseError(`${context} sequence elements cannot be compared with numeric bounds`);
   }
   return 0 <= low.numeric && low.numeric <= high.numeric && high.numeric <= 100;
-}
-
-function parseCommitData(data: JsonObject): CommitChange {
-  const records = parseRecords(data.records, 'ls_commit.data.records');
-  const via = storedFact(data.via);
-  const who = data.who;
-  return {
-    op: data.op === undefined ? 'set' : storedFact(data.op),
-    opText: typeof data.op === 'string' ? data.op : '',
-    records,
-    via,
-    who: who !== undefined && jinjaTruthy(who) ? storedFact(who) : null,
-    area: storedFact(data.area),
-    receivedAt: storedFact(data.received_at),
-    clearContains: lazy(() => membership(data.keys, 'ls_commit.data.keys')),
-    power: lazy(() => ({
-      area: toRoomId(requireString(data, 'area', 'ls_commit.data')),
-      on: haBoolean(data.on, 'ls_commit.data.on'),
-    })),
-    range: lazy(() => {
-      const profile = data.profile;
-      if (profile === 'bright' || profile === 'cosy') {
-        return { entity: toSwitchId(requireString(data, 'entity', 'ls_commit.data')), rule: { profile } };
-      }
-      if (profile !== 'custom') return undefined;
-      const min = testedNumber(data.min), max = testedNumber(data.max);
-      if (min === undefined || max === undefined || min.numeric < 0 || min.numeric > max.numeric || max.numeric > 100) return undefined;
-      return { entity: toSwitchId(requireString(data, 'entity', 'ls_commit.data')), rule: { profile, min: savedBound(min), max: savedBound(max) } };
-    }),
-    ranges: lazy(() => {
-      const ranges = data.ranges === undefined ? {} : requireObject(data, 'ranges', 'ls_commit.data');
-      return validRangePair(ranges.bright, 'ls_commit.data.ranges.bright') && validRangePair(ranges.cosy, 'ls_commit.data.ranges.cosy') ?
-        carry(ranges) : undefined;
-    }),
-    remoteAck: lazy(() => {
-      const requestId = data.request_id;
-      if (via !== 'remote' || !jinjaTruthy(data.source) || requestId === undefined || !jinjaTruthy(requestId)) return undefined;
-      return { source: requireString(data, 'source', 'ls_commit.data'), requestId: storedFact(requestId) };
-    }),
-    full: lazy(() => ({
-      reason: data.reason === undefined ? (via === 'remote' ? 'remote' : 'config') : storedFact(data.reason),
-      lights: data.lights === undefined ? [] : requireArray(data, 'lights', 'ls_commit.data').map(light => storedFact(light)),
-    })),
-  };
-}
-
-/**
- * Captured `data` is accessed as a mapping throughout; see `stateStoreHandlers`
- * for the per-field read counts. The stale-revision stop runs ahead of every
- * other parse, so the details are one lazy parse the domain triggers after it,
- * and operation-specific strict fields are lazy inside that, matching the
- * captured short-circuit order.
- */
-export function parseCommitArgs(args: JsonObject): CommitRequest {
-  const data = requireObject(args, 'data', 'ls_commit');
-  return {
-    expectedRevision: storedFact(data.expected_revision),
-    details: lazy(() => parseCommitData(data)),
-  };
 }

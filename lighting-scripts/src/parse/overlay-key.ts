@@ -7,10 +7,6 @@
 import type { OverlayKey } from '../domain/types/overlay.ts';
 import { toRemoteSource, toSavedOverlayKey } from './ids.ts';
 
-function after(text: string, prefix: string): string | undefined {
-  return text.startsWith(prefix) ? text.slice(prefix.length) : undefined;
-}
-
 export function parseOverlayKey(text: string): OverlayKey {
   if (text === '') return { kind: 'empty' };
   if (text === 'mode:sara') return { kind: 'sara mode' };
@@ -24,4 +20,8 @@ export function parseOverlayKey(text: string): OverlayKey {
   // Neither constructor below can raise here: every prefix they refuse was read above.
   if (source !== undefined) return { kind: 'remote input', source: toRemoteSource(source) };
   return { kind: 'saved', key: toSavedOverlayKey(text) };
+}
+
+function after(text: string, prefix: string): string | undefined {
+  return text.startsWith(prefix) ? text.slice(prefix.length) : undefined;
 }

@@ -69,27 +69,6 @@ export interface SwitchPlanRequest {
   /** The resolved room target a rule follows, read leniently; `on` is required once read. */
   roomTarget(room: RoomId): { populated: boolean; level: () => number | undefined; on: () => boolean };
 }
-/** Each switch's planned state; `ls_switch_plan` answers it under the wire key `switches`. */
-export function switchPlan(areas: Readonly<Record<string, RoomId>>, args: SwitchPlanRequest): Record<SwitchId, SwitchDecision> {
-  const switches: Record<SwitchId, SwitchDecision> = {};
-  for (const { entity, range } of args.rules) {
-    const room = areas[entity];
-    // The range is read first, so a malformed one raises for a switch in no room too.
-    const interval = range();
-    // A switch in no room has no room target to follow.
-    if (room === undefined || interval === undefined) continue;
-    const group = args.roomTarget(room);
-    if (!group.populated) continue;
-    const { low, high } = interval;
-    const level = group.level();
-    const brightness = level === undefined ? undefined : level * 100 / 255;
-    const on = group.on();
-    switches[entity] = { on: on && brightness !== undefined && low <= brightness && brightness <= high,
-      room, ...(brightness === undefined ? {} : { brightness }), range: [...interval.stored] };
-  }
-  return switches;
-}
-
 /**
  * The document `ls_plan` builds, with every field concrete.
  *
@@ -117,6 +96,48 @@ export type LightingPlan = Omit<ScheduleEnvelope, 'revision' | 'sara_mirror'> & 
   sara_mirror: 'on' | 'off' | null;
 };
 
+/** A planned change, committed against the revision it was planned at. */
+export type RemoteCommit = RemotePlan & { expected_revision: string; area: RoomId; via: 'remote'; source: RemoteSource };
+
+
+export interface RemoteCommandRequest {
+  source: RemoteSource;
+  area: RoomId;
+  command: RemotePress;
+  dryRun: boolean;
+}
+
+
+/** The lamps an accepted remote change switches. Switched on, they are then rendered as a lamp-on apply. */
+export type PowerSwitch =
+  | { tag: 'off'; targets: PowerTarget[] }
+  | { tag: 'on_then_render'; targets: PowerTarget[] };
+
+/** What an accepted remote change switches: a power change its targets, any other change nothing. */
+export function acceptedPowerSwitch(plan: RemotePlan): PowerSwitch | undefined {
+  if (plan.op !== 'power') return undefined;
+  return { tag: plan.on ? 'on_then_render' : 'off', targets: plan.targets };
+}
+/** Each switch's planned state; `ls_switch_plan` answers it under the wire key `switches`. */
+export function switchPlan(areas: Readonly<Record<string, RoomId>>, args: SwitchPlanRequest): Record<SwitchId, SwitchDecision> {
+  const switches: Record<SwitchId, SwitchDecision> = {};
+  for (const { entity, range } of args.rules) {
+    const room = areas[entity];
+    // The range is read first, so a malformed one raises for a switch in no room too.
+    const interval = range();
+    // A switch in no room has no room target to follow.
+    if (room === undefined || interval === undefined) continue;
+    const group = args.roomTarget(room);
+    if (!group.populated) continue;
+    const { low, high } = interval;
+    const level = group.level();
+    const brightness = level === undefined ? undefined : level * 100 / 255;
+    const on = group.on();
+    switches[entity] = { on: on && brightness !== undefined && low <= brightness && brightness <= high,
+      room, ...(brightness === undefined ? {} : { brightness }), range: [...interval.stored] };
+  }
+  return switches;
+}
 
 /**
  * The plan document: the schedule with the plan's fields over it, from the
@@ -137,28 +158,7 @@ export function planAnswer(view: HouseView, parts: {
     sara_mirror: view.get('input_boolean.ls_sara_mode_mirror') !== wanted ? wanted : null };
 }
 
-
-/** A planned change, committed against the revision it was planned at. */
-export type RemoteCommit = RemotePlan & { expected_revision: string; area: RoomId; via: 'remote'; source: RemoteSource };
-
-export interface RemoteCommandRequest {
-  source: RemoteSource;
-  area: RoomId;
-  command: RemotePress;
-  dryRun: boolean;
-}
 /** A remote's planned change as the store is asked to commit it: against the revision it was planned at, from its remote. */
 export function remoteCommit(plan: RemotePlan, command: RemoteCommandRequest): RemoteCommit {
   return { ...plan, expected_revision: plan.input_revision, area: command.area, via: 'remote', source: command.source };
-}
-
-/** The lamps an accepted remote change switches. Switched on, they are then rendered as a lamp-on apply. */
-export type PowerSwitch =
-  | { tag: 'off'; targets: PowerTarget[] }
-  | { tag: 'on_then_render'; targets: PowerTarget[] };
-
-/** What an accepted remote change switches: a power change its targets, any other change nothing. */
-export function acceptedPowerSwitch(plan: RemotePlan): PowerSwitch | undefined {
-  if (plan.op !== 'power') return undefined;
-  return { tag: plan.on ? 'on_then_render' : 'off', targets: plan.targets };
 }

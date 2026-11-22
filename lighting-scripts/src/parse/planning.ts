@@ -39,11 +39,48 @@ import type { SwitchId } from '../domain/types/ids.ts';
 import { lampOrRoom } from './lighting-state.ts';
 import { parseOverlayKey } from './overlay-key.ts';
 
-function requiredObjectValue(value: JsonValue | undefined, context: string): JsonObject {
-  return value === undefined ? requireObject({}, 'value', context) : requireObject({ value }, 'value', context);
+/**
+ * Captured room/reason/overrides are raw at 43/3/9 sites. Room drives string
+ * operations and indexing, while the script field declarations give reason and
+ * overrides their `remote` / `{}` fallbacks. test_now has three
+ * `| default(none)` sites and its timestamp path uses a truthiness
+ * conditional. Cache is read raw 26 times behind mapping guards; an absent or
+ * non-mapping cache remains a miss, while its indexed baseline, schedule,
+ * targets, details, profiles, gradients and catalog are parsed. A missing
+ * selected-room schedule detail keeps the captured empty-object fallback; its
+ * `cur` is parsed as a block (see `parse/blocks.ts` for why the captured
+ * `or 'night'` is not reproduced). power/ranges/defaults each have one mapping
+ * guard and one source default, so malformed or absent values retain the
+ * captured runtime fallbacks.
+ */
+export function parseRoomPlanArgs(args: JsonObject): RoomPlanRequest {
+  const room = toRoomId(requireString(args, 'room', 'ls_room_plan'));
+  return {
+    room,
+    reason: args.reason === undefined ? 'remote' : requireString(args, 'reason', 'ls_room_plan'),
+    testNow: testNow(args.test_now),
+    overrides: parseOverrides(args.overrides === undefined ? {} : requireObject(args, 'overrides', 'ls_room_plan')),
+    cache: validCache(args.cache, room),
+    power: isObject(args.power) ? carry(args.power) : undefined,
+    ranges: isObject(args.ranges) ? carry(args.ranges) : undefined,
+    defaults: isObject(args.defaults) ? carry(args.defaults) : undefined,
+  };
 }
-function optionalString(value: JsonValue | undefined): string | undefined {
-  return typeof value === 'string' ? value : undefined;
+function testNow(value: JsonValue | undefined): TestNow {
+  return {
+    document: value === undefined ? undefined : carry(value),
+    instant: now => timestamp(jinjaTruthy(value) ? value : now),
+  };
+}
+
+/** The stored records; one that is not a mapping has no facts, and every captured loop skips it. */
+function parseOverrides(records: JsonObject): Overrides {
+  return {
+    document: carry(records),
+    entries: Object.entries(records).map(([key, value]) => ({
+      key: parseOverlayKey(key), document: carry(value), record: isObject(value) ? overrideFacts(value) : undefined,
+    })),
+  };
 }
 
 /**
@@ -68,102 +105,8 @@ function overrideFacts(r: JsonObject): OverrideFacts {
   };
 }
 
-/** The stored records; one that is not a mapping has no facts, and every captured loop skips it. */
-function parseOverrides(records: JsonObject): Overrides {
-  return {
-    document: carry(records),
-    entries: Object.entries(records).map(([key, value]) => ({
-      key: parseOverlayKey(key), document: carry(value), record: isObject(value) ? overrideFacts(value) : undefined,
-    })),
-  };
-}
-
-function testNow(value: JsonValue | undefined): TestNow {
-  return {
-    document: value === undefined ? undefined : carry(value),
-    instant: now => timestamp(jinjaTruthy(value) ? value : now),
-  };
-}
-
-function roomDetails(details: JsonObject, room: string, context: string): RoomDetails {
-  const S = details[room] === undefined ? {} : requireObject(details, room, context);
-  return {
-    document: carry(S),
-    cur: carry(S.cur ?? null),
-    curIsNight: S.cur === 'night',
-    block: savedBlock(S.cur),
-    fading: jinjaTruthy(S.fading),
-    fadingOrAbsent: jinjaTruthy(S.fading === undefined ? true : S.fading),
-    number: (key: DetailField, at: string) => S[key] === undefined ? 0 : requireNumber(S, key, at),
-    required: (key: DetailField, at: string) => requireNumber(S, key, at),
-  };
-}
-
-function baselineTarget(entity: string, value: JsonValue): BaselineTarget {
-  const t = requiredObjectValue(value, `ls_room_plan.baseline.targets.${entity}`);
-  return { document: carry(t), lampOrRoom: lampOrRoom(entity, t.is_room) };
-}
-
-/**
- * A room baseline: `ls_room_base`'s result on a miss, the cached copy on a hit.
- * The four containers are required here, in the order they always were; each
- * target and each profile is required only when the refresh reaches it.
- */
-export function parseRoomBaseline(value: JsonValue | undefined, context: string): RoomBaseline {
-  const raw = requiredObjectValue(value, context);
-  const targets = requireObject(raw, 'targets', context);
-  const scheduleContext = `${context}.schedule`;
-  const schedule = requiredObjectValue(raw.schedule, scheduleContext);
-  const details = requireObject(schedule, 'schedule_details', scheduleContext);
-  const profiles = requireObject(schedule, 'profiles', scheduleContext);
-  return {
-    document: carry(raw),
-    targets: carry(targets),
-    targetEntries: Object.entries(targets).map(([entity, t]) => ({ entity, target: () => baselineTarget(entity, t) })),
-    schedule: carry(schedule),
-    details: (room, at) => roomDetails(details, room, at),
-    profiles: Object.entries(profiles).map(([lamp, p]) => ({
-      lamp,
-      profile: () => {
-        // The refresh keeps every baseline target (each one an object, or it
-        // raised before the profiles are reached), so this is the check that
-        // the profile's lamp has one, with the refresh's message.
-        requireObject(targets, lamp, 'ls_room_plan refreshed targets');
-        return carry(requiredObjectValue(p, `ls_room_plan.baseline.schedule.profiles.${lamp}`));
-      },
-    })),
-  };
-}
-
-function finiteNumber(value: JsonValue | undefined): boolean {
-  return typeof value === 'number' && Number.isFinite(value);
-}
-
-/** A cached target the plan and the resolver read without raising: a mapping, with a readable colour and blend ends. */
-function readableTarget(target: JsonValue): boolean {
-  if (!isObject(target)) return false;
-  if (target.color !== undefined && !colorShape(target.color)) return false;
-  return !isObject(target.day) || !isObject(target.cosy) || readableBlendEnd(target.day) && readableBlendEnd(target.cosy);
-}
-
-/**
- * Can the plan read this cached baseline without raising? These are the reads
- * the captured sanitiser does not check and the plan makes on the cache: the
- * room's `last_fs` (absent or a number) on every kept cache, and on a hit its
- * `left` and `cur_ts` (numbers), its `next_fs` (absent or a number, read by the
- * remote plan from the answer), every target, the room target's `period`
- * (absent or text, where the remote plan's preset cycle starts), and every
- * profile (a mapping, for a lamp with a target). The captured script raises where one of them
- * fails; the cache is saved data, so such a cache is a miss instead
- * (2026-11-21: corrupt saved data recovers to a default).
- */
-function readableBaseline(targets: JsonObject, profiles: JsonObject, details: JsonObject, room: string): boolean {
-  for (const key of ['last_fs', 'next_fs']) if (details[key] !== undefined && !finiteNumber(details[key])) return false;
-  if (!finiteNumber(details.left) || !finiteNumber(details.cur_ts)) return false;
-  if (!Object.values(targets).every(readableTarget)) return false;
-  const period = object(targets[`room:${room}`]).period;
-  if (period !== undefined && typeof period !== 'string') return false;
-  return Object.entries(profiles).every(([lamp, profile]) => isObject(profile) && isObject(targets[lamp]));
+function optionalString(value: JsonValue | undefined): string | undefined {
+  return typeof value === 'string' ? value : undefined;
 }
 
 /**
@@ -212,30 +155,87 @@ function validCache(value: JsonValue | undefined, room: string): RoomCache | und
 }
 
 /**
- * Captured room/reason/overrides are raw at 43/3/9 sites. Room drives string
- * operations and indexing, while the script field declarations give reason and
- * overrides their `remote` / `{}` fallbacks. test_now has three
- * `| default(none)` sites and its timestamp path uses a truthiness
- * conditional. Cache is read raw 26 times behind mapping guards; an absent or
- * non-mapping cache remains a miss, while its indexed baseline, schedule,
- * targets, details, profiles, gradients and catalog are parsed. A missing
- * selected-room schedule detail keeps the captured empty-object fallback; its
- * `cur` is parsed as a block (see `parse/blocks.ts` for why the captured
- * `or 'night'` is not reproduced). power/ranges/defaults each have one mapping
- * guard and one source default, so malformed or absent values retain the
- * captured runtime fallbacks.
+ * Can the plan read this cached baseline without raising? These are the reads
+ * the captured sanitiser does not check and the plan makes on the cache: the
+ * room's `last_fs` (absent or a number) on every kept cache, and on a hit its
+ * `left` and `cur_ts` (numbers), its `next_fs` (absent or a number, read by the
+ * remote plan from the answer), every target, the room target's `period`
+ * (absent or text, where the remote plan's preset cycle starts), and every
+ * profile (a mapping, for a lamp with a target). The captured script raises where one of them
+ * fails; the cache is saved data, so such a cache is a miss instead
+ * (2026-11-21: corrupt saved data recovers to a default).
  */
-export function parseRoomPlanArgs(args: JsonObject): RoomPlanRequest {
-  const room = toRoomId(requireString(args, 'room', 'ls_room_plan'));
+function readableBaseline(targets: JsonObject, profiles: JsonObject, details: JsonObject, room: string): boolean {
+  for (const key of ['last_fs', 'next_fs']) if (details[key] !== undefined && !finiteNumber(details[key])) return false;
+  if (!finiteNumber(details.left) || !finiteNumber(details.cur_ts)) return false;
+  if (!Object.values(targets).every(readableTarget)) return false;
+  const period = object(targets[`room:${room}`]).period;
+  if (period !== undefined && typeof period !== 'string') return false;
+  return Object.entries(profiles).every(([lamp, profile]) => isObject(profile) && isObject(targets[lamp]));
+}
+
+function finiteNumber(value: JsonValue | undefined): boolean {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+/** A cached target the plan and the resolver read without raising: a mapping, with a readable colour and blend ends. */
+function readableTarget(target: JsonValue): boolean {
+  if (!isObject(target)) return false;
+  if (target.color !== undefined && !colorShape(target.color)) return false;
+  return !isObject(target.day) || !isObject(target.cosy) || readableBlendEnd(target.day) && readableBlendEnd(target.cosy);
+}
+
+/**
+ * A room baseline: `ls_room_base`'s result on a miss, the cached copy on a hit.
+ * The four containers are required here, in the order they always were; each
+ * target and each profile is required only when the refresh reaches it.
+ */
+export function parseRoomBaseline(value: JsonValue | undefined, context: string): RoomBaseline {
+  const raw = requiredObjectValue(value, context);
+  const targets = requireObject(raw, 'targets', context);
+  const scheduleContext = `${context}.schedule`;
+  const schedule = requiredObjectValue(raw.schedule, scheduleContext);
+  const details = requireObject(schedule, 'schedule_details', scheduleContext);
+  const profiles = requireObject(schedule, 'profiles', scheduleContext);
   return {
-    room,
-    reason: args.reason === undefined ? 'remote' : requireString(args, 'reason', 'ls_room_plan'),
-    testNow: testNow(args.test_now),
-    overrides: parseOverrides(args.overrides === undefined ? {} : requireObject(args, 'overrides', 'ls_room_plan')),
-    cache: validCache(args.cache, room),
-    power: isObject(args.power) ? carry(args.power) : undefined,
-    ranges: isObject(args.ranges) ? carry(args.ranges) : undefined,
-    defaults: isObject(args.defaults) ? carry(args.defaults) : undefined,
+    document: carry(raw),
+    targets: carry(targets),
+    targetEntries: Object.entries(targets).map(([entity, t]) => ({ entity, target: () => baselineTarget(entity, t) })),
+    schedule: carry(schedule),
+    details: (room, at) => roomDetails(details, room, at),
+    profiles: Object.entries(profiles).map(([lamp, p]) => ({
+      lamp,
+      profile: () => {
+        // The refresh keeps every baseline target (each one an object, or it
+        // raised before the profiles are reached), so this is the check that
+        // the profile's lamp has one, with the refresh's message.
+        requireObject(targets, lamp, 'ls_room_plan refreshed targets');
+        return carry(requiredObjectValue(p, `ls_room_plan.baseline.schedule.profiles.${lamp}`));
+      },
+    })),
+  };
+}
+
+function requiredObjectValue(value: JsonValue | undefined, context: string): JsonObject {
+  return value === undefined ? requireObject({}, 'value', context) : requireObject({ value }, 'value', context);
+}
+
+function baselineTarget(entity: string, value: JsonValue): BaselineTarget {
+  const t = requiredObjectValue(value, `ls_room_plan.baseline.targets.${entity}`);
+  return { document: carry(t), lampOrRoom: lampOrRoom(entity, t.is_room) };
+}
+
+function roomDetails(details: JsonObject, room: string, context: string): RoomDetails {
+  const S = details[room] === undefined ? {} : requireObject(details, room, context);
+  return {
+    document: carry(S),
+    cur: carry(S.cur ?? null),
+    curIsNight: S.cur === 'night',
+    block: savedBlock(S.cur),
+    fading: jinjaTruthy(S.fading),
+    fadingOrAbsent: jinjaTruthy(S.fading === undefined ? true : S.fading),
+    number: (key: DetailField, at: string) => S[key] === undefined ? 0 : requireNumber(S, key, at),
+    required: (key: DetailField, at: string) => requireNumber(S, key, at),
   };
 }
 

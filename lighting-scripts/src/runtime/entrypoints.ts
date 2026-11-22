@@ -68,6 +68,16 @@ export interface TypedEntry<A = unknown, R = unknown> {
 }
 
 /**
+ * The typed half of a registered handler, or `undefined` when something else
+ * answers to this name -- a test stub, or the parity harness's literal
+ * dependency. Those speak JSON and have to be decoded.
+ */
+function typedEntry(handler: ScriptHandler, name: string): TypedEntry | undefined {
+  const entry = (handler as Partial<TypedScriptHandler>).typed;
+  return entry !== undefined && entry.name === name ? entry : undefined;
+}
+
+/**
  * A registered handler that also carries its typed half.
  *
  * It stays a *function*, so the name-keyed table is unchanged for every
@@ -92,16 +102,6 @@ export function typed<K extends TypedName, A>(name: K, handler: {
   const entry: TypedEntry<A, TypedResults[K]> = { name, parse: handler.parse, run: handler.run };
   const shim: ScriptHandler = (context, args) => resultCodecs[name].encode(handler.run(context, handler.parse(args)));
   return Object.assign(shim, { typed: entry as TypedEntry }) as TypedScriptHandler;
-}
-
-/**
- * The typed half of a registered handler, or `undefined` when something else
- * answers to this name -- a test stub, or the parity harness's literal
- * dependency. Those speak JSON and have to be decoded.
- */
-function typedEntry(handler: ScriptHandler, name: string): TypedEntry | undefined {
-  const entry = (handler as Partial<TypedScriptHandler>).typed;
-  return entry !== undefined && entry.name === name ? entry : undefined;
 }
 
 /**

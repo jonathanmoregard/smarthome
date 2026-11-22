@@ -28,25 +28,15 @@ import { saraModeChange } from '../domain/sara-mode.ts';
 import { isRangeDefault } from '../domain/range-defaults.ts';
 import { overlayKeyText, SARA_MODE } from '../domain/types/overlay.ts';
 
-function turnOn(script: string): Effect {
-  return { kind: 'service', service: 'script.turn_on', data: {}, target: { entity_id: `script.${script}` } };
-}
-
-/** A remote's gesture, forwarded to the room's gesture script; optional fields only when they are strings. */
-export function* forwardRemote(kind: RemoteKind, args: RemoteTrigger): Plan<null> {
-  const data: { command: StoredValue; payload?: Verbatim; source?: string; device_id?: string } = { command: args.command };
-  if (kind === 'preset') data.payload = args.payload;
-  if (args.source !== undefined) data.source = args.source;
-  if (args.deviceId !== undefined) data.device_id = args.deviceId;
-  yield { kind: 'script', name: `ls_remote_gesture_${args.room}`, args: data };
-  return null;
-}
-
 /** Set the control, then resync the UI proxies. */
 export function* forwardNativeControl(source: string, attribute: string, value: Verbatim): Plan<null> {
   yield { kind: 'script', name: 'effects_set', args: { source, attribute, value } };
   yield turnOn('effects_ui_sync');
   return null;
+}
+
+function turnOn(script: string): Effect {
+  return { kind: 'service', service: 'script.turn_on', data: {}, target: { entity_id: `script.${script}` } };
 }
 
 /** The override store writer commits the event's data with `who` replaced. */
@@ -138,6 +128,16 @@ export function houseRangeDefaults(view: HouseView): Effect[] {
 
 function remote(kind: RemoteKind): ScriptHandler {
   return withParsedArgs({ parse: args => parseRemoteArgs(kind, args), run: (ctx, args: RemoteTrigger) => run(ctx, forwardRemote(kind, args)) });
+}
+
+/** A remote's gesture, forwarded to the room's gesture script; optional fields only when they are strings. */
+export function* forwardRemote(kind: RemoteKind, args: RemoteTrigger): Plan<null> {
+  const data: { command: StoredValue; payload?: Verbatim; source?: string; device_id?: string } = { command: args.command };
+  if (kind === 'preset') data.payload = args.payload;
+  if (args.source !== undefined) data.source = args.source;
+  if (args.deviceId !== undefined) data.device_id = args.deviceId;
+  yield { kind: 'script', name: `ls_remote_gesture_${args.room}`, args: data };
+  return null;
 }
 const runtime = 'sensor.ls_effects_runtime';
 const store = 'sensor.ls_overrides';

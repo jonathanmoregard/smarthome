@@ -9,14 +9,6 @@ interface DeviceEntry { id: string; area_id: string | null; labels?: string[]; i
 interface AreaEntry { area_id: string; labels?: string[] }
 interface LabelEntry { label_id: string; name: string }
 export interface HaEvent { event_type: string; data: JsonObject; context?: { user_id?: string | null } }
-function snapshotState(state: {
-  state: string; attributes: unknown; entity_id: string; context?: unknown; last_changed: string; last_updated: string;
-}): EntityState {
-  const context = state.context !== null && typeof state.context === 'object' && !Array.isArray(state.context)
-    ? state.context as JsonObject : undefined;
-  return { state: state.state, attributes: state.attributes as JsonObject, entity_id: state.entity_id,
-    last_changed: state.last_changed, last_updated: state.last_updated, ...(context ? { context } : {}) };
-}
 /** Connection/reconnect/authentication are owned by the official HA client. */
 export class HomeAssistantTransport implements OutputTransport {
   private readonly connection: Connection;
@@ -124,4 +116,12 @@ export class HomeAssistantTransport implements OutputTransport {
     await Promise.allSettled(this.subscriptions.map(unsubscribe => unsubscribe()));
     this.subscriptions.length = 0; this.listeners.length = 0;
   }
+}
+function snapshotState(state: {
+  state: string; attributes: unknown; entity_id: string; context?: unknown; last_changed: string; last_updated: string;
+}): EntityState {
+  const context = state.context !== null && typeof state.context === 'object' && !Array.isArray(state.context)
+    ? state.context as JsonObject : undefined;
+  return { state: state.state, attributes: state.attributes as JsonObject, entity_id: state.entity_id,
+    last_changed: state.last_changed, last_updated: state.last_updated, ...(context ? { context } : {}) };
 }

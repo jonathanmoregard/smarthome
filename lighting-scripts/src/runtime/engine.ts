@@ -10,12 +10,6 @@ import { parseRooms } from '../parse/rooms.ts';
 export interface ExecutionRequest { script: string; args: JsonObject; snapshot: Snapshot }
 export interface ExecutionOutcome { result: JsonValue; snapshot: Snapshot; calls: ServiceCall[]; events: EventRecord[] }
 
-function finite(value: unknown): void {
-  if (typeof value === 'number' && !Number.isFinite(value)) throw new Error('JSON output must contain finite numbers');
-  if (Array.isArray(value)) value.forEach(finite);
-  else if (value && typeof value === 'object') Object.values(value).forEach(finite);
-}
-
 /**
  * The hooks {@link execute} (and the context it builds) takes. Kept as a
  * record: every hook is optional, defaulting to none, and each caller sets
@@ -79,19 +73,6 @@ class Context implements ScriptContext {
     this.entitySources = copy.entitySources ?? {};
   }
 
-  /**
-   * Parsed on first read, not in the constructor.
-   *
-   * Most scripts never touch the catalog, and parsing eagerly would make a
-   * malformed registry raise for all of them instead of only for the ones that
-   * read it -- a different observable behaviour from the per-consumer parses
-   * this replaces, and the parity gate compares raised errors.
-   */
-  get catalog(): Catalog {
-    this.parsed ??= this.raw === undefined ? emptyCatalog() : parseCatalog(this.raw);
-    return this.parsed;
-  }
-
   rawCatalog(): JsonObject { return this.raw ?? {}; }
 
   /**
@@ -140,6 +121,30 @@ class Context implements ScriptContext {
   }
 
   /**
+   * Parsed on first read, not in the constructor.
+   *
+   * Most scripts never touch the catalog, and parsing eagerly would make a
+   * malformed registry raise for all of them instead of only for the ones that
+   * read it -- a different observable behaviour from the per-consumer parses
+   * this replaces, and the parity gate compares raised errors.
+   */
+  get catalog(): Catalog {
+    this.parsed ??= this.raw === undefined ? emptyCatalog() : parseCatalog(this.raw);
+    return this.parsed;
+  }
+
+  private dispatch<T>(name: string, args: JsonObject, invoke: () => T): T {
+    this.scriptRuns.push(name);
+    this.hooks.beforeScript?.(name, args, this);
+    if (++this.depth > 64) throw new Error('Script call depth exceeded');
+    try {
+      const result = invoke();
+      this.hooks.afterScript?.(name, args, this);
+      return result;
+    } finally { this.depth--; }
+  }
+
+  /**
    * The typed half of {@link run}.
    *
    * Identical dispatch -- same `scriptRuns` entry, same hooks, same depth
@@ -154,28 +159,7 @@ class Context implements ScriptContext {
     return typedDispatch(name, handler, this, args, call => this.dispatch(name, args, call));
   }
 
-  private dispatch<T>(name: string, args: JsonObject, invoke: () => T): T {
-    this.scriptRuns.push(name);
-    this.hooks.beforeScript?.(name, args, this);
-    if (++this.depth > 64) throw new Error('Script call depth exceeded');
-    try {
-      const result = invoke();
-      this.hooks.afterScript?.(name, args, this);
-      return result;
-    } finally { this.depth--; }
-  }
-
-  get(entity: string): string { return this.state[entity]?.state ?? 'unknown'; }
   attr(entity: string, key: string): JsonValue | undefined { return this.state[entity]?.attributes[key]; }
-  put(entity: string, state: string, attributes?: JsonObject): void {
-    const previous = this.state[entity];
-    this.state[entity] = {
-      entity_id: entity, state,
-      attributes: structuredClone(attributes ?? previous?.attributes ?? {}),
-      last_updated: this.now,
-      last_changed: previous?.state === state ? previous.last_changed ?? this.now : this.now,
-    };
-  }
   emit(service: string, data: JsonObject, target?: JsonObject, guard?: OutputGuard): void {
     const call = structuredClone({ service, data, time: this.elapsed, ...(target ? { target } : {}), ...(guard ? { guard } : {}) });
     this.hooks.beforeService?.(call, this);
@@ -194,6 +178,16 @@ class Context implements ScriptContext {
     }
     this.hooks.afterService?.(call, this);
   }
+  put(entity: string, state: string, attributes?: JsonObject): void {
+    const previous = this.state[entity];
+    this.state[entity] = {
+      entity_id: entity, state,
+      attributes: structuredClone(attributes ?? previous?.attributes ?? {}),
+      last_updated: this.now,
+      last_changed: previous?.state === state ? previous.last_changed ?? this.now : this.now,
+    };
+  }
+  get(entity: string): string { return this.state[entity]?.state ?? 'unknown'; }
   fire(event: string, data: JsonObject): void { this.events.push({ event, data: structuredClone(data) }); }
   schedule(script: string, args: JsonObject, delayMs: number): void {
     if (!Number.isFinite(delayMs) || delayMs < 0) throw new Error('Schedule delay must be nonnegative and finite');
@@ -216,4 +210,10 @@ export function execute(
   const output = { result, snapshot: context.snapshot(), calls: context.calls, events: context.events, scriptRuns: context.scriptRuns };
   finite(output);
   return output;
+}
+
+function finite(value: unknown): void {
+  if (typeof value === 'number' && !Number.isFinite(value)) throw new Error('JSON output must contain finite numbers');
+  if (Array.isArray(value)) value.forEach(finite);
+  else if (value && typeof value === 'object') Object.values(value).forEach(finite);
 }

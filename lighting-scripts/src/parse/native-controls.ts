@@ -31,33 +31,6 @@ import type { Brightness, Kelvin } from '../domain/types/light.ts';
 import { roundEven } from '../domain/scale.ts';
 import { toBrightness, toBulbId, toKelvin, toLampId, toRoomId } from './ids.ts';
 
-function selector(container: JsonObject, key: string, split = false): string[] {
-  const value = container[key];
-  if (value === undefined) return [];
-  const values = typeof value === 'string' ? (split ? value.split(',') : [value]) : requireArray(container, key, 'effects_native_plan.sd');
-  return values.map((item, index) => requireString({ item }, 'item', `effects_native_plan.sd.${key}[${index}]`));
-}
-function stringArray(value: JsonValue | undefined, context: string): string[] {
-  return requireArray({ value: value ?? [] }, 'value', context).map((item, index) =>
-    requireString({ item }, 'item', `${context}[${index}]`));
-}
-function numberArray(container: JsonObject, key: string, length: 2, context: string): [number, number];
-function numberArray(container: JsonObject, key: string, length: 3, context: string): RGB;
-function numberArray(container: JsonObject, key: string, length: 4 | 5, context: string): number[];
-function numberArray(container: JsonObject, key: string, length: number, context: string): number[] {
-  const values = requireArray(container, key, context);
-  if (values.length !== length) throw new ParseError(`${context}.${key} must contain ${length} values`);
-  const parsed = values.map((value, index) => requireNumber({ value }, 'value', `${context}.${key}[${index}]`));
-  if (length === 2) return [parsed[0]!, parsed[1]!];
-  if (length === 3) return [parsed[0]!, parsed[1]!, parsed[2]!];
-  return parsed;
-}
-function requiredValue(container: JsonObject, key: string, context: string): JsonValue {
-  const value = container[key];
-  if (value === undefined) throw new ParseError(`${context}.${key} is required`);
-  return value;
-}
-
 /** The catalog's `groups`: `source in groups`, and a group's members read on demand. */
 export interface CatalogGroups {
   has(source: string): boolean;
@@ -76,7 +49,6 @@ export interface NativeCatalog {
   groups: CatalogGroups;
   effects: CatalogEffects;
 }
-
 export function parseNativeCatalog(value: JsonValue | undefined, context: string): NativeCatalog {
   const catalog = value === undefined ? requireObject({}, 'value', context) : requireObject({ value }, 'value', context);
   const members = requireObject(catalog, 'members', context);
@@ -101,6 +73,10 @@ export function parseNativeCatalog(value: JsonValue | undefined, context: string
   };
 }
 
+function stringArray(value: JsonValue | undefined, context: string): string[] {
+  return requireArray({ value: value ?? [] }, 'value', context).map((item, index) =>
+    requireString({ item }, 'item', `${context}[${index}]`));
+}
 /** One plan target: whether it holds anything, its level on demand, and its document carried. */
 export interface PlanTarget {
   populated: boolean;
@@ -108,6 +84,19 @@ export interface PlanTarget {
   level(context: string): number | undefined;
   document: Verbatim;
 }
+/**
+ * The colour a reset to normal light returns to: the base colour under Sara,
+ * an effect's own `base` (else the base colour), otherwise the resolved value.
+ * Carried as read, absent included (an off lamp has no colour).
+ */
+export function underlyingColour(base: PlanTarget, resolved: PlanTarget): Verbatim {
+  const baseDocument = reveal(base.document) as JsonObject;
+  const color = requireObject(reveal(resolved.document) as JsonObject, 'color', 'resolved target');
+  return carryOptional(color.policy === 'sara'
+    ? baseDocument.color
+    : color.kind === 'effect' ? (color.base === undefined ? baseDocument.color : color.base) : color.value);
+}
+
 /** A plan's base or resolved targets. */
 export interface PlanTargets {
   /** `object(targets[key])` populated? A non-mapping is empty. */
@@ -132,22 +121,7 @@ function planTargets(targets: JsonObject): PlanTargets {
     },
   };
 }
-
-/**
- * The colour a reset to normal light returns to: the base colour under Sara,
- * an effect's own `base` (else the base colour), otherwise the resolved value.
- * Carried as read, absent included (an off lamp has no colour).
- */
-export function underlyingColour(base: PlanTarget, resolved: PlanTarget): Verbatim {
-  const baseDocument = reveal(base.document) as JsonObject;
-  const color = requireObject(reveal(resolved.document) as JsonObject, 'color', 'resolved target');
-  return carryOptional(color.policy === 'sara'
-    ? baseDocument.color
-    : color.kind === 'effect' ? (color.base === undefined ? baseDocument.color : color.base) : color.value);
-}
-
 export interface NativeCurrent { baseTargets: PlanTargets; resolvedTargets: PlanTargets }
-export interface LazyNativeCurrent { baseTargets: PlanTargets; resolvedTargets: () => PlanTargets }
 
 export function parseNativeCurrent(value: JsonValue | undefined, context: string): NativeCurrent {
   const current = value === undefined ? requireObject({}, 'value', context) : requireObject({ value }, 'value', context);
@@ -158,6 +132,9 @@ export function parseNativeCurrent(value: JsonValue | undefined, context: string
     resolvedTargets: planTargets(requireObject(resolved, 'targets', `${context}.plan.resolved`)),
   };
 }
+
+export interface LazyNativeCurrent { baseTargets: PlanTargets; resolvedTargets: () => PlanTargets }
+
 function parseLazyCurrent(value: JsonValue | undefined, context: string): LazyNativeCurrent {
   const current = value === undefined ? requireObject({}, 'value', context) : requireObject({ value }, 'value', context);
   const plan = requireObject(current, 'plan', context);
@@ -169,7 +146,6 @@ function parseLazyCurrent(value: JsonValue | undefined, context: string): LazyNa
     }),
   };
 }
-
 /**
  * The brightness a service call asks for, by the first key it holds. An
  * absolute value (`brightness`, `white`) is kept only when it is a number or a
@@ -193,16 +169,11 @@ export type ColourRequest =
   | { kind: 'name'; name: string }
   | { kind: 'white' }
   | { kind: 'none' };
-
 export interface ServiceData {
   brightness: BrightnessRequest;
   colour: ColourRequest;
   /** `effect | string`, when the call names one. */
   effect: string | undefined;
-}
-
-function absolute(value: JsonValue | undefined): number | boolean | undefined {
-  return typeof value === 'number' || typeof value === 'boolean' ? value : undefined;
 }
 
 function serviceData(sd: JsonObject): ServiceData {
@@ -228,18 +199,20 @@ function serviceData(sd: JsonObject): ServiceData {
   return { brightness, colour, effect: 'effect' in sd ? jinjaString(sd.effect) : undefined };
 }
 
-/** A lamp's Kelvin range, `| int(6500)` / `| int(2000)` as the captured adapter reads it. */
-export function lampKelvinRange(ctx: HouseView, lamp: string): { max: number; min: number } {
-  return {
-    max: jinjaInt(ctx.attr(lamp, 'max_color_temp_kelvin'), 6500),
-    min: jinjaInt(ctx.attr(lamp, 'min_color_temp_kelvin'), 2000),
-  };
+function absolute(value: JsonValue | undefined): number | boolean | undefined {
+  return typeof value === 'number' || typeof value === 'boolean' ? value : undefined;
 }
 
-/** A group or zone's children, `String`ed, when the attribute is a list. */
-export function groupChildren(ctx: HouseView, entity: string, zone: boolean): string[] | undefined {
-  const children = ctx.attr(entity, zone ? 'persons' : 'entity_id');
-  return Array.isArray(children) ? children.map(String) : undefined;
+function numberArray(container: JsonObject, key: string, length: 2, context: string): [number, number];
+function numberArray(container: JsonObject, key: string, length: 3, context: string): RGB;
+function numberArray(container: JsonObject, key: string, length: 4 | 5, context: string): number[];
+function numberArray(container: JsonObject, key: string, length: number, context: string): number[] {
+  const values = requireArray(container, key, context);
+  if (values.length !== length) throw new ParseError(`${context}.${key} must contain ${length} values`);
+  const parsed = values.map((value, index) => requireNumber({ value }, 'value', `${context}.${key}[${index}]`));
+  if (length === 2) return [parsed[0]!, parsed[1]!];
+  if (length === 3) return [parsed[0]!, parsed[1]!, parsed[2]!];
+  return parsed;
 }
 
 export interface NativePlanRequest {
@@ -278,6 +251,19 @@ export function parseNativePlanArgs(args: JsonObject): NativePlanRequest {
   };
 }
 
+function selector(container: JsonObject, key: string, split = false): string[] {
+  const value = container[key];
+  if (value === undefined) return [];
+  const values = typeof value === 'string' ? (split ? value.split(',') : [value]) : requireArray(container, key, 'effects_native_plan.sd');
+  return values.map((item, index) => requireString({ item }, 'item', `effects_native_plan.sd.${key}[${index}]`));
+}
+
+function requiredValue(container: JsonObject, key: string, context: string): JsonValue {
+  const value = container[key];
+  if (value === undefined) throw new ParseError(`${context}.${key} is required`);
+  return value;
+}
+
 /**
  * A raw control value as the range checks and the emitted data read it.
  *
@@ -292,6 +278,15 @@ export interface ControlScalar {
   /** `value | int` */
   int: number;
 }
+
+function controlScalar(value: JsonValue | undefined): ControlScalar {
+  const parsed = parsePythonNumeric(value);
+  return {
+    inRange: (low, high) => parsed !== undefined && low <= parsed && parsed <= high,
+    int: jinjaInt(value),
+  };
+}
+
 export interface ControlValue extends ControlScalar {
   /** The value as given, for comparison with literals. */
   raw: JsonValue | undefined;
@@ -311,15 +306,6 @@ export interface ControlValue extends ControlScalar {
   /** The value as a required string, raising as the inline read did. */
   string(context: string): string;
 }
-
-function controlScalar(value: JsonValue | undefined): ControlScalar {
-  const parsed = parsePythonNumeric(value);
-  return {
-    inRange: (low, high) => parsed !== undefined && low <= parsed && parsed <= high,
-    int: jinjaInt(value),
-  };
-}
-
 function controlValue(value: JsonValue | undefined): ControlValue {
   const parts = typeof value === 'string' ? value.split(',') : value;
   const scalar = controlScalar(value), float = jinjaFloat(value);
@@ -358,4 +344,18 @@ export function parseSetArgs(args: JsonObject): SetRequest {
     value: controlValue(attribute === 'effect' && args.value === 'Normal Light' ? 'Normal light' : args.value),
     dryRun: jinjaTruthy(args.dry_run),
   };
+}
+
+/** A lamp's Kelvin range, `| int(6500)` / `| int(2000)` as the captured adapter reads it. */
+export function lampKelvinRange(ctx: HouseView, lamp: string): { max: number; min: number } {
+  return {
+    max: jinjaInt(ctx.attr(lamp, 'max_color_temp_kelvin'), 6500),
+    min: jinjaInt(ctx.attr(lamp, 'min_color_temp_kelvin'), 2000),
+  };
+}
+
+/** A group or zone's children, `String`ed, when the attribute is a list. */
+export function groupChildren(ctx: HouseView, entity: string, zone: boolean): string[] | undefined {
+  const children = ctx.attr(entity, zone ? 'persons' : 'entity_id');
+  return Array.isArray(children) ? children.map(String) : undefined;
 }

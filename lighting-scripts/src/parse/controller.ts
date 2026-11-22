@@ -30,45 +30,6 @@ import { remotePress } from './remote-input.ts';
 
 const lenientList = (v: JsonValue | undefined): JsonValue[] => Array.isArray(v) ? v : [];
 
-/** Captured `{{ value|default(none) }}` forwarded to another script: the value unread, none when absent. */
-function forwardedOrNone(value: JsonValue | undefined): Verbatim {
-  return carry(value === undefined ? null : value);
-}
-
-function optionalScriptBoolean(value: JsonValue | undefined, context: string): boolean {
-  return value === undefined ? false : requireBoolean(value, context);
-}
-
-/** A saved `sensor.ls_overrides` mapping, captured `attr or {}`, read by {@link savedMappingOr}. */
-function attributeMappingOr(value: JsonValue | undefined): JsonObject {
-  return savedMappingOr(value, {});
-}
-
-function planOverridesOf(value: JsonObject): PlanOverrides {
-  return { document: carry(value), entries: opaqueMap(value) };
-}
-
-/** Captured `is number`: a finite number, or a boolean (Python's 0 or 1). */
-const jinjaNumber = (v: JsonValue | undefined): v is number | boolean => typeof v === 'boolean' || typeof v === 'number' && Number.isFinite(v);
-const asNumber = (v: number | boolean): number => typeof v === 'boolean' ? Number(v) : v;
-
-/**
- * One switch rule's interval: `[min, max]` for a custom rule, else the
- * profile's default -- looked up only for a text profile, since
- * `defaults.get(profile,[])` finds no other key and raises on a container
- * (lenient saved-value directive: no range) -- and `undefined` unless a valid
- * 0-100 range.
- */
-function switchRange(rule: JsonObject, defaults: JsonObject): SwitchInterval | undefined {
-  const interval = rule.profile === 'custom' ? [rule.min, rule.max]
-    : typeof rule.profile === 'string' ? lenientList(defaults[rule.profile]) : [];
-  const first = interval[0], second = interval[1];
-  if (interval.length !== 2 || !jinjaNumber(first) || !jinjaNumber(second)) return undefined;
-  const low = asNumber(first), high = asNumber(second);
-  if (!(0 <= low && low <= high && high <= 100)) return undefined;
-  return { low: toPercent(low), high: toPercent(high), stored: [first, second] };
-}
-
 // Captured targets/defaults each use mapping.get once and ranges uses
 // mapping.items once; all three therefore require real mappings. A rule and a
 // room target are read leniently; the target's `on` is required only once its
@@ -93,6 +54,23 @@ export function parseSwitchPlanArgs(args: JsonObject): SwitchPlanRequest {
   };
 }
 
+/**
+ * One switch rule's interval: `[min, max]` for a custom rule, else the
+ * profile's default -- looked up only for a text profile, since
+ * `defaults.get(profile,[])` finds no other key and raises on a container
+ * (lenient saved-value directive: no range) -- and `undefined` unless a valid
+ * 0-100 range.
+ */
+function switchRange(rule: JsonObject, defaults: JsonObject): SwitchInterval | undefined {
+  const interval = rule.profile === 'custom' ? [rule.min, rule.max]
+    : typeof rule.profile === 'string' ? lenientList(defaults[rule.profile]) : [];
+  const first = interval[0], second = interval[1];
+  if (interval.length !== 2 || !jinjaNumber(first) || !jinjaNumber(second)) return undefined;
+  const low = asNumber(first), high = asNumber(second);
+  if (!(0 <= low && low <= high && high <= 100)) return undefined;
+  return { low: toPercent(low), high: toPercent(high), stored: [first, second] };
+}
+
 // Captured test_now has one default(none), reason two default('config')
 // sites, room one default(''), and test_overrides is optional at two sites.
 export function parsePlanArgs(args: JsonObject): PlanRequest {
@@ -106,6 +84,19 @@ export function parsePlanArgs(args: JsonObject): PlanRequest {
     reason: args.reason === undefined ? 'config' : requireString(args, 'reason', 'ls_plan'),
     room: args.room === undefined ? undefined : roomOfText(requireString(args, 'room', 'ls_plan')),
   };
+}
+
+function planOverridesOf(value: JsonObject): PlanOverrides {
+  return { document: carry(value), entries: opaqueMap(value) };
+}
+
+/** Captured `is number`: a finite number, or a boolean (Python's 0 or 1). */
+const jinjaNumber = (v: JsonValue | undefined): v is number | boolean => typeof v === 'boolean' || typeof v === 'number' && Number.isFinite(v);
+const asNumber = (v: number | boolean): number => typeof v === 'boolean' ? Number(v) : v;
+
+/** Captured `{{ value|default(none) }}` forwarded to another script: the value unread, none when absent. */
+function forwardedOrNone(value: JsonValue | undefined): Verbatim {
+  return carry(value === undefined ? null : value);
 }
 
 // Captured dry_run/force_all use boolean defaults, test_now and
@@ -129,6 +120,10 @@ export function parseApplyArgs(args: JsonObject): ApplyRequest {
   };
 }
 
+function optionalScriptBoolean(value: JsonValue | undefined, context: string): boolean {
+  return value === undefined ? false : requireBoolean(value, context);
+}
+
 // Captured source/area/command are raw at four/four/two sites and drive
 // identifiers and command dispatch; dry_run has default(false).
 export function parseRemoteCommandArgs(args: JsonObject): RemoteCommandRequest {
@@ -143,6 +138,11 @@ export function parseRemoteCommandArgs(args: JsonObject): RemoteCommandRequest {
 /** `sensor.ls_overrides`'s `overrides`, captured `overrides or {}`, read by {@link savedMappingOr}. */
 export function planOverrides(value: JsonValue | undefined): PlanOverrides {
   return planOverridesOf(attributeMappingOr(value));
+}
+
+/** A saved `sensor.ls_overrides` mapping, captured `attr or {}`, read by {@link savedMappingOr}. */
+function attributeMappingOr(value: JsonValue | undefined): JsonObject {
+  return savedMappingOr(value, {});
 }
 
 /** A saved attribute mapping `ls_plan` forwards, captured `attr or {}`, read by {@link savedMappingOr}. */

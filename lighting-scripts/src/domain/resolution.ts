@@ -15,18 +15,6 @@ const CHANNELS = ['brightness', 'color'] as const;
 export type Channel = typeof CHANNELS[number];
 
 /**
- * The lamps that may run Candle: Candle runs on the bulb's own firmware, so a
- * lamp may run it iff it has at least one bulb and every bulb is declared
- * flashed with that firmware (`bulbs.<entity>.candle`). A lamp with no bulbs
- * has nothing to run it on.
- */
-export function candleLamps(catalog: Pick<Catalog, 'members' | 'bulbs'>): ReadonlySet<string> {
-  return new Set(Object.entries(catalog.members)
-    .filter(([, bulbs]) => bulbs.length > 0 && bulbs.every(bulb => catalog.bulbs[bulb]?.candle === true))
-    .map(([lamp]) => lamp));
-}
-
-/**
  * A value a channel can hold. A colour is always parsed. A brightness is a
  * number, or -- when it is the base document's own value, which the resolver
  * passes through without validating -- carried raw, because it reaches the
@@ -34,6 +22,9 @@ export function candleLamps(catalog: Pick<Catalog, 'members' | 'bulbs'>): Readon
  * JavaScript applied to it before.
  */
 export type ChannelValue = number | Verbatim | Color;
+
+/** A channel value's level for placing a position: a channel that shows nothing (an off lamp) reads as {@link OFF_END_LEVEL}. */
+function positionLevel(value: ChannelValue | undefined): number { return value === undefined ? OFF_END_LEVEL : levelNumber(value); }
 /**
  * A claim's `updated`. Sanitised claims hold a number; a remote input's own
  * claims hold whatever the record stores, so the two coercions the resolver
@@ -41,6 +32,7 @@ export type ChannelValue = number | Verbatim | Color;
  * computed by the parser, and `value` is what reaches the output.
  */
 export type Stamp = { value: number | Verbatim; numeric: number; text: string };
+function numericStamp(n: number): Stamp { return { value: n, numeric: n, text: `${n}` }; }
 /** `anchor`, as the position seed and the low-brightness rule read it. Absent counts as `current`. */
 export type InputAnchor = 'day' | 'cosy' | 'current' | 'other';
 /**
@@ -79,6 +71,18 @@ export type Claim =
     updated: number | undefined;
   }
   | { kind: 'invalid'; updated: number | undefined };
+/** A remote scale source is read as an input with no steps from its legacy position. */
+function remoteInput(claim: Extract<Claim, { kind: 'scale' }>): Claim {
+  return {
+    kind: 'input',
+    input: { steps: 0, lower: -20, upper: 20, bounds: { ...DEFAULT_STEP_BOUNDS }, anchor: 'current', legacyPosition: claim.legacyPosition,
+      last: undefined, hasUp: false },
+    updated: claim.updated,
+  };
+}
+function effectClaim(effect: string | undefined, key: string, intensity: number | undefined): Claim {
+  return { kind: 'effect', effect, instance: key.length > 0 ? key : undefined, intensity, carried: undefined, updated: undefined };
+}
 export type Patch = { brightness?: Claim; color?: Claim };
 export type InputClaim = { claim: Claim; updated: Stamp };
 /** A `light` record's value: `null`/absent, a mapping, or something else (no patch). */
@@ -112,6 +116,21 @@ export type OverrideRecord = {
   channels: Patch | undefined;
   light: LightValue | undefined;
 };
+
+/**
+ * The newest remote input stream for a room, over records already in lexical
+ * key order: the room-scoped remote records whose saved target `isRoom` accepts.
+ */
+export function latestStream(records: OverrideRecord[], isRoom: (target: OverrideRecord['target']) => boolean): OverlayKey {
+  // The scripts start from the empty key and keep it when no remote record applies.
+  let key: OverlayKey = EMPTY_KEY, stamp = -1;
+  for (const record of records) {
+    if (record.storedScope !== 'room' || !isRoom(record.target) || !isRemoteStream(record)) continue;
+    if (record.stamp >= stamp) { key = record.key; stamp = record.stamp; }
+  }
+  return key;
+}
+function isRemoteStream(r: OverrideRecord): boolean { return r.kind === 'input' || (r.kind === 'channels' && r.via === 'remote'); }
 /**
  * A target's room: the room its document's `area` names, or none, when `area`
  * is absent, `null` (the schedule's lamp in no room) or a saved value that is
@@ -122,6 +141,7 @@ export type OverrideRecord = {
 export type TargetArea = { kind: 'room'; room: RoomId } | { kind: 'no room' };
 /** Both ends of a target's cosy <-> day blend. */
 export type BlendEnds = { day: BlendEnd; cosy: BlendEnd };
+
 /**
  * A base target. `anchors`/`color` raise on a malformed value, so they parse
  * when read.
@@ -153,7 +173,6 @@ export type BaseItem = {
   brightness: Verbatim | undefined;
   claims: { observedBrightness: Claim; observedColor: Claim; brightness: Claim; color: Claim };
 };
-
 type Updated = number | Verbatim;
 /**
  * What a channel resolved to. Key order is the order these are built in, and
@@ -189,86 +208,17 @@ export type ResolvedTarget = {
   owners: { brightness: string; color: string };
   transition: Verbatim;
 };
-export type Resolution = { targets: Record<string, ResolvedTarget>; assignments: Record<string, ResolvedTarget> };
 
+export type Resolution = { targets: Record<string, ResolvedTarget>; assignments: Record<string, ResolvedTarget> };
 type Candidate = { key: OverlayKey; updated: Stamp; claim: Claim; baselineOnly: boolean };
 type InputPosition = { position: number; level: number };
 type ClampedInput = {
   steps: number; lower: number; upper: number; anchor: InputAnchor;
   legacyPosition: number | undefined; last: string | undefined; hasUp: boolean;
 };
+
 /** `lit` is set only for a blend with an off end, which decides whether the lamp is lit. */
 type Selected = { kind: 'none' } | { kind: 'scale'; position: number; lit: boolean | undefined } | { kind: 'effect'; source: ResolvedSource };
-
-export function lexical(a: string, b: string): number {
-  const x = a.toLowerCase(), y = b.toLowerCase();
-  return x < y ? -1 : x > y ? 1 : 0;
-}
-/** A channel holding `value`, or holding nothing (`none`) when there is no value to hold. */
-function holding(value: ChannelValue | undefined, updated: Updated,
-  extra: { origin?: 'scale' | 'invalid_source'; position?: number } = {}): ResolvedSource {
-  return value === undefined ? { kind: 'none', updated, ...extra } : { kind: 'constant', value, updated, ...extra };
-}
-function numericStamp(n: number): Stamp { return { value: n, numeric: n, text: `${n}` }; }
-function isRemoteStream(r: OverrideRecord): boolean { return r.kind === 'input' || (r.kind === 'channels' && r.via === 'remote'); }
-
-/**
- * The newest remote input stream for a room, over records already in lexical
- * key order: the room-scoped remote records whose saved target `isRoom` accepts.
- */
-export function latestStream(records: OverrideRecord[], isRoom: (target: OverrideRecord['target']) => boolean): OverlayKey {
-  // The scripts start from the empty key and keep it when no remote record applies.
-  let key: OverlayKey = EMPTY_KEY, stamp = -1;
-  for (const record of records) {
-    if (record.storedScope !== 'room' || !isRoom(record.target) || !isRemoteStream(record)) continue;
-    if (record.stamp >= stamp) { key = record.key; stamp = record.stamp; }
-  }
-  return key;
-}
-
-/** An end's level for placing a position: an off end reads as {@link OFF_END_LEVEL}. */
-function endLevel(end: BlendEnd): number { return end.on ? end.brightness : OFF_END_LEVEL; }
-
-/** A channel value's level for placing a position: a channel that shows nothing (an off lamp) reads as {@link OFF_END_LEVEL}. */
-function positionLevel(value: ChannelValue | undefined): number { return value === undefined ? OFF_END_LEVEL : levelNumber(value); }
-
-/**
- * Where the remote's adjustment starts on the cosy (0) <-> day (1) axis.
- *
- * An off end reads as {@link OFF_END_LEVEL}. With a lit cosy and an off day the
- * blend falls from the cosy level to the off end, the reverse of the rule's
- * day-above-cosy shape, so a level there is placed by inverting that ramp: at
- * or above the cosy level is cosy (0), {@link OFF_END_LEVEL} is the off day end.
- */
-function normalPosition(input: ClampedInput, ends: BlendEnds, level: number): number {
-  const dayLevel = endLevel(ends.day), cosyLevel = endLevel(ends.cosy);
-  const d = dayLevel - cosyLevel;
-  const floor = Math.min(76.5, cosyLevel);
-  const slope = Math.max(0, d, (cosyLevel - floor) / 2);
-  let seed: number;
-  if (input.anchor === 'day') seed = 1;
-  else if (input.anchor === 'cosy') seed = 0;
-  else if (input.legacyPosition !== undefined) seed = input.legacyPosition;
-  else if (!ends.day.on) seed = level < cosyLevel && cosyLevel > OFF_END_LEVEL ? (cosyLevel - level) / (cosyLevel - OFF_END_LEVEL) : 0;
-  else if (level > dayLevel && dayLevel < 255) seed = 1 + (level - dayLevel) / (255 - dayLevel);
-  else if (level < cosyLevel && slope > 0) seed = Math.max(-2, (level - cosyLevel) / slope);
-  else seed = d > 0 ? (level - cosyLevel) / d : 1;
-  return clamp(seed * 10 + input.steps, input.lower, input.upper) / 10;
-}
-
-/** A remote scale source is read as an input with no steps from its legacy position. */
-function remoteInput(claim: Extract<Claim, { kind: 'scale' }>): Claim {
-  return {
-    kind: 'input',
-    input: { steps: 0, lower: -20, upper: 20, bounds: { ...DEFAULT_STEP_BOUNDS }, anchor: 'current', legacyPosition: claim.legacyPosition,
-      last: undefined, hasUp: false },
-    updated: claim.updated,
-  };
-}
-
-function effectClaim(effect: string | undefined, key: string, intensity: number | undefined): Claim {
-  return { kind: 'effect', effect, instance: key.length > 0 ? key : undefined, intensity, carried: undefined, updated: undefined };
-}
 
 export type ResolveRequest = {
   targets: Array<{ target: string; item: BaseItem }>;
@@ -283,22 +233,17 @@ export type ResolveRequest = {
   warmEnd: () => RGB;
   sara: boolean;
 };
-/** The channels a `light` record sets on this target. */
-function lightPatch(light: LightValue, key: string, item: BaseItem, args: ResolveRequest): Patch {
-  if (light.kind === 'unset') return { brightness: item.claims.observedBrightness, color: item.claims.observedColor };
-  if (light.kind === 'other') return {};
-  if (light.effectPresent && light.effect !== 'Normal light') {
-    const declared = args.channelsOf(light.effect);
-    if (declared.length === 0) return { brightness: item.claims.brightness, color: item.claims.color };
-    const patch: Patch = {};
-    for (const channel of declared) patch[channel] = effectClaim(light.effect, key, light.intensity);
-    if (light.hasBrightness && !declared.includes('brightness')) patch.brightness = light.brightness;
-    return patch;
-  }
-  if (light.effect === 'Normal light') {
-    return { brightness: light.brightnessDefined ? light.brightness : item.claims.observedBrightness, color: item.claims.observedColor };
-  }
-  return light.hasBrightness ? { brightness: light.brightness } : {};
+
+/**
+ * The lamps that may run Candle: Candle runs on the bulb's own firmware, so a
+ * lamp may run it iff it has at least one bulb and every bulb is declared
+ * flashed with that firmware (`bulbs.<entity>.candle`). A lamp with no bulbs
+ * has nothing to run it on.
+ */
+export function candleLamps(catalog: Pick<Catalog, 'members' | 'bulbs'>): ReadonlySet<string> {
+  return new Set(Object.entries(catalog.members)
+    .filter(([, bulbs]) => bulbs.length > 0 && bulbs.every(bulb => catalog.bulbs[bulb]?.candle === true))
+    .map(([lamp]) => lamp));
 }
 
 /**
@@ -487,3 +432,58 @@ export function resolveEffects(args: ResolveRequest, candle: ReadonlySet<string>
   }
   return { targets, assignments };
 }
+
+export function lexical(a: string, b: string): number {
+  const x = a.toLowerCase(), y = b.toLowerCase();
+  return x < y ? -1 : x > y ? 1 : 0;
+}
+
+/** The channels a `light` record sets on this target. */
+function lightPatch(light: LightValue, key: string, item: BaseItem, args: ResolveRequest): Patch {
+  if (light.kind === 'unset') return { brightness: item.claims.observedBrightness, color: item.claims.observedColor };
+  if (light.kind === 'other') return {};
+  if (light.effectPresent && light.effect !== 'Normal light') {
+    const declared = args.channelsOf(light.effect);
+    if (declared.length === 0) return { brightness: item.claims.brightness, color: item.claims.color };
+    const patch: Patch = {};
+    for (const channel of declared) patch[channel] = effectClaim(light.effect, key, light.intensity);
+    if (light.hasBrightness && !declared.includes('brightness')) patch.brightness = light.brightness;
+    return patch;
+  }
+  if (light.effect === 'Normal light') {
+    return { brightness: light.brightnessDefined ? light.brightness : item.claims.observedBrightness, color: item.claims.observedColor };
+  }
+  return light.hasBrightness ? { brightness: light.brightness } : {};
+}
+
+/** A channel holding `value`, or holding nothing (`none`) when there is no value to hold. */
+function holding(value: ChannelValue | undefined, updated: Updated,
+  extra: { origin?: 'scale' | 'invalid_source'; position?: number } = {}): ResolvedSource {
+  return value === undefined ? { kind: 'none', updated, ...extra } : { kind: 'constant', value, updated, ...extra };
+}
+/**
+ * Where the remote's adjustment starts on the cosy (0) <-> day (1) axis.
+ *
+ * An off end reads as {@link OFF_END_LEVEL}. With a lit cosy and an off day the
+ * blend falls from the cosy level to the off end, the reverse of the rule's
+ * day-above-cosy shape, so a level there is placed by inverting that ramp: at
+ * or above the cosy level is cosy (0), {@link OFF_END_LEVEL} is the off day end.
+ */
+function normalPosition(input: ClampedInput, ends: BlendEnds, level: number): number {
+  const dayLevel = endLevel(ends.day), cosyLevel = endLevel(ends.cosy);
+  const d = dayLevel - cosyLevel;
+  const floor = Math.min(76.5, cosyLevel);
+  const slope = Math.max(0, d, (cosyLevel - floor) / 2);
+  let seed: number;
+  if (input.anchor === 'day') seed = 1;
+  else if (input.anchor === 'cosy') seed = 0;
+  else if (input.legacyPosition !== undefined) seed = input.legacyPosition;
+  else if (!ends.day.on) seed = level < cosyLevel && cosyLevel > OFF_END_LEVEL ? (cosyLevel - level) / (cosyLevel - OFF_END_LEVEL) : 0;
+  else if (level > dayLevel && dayLevel < 255) seed = 1 + (level - dayLevel) / (255 - dayLevel);
+  else if (level < cosyLevel && slope > 0) seed = Math.max(-2, (level - cosyLevel) / slope);
+  else seed = d > 0 ? (level - cosyLevel) / d : 1;
+  return clamp(seed * 10 + input.steps, input.lower, input.upper) / 10;
+}
+
+/** An end's level for placing a position: an off end reads as {@link OFF_END_LEVEL}. */
+function endLevel(end: BlendEnd): number { return end.on ? end.brightness : OFF_END_LEVEL; }

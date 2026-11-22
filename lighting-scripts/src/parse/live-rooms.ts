@@ -14,6 +14,15 @@ export type LiveRooms = ReadonlySet<RoomId>;
 
 export const LIVE_ROOMS_FLAG = '--live-rooms';
 
+/** `--live-rooms <list>` from the arguments; the flag is required and its value may be `''`. */
+export function readLiveRoomsFlag(argv: readonly string[]): LiveRooms {
+  const index = argv.indexOf(LIVE_ROOMS_FLAG);
+  if (index < 0) return parseLiveRooms(undefined);
+  const value = argv[index + 1];
+  if (value === undefined || value.startsWith('--')) throw new Error(`Missing value for ${LIVE_ROOMS_FLAG}`);
+  return parseLiveRooms(value);
+}
+
 /** A comma-separated list of room ids (Home Assistant area ids); `''` is none. */
 export function parseLiveRooms(raw: string | undefined): LiveRooms {
   if (raw === undefined) {
@@ -27,13 +36,4 @@ export function parseLiveRooms(raw: string | undefined): LiveRooms {
     rooms.add(room);
   }
   return rooms;
-}
-
-/** `--live-rooms <list>` from the arguments; the flag is required and its value may be `''`. */
-export function readLiveRoomsFlag(argv: readonly string[]): LiveRooms {
-  const index = argv.indexOf(LIVE_ROOMS_FLAG);
-  if (index < 0) return parseLiveRooms(undefined);
-  const value = argv[index + 1];
-  if (value === undefined || value.startsWith('--')) throw new Error(`Missing value for ${LIVE_ROOMS_FLAG}`);
-  return parseLiveRooms(value);
 }

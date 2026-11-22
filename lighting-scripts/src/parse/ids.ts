@@ -77,6 +77,20 @@ export function toSavedOverlayKey(raw: string): SavedOverlayKey {
   return raw as SavedOverlayKey;
 }
 
+export function toLevel(raw: number): Level {
+  inRange(raw, 1, 254, 'A level');
+  if (!Number.isInteger(raw)) throw new ParseError(`A level must be a whole number, got ${raw}`);
+  // Cast: checked just above; this is the one place a number becomes a level.
+  return raw as Level;
+}
+
+function inRange(raw: number, low: number, high: number, what: string): void {
+  if (!within(raw, low, high)) throw new ParseError(`${what} must be ${low}..${high}, got ${raw}`);
+}
+
+const PERCENT = { low: 0, high: 100 };
+const STEP = { low: -20, high: 20 };
+
 /*
  * Range constructors. Unlike the id constructors these check: a value outside
  * its range raises a ParseError. Where a saved value is read, the caller picks
@@ -87,44 +101,11 @@ function within(raw: number, low: number, high: number): boolean {
   return Number.isFinite(raw) && raw >= low && raw <= high;
 }
 
-function inRange(raw: number, low: number, high: number, what: string): void {
-  if (!within(raw, low, high)) throw new ParseError(`${what} must be ${low}..${high}, got ${raw}`);
-}
-
-const PERCENT = { low: 0, high: 100 };
-const STEP = { low: -20, high: 20 };
-
-export function toLevel(raw: number): Level {
-  inRange(raw, 1, 254, 'A level');
-  if (!Number.isInteger(raw)) throw new ParseError(`A level must be a whole number, got ${raw}`);
-  // Cast: checked just above; this is the one place a number becomes a level.
-  return raw as Level;
-}
-
 export function toBrightness(raw: number): Brightness {
   inRange(raw, 0, 255, 'A brightness');
   if (!Number.isInteger(raw)) throw new ParseError(`A brightness must be a whole number, got ${raw}`);
   // Cast: checked just above; this is the one place a number becomes a brightness.
   return raw as Brightness;
-}
-
-export function toPercent(raw: number): Percent {
-  inRange(raw, PERCENT.low, PERCENT.high, 'A percent');
-  // Cast: checked just above; this is the one place a number becomes a percent.
-  return raw as Percent;
-}
-
-export function toPercentRange(low: number, high: number): PercentRange {
-  const range = { low: toPercent(low), high: toPercent(high) };
-  if (range.low > range.high) throw new ParseError(`A percent range must not run backwards, got ${low}..${high}`);
-  // Cast: both ends checked just above; this is the one place two percents become a range.
-  return range as PercentRange;
-}
-
-export function toStep(raw: number): Step {
-  inRange(raw, STEP.low, STEP.high, 'A remote step bound');
-  // Cast: checked just above; this is the one place a number becomes a step bound.
-  return raw as Step;
 }
 
 export function toKelvin(raw: number): Kelvin {
@@ -145,6 +126,12 @@ export function toMinutes(raw: number): Minutes {
   return raw as Minutes;
 }
 
+/** A remote's step range: two step bounds, `min` not above `max`. */
+export function stepBoundsOf(min: unknown, max: unknown): { min: Step; max: Step } | undefined {
+  const low = stepOf(min), high = stepOf(max);
+  return low !== undefined && high !== undefined && low <= high ? { min: low, max: high } : undefined;
+}
+
 /*
  * Lenient range readers, for saved and argument values: the range type when
  * the value is in range, none otherwise. They never raise; each read site
@@ -156,14 +143,27 @@ export function stepOf(raw: unknown): Step | undefined {
   return typeof raw === 'number' && within(raw, STEP.low, STEP.high) ? toStep(raw) : undefined;
 }
 
-/** A remote's step range: two step bounds, `min` not above `max`. */
-export function stepBoundsOf(min: unknown, max: unknown): { min: Step; max: Step } | undefined {
-  const low = stepOf(min), high = stepOf(max);
-  return low !== undefined && high !== undefined && low <= high ? { min: low, max: high } : undefined;
+export function toStep(raw: number): Step {
+  inRange(raw, STEP.low, STEP.high, 'A remote step bound');
+  // Cast: checked just above; this is the one place a number becomes a step bound.
+  return raw as Step;
 }
 
 /** A percent range: two numbers (not booleans) within 0..100, `low` not above `high`. */
 export function percentRangeOf(low: unknown, high: unknown): PercentRange | undefined {
   const inPercent = (raw: unknown): raw is number => typeof raw === 'number' && within(raw, PERCENT.low, PERCENT.high);
   return inPercent(low) && inPercent(high) && low <= high ? toPercentRange(low, high) : undefined;
+}
+
+export function toPercentRange(low: number, high: number): PercentRange {
+  const range = { low: toPercent(low), high: toPercent(high) };
+  if (range.low > range.high) throw new ParseError(`A percent range must not run backwards, got ${low}..${high}`);
+  // Cast: both ends checked just above; this is the one place two percents become a range.
+  return range as PercentRange;
+}
+
+export function toPercent(raw: number): Percent {
+  inRange(raw, PERCENT.low, PERCENT.high, 'A percent');
+  // Cast: checked just above; this is the one place a number becomes a percent.
+  return raw as Percent;
 }

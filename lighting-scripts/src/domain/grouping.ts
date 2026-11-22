@@ -2,12 +2,6 @@ import { sameDocument } from '../runtime/verbatim.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
 import type { BulbId } from './types/ids.ts';
 
-function compare(a: string, b: string): number { return a < b ? -1 : a > b ? 1 : 0; }
-/** Element-wise `===`, which is what JSON equality reduces to on two string lists. */
-function sameStrings(a: string[], b: string[]): boolean {
-  return a.length === b.length && a.every((v, i) => v === b[i]);
-}
-
 /**
  * One endpoint's wanted publish. `payload` is the lamp's MQTT body, assembled
  * by `framePlan` and compared byte for byte downstream, so the planner holds it
@@ -20,9 +14,9 @@ export type EndpointRow = { entity: BulbId; owner: string; topic: string; payloa
  * group's own id when it names one and its topic otherwise, raw either way.
  */
 export type MulticastGroup = { id: Verbatim; topic: string; members: BulbId[] };
+
 /** `undefined` in `rows` is a row that failed to parse; it is rejected by index. */
 export type GroupPlanRequest = { rows: Array<EndpointRow | undefined>; groups: MulticastGroup[] };
-
 /**
  * One MQTT publish the planner decided on.
  *
@@ -47,6 +41,7 @@ export type GroupCommand = {
 export type RejectedRow =
   | { reason: 'invalid_endpoint_row'; index: number }
   | { entity: string; reason: 'conflicting_endpoint_rows' };
+
 /**
  * `effects_group_plan`'s result -- and `effects_frame_plan`'s, which returns
  * this unchanged (`transport.ts`), so one type keeps the two from drifting.
@@ -58,7 +53,6 @@ export type GroupedCommands = {
   endpoint_count: number;
   command_count: number;
 };
-
 /** Exact live effects_group_plan: only verified complete groups may replace unicast. */
 export function planGroups(rows: Array<EndpointRow | undefined>, groups: MulticastGroup[]): GroupedCommands {
   const byEntity = new Map<BulbId, EndpointRow>();
@@ -101,4 +95,10 @@ export function planGroups(rows: Array<EndpointRow | undefined>, groups: Multica
     if (!used.has(entity)) commands.push({ topic: row.topic, payload: row.payload, members: [entity], owners: [row.owner], group: null });
   }
   return { commands, rejected, input_count: rows.length, endpoint_count: byEntity.size, command_count: commands.length };
+}
+function compare(a: string, b: string): number { return a < b ? -1 : a > b ? 1 : 0; }
+
+/** Element-wise `===`, which is what JSON equality reduces to on two string lists. */
+function sameStrings(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((v, i) => v === b[i]);
 }

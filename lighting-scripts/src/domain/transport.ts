@@ -53,33 +53,6 @@ export type BulbEffect = {
    */
   readonly stoppedByName: boolean;
 };
-export function bulbEffect(name: BulbEffectName): BulbEffect {
-  switch (name) {
-    case 'Candle': return { channel: 'brightness', start: 'channel_change', colour: 'warm end', stoppedByName: false };
-    case 'Breathe': return { channel: 'brightness', start: 'breathe', colour: 'none', stoppedByName: true };
-    case 'Colour loop': return { channel: 'color', start: 'colorloop', colour: 'none', stoppedByName: true };
-    default: { const unknown: never = name; throw new Error(`Unhandled bulb effect ${JSON.stringify(unknown)}`); }
-  }
-}
-
-/**
- * The bulb effect a channel runs, or `undefined`. An effect runs on exactly one
- * channel: a Candle claim on colour alone holds the warm colour and starts
- * nothing, because the flicker is a brightness effect.
- */
-function runningOn(channel: Channel, name: BulbEffectName | undefined): BulbEffectName | undefined {
-  return name !== undefined && bulbEffect(name).channel === channel ? name : undefined;
-}
-/**
- * {@link runningOn} for an unparsed target: a stored runtime assignment, or a
- * resolved target `ls_dispatch` has not handed to the strict frame plan yet.
- * Read without raising, as every other read of those documents is
- * ({@link StoredChannels}).
- */
-export function runningIn(channel: Channel, stored: StoredChannels): BulbEffectName | undefined {
-  return runningOn(channel, stored.bulbEffectOn(channel));
-}
-
 /**
  * What a frame source's effect means to the frame plan, decided at the parse
  * edge against the frame plan's own catalog, as the oracle decides it with
@@ -128,10 +101,11 @@ export interface FrameTarget {
   /** The target's area as stored, compared by identity with the transition rooms. */
   area: StoredFact;
 }
+
 /** One lamp's light. Keys are written in the order the captured payload has them. */
 type FramePayload = { brightness?: number; color_temp?: number; color?: { rgb: string }; state?: 'OFF'; transition?: number };
-export type FrameRow = { entity: string; owner: string; topic: string | null; payload: FramePayload };
 
+export type FrameRow = { entity: string; owner: string; topic: string | null; payload: FramePayload };
 export interface EmitCommand {
   /** The MQTT body: the command's payload, serialised as given. */
   body: string;
@@ -141,6 +115,33 @@ export interface EmitCommand {
   owners: LampId[];
   members: BulbId[];
   topic: string;
+}
+/**
+ * The guarded publish of a command the house still allows, or `undefined`.
+ * Allowed while the revision and runtime generation are the request's, every
+ * owner and member is on, an owner's area power gate is not closed (an OFF
+ * passes it), each owner is assigned the effect target it carries, and the
+ * MQTT bridge is connected. The gate is the request, the overrides revision
+ * as read for this command (`current`), and the command itself.
+ */
+export function publishCommand(view: HouseView, gate: {
+  revision: string; generation: string | null; current: string; command: EmitCommand; effectTargets: OpaqueMap;
+}): Effect | undefined {
+  const { revision, generation, command, effectTargets } = gate;
+  const owners = command.owners, members = command.members;
+  let allowed = revision === gate.current && runtimeGenerationIs(view, generation);
+  for (const owner of owners) if (view.get(owner) !== 'on' || !command.turnsOff && powerClosed(view, view.rooms.ofId[owner])) allowed = false;
+  for (const member of members) if (view.get(member) !== 'on') allowed = false;
+  const targeted = Object.keys(effectTargets).length > 0;
+  if (targeted) for (const owner of owners) {
+    if (!Object.hasOwn(effectTargets, owner) || !assignedAs(view, owner, effectTargets[owner]!)) allowed = false;
+  }
+  if (!allowed || view.get('binary_sensor.zigbee2mqtt_bridge_connection_state') !== 'on') return undefined;
+  const guard: OutputGuard = { revision, generation, owners, members, ...(targeted ? { effectTargets } : {}) };
+  return {
+    kind: 'service', service: 'mqtt.publish',
+    data: { topic: command.topic, payload: command.body, qos: 0, retain: false }, guard,
+  };
 }
 export interface EmitRequest {
   commands: Array<() => EmitCommand>;
@@ -170,11 +171,69 @@ export interface AssignDetails {
   invalidate: StoredValue[];
   planOrder: number | undefined;
 }
+
+/**
+ * The lamps told to stop: each lamp target leaving an effect its bulbs run,
+ * or whose native-owned effect channel was re-stamped, in target order.
+ */
+export function stoppedLamps(targetViews: ReturnType<AssignDetails['targetViews']>, stored: RuntimeState): string[] {
+  const lamps: string[] = [];
+  for (const target of Object.values(targetViews)) {
+    if (target.lampOrRoom.kind === 'room') continue;
+    const lamp = target.lampOrRoom.lamp;
+    const previous = stored.previous(lamp);
+    let needed = previous.effect !== undefined && bulbEffect(previous.effect).stoppedByName;
+    for (const channel of ['brightness', 'color'] as const) {
+      const source = target.channels[channel];
+      // A lamp leaving an effect its bulbs run is told to stop it, before its new light.
+      const was = runningIn(channel, previous.channels);
+      if (was !== undefined && runningOn(channel, source.effect) !== was) needed = true;
+      if (source.kind === 'effect' && target.owners[channel].kind === 'native control' &&
+        source.updated !== previous.updated(channel)) needed = true;
+    }
+    if (needed) lamps.push(lamp);
+  }
+  return lamps;
+}
+/**
+ * {@link runningOn} for an unparsed target: a stored runtime assignment, or a
+ * resolved target `ls_dispatch` has not handed to the strict frame plan yet.
+ * Read without raising, as every other read of those documents is
+ * ({@link StoredChannels}).
+ */
+export function runningIn(channel: Channel, stored: StoredChannels): BulbEffectName | undefined {
+  return runningOn(channel, stored.bulbEffectOn(channel));
+}
+/**
+ * The bulb effect a channel runs, or `undefined`. An effect runs on exactly one
+ * channel: a Candle claim on colour alone holds the warm colour and starts
+ * nothing, because the flicker is a brightness effect.
+ */
+function runningOn(channel: Channel, name: BulbEffectName | undefined): BulbEffectName | undefined {
+  return name !== undefined && bulbEffect(name).channel === channel ? name : undefined;
+}
+
+
 export interface FilterRequest {
   /** Each command as given, and its ids. */
   commands: Array<{ document: Verbatim; ids: string[] }>;
 }
-
+/**
+ * Drop the assigned lamps from each command: a group id with an assigned
+ * member becomes its unassigned members, and a command left with no id goes.
+ */
+export function filterCommands(catalog: Catalog, active: string[], commands: FilterRequest['commands']): { commands: Verbatim[] } {
+  const kept: Verbatim[] = [];
+  for (const command of commands) {
+    const ids: string[] = [];
+    for (const id of command.ids) {
+      const members = catalog.groups[id] ?? [id];
+      ids.push(...(members.some(x => active.includes(x)) ? members.filter(x => !active.includes(x)) : [id]));
+    }
+    if (ids.length) kept.push(withFields(command.document, { ids: [...new Set(ids)] }));
+  }
+  return { commands: kept };
+}
 
 export interface FramePlanRequest {
   catalog: {
@@ -189,6 +248,39 @@ export interface FramePlanRequest {
   transitionCap: number | null;
   transitionRooms: StoredValue[] | null;
 }
+
+type FrameDetails = ReturnType<FrameSource['details']>;
+
+/**
+ * `effects_emit`'s result. Both fields are built here from the publishes this
+ * call made, so nothing is passed through and the type is lossless.
+ */
+export type EmitOutcome = { published_at: number[]; completed: boolean };
+
+/**
+ * `effects_assign`'s result.
+ *
+ * `generation` is carried: it is the runtime sensor's own attribute, read raw
+ * and handed back raw, and `ls_dispatch` compares it with `!==` against the
+ * same attribute. Narrowing it to a string would be a projection of a value
+ * the gate compares.
+ */
+export type AssignedGeneration = { generation: Verbatim };
+export type StopCommand = { topic: string; payload: { effect: string }; members: BulbId[]; owners: string[]; group: false };
+
+
+/** What `effects_assign` decides from the runtime as it stood before the store. */
+export interface AssignDecision {
+  /** The runtime as read before the store; the stop check reads the previous assignment from it. */
+  stored: RuntimeState;
+  /** The targets, the stored revision or the invalidations changed: a new generation, and stops. */
+  changed: boolean;
+  generation: Verbatim | string;
+  planOrder: number;
+  /** Store the runtime: on a change, or for a plan order newer than the stored one. */
+  write: boolean;
+}
+
 /** One row per on member of each on lamp, carrying that lamp's light. */
 export function frameRows(view: HouseView, args: FramePlanRequest): FrameRow[] {
   const catalog = args.catalog, rows: FrameRow[] = [];
@@ -224,8 +316,6 @@ export function frameRows(view: HouseView, args: FramePlanRequest): FrameRow[] {
   return rows;
 }
 
-type FrameDetails = ReturnType<FrameSource['details']>;
-
 /** A brightness source's level: a bulb effect runs at its intensity, anything else is its value. */
 function frameLevel(effect: FrameEffect, details: FrameDetails): number {
   switch (effect.kind) {
@@ -236,6 +326,7 @@ function frameLevel(effect: FrameEffect, details: FrameDetails): number {
     default: { const unknown: never = effect; throw new Error(`Unhandled frame effect ${JSON.stringify(unknown)}`); }
   }
 }
+
 
 /** A colour source's colour, or `undefined` when the bulb effect owns the colour and nothing is sent. */
 function frameColourOf(view: HouseView, effect: FrameEffect, details: FrameDetails, context: string): FrameColour | undefined {
@@ -255,48 +346,13 @@ function frameColourOf(view: HouseView, effect: FrameEffect, details: FrameDetai
   }
 }
 
-/**
- * `effects_emit`'s result. Both fields are built here from the publishes this
- * call made, so nothing is passed through and the type is lossless.
- */
-export type EmitOutcome = { published_at: number[]; completed: boolean };
-/**
- * `effects_assign`'s result.
- *
- * `generation` is carried: it is the runtime sensor's own attribute, read raw
- * and handed back raw, and `ls_dispatch` compares it with `!==` against the
- * same attribute. Narrowing it to a string would be a projection of a value
- * the gate compares.
- */
-export type AssignedGeneration = { generation: Verbatim };
-
-
-/**
- * The guarded publish of a command the house still allows, or `undefined`.
- * Allowed while the revision and runtime generation are the request's, every
- * owner and member is on, an owner's area power gate is not closed (an OFF
- * passes it), each owner is assigned the effect target it carries, and the
- * MQTT bridge is connected. The gate is the request, the overrides revision
- * as read for this command (`current`), and the command itself.
- */
-export function publishCommand(view: HouseView, gate: {
-  revision: string; generation: string | null; current: string; command: EmitCommand; effectTargets: OpaqueMap;
-}): Effect | undefined {
-  const { revision, generation, command, effectTargets } = gate;
-  const owners = command.owners, members = command.members;
-  let allowed = revision === gate.current && runtimeGenerationIs(view, generation);
-  for (const owner of owners) if (view.get(owner) !== 'on' || !command.turnsOff && powerClosed(view, view.rooms.ofId[owner])) allowed = false;
-  for (const member of members) if (view.get(member) !== 'on') allowed = false;
-  const targeted = Object.keys(effectTargets).length > 0;
-  if (targeted) for (const owner of owners) {
-    if (!Object.hasOwn(effectTargets, owner) || !assignedAs(view, owner, effectTargets[owner]!)) allowed = false;
+export function bulbEffect(name: BulbEffectName): BulbEffect {
+  switch (name) {
+    case 'Candle': return { channel: 'brightness', start: 'channel_change', colour: 'warm end', stoppedByName: false };
+    case 'Breathe': return { channel: 'brightness', start: 'breathe', colour: 'none', stoppedByName: true };
+    case 'Colour loop': return { channel: 'color', start: 'colorloop', colour: 'none', stoppedByName: true };
+    default: { const unknown: never = name; throw new Error(`Unhandled bulb effect ${JSON.stringify(unknown)}`); }
   }
-  if (!allowed || view.get('binary_sensor.zigbee2mqtt_bridge_connection_state') !== 'on') return undefined;
-  const guard: OutputGuard = { revision, generation, owners, members, ...(targeted ? { effectTargets } : {}) };
-  return {
-    kind: 'service', service: 'mqtt.publish',
-    data: { topic: command.topic, payload: command.body, qos: 0, retain: false }, guard,
-  };
 }
 
 /**
@@ -305,21 +361,6 @@ export function publishCommand(view: HouseView, gate: {
  */
 export function stillCurrent(view: HouseView, script: string, revision: string, generation: Verbatim | string | null): boolean {
   return revision === overridesRevision(view, script) && runtimeGenerationIs(view, generation);
-}
-
-export type StopCommand = { topic: string; payload: { effect: string }; members: BulbId[]; owners: string[]; group: false };
-
-
-/** What `effects_assign` decides from the runtime as it stood before the store. */
-export interface AssignDecision {
-  /** The runtime as read before the store; the stop check reads the previous assignment from it. */
-  stored: RuntimeState;
-  /** The targets, the stored revision or the invalidations changed: a new generation, and stops. */
-  changed: boolean;
-  generation: Verbatim | string;
-  planOrder: number;
-  /** Store the runtime: on a change, or for a plan order newer than the stored one. */
-  write: boolean;
 }
 
 export function assignDecision(view: HouseView, revision: string, details: AssignDetails): AssignDecision {
@@ -351,30 +392,6 @@ export function* planAssignUpdate(decision: AssignDecision, revision: string, de
   };
 }
 
-/**
- * The lamps told to stop: each lamp target leaving an effect its bulbs run,
- * or whose native-owned effect channel was re-stamped, in target order.
- */
-export function stoppedLamps(targetViews: ReturnType<AssignDetails['targetViews']>, stored: RuntimeState): string[] {
-  const lamps: string[] = [];
-  for (const target of Object.values(targetViews)) {
-    if (target.lampOrRoom.kind === 'room') continue;
-    const lamp = target.lampOrRoom.lamp;
-    const previous = stored.previous(lamp);
-    let needed = previous.effect !== undefined && bulbEffect(previous.effect).stoppedByName;
-    for (const channel of ['brightness', 'color'] as const) {
-      const source = target.channels[channel];
-      // A lamp leaving an effect its bulbs run is told to stop it, before its new light.
-      const was = runningIn(channel, previous.channels);
-      if (was !== undefined && runningOn(channel, source.effect) !== was) needed = true;
-      if (source.kind === 'effect' && target.owners[channel].kind === 'native control' &&
-        source.updated !== previous.updated(channel)) needed = true;
-    }
-    if (needed) lamps.push(lamp);
-  }
-  return lamps;
-}
-
 /** The stops for each {@link stoppedLamps} lamp: `stop_colorloop` then `stop_effect`, per on member. */
 export function stopCommands(view: HouseView, catalog: Catalog, targetViews: ReturnType<AssignDetails['targetViews']>,
   stored: RuntimeState): StopCommand[] {
@@ -395,21 +412,4 @@ export function stopCommands(view: HouseView, catalog: Catalog, targetViews: Ret
     }
   }
   return commands;
-}
-
-/**
- * Drop the assigned lamps from each command: a group id with an assigned
- * member becomes its unassigned members, and a command left with no id goes.
- */
-export function filterCommands(catalog: Catalog, active: string[], commands: FilterRequest['commands']): { commands: Verbatim[] } {
-  const kept: Verbatim[] = [];
-  for (const command of commands) {
-    const ids: string[] = [];
-    for (const id of command.ids) {
-      const members = catalog.groups[id] ?? [id];
-      ids.push(...(members.some(x => active.includes(x)) ? members.filter(x => !active.includes(x)) : [id]));
-    }
-    if (ids.length) kept.push(withFields(command.document, { ids: [...new Set(ids)] }));
-  }
-  return { commands: kept };
 }

@@ -23,28 +23,6 @@ import type { PercentRange } from '../domain/types/light.ts';
 const runtime = 'sensor.ls_effects_runtime';
 
 /**
- * A UI row collection the catalog must name. Absence is an error here, not an
- * empty list: a catalog with no rows would otherwise publish nothing and look
- * like a working sync.
- */
-function rows(ctx: HouseView, key: 'ui_rows' | 'ui_discovery'): JsonValue[] {
-  const value = ctx.catalog[key];
-  if (value === undefined) throw new Error(`Missing runtime catalog.${key}`);
-  return value;
-}
-
-function requireStringValue(value: JsonValue | undefined, context: string): string {
-  return requireString({ value: value === undefined ? null : value }, 'value', context);
-}
-
-/** Captured rows use an absent key or an empty string to mean no profile store. */
-function optionalStoreId(value: JsonValue | undefined, context: string): string | undefined {
-  if (value === undefined) return undefined;
-  const store = requireStringValue(value, context);
-  return store.length === 0 ? undefined : store;
-}
-
-/**
  * One UI row. The rows are the catalog's, so `source` and `proxy` must be text:
  * a row without them is a configuration error, refused here.
  */
@@ -75,11 +53,43 @@ export function uiRows(ctx: HouseView): Array<() => UiRow> {
   });
 }
 
+/** Captured rows use an absent key or an empty string to mean no profile store. */
+function optionalStoreId(value: JsonValue | undefined, context: string): string | undefined {
+  if (value === undefined) return undefined;
+  const store = requireStringValue(value, context);
+  return store.length === 0 ? undefined : store;
+}
+
+function requireStringValue(value: JsonValue | undefined, context: string): string {
+  return requireString({ value: value === undefined ? null : value }, 'value', context);
+}
+
 /** A display colour as the mirror reads it: an rgb triple and its MQTT text. */
 export interface Rgb { text: string; value: Verbatim }
 
+/**
+ * Does the proxy show this triple? Captured `(state_attr(proxy,'rgb_color') or []) | list == rgb | list`:
+ * a proxy showing no colour shows no triple.
+ */
+export function proxyShowsRgb(ctx: HouseView, proxy: string, rgb: Rgb): boolean {
+  const shown = proxyRgb(ctx, proxy);
+  return shown !== undefined && isDeepStrictEqual(shown, reveal(rgb.value));
+}
+
 function rgbOf(value: JsonValue | undefined): Rgb | undefined {
   return Array.isArray(value) && value.length === 3 ? { text: value.join(','), value: carry(value) } : undefined;
+}
+
+/**
+ * The colour the proxy reports, or none. Home Assistant reports `rgb_color:
+ * null` for a light showing no colour (off, or not in a colour mode); the
+ * captured `rgb_color or ...` treats every Jinja-falsy value that way, and a
+ * reported value goes through Jinja's `list`.
+ */
+function proxyRgb(ctx: HouseView, proxy: string): JsonValue[] | undefined {
+  const reported = ctx.attr(proxy, 'rgb_color');
+  // A value Jinja cannot list shows no triple either (the captured `| list` raises on it).
+  return reported === undefined || !jinjaTruthy(reported) ? undefined : jinjaListOf(reported);
 }
 
 /**
@@ -93,15 +103,15 @@ export type Display =
   | { kind: 'rgb'; rgb: Rgb | undefined }
   | { kind: 'neither' };
 
+/** {@link displayOf} for a member's carried constant colour. */
+export function displayOfColour(colour: Verbatim): Display {
+  return displayOf(object(reveal(colour)));
+}
+
 function displayOf(value: JsonObject): Display {
   if ('kelvin' in value) return { kind: 'kelvin', kelvin: typeof value.kelvin === 'number' ? value.kelvin : undefined };
   if ('rgb' in value) return { kind: 'rgb', rgb: rgbOf(value.rgb) };
   return { kind: 'neither' };
-}
-
-/** {@link displayOf} for a member's carried constant colour. */
-export function displayOfColour(colour: Verbatim): Display {
-  return displayOf(object(reveal(colour)));
 }
 
 /**
@@ -174,6 +184,9 @@ export interface LampReading {
   rgb: Rgb | undefined;
 }
 
+/** A proxy colour temperature that is not a number: 0, the captured read's default for no value. */
+const NO_PROXY_KELVIN = 0;
+
 export function lampReading(ctx: HouseView, entity: string): LampReading {
   const brightness = ctx.attr(entity, 'brightness'), kelvin = ctx.attr(entity, 'color_temp_kelvin');
   return {
@@ -184,44 +197,31 @@ export function lampReading(ctx: HouseView, entity: string): LampReading {
   };
 }
 
-/** A proxy colour temperature that is not a number: 0, the captured read's default for no value. */
-const NO_PROXY_KELVIN = 0;
-
-/**
- * The proxy's `color_temp_kelvin`: a number (or numeric text) is itself, and
- * anything else -- absent, `null`, unreadable -- is {@link NO_PROXY_KELVIN}
- * (2026-11-21: a value a person can edit recovers to a default). Never raises.
- */
-export function proxyKelvin(ctx: HouseView, proxy: string): number {
-  const kelvin = parseFinite(ctx.attr(proxy, 'color_temp_kelvin'));
-  return kelvin === undefined ? NO_PROXY_KELVIN : kelvin;
-}
-
-/**
- * The colour the proxy reports, or none. Home Assistant reports `rgb_color:
- * null` for a light showing no colour (off, or not in a colour mode); the
- * captured `rgb_color or ...` treats every Jinja-falsy value that way, and a
- * reported value goes through Jinja's `list`.
- */
-function proxyRgb(ctx: HouseView, proxy: string): JsonValue[] | undefined {
-  const reported = ctx.attr(proxy, 'rgb_color');
-  // A value Jinja cannot list shows no triple either (the captured `| list` raises on it).
-  return reported === undefined || !jinjaTruthy(reported) ? undefined : jinjaListOf(reported);
-}
-
-/**
- * Does the proxy show this triple? Captured `(state_attr(proxy,'rgb_color') or []) | list == rgb | list`:
- * a proxy showing no colour shows no triple.
- */
-export function proxyShowsRgb(ctx: HouseView, proxy: string, rgb: Rgb): boolean {
-  const shown = proxyRgb(ctx, proxy);
-  return shown !== undefined && isDeepStrictEqual(shown, reveal(rgb.value));
-}
-
 /** A row's stored profile: whether it names effect channels, and its effect. */
 export interface UiProfile {
   namesEffectChannels: boolean;
   effect: string;
+}
+
+export function uiProfile(ctx: HouseView, store: string): UiProfile {
+  const pr = saved(ctx, store);
+  return {
+    namesEffectChannels: namesEffectChannels(pr),
+    effect: savedEffect(pr),
+  };
+}
+
+/**
+ * Does a saved profile name any effect channels? A saved value, read
+ * leniently with a default (user directive 2026-11-19): the captured mirror
+ * reads `profile.get('effect_channels', ['brightness','color'])` under Jinja
+ * truthiness, so an absent key takes the default (true), and any present value
+ * -- null, a non-list, a list of non-strings -- is its Jinja truthiness. It
+ * never raises.
+ */
+function namesEffectChannels(profile: JsonObject): boolean {
+  const channels = Object.hasOwn(profile, 'effect_channels') ? profile.effect_channels : DEFAULT_PROFILE_EFFECT_CHANNELS;
+  return jinjaTruthy(channels);
 }
 
 /** The effect a saved profile with no usable `effect` shows (the captured `.get` default). */
@@ -244,27 +244,6 @@ function savedEffect(profile: JsonObject): string {
 /** The channels a saved profile with no `effect_channels` key claims (the captured `.get` default). */
 const DEFAULT_PROFILE_EFFECT_CHANNELS: JsonValue = ['brightness', 'color'];
 
-/**
- * Does a saved profile name any effect channels? A saved value, read
- * leniently with a default (user directive 2026-11-19): the captured mirror
- * reads `profile.get('effect_channels', ['brightness','color'])` under Jinja
- * truthiness, so an absent key takes the default (true), and any present value
- * -- null, a non-list, a list of non-strings -- is its Jinja truthiness. It
- * never raises.
- */
-function namesEffectChannels(profile: JsonObject): boolean {
-  const channels = Object.hasOwn(profile, 'effect_channels') ? profile.effect_channels : DEFAULT_PROFILE_EFFECT_CHANNELS;
-  return jinjaTruthy(channels);
-}
-
-export function uiProfile(ctx: HouseView, store: string): UiProfile {
-  const pr = saved(ctx, store);
-  return {
-    namesEffectChannels: namesEffectChannels(pr),
-    effect: savedEffect(pr),
-  };
-}
-
 /** One discovery row, from the catalog: its entity and its config's unique id must be text, or the row is refused. */
 export interface DiscoveryRow {
   entity: string;
@@ -281,13 +260,6 @@ export function discoveryRows(ctx: HouseView): DiscoveryRow[] {
   });
 }
 
-export function parseUiSyncArgs(args: JsonObject): { dryRun: boolean; force: boolean } {
-  return {
-    dryRun: args.dry_run === undefined ? false : requireBoolean(args.dry_run, 'effects_ui_sync.dry_run'),
-    force: args.force === undefined ? false : requireBoolean(args.force, 'effects_ui_sync.force'),
-  };
-}
-
 /** A range bound as given: absent, or the stored value (only a number is a bound). */
 export type RangeBound = string | number | boolean | null | Verbatim | undefined;
 
@@ -298,6 +270,12 @@ export type RangeBound = string | number | boolean | null | Verbatim | undefined
  */
 export function ownRange(low: RangeBound, high: RangeBound): PercentRange | undefined {
   return percentRangeOf(low, high);
+}
+
+/** A switch's stored range bounds, read leniently from `sensor.ls_overrides`. */
+export function storedRangeBounds(ctx: HouseView, entity: string): { min: RangeBound; max: RangeBound } {
+  const previous = object(object(ctx.attr('sensor.ls_overrides', 'switch_ranges'))[entity]);
+  return { min: bound(previous.min), max: bound(previous.max) };
 }
 
 function bound(value: JsonValue | undefined): RangeBound {
@@ -328,11 +306,20 @@ function switchOfText(text: string): SwitchId | undefined {
 }
 
 /**
- * The switch as the captured script names it in every read and in its answer:
- * the switch's entity, or `''` when the request names none (`default('')`).
+ * The proxy's `color_temp_kelvin`: a number (or numeric text) is itself, and
+ * anything else -- absent, `null`, unreadable -- is {@link NO_PROXY_KELVIN}
+ * (2026-11-21: a value a person can edit recovers to a default). Never raises.
  */
-export function switchText(entity: SwitchId | undefined): string {
-  return entity === undefined ? '' : entity;
+export function proxyKelvin(ctx: HouseView, proxy: string): number {
+  const kelvin = parseFinite(ctx.attr(proxy, 'color_temp_kelvin'));
+  return kelvin === undefined ? NO_PROXY_KELVIN : kelvin;
+}
+
+export function parseUiSyncArgs(args: JsonObject): { dryRun: boolean; force: boolean } {
+  return {
+    dryRun: args.dry_run === undefined ? false : requireBoolean(args.dry_run, 'effects_ui_sync.dry_run'),
+    force: args.force === undefined ? false : requireBoolean(args.force, 'effects_ui_sync.force'),
+  };
 }
 
 /** `ls_range_save`'s answer: the decision, with no switch spelled `''` as the captured script answers it. */
@@ -340,10 +327,12 @@ export function rangeSaveAnswer(result: { valid: boolean; errors: string[]; enti
   return { valid: result.valid, errors: result.errors, entity: switchText(result.entity), config: result.config };
 }
 
-/** A switch's stored range bounds, read leniently from `sensor.ls_overrides`. */
-export function storedRangeBounds(ctx: HouseView, entity: string): { min: RangeBound; max: RangeBound } {
-  const previous = object(object(ctx.attr('sensor.ls_overrides', 'switch_ranges'))[entity]);
-  return { min: bound(previous.min), max: bound(previous.max) };
+/**
+ * The switch as the captured script names it in every read and in its answer:
+ * the switch's entity, or `''` when the request names none (`default('')`).
+ */
+export function switchText(entity: SwitchId | undefined): string {
+  return entity === undefined ? '' : entity;
 }
 
 /**
@@ -353,4 +342,15 @@ export function storedRangeBounds(ctx: HouseView, entity: string): { min: RangeB
  */
 export function onOffOnly(ctx: HouseView, entity: string): boolean {
   return isDeepStrictEqual(jinjaOr(ctx.attr(entity, 'supported_color_modes'), []), ['onoff']);
+}
+
+/**
+ * A UI row collection the catalog must name. Absence is an error here, not an
+ * empty list: a catalog with no rows would otherwise publish nothing and look
+ * like a working sync.
+ */
+function rows(ctx: HouseView, key: 'ui_rows' | 'ui_discovery'): JsonValue[] {
+  const value = ctx.catalog[key];
+  if (value === undefined) throw new Error(`Missing runtime catalog.${key}`);
+  return value;
 }

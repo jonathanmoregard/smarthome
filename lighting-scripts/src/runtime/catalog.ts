@@ -64,6 +64,12 @@ export interface CatalogEffect {
   channels: string[];
 }
 
+function parseEffect(effect: JsonObject, context: string): CatalogEffect {
+  return {
+    channels: effect.channels === undefined ? [] : stringList(effect.channels, `${context}.channels`),
+  };
+}
+
 /**
  * Only the remote-adjustment strategy is read. The document's processor records
  * also carry `animated` and `channels`, and they are deliberately absent here:
@@ -74,6 +80,14 @@ export interface CatalogEffect {
 export interface CatalogProcessor {
   /** Absent is legal: `resolution` defaults the strategy per processor name. */
   remote_adjustment: string | undefined;
+}
+
+function parseProcessor(processor: JsonObject, context: string): CatalogProcessor {
+  return {
+    remote_adjustment: processor.remote_adjustment === undefined
+      ? undefined
+      : requireString(processor, 'remote_adjustment', context),
+  };
 }
 
 /**
@@ -87,9 +101,30 @@ export interface CatalogBulb {
   candle: boolean;
 }
 
+function parseBulb(bulb: JsonObject, context: string): CatalogBulb {
+  return { candle: bulb.candle === undefined ? false : requireBoolean(bulb.candle, `${context}.candle`) };
+}
+
 export interface CatalogRemote {
   device_id: RemoteId;
   source: RemoteSource;
+}
+
+function parseRemote(remote: JsonObject, context: string): CatalogRemote {
+  return {
+    device_id: toRemoteId(requireString(remote, 'device_id', context)),
+    source: remoteSourceOf(requireString(remote, 'source', context), context),
+  };
+}
+
+/** A catalog remote's source, with the catalog context on the refusal. */
+function remoteSourceOf(raw: string, context: string): RemoteSource {
+  try {
+    return toRemoteSource(raw);
+  } catch (error) {
+    if (error instanceof ParseError) throw new ParseError(`${context}.source: ${error.message}`);
+    throw error;
+  }
 }
 
 export interface Catalog {
@@ -125,97 +160,6 @@ export interface Catalog {
   ui_rows: JsonValue[] | undefined;
   /** MQTT discovery payloads; optional for the same reason as {@link Catalog.ui_rows}. */
   ui_discovery: JsonValue[] | undefined;
-}
-
-function stringList(value: JsonValue | undefined, context: string): string[] {
-  if (!Array.isArray(value)) throw new ParseError(`${context} must be an array of strings, got ${describe(value)}`);
-  return value.map((entry, index) => {
-    if (typeof entry !== 'string') {
-      throw new ParseError(`${context}[${index}] must be a string, got ${describe(entry)}`);
-    }
-    return entry;
-  });
-}
-
-/** `{}` when the key is absent, because every consumer only iterates these. */
-function stringListMap(document: JsonObject, key: string, context: string): Record<string, string[]> {
-  if (document[key] === undefined) return {};
-  const mapping = requireObject(document, key, context);
-  return Object.fromEntries(Object.entries(mapping).map(([name, value]) =>
-    [name, stringList(value, `${context}.${key}.${name}`)]));
-}
-
-/**
- * Logical lamp to its physical members. A bulb belongs to at most one lamp:
- * two lamps naming the same bulb would send it two lights in one dispatch, so
- * shared membership is a configuration error, rejected here. A lamp that lists
- * one of its own bulbs twice still owns it alone.
- */
-function lampMembers(document: JsonObject, context: string): Record<LampId, BulbId[]> {
-  const members = stringListMap(document, 'members', context), owner = new Map<string, string>();
-  for (const [lamp, bulbs] of Object.entries(members)) for (const bulb of bulbs) {
-    const other = owner.get(bulb);
-    if (other !== undefined && other !== lamp) {
-      throw new ParseError(`${context}.members: bulb ${bulb} belongs to both ${other} and ${lamp}; a bulb belongs to at most one lamp`);
-    }
-    owner.set(bulb, lamp);
-  }
-  return Object.fromEntries(Object.entries(members).map(([lamp, bulbs]) => [toLampId(lamp), bulbs.map(toBulbId)]));
-}
-
-function stringMap(document: JsonObject, key: string, context: string): Record<string, string> {
-  if (document[key] === undefined) return {};
-  const mapping = requireObject(document, key, context);
-  return Object.fromEntries(Object.keys(mapping).map(name =>
-    [name, requireString(mapping, name, `${context}.${key}`)]));
-}
-
-function recordMap<T>(document: JsonObject, key: string, context: string,
-  parse: (record: JsonObject, context: string) => T): Record<string, T> {
-  if (document[key] === undefined) return {};
-  const mapping = requireObject(document, key, context);
-  return Object.fromEntries(Object.keys(mapping).map(name =>
-    [name, parse(requireObject(mapping, name, `${context}.${key}`), `${context}.${key}.${name}`)]));
-}
-
-/** An absent list is an empty one; a present non-list is an error. */
-function valueList(document: JsonObject, key: string, context: string): JsonValue[] {
-  return document[key] === undefined ? [] : requireArray(document, key, context);
-}
-
-function parseEffect(effect: JsonObject, context: string): CatalogEffect {
-  return {
-    channels: effect.channels === undefined ? [] : stringList(effect.channels, `${context}.channels`),
-  };
-}
-
-function parseProcessor(processor: JsonObject, context: string): CatalogProcessor {
-  return {
-    remote_adjustment: processor.remote_adjustment === undefined
-      ? undefined
-      : requireString(processor, 'remote_adjustment', context),
-  };
-}
-
-function parseBulb(bulb: JsonObject, context: string): CatalogBulb {
-  return { candle: bulb.candle === undefined ? false : requireBoolean(bulb.candle, `${context}.candle`) };
-}
-
-function parseRemote(remote: JsonObject, context: string): CatalogRemote {
-  return {
-    device_id: toRemoteId(requireString(remote, 'device_id', context)),
-    source: remoteSourceOf(requireString(remote, 'source', context), context),
-  };
-}
-
-/** A catalog remote's source, with the catalog context on the refusal. */
-function remoteSourceOf(raw: string, context: string): RemoteSource {
-  try {
-    return toRemoteSource(raw);
-  } catch (error) {
-    if (error instanceof ParseError) throw new ParseError(`${context}.source: ${error.message}`);
-    throw error;
-  }
 }
 
 /**
@@ -286,4 +230,60 @@ export function parseCatalog(document: JsonValue | undefined): Catalog {
     ui_rows: document.ui_rows === undefined ? undefined : requireArray(document, 'ui_rows', at),
     ui_discovery: document.ui_discovery === undefined ? undefined : requireArray(document, 'ui_discovery', at),
   };
+}
+
+function recordMap<T>(document: JsonObject, key: string, context: string,
+  parse: (record: JsonObject, context: string) => T): Record<string, T> {
+  if (document[key] === undefined) return {};
+  const mapping = requireObject(document, key, context);
+  return Object.fromEntries(Object.keys(mapping).map(name =>
+    [name, parse(requireObject(mapping, name, `${context}.${key}`), `${context}.${key}.${name}`)]));
+}
+
+/**
+ * Logical lamp to its physical members. A bulb belongs to at most one lamp:
+ * two lamps naming the same bulb would send it two lights in one dispatch, so
+ * shared membership is a configuration error, rejected here. A lamp that lists
+ * one of its own bulbs twice still owns it alone.
+ */
+function lampMembers(document: JsonObject, context: string): Record<LampId, BulbId[]> {
+  const members = stringListMap(document, 'members', context), owner = new Map<string, string>();
+  for (const [lamp, bulbs] of Object.entries(members)) for (const bulb of bulbs) {
+    const other = owner.get(bulb);
+    if (other !== undefined && other !== lamp) {
+      throw new ParseError(`${context}.members: bulb ${bulb} belongs to both ${other} and ${lamp}; a bulb belongs to at most one lamp`);
+    }
+    owner.set(bulb, lamp);
+  }
+  return Object.fromEntries(Object.entries(members).map(([lamp, bulbs]) => [toLampId(lamp), bulbs.map(toBulbId)]));
+}
+
+/** `{}` when the key is absent, because every consumer only iterates these. */
+function stringListMap(document: JsonObject, key: string, context: string): Record<string, string[]> {
+  if (document[key] === undefined) return {};
+  const mapping = requireObject(document, key, context);
+  return Object.fromEntries(Object.entries(mapping).map(([name, value]) =>
+    [name, stringList(value, `${context}.${key}.${name}`)]));
+}
+
+function stringMap(document: JsonObject, key: string, context: string): Record<string, string> {
+  if (document[key] === undefined) return {};
+  const mapping = requireObject(document, key, context);
+  return Object.fromEntries(Object.keys(mapping).map(name =>
+    [name, requireString(mapping, name, `${context}.${key}`)]));
+}
+
+/** An absent list is an empty one; a present non-list is an error. */
+function valueList(document: JsonObject, key: string, context: string): JsonValue[] {
+  return document[key] === undefined ? [] : requireArray(document, key, context);
+}
+
+function stringList(value: JsonValue | undefined, context: string): string[] {
+  if (!Array.isArray(value)) throw new ParseError(`${context} must be an array of strings, got ${describe(value)}`);
+  return value.map((entry, index) => {
+    if (typeof entry !== 'string') {
+      throw new ParseError(`${context}[${index}] must be a string, got ${describe(entry)}`);
+    }
+    return entry;
+  });
 }

@@ -14,6 +14,15 @@ import type { DiscoveryRow, RangeSaveRequest } from '../parse/ui-state.ts';
 import { decideRangeSave, saveRange, uiChoices, uiMessages } from '../domain/ui-state.ts';
 import type { RangeSaveDecision, UiMessage } from '../domain/ui-state.ts';
 
+/** Publish the UI mirror's messages, retained. */
+export function* publishUi(messages: UiMessage[]): Plan<null> {
+  for (const message of messages) yield { kind: 'service', service: 'mqtt.publish', data: { ...message, qos: 0, retain: true } };
+  return null;
+}
+export function rangeSave(ctx: ScriptContext, args: RangeSaveRequest): RangeSaveDecision {
+  const result = decideRangeSave(ctx, args);
+  return args.dryRun ? result : run(ctx, saveRange(result));
+}
 /**
  * A shell: each row's current effect list is read live, after the previous
  * row's publish, as the captured loop reads it.
@@ -35,15 +44,6 @@ export function discoveryPublish(row: DiscoveryRow, choices: string[]): Effect {
       payload: JSON.stringify(withFields(row.config, { effect_list: choices })), qos: 0, retain: true,
     },
   };
-}
-/** Publish the UI mirror's messages, retained. */
-export function* publishUi(messages: UiMessage[]): Plan<null> {
-  for (const message of messages) yield { kind: 'service', service: 'mqtt.publish', data: { ...message, qos: 0, retain: true } };
-  return null;
-}
-export function rangeSave(ctx: ScriptContext, args: RangeSaveRequest): RangeSaveDecision {
-  const result = decideRangeSave(ctx, args);
-  return args.dryRun ? result : run(ctx, saveRange(result));
 }
 export const uiHandlers: ScriptHandlers = {
   effects_ui_catalog: ctx => uiCatalog(ctx),

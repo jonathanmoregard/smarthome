@@ -20,34 +20,6 @@ const record = (value: unknown): JsonObject => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Expected a JSON object');
   return value as JsonObject;
 };
-export async function loadProgram(directory?: string): Promise<Program> {
-  const base = directory ? pathToFileURL(resolve(directory) + '/').href : new URL('./', import.meta.url).href;
-  const extension = directory ? 'js' : 'ts';
-  const [engine, registry] = await Promise.all([
-    import(new URL(`runtime/engine.${extension}`, base).href) as Promise<{ execute: (request: ExecutionRequest, handlers: ScriptHandlers) =>
-      ExecutionOutcome }>,
-    import(new URL(`runtime/registry.${extension}`, base).href) as Promise<{ handlers: ScriptHandlers }>,
-  ]);
-  if (typeof engine.execute !== 'function' || !registry.handlers) throw new Error('Candidate does not export its execution boundary');
-  return request => engine.execute(request, registry.handlers);
-}
-export async function readRuntimeCatalog(path: string): Promise<JsonObject> {
-  const catalog = record(JSON.parse(await readFile(path, 'utf8')));
-  record(catalog.members); record(catalog.groups); record(catalog.effects);
-  // The full parse runs here, at load and at every reload, so a catalog the
-  // lighting logic would refuse (a bulb shared by two lamps, say) is rejected
-  // before it replaces the running one, not on the next dispatch.
-  parseCatalog(catalog);
-  return catalog;
-}
-export function watchRuntimeCatalog(path: string, accept: (catalog: JsonObject) => Promise<void>, reject: (error: unknown) => void): FSWatcher {
-  let revision = 0;
-  return watch(dirname(resolve(path)), (_event, filename) => {
-    if (filename !== basename(path)) return;
-    const current = ++revision;
-    void readRuntimeCatalog(path).then(async catalog => { if (current === revision) await accept(catalog); }).catch(reject);
-  });
-}
 /**
  * Hands rooms over to the port. Whenever it looks, every room that changed
  * hands to the port since the last look has its lamps re-sent: the old
@@ -74,19 +46,6 @@ export class RoomHandover {
 export async function ingestChange(host: LightingHost, handover: RoomHandover, entity: string, state: EntityState | null): Promise<void> {
   await host.ingestState(entity, state);
   if (isPortSwitch(entity)) await handover.reconcile();
-}
-/** How often the port beats; Home Assistant's watchdog treats 30 s without a beat as the port gone. */
-export const HEARTBEAT_MS = 10_000;
-/** Beat now and every `intervalMs` until the answer is called. A failed beat is reported and the next one still goes. */
-export function startHeartbeat(live: LiveRooms, send: (call: ServiceCall) => Promise<unknown>, report: (message: string) => void,
-  intervalMs = HEARTBEAT_MS): () => void {
-  const beat = () => {
-    const call = heartbeatCall(live, Date.now());
-    if (call !== undefined) void send(call).catch(error => report(`Heartbeat not sent: ${error instanceof Error ? error.message : String(error)}`));
-  };
-  beat();
-  const timer = setInterval(beat, intervalMs);
-  return () => clearInterval(timer);
 }
 export async function main(argv = process.argv.slice(2)): Promise<void> {
   const option = (name: string) =>
@@ -180,6 +139,47 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     await stop();
   }
   } catch (error) { stopHeartbeat(); watcher?.close(); await host.close(); throw error; }
+}
+export async function readRuntimeCatalog(path: string): Promise<JsonObject> {
+  const catalog = record(JSON.parse(await readFile(path, 'utf8')));
+  record(catalog.members); record(catalog.groups); record(catalog.effects);
+  // The full parse runs here, at load and at every reload, so a catalog the
+  // lighting logic would refuse (a bulb shared by two lamps, say) is rejected
+  // before it replaces the running one, not on the next dispatch.
+  parseCatalog(catalog);
+  return catalog;
+}
+export async function loadProgram(directory?: string): Promise<Program> {
+  const base = directory ? pathToFileURL(resolve(directory) + '/').href : new URL('./', import.meta.url).href;
+  const extension = directory ? 'js' : 'ts';
+  const [engine, registry] = await Promise.all([
+    import(new URL(`runtime/engine.${extension}`, base).href) as Promise<{ execute: (request: ExecutionRequest, handlers: ScriptHandlers) =>
+      ExecutionOutcome }>,
+    import(new URL(`runtime/registry.${extension}`, base).href) as Promise<{ handlers: ScriptHandlers }>,
+  ]);
+  if (typeof engine.execute !== 'function' || !registry.handlers) throw new Error('Candidate does not export its execution boundary');
+  return request => engine.execute(request, registry.handlers);
+}
+/** How often the port beats; Home Assistant's watchdog treats 30 s without a beat as the port gone. */
+export const HEARTBEAT_MS = 10_000;
+/** Beat now and every `intervalMs` until the answer is called. A failed beat is reported and the next one still goes. */
+export function startHeartbeat(live: LiveRooms, send: (call: ServiceCall) => Promise<unknown>, report: (message: string) => void,
+  intervalMs = HEARTBEAT_MS): () => void {
+  const beat = () => {
+    const call = heartbeatCall(live, Date.now());
+    if (call !== undefined) void send(call).catch(error => report(`Heartbeat not sent: ${error instanceof Error ? error.message : String(error)}`));
+  };
+  beat();
+  const timer = setInterval(beat, intervalMs);
+  return () => clearInterval(timer);
+}
+export function watchRuntimeCatalog(path: string, accept: (catalog: JsonObject) => Promise<void>, reject: (error: unknown) => void): FSWatcher {
+  let revision = 0;
+  return watch(dirname(resolve(path)), (_event, filename) => {
+    if (filename !== basename(path)) return;
+    const current = ++revision;
+    void readRuntimeCatalog(path).then(async catalog => { if (current === revision) await accept(catalog); }).catch(reject);
+  });
 }
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) void main().catch(error =>
   { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; });

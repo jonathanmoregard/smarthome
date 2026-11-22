@@ -96,13 +96,13 @@ export interface ScheduleRecords {
   get(key: OverlayKey): ScheduleRecord;
 }
 
-function scheduleRecords(records: JsonObject): ScheduleRecords {
-  return { keys: Object.keys(records).map(parseOverlayKey), get: key => scheduleRecord(records[overlayKeyText(key)]) };
-}
-
 /** `sensor.ls_overrides`'s `overrides`, read leniently: a non-mapping is `{}`. */
 export function storedScheduleRecords(value: JsonValue | undefined): ScheduleRecords {
   return scheduleRecords(object(value));
+}
+
+function scheduleRecords(records: JsonObject): ScheduleRecords {
+  return { keys: Object.keys(records).map(parseOverlayKey), get: key => scheduleRecord(records[overlayKeyText(key)]) };
 }
 
 /** A saved `input_text` lamp profile; never raises (see `saved()`). */
@@ -132,31 +132,16 @@ export function savedProfile(ctx: HouseView, entity: string): SavedProfile {
   };
 }
 
-/**
- * A lit light's `rgb_color`, when it reports one: three numbers. The captured
- * read was `(rgb_color or [255,255,255]) | list`; the white stand-in is gone
- * (2026-11-20: no invented colour), so a Jinja-falsy value is no rgb. Any other
- * value that is not three numbers is no rgb too (2026-11-21: a value a person
- * can edit recovers): the captured `| list` raised on one it cannot list, and
- * the fade's mix or the resolver's colour read raised on the rest.
- */
-function sampledRgb(ctx: HouseView, entity: string): StoredValue[] | undefined {
-  return rgbTripleOf(ctx.attr(entity, 'rgb_color'));
+/** {@link entityLight}, spelled as a target document's profile. */
+export function entityProfile(ctx: HouseView, entity: string): LampProfile | undefined {
+  return profileOf(entityLight(ctx, entity));
 }
 
-/**
- * A lit light's colour, when it reports one. The captured profile macro reads
- * `color_temp_kelvin` in the colour-temperature mode and `rgb_color` otherwise;
- * either one missing is no colour (it used to be 3000 K or white).
- */
-function lampColour(ctx: HouseView, entity: string): LampColor | undefined {
-  if (ctx.attr(entity, 'color_mode') === 'color_temp') {
-    // A kelvin that is not a number is no colour (it used to raise).
-    const kelvin = parseFinite(ctx.attr(entity, 'color_temp_kelvin'));
-    return kelvin === undefined ? undefined : { kelvin: Math.trunc(kelvin) };
-  }
-  const rgb = sampledRgb(ctx, entity);
-  return rgb === undefined ? undefined : { rgb };
+/** A light as a target document spells it (see {@link LampProfile}); `undefined` when absent. */
+export function profileOf(light: LampLight | undefined): LampProfile | undefined {
+  if (light === undefined) return undefined;
+  if (!light.on) return { on: false };
+  return light.color === undefined ? { brightness: light.brightness } : { brightness: light.brightness, color: light.color };
 }
 
 /**
@@ -181,16 +166,31 @@ export function entityLight(ctx: HouseView, entity: string): LampLight | undefin
   return color === undefined ? { on: true, brightness } : { on: true, brightness, color };
 }
 
-/** A light as a target document spells it (see {@link LampProfile}); `undefined` when absent. */
-export function profileOf(light: LampLight | undefined): LampProfile | undefined {
-  if (light === undefined) return undefined;
-  if (!light.on) return { on: false };
-  return light.color === undefined ? { brightness: light.brightness } : { brightness: light.brightness, color: light.color };
+/**
+ * A lit light's colour, when it reports one. The captured profile macro reads
+ * `color_temp_kelvin` in the colour-temperature mode and `rgb_color` otherwise;
+ * either one missing is no colour (it used to be 3000 K or white).
+ */
+function lampColour(ctx: HouseView, entity: string): LampColor | undefined {
+  if (ctx.attr(entity, 'color_mode') === 'color_temp') {
+    // A kelvin that is not a number is no colour (it used to raise).
+    const kelvin = parseFinite(ctx.attr(entity, 'color_temp_kelvin'));
+    return kelvin === undefined ? undefined : { kelvin: Math.trunc(kelvin) };
+  }
+  const rgb = sampledRgb(ctx, entity);
+  return rgb === undefined ? undefined : { rgb };
 }
 
-/** {@link entityLight}, spelled as a target document's profile. */
-export function entityProfile(ctx: HouseView, entity: string): LampProfile | undefined {
-  return profileOf(entityLight(ctx, entity));
+/**
+ * A lit light's `rgb_color`, when it reports one: three numbers. The captured
+ * read was `(rgb_color or [255,255,255]) | list`; the white stand-in is gone
+ * (2026-11-20: no invented colour), so a Jinja-falsy value is no rgb. Any other
+ * value that is not three numbers is no rgb too (2026-11-21: a value a person
+ * can edit recovers): the captured `| list` raised on one it cannot list, and
+ * the fade's mix or the resolver's colour read raised on the rest.
+ */
+function sampledRgb(ctx: HouseView, entity: string): StoredValue[] | undefined {
+  return rgbTripleOf(ctx.attr(entity, 'rgb_color'));
 }
 
 /**
@@ -237,16 +237,6 @@ export function parseBaseArgs(args: JsonObject): ScheduledBaseRequest {
   return parseScheduledBaseArgs(args, 'ls_base', roomOnly);
 }
 
-/**
- * `ls_room_base`'s arguments. The captured script declaration marks `room`
- * required, and it drives entity names, comparisons and indexing rather than
- * iteration or membership; it is read first.
- */
-export function parseRoomBaseArgs(args: JsonObject): ScheduledBaseRequest {
-  const room = roomOfText(requireString(args, 'room', 'ls_room_base'));
-  return parseScheduledBaseArgs(args, 'ls_room_base', room);
-}
-
 function parseScheduledBaseArgs(args: JsonObject, context: string, roomOnly: RoomId | undefined): ScheduledBaseRequest {
   return {
     testNow: testNow(args.test_now),
@@ -259,6 +249,16 @@ function parseScheduledBaseArgs(args: JsonObject, context: string, roomOnly: Roo
     // The raw value is never otherwise consumed, so the domain only carries the decision.
     includeDebug: args.debug !== undefined && jinjaTruthy(args.debug),
   };
+}
+
+/**
+ * `ls_room_base`'s arguments. The captured script declaration marks `room`
+ * required, and it drives entity names, comparisons and indexing rather than
+ * iteration or membership; it is read first.
+ */
+export function parseRoomBaseArgs(args: JsonObject): ScheduledBaseRequest {
+  const room = roomOfText(requireString(args, 'room', 'ls_room_base'));
+  return parseScheduledBaseArgs(args, 'ls_room_base', room);
 }
 
 /**

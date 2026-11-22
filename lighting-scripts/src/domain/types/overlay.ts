@@ -26,8 +26,10 @@ export type OverlayKey =
   /** Any other key a saved store holds, kept exactly as saved. */
   | { kind: 'saved'; key: SavedOverlayKey };
 
-/** A count of minutes, finite and not negative (the overlay reset's age limit). */
-export type Minutes = Ranged<'Minutes'>;
+/** Two keys name the same saved overlay. */
+export function sameOverlayKey(a: OverlayKey, b: OverlayKey): boolean {
+  return overlayKeyText(a) === overlayKeyText(b);
+}
 
 /**
  * The key's saved text: the exact inverse of `parseOverlayKey`, both ways. A
@@ -47,11 +49,6 @@ export function overlayKeyText(key: OverlayKey): string {
   }
 }
 
-/** Two keys name the same saved overlay. */
-export function sameOverlayKey(a: OverlayKey, b: OverlayKey): boolean {
-  return overlayKeyText(a) === overlayKeyText(b);
-}
-
 /** Order keys as their saved text sorts (`sorted()` over the saved keys). */
 export function byOverlayKeyText(a: OverlayKey, b: OverlayKey): number {
   const x = overlayKeyText(a), y = overlayKeyText(b);
@@ -62,6 +59,9 @@ export function byOverlayKeyText(a: OverlayKey, b: OverlayKey): number {
 export function remoteInputKey(source: RemoteSource): OverlayKey {
   return { kind: 'remote input', source };
 }
+
+/** A count of minutes, finite and not negative (the overlay reset's age limit). */
+export type Minutes = Ranged<'Minutes'>;
 
 /** The Sara mode overlay's key. */
 export const SARA_MODE: OverlayKey = { kind: 'sara mode' };

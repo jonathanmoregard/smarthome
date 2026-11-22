@@ -28,6 +28,19 @@ export interface DispatchTarget {
   on: boolean;
   channels: StoredChannels;
 }
+/**
+ * The starts an on lamp's bulbs need, brightness channel first. Read without
+ * raising: `effects_frame_plan` parses this target strictly, and raises there,
+ * before anything here acts on the answer.
+ */
+function bulbStarts(target: DispatchTarget): string[] {
+  if (!target.on) return [];
+  return (['brightness', 'color'] as const).flatMap(channel => {
+    const effect = runningIn(channel, target.channels);
+    return effect === undefined ? [] : [bulbEffect(effect).start];
+  });
+}
+
 export interface DispatchDetails {
   /** The resolved targets, forwarded to `effects_assign` unread. */
   targets: Verbatim;
@@ -48,23 +61,64 @@ export interface DispatchDetails {
 }
 
 /**
+ * The lamps to send: on, not rooms, inside the output targets, sendable
+ * (requested, in a remote room, or the baseline sends it), and not already
+ * showing what the target needs. `applied` is the only record of what a lamp
+ * shows, a bulb effect included: a lamp sent here gets its start after its
+ * light ({@link bulbStartCommands}), and a lamp not sent is not touched, so a
+ * steady candle is never restarted.
+ */
+export function ordinaryTargets(view: HouseView, details: DispatchDetails, previous: DispatchRuntime): OpaqueMap {
+  const { targetViews, requested, outputTargets, remoteRooms } = details;
+  const ordinary: OpaqueMap = {};
+  for (const target of Object.values(targetViews)) {
+    if (target.lampOrRoom.kind === 'room') continue;
+    const lamp = target.lampOrRoom.lamp;
+    if (outputTargets.length > 0 && !outputTargets.includes(lamp)) continue;
+    if (view.get(lamp) !== 'on') continue;
+    if (!(requested.includes(lamp) || remoteRooms.includes(target.area ?? null) || details.baselineSend(lamp))) continue;
+    if (requested.includes(lamp) || (previous.hadEffect(lamp) && !details.assigned(lamp))
+      || !previous.applied(lamp, target.document)) ordinary[lamp] = target.document;
+  }
+  return ordinary;
+}
+/** The room selects, the Sara mirror and the stale-key clear. Each mirror parses where it is sent. */
+export function* tailEffects(details: DispatchDetails, revision: string, generation: AssignedGeneration['generation']): Plan<void> {
+  for (const parseMirror of details.mirrors()) {
+    const mirror = parseMirror();
+    yield { kind: 'service', service: 'input_select.select_option', data: { option: mirror.option }, target: { entity_id: mirror.entity },
+      guard: { revision, generation } };
+  }
+  const saraMirror = details.saraMirror;
+  if (saraMirror === 'on' || saraMirror === 'off') {
+    yield { kind: 'service', service: `input_boolean.turn_${saraMirror}`, data: {}, target: { entity_id: 'input_boolean.ls_sara_mode_mirror' },
+      guard: { revision, generation } };
+  }
+  const staleKeys = details.staleKeys();
+  if (staleKeys.length > 0) yield { kind: 'event', event: 'ls_override', data: { op: 'clear', keys: staleKeys, via: 'rule_next_block',
+    expected_revision: revision } };
+}
+/**
  * `ls_dispatch`'s result. `null` is one of its real answers -- every
  * revision-moved and stale-plan guard returns it -- so it is in the type rather
  * than hidden behind a lenient read at the caller.
  */
 export type DispatchOutcome = { completed: boolean; published_at: number[] } | null;
-
 /** What a dispatch carries once its plan is accepted. */
 type Accepted = { revision: string; planOrder: number; details: DispatchDetails };
 /** ...once the catalog is fetched and the lamps to send are chosen against the runtime as it stood. */
 type Chosen = Accepted & { catalog: Verbatim; previous: DispatchRuntime; ordinary: OpaqueMap };
+
+/** Each sent lamp with the starts its bulbs need. */
+function sentStarts(run: Chosen): Array<[string, string[]]> {
+  return Object.keys(run.ordinary).map(lamp => [lamp, bulbStarts(run.details.targetViews[lamp]!)]);
+}
 /** ...once the assignment answered its generation. */
 type Assigned = Chosen & { generation: AssignedGeneration['generation'] };
 /** ...once the light went out. */
 type Lit = Assigned & { emission: EmitOutcome };
 /** ...once every publish is done: whether all completed, and when each went out. */
 type Settled = Assigned & { completed: boolean; publishedAt: number[] };
-
 /**
  * `ls_dispatch` as a state machine, one phase per answer it waits for. The
  * order is the captured script's: revision and plan-order stop, details,
@@ -83,6 +137,7 @@ export type DispatchModel =
   | { tag: 'switching'; run: Settled; next: number }
   | { tag: 'finishing'; run: Settled }
   | { tag: 'done'; answer: DispatchOutcome };
+
 /**
  * Every message carries the house as it stands after the command that
  * answered: a step's reads are made on it, and never cross the commands that
@@ -96,6 +151,35 @@ export type DispatchMsg =
   | { tag: 'emitted'; result: EmitOutcome; house: HouseView }
   | { tag: 'performed'; house: HouseView };
 type StartCommand = { topic: string; payload: { effect: string }; members: BulbId[]; owners: string[]; group: null };
+
+/**
+ * Start the effects the bulbs run themselves on lamps that were just sent
+ * their light. A second emission, after the first, so every bulb receives its
+ * colour and level before the start: the candle flickers under the level the
+ * lamp is at and keeps whatever colour it shows. Same members and topics the
+ * frame plan addressed, through the same guarded emitter.
+ */
+export function bulbStartCommands(view: HouseView, lamps: Array<[string, string[]]>): StartCommand[] {
+  return lamps.filter(([lamp, starts]) => starts.length > 0 && view.get(lamp) === 'on').flatMap(([lamp, starts]) =>
+    startableMembers(view, lamp).flatMap(({ member, topic }) =>
+      starts.map(effect => ({ topic, payload: { effect }, members: [member], owners: [lamp], group: null }))));
+}
+
+/** The members a start can reach now: on, with a topic. */
+function startableMembers(view: HouseView, lamp: string): Array<{ member: BulbId; topic: string }> {
+  return membersOf(view, lamp).flatMap(member => {
+    const topic = view.catalog.topics[member];
+    return view.get(member) === 'on' && topic !== undefined ? [{ member, topic }] : [];
+  });
+}
+/** A lamp's catalog members; a lamp the catalog does not list has none. */
+function membersOf(view: HouseView, lamp: string): BulbId[] {
+  // The lamp is a lighting-state entry key, plain text until those lists are parsed; look it up as text.
+  const byText: Readonly<Record<string, BulbId[] | undefined>> = view.catalog.members;
+  const members = byText[lamp];
+  return members === undefined ? [] : members;
+}
+
 export type DispatchCmd =
   /** Run `effects_catalog`; answers `catalog`. */
   | { tag: 'catalog' }
@@ -111,6 +195,7 @@ export type DispatchCmd =
   | { tag: 'effect'; effect: Effect }
   /** Perform a lazy plan, whose raising reads sit between its effects; answers `performed`. */
   | { tag: 'plan'; plan: Plan<void> };
+
 type Transition = [DispatchModel, DispatchCmd[]];
 
 export interface DispatchRequest {
@@ -118,9 +203,90 @@ export interface DispatchRequest {
   planOrder: number;
   details: () => DispatchDetails;
 }
+
+/**
+ * The plan `ls_render` builds from the room plans it merged. Every field is
+ * constructed here; the stored and planned documents inside it are carried.
+ */
+export type RoomsPlan = {
+  base: OpaqueMap;
+  resolved: { targets: OpaqueMap; assignments: OpaqueMap };
+  switches: OpaqueMap;
+  mirror: Verbatim[];
+  stale_keys: string[];
+  revision: string;
+  plan_order: number;
+  remote: false;
+  remote_rooms: RoomId[];
+  sara_mirror: StoredValue;
+  output_targets: string[];
+};
+
+/** What `ls_render` reads first: the clock, the bare revision, and what is pending. */
+export interface RenderOpening {
+  started: number;
+  revision: string;
+  received: StoredValue;
+  request: StoredValue;
+  pending: OpaqueMap;
+  /** The full render's version, when one is due (see `dueFullVersion`). */
+  fullVersion: StoredValue | undefined;
+  /** A full render is pending that the runtime has not handled. */
+  full: boolean;
+  /** The rooms whose pending version the runtime has not handled. */
+  rooms: RoomId[];
+}
+
+
+/** The opening reads, or `undefined` when nothing is pending. */
+export function renderOpening(view: HouseView): RenderOpening | undefined {
+  const started = timestamp(view.now), revision = overridesRevision(view, 'ls_render');
+  const received = attributeFact(view, overrideSensor, 'received_at') ?? null, request = attributeFact(view, overrideSensor, 'last_request') ?? null;
+  const pending = attributeMapping(view, overrideSensor, 'pending_rooms'), handled = attributeMapping(view, runtime, 'handled_rooms');
+  const fullVersion = dueFullVersion(view);
+  const full = fullVersion !== undefined;
+  const rooms = roomKeys(pending).filter(room => pending[room] !== handled[room]);
+  if (!full && rooms.length === 0) return undefined;
+  return { started, revision, received, request, pending, fullVersion, full, rooms };
+}
+
+/** The room plans merged so far over the runtime's stored targets and assignments. */
+export type MergedRooms = {
+  targets: OpaqueMap;
+  assignments: OpaqueMap;
+  bases: OpaqueMap;
+  switches: OpaqueMap;
+  mirrors: Verbatim[];
+  stale: string[];
+  saraMirror: StoredFact;
+  /** Each planned room's cache update, by room. */
+  updates: Record<RoomId, Verbatim>;
+};
+/** The runtime's stored targets and assignments, read before any room is planned. */
+export function roomsStart(view: HouseView): MergedRooms {
+  return { targets: attributeMapping(view, runtime, 'targets'), assignments: attributeMapping(view, runtime, 'assignments'),
+    bases: {}, switches: {}, mirrors: [], stale: [], saraMirror: undefined, updates: {} };
+}
+
+/** One room's plan over the merge: its stored targets replaced in place, the rest accumulated. */
+export function mergeRoomPlan(merged: MergedRooms, room: RoomId, planned: RoomPlanView): MergedRooms {
+  const elsewhere = (map: OpaqueMap) => Object.fromEntries(Object.entries(map).filter(([, t]) => areaOf(t) !== room));
+  return {
+    targets: { ...elsewhere(merged.targets), ...planned.targets },
+    assignments: { ...elsewhere(merged.assignments), ...planned.assignments },
+    bases: { ...merged.bases, ...planned.base },
+    switches: { ...merged.switches, ...planned.switches },
+    mirrors: [...merged.mirrors, ...planned.mirror],
+    stale: [...new Set([...merged.stale, ...planned.staleKeys])],
+    saraMirror: planned.saraMirror,
+    updates: planned.cacheUpdate === undefined ? merged.updates : { ...merged.updates, [room]: planned.cacheUpdate },
+  };
+}
+
 export function dispatchInit(args: DispatchRequest): DispatchModel {
   return { tag: 'opening', args };
 }
+
 
 export function dispatchUpdate(model: DispatchModel, msg: DispatchMsg): Transition {
   switch (model.tag) {
@@ -183,39 +349,12 @@ export function dispatchUpdate(model: DispatchModel, msg: DispatchMsg): Transiti
   }
 }
 
-function done(answer: DispatchOutcome): Transition {
-  return [{ tag: 'done', answer }, []];
-}
 function throwUnexpected(model: DispatchModel, msg: DispatchMsg): never {
   throw new Error(`ls_dispatch: phase ${model.tag} cannot take ${msg.tag}`);
 }
 
-/**
- * The lamps to send: on, not rooms, inside the output targets, sendable
- * (requested, in a remote room, or the baseline sends it), and not already
- * showing what the target needs. `applied` is the only record of what a lamp
- * shows, a bulb effect included: a lamp sent here gets its start after its
- * light ({@link bulbStartCommands}), and a lamp not sent is not touched, so a
- * steady candle is never restarted.
- */
-export function ordinaryTargets(view: HouseView, details: DispatchDetails, previous: DispatchRuntime): OpaqueMap {
-  const { targetViews, requested, outputTargets, remoteRooms } = details;
-  const ordinary: OpaqueMap = {};
-  for (const target of Object.values(targetViews)) {
-    if (target.lampOrRoom.kind === 'room') continue;
-    const lamp = target.lampOrRoom.lamp;
-    if (outputTargets.length > 0 && !outputTargets.includes(lamp)) continue;
-    if (view.get(lamp) !== 'on') continue;
-    if (!(requested.includes(lamp) || remoteRooms.includes(target.area ?? null) || details.baselineSend(lamp))) continue;
-    if (requested.includes(lamp) || (previous.hadEffect(lamp) && !details.assigned(lamp))
-      || !previous.applied(lamp, target.document)) ordinary[lamp] = target.document;
-  }
-  return ordinary;
-}
-
-/** Each sent lamp with the starts its bulbs need. */
-function sentStarts(run: Chosen): Array<[string, string[]]> {
-  return Object.keys(run.ordinary).map(lamp => [lamp, bulbStarts(run.details.targetViews[lamp]!)]);
+function done(answer: DispatchOutcome): Transition {
+  return [{ tag: 'done', answer }, []];
 }
 
 /**
@@ -272,111 +411,6 @@ function switching(house: HouseView, run: Settled, next: number): Transition {
   return [{ tag: 'finishing', run }, [{ tag: 'plan', plan: tailEffects(details, revision, generation) }]];
 }
 
-/** The room selects, the Sara mirror and the stale-key clear. Each mirror parses where it is sent. */
-export function* tailEffects(details: DispatchDetails, revision: string, generation: AssignedGeneration['generation']): Plan<void> {
-  for (const parseMirror of details.mirrors()) {
-    const mirror = parseMirror();
-    yield { kind: 'service', service: 'input_select.select_option', data: { option: mirror.option }, target: { entity_id: mirror.entity },
-      guard: { revision, generation } };
-  }
-  const saraMirror = details.saraMirror;
-  if (saraMirror === 'on' || saraMirror === 'off') {
-    yield { kind: 'service', service: `input_boolean.turn_${saraMirror}`, data: {}, target: { entity_id: 'input_boolean.ls_sara_mode_mirror' },
-      guard: { revision, generation } };
-  }
-  const staleKeys = details.staleKeys();
-  if (staleKeys.length > 0) yield { kind: 'event', event: 'ls_override', data: { op: 'clear', keys: staleKeys, via: 'rule_next_block',
-    expected_revision: revision } };
-}
-
-
-/**
- * Start the effects the bulbs run themselves on lamps that were just sent
- * their light. A second emission, after the first, so every bulb receives its
- * colour and level before the start: the candle flickers under the level the
- * lamp is at and keeps whatever colour it shows. Same members and topics the
- * frame plan addressed, through the same guarded emitter.
- */
-export function bulbStartCommands(view: HouseView, lamps: Array<[string, string[]]>): StartCommand[] {
-  return lamps.filter(([lamp, starts]) => starts.length > 0 && view.get(lamp) === 'on').flatMap(([lamp, starts]) =>
-    startableMembers(view, lamp).flatMap(({ member, topic }) =>
-      starts.map(effect => ({ topic, payload: { effect }, members: [member], owners: [lamp], group: null }))));
-}
-
-/** A lamp's catalog members; a lamp the catalog does not list has none. */
-function membersOf(view: HouseView, lamp: string): BulbId[] {
-  // The lamp is a lighting-state entry key, plain text until those lists are parsed; look it up as text.
-  const byText: Readonly<Record<string, BulbId[] | undefined>> = view.catalog.members;
-  const members = byText[lamp];
-  return members === undefined ? [] : members;
-}
-/** The members a start can reach now: on, with a topic. */
-function startableMembers(view: HouseView, lamp: string): Array<{ member: BulbId; topic: string }> {
-  return membersOf(view, lamp).flatMap(member => {
-    const topic = view.catalog.topics[member];
-    return view.get(member) === 'on' && topic !== undefined ? [{ member, topic }] : [];
-  });
-}
-
-/**
- * The starts an on lamp's bulbs need, brightness channel first. Read without
- * raising: `effects_frame_plan` parses this target strictly, and raises there,
- * before anything here acts on the answer.
- */
-function bulbStarts(target: DispatchTarget): string[] {
-  if (!target.on) return [];
-  return (['brightness', 'color'] as const).flatMap(channel => {
-    const effect = runningIn(channel, target.channels);
-    return effect === undefined ? [] : [bulbEffect(effect).start];
-  });
-}
-
-/**
- * The plan `ls_render` builds from the room plans it merged. Every field is
- * constructed here; the stored and planned documents inside it are carried.
- */
-export type RoomsPlan = {
-  base: OpaqueMap;
-  resolved: { targets: OpaqueMap; assignments: OpaqueMap };
-  switches: OpaqueMap;
-  mirror: Verbatim[];
-  stale_keys: string[];
-  revision: string;
-  plan_order: number;
-  remote: false;
-  remote_rooms: RoomId[];
-  sara_mirror: StoredValue;
-  output_targets: string[];
-};
-
-
-/** What `ls_render` reads first: the clock, the bare revision, and what is pending. */
-export interface RenderOpening {
-  started: number;
-  revision: string;
-  received: StoredValue;
-  request: StoredValue;
-  pending: OpaqueMap;
-  /** The full render's version, when one is due (see `dueFullVersion`). */
-  fullVersion: StoredValue | undefined;
-  /** A full render is pending that the runtime has not handled. */
-  full: boolean;
-  /** The rooms whose pending version the runtime has not handled. */
-  rooms: RoomId[];
-}
-
-/** The opening reads, or `undefined` when nothing is pending. */
-export function renderOpening(view: HouseView): RenderOpening | undefined {
-  const started = timestamp(view.now), revision = overridesRevision(view, 'ls_render');
-  const received = attributeFact(view, overrideSensor, 'received_at') ?? null, request = attributeFact(view, overrideSensor, 'last_request') ?? null;
-  const pending = attributeMapping(view, overrideSensor, 'pending_rooms'), handled = attributeMapping(view, runtime, 'handled_rooms');
-  const fullVersion = dueFullVersion(view);
-  const full = fullVersion !== undefined;
-  const rooms = roomKeys(pending).filter(room => pending[room] !== handled[room]);
-  if (!full && rooms.length === 0) return undefined;
-  return { started, revision, received, request, pending, fullVersion, full, rooms };
-}
-
 /** Captured: `full_reason or 'config'`, Jinja's `or` (`[]`/`{}` fall back, NaN does not). */
 export function fullReason(view: HouseView): StoredValue {
   const storedReason = attributeFact(view, overrideSensor, 'full_reason');
@@ -400,44 +434,10 @@ export function gradientUpdates(view: HouseView, planned: FullPlan): Record<Room
   return updates;
 }
 
-/** The room plans merged so far over the runtime's stored targets and assignments. */
-export type MergedRooms = {
-  targets: OpaqueMap;
-  assignments: OpaqueMap;
-  bases: OpaqueMap;
-  switches: OpaqueMap;
-  mirrors: Verbatim[];
-  stale: string[];
-  saraMirror: StoredFact;
-  /** Each planned room's cache update, by room. */
-  updates: Record<RoomId, Verbatim>;
-};
-
-/** The runtime's stored targets and assignments, read before any room is planned. */
-export function roomsStart(view: HouseView): MergedRooms {
-  return { targets: attributeMapping(view, runtime, 'targets'), assignments: attributeMapping(view, runtime, 'assignments'),
-    bases: {}, switches: {}, mirrors: [], stale: [], saraMirror: undefined, updates: {} };
-}
-
 /** `ls_room_plan`'s arguments for one room, read as the previous room's plan left the house. */
 export function roomPlanRequest(view: HouseView, room: RoomId): { room: RoomId; overrides: Verbatim; cache: Verbatim; reason: 'remote' } {
   return { room, overrides: mappingAttribute(view.attr(overrideSensor, 'overrides')),
     cache: mappingAttribute(view.attr(`sensor.ls_cache_${room}`, 'cache')), reason: 'remote' };
-}
-
-/** One room's plan over the merge: its stored targets replaced in place, the rest accumulated. */
-export function mergeRoomPlan(merged: MergedRooms, room: RoomId, planned: RoomPlanView): MergedRooms {
-  const elsewhere = (map: OpaqueMap) => Object.fromEntries(Object.entries(map).filter(([, t]) => areaOf(t) !== room));
-  return {
-    targets: { ...elsewhere(merged.targets), ...planned.targets },
-    assignments: { ...elsewhere(merged.assignments), ...planned.assignments },
-    bases: { ...merged.bases, ...planned.base },
-    switches: { ...merged.switches, ...planned.switches },
-    mirrors: [...merged.mirrors, ...planned.mirror],
-    stale: [...new Set([...merged.stale, ...planned.staleKeys])],
-    saraMirror: planned.saraMirror,
-    updates: planned.cacheUpdate === undefined ? merged.updates : { ...merged.updates, [room]: planned.cacheUpdate },
-  };
 }
 
 /** The plan `ls_dispatch` gets from merged room plans. */

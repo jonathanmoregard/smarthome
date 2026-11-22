@@ -99,77 +99,6 @@ const unwrap = node => {
 
 const isAsConst = node => ts.isTypeReferenceNode(node.type) && ts.isIdentifier(node.type.typeName) && node.type.typeName.text === 'const';
 
-function boundToArrayLiteral(identifier) {
-  const symbol = resolved(checker.getSymbolAtLocation(identifier));
-  const declaration = symbol?.valueDeclaration;
-  return declaration !== undefined && ts.isVariableDeclaration(declaration)
-    && (ts.getCombinedNodeFlags(declaration) & ts.NodeFlags.Const) !== 0
-    && declaration.initializer !== undefined && ts.isArrayLiteralExpression(unwrap(declaration.initializer));
-}
-
-function isHouseView(expression) {
-  const type = checker.getTypeAtLocation(expression);
-  return type.aliasSymbol?.name === 'HouseView' || type.getSymbol()?.name === 'HouseView';
-}
-
-/** A symbol's declarations; none for no symbol. */
-const declarationsOf = symbol => symbol === undefined || symbol.declarations === undefined ? [] : symbol.declarations;
-const declaredInDomainTypes = symbol => declarationsOf(symbol).some(declaration => inDomainTypes(declaration.getSourceFile().fileName));
-
-/**
- * Does the type, as the checker resolves it, hold a type declared under
- * src/domain/types? Resolved, not read off the written name, so a local alias
- * (`type R = RoomId; x as R`) is seen through. The same walk as
- * `tests/runtime/domain-type-casts.test.ts`.
- */
-function holdsDomainType(type, seen) {
-  if (seen.has(type)) return false;
-  seen.add(type);
-  // A type parameter is declared where its generic is (`entriesOf`'s `K`), not a type declared there.
-  if ((type.flags & ts.TypeFlags.TypeParameter) !== 0) return false;
-  if (declaredInDomainTypes(type.aliasSymbol) || declaredInDomainTypes(type.getSymbol())) return true;
-  if (type.isUnionOrIntersection()) return type.types.some(member => holdsDomainType(member, seen));
-  if (type.aliasTypeArguments !== undefined && type.aliasTypeArguments.some(argument => holdsDomainType(argument, seen))) return true;
-  if ((type.flags & ts.TypeFlags.Object) === 0) return false;
-  return checker.getIndexInfosOfType(type).some(info => holdsDomainType(info.keyType, seen) || holdsDomainType(info.type, seen))
-    || checker.getPropertiesOfType(type).some(property => holdsDomainType(checker.getTypeOfSymbol(property), seen));
-}
-const namesDomainType = typeNode => holdsDomainType(checker.getTypeFromTypeNode(typeNode), new Set());
-
-/**
- * Does this type reference name a carried document type? Directly, or through
- * a type alias the checker resolves it to, followed through the syntax that
- * only renames or contains (another reference and its type arguments, a
- * union, an intersection, an array, a tuple, parentheses, `readonly`). A
- * named object type is not carried, though a field of it may be: that field
- * is counted where it is written.
- */
-function namesCarriedType(reference, seen = new Set()) {
-  const typeName = ts.isIdentifier(reference.typeName) ? reference.typeName.text : reference.typeName.right.text;
-  const symbol = resolved(checker.getSymbolAtLocation(reference.typeName));
-  if (CARRIED.has(symbol === undefined ? typeName : symbol.name)) return true;
-  if (symbol === undefined || seen.has(symbol)) return false;
-  seen.add(symbol);
-  return declarationsOf(symbol).some(declaration => ts.isTypeAliasDeclaration(declaration)
-    && inSource(declaration.getSourceFile().fileName) && carriedWithin(declaration.type, seen));
-}
-function carriedWithin(node, seen) {
-  if (ts.isTypeReferenceNode(node)) {
-    return namesCarriedType(node, seen) || (node.typeArguments !== undefined && node.typeArguments.some(argument => carriedWithin(argument, seen)));
-  }
-  if (ts.isUnionTypeNode(node) || ts.isIntersectionTypeNode(node)) return node.types.some(member => carriedWithin(member, seen));
-  if (ts.isArrayTypeNode(node)) return carriedWithin(node.elementType, seen);
-  if (ts.isTupleTypeNode(node)) return node.elements.some(element => carriedWithin(element, seen));
-  if (ts.isNamedTupleMember(node) || ts.isOptionalTypeNode(node) || ts.isRestTypeNode(node) || ts.isParenthesizedTypeNode(node)
-    || ts.isTypeOperatorNode(node)) return carriedWithin(node.type, seen);
-  return false;
-}
-
-function literalText(node) {
-  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
-  return [node.head.text, ...node.templateSpans.map(span => span.literal.text)].join(HOLE);
-}
-
 function measure(source) {
   const row = Object.fromEntries(Object.keys(COLUMNS).map(column => [column, 0]));
   const visit = node => {
@@ -210,6 +139,77 @@ function measure(source) {
   };
   visit(source);
   return row;
+}
+
+/**
+ * Does this type reference name a carried document type? Directly, or through
+ * a type alias the checker resolves it to, followed through the syntax that
+ * only renames or contains (another reference and its type arguments, a
+ * union, an intersection, an array, a tuple, parentheses, `readonly`). A
+ * named object type is not carried, though a field of it may be: that field
+ * is counted where it is written.
+ */
+function namesCarriedType(reference, seen = new Set()) {
+  const typeName = ts.isIdentifier(reference.typeName) ? reference.typeName.text : reference.typeName.right.text;
+  const symbol = resolved(checker.getSymbolAtLocation(reference.typeName));
+  if (CARRIED.has(symbol === undefined ? typeName : symbol.name)) return true;
+  if (symbol === undefined || seen.has(symbol)) return false;
+  seen.add(symbol);
+  return declarationsOf(symbol).some(declaration => ts.isTypeAliasDeclaration(declaration)
+    && inSource(declaration.getSourceFile().fileName) && carriedWithin(declaration.type, seen));
+}
+
+/** A symbol's declarations; none for no symbol. */
+const declarationsOf = symbol => symbol === undefined || symbol.declarations === undefined ? [] : symbol.declarations;
+const declaredInDomainTypes = symbol => declarationsOf(symbol).some(declaration => inDomainTypes(declaration.getSourceFile().fileName));
+
+function carriedWithin(node, seen) {
+  if (ts.isTypeReferenceNode(node)) {
+    return namesCarriedType(node, seen) || (node.typeArguments !== undefined && node.typeArguments.some(argument => carriedWithin(argument, seen)));
+  }
+  if (ts.isUnionTypeNode(node) || ts.isIntersectionTypeNode(node)) return node.types.some(member => carriedWithin(member, seen));
+  if (ts.isArrayTypeNode(node)) return carriedWithin(node.elementType, seen);
+  if (ts.isTupleTypeNode(node)) return node.elements.some(element => carriedWithin(element, seen));
+  if (ts.isNamedTupleMember(node) || ts.isOptionalTypeNode(node) || ts.isRestTypeNode(node) || ts.isParenthesizedTypeNode(node)
+    || ts.isTypeOperatorNode(node)) return carriedWithin(node.type, seen);
+  return false;
+}
+const namesDomainType = typeNode => holdsDomainType(checker.getTypeFromTypeNode(typeNode), new Set());
+
+function isHouseView(expression) {
+  const type = checker.getTypeAtLocation(expression);
+  return type.aliasSymbol?.name === 'HouseView' || type.getSymbol()?.name === 'HouseView';
+}
+function boundToArrayLiteral(identifier) {
+  const symbol = resolved(checker.getSymbolAtLocation(identifier));
+  const declaration = symbol?.valueDeclaration;
+  return declaration !== undefined && ts.isVariableDeclaration(declaration)
+    && (ts.getCombinedNodeFlags(declaration) & ts.NodeFlags.Const) !== 0
+    && declaration.initializer !== undefined && ts.isArrayLiteralExpression(unwrap(declaration.initializer));
+}
+
+function literalText(node) {
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
+  return [node.head.text, ...node.templateSpans.map(span => span.literal.text)].join(HOLE);
+}
+
+/**
+ * Does the type, as the checker resolves it, hold a type declared under
+ * src/domain/types? Resolved, not read off the written name, so a local alias
+ * (`type R = RoomId; x as R`) is seen through. The same walk as
+ * `tests/runtime/domain-type-casts.test.ts`.
+ */
+function holdsDomainType(type, seen) {
+  if (seen.has(type)) return false;
+  seen.add(type);
+  // A type parameter is declared where its generic is (`entriesOf`'s `K`), not a type declared there.
+  if ((type.flags & ts.TypeFlags.TypeParameter) !== 0) return false;
+  if (declaredInDomainTypes(type.aliasSymbol) || declaredInDomainTypes(type.getSymbol())) return true;
+  if (type.isUnionOrIntersection()) return type.types.some(member => holdsDomainType(member, seen));
+  if (type.aliasTypeArguments !== undefined && type.aliasTypeArguments.some(argument => holdsDomainType(argument, seen))) return true;
+  if ((type.flags & ts.TypeFlags.Object) === 0) return false;
+  return checker.getIndexInfosOfType(type).some(info => holdsDomainType(info.keyType, seen) || holdsDomainType(info.type, seen))
+    || checker.getPropertiesOfType(type).some(property => holdsDomainType(checker.getTypeOfSymbol(property), seen));
 }
 
 const files = {};

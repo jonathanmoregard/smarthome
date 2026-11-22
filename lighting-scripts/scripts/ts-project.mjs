@@ -7,24 +7,6 @@ import ts from 'typescript';
 
 export { ts };
 
-export function option(name) {
-  const index = process.argv.indexOf(name);
-  return index === -1 ? undefined : process.argv[index + 1];
-}
-
-export function fail(message) {
-  console.error(`FAIL: ${message}`);
-  process.exit(1);
-}
-
-function walk(dir) {
-  return readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
-    const path = join(dir, entry.name);
-    if (entry.isDirectory()) return walk(path);
-    return entry.name.endsWith('.ts') && !entry.name.endsWith('.d.ts') ? [path] : [];
-  }).sort();
-}
-
 /**
  * The project under `--root` (default: `lighting-scripts/`). It is compiled with
  * its own tsconfig when it has one; a fixture without one gets every `.ts`
@@ -61,4 +43,22 @@ export function project() {
     /** The symbol itself, or what an import alias stands for. */
     resolved: symbol => symbol !== undefined && (symbol.flags & ts.SymbolFlags.Alias) !== 0 ? checker.getAliasedSymbol(symbol) : symbol,
   };
+}
+
+export function option(name) {
+  const index = process.argv.indexOf(name);
+  return index === -1 ? undefined : process.argv[index + 1];
+}
+
+export function fail(message) {
+  console.error(`FAIL: ${message}`);
+  process.exit(1);
+}
+
+function walk(dir) {
+  return readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) return walk(path);
+    return entry.name.endsWith('.ts') && !entry.name.endsWith('.d.ts') ? [path] : [];
+  }).sort();
 }

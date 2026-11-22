@@ -20,12 +20,12 @@ export const REMOTE_COMMANDS: readonly RemoteCommand[] = ['up', 'down', 'left', 
  */
 export type RemotePress = { kind: 'command'; command: RemoteCommand } | { kind: 'unknown'; text: string };
 
-/** The command a press acts on; none for a press that does nothing. */
-export function pressCommand(press: RemotePress): RemoteCommand | undefined {
-  return press.kind === 'command' ? press.command : undefined;
-}
-
 /** The press as the text it was sent as. */
 export function pressText(press: RemotePress): string {
   return press.kind === 'command' ? press.command : press.text;
+}
+
+/** The command a press acts on; none for a press that does nothing. */
+export function pressCommand(press: RemotePress): RemoteCommand | undefined {
+  return press.kind === 'command' ? press.command : undefined;
 }

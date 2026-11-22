@@ -40,43 +40,6 @@ const inScope = file => SCOPES.some(scope => scope(file));
 const TEXT = [checker.getStringType(), checker.getNumberType(), checker.getBigIntType()];
 const UNTYPED = ts.TypeFlags.Any | ts.TypeFlags.Unknown;
 
-/** Is every member of the type text, a number or a bigint? */
-function isText(type) {
-  if ((type.flags & UNTYPED) !== 0) return false;
-  if (type.isUnion()) return type.types.every(isText);
-  return TEXT.some(target => checker.isTypeAssignableTo(type, target));
-}
-const isStringResult = node => (checker.getTypeAtLocation(node).flags & ts.TypeFlags.StringLike) !== 0;
-
-function isGlobalString(callee) {
-  if (!ts.isIdentifier(callee) || callee.text !== 'String') return false;
-  const symbol = checker.getSymbolAtLocation(callee);
-  const declarations = symbol === undefined || symbol.declarations === undefined ? [] : symbol.declarations;
-  // The global is declared in the default library (and augmented by @types/node); a local shadow is not.
-  return declarations.some(declaration => program.isSourceFileDefaultLibrary(declaration.getSourceFile()));
-}
-
-const nameOf = node => node !== undefined && (ts.isIdentifier(node) || ts.isStringLiteral(node) || ts.isPrivateIdentifier(node))
-  ? node.text : undefined;
-
-/** The function a site is in: its own name, or the name it is bound to; `(module)` at the top level. */
-function within(node) {
-  for (let current = node.parent; current !== undefined; current = current.parent) {
-    if (ts.isSourceFile(current)) break;
-    if (!ts.isFunctionLike(current)) continue;
-    const own = nameOf(current.name);
-    if (own !== undefined) return own;
-    const parent = current.parent;
-    if (ts.isVariableDeclaration(parent) || ts.isPropertyAssignment(parent) || ts.isPropertyDeclaration(parent)) {
-      const bound = nameOf(parent.name);
-      if (bound !== undefined) return bound;
-    }
-  }
-  return '(module)';
-}
-
-const oneLine = text => text.replace(/\s+/g, ' ');
-
 function measure(source) {
   const found = [];
   const site = (node, text, value) => {
@@ -106,6 +69,43 @@ function measure(source) {
   };
   visit(source);
   return found;
+}
+const isStringResult = node => (checker.getTypeAtLocation(node).flags & ts.TypeFlags.StringLike) !== 0;
+
+/** The function a site is in: its own name, or the name it is bound to; `(module)` at the top level. */
+function within(node) {
+  for (let current = node.parent; current !== undefined; current = current.parent) {
+    if (ts.isSourceFile(current)) break;
+    if (!ts.isFunctionLike(current)) continue;
+    const own = nameOf(current.name);
+    if (own !== undefined) return own;
+    const parent = current.parent;
+    if (ts.isVariableDeclaration(parent) || ts.isPropertyAssignment(parent) || ts.isPropertyDeclaration(parent)) {
+      const bound = nameOf(parent.name);
+      if (bound !== undefined) return bound;
+    }
+  }
+  return '(module)';
+}
+
+const nameOf = node => node !== undefined && (ts.isIdentifier(node) || ts.isStringLiteral(node) || ts.isPrivateIdentifier(node))
+  ? node.text : undefined;
+
+function isGlobalString(callee) {
+  if (!ts.isIdentifier(callee) || callee.text !== 'String') return false;
+  const symbol = checker.getSymbolAtLocation(callee);
+  const declarations = symbol === undefined || symbol.declarations === undefined ? [] : symbol.declarations;
+  // The global is declared in the default library (and augmented by @types/node); a local shadow is not.
+  return declarations.some(declaration => program.isSourceFileDefaultLibrary(declaration.getSourceFile()));
+}
+
+const oneLine = text => text.replace(/\s+/g, ' ');
+
+/** Is every member of the type text, a number or a bigint? */
+function isText(type) {
+  if ((type.flags & UNTYPED) !== 0) return false;
+  if (type.isUnion()) return type.types.every(isText);
+  return TEXT.some(target => checker.isTypeAssignableTo(type, target));
 }
 
 const sites = [...program.getSourceFiles()]

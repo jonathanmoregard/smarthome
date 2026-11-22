@@ -18,6 +18,20 @@ import { opaqueMap, storedFact } from './overrides.ts';
 import { attributeFact, attributeList, attributeMapping, lenientOverrides } from './sensors.ts';
 import type { HouseView } from '../runtime/effects.ts';
 
+/** A room the house scope expanded to: always a plain string key. */
+export function roomTarget(room: string): BlockTarget {
+  return blockTarget(room);
+}
+
+function blockTarget(value: JsonValue | undefined): BlockTarget {
+  return {
+    isHouse: value === 'house',
+    record: carry(value ?? null),
+    keyText: concatString(value),
+    key: () => mappingKey(value, 'ls_override_block.scope'),
+  };
+}
+
 /** Jinja `~` uses an empty string for Undefined, unlike the `| string` filter. */
 export function concatString(value: JsonValue | undefined): string {
   return value === undefined ? '' : jinjaString(value);
@@ -35,25 +49,6 @@ export function mappingKey(key: JsonValue | undefined, context: string): string 
   return typeof key === 'string' ? key : undefined;
 }
 
-/** Captured via has `| default('app')` sites: only an absent via is replaced. */
-function via(args: JsonObject): Verbatim {
-  return carry(args.via === undefined ? 'app' : args.via);
-}
-
-function blockTarget(value: JsonValue | undefined): BlockTarget {
-  return {
-    isHouse: value === 'house',
-    record: carry(value ?? null),
-    keyText: concatString(value),
-    key: () => mappingKey(value, 'ls_override_block.scope'),
-  };
-}
-
-/** A room the house scope expanded to: always a plain string key. */
-export function roomTarget(room: string): BlockTarget {
-  return blockTarget(room);
-}
-
 /**
  * Captured scope is raw twice (list construction and comparison), block has
  * one `| lower`, and via has two `| default('app')` sites. Raw scope remains
@@ -65,6 +60,11 @@ export function parseOverrideBlockArgs(args: JsonObject): OverrideBlockRequest {
     block: jinjaString(args.block).toLowerCase(),
     via: via(args),
   };
+}
+
+/** Captured via has `| default('app')` sites: only an absent via is replaced. */
+function via(args: JsonObject): Verbatim {
+  return carry(args.via === undefined ? 'app' : args.via);
 }
 
 /** A request that carries only who asked: `via`. */
@@ -87,6 +87,13 @@ export function scheduledBlocks(result: JsonValue): ScheduledBlocks {
   };
 }
 
+/** Home Assistant's custom `| bool` filter: what it rejects raises, as the filter does. */
+export function haBoolean(value: JsonValue | undefined, context: string): boolean {
+  const parsed = haBooleanOf(value);
+  if (parsed === undefined) throw new ParseError(`${context} is not accepted by Home Assistant's bool filter`);
+  return parsed;
+}
+
 /**
  * Home Assistant's custom `| bool` filter, measured from the pinned oracle,
  * as a lenient read: what the filter accepts is its boolean, and what it
@@ -103,17 +110,38 @@ export function haBooleanOf(value: JsonValue | undefined): boolean | undefined {
   return undefined;
 }
 
-/** Home Assistant's custom `| bool` filter: what it rejects raises, as the filter does. */
-export function haBoolean(value: JsonValue | undefined, context: string): boolean {
-  const parsed = haBooleanOf(value);
-  if (parsed === undefined) throw new ParseError(`${context} is not accepted by Home Assistant's bool filter`);
-  return parsed;
-}
-
 /** {@link haBooleanOf} for a saved value: what the filter rejects is `fallback` instead of a raise. */
 export function haBooleanOr(value: JsonValue | undefined, fallback: boolean): boolean {
   const parsed = haBooleanOf(value);
   return parsed === undefined ? fallback : parsed;
+}
+
+/**
+ * Captured `store` is required and reaches `.startswith`, so it is a plain
+ * string. Every other field is guarded `is defined and is not none`, which
+ * makes absence and none identical, and each carries its own filter: `| bool`
+ * for on/own, `| int` for brightness and kelvin, `| float` under a division
+ * for mireds, `| float` per element for hs. The effect is stored as supplied.
+ *
+ * The light values come from the dashboard a person uses, so they recover
+ * rather than raise (2026-11-21): an `on` or `own` the bool filter rejects, and
+ * a mireds that does not convert, are read as not supplied -- the saved value
+ * stays, and an unconverted mireds releases no colour channel.
+ */
+export function parseStoreProfile(args: JsonObject): StoreProfileRequest {
+  const mireds = !supplied(args.kelvin) && supplied(args.mireds) ? miredKelvin(args.mireds) : undefined;
+  return {
+    // The captured tail evaluates `store.startswith('input_text.ls_lamp_')`,
+    // which raises for a non-string. Nothing coerces it, so neither does this.
+    entity: requireString(args, 'store', 'ls_store'),
+    on: supplied(args.on) ? haBooleanOf(args.on) : undefined,
+    own: supplied(args.own) ? haBooleanOf(args.own) : undefined,
+    brightness: supplied(args.brightness) ? jinjaInt(args.brightness) : undefined,
+    kelvin: supplied(args.kelvin) ? jinjaInt(args.kelvin) : mireds,
+    hs: supplied(args.hs) ? huePair(args.hs) : undefined,
+    releasesColour: supplied(args.kelvin) || mireds !== undefined || supplied(args.hs),
+    effect: supplied(args.effect) ? storedFact(args.effect) : undefined,
+  };
 }
 
 /**
@@ -147,34 +175,6 @@ function huePair(hs: JsonValue | undefined): { h: number; s: number } {
   // was NaN, which serialized to null.
   const pair = Array.isArray(hs) ? hs : [];
   return { h: jinjaFloat(pair[0]), s: jinjaFloat(pair[1]) };
-}
-
-/**
- * Captured `store` is required and reaches `.startswith`, so it is a plain
- * string. Every other field is guarded `is defined and is not none`, which
- * makes absence and none identical, and each carries its own filter: `| bool`
- * for on/own, `| int` for brightness and kelvin, `| float` under a division
- * for mireds, `| float` per element for hs. The effect is stored as supplied.
- *
- * The light values come from the dashboard a person uses, so they recover
- * rather than raise (2026-11-21): an `on` or `own` the bool filter rejects, and
- * a mireds that does not convert, are read as not supplied -- the saved value
- * stays, and an unconverted mireds releases no colour channel.
- */
-export function parseStoreProfile(args: JsonObject): StoreProfileRequest {
-  const mireds = !supplied(args.kelvin) && supplied(args.mireds) ? miredKelvin(args.mireds) : undefined;
-  return {
-    // The captured tail evaluates `store.startswith('input_text.ls_lamp_')`,
-    // which raises for a non-string. Nothing coerces it, so neither does this.
-    entity: requireString(args, 'store', 'ls_store'),
-    on: supplied(args.on) ? haBooleanOf(args.on) : undefined,
-    own: supplied(args.own) ? haBooleanOf(args.own) : undefined,
-    brightness: supplied(args.brightness) ? jinjaInt(args.brightness) : undefined,
-    kelvin: supplied(args.kelvin) ? jinjaInt(args.kelvin) : mireds,
-    hs: supplied(args.hs) ? huePair(args.hs) : undefined,
-    releasesColour: supplied(args.kelvin) || mireds !== undefined || supplied(args.hs),
-    effect: supplied(args.effect) ? storedFact(args.effect) : undefined,
-  };
 }
 
 /**

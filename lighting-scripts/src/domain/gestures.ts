@@ -49,33 +49,13 @@ export interface Model {
 }
 type HelperKey = 'chord_step' | 'power_count' | 'power_token' | 'preset';
 
-function helperDomain(key: HelperKey): string { return key === 'power_token' ? 'input_text' : 'input_number'; }
 /** Write a helper: the transaction's own view of it first, then the service. */
 function* setHelper(room: RoomId, key: HelperKey, value: string | number): Plan<void> {
   const entity = `${helperDomain(key)}.ls_${room}_remote_${key}`;
   yield { kind: 'state', entity, state: stateText(value) };
   yield { kind: 'service', service: `${helperDomain(key)}.set_value`, data: { value }, target: { entity_id: entity } };
 }
-function* chordTimer(room: RoomId, start: boolean): Plan<void> {
-  const chord = `timer.ls_${room}_remote_chord`;
-  yield { kind: 'state', entity: chord, state: start ? 'active' : 'idle' };
-  yield {
-    kind: 'service', service: `timer.${start ? 'start' : 'cancel'}`,
-    data: start ? { duration: '00:00:03' } : {}, target: { entity_id: chord },
-  };
-}
-
-/**
- * The area a remote's commands go to: its device's area, or none. A remote
- * with no device, or whose device has no area (an empty area id is none),
- * has no area, and its gestures send nothing. There is no fallback room.
- */
-export function remoteArea(deviceId: RemoteId | undefined, remoteRooms: Readonly<Record<RemoteId, RoomId>>): RoomId | undefined {
-  if (deviceId === undefined) return undefined;
-  const area = remoteRooms[deviceId];
-  return area === undefined || area.length === 0 ? undefined : area;
-}
-
+function helperDomain(key: HelperKey): string { return key === 'power_token' ? 'input_text' : 'input_number'; }
 /**
  * The gesture reducer: one message against the model, as the effects it
  * causes and the model they leave.
@@ -175,6 +155,26 @@ export function* update(model: Model, msg: Msg, remote: {
   if (step !== 0 || active) yield* clearChord();
   if (press !== 'cancel') yield* send(press);
   return next;
+}
+
+function* chordTimer(room: RoomId, start: boolean): Plan<void> {
+  const chord = `timer.ls_${room}_remote_chord`;
+  yield { kind: 'state', entity: chord, state: start ? 'active' : 'idle' };
+  yield {
+    kind: 'service', service: `timer.${start ? 'start' : 'cancel'}`,
+    data: start ? { duration: '00:00:03' } : {}, target: { entity_id: chord },
+  };
+}
+
+/**
+ * The area a remote's commands go to: its device's area, or none. A remote
+ * with no device, or whose device has no area (an empty area id is none),
+ * has no area, and its gestures send nothing. There is no fallback room.
+ */
+export function remoteArea(deviceId: RemoteId | undefined, remoteRooms: Readonly<Record<RemoteId, RoomId>>): RoomId | undefined {
+  if (deviceId === undefined) return undefined;
+  const area = remoteRooms[deviceId];
+  return area === undefined || area.length === 0 ? undefined : area;
 }
 
 /** A power press's token, stamped with `now` as read after the press's writes. */

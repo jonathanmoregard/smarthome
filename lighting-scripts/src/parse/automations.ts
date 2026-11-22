@@ -22,11 +22,8 @@ import { toRemoteId, toRoomId } from './ids.ts';
 import type { RemoteId, RoomId } from '../domain/types/ids.ts';
 import type { OverlayKey } from '../domain/types/overlay.ts';
 
-function triggerObject(args: JsonObject, context: string): JsonObject {
-  return requireObject(args, 'trigger', context);
-}
-
 export type RemoteKind = 'power' | 'directions' | 'preset';
+
 export interface RemoteTrigger {
   room: RoomId;
   /** The gesture command: the kind itself, or directions' `trigger.id` as stored. */
@@ -36,26 +33,6 @@ export interface RemoteTrigger {
   source: string | undefined;
   deviceId: RemoteId | undefined;
 }
-
-export function parseRemoteArgs(kind: RemoteKind, args: JsonObject): RemoteTrigger {
-  const room = toRoomId(requireString(args, 'room', `automation.remote_${kind}`));
-  if (!/^[a-z0-9_]+$/.test(room)) throw new ParseError('Remote automation requires a runtime room ID');
-  // Center never reads trigger. Directions and preset reach distinct raw
-  // fields, so the shared factory must not impose either field on the other.
-  const trigger = kind === 'power' ? undefined : triggerObject(args, `automation.remote_${kind}`);
-  const id = kind === 'directions' ? trigger!.id : undefined;
-  const payload = kind === 'preset' ? trigger!.payload_json : undefined;
-  return {
-    room,
-    // `trigger.id ?? null`: an absent id is forwarded as null.
-    command: kind === 'directions' ? storedFact(id === undefined ? null : id) : kind,
-    // `payload_json ?? null`: an absent payload is forwarded as null.
-    payload: carry(payload === undefined ? null : payload),
-    source: typeof args.source === 'string' ? args.source : undefined,
-    deviceId: typeof args.device_id === 'string' ? toRemoteId(args.device_id) : undefined,
-  };
-}
-
 export interface NativeControlTrigger {
   topic: string;
   /** The MQTT payload as received, or absent. */
@@ -84,48 +61,6 @@ export function parseNativeControlsArgs(args: JsonObject): NativeControlTrigger 
   };
 }
 
-const CONTROLLED = ['power', 'brightness', 'rgb', 'temperature', 'effect'];
-/** A native-control MQTT topic's alias (fourth segment) and attribute (last), when the attribute is one this controls. */
-export function controlTopic(topic: string): { alias: string; attribute: string } | undefined {
-  const parts = topic.split('/'), alias = parts[3] ?? '', attribute = parts.at(-1) ?? '';
-  return CONTROLLED.includes(attribute) ? { alias, attribute } : undefined;
-}
-
-/**
- * The UI row whose power topic names `alias`, read leniently from the raw
- * `ui_rows` (never raises, unlike `effects_ui_sync`'s row parse). The last
- * matching row wins. `source` is the row's own value when it is a string, and
- * `undefined` otherwise -- the only thing the caller asks of it.
- */
-export function nativeSourceFor(rows: JsonValue[] | undefined, alias: string): { matched: boolean; source: string | undefined } {
-  let source: JsonValue | undefined, matched = false;
-  for (const raw of list(rows)) {
-    const row = object(raw), topic = object(row.topics).power;
-    if (typeof topic === 'string' && topic.split('/')[3] === alias) {
-      source = row.source;
-      matched = true;
-    }
-  }
-  return { matched, source: typeof source === 'string' ? source : undefined };
-}
-
-/**
- * The value HA hands `effects_set` for an MQTT payload: the native-template
- * scalar coercion, and an RGB triplet's tuple text read back as a list.
- */
-export function nativeControlValue(payload: Verbatim, attribute: string): Verbatim {
-  const raw = reveal(payload) as JsonValue | undefined;
-  let value = nativeScalar(raw === undefined ? null : raw);
-  if (attribute === 'rgb' && typeof value === 'string') {
-    // MQTT RGB triplets render as a Python tuple in HA's native templates.
-    // Preserve that JSON array boundary without executing template source.
-    const text = value.trim();
-    try { value = JSON.parse(text.startsWith('[') ?
-      text : `[${text.replace(/^\(|\)$/g, '')}]`) as JsonValue; } catch { /* Preserve malformed text for the normal validation path. */ }
-  }
-  return carry(value);
-}
-
 export interface OverrideWriterTrigger {
   /** The event data, forwarded with `who` replaced. */
   data: Verbatim;
@@ -146,11 +81,7 @@ export function parseWriterArgs(args: JsonObject): OverrideWriterTrigger {
   return { data: carry(data), who: carry(who) };
 }
 
-/** An automation's `trigger.id`, as stored. */
-export function parseTriggerIdArgs(context: string) {
-  return (args: JsonObject): StoredFact => storedFact(triggerObject(args, context).id);
-}
-
+const CONTROLLED = ['power', 'brightness', 'rgb', 'temperature', 'effect'];
 export interface ScheduleEngineTrigger { id: StoredFact; entityId: StoredFact }
 
 export function parseScheduleEngineArgs(args: JsonObject): ScheduleEngineTrigger {
@@ -196,11 +127,6 @@ export function parseLampChangeArgs(args: JsonObject): LampChangeTrigger {
   };
 }
 
-/** A state's `context.id`, read leniently: a missing or non-mapping context has none. */
-export function stateContextId(state: EntityState): StoredFact {
-  return storedFact(object(state.context).id);
-}
-
 /** What the capture reads of `effects_native_plan`'s answer. */
 export interface NativeCapture {
   powerAreas: StoredValue[];
@@ -228,6 +154,80 @@ export function nativeCapture(result: JsonValue): NativeCapture {
       return { document: carry(records), count: records.length };
     }),
   };
+}
+
+export function parseRemoteArgs(kind: RemoteKind, args: JsonObject): RemoteTrigger {
+  const room = toRoomId(requireString(args, 'room', `automation.remote_${kind}`));
+  if (!/^[a-z0-9_]+$/.test(room)) throw new ParseError('Remote automation requires a runtime room ID');
+  // Center never reads trigger. Directions and preset reach distinct raw
+  // fields, so the shared factory must not impose either field on the other.
+  const trigger = kind === 'power' ? undefined : triggerObject(args, `automation.remote_${kind}`);
+  const id = kind === 'directions' ? trigger!.id : undefined;
+  const payload = kind === 'preset' ? trigger!.payload_json : undefined;
+  return {
+    room,
+    // `trigger.id ?? null`: an absent id is forwarded as null.
+    command: kind === 'directions' ? storedFact(id === undefined ? null : id) : kind,
+    // `payload_json ?? null`: an absent payload is forwarded as null.
+    payload: carry(payload === undefined ? null : payload),
+    source: typeof args.source === 'string' ? args.source : undefined,
+    deviceId: typeof args.device_id === 'string' ? toRemoteId(args.device_id) : undefined,
+  };
+}
+
+function triggerObject(args: JsonObject, context: string): JsonObject {
+  return requireObject(args, 'trigger', context);
+}
+
+/** A native-control MQTT topic's alias (fourth segment) and attribute (last), when the attribute is one this controls. */
+export function controlTopic(topic: string): { alias: string; attribute: string } | undefined {
+  const parts = topic.split('/'), alias = parts[3] ?? '', attribute = parts.at(-1) ?? '';
+  return CONTROLLED.includes(attribute) ? { alias, attribute } : undefined;
+}
+
+/**
+ * The UI row whose power topic names `alias`, read leniently from the raw
+ * `ui_rows` (never raises, unlike `effects_ui_sync`'s row parse). The last
+ * matching row wins. `source` is the row's own value when it is a string, and
+ * `undefined` otherwise -- the only thing the caller asks of it.
+ */
+export function nativeSourceFor(rows: JsonValue[] | undefined, alias: string): { matched: boolean; source: string | undefined } {
+  let source: JsonValue | undefined, matched = false;
+  for (const raw of list(rows)) {
+    const row = object(raw), topic = object(row.topics).power;
+    if (typeof topic === 'string' && topic.split('/')[3] === alias) {
+      source = row.source;
+      matched = true;
+    }
+  }
+  return { matched, source: typeof source === 'string' ? source : undefined };
+}
+
+/**
+ * The value HA hands `effects_set` for an MQTT payload: the native-template
+ * scalar coercion, and an RGB triplet's tuple text read back as a list.
+ */
+export function nativeControlValue(payload: Verbatim, attribute: string): Verbatim {
+  const raw = reveal(payload) as JsonValue | undefined;
+  let value = nativeScalar(raw === undefined ? null : raw);
+  if (attribute === 'rgb' && typeof value === 'string') {
+    // MQTT RGB triplets render as a Python tuple in HA's native templates.
+    // Preserve that JSON array boundary without executing template source.
+    const text = value.trim();
+    try { value = JSON.parse(text.startsWith('[') ?
+      text : `[${text.replace(/^\(|\)$/g, '')}]`) as JsonValue; } catch { /* Preserve malformed text for the normal validation path. */ }
+  }
+  return carry(value);
+}
+
+/** An automation's `trigger.id`, as stored. */
+export function parseTriggerIdArgs(context: string) {
+  return (args: JsonObject): StoredFact => storedFact(triggerObject(args, context).id);
+}
+
+/** A state's `context.id`, read leniently: a missing or non-mapping context has none. */
+export function stateContextId(state: EntityState): StoredFact {
+  return storedFact(object(state.context).id);
 }
 
 /** An `input_number`'s state, read by {@link stateNumberOr}: anything but a number is `fallback`. */

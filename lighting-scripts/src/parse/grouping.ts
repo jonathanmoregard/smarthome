@@ -17,19 +17,26 @@ import { list } from './accessors.ts';
 import type { EndpointRow, GroupPlanRequest, MulticastGroup } from '../domain/grouping.ts';
 import { toBulbId } from './ids.ts';
 
-function mapping(value: JsonValue | undefined): value is JsonObject {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
+/** Captured rows/groups are iterated: absence is empty, a malformed present container raises. */
+export function parseGroupPlanArgs(args: JsonObject): GroupPlanRequest {
+  const rows = list(args.rows), groups = list(args.groups);
+  return {
+    rows: rows.map(endpointRow),
+    groups: groups.flatMap(g => { const group = multicastGroup(g); return group === undefined ? [] : [group]; }),
+  };
 }
-function topic(value: JsonValue | undefined): value is string {
-  return typeof value === 'string' && value.startsWith('zigbee2mqtt/') && value.endsWith('/set');
-}
-function strings(value: JsonValue | undefined): string[] { return list(value).filter((v): v is string => typeof v === 'string'); }
-
 /** `undefined` is an invalid row, which the planner rejects by index. */
 function endpointRow(row: JsonValue): EndpointRow | undefined {
   if (!mapping(row) || typeof row.entity !== 'string' || typeof row.owner !== 'string' || !topic(row.topic)
     || !mapping(row.payload) || Object.keys(row.payload).length === 0) return undefined;
   return { entity: toBulbId(row.entity), owner: row.owner, topic: row.topic, payload: carry(row.payload) };
+}
+function mapping(value: JsonValue | undefined): value is JsonObject {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function topic(value: JsonValue | undefined): value is string {
+  return typeof value === 'string' && value.startsWith('zigbee2mqtt/') && value.endsWith('/set');
 }
 
 /** `undefined` is a group the planner may not use. */
@@ -42,11 +49,4 @@ function multicastGroup(g: JsonValue): MulticastGroup | undefined {
   return { id: carry((Object.hasOwn(g, 'id') ? g.id : g.topic) as JsonValue), topic: g.topic, members };
 }
 
-/** Captured rows/groups are iterated: absence is empty, a malformed present container raises. */
-export function parseGroupPlanArgs(args: JsonObject): GroupPlanRequest {
-  const rows = list(args.rows), groups = list(args.groups);
-  return {
-    rows: rows.map(endpointRow),
-    groups: groups.flatMap(g => { const group = multicastGroup(g); return group === undefined ? [] : [group]; }),
-  };
-}
+function strings(value: JsonValue | undefined): string[] { return list(value).filter((v): v is string => typeof v === 'string'); }

@@ -35,24 +35,6 @@ const numeric = (v: JsonValue | undefined): v is number => typeof v === 'number'
 /** The captured default `step_range`, `{'min':-20,'max':20}`. */
 const DEFAULT_STEP_RANGE = { min: -20, max: 20 } as const;
 
-/**
- * A stored adjustment (or selection input): its document, and its numbers.
- * Each number is read by {@link savedNumberOr} with the identity adjustment's
- * value as its named default -- `updated` 0 (the captured `.get('updated',0)`),
- * `lower`/`upper` the step range's ends, `steps` 0 -- where the captured
- * arithmetic raises. `has_up` is the captured Jinja `or`.
- */
-function storedAdjustment(document: JsonObject, range: { min: number; max: number }): Adjustment {
-  return {
-    fields: assembledMap(document),
-    updated: () => savedNumberOr(document.updated, 0),
-    lower: () => savedNumberOr(document.lower, range.min),
-    upper: () => savedNumberOr(document.upper, range.max),
-    steps: () => savedNumberOr(document.steps, 0),
-    hasUp: pressedUp => document.has_up !== undefined && jinjaTruthy(document.has_up) ? storedFact(document.has_up) : pressedUp,
-  };
-}
-
 /** A remote input record's `value`, read leniently: a non-mapping is `{}`. */
 export interface RemoteInputValue {
   /** The stored entries, in stored order. */
@@ -93,6 +75,24 @@ function inputValue(raw: JsonValue | undefined): RemoteInputValue {
   };
 }
 
+/**
+ * A stored adjustment (or selection input): its document, and its numbers.
+ * Each number is read by {@link savedNumberOr} with the identity adjustment's
+ * value as its named default -- `updated` 0 (the captured `.get('updated',0)`),
+ * `lower`/`upper` the step range's ends, `steps` 0 -- where the captured
+ * arithmetic raises. `has_up` is the captured Jinja `or`.
+ */
+function storedAdjustment(document: JsonObject, range: { min: number; max: number }): Adjustment {
+  return {
+    fields: assembledMap(document),
+    updated: () => savedNumberOr(document.updated, 0),
+    lower: () => savedNumberOr(document.lower, range.min),
+    upper: () => savedNumberOr(document.upper, range.max),
+    steps: () => savedNumberOr(document.steps, 0),
+    hasUp: pressedUp => document.has_up !== undefined && jinjaTruthy(document.has_up) ? storedFact(document.has_up) : pressedUp,
+  };
+}
+
 /** A stored remote input record, read leniently. */
 export interface RemoteInputRecordView {
   kind: StoredFact;
@@ -101,6 +101,11 @@ export interface RemoteInputRecordView {
   /** `when` as captured `as_timestamp(when,0)`: 0 for anything but date text. */
   whenStamp: number;
   value: RemoteInputValue;
+}
+
+/** The record the planner starts from when the stored one does not apply. */
+export function noInputRecord(): RemoteInputRecordView {
+  return inputRecord(undefined);
 }
 
 function inputRecord(raw: JsonValue | undefined): RemoteInputRecordView {
@@ -112,11 +117,6 @@ function inputRecord(raw: JsonValue | undefined): RemoteInputRecordView {
     whenStamp: savedWhen(record.when),
     value: inputValue(record.value),
   };
-}
-
-/** The record the planner starts from when the stored one does not apply. */
-export function noInputRecord(): RemoteInputRecordView {
-  return inputRecord(undefined);
 }
 
 /** Another stored record, as the restart check reads it. */
@@ -175,11 +175,6 @@ export function remoteOverrides(ctx: HouseView, room: RoomId | undefined): Remot
   };
 }
 
-/** The room cache forwarded to `ls_room_plan`: as stored, or `{}` when absent or Jinja-falsy. */
-export function remoteCache(value: JsonValue | undefined): Verbatim {
-  return carry(value !== undefined && jinjaTruthy(value) ? value : {});
-}
-
 /** `ls_room_plan`'s answer, or none, as the remote planner reads it. */
 export interface RemoteRoomPlan {
   /** `key in plan.stale_keys`; raises on a present non-list. */
@@ -200,6 +195,11 @@ export function remoteRoomPlan(result: JsonValue | undefined): RemoteRoomPlan {
       return { present: Object.keys(schedule).length > 0, nextFs: () => num(schedule.next_fs === undefined ? 0 : schedule.next_fs) };
     },
   };
+}
+
+/** The room cache forwarded to `ls_room_plan`: as stored, or `{}` when absent or Jinja-falsy. */
+export function remoteCache(value: JsonValue | undefined): Verbatim {
+  return carry(value !== undefined && jinjaTruthy(value) ? value : {});
 }
 
 /**

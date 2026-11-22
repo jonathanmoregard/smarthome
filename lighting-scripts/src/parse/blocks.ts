@@ -26,8 +26,12 @@ import { jinjaTruthy, ParseError } from '../runtime/parse.ts';
 import { BLOCKS, DEFAULT_BLOCK } from '../domain/blocks.ts';
 import type { Block } from '../domain/blocks.ts';
 
-export function isBlock(value: JsonValue | undefined): value is Block {
-  return typeof value === 'string' && (BLOCKS as readonly string[]).includes(value);
+/**
+ * Absent (or explicitly null, which is how Home Assistant spells "no value")
+ * yields `undefined`. A present value must be a real block.
+ */
+export function optionalBlock(value: JsonValue | undefined, context: string): Block | undefined {
+  return value === undefined || value === null ? undefined : requireBlock(value, context);
 }
 
 export function requireBlock(value: JsonValue | undefined, context: string): Block {
@@ -37,12 +41,8 @@ export function requireBlock(value: JsonValue | undefined, context: string): Blo
   return value;
 }
 
-/**
- * Absent (or explicitly null, which is how Home Assistant spells "no value")
- * yields `undefined`. A present value must be a real block.
- */
-export function optionalBlock(value: JsonValue | undefined, context: string): Block | undefined {
-  return value === undefined || value === null ? undefined : requireBlock(value, context);
+export function isBlock(value: JsonValue | undefined): value is Block {
+  return typeof value === 'string' && (BLOCKS as readonly string[]).includes(value);
 }
 
 /**

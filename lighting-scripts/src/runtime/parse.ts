@@ -17,17 +17,12 @@
  */
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandler } from './context.ts';
 
-/**
- * Is this value a JSON mapping? Arrays and `null` are not, which is the
- * distinction Jinja draws too.
- *
- * Lives here rather than in `domain/scale.ts`, where it used to: its signature
- * names `JsonObject`, so it is a parse-layer tool by the definition this
- * mission works to. The domain reads parsed types and has no business asking
- * whether something is a mapping.
- */
-export function isObject(value: unknown): value is JsonObject {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
+/** Raised where Jinja would raise `UndefinedError` or `TypeError` rather than coerce. */
+export class ParseError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ParseError';
+  }
 }
 
 /**
@@ -48,13 +43,17 @@ const PYTHON_FLOAT = new RegExp(String.raw`^[+-]?(?:(?:\d(?:_?\d)*)?\.?(?:\d(?:_
 /** Python `int(str, 10)` grammar: digits only, so `"1e3"` and `"0x10"` fail here. */
 const PYTHON_INT = /^[+-]?\d(?:_?\d)*$/;
 
-function pythonFloat(text: string): number | undefined {
-  const trimmed = text.trim();
-  if (!PYTHON_FLOAT.test(trimmed)) return undefined;
-  const bare = trimmed.replace(/_/g, '');
-  if (/inf(inity)?$/i.test(bare)) return bare.startsWith('-') ? -Infinity : Infinity;
-  if (/nan$/i.test(bare)) return NaN;
-  return Number(bare);
+/**
+ * Is this value a JSON mapping? Arrays and `null` are not, which is the
+ * distinction Jinja draws too.
+ *
+ * Lives here rather than in `domain/scale.ts`, where it used to: its signature
+ * names `JsonObject`, so it is a parse-layer tool by the definition this
+ * mission works to. The domain reads parsed types and has no business asking
+ * whether something is a mapping.
+ */
+export function isObject(value: unknown): value is JsonObject {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 /**
@@ -76,6 +75,15 @@ export function jinjaInt(value: JsonValue | undefined, fallback = 0): number {
   if (PYTHON_INT.test(trimmed)) return Number(trimmed.replace(/_/g, ''));
   const parsed = pythonFloat(trimmed);
   return parsed !== undefined && Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
+}
+
+function pythonFloat(text: string): number | undefined {
+  const trimmed = text.trim();
+  if (!PYTHON_FLOAT.test(trimmed)) return undefined;
+  const bare = trimmed.replace(/_/g, '');
+  if (/inf(inity)?$/i.test(bare)) return bare.startsWith('-') ? -Infinity : Infinity;
+  if (/nan$/i.test(bare)) return NaN;
+  return Number(bare);
 }
 
 /**
@@ -116,6 +124,15 @@ export function jinjaString(value: JsonValue | undefined): string {
 }
 
 /**
+ * Jinja's `value or fallback` over a read that may be absent: an absent or
+ * Jinja-falsy value (see {@link jinjaTruthy}) takes the fallback, a truthy one
+ * is returned as it is for the caller's own typed read.
+ */
+export function jinjaOr(value: JsonValue | undefined, fallback: JsonValue): JsonValue {
+  return value !== undefined && jinjaTruthy(value) ? value : fallback;
+}
+
+/**
  * `{{ true if value else false }}` — Python truthiness.
  *
  * Diverges from JavaScript in three ways that matter:
@@ -136,15 +153,6 @@ export function jinjaTruthy(value: JsonValue | undefined): boolean {
 }
 
 /**
- * Jinja's `value or fallback` over a read that may be absent: an absent or
- * Jinja-falsy value (see {@link jinjaTruthy}) takes the fallback, a truthy one
- * is returned as it is for the caller's own typed read.
- */
-export function jinjaOr(value: JsonValue | undefined, fallback: JsonValue): JsonValue {
-  return value !== undefined && jinjaTruthy(value) ? value : fallback;
-}
-
-/**
  * `{{ value | list }}` -- Python's `list(value)`: a list is itself, a string
  * its characters, a mapping its keys. Anything else is not iterable and raises
  * (with `context`), as the filter does; `none` included, which is why the
@@ -157,12 +165,58 @@ export function jinjaList(value: JsonValue | undefined, context = 'value'): Json
   throw new ParseError(`${context} is not iterable, got ${describe(value)}`);
 }
 
-/** Raised where Jinja would raise `UndefinedError` or `TypeError` rather than coerce. */
-export class ParseError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'ParseError';
-  }
+/** One error vocabulary for every boundary parser, this module's and the catalog's. */
+export function describe(value: JsonValue | undefined): string {
+  if (value === undefined) return 'undefined';
+  if (value === null) return 'null';
+  if (Array.isArray(value)) return `array(${value.length})`;
+  if (typeof value === 'object') return 'object';
+  return `${typeof value} ${JSON.stringify(value)}`;
+}
+
+/**
+ * {@link parseFinite}, but additionally treating a boolean as `1`/`0`.
+ *
+ * In Python `bool` is a subclass of `int`, so `float(True)` is `1.0` and a
+ * boolean is genuinely a number there. This is deliberately **not** folded
+ * into `parseFinite`: a brightness of `true` is nonsense, and the default
+ * should be to reject it.
+ *
+ * It exists because one oracle-backed behaviour depends on it — `effects_set`
+ * with `value: true` is accepted as brightness `1` — and that case is covered
+ * by a parity test. Keeping the quirk in a separately named function confines
+ * it to the one site that needs it instead of weakening every numeric parse,
+ * and makes it searchable when that behaviour is reconsidered.
+ */
+export function parsePythonNumeric(value: JsonValue | undefined): number | undefined {
+  if (typeof value === 'boolean') return value ? 1 : 0;
+  return parseFinite(value);
+}
+
+/**
+ * The non-throwing half of {@link requireFinite}, for validations that collect
+ * error messages rather than raising.
+ *
+ * Numeric strings go through Python's float grammar, not JavaScript's: this
+ * matters because `Number('0x10')` is `16` while `float('0x10')` raises, and
+ * `'inf'`/`'nan'` parse in Python but are not finite. Keeping one grammar in
+ * one place is the reason this is exported rather than reimplemented per site.
+ */
+export function parseFinite(value: JsonValue | undefined): number | undefined {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
+  if (typeof value !== 'string') return undefined;
+  const parsed = pythonFloat(value.trim());
+  return parsed !== undefined && Number.isFinite(parsed) ? parsed : undefined;
+}
+
+/**
+ * Explicit optional number. Absent **or** `null` yields `undefined`, because
+ * `null` is how Home Assistant spells "this attribute has no value"; a present
+ * value must parse. Stating that here is the point — it replaces a `??` or a
+ * `-1`/`0` sentinel whose meaning lived only in the reader's head.
+ */
+export function optionalFinite(value: JsonValue | undefined, context = 'value'): number | undefined {
+  return value === undefined || value === null ? undefined : requireFinite(value, context);
 }
 
 /**
@@ -191,67 +245,14 @@ export function requireFinite(value: JsonValue | undefined, context = 'value'): 
   return parsed;
 }
 
-/**
- * The non-throwing half of {@link requireFinite}, for validations that collect
- * error messages rather than raising.
- *
- * Numeric strings go through Python's float grammar, not JavaScript's: this
- * matters because `Number('0x10')` is `16` while `float('0x10')` raises, and
- * `'inf'`/`'nan'` parse in Python but are not finite. Keeping one grammar in
- * one place is the reason this is exported rather than reimplemented per site.
- */
-export function parseFinite(value: JsonValue | undefined): number | undefined {
-  if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
-  if (typeof value !== 'string') return undefined;
-  const parsed = pythonFloat(value.trim());
-  return parsed !== undefined && Number.isFinite(parsed) ? parsed : undefined;
-}
-
-/**
- * {@link parseFinite}, but additionally treating a boolean as `1`/`0`.
- *
- * In Python `bool` is a subclass of `int`, so `float(True)` is `1.0` and a
- * boolean is genuinely a number there. This is deliberately **not** folded
- * into `parseFinite`: a brightness of `true` is nonsense, and the default
- * should be to reject it.
- *
- * It exists because one oracle-backed behaviour depends on it — `effects_set`
- * with `value: true` is accepted as brightness `1` — and that case is covered
- * by a parity test. Keeping the quirk in a separately named function confines
- * it to the one site that needs it instead of weakening every numeric parse,
- * and makes it searchable when that behaviour is reconsidered.
- */
-export function parsePythonNumeric(value: JsonValue | undefined): number | undefined {
-  if (typeof value === 'boolean') return value ? 1 : 0;
-  return parseFinite(value);
-}
-
-/**
- * Explicit optional number. Absent **or** `null` yields `undefined`, because
- * `null` is how Home Assistant spells "this attribute has no value"; a present
- * value must parse. Stating that here is the point — it replaces a `??` or a
- * `-1`/`0` sentinel whose meaning lived only in the reader's head.
- */
-export function optionalFinite(value: JsonValue | undefined, context = 'value'): number | undefined {
-  return value === undefined || value === null ? undefined : requireFinite(value, context);
-}
-
-/** A real boolean. No string allow-list, no truthiness — see {@link jinjaTruthy}. */
-export function requireBoolean(value: JsonValue | undefined, context = 'value'): boolean {
-  if (typeof value !== 'boolean') throw new ParseError(`${context} must be true or false, got ${describe(value)}`);
-  return value;
-}
-
 /** Explicit optional boolean; absent or `null` yields `undefined`. */
 export function optionalBoolean(value: JsonValue | undefined, context = 'value'): boolean | undefined {
   return value === undefined || value === null ? undefined : requireBoolean(value, context);
 }
 
-export function requireNumber(container: JsonObject, key: string, context = 'value'): number {
-  const value = container[key];
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new ParseError(`${context}.${key} must be a finite number, got ${describe(value)}`);
-  }
+/** A real boolean. No string allow-list, no truthiness — see {@link jinjaTruthy}. */
+export function requireBoolean(value: JsonValue | undefined, context = 'value'): boolean {
+  if (typeof value !== 'boolean') throw new ParseError(`${context} must be true or false, got ${describe(value)}`);
   return value;
 }
 
@@ -284,6 +285,14 @@ export function requireRange(container: JsonObject, key: string, low: number, hi
   const value = requireNumber(container, key, context);
   if (value < low || value > high) {
     throw new ParseError(`${context}.${key} must be within [${low}, ${high}], got ${value}`);
+  }
+  return value;
+}
+
+export function requireNumber(container: JsonObject, key: string, context = 'value'): number {
+  const value = container[key];
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new ParseError(`${context}.${key} must be a finite number, got ${describe(value)}`);
   }
   return value;
 }
@@ -339,13 +348,4 @@ export function lazy<T>(parse: () => T): () => T {
     }
     return value;
   };
-}
-
-/** One error vocabulary for every boundary parser, this module's and the catalog's. */
-export function describe(value: JsonValue | undefined): string {
-  if (value === undefined) return 'undefined';
-  if (value === null) return 'null';
-  if (Array.isArray(value)) return `array(${value.length})`;
-  if (typeof value === 'object') return 'object';
-  return `${typeof value} ${JSON.stringify(value)}`;
 }

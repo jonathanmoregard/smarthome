@@ -21,23 +21,6 @@ export type Effect =
   /** An inter-handler run whose result is discarded; its name and argument bytes are traced. */
   | { kind: 'script'; name: string; args: JsonObject };
 
-/**
- * A one-way lazy sequence of effects with a final answer. Lazy on purpose: a
- * raising step after a `yield` raises after the effects before it were
- * performed, exactly where the imperative code raised. Nothing is sent back
- * in; a decision that needs an effect's result is split at that point and the
- * re-read happens in the caller.
- */
-export type Plan<R> = Generator<Effect, R, void>;
-
-/**
- * The read-only house a decision may consult for dynamically keyed reads.
- * Never hand it to a generator: it is live, so a read after a `yield` would
- * look pure and not be. Generators take a snapshot instead.
- */
-export type HouseView = Pick<ScriptContext,
-  'state' | 'rooms' | 'members' | 'labels' | 'devices' | 'entitySources' | 'timezone' | 'now' | 'catalog' | 'get' | 'attr'>;
-
 export function perform(ctx: ScriptContext, effect: Effect): void {
   switch (effect.kind) {
     case 'service': ctx.emit(effect.service, effect.data, effect.target, effect.guard); return;
@@ -52,6 +35,15 @@ export function perform(ctx: ScriptContext, effect: Effect): void {
   }
 }
 
+/**
+ * A one-way lazy sequence of effects with a final answer. Lazy on purpose: a
+ * raising step after a `yield` raises after the effects before it were
+ * performed, exactly where the imperative code raised. Nothing is sent back
+ * in; a decision that needs an effect's result is split at that point and the
+ * re-read happens in the caller.
+ */
+export type Plan<R> = Generator<Effect, R, void>;
+
 /** Perform a plan's effects in yield order and answer its result. */
 export function run<R>(ctx: ScriptContext, plan: Plan<R>): R {
   for (;;) {
@@ -60,6 +52,14 @@ export function run<R>(ctx: ScriptContext, plan: Plan<R>): R {
     perform(ctx, step.value);
   }
 }
+
+/**
+ * The read-only house a decision may consult for dynamically keyed reads.
+ * Never hand it to a generator: it is live, so a read after a `yield` would
+ * look pure and not be. Generators take a snapshot instead.
+ */
+export type HouseView = Pick<ScriptContext,
+  'state' | 'rooms' | 'members' | 'labels' | 'devices' | 'entitySources' | 'timezone' | 'now' | 'catalog' | 'get' | 'attr'>;
 
 /**
  * A state machine for a handler that needs answers from the house mid-way, in

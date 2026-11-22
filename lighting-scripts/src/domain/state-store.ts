@@ -122,6 +122,48 @@ export interface CommitSnapshot {
 }
 
 
+/**
+ * The saved profile: the document as stored, `current.get('effect', 'Normal
+ * light')`, and the saved channel list -- `'absent'` when the key is absent or
+ * holds anything that is not a list.
+ */
+export interface StoredProfile {
+  document: OpaqueMap;
+  activeEffect: StoredValue;
+  effectChannels: StoredValue[] | 'absent';
+}
+
+/** An effect's catalog channel list; raises for an unhashable effect key. */
+export type EffectChannels = (effect: StoredValue) => StoredValue[];
+/** The fields `ls_store` writes, in the order it writes them. */
+export type ProfilePatch = {
+  on?: boolean;
+  own?: boolean;
+  b?: number;
+  m?: 'ct' | 'hs';
+  k?: number;
+  h?: number;
+  s?: number;
+  effect?: StoredValue;
+  effect_channels?: StoredValue[];
+};
+export interface StoreProfileRequest {
+  entity: string;
+  on: boolean | undefined;
+  own: boolean | undefined;
+  brightness: number | undefined;
+  kelvin: number | undefined;
+  hs: { h: number; s: number } | undefined;
+  // `reject('eq','color')` fires when any of kelvin, mireds or hs was supplied.
+  // That is not the same as a kelvin having been computed: kelvin and mireds sit
+  // in one `elif`, so supplying both releases the channel once but converts once.
+  releasesColour: boolean;
+  /** Stored as supplied, and looked up in the catalog by hashable key. */
+  effect: StoredValue | undefined;
+}
+
+
+export interface OverrideBlockRequest { scope: BlockTarget; block: string; via: Verbatim }
 /** The sensor patch a commit writes, then the render request. Preserves unrelated attributes and channel timestamps. */
 export function* planCommit(snapshot: CommitSnapshot, parsed: CommitChange): Plan<void> {
   const entity = 'sensor.ls_overrides';
@@ -219,46 +261,6 @@ export function* planCommit(snapshot: CommitSnapshot, parsed: CommitChange): Pla
   yield { kind: 'service', service: 'script.turn_on', data: {}, target: { entity_id: 'script.ls_render' } };
 }
 
-/**
- * The saved profile: the document as stored, `current.get('effect', 'Normal
- * light')`, and the saved channel list -- `'absent'` when the key is absent or
- * holds anything that is not a list.
- */
-export interface StoredProfile {
-  document: OpaqueMap;
-  activeEffect: StoredValue;
-  effectChannels: StoredValue[] | 'absent';
-}
-/** An effect's catalog channel list; raises for an unhashable effect key. */
-export type EffectChannels = (effect: StoredValue) => StoredValue[];
-/** The fields `ls_store` writes, in the order it writes them. */
-export type ProfilePatch = {
-  on?: boolean;
-  own?: boolean;
-  b?: number;
-  m?: 'ct' | 'hs';
-  k?: number;
-  h?: number;
-  s?: number;
-  effect?: StoredValue;
-  effect_channels?: StoredValue[];
-};
-
-
-export interface StoreProfileRequest {
-  entity: string;
-  on: boolean | undefined;
-  own: boolean | undefined;
-  brightness: number | undefined;
-  kelvin: number | undefined;
-  hs: { h: number; s: number } | undefined;
-  // `reject('eq','color')` fires when any of kelvin, mireds or hs was supplied.
-  // That is not the same as a kelvin having been computed: kelvin and mireds sit
-  // in one `elif`, so supplying both releases the channel once but converts once.
-  releasesColour: boolean;
-  /** Stored as supplied, and looked up in the catalog by hashable key. */
-  effect: StoredValue | undefined;
-}
 /** The profile store write, then the lamp-store change event for a lamp's store. */
 export function* planStore(args: StoreProfileRequest, current: StoredProfile, catalogChannels: EffectChannels): Plan<null> {
   const entity = args.entity;
@@ -296,8 +298,6 @@ export function houseRooms(view: HouseView): RoomId[] {
   const rooms = entities.map(entity => view.rooms.ofId[entity]).filter(isAreaId).filter(area => !privateAreas.includes(area));
   return [...new Set(rooms)];
 }
-
-export interface OverrideBlockRequest { scope: BlockTarget; block: string; via: Verbatim }
 /**
  * Set the block on every target not already scheduled to it, and clear it
  * where the schedule already says so. A target's schedule key raises for an

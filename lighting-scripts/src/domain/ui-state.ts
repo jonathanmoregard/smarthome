@@ -78,10 +78,6 @@ export function uiMessages(view: HouseView, force: boolean): UiMessage[] {
   }
   return messages;
 }
-/** The UI's effect choices: the catalog's, or these two when it names none (a malformed list was already rejected). */
-export function uiChoices(view: HouseView): string[] {
-  return view.catalog.ui_choices === undefined ? ['Normal Light', 'Candle'] : view.catalog.ui_choices;
-}
 /**
  * One switch's stored range rule. `min`/`max` are present only for the
  * `custom` profile, and this object is serialised into compared JSON, so an
@@ -91,7 +87,6 @@ export type RangeConfig = { profile: string; min?: Percent; max?: Percent };
 /** A valid rule names its switch; an invalid request may name none. */
 export type RangeSaveDecision = { errors: string[]; config: RangeConfig }
   & ({ valid: true; entity: SwitchId } | { valid: false; entity: SwitchId | undefined });
-
 /**
  * Decide a switch's range rule. Not a generator: it reads the house through
  * the view; the colour-mode read is made only on the branch that needs it.
@@ -126,6 +121,7 @@ export function decideRangeSave(view: HouseView, args: RangeSaveRequest): RangeS
   // A request naming no switch always fails the physical-lamp check above.
   return errors.length === 0 && entity !== undefined ? { valid: true, errors, entity, config } : { valid: false, errors, entity, config };
 }
+
 /** Save a decided rule: refuse an invalid one, else fire the range override. */
 export function* saveRange(result: RangeSaveDecision): Plan<RangeSaveDecision> {
   if (!result.valid) throw new Error(result.errors.join(' '));
@@ -135,4 +131,8 @@ export function* saveRange(result: RangeSaveDecision): Plan<RangeSaveDecision> {
     max: config.max === undefined ? null : config.max,
     via: 'schedule-ui' } };
   return result;
+}
+/** The UI's effect choices: the catalog's, or these two when it names none (a malformed list was already rejected). */
+export function uiChoices(view: HouseView): string[] {
+  return view.catalog.ui_choices === undefined ? ['Normal Light', 'Candle'] : view.catalog.ui_choices;
 }

@@ -64,19 +64,34 @@ function follow(nameNode) {
 
 const nameText = name => name === undefined ? undefined : ts.isIdentifier(name) || ts.isStringLiteral(name) ? name.text : name.getText();
 
-/** `Lamp.level`, `lampOf.room`, `controlTopic.return.alias`: the top-level name, then the members down to the site. */
-function symbolPath(node, top) {
-  const parts = [];
-  for (let child = node, parent = node.parent; parent !== undefined && child !== top; child = parent, parent = parent.parent) {
-    if (ts.isFunctionLike(parent) && parent.type === child) parts.push('return');
-    else if (ts.isParameter(child)) parts.push(ts.isIdentifier(child.name) ? child.name.text : '{}');
-    else if (ts.isPropertySignature(child) || ts.isPropertyDeclaration(child) || ts.isMethodSignature(child)
-      || ts.isMethodDeclaration(child) || ts.isGetAccessor(child) || ts.isSetAccessor(child)) parts.push(nameText(child.name));
-    else if (ts.isIndexSignatureDeclaration(child)) parts.push('[key]');
-    else if (ts.isTypeParameterDeclaration(child)) parts.push(child.name.text);
+function scanDeclaration(declaration) {
+  if (visited.has(declaration)) return;
+  visited.add(declaration);
+  if (ts.isFunctionDeclaration(declaration) || ts.isMethodDeclaration(declaration)) scanSignature(declaration, declaration);
+  else if (ts.isVariableDeclaration(declaration)) {
+    const init = declaration.initializer;
+    if (declaration.type !== undefined) scanType(declaration.type, declaration);
+    else if (init !== undefined && (ts.isArrowFunction(init) || ts.isFunctionExpression(init))) scanSignature(init, declaration);
+  } else if (ts.isInterfaceDeclaration(declaration) || ts.isTypeAliasDeclaration(declaration)) {
+    ts.forEachChild(declaration, child => scanType(child, declaration));
+  } else if (ts.isClassDeclaration(declaration)) {
+    for (const member of declaration.members) {
+      const hidden = ts.getCombinedModifierFlags(member) & (ts.ModifierFlags.Private | ts.ModifierFlags.Protected);
+      if (hidden !== 0 || (member.name !== undefined && ts.isPrivateIdentifier(member.name))) continue;
+      if (ts.isPropertyDeclaration(member)) scanType(member.type, declaration);
+      else if (ts.isFunctionLike(member)) scanSignature(member, declaration);
+    }
   }
-  const topName = ts.isVariableDeclaration(top) ? nameText(top.name) : nameText(top.name) ?? 'default';
-  return [topName, ...parts.reverse()].join('.');
+}
+
+function scanSignature(fn, top) {
+  for (const parameter of fn.typeParameters ?? []) scanType(parameter, top);
+  for (const parameter of fn.parameters) scanType(parameter.type, top);
+  if (fn.type !== undefined) scanType(fn.type, top);
+  else {
+    const signature = checker.getSignatureFromDeclaration(fn);
+    if (signature !== undefined) scanInferred(checker.getReturnTypeOfSignature(signature), fn, top, ['return'], new Set());
+  }
 }
 
 function scanType(node, top) {
@@ -97,6 +112,21 @@ function scanType(node, top) {
   if (ts.isTypeReferenceNode(node)) follow(node.typeName);
   if (ts.isExpressionWithTypeArguments(node)) follow(node.expression);
   ts.forEachChild(node, child => scanType(child, top));
+}
+
+/** `Lamp.level`, `lampOf.room`, `controlTopic.return.alias`: the top-level name, then the members down to the site. */
+function symbolPath(node, top) {
+  const parts = [];
+  for (let child = node, parent = node.parent; parent !== undefined && child !== top; child = parent, parent = parent.parent) {
+    if (ts.isFunctionLike(parent) && parent.type === child) parts.push('return');
+    else if (ts.isParameter(child)) parts.push(ts.isIdentifier(child.name) ? child.name.text : '{}');
+    else if (ts.isPropertySignature(child) || ts.isPropertyDeclaration(child) || ts.isMethodSignature(child)
+      || ts.isMethodDeclaration(child) || ts.isGetAccessor(child) || ts.isSetAccessor(child)) parts.push(nameText(child.name));
+    else if (ts.isIndexSignatureDeclaration(child)) parts.push('[key]');
+    else if (ts.isTypeParameterDeclaration(child)) parts.push(child.name.text);
+  }
+  const topName = ts.isVariableDeclaration(top) ? nameText(top.name) : nameText(top.name) ?? 'default';
+  return [topName, ...parts.reverse()].join('.');
 }
 
 /**
@@ -140,36 +170,6 @@ function scanInferred(type, fn, top, path, seen) {
   if ((type.flags & ts.TypeFlags.Object) !== 0) {
     for (const property of checker.getPropertiesOfType(type)) {
       scanInferred(checker.getTypeOfSymbol(property), fn, top, [...path, property.name], seen);
-    }
-  }
-}
-
-function scanSignature(fn, top) {
-  for (const parameter of fn.typeParameters ?? []) scanType(parameter, top);
-  for (const parameter of fn.parameters) scanType(parameter.type, top);
-  if (fn.type !== undefined) scanType(fn.type, top);
-  else {
-    const signature = checker.getSignatureFromDeclaration(fn);
-    if (signature !== undefined) scanInferred(checker.getReturnTypeOfSignature(signature), fn, top, ['return'], new Set());
-  }
-}
-
-function scanDeclaration(declaration) {
-  if (visited.has(declaration)) return;
-  visited.add(declaration);
-  if (ts.isFunctionDeclaration(declaration) || ts.isMethodDeclaration(declaration)) scanSignature(declaration, declaration);
-  else if (ts.isVariableDeclaration(declaration)) {
-    const init = declaration.initializer;
-    if (declaration.type !== undefined) scanType(declaration.type, declaration);
-    else if (init !== undefined && (ts.isArrowFunction(init) || ts.isFunctionExpression(init))) scanSignature(init, declaration);
-  } else if (ts.isInterfaceDeclaration(declaration) || ts.isTypeAliasDeclaration(declaration)) {
-    ts.forEachChild(declaration, child => scanType(child, declaration));
-  } else if (ts.isClassDeclaration(declaration)) {
-    for (const member of declaration.members) {
-      const hidden = ts.getCombinedModifierFlags(member) & (ts.ModifierFlags.Private | ts.ModifierFlags.Protected);
-      if (hidden !== 0 || (member.name !== undefined && ts.isPrivateIdentifier(member.name))) continue;
-      if (ts.isPropertyDeclaration(member)) scanType(member.type, declaration);
-      else if (ts.isFunctionLike(member)) scanSignature(member, declaration);
     }
   }
 }
