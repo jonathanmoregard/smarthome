@@ -378,15 +378,22 @@ function callGraph(units) {
   // An owned function's callers are its own group's code: the type and its other owned functions.
   const counts = (caller, callee) => region(callee) !== 'owned' || tier[caller] === tier[callee]
     || (units[caller].kind === 'type' && units[caller].group === units[callee].owner);
-  const outerCallers = at => callers[at].filter(caller => caller !== at && !reach[at].has(caller) && counts(caller, at));
+  const callersOf = at => callers[at].filter(caller => caller !== at && counts(caller, at));
+  // The functions `at` calls and that call it back, itself included: one call cycle.
+  const cycle = at => units.flatMap((_, member) => member === at || (reach[at].has(member) && reach[member].has(at)) ? [member] : []);
+  const outerCallers = at => callersOf(at).filter(caller => !reach[at].has(caller));
   // A free function stays a root when only types, owned functions or fixed items call it, as a Rust
   // function called only from `impl` blocks does.
   const blocks = (caller, at) => units[caller].kind === 'fn' && (region(at) === 'owned' || region(caller) !== 'owned');
+  // A root: nothing outside its call cycle calls it or any function of the cycle.
+  const isRoot = at => units[at].kind === 'fn' && region(at) !== 'helper'
+    && cycle(at).every(member => outerCallers(member).every(caller => !blocks(caller, member)));
   return {
-    reach, tier,
+    reach, tier, callersOf, isRoot,
     group: at => units[at].kind === 'type' ? units[at].group : units[at].owner !== undefined ? units[at].owner : helperOf[at],
-    outerCallers,
-    isRoot: at => units[at].kind === 'fn' && region(at) !== 'helper' && outerCallers(at).every(caller => !blocks(caller, at)),
+    // The first function of a root cycle, called only from inside it, is its entry point: nothing above can call it.
+    entersCycle: at => isRoot(at) && Math.min(...cycle(at)) === at && callersOf(at).every(caller => cycle(at).includes(caller)),
+    calledOnlyByFixedItems: at => callersOf(at).length > 0 && callersOf(at).every(caller => units[caller].kind === 'fixed'),
   };
 }
 
@@ -448,15 +455,15 @@ function violations(units, graph) {
 
   for (const at of order) {
     if (units[at].kind !== 'fn') continue;
-    const outer = graph.outerCallers(at);
-    // Rule 2.
-    if (outer.length > 0 && outer.every(caller => caller > at)) {
-      found.push(`rule 2: ${units[at].label} comes before every caller (${outer.map(caller => units[caller].label).join(', ')})`);
+    const callers = graph.callersOf(at);
+    // Rule 2. Within a call cycle any caller above will do.
+    if (callers.length > 0 && callers.every(caller => caller > at) && !graph.entersCycle(at)) {
+      found.push(`rule 2: ${units[at].label} comes before every caller (${callers.map(caller => units[caller].label).join(', ')})`);
       continue;
     }
     // Rule 3.
-    const [caller] = outer;
-    if (outer.length === 1 && units[caller].kind === 'fn' && graph.tier[caller] === graph.tier[at] && caller < at) {
+    const [caller] = callers;
+    if (callers.length === 1 && units[caller].kind === 'fn' && graph.tier[caller] === graph.tier[at] && caller < at) {
       const stray = order.find(between => between > caller && between < at && !graph.reach[caller].has(between));
       if (stray !== undefined) {
         found.push(`rule 3: ${units[at].label} is called only by ${units[caller].label}, but ${units[stray].label} sits between them`);
@@ -498,7 +505,7 @@ function misplacedFixedItems(units) {
  * The canonical order of the units that move: each type group as it first
  * appears (the type, its owned functions depth first from its public roots,
  * then its helpers), then a depth-first walk from the public roots, then
- * from the private ones.
+ * from the private ones, then from those only fixed items call.
  */
 function canonical(units, graph) {
   const out = [];
@@ -509,7 +516,13 @@ function canonical(units, graph) {
   };
   const fromRoots = tier => {
     const roots = units.flatMap((_, at) => graph.tier[at] === tier && graph.isRoot(at) ? [at] : []);
-    for (const root of [...roots.filter(at => units[at].public), ...roots.filter(at => !units[at].public)]) walk(root, tier);
+    const hidden = roots.filter(at => !units[at].public);
+    // A root only fixed items call goes last, so its slot falls below the item that calls it.
+    for (const root of [
+      ...roots.filter(at => units[at].public),
+      ...hidden.filter(at => !graph.calledOnlyByFixedItems(at)),
+      ...hidden.filter(at => graph.calledOnlyByFixedItems(at)),
+    ]) walk(root, tier);
     units.forEach((_, at) => walk(at, tier));
   };
   const groups = [...new Set(units.flatMap(unit => unit.kind === 'type' ? [unit.group] : []))];

@@ -99,6 +99,35 @@ test('rule 2 puts a callee below a caller', () => {
   assert.deepEqual(found('export function a() { b(); }\nfunction b() { a(); }\n'), []);
 });
 
+test('a call cycle reached from outside has no entry point of its own', () => {
+  // Break: a cycle member whose only callers are in the cycle reads as a
+  // private root, so rule 4 contradicts the depth-first walk that reaches it.
+  assert.deepEqual(found('export function a() { b(); }\nfunction b() { c(); }\nfunction c() { b(); }\nexport function d() {}\n'), []);
+  // Break: cycle callers are dropped entirely, so a cycle member may sit
+  // above every caller once the cycle has an outside caller.
+  assert.deepEqual(found('function c() { b(); }\nexport function a() { b(); }\nfunction b() { c(); }\n'), [
+    'rule 2: function c comes before every caller (function b)',
+  ]);
+});
+
+test('a function only a fixed item calls is placed after the other roots, below its caller', () => {
+  // Break: such a root is walked in position order and lands in a slot above
+  // the const that calls it, so the fixer gives up on the scope.
+  assert.equal(fixed([
+    'function helper() { return 1; }',
+    'export function api() { return 2; }',
+    'export const run = () => helper();',
+    'function tail() {}',
+    '',
+  ].join('\n')), [
+    'export function api() { return 2; }',
+    'function tail() {}',
+    'export const run = () => helper();',
+    'function helper() { return 1; }',
+    '',
+  ].join('\n'));
+});
+
 test('rule 3 lays a tree out depth first', () => {
   // Break: a single-use helper may drift away from its caller.
   assert.deepEqual(found('export function a() { x(); }\nexport function b() {}\nfunction x() {}\n'), [
