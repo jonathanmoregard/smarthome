@@ -136,7 +136,7 @@ The heart of the flow. Worker: `worker-hard`. Review: one Opus pass against the 
   ```
 - Moved from: `scheduledBase` in `src/legacy/domain/schedule.ts` (the chosen block: block overlay against preset, newest wins; the next-block reset's ignored overlays and the fade-out stage; lamp profile against room light; the on/off setting for switches); `resolveEffects`, `latestStream`, `normalPosition`, `lightPatch` and the candle rule in `src/legacy/domain/resolution.ts` (per lamp, brightness and colour separately, overlays ordered by when each part was set; the remote's steps on the blend, including the dim-below-cosy rule; the mode overlay; room power); `switchPlan` in `src/legacy/domain/controller.ts` and `isRangeDefault`.
 - Rules that replace legacy plumbing, each a line in the function's doc comment:
-  1. A lamp's `transition` is `scheduled fade` over 60 s while its stage is moving, `effect start` when its effect is the candle and the lamp was not already showing it, else `manual`. (Legacy: 60 on a tick while moving, 0.4 with an effect, 0.2 manual, 3 otherwise; the 3 s case becomes `manual`.)
+  1. A lamp's `transition` is `scheduled fade` over 60 s while its stage is moving, else `manual`. (Amended 2026-11-22: `effect start` is dropped from `Transition`; `lightingState` cannot know what the bulb was already showing. The reconciler picks the 0.4 s fade from its own record when it starts the candle.) (Legacy: 60 on a tick while moving, 0.4 with an effect, 0.2 manual, 3 otherwise; the 3 s case becomes `manual`.)
   2. A lit `SceneLight` with no colour gives the lamp the schedule's colour of the block it is in; if that has none either, the lamp keeps its last block's colour. The worker reports how often this fires on the synthetic house; if `OnLight.colour` cannot be filled honestly, stop and report (M1 left this to M2).
   3. The candle shows on a lamp only where `effectNamed('Candle').canRunOn` some bulb; per-bulb fallback stays in `bulbAppearance`.
   4. The remote's position on the blend is computed each time, not cached.
@@ -435,6 +435,13 @@ Controller, not a worker.
 - [ ] **Step 2:** Fix what the review finds, each fix with its test; re-run `npm run verify`.
 - [ ] **Step 3:** Write the hand-over for the owner as the PR #39 description: what changed in the architecture, the flow gate's last line and its `noted` counts, the gaps no scenario covers (the M1 plan's list, less what was added), and what the rollout needs from the owner (a go, while awake, one room first).
 - [ ] **Step 4:** Push. Stop. No cutover, no merge.
+
+## Amendments (2026-11-22, after M1 T5)
+
+1. **Blocks contain effects.** The effect is a property of a lit light: `SceneLight`'s lit case carries `effect` ('Candle' | 'Normal'), so a lamp's, a room's or the house's block light can name the candle. `LampProfile` = `{ follows: 'room' } | { follows: 'own'; light: SceneLight }`. M1 T6/T7 codecs read the saved effect into the light; anything not `Candle` is `Normal`.
+2. **The reconciler is the effect manager** (M2 T3, M4 T1): it starts the candle (colour and level, then `effect: channel_change`), stops it (`stop_effect`), and restarts it after a level change or a power-cycle. No effect manager in the domain.
+3. **Candle survives a person's brightness or colour change** (owner, 2026-11-22). A hold that changes level or colour on a candle lamp keeps the candle at the new level/colour; only choosing normal light ends it. The reconciler re-sends colour + level, then `channel_change`, because the firmware ends the candle on any On or brightness move.
+4. Changing blocks: a lamp keeps the current block's effect through the fade and switches at the block start, as today.
 
 ## Self-review notes
 
