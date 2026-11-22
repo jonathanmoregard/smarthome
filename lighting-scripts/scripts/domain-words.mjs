@@ -2,8 +2,8 @@
 //
 // Spec v3 rule 0.1: the domain holds state types, pure updates and derivations;
 // no plans, generators, effects, Home Assistant names or carried documents.
-// Rule 0.3: ids, ranges and closed sets are built once in src/parse, so the
-// domain never re-checks, defaults or casts. Each column below counts one sign
+// Rule 0.3: ids and closed sets are built once in src/parse, ranges once in
+// src/domain/types/range.ts, so the domain never re-checks, defaults or casts. Each column below counts one sign
 // that a file is not there yet. Ceilings live in `domain-words.ceilings.json`
 // and ratchet DOWN only. Each count must equal its ceiling: a rise fails, and
 // so does a fall until the ceiling is lowered to the new count. A ceiling is a
@@ -34,9 +34,13 @@
 // - nullish: `??` and `??=`.
 // - typeofs: a runtime `typeof x` test; `typeof x` in a type is not one.
 // - literalIncludes: `.includes(` on an array literal, or on a const bound to one.
-// - brandConstructors: a call to a function declared in src/parse/ids.ts, or a
-//   cast to a type that holds one declared under src/domain/types (a brand or
-//   a range), as the checker resolves it, so a local alias is seen through.
+// - brandConstructors: a call to a function declared in src/parse/ids.ts (the id
+//   constructors and the parse layer's range wrappers), or a cast to a type that
+//   holds one declared under src/domain/types (a brand or a range), as the
+//   checker resolves it, so a local alias is seen through. The range types are
+//   minted in src/domain/types/range.ts by `...OrThrow` constructors: their 14
+//   casts count here (the ceiling), but a call to one does not, since the
+//   domain may build a range value that way.
 //
 // Usage: node scripts/domain-words.mjs [--root <dir>] [--ceilings <file>] [--files] [--json]
 // `--files` adds the per-file table; `--json` prints `{ totals, files }` instead of tables.

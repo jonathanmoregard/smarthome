@@ -6,10 +6,11 @@ import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
 /**
- * A branded id or a range type is built only by a parser. In code that means
- * one cast per brand, inside its constructor in `src/parse/ids.ts`, plus the
- * one in `entriesOf` (`src/domain/types/ids.ts`), which gives a record's keys
- * back their id type. Any other cast to a type declared under
+ * A branded id or a range type is built only by its constructor. In code that
+ * means one cast per id brand, inside its constructor in `src/parse/ids.ts`,
+ * one per range type, inside its `...OrThrow` constructor in
+ * `src/domain/types/range.ts`, plus the one in `entriesOf`
+ * (`src/domain/types/ids.ts`), which gives a record's keys back their id type. Any other cast to a type declared under
  * `src/domain/types/` forges a value no parser built.
  *
  * Every cast in those allowed places carries its reason: a comment starting
@@ -65,6 +66,7 @@ function badCasts(root: string): string[] {
     if (fn === undefined || !ts.isFunctionDeclaration(fn) || fn.name === undefined) return false;
     const file = name(fn.getSourceFile().fileName), fnName = fn.name.text;
     return file === 'src/parse/ids.ts' && /^to[A-Z]/.test(fnName)
+      || file === 'src/domain/types/range.ts' && /OrThrow$/.test(fnName)
       || file === 'src/domain/types/ids.ts' && fnName === 'entriesOf';
   };
 
@@ -98,7 +100,7 @@ function badCasts(root: string): string[] {
   return found.sort();
 }
 
-test('a cast to a domain type happens only in an id constructor or entriesOf, each with its reason', () => {
+test('a cast to a domain type happens only in an id constructor, a range constructor or entriesOf, each with its reason', () => {
   // Break: a parse step, a runtime module or the domain casts `x as RoomId`
   // instead of calling its constructor, or an allowed cast loses its reason.
   assert.deepEqual(badCasts(PROJECT), []);
@@ -110,6 +112,8 @@ test('the cast check reports a forged cast and an allowed cast with no reason, a
   // `as const` and casts to types outside src/domain/types.
   assert.deepEqual(badCasts(FIXTURE), [
     'src/domain/lamp.ts:9 outside the constructors and entriesOf',
+    'src/domain/types/range.ts:10 outside the constructors and entriesOf',
+    'src/domain/types/range.ts:5 no reason',
     'src/parse/alias.ts:7 outside the constructors and entriesOf',
     'src/parse/ids.ts:10 no reason',
   ]);

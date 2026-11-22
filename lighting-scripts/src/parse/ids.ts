@@ -1,11 +1,12 @@
 /**
- * The id and range constructors: the only place a wire string becomes a
- * domain id, or a number a range type.
+ * The id constructors, and the parse layer's range wrappers: the only place a
+ * wire string becomes a domain id. A number becomes a range type in
+ * `src/domain/types/range.ts`; the wrappers here call it.
  *
- * Only the parse steps call them (`src/parse/*.ts` and `parseCatalog`). They
- * check nothing and return their input unchanged: whatever the parse step
- * already checked about the string still holds, and nothing is added. Whether
- * an id names something the registry knows is a later, named unit.
+ * Only the parse steps call them (`src/parse/*.ts` and `parseCatalog`). The id
+ * constructors check nothing and return their input unchanged: whatever the
+ * parse step already checked about the string still holds, and nothing is
+ * added. Whether an id names something the registry knows is a later, named unit.
  */
 import type { BulbId, DashboardControlId, EffectName, LampId, PowerTarget, RemoteId, RemoteSource, RoomId, SavedOverlayKey, SwitchId, UserId }
   from '../domain/types/ids.ts';
@@ -14,6 +15,10 @@ import type { Instant, Seconds, TimeOfDay, Timezone } from '../domain/types/time
 import type { Step, StepCount } from '../domain/types/remote.ts';
 import type { Minutes } from '../domain/types/overlay.ts';
 import type { Progress } from '../domain/types/schedule.ts';
+import {
+  brightnessOrThrow, colourChannelOrThrow, instantOrThrow, isWithin, kelvinOrThrow, levelOrThrow, minutesOrThrow, percentOrThrow,
+  percentRangeOrThrow, PERCENT_BOUNDS, progressOrThrow, secondsOrThrow, stepCountOrThrow, stepOrThrow, STEP_BOUNDS, timeOfDayOrThrow,
+} from '../domain/types/range.ts';
 import { ParseError } from '../runtime/parse.ts';
 
 export function toRoomId(raw: string): RoomId {
@@ -83,53 +88,32 @@ export function toSavedOverlayKey(raw: string): SavedOverlayKey {
   return raw as SavedOverlayKey;
 }
 
-export function toLevel(raw: number): Level {
-  inRange(raw, 1, 254, 'A level');
-  if (!Number.isInteger(raw)) throw new ParseError(`A level must be a whole number, got ${raw}`);
-  // Cast: checked just above; this is the one place a number becomes a level.
-  return raw as Level;
-}
-
-function inRange(raw: number, low: number, high: number, what: string): void {
-  if (!within(raw, low, high)) throw new ParseError(`${what} must be ${low}..${high}, got ${raw}`);
-}
-
-const PERCENT = { low: 0, high: 100 };
-const STEP = { low: -20, high: 20 };
-
 /*
- * Range constructors. Unlike the id constructors these check: a value outside
- * its range raises a ParseError. Where a saved value is read, the caller picks
- * a named default instead of calling one with a value that may be out of range.
+ * Range constructors. Each wraps the domain's checked constructor
+ * (`src/domain/types/range.ts`, the one place the type is minted) and turns its
+ * RangeError into a ParseError, so a value outside its range raises as a parse
+ * failure. Where a saved value is read, the caller picks a named default
+ * instead of calling one with a value that may be out of range.
  */
 
-function within(raw: number, low: number, high: number): boolean {
-  return Number.isFinite(raw) && raw >= low && raw <= high;
+export function toLevel(raw: number): Level {
+  return asParseError(() => levelOrThrow(raw));
 }
 
 export function toBrightness(raw: number): Brightness {
-  inRange(raw, 0, 255, 'A brightness');
-  if (!Number.isInteger(raw)) throw new ParseError(`A brightness must be a whole number, got ${raw}`);
-  // Cast: checked just above; this is the one place a number becomes a brightness.
-  return raw as Brightness;
+  return asParseError(() => brightnessOrThrow(raw));
 }
 
 export function toKelvin(raw: number): Kelvin {
-  inRange(raw, 1000, 10000, 'A colour temperature in kelvin');
-  // Cast: checked just above; this is the one place a number becomes kelvin.
-  return raw as Kelvin;
+  return asParseError(() => kelvinOrThrow(raw));
 }
 
 export function toProgress(raw: number): Progress {
-  inRange(raw, 0, 1, 'A transition progress');
-  // Cast: checked just above; this is the one place a number becomes a progress.
-  return raw as Progress;
+  return asParseError(() => progressOrThrow(raw));
 }
 
 export function toMinutes(raw: number): Minutes {
-  inRange(raw, 0, Infinity, 'A count of minutes');
-  // Cast: checked just above; this is the one place a number becomes minutes.
-  return raw as Minutes;
+  return asParseError(() => minutesOrThrow(raw));
 }
 
 /** A remote's step range: two step bounds, `min` not above `max`. */
@@ -146,56 +130,41 @@ export function stepBoundsOf(min: unknown, max: unknown): { min: Step; max: Step
 
 /** A remote step bound: a number (not a boolean) that is finite and within -20..20. */
 export function stepOf(raw: unknown): Step | undefined {
-  return typeof raw === 'number' && within(raw, STEP.low, STEP.high) ? toStep(raw) : undefined;
+  return typeof raw === 'number' && isWithin(raw, STEP_BOUNDS.low, STEP_BOUNDS.high) ? toStep(raw) : undefined;
 }
 
 export function toStep(raw: number): Step {
-  inRange(raw, STEP.low, STEP.high, 'A remote step bound');
-  // Cast: checked just above; this is the one place a number becomes a step bound.
-  return raw as Step;
+  return asParseError(() => stepOrThrow(raw));
 }
 
 export function toStepCount(raw: number): StepCount {
-  inRange(raw, -40, 40, 'A count of remote steps');
-  // Cast: checked just above; this is the one place a number becomes a step count.
-  return raw as StepCount;
+  return asParseError(() => stepCountOrThrow(raw));
 }
 
 /** A percent range: two numbers (not booleans) within 0..100, `low` not above `high`. */
 export function percentRangeOf(low: unknown, high: unknown): PercentRange | undefined {
-  const inPercent = (raw: unknown): raw is number => typeof raw === 'number' && within(raw, PERCENT.low, PERCENT.high);
+  const inPercent = (raw: unknown): raw is number => typeof raw === 'number' && isWithin(raw, PERCENT_BOUNDS.low, PERCENT_BOUNDS.high);
   return inPercent(low) && inPercent(high) && low <= high ? toPercentRange(low, high) : undefined;
 }
 
 export function toPercentRange(low: number, high: number): PercentRange {
-  const range = { low: toPercent(low), high: toPercent(high) };
-  if (range.low > range.high) throw new ParseError(`A percent range must not run backwards, got ${low}..${high}`);
-  // Cast: both ends checked just above; this is the one place two percents become a range.
-  return range as PercentRange;
+  return asParseError(() => percentRangeOrThrow(low, high));
 }
 
 export function toPercent(raw: number): Percent {
-  inRange(raw, PERCENT.low, PERCENT.high, 'A percent');
-  // Cast: checked just above; this is the one place a number becomes a percent.
-  return raw as Percent;
+  return asParseError(() => percentOrThrow(raw));
 }
 
 export function toColourChannel(raw: number): ColourChannel {
-  inRange(raw, 0, 255, 'A colour channel');
-  // Cast: checked just above; this is the one place a number becomes a colour channel.
-  return raw as ColourChannel;
+  return asParseError(() => colourChannelOrThrow(raw));
 }
 
 export function toInstant(raw: number): Instant {
-  inRange(raw, -Infinity, Infinity, 'An instant');
-  // Cast: checked just above; this is the one place a number becomes an instant.
-  return raw as Instant;
+  return asParseError(() => instantOrThrow(raw));
 }
 
 export function toSeconds(raw: number): Seconds {
-  inRange(raw, 0, Infinity, 'A duration in seconds');
-  // Cast: checked just above; this is the one place a number becomes seconds.
-  return raw as Seconds;
+  return asParseError(() => secondsOrThrow(raw));
 }
 
 /*
@@ -210,13 +179,7 @@ export const MANUAL_FADE: Seconds = toSeconds(0.2);
 export const EFFECT_START_FADE: Seconds = toSeconds(0.4);
 
 export function toTimeOfDay(hour: number, minute: number): TimeOfDay {
-  inRange(hour, 0, 23, 'An hour');
-  inRange(minute, 0, 59, 'A minute');
-  if (!Number.isInteger(hour) || !Number.isInteger(minute)) {
-    throw new ParseError(`A time of day must be whole hours and minutes, got ${hour}:${minute}`);
-  }
-  // Cast: both checked just above; this is the one place two numbers become a time of day.
-  return { hour: hour as TimeOfDay['hour'], minute: minute as TimeOfDay['minute'] };
+  return asParseError(() => timeOfDayOrThrow(hour, minute));
 }
 
 export function toTimezone(raw: string): Timezone {
@@ -227,4 +190,14 @@ export function toTimezone(raw: string): Timezone {
   }
   // Cast: checked just above; this is the one place a string becomes a timezone.
   return raw as Timezone;
+}
+
+/** Run a domain range constructor; its RangeError becomes the ParseError a parse step raises. */
+function asParseError<T>(build: () => T): T {
+  try {
+    return build();
+  } catch (error) {
+    if (error instanceof RangeError) throw new ParseError(error.message);
+    throw error;
+  }
 }
