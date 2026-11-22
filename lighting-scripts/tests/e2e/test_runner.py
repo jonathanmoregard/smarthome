@@ -14,12 +14,11 @@ import unittest
 from zoneinfo import ZoneInfo
 
 from tests.e2e import env
-from tests.e2e.backend import Session, failure
+from tests.e2e.backend import SOFTWARE_CANDLE, Session, enabled_automations, failure
 from tests.e2e.codec import Advance, PersonLightChange, PressSwitch, decode, encode
 from tests.e2e.compare import compare
 from tests.e2e.router import Context, HaStart, StateChanged
-from tests.e2e.runner import (SETTLE_LIMIT, BackendError, SettleLoop, SoftwareCandle, checkpoints_of, run_backend,
-                              run_both)
+from tests.e2e.runner import SETTLE_LIMIT, BackendError, BackendRun, SettleLoop, run_backend, run_both, run_of
 from tests.e2e.world import BulbInfo, Kelvin, Off, On, World
 
 STOCKHOLM = ZoneInfo('Europe/Stockholm')
@@ -160,7 +159,7 @@ class Errors(unittest.TestCase):
         inputs = [StateChanged('light.lamp_a', None, {'state': 'on', 'attributes': {}}, Context('c', None))]
         outcome = decode(json.loads(json.dumps(encode(failure(SettleLoop(inputs))))))
         with self.assertRaises(SettleLoop) as raised:
-            checkpoints_of('port', outcome)
+            run_of('port', outcome)
         self.assertEqual(raised.exception.last_inputs, inputs)
 
     def test_port_without_a_handler_is_not_ported(self):
@@ -189,7 +188,7 @@ class Errors(unittest.TestCase):
 
 
 class Time(unittest.TestCase):
-    def test_continuation_runs_at_its_instant(self):
+    def test_queued_continuation_runs_at_its_instant(self):
         due = START + timedelta(seconds=30)
 
         def queue(sim, trigger):
@@ -299,27 +298,99 @@ class Candle(unittest.TestCase):
             'brightness': {'kind': 'effect', 'effect': effect, 'instance': 'i', 'updated': 0},
             'color': {'kind': 'none', 'updated': 0}}}}}}
 
-    def test_candle_assignment_reports_candle_with_the_worlds_colour(self):
-        def colour(sim, trigger):
-            publish(sim, 'bulb_a', {'state': 'ON', 'brightness': 90, 'color_temp': 500})
+    def colour(self, sim, trigger):
+        publish(sim, 'bulb_a', {'state': 'ON', 'brightness': 90, 'color_temp': 500})
 
-        sim = StandIn({'automation_a': colour}, state=self.runtime('Candle'))
-        [checkpoint] = session(sim, on_start(), world('bulb_a', 'bulb_b')).run([HaStart()])
-        self.assertEqual(checkpoint.bulbs['bulb_a'], On(90, Kelvin(2000), 'candle'))
-        self.assertEqual(checkpoint.bulbs['bulb_b'].effect, 'none')
+    def test_reference_reports_a_candle_assignment_as_candle_and_counts_it(self):
+        sim = StandIn({'automation_a': self.colour}, state=self.runtime('Candle'))
+        the_session = session(sim, on_start(), world('bulb_a', 'bulb_b'))
+        checkpoints = the_session.run([HaStart(), Advance(0)])
+        self.assertEqual([c.bulbs['bulb_a'] for c in checkpoints], [On(90, Kelvin(2000), 'candle')] * 2)
+        self.assertEqual(checkpoints[0].bulbs['bulb_b'].effect, 'none')
+        self.assertEqual(dict(the_session.adjustments), {SOFTWARE_CANDLE: 2})   # one per bulb per checkpoint
+
+    def test_port_is_judged_on_what_its_own_commands_did(self):
+        sim = StandIn({'automation_a': self.colour}, state=self.runtime('Candle'), scheduled=[])
+        the_session = session(sim, on_start(), world('bulb_a'), backend='port')
+        [checkpoint] = the_session.run([HaStart()])
+        self.assertEqual(checkpoint.bulbs['bulb_a'], On(90, Kelvin(2000), 'none'))
+        self.assertEqual(dict(the_session.adjustments), {})
 
     def test_other_effects_are_reported_as_the_world_holds_them(self):
         sim = StandIn({'automation_a': lambda sim, trigger: None}, state=self.runtime('Breathe'))
         [checkpoint] = session(sim, on_start(), world('bulb_a')).run([HaStart()])
         self.assertEqual(checkpoint.bulbs['bulb_a'].effect, 'none')
 
-    def test_software_candle_names_the_effect_field_only(self):
-        self.assertEqual((SoftwareCandle.name, SoftwareCandle.fields),
-                         ('software-candle-is-firmware-candle', frozenset({'effect'})))
+
+class Enabled(unittest.TestCase):
+    CAPTURE = {'automation.renamed_entity': {'state': 'off', 'attributes': {'id': '17'}},
+               'automation.b': {'state': 'off', 'attributes': {'id': 'other'}},
+               'automation.c': {'state': 'on', 'attributes': {'id': 'c'}},
+               'automation.no_id': {'state': 'off', 'attributes': {}}}
+
+    def test_automations_off_in_the_live_capture_are_not_routed(self):
+        automations = {'automation_a': {'id': '17'}, 'automation_b': {'id': 'b'}, 'automation_c': {'id': 'c'},
+                       'automation_unlisted': {'id': 'u'}, 'automation_without_id': {}}
+        self.assertEqual(list(enabled_automations(automations, self.CAPTURE)),
+                         ['automation_c', 'automation_unlisted', 'automation_without_id'])
+
+
+class ScriptStarts(unittest.TestCase):
+    def test_script_turn_on_runs_its_target_after_the_run_in_call_order(self):
+        def start(sim, trigger):
+            for name, value in (('script.ls_first', 1), ('script.ls_render', 0), ('script.effects_engine', 0),
+                                ('script.ls_second', 2)):
+                sim.calls.append({'time': sim.elapsed, 'action': 'script.turn_on', 'target': {'entity_id': name},
+                                  'data': {'variables': {'n': value}}})
+            sim.log.append(('automation_a done', sim.now, {}))
+
+        sim = StandIn({'automation_a': start, 'ls_first': lambda sim, data: None,
+                       'ls_second': lambda sim, data: None})
+        session(sim, on_start(), world()).run([HaStart()])
+        self.assertEqual([(name, data) for name, _, data in sim.log[1:]],
+                         [('automation_a done', {}), ('ls_first', {'n': 1}), ('ls_second', {'n': 2})])
 
 
 @unittest.skipUnless(env.reference_available(), 'private reference or HA wrapper missing')
 class RealBackends(unittest.TestCase):
+    def test_continuation_runs_at_its_instant(self):
+        # No routed input reaches the port's one delayed continuation: the captured remote automations fail
+        # in the parity adapter (it passes them no room), before they start the gesture script. So the
+        # press is recorded as that automation's own action would be, a start of the room's gesture
+        # script, and everything after it is the real port: the gesture starts its quiet script, which
+        # queues power_done 600 ms later.
+        from tests.e2e.test_env import isolated
+        result = isolated('''
+            import json
+            from datetime import datetime, timezone
+            from tests.e2e.backend import Session
+            from tests.e2e.codec import Advance
+            from tests.e2e.env import open_sim
+            from tests.e2e.router import Context, HaStart, StateChanged
+            start = datetime(2026, 10, 23, 10, tzinfo=timezone.utc)
+            with open_sim('port') as sim:
+                session = Session.open(sim, 'port', start)
+                session.run([HaStart()])
+                room = sorted(sim._parity_catalog['remotes'])[0]
+                sim.calls.append({'time': sim.elapsed, 'action': 'script.turn_on', 'data': {'variables': {'command': 'power'}},
+                                  'target': {'entity_id': 'script.ls_remote_gesture_' + room}})
+                ran, run = [], sim.run
+                def recording(name, **args):
+                    if args.get('command') == 'power_done':
+                        ran.append(sim.now.timestamp() - start.timestamp())
+                    return run(name, **args)
+                sim.run = recording
+                marker = StateChanged('input_text.e2e_marker', None, {'state': 'x', 'attributes': {}}, Context('m', None))
+                session.run([marker])
+                pending = len(sim._parity_extra.get('scheduled', []))
+                session.run([Advance(60)])
+                print(json.dumps({'pending': pending, 'ran': ran, 'left': len(sim._parity_extra.get('scheduled', []))}))
+        ''')
+        self.assertEqual(result['pending'], 1)            # the step settled with power_done still queued
+        self.assertEqual(len(result['ran']), 1)
+        self.assertAlmostEqual(result['ran'][0], 0.6, delta=0.01)   # at its own instant, not at the tick
+        self.assertEqual(result['left'], 0)
+
     def test_plugs_seeded(self):
         from tests.e2e.test_env import isolated
         for backend in ('reference', 'port'):
@@ -345,7 +416,7 @@ class RealBackends(unittest.TestCase):
 
     def test_reference_and_port_agree_on_ha_start(self):
         reference, port = run_both([HaStart(), Advance(60)], START)
-        result = compare(reference, port, [SoftwareCandle()])
+        result = compare(reference.checkpoints, port.checkpoints)
         dump = RUNTIME_DIR / 'ha-start-differences.json'   # git-ignored: the differences name catalog entities
         if result.differences:
             RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
@@ -367,7 +438,7 @@ class RealBackends(unittest.TestCase):
         start = datetime(2026, 10, 23, 17, 30, tzinfo=STOCKHOLM)   # the house fades into cosy before 18:00
         for backend in ('reference', 'port'):
             with self.subTest(backend=backend):
-                checkpoints = [c for c in run_backend(backend, steps, start) if c.step == 3]
+                checkpoints = [c for c in run_backend(backend, steps, start).checkpoints if c.step == 3]
                 fading = [c.t for c in checkpoints if c.in_fade]
                 self.assertGreaterEqual(len(fading), 10)
                 ticks = [t for t in fading if t % 60 == 0]

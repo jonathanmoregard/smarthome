@@ -5,15 +5,16 @@ simulator and writes exactly one encoded outcome to the result file:
 `{'checkpoints': [...]}`, or `{'error': {'kind', 'message'}}` (plus
 `last_inputs` for a settle loop). Stdout stays free for logs.
 
-Each step is applied, routed to the automations Home Assistant would run, run,
-and then settled: the calls the backend recorded move the `World`, queued
-renders and due continuations run, the world's light and switch states are
-written back into the simulator, and every state that changed is routed again,
-until nothing moves. A checkpoint is taken after each step, and at each clock
+Only the automations enabled live are routed. Each step is applied, routed to
+the automations Home Assistant would run, run, and then settled: the calls the
+backend recorded move the `World`, the scripts they started (`script.turn_on`)
+run, queued renders and due continuations run, the world's light and switch
+states are written back into the simulator, and every state that changed is
+routed again, until nothing moves. A checkpoint is taken after each step, and at each clock
 tick while a bulb is mid-transition.
 """
 from __future__ import annotations
-from collections import deque
+from collections import Counter, deque
 from collections.abc import Mapping, Sequence
 import copy
 from datetime import datetime, timedelta, timezone
@@ -37,6 +38,12 @@ RUNTIME = 'sensor.ls_effects_runtime'
 OVERRIDES = 'sensor.ls_overrides'
 DASHBOARD_ATTRIBUTES = ('switch_ranges', 'range_defaults')
 CANDLE = 'Candle'
+SOFTWARE_CANDLE = 'software-candle-is-firmware-candle'
+RENDER = 'script.ls_render'          # queued for drain_output, never started here
+# Never started: the reference's streamed software candle. Its frames are replaced by the
+# software-candle rule at each checkpoint.
+NEVER_STARTED = ('script.effects_engine',)
+LIVE_STATES = 'automation-states.json'
 PERSON = 'e2e-person'   # the user id a person's own change carries
 INPUTS = (HaStart, Tick, StateChanged, Event, Mqtt, ScriptCall)
 STEPS = (*INPUTS, Advance, PressSwitch, PersonLightChange)
@@ -57,6 +64,7 @@ class Session:
         self.previous_tick = self.start
         self.recent: deque[Input] = deque(maxlen=LAST_INPUTS)
         self.not_ported: list[str] = []
+        self.adjustments: Counter[str] = Counter()
         self.contexts = 0
         self.seen_calls = len(sim.calls)
         self._set_clock(self.start)
@@ -66,8 +74,11 @@ class Session:
     @staticmethod
     def open(sim, backend: str, start: datetime) -> 'Session':
         """Seed the synthetic plugs, then build the house's automations and world from the simulator."""
+        from tests.e2e.env import LIVE
         plugs = seed_plugs(sim, backend)
-        return Session(sim, backend, load_automations(sim), plugs, World.from_sim(sim), start)
+        captured = json.loads((LIVE / LIVE_STATES).read_text())['data']['states']
+        automations = enabled_automations(load_automations(sim), captured)
+        return Session(sim, backend, automations, plugs, World.from_sim(sim), start)
 
     def run(self, steps: Sequence[Step]) -> list[Checkpoint]:
         checkpoints: list[Checkpoint] = []
@@ -190,11 +201,27 @@ class Session:
         raise SettleLoop(list(self.recent))
 
     def _apply_calls(self) -> bool:
+        """The calls recorded since the last round move the world; then the scripts they started run, in call order."""
         calls = self.sim.calls[self.seen_calls:]
         self.seen_calls = len(self.sim.calls)
         for call in calls:
             self.world.apply(call, call['time'])
+        for call in calls:
+            if call['action'] == 'script.turn_on':
+                for script in _entities(call['target']):
+                    if script != RENDER and script not in NEVER_STARTED:
+                        self._start(script, call['data'].get('variables', {}))
         return bool(calls)
+
+    def _start(self, script: str, variables: Mapping) -> None:
+        """`script.turn_on` as HA runs it: the script with its variables, then the script entity is off again."""
+        name = script.removeprefix('script.')
+        try:
+            self.sim.run(name, **copy.deepcopy(dict(variables)))
+        except Exception as error:
+            raise BackendError(self.backend, 'RunFailed', f'{script} (started): {type(error).__name__}: {error}') from error
+        if self.sim.state.get(script, {}).get('state') == 'on':
+            self.sim.put(script, 'off', self.sim.state[script].get('attributes', {}))
 
     def _continue_until(self, instant: datetime, settle: bool = True) -> bool:
         """Run the port's queued continuations due by `instant`, in time order, each at its own instant.
@@ -280,11 +307,15 @@ class Session:
     def _checkpoint(self, index: int) -> Checkpoint:
         now = self.sim.elapsed   # the world's time: calls are stamped with the sim's elapsed seconds
         bulbs = {name: self.world.bulb(name, now) for name in self.world.bulb_names()}
-        for lamp in self._candle_lamps():
-            for name in self.world.bulbs_of(lamp):
-                state = bulbs[name]
-                if isinstance(state, On):
-                    bulbs[name] = On(state.level, state.colour, 'candle')
+        if self.backend == 'reference':
+            # The reference streams its candle from effects_engine, which never runs here; the port is judged
+            # on what its own commands did (a firmware channel_change), so a missing firmware start shows.
+            for lamp in self._candle_lamps():
+                for name in self.world.bulbs_of(lamp):
+                    state = bulbs[name]
+                    if isinstance(state, On):
+                        bulbs[name] = On(state.level, state.colour, 'candle')
+                        self.adjustments[SOFTWARE_CANDLE] += 1
         attributes = self.sim.state.get(OVERRIDES, {}).get('attributes', {})
         return Checkpoint(
             step=index, t=self.t, bulbs=bulbs,
@@ -300,6 +331,26 @@ class Session:
         return [lamp for lamp, record in assignments.items() if isinstance(record, Mapping) and any(
             isinstance(channel, Mapping) and channel.get('kind') == 'effect' and channel.get('effect') == CANDLE
             for channel in record.values())]
+
+
+def enabled_automations(automations: Mapping[str, dict], captured: Mapping[str, dict]) -> dict[str, dict]:
+    """The automations HA would fire: those not off in the live capture.
+
+    The capture records the state of only some automations; one it does not list is taken as enabled,
+    HA's default for a configured automation. A record matches its automation by the `id` attribute
+    (the entity id follows the alias, not the file name) or by the entity's object id.
+    """
+    off_ids = {str(record['attributes']['id']) for record in captured.values()
+               if record['state'] == 'off' and 'id' in record.get('attributes', {})}
+    off_names = {'automation_' + entity.removeprefix('automation.') for entity, record in captured.items()
+                 if record['state'] == 'off'}
+    return {name: config for name, config in automations.items()
+            if name not in off_names and not ('id' in config and str(config['id']) in off_ids)}
+
+
+def _entities(target: Mapping) -> list[str]:
+    entities = target.get('entity_id', [])
+    return [entities] if isinstance(entities, str) else list(entities)
 
 
 def seed_plugs(sim, backend: str) -> list[str]:
@@ -336,7 +387,9 @@ def execute(backend: str, text: str) -> dict:
         start, steps = parse_request(backend, json.loads(text))
         from tests.e2e.env import open_sim
         with open_sim(backend) as sim:
-            return {'checkpoints': Session.open(sim, backend, start).run(steps)}
+            session = Session.open(sim, backend, start)
+            checkpoints = session.run(steps)
+            return {'checkpoints': checkpoints, 'adjustments': dict(session.adjustments)}
     except Exception as error:
         return failure(error)
 

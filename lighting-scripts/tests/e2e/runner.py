@@ -8,8 +8,9 @@ logs. A failure inside the backend comes back as `{kind, message}` and is
 raised here as `BackendError`, or as `SettleLoop` when the world never settled.
 """
 from __future__ import annotations
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import datetime
 import json
 from pathlib import Path
@@ -19,7 +20,6 @@ import tempfile
 from typing import Literal
 
 from tests.e2e.codec import Checkpoint, Step, decode, encode
-from tests.e2e.world import BulbState
 
 ROOT = Path(__file__).resolve().parents[2]
 SETTLE_LIMIT = 200   # settle rounds per step or tick before the backend gives up
@@ -42,27 +42,13 @@ class BackendError(Exception):
         super().__init__(f'{backend}: {kind}: {message}')
 
 
-class SoftwareCandle:
-    """`software-candle-is-firmware-candle`: the reference's streamed candle counts as the bulbs' firmware candle.
-
-    The rule itself is applied where the assignments are visible, in the backend
-    (`backend.Session` reports a lamp whose `sensor.ls_effects_runtime`
-    assignments hold a Candle record with effect `candle` on its bulbs), on both
-    backends alike. By the time two checkpoints meet here, every bulb the rule
-    covers already agrees on its effect. An effect that still differs means the
-    two sides disagree about the assignment itself, or one side's bulbs run a
-    firmware candle the other side never assigned; the rule explains neither, so
-    this never claims a difference (constraint 5: an adjustment absorbs only what
-    it was made for).
-    """
-    name = 'software-candle-is-firmware-candle'
-    fields = frozenset({'effect'})
-
-    def applies(self, ref: BulbState, port: BulbState, subject: str) -> bool:
-        return False
+@dataclass(frozen=True)
+class BackendRun:
+    checkpoints: list[Checkpoint]
+    adjustments: Mapping[str, int]   # how often each named rule applied inside the backend
 
 
-def run_backend(backend: Literal['reference', 'port'], steps: Sequence[Step], start: datetime) -> list[Checkpoint]:
+def run_backend(backend: Literal['reference', 'port'], steps: Sequence[Step], start: datetime) -> BackendRun:
     payload = json.dumps(encode({'start': start, 'steps': list(steps)}))
     with tempfile.TemporaryDirectory(prefix='e2e-backend-') as directory:
         result = Path(directory) / 'result.json'
@@ -71,21 +57,21 @@ def run_backend(backend: Literal['reference', 'port'], steps: Sequence[Step], st
         if not result.is_file():
             raise BackendError(backend, 'Crashed', f'exit status {completed.returncode}, no result written')
         outcome = decode(json.loads(result.read_text()))
-    return checkpoints_of(backend, outcome)
+    return run_of(backend, outcome)
 
 
-def run_both(steps: Sequence[Step], start: datetime) -> tuple[list[Checkpoint], list[Checkpoint]]:
+def run_both(steps: Sequence[Step], start: datetime) -> tuple[BackendRun, BackendRun]:
     with ThreadPoolExecutor(max_workers=2) as pool:
         reference = pool.submit(run_backend, 'reference', steps, start)
         port = pool.submit(run_backend, 'port', steps, start)
         return reference.result(), port.result()
 
 
-def checkpoints_of(backend: str, outcome: dict) -> list[Checkpoint]:
-    """The checkpoints of a backend's decoded outcome, or the failure it reports, raised."""
+def run_of(backend: str, outcome: dict) -> BackendRun:
+    """A backend's decoded outcome as a `BackendRun`, or the failure it reports, raised."""
     if 'error' in outcome:
         error = outcome['error']
         if error['kind'] == 'SettleLoop':
             raise SettleLoop(error['last_inputs'])
         raise BackendError(backend, error['kind'], error['message'])
-    return list(outcome['checkpoints'])
+    return BackendRun(list(outcome['checkpoints']), dict(outcome['adjustments']))
