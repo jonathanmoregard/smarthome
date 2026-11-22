@@ -13,7 +13,7 @@ scope: lighting-scripts/
 
 **Goal:** The lighting port gets its real domain types (`Model`, `Msg`, `LampLight`, `Colour`, `Effect` with Candle and Normal, and above all the overlays) and the codecs that read and write them from the Home Assistant (HA) sensors and helpers; Breathe and Colour loop are removed.
 
-**Architecture:** M1 is additive beside the running port. New pure types go in `src/domain/` (importing nothing outside it), new codecs in `src/adapter/codecs/`. The script handlers keep driving the lamps until M2 and M3 replace them, so the only change to what a lamp does is that Breathe and Colour loop go (Task 1). Nothing calls the codecs at run time yet; M2's `lightingState` is their first reader. The care in M1 goes into the overlay types: they must hold everything today's overlay flow reads, and nothing else.
+**Architecture:** M1 first makes the golden gate judge the user flow (Task 1) and moves today's script-shaped code out of `src/domain/` into `src/legacy/` (Task 3), so `src/domain/` holds only the new architecture from then on. The rest is additive: new pure types in `src/domain/` (importing nothing outside it), new codecs in `src/adapter/codecs/`. The legacy handlers keep driving the lamps until M2 and M3 replace them, so the only change to what a lamp does is that Breathe and Colour loop go (Task 2). Nothing calls the codecs at run time yet; M2's `lightingState` is their first reader. The care in M1 goes into the overlay types: they must hold everything today's overlay flow reads, and nothing else.
 
 **Tech Stack:** TypeScript 5.9 on Node 22 (`--experimental-strip-types`), `node:test`, the guards in `npm run check`, the M0 golden gate (`npm run e2e`, Python, inside `nix develop`).
 
@@ -26,14 +26,16 @@ scope: lighting-scripts/
 3. Today's algorithms are moved and re-typed in M2, not reinvented. M1 moves none of them.
 4. The candle is the bulb's firmware effect, as the port runs it today: the lamp's own level and colour, then `effect: channel_change`. Its level is tuned live later. No candle maths is restored. (Owner, 2026-11-22: "don't sweat about getting candle right, just use fw effect, we will tune as we go. The important thing to get right, here and now, is the general flow of overrides".) This supersedes the earlier "start at the old candle's base brightness".
 5. Leaving a candle sends `stop_effect` only.
+6. Acceptance is the user flow, not exact values (owner, 2026-11-22: "don't sweat about getting the handle or the fade or whatever exactly right. Just get the general user flow"). The gate fails on flow differences and only notes level differences. Its rules are in Task 1 and bind every later task and milestone.
+7. This plan is the first of two. M2 to M6 are in `docs/superpowers/plans/2026-11-22-m2-m6-redesign-build.md`.
 
 ## Global Constraints
 
 1. The repo is public. No household names, area ids, entity ids of real devices, device addresses or friendly names in any committed file, test or commit message. Tests use synthetic ids (`room-a`, `lamp-a`, `bulb-a1`, `plug-a`, `remote-a`). The mode overlay is called "mode overlay" in new code and docs.
 2. `reference/`, `.runtime/` and `*report.json` are never committed or quoted.
 3. Every task leaves `npm run check` and `npm test` green. A guard ceiling that falls is lowered to the new count in the same commit; none may rise.
-4. Golden gate (`npm run e2e`, detached with `systemd-run --user` and `~/.claude/scripts/wait-for`, log in `/tmp/v1work/`): today 13 scenarios, 114 raw differences = 109 under the approved `fade-off-to-on-gradual` adjustment + 5 unexplained (the candle lamp's level, all in `candle_lamp_evening`). After Task 1, which adds the `candle-level-tuned-live` adjustment: 0 unexplained, adjustments `fade-off-to-on-gradual` 109 and `candle-level-tuned-live` 5. Tasks 2 to 5 add no code the handlers reach; the gate is run once more after Task 5 and must read the same. A number that gets worse stops the task.
-5. The old per-script parity (`npm run parity`) is no longer a gate and is not run.
+4. Flow gate (`npm run e2e`, detached with `systemd-run --user` and `~/.claude/scripts/wait-for`, log in `/tmp/v1work/`): after Task 1 it prints `e2e: golden N/N flow agree, flow differences F, noted {...}` and passes only when F is 0. Every task from Task 2 on ends with F = 0. Tasks 4 to 7 add no code the handlers reach; the gate is run once more after Task 7. Noted counts are recorded in the ledger and never block. A task that cannot reach F = 0 stops and reports the flow differences; it does not loosen a rule in `compare.py`.
+5. The old per-script parity (`npm run parity`) is no longer a gate and is not run. Its cases start breaking in Task 2 (the Breathe and Colour loop cases) and that is accepted; the suite goes in M5.
 6. Vocabulary: schedule, block, transition, wake light, effect, bulb, lamp, room, switch, remote, lighting state, overlay, overlay reset, dashboard, config. No "plan", "dispatch", "render", "intent", "action", "claim" or "record" in a new domain name.
 7. Types: tagged sum types, branded ids, range types. No plain `string` or `number` in a new exported domain signature (strings only for free text). No `?: never` unions, no wire keys, no snake_case, no tuples kept because the wire sends one, no `Verbatim`, no optional field that exists only because JSON may omit it. Off has no level and no colour. A missing colour is `Colour | undefined`, never a stand-in.
 8. Presence is tested with `=== undefined`. No truthiness, no `??` standing in for "absent". Jinja's `or` goes through `jinjaTruthy`.
@@ -47,7 +49,7 @@ scope: lighting-scripts/
 
 ## The overlay flow the types must carry
 
-This is today's behaviour, read from `src/domain/schedule.ts`, `resolution.ts`, `remote-input.ts`, `native-controls.ts`, `state-store.ts` and `src/handlers/automations.ts`. M2 and M3 move it; M1's types must be able to hold all of it.
+This is today's behaviour, read from `schedule.ts`, `resolution.ts`, `remote-input.ts`, `native-controls.ts`, `state-store.ts` (in `src/domain/` today, `src/legacy/domain/` after Task 3) and `src/handlers/automations.ts`. M2 and M3 move it; M1's types must be able to hold all of it.
 
 1. **Schedule.** Each lamp follows its room's schedule (the house's when the room has no own timing, or the lamp is in no room): the current block, and during a fade the transition from the current block's light to the next one's. A wake light replaces the night block's light with a fade to day.
 2. **Which block.** A block overlay on the lamp's room (or the house) replaces the scheduled block. So does a remote's day or cosy preset. The newest of them wins.
@@ -64,7 +66,7 @@ This is today's behaviour, read from `src/domain/schedule.ts`, `resolution.ts`, 
    3. At the set time (rule on): every overlay is removed.
    4. Dashboard clear removes every overlay; the remote's reset removes its room's.
 
-**Which golden scenario proves each part.** In M1 the scenarios still run the old handlers; from M2 on they run through these types. M1's own proof is the codec tests in Task 5, one per row, on the stored shapes each scenario leaves in the overrides sensor.
+**Which golden scenario proves each part.** In M1 the scenarios still run the old handlers; from M2 on they run through these types. M1's own proof is the codec tests in Task 7, one per row, on the stored shapes each scenario leaves in the overrides sensor.
 
 | # | Part of the flow | Types | Golden scenario |
 |---|---|---|---|
@@ -79,59 +81,105 @@ This is today's behaviour, read from `src/domain/schedule.ts`, `resolution.ts`, 
 
 **Parts no golden scenario covers** (listed, not built):
 
-1. The next-block reset: no scenario runs with that rule deliberately on, and `person_change_then_expiry` turns it off.
+1. The next-block reset: covered from Task 1 by the added scenario `next_block_reset` (before that no scenario ran with the rule on).
 2. The at-set-time reset.
 3. A dashboard control's lamp overlay, including the candle chosen for one lamp from the dashboard.
 4. The remote's preset arrows (day, cosy, candle) and so the block a preset chooses (M0 ruling 44).
 5. The remote's chord and power-combo timing (M0 ruling 50).
 6. A block overlay on one room (only the house is held).
-7. The wake light.
+7. The wake light: covered from Task 1 by the added scenario `wake_light`.
 8. Private rooms being left out of house overlays and the mode overlay; the mode overlay doing nothing at night.
 9. Two overlays on the same lamp, and a remote's steps restarting under a newer overlay.
 10. A person's change of a whole room (only one lamp is changed).
 
 ## Review Focus
 
-1. **Saved state that still names a removed effect.** A lamp profile, an overlay or the runtime sensor holding `Breathe` or `Colour loop` after Task 1: the lamp shows its normal light, an effect it was running is stopped once, and nothing raises. Test in Task 1.
-2. **A lit light with no colour.** A block light or lamp profile that is on with a brightness and no colour decodes with `colour: undefined`; an off one has neither level nor colour. No white is invented. Tests in Tasks 4 and 5.
-3. **Garbage in the stores.** The overrides sensor's `overrides` not a mapping, a stored overlay of an unknown kind, a `when` that is not a date, a profile store that is not JSON or not a mapping, a helper in `unknown` or `unavailable`: each decodes to its named default and encodes back without loss of the stored bytes. Tests in Tasks 4 and 5.
-4. **Rooms the port does not drive.** Encoding a `Model` leaves every stored overlay of a non-live room, and every attribute the `Model` does not own, exactly as found. Test in Task 5.
-5. **A candle lamp with a bulb that cannot flicker.** A lamp whose bulbs mix candle and stock firmware shows the candle on the first kind and its normal light on the others. Test in Task 2.
+1. **Saved state that still names a removed effect.** A lamp profile, an overlay or the runtime sensor holding `Breathe` or `Colour loop` after Task 2: the lamp shows its normal light, an effect it was running is stopped once, and nothing raises. Test in Task 2.
+2. **A lit light with no colour.** A block light or lamp profile that is on with a brightness and no colour decodes with `colour: undefined`; an off one has neither level nor colour. No white is invented. Tests in Tasks 6 and 7.
+3. **Garbage in the stores.** The overrides sensor's `overrides` not a mapping, a stored overlay of an unknown kind, a `when` that is not a date, a profile store that is not JSON or not a mapping, a helper in `unknown` or `unavailable`: each decodes to its named default and encodes back without loss of the stored bytes. Tests in Tasks 6 and 7.
+4. **Rooms the port does not drive.** Encoding a `Model` leaves every stored overlay of a non-live room, and every attribute the `Model` does not own, exactly as found. Test in Task 7.
+5. **A candle lamp with a bulb that cannot flicker.** A lamp whose bulbs mix candle and stock firmware shows the candle on the first kind and its normal light on the others. Test in Task 4.
 
 ## File map
 
 | # | File | Holds | Task |
 |---|---|---|---|
-| 1 | `src/domain/types/time.ts` (new) | `Instant`, `Seconds`, `TimeOfDay`, `Timezone` | 2 |
-| 2 | `src/domain/types/light.ts` (extend) | `RGB`, `Colour`, `Power`, `Transition`, `SceneLight`, `OnLight`, `LampLight` | 2 |
-| 3 | `src/domain/effect.ts` (new) | `Effect`, `EffectName`, `BulbInfo`, `BulbAppearance`, `normal`, `candle`, `bulbAppearance` | 2 |
-| 4 | `src/domain/config.ts` (new) | `Config` and its parts | 3 |
-| 5 | `src/domain/overlays.ts` (new) | `Overlays`, each overlay kind, `ModeOverlay` | 3 |
-| 6 | `src/domain/model.ts` (new) | `Model`, `Msg`, `RemoteModel`, `LampProfile`, `RangeRule`, `RangeDefaults` | 3 |
-| 7 | `src/domain/types/lighting-state.ts` (extend) | `LightingState` | 3 |
-| 8 | `src/adapter/codecs/config.ts` (new) | helpers and catalog → `Config` | 4 |
-| 9 | `src/adapter/codecs/overrides-sensor.ts`, `lamp-profiles.ts`, `remote-helpers.ts`, `model.ts` (new) | sensors and stores ↔ the rest of `Model` | 5 |
-| 10 | `scripts/domain-imports.mjs` (new), `scripts/json-edges.mjs` | the domain import rule; `src/adapter/` as a JSON edge | 3, 4 |
+| 1 | `src/domain/types/time.ts` (new) | `Instant`, `Seconds`, `TimeOfDay`, `Timezone` | 4 |
+| 2 | `src/domain/types/light.ts` (extend) | `RGB`, `Colour`, `Power`, `Transition`, `SceneLight`, `OnLight`, `LampLight` | 4 |
+| 3 | `src/domain/effect.ts` (new) | `Effect`, `EffectName`, `BulbInfo`, `BulbAppearance`, `normal`, `candle`, `bulbAppearance` | 4 |
+| 4 | `src/domain/config.ts` (new) | `Config` and its parts | 5 |
+| 5 | `src/domain/overlays.ts` (new) | `Overlays`, each overlay kind, `ModeOverlay` | 5 |
+| 6 | `src/domain/model.ts` (new) | `Model`, `Msg`, `RemoteModel`, `LampProfile`, `RangeRule`, `RangeDefaults` | 5 |
+| 7 | `src/domain/types/lighting-state.ts` (extend) | `LightingState` | 5 |
+| 8 | `src/adapter/codecs/config.ts` (new) | helpers and catalog → `Config` | 6 |
+| 9 | `src/adapter/codecs/overrides-sensor.ts`, `lamp-profiles.ts`, `remote-helpers.ts`, `model.ts` (new) | sensors and stores ↔ the rest of `Model` | 7 |
+| 10 | `scripts/domain-imports.mjs` (new), `scripts/json-edges.mjs` | the domain import rule; `src/adapter/` as a JSON edge | 3, 6 |
+| 11 | `tests/e2e/compare.py`, `gate.py`, `golden.py`, `scenarios.py` | the flow gate; two added scenarios | 1 |
+| 12 | `src/legacy/domain/` | today's script-shaped modules, moved unchanged | 3 |
 
-Existing files keep their names until M2 and M3 delete them. The old `EffectName` id in `types/ids.ts` (a catalog name) and the old `Model`/`Msg` in `gestures.ts` stay where they are; new code imports the new ones from `effect.ts` and `model.ts`.
+After Task 3 the old script-shaped modules are in `src/legacy/domain/` and are deleted in M3 and M5. `src/domain/types/` and `blocks.ts` stay and are shared. The old `EffectName` id in `types/ids.ts` (a catalog name) stays for the legacy code; new code imports the new one from `effect.ts`. Task 2 runs before the move, so its paths are the old ones.
 
 ---
 
-### Task 1: Remove Breathe and Colour loop; accept the candle's level
+### Task 1: The flow gate
 
-A named behaviour change (spec 1.1.1) and one named golden adjustment. Starts after the M0 gate commit has landed (it edits `compare.py` and `golden.py`). Worker: `worker-easy`. Review: one Sonnet pass.
+The gate every later task is judged by. Worker: `worker-hard`. Review: one Opus pass (it defines acceptance).
+
+**Files:**
+- Modify: `tests/e2e/compare.py`, `tests/e2e/gate.py`, `tests/e2e/golden.py`, `tests/e2e/scenarios.py`, `tests/e2e/test_compare.py`, `tests/e2e/test_golden.py`, `lighting-scripts/package.json` (`verify` = `check`, `test`, `e2e`; the `parity` scripts stay runnable but leave `verify`)
+- Private output: two new recordings under `.runtime/e2e/golden/`
+
+**Interfaces:**
+- Produces in `compare.py`:
+  ```python
+  LEVEL_BAND = 51          # a fifth of the 1..254 range: bright against dim is flow, the exact level is not
+  KELVIN_FAMILY = 0.15     # two colour temperatures within 15 % are the same family
+  XY_FAMILY = 0.05         # two RGB colours within this xy distance are the same family
+  TICK = 60.0              # one schedule tick of slack on when a change shows
+
+  @dataclass(frozen=True) class FlowComparison:
+      flow: tuple[Difference, ...]        # these fail the gate
+      noted: Mapping[str, int]            # counted, reported, never fail
+      not_ported: Mapping[str, int]
+  def compare_flow(reference: Sequence[Checkpoint], port: Sequence[Checkpoint], scenario: Scenario) -> FlowComparison
+  ```
+- A **settled checkpoint** is the last checkpoint of a step. Flow is judged there. A checkpoint inside a step (a fade tick) is judged for rule 6 only.
+- Flow differences (each fails the gate), per bulb or switch at a settled checkpoint:
+  1. **Power:** on against off.
+  2. **Colour family:** kelvin against RGB; two kelvins more than `KELVIN_FAMILY` apart; two RGBs more than `XY_FAMILY` apart; a lit bulb with no colour on one side only.
+  3. **Effect:** candle against none.
+  4. **Brightness band:** both on and levels more than `LEVEL_BAND` apart, unless either side is in a fade or runs the candle.
+  5. **Dashboard:** `switch_ranges` or `range_defaults` differ.
+  6. **Timing:** a rule 1, 2 or 3 difference at a checkpoint inside a step that is still there at the next aligned checkpoint more than `TICK` later. One that is gone within `TICK` is noted as `timing-slack`.
+  7. **Reaction:** for each of the scenario's `proves` pairs, the port's two settled checkpoints must differ in that scope by rule 1, 2, 3 or 4, or by a level change of at least 3 steps in the direction the reference moved. For each `holds` pair, the port's must not differ by rule 1, 2, 3 or 4. This is what catches a press, a hold or a reset that the port ignores.
+  8. A settled checkpoint that one side lacks.
+- Noted, never failing: `level` (a level difference beyond the old tolerance that rule 4 does not fail), `colour-shade` (a colour difference inside its family), `fade-sampling` (a checkpoint inside a step that one side lacks, or a level inside a fade), `candle-level`, `timing-slack`.
+- `gate.py` judges with `compare_flow` and prints `e2e: golden N/N flow agree, flow differences F, noted {...}`; exit 0 only when F is 0, every scenario replayed and the unit tests passed. `gate.py --exact` prints the old exact comparison (with `FadeOffToOnGradual`) for information and never fails on it. The report file lists both.
+- Two scenarios are added, because the owner named the morning wake light and overlay resets as flow that must be right and no scenario covers them:
+  1. `wake_light`: a room's wake time set inside the night block; advance through the wake fade and past it. Proves the room's lamps change before the day block starts.
+  2. `next_block_reset`: the next-block rule on; a person's change of one lamp before a block's fade starts; advance past the block start. Proves the lamp is held before the fade and follows the schedule after it.
+
+  Entities by role from `HouseInfo`, never by name. If the reference cannot run one (a missing role or an unsupported trigger), record that as a named gap in the ledger and go on without it.
+
+- [ ] **Step 1: Write failing tests** in `test_compare.py`, one per rule, on synthetic checkpoints: `test_power_differs_is_flow`; `test_kelvin_against_rgb_is_flow`; `test_kelvin_within_family_is_noted` (2700 against 2900) and `test_kelvin_outside_family_is_flow` (2700 against 4000); `test_candle_against_none_is_flow`; `test_level_inside_band_is_noted` (120 against 150) and `test_level_outside_band_is_flow` (40 against 200); `test_level_in_fade_is_never_flow`; `test_candle_level_is_noted`; `test_timing_within_a_tick_is_noted` and `test_timing_beyond_a_tick_is_flow`; `test_port_must_react_where_the_reference_proves` (reference changes, port stays → flow); `test_port_must_hold_where_the_reference_holds`; `test_missing_fade_tick_is_noted` and `test_missing_settled_checkpoint_is_flow`; `test_dashboard_difference_is_flow`. In `test_golden.py`: the two new scenarios are not vacuous.
+- [ ] **Step 2:** Run `python3 -m unittest tests/e2e/test_compare.py` → fail.
+- [ ] **Step 3:** Implement `compare_flow`; switch `gate.py` and `golden.replay` to it; add the two scenarios and record them (only they need recording: `compare.py`, `gate.py` and `golden.py` are outside the recording hash, and an unchanged scenario stays valid).
+- [ ] **Step 4:** Run `npm run e2e` detached on today's port. Expected: flow differences 0; the 114 known differences all land in `noted` (`fade-sampling` and `level` from the gradual fade, `candle-level` 5). Write the noted counts to the ledger as the baseline. If F is not 0, list each flow difference with its scenario, step and rule, and stop: each is a rule that needs a ruling or a real flow difference in today's port.
+- [ ] **Step 5:** Commit: `test(e2e): the gate judges the user flow`.
+
+### Task 2: Remove Breathe and Colour loop
+
+A named behaviour change (spec 1.1.1). Worker: `worker-easy`. Review: one Sonnet pass.
 
 **Files:**
 - Modify: `src/domain/transport.ts` (`BulbEffectName`, `BulbEffect.stoppedByName`, `bulbEffect`, the stop list in `stopCommands`), `src/parse/transport.ts:99,305`, `src/domain/native-controls.ts:286-287`, `src/domain/remote-input.ts:192`, `src/domain/ui-state.ts` (`uiChoices`), comments in `src/runtime/catalog.ts` and `scripts/json-edges.mjs`
 - Delete: `tests/runtime/bulb-effects.test.ts`
 - Modify tests: `effect-kind.test.ts`, `transport-plans.test.ts`, `firmware-candle.test.ts`, `r4-candle.test.ts`, `review-B4.test.ts`, `catalog.test.ts`, `grouping-ui.test.ts`
-- Modify: `tests/e2e/compare.py` (a `CandleLevelTunedLive` adjustment beside `FadeOffToOnGradual`), `tests/e2e/golden.py` (`ADJUSTMENTS`), `tests/e2e/test_compare.py`
 - Test: `tests/runtime/removed-effects.test.ts`
 
 **Interfaces:**
 - Produces: `BulbEffectName = 'Candle'`. Leaving the candle sends `{"effect":"stop_effect"}` only. `parse/transport.ts`'s effect-name read answers `'Candle'` or `undefined` for every other name, catalogued or not (the "in the catalog but not an effect the bulbs run" refusal goes: any other name is a normal light).
 - The dashboard's effect choices (`uiChoices`, which hands on the catalog's own list) and the remote's preset choices never list `Breathe` or `Colour loop`, whatever the catalog lists.
-- `CandleLevelTunedLive`: `name = 'candle-level-tuned-live'`, `fields = frozenset({'level'})`, applies only when both sides' bulb is on with `effect == 'candle'`. It explains no other field and no bulb that is not running the candle. Editing `compare.py` and `golden.py` does not stale the recordings (M0 ruling 47).
 
 - [ ] **Step 1: Write failing tests.**
   - `removed-effects.test.ts`:
@@ -139,13 +187,36 @@ A named behaviour change (spec 1.1.1) and one named golden adjustment. Starts af
     - `a lamp the runtime sensor says is running Colour loop is told to stop nothing`: previous assignment `{effect:'Colour loop'}` → no stop command.
     - `leaving Candle sends stop_effect once per on bulb`, and no `stop_colorloop`.
     - `the dashboard and the remote offer no removed effect`: catalog effects `Candle, Breathe, Colour loop, Normal light` → choices hold neither removed name.
-  - `test_compare.py`: `test_candle_level_is_adjusted_and_counted` (both candle, levels 103 and 120 → no difference, count 1); `test_candle_adjustment_leaves_colour_and_effect` (a colour or effect difference on the same bulb stays); `test_candle_adjustment_needs_the_candle_on_both_sides`.
-- [ ] **Step 2:** Run `npm test` and `python3 -m unittest tests/e2e/test_compare.py` → the new tests fail.
-- [ ] **Step 3:** Remove the two effects at the sites above; delete or rewrite the listed tests' Breathe and Colour loop cases (count them in the commit message). Add the adjustment.
-- [ ] **Step 4:** Run `npm run check && npm test` → green, ceilings lowered where they fell. Run `npm run e2e` detached → 0 unexplained; adjustments `fade-off-to-on-gradual` 109, `candle-level-tuned-live` 5.
-- [ ] **Step 5:** Commit: `feat(lighting)!: remove Breathe and Colour loop; candle level is tuned live`.
+- [ ] **Step 2:** Run `npm test` → the new tests fail.
+- [ ] **Step 3:** Remove the two effects at the sites above; delete or rewrite the listed tests' Breathe and Colour loop cases (count them in the commit message).
+- [ ] **Step 4:** Run `npm run check && npm test` → green, ceilings lowered where they fell. Run `npm run e2e` detached → flow differences 0.
+- [ ] **Step 5:** Commit: `feat(lighting)!: remove Breathe and Colour loop`.
 
-### Task 2: Light, time and effect types
+### Task 3: Move the script-shaped code to `src/legacy/`
+
+Mechanical. No logic changes. Worker: `worker-easy`. Review: the controller reads the diff stat and the gate; no reviewer.
+
+**Files:**
+- Move (`git mv`): every file directly in `src/domain/` except `blocks.ts` → `src/legacy/domain/` (the `src/domain/types/` folder stays)
+- Modify: every import of a moved file (in `src/` and `tests/runtime/`); `scripts/domain-types.mjs`, `domain-words.mjs`, `item-order.mjs`, `json-edges.mjs`, `effects-edge.mjs`, `stringified.mjs` and their allow and ceiling files; `package.json`
+- Create: `scripts/domain-imports.mjs`, `scripts/legacy-files.json`
+- Test: `tests/runtime/domain-imports.test.ts`
+
+**Interfaces:**
+- Produces: `src/domain/` holds only `blocks.ts` and `types/`. Everything later tasks add there is new architecture.
+- Guards after the move: the ratchets that counted old sins in `src/domain/` (`domain-words.ceilings.json`, the ceilings in `domain-types.allow.json`) now see a clean folder; set every ceiling to what it counts there and delete allow entries for moved files. `src/legacy/` is not held to the domain guards: it is deleted in M3 and M5.
+- `scripts/domain-imports.mjs` (TypeScript compiler API like the other guards), run by `npm run check`:
+  1. a file under `src/domain/` imports only from `src/domain/`;
+  2. nothing under `src/domain/` or `src/adapter/` imports from `src/legacy/`, except the files `scripts/legacy-files.json` lists under `bridges` (M2 and M3 name them);
+  3. `src/legacy/` holds only the files `scripts/legacy-files.json` lists under `files`. The list may only shrink.
+
+- [ ] **Step 1: Write failing tests** in `domain-imports.test.ts` (against fixture trees, like `item-order.test.ts`): a domain file importing `../runtime/x.ts` fails; one importing `./types/ids.ts` passes; a domain file importing `../legacy/domain/x.ts` fails; a legacy file not on the list fails.
+- [ ] **Step 2:** Run `npm test` → fail.
+- [ ] **Step 3:** Move the files, fix the imports, write the guard and the list, reset the ceilings.
+- [ ] **Step 4:** Run `npm run check && npm test` → green, the same test count as before plus the new file's. Run `npm run e2e` detached → flow differences 0.
+- [ ] **Step 5:** Commit: `refactor(lighting): script-shaped modules move to src/legacy`.
+
+### Task 4: Light, time and effect types
 
 Types and two small implementations; no lamp changes. Worker: `worker-easy`. Review: one Sonnet pass.
 
@@ -203,17 +274,17 @@ Types and two small implementations; no lamp changes. Worker: `worker-easy`. Rev
 - [ ] **Step 4:** Run `npm run check && npm test` → green.
 - [ ] **Step 5:** Commit: `feat(domain): light, time and effect types; Candle and Normal`.
 
-### Task 3: Config, overlays, Model and Msg
+### Task 5: Config, overlays, Model and Msg
 
 Types only, plus the fixture every later test builds on. This is the task that carries the overlay flow. Worker: `worker-hard`. Review: one advisor pass on `overlays.ts` and `model.ts` against the flow section above and Global Constraints 6, 7 and 12.
 
 **Files:**
-- Create: `src/domain/config.ts`, `src/domain/overlays.ts`, `src/domain/model.ts`, `scripts/domain-imports.mjs`, `domain-imports.legacy.json`, `tests/runtime/fixtures/synthetic-house.ts`
-- Modify: `src/domain/types/lighting-state.ts`, `src/domain/types/ids.ts` and `src/parse/ids.ts` (`DashboardControlId`, `StepCount`), `package.json` (`check` runs `domain-imports.mjs`), `domain-types.allow.json` only with a stated reason per entry
-- Test: `tests/runtime/model.test.ts`, `tests/runtime/domain-imports.test.ts`
+- Create: `src/domain/config.ts`, `src/domain/overlays.ts`, `src/domain/model.ts`, `tests/runtime/fixtures/synthetic-house.ts`
+- Modify: `src/domain/types/lighting-state.ts`, `src/domain/types/ids.ts` and `src/parse/ids.ts` (`DashboardControlId`, `StepCount`), `domain-types.allow.json` only with a stated reason per entry
+- Test: `tests/runtime/model.test.ts`
 
 **Interfaces:**
-- Consumes: Task 2's types; existing `Block`, `RoomOrHouse`, `Step`, `RemoteSource`, `RemotePress`, `Percent`, `PercentRange`, `Minutes`, `Brightness`.
+- Consumes: Task 4's types; existing `Block`, `RoomOrHouse`, `Step`, `RemoteSource`, `RemotePress`, `Percent`, `PercentRange`, `Minutes`, `Brightness`.
 - Produces, config:
   ```ts
   // config.ts
@@ -356,22 +427,20 @@ Types only, plus the fixture every later test builds on. This is the task that c
   1. Who set an overlay (`who`, `via`) and when it was first made (`created`): no lighting rule reads them. A remote's overlay is known by its kind, not by `via`.
   2. An effect's `instance` text: it existed to restart a re-selected effect, and re-selecting now keeps it running.
   3. The remote overlay's `remote_valid_until` and `remote_timing_revision`: a cache of the schedule's next fade start.
-  4. Old stored shapes no code writes any more (`light` overlays, a remote's `channels` overlay, a `scale` part, `legacy_position`, `legacy_channels`, a house-wide lamp overlay): Task 5's codec leaves them in the bytes and they take no part. An after-age reset removes them like any overlay.
-  5. The bookkeeping in the overrides and runtime sensors (`applied`, revision, generation, pending rooms, acknowledgements, room caches): Task 5's codec carries it.
+  4. Old stored shapes no code writes any more (`light` overlays, a remote's `channels` overlay, a `scale` part, `legacy_position`, `legacy_channels`, a house-wide lamp overlay): Task 7's codec leaves them in the bytes and they take no part. An after-age reset removes them like any overlay.
+  5. The bookkeeping in the overrides and runtime sensors (`applied`, revision, generation, pending rooms, acknowledgements, room caches): Task 7's codec carries it.
 - If the worker finds a stored field that a lighting rule reads and that has no home above, it stops and reports the field and its reader; it does not add a loose field.
-- Import rule (`scripts/domain-imports.mjs`, TypeScript compiler API like the other guards): a file under `src/domain/` imports only from `src/domain/`. `domain-imports.legacy.json` lists the files that break the rule today, each `{ file, reason: 'replaced in M2' | 'replaced in M3' }`; an entry whose file is gone or now clean fails. The list only shrinks: it carries a `ceiling` equal to its length, and a longer list fails like the other ratchets.
 
 - [ ] **Step 1: Write failing tests.**
-  - `domain-imports.test.ts` (against fixture trees, like `item-order.test.ts`): a domain file importing `../runtime/x.ts` fails; one importing `./types/ids.ts` passes; a legacy entry for a clean file fails; a list longer than its ceiling fails.
   - `model.test.ts`: builds `syntheticHouse()` and asserts it type-checks as `Model` and that every `Msg` kind can be built against it (one value per kind, `satisfies Msg`). As `// @ts-expect-error` lines: `an off scene has no brightness`, `an off lamp has no level`, `a day preset has no adjustment of its own`, `a fixed brightness needs a brightness`, `an inactive mode overlay has no since`.
 - [ ] **Step 2:** Run `npm test` → fail (no modules).
-- [ ] **Step 3:** Write the three domain files, the guard, the legacy list and `syntheticHouse(): Model`: two rooms, one private; one room with its own timing and light for one block; three lamps, one with a candle bulb and a stock bulb; one switch with a custom range; one remote with a room and one without. Overlays: a block held over one room; a remote overlay with an adjustment and the candle preset, remembering its day preset; a person's lamp overlay with a fixed brightness and colour; a dashboard lamp overlay with the candle on brightness and the schedule's colour; one room switched off; the mode overlay active.
+- [ ] **Step 3:** Write the three domain files and `syntheticHouse(): Model`: two rooms, one private; one room with its own timing and light for one block; three lamps, one with a candle bulb and a stock bulb; one switch with a custom range; one remote with a room and one without. Overlays: a block held over one room; a remote overlay with an adjustment and the candle preset, remembering its day preset; a person's lamp overlay with a fixed brightness and colour; a dashboard lamp overlay with the candle on brightness and the schedule's colour; one room switched off; the mode overlay active.
 - [ ] **Step 4:** Run `npm run check && npm test` → green. `node scripts/domain-types.mjs --list` shows no uncovered site in the new files.
 - [ ] **Step 5:** Commit: `feat(domain): Config, overlays, Model and Msg`.
 
-### Task 4: Config codec
+### Task 6: Config codec
 
-Worker: `worker-easy` once Task 3's types are merged. Review: one Sonnet pass.
+Worker: `worker-easy` once Task 5's types are merged. Review: one Sonnet pass.
 
 **Files:**
 - Create: `src/adapter/codecs/config.ts`
@@ -379,7 +448,7 @@ Worker: `worker-easy` once Task 3's types are merged. Review: one Sonnet pass.
 - Test: `tests/runtime/config-codec.test.ts`
 
 **Interfaces:**
-- Consumes: Task 3 `Config` and parts; `Catalog` and `parseCatalog` from `src/runtime/catalog.ts`; `Rooms` from `src/parse/rooms.ts`; the accessors in `src/runtime/parse.ts`; constructors in `src/parse/ids.ts`.
+- Consumes: Task 5 `Config` and parts; `Catalog` and `parseCatalog` from `src/runtime/catalog.ts`; `Rooms` from `src/parse/rooms.ts`; the accessors in `src/runtime/parse.ts`; constructors in `src/parse/ids.ts`.
 - Produces:
   ```ts
   /** The HA state the config is read from: each helper's state and attributes, the registry's rooms, the labels. */
@@ -390,7 +459,7 @@ Worker: `worker-easy` once Task 3's types are merged. Review: one Sonnet pass.
   export const DEFAULT_FADE: Minutes;          // 20, today's fallback
   export const DEFAULT_OVERLAY_AGE: Minutes;   // 180, today's fallback
   ```
-- Helper names are built here from room and block (`ls_<scope>_<block>_start`, `_weekend`, `_fade`, `_own_timing`, `_own_light`, `_on_off`, the block light text, the wake helpers, the three overlay reset helpers), exactly the names `src/domain/schedule.ts`, `src/parse/schedule.ts` and `src/handlers/automations.ts` read today. No helper name appears in `src/domain/`.
+- Helper names are built here from room and block (`ls_<scope>_<block>_start`, `_weekend`, `_fade`, `_own_timing`, `_own_light`, `_on_off`, the block light text, the wake helpers, the three overlay reset helpers), exactly the names `src/legacy/domain/schedule.ts`, `src/parse/schedule.ts` and `src/handlers/automations.ts` read today. No helper name appears in `src/domain/`.
 - Rules, each from today's code: a start that is not `HH:MM` with hour ≤ 23 and minute ≤ 59 → `undefined`; a fade that is not a number → `DEFAULT_FADE`; an own-flag helper not `on` → `follows: 'house'`; a block light that is off → `{ power: 'off' }`, on without a colour → `colour: undefined`, missing or unreadable → `undefined`; warm end not three numbers → `255, 126, 0`; timezone absent → today's default zone; a remote whose device has no room → `room: undefined`; the after-age rule off → `afterAge: undefined`, on with an unreadable limit → `DEFAULT_OVERLAY_AGE`; a room is private when the private-rooms label names it. The catalog is strict: a bulb in two lamps is refused by `parseCatalog` as today.
 - Decode only. The port never writes these helpers.
 
@@ -400,7 +469,7 @@ Worker: `worker-easy` once Task 3's types are merged. Review: one Sonnet pass.
 - [ ] **Step 4:** Run `npm run check && npm test` → green.
 - [ ] **Step 5:** Commit: `feat(adapter): config codec`.
 
-### Task 5: State codecs and the fields shared with the old scripts
+### Task 7: State codecs and the fields shared with the old scripts
 
 Worker: `worker-hard`. Review: one Opus pass (a wrong write here breaks rooms the old scripts still drive, and a wrong read loses part of the overlay flow).
 
@@ -409,7 +478,7 @@ Worker: `worker-hard`. Review: one Opus pass (a wrong write here breaks rooms th
 - Test: `tests/runtime/overrides-sensor-codec.test.ts`, `lamp-profiles-codec.test.ts`, `remote-helpers-codec.test.ts`
 
 **Interfaces:**
-- Consumes: Task 3 `Model`, `Overlays` and each overlay kind, `ModeOverlay`, `RangeRule`, `RangeDefaults`, `LampProfile`, `RemoteModel`; Task 4 `decodeConfig`, `ConfigSource`; `parseOverlayKey` (`src/parse/overlay-key.ts`); live rooms from `src/parse/live-rooms.ts`.
+- Consumes: Task 5 `Model`, `Overlays` and each overlay kind, `ModeOverlay`, `RangeRule`, `RangeDefaults`, `LampProfile`, `RemoteModel`; Task 6 `decodeConfig`, `ConfigSource`; `parseOverlayKey` (`src/parse/overlay-key.ts`); live rooms from `src/parse/live-rooms.ts`.
 - Produces:
   ```ts
   // overrides-sensor.ts
@@ -438,12 +507,12 @@ Worker: `worker-hard`. Review: one Opus pass (a wrong write here breaks rooms th
   | 5 | key of the mode overlay | `modeOverlay` active, `since` = `when` |
   | 6 | attribute `power` | `overlays.roomPower` |
   | 7 | attributes `switch_ranges`, `range_defaults` | `switchRanges`, `rangeDefaults` |
-  | 8 | anything else (rows 4 and 5 of Task 3's left-out list, unknown kinds, unknown keys) | not in the `Model`; kept in the bytes |
+  | 8 | anything else (rows 4 and 5 of Task 5's left-out list, unknown kinds, unknown keys) | not in the `Model`; kept in the bytes |
 
 - Encoding writes back the stored fields the left-out list names (`who`, `via`, `created`, `instance`, the remote's cache fields) from `found` when the overlay was there before, and with today's writers' values when it is new (`state-store.ts` `planCommit`, `remote-input.ts`, `native-controls.ts`).
 - Defaults, named constants beside their decoder: `overrides` not a mapping → no overlays; a `when` or `updated` that is not a date or number → the epoch (today's `as_timestamp(when, 0)`), so the next reset ends it; a saved block that is not a block → the overlay is not in the `Model`; an adjustment whose steps or bounds are out of range → `adjustment: undefined`; an `anchor` that is none of the three → `current`; an effect name that is not `Candle` → that part is `schedule`; a custom range whose bounds are not an ordered pair in 0..100 → the switch has no rule; range defaults out of order → today's defaults; a profile store that is not JSON or not a mapping → `{ follows: 'room' }`; a saved effect that is not `Candle` → `Normal`; a remote helper in `unknown` or `unavailable` → today's fallbacks (`gestureState` in `src/parse/gestures.ts`).
 - A custom range bound saved as a boolean (today's `Percent | boolean`) decodes through the same check the old code runs and encodes back as found unless the rule changed.
-- `sensor-fields.md` is the checklist for `encodeOverrides`: one row per attribute and per stored overlay field of the overrides sensor, the runtime sensor and the room cache sensors, with columns `field`, `read by` (old script names), `across rooms` (yes/no), `owner` (`Model.<path>`, `left out: <reason number>` or `carried`). Entity names are written with `<room>` and `<lamp>`. It is built by searching the old scripts in `reference/live/` (private; only field and script names leave it). A field that a lighting rule reads and that has no owner stops the task (see Task 3).
+- `sensor-fields.md` is the checklist for `encodeOverrides`: one row per attribute and per stored overlay field of the overrides sensor, the runtime sensor and the room cache sensors, with columns `field`, `read by` (old script names), `across rooms` (yes/no), `owner` (`Model.<path>`, `left out: <reason number>` or `carried`). Entity names are written with `<room>` and `<lamp>`. It is built by searching the old scripts in `reference/live/` (private; only field and script names leave it). A field that a lighting rule reads and that has no owner stops the task (see Task 5).
 
 - [ ] **Step 1:** Write `sensor-fields.md`. Any field that is `across rooms: yes` and has no `Model` owner is `carried`; list those at the top, they are what the M6 compatibility writer keeps valid.
 - [ ] **Step 2: Write failing tests.** Inputs are the stored shapes the existing tests already use (`r4-commit.test.ts`, `r4-remote-plan.test.ts`, the mode overlay's test, `lighting-state.test.ts`, `native-control-effects.test.ts`, `ls-store-boundary.test.ts`, `gestures-reducer.test.ts`), with synthetic ids.
@@ -454,13 +523,13 @@ Worker: `worker-hard`. Review: one Opus pass (a wrong write here breaks rooms th
   - Garbage, one test per default above (Review Focus 3), each also asserting the encode keeps the garbage bytes when nothing changed.
   - `an off profile has no brightness and no colour`; `a lit profile with no colour has none` (Review Focus 2); `a saved Breathe is Normal`.
   - `remoteHelperWrites` writes only the helpers that changed, in the order today's reducer writes them.
-  - `decodeModel(syntheticSource(), syntheticCatalog())` deep-equals Task 3's `syntheticHouse()` (the fixture gains the wire form it decodes from).
+  - `decodeModel(syntheticSource(), syntheticCatalog())` deep-equals Task 5's `syntheticHouse()` (the fixture gains the wire form it decodes from).
 - [ ] **Step 3:** Run `npm test` → fail.
 - [ ] **Step 4:** Implement the four codec files.
-- [ ] **Step 5:** Run `npm run check && npm test` → green. Run `npm run e2e` detached → 0 unexplained; adjustments 109 and 5.
+- [ ] **Step 5:** Run `npm run check && npm test` → green. Run `npm run e2e` detached → flow differences 0.
 - [ ] **Step 6:** Commit: `feat(adapter): codecs for the overrides sensor, lamp profiles and remote helpers`.
 
 ## After M1
 
 1. The codecs meet real house data for the first time in M2, when `lightingState` reads the `Model` under the golden scenarios. M1 builds no live-data check.
-2. Write the M2 plan (`lightingState`): move and re-type schedule, overlays, resolution and blend onto these types, and decide there whether `LampLight` needs a colourless lit case or a transition on off.
+2. M2 to M6 follow in `docs/superpowers/plans/2026-11-22-m2-m6-redesign-build.md`. M2 Task 2 decides whether `LampLight` needs a colourless lit case.
