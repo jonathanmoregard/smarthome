@@ -45,27 +45,106 @@ class Comparison:
     not_ported: Mapping[str, int]
 
 
+@dataclass(frozen=True)
+class BulbAt:
+    """One bulb at one aligned checkpoint, on both sides."""
+    step: int
+    t: float
+    ref: BulbState
+    port: BulbState
+    ref_fading: bool
+    port_fading: bool
+
+
 class Adjustment(Protocol):
     name: str
     fields: frozenset[str]  # the bulb fields it explains, from 'power', 'level', 'colour', 'effect'
 
-    def applies(self, ref: BulbState, port: BulbState, subject: str) -> bool: ...
+    def applies(self, history: Sequence[BulbAt], at: int, subject: str) -> bool:
+        """`history`: the bulb at every aligned checkpoint, in order; `history[at]` is the one that differs."""
+        ...
+
+
+class FadeOffToOnGradual:
+    """The owner's approved divergence (2026-11-20, "fade should be gradual both directions").
+
+    When a scheduled fade turns an Off lamp On, today's scripts switch it straight to the end level; the port ramps
+    it up from the lowest level in the On end's colour. A level difference is this, and nothing else, when:
+    1. the port shows the bulb in a fade (its `in_fade`), and the window is that unbroken run of the port's fade;
+    2. the reference shows the bulb Off at the checkpoint just before the window, and On throughout it;
+    3. the port shows it On throughout the window, its level never falling;
+    4. here, the reference is not fading the bulb itself, the colours agree within the tolerances, and the port's
+       level is between 1 and the reference's.
+    After the window, levels must agree with no adjustment.
+    """
+    name = 'fade-off-to-on-gradual'
+    fields = frozenset({'level'})
+
+    def applies(self, history: Sequence[BulbAt], at: int, subject: str) -> bool:
+        here = history[at]
+        if not here.port_fading or here.ref_fading:
+            return False
+        first, last = at, at
+        while first > 0 and history[first - 1].port_fading:
+            first -= 1
+        while last + 1 < len(history) and history[last + 1].port_fading:
+            last += 1
+        if first == 0 or not isinstance(history[first - 1].ref, Off):
+            return False
+        window = history[first:last + 1]
+        if not all(isinstance(moment.ref, On) and isinstance(moment.port, On) for moment in window):
+            return False
+        levels = [moment.port.level for moment in window if isinstance(moment.port, On)]
+        if any(later < earlier for earlier, later in zip(levels, levels[1:])):
+            return False
+        ref, port = here.ref, here.port
+        assert isinstance(ref, On) and isinstance(port, On)
+        return _same_colour(ref.colour, port.colour) and 1 <= port.level <= ref.level
 
 
 def compare(reference: Sequence[Checkpoint], port: Sequence[Checkpoint],
             adjustments: Sequence[Adjustment] = ()) -> Comparison:
+    """Checkpoints aligned by `(step, t)`; one that only one side has is a `checkpoint` difference.
+
+    Each side samples the ticks of its own fades only, so the reference's state at a port-only tick is not known:
+    an earlier reference tick of the same step was itself mid-fade, and the previous step's final checkpoint can
+    be stale (a pressed plug is put back at the next tick, with no fade and so no sample).
+    """
     ref_by_key = {(c.step, c.t): c for c in reference}
     port_by_key = {(c.step, c.t): c for c in port}
-    differences: list[Difference] = []
-    counted: Counter[str] = Counter()
+    rows: list[Difference | tuple[Checkpoint, Checkpoint]] = []
     for key in sorted(ref_by_key.keys() | port_by_key.keys()):
         ref, new = ref_by_key.get(key), port_by_key.get(key)
         if ref is None or new is None:
-            differences.append(Difference(key[0], key[1], 'checkpoint', 'checkpoint',
-                                          None if ref is None else 'present', None if new is None else 'present'))
+            rows.append(Difference(key[0], key[1], 'checkpoint', 'checkpoint',
+                                   None if ref is None else 'present', None if new is None else 'present'))
+        else:
+            rows.append((ref, new))
+    histories = _histories([row for row in rows if not isinstance(row, Difference)])
+    differences: list[Difference] = []
+    counted: Counter[str] = Counter()
+    aligned = 0
+    for row in rows:
+        if isinstance(row, Difference):
+            differences.append(row)
             continue
-        differences.extend(_compare_checkpoint(ref, new, adjustments, counted))
+        differences.extend(_compare_checkpoint(*row, histories, aligned, adjustments, counted))
+        aligned += 1
     return Comparison(differences=tuple(differences), adjustments=dict(counted), not_ported=_count_not_ported(port))
+
+
+_History = dict[str, tuple[list[BulbAt], dict[int, int]]]   # bulb -> (its moments, aligned index -> moment index)
+
+
+def _histories(aligned: Sequence[tuple[Checkpoint, Checkpoint]]) -> _History:
+    histories: _History = {}
+    for index, (ref, port) in enumerate(aligned):
+        for name in ref.bulbs.keys() & port.bulbs.keys():
+            moments, positions = histories.setdefault(name, ([], {}))
+            positions[index] = len(moments)
+            moments.append(BulbAt(ref.step, ref.t, ref.bulbs[name], port.bulbs[name],
+                                  name in ref.in_fade, name in port.in_fade))
+    return histories
 
 
 def _count_not_ported(port: Sequence[Checkpoint]) -> dict[str, int]:
@@ -81,8 +160,8 @@ def _count_not_ported(port: Sequence[Checkpoint]) -> dict[str, int]:
     return dict(total)
 
 
-def _compare_checkpoint(ref: Checkpoint, port: Checkpoint, adjustments: Sequence[Adjustment],
-                        counted: Counter[str]) -> list[Difference]:
+def _compare_checkpoint(ref: Checkpoint, port: Checkpoint, histories: _History, aligned: int,
+                        adjustments: Sequence[Adjustment], counted: Counter[str]) -> list[Difference]:
     found: list[Difference] = []
 
     def add(subject: str, field: str, reference: object, new: object) -> None:
@@ -97,8 +176,9 @@ def _compare_checkpoint(ref: Checkpoint, port: Checkpoint, adjustments: Sequence
         if not bulb_differences:
             continue
         claimed: set[str] = set()
+        moments, positions = histories[name]
         for adjustment in adjustments:
-            if not adjustment.applies(ref.bulbs[name], port.bulbs[name], name):
+            if not adjustment.applies(moments, positions[aligned], name):
                 continue
             explained = {field for field, _, _ in bulb_differences if field in adjustment.fields}
             if explained:

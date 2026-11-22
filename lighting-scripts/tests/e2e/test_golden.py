@@ -14,6 +14,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 from tests.e2e import env
 from tests.e2e.codec import (Advance, Checkpoint, HelperInfo, HouseInfo, LampInfo, PersonLightChange, PowerCut,
@@ -389,6 +390,18 @@ class Recordings(unittest.TestCase):
         changed = replace(self.scenario, steps=(HaStart(), Advance(120)))
         with self.assertRaises(StaleRecording):
             replay('golden_x', directory=self.directory, current=lambda: {'golden_x': changed})
+
+    def test_replay_explains_the_approved_gradual_fade_from_off(self):
+        def at(step, t, state, fading=()):
+            return Checkpoint(step=step, t=t, bulbs={'bulb_a': state}, switches={}, dashboard={},
+                              in_fade=frozenset(fading), not_ported=())
+        reference = [at(0, 0.0, Off()), at(1, 60.0, On(200, Kelvin(2700), 'none'))]
+        port = BackendRun([at(0, 0.0, Off()), at(1, 60.0, On(90, Kelvin(2700), 'none'), {'bulb_a'})], {})
+        save('golden_x', self.scenario, BackendRun(reference, {}), directory=self.directory)
+        with mock.patch('tests.e2e.golden.run_backend', return_value=port):
+            result = replay('golden_x', directory=self.directory, current=lambda: {})
+        self.assertEqual(result.differences, ())
+        self.assertEqual(dict(result.adjustments), {'fade-off-to-on-gradual': 1})
 
     def test_a_missing_recording_is_an_error(self):
         with self.assertRaises(MissingRecording):

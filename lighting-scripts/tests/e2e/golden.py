@@ -27,7 +27,7 @@ from pathlib import Path
 import sys
 
 from tests.e2e.codec import Checkpoint, decode, encode
-from tests.e2e.compare import Comparison, compare
+from tests.e2e.compare import Comparison, FadeOffToOnGradual, compare
 from tests.e2e.runner import ROOT, BackendRun, describe_house, run_backend
 from tests.e2e.scenarios import NAMES, Proof, Scenario, Scenarios, scenarios
 
@@ -37,6 +37,7 @@ GOLDEN = ROOT / '.runtime' / 'e2e' / 'golden'
 HASHED_MODULES = ('env', 'world', 'router', 'codec', 'backend', 'runner', 'services')
 CAPTURES = 'reference'
 CANDIDATE = 'tests/parity/portability.py'   # `live_candidate`: the captures as the reference runs them
+ADJUSTMENTS = (FadeOffToOnGradual(),)   # the owner-approved divergences a replay explains, each one counted
 
 
 class StaleRecording(Exception):
@@ -80,7 +81,7 @@ def replay(name: str, *, directory: Path = GOLDEN,
         raise StaleRecording(f'{name}: the scenario changed since it was recorded')
     scenario = recording.scenario
     port = run_backend('port', scenario.steps, scenario.start, scenario.seeds)
-    result = compare(recording.reference.checkpoints, port.checkpoints)
+    result = compare(recording.reference.checkpoints, port.checkpoints, ADJUSTMENTS)
     # The backends' own rules (the reference's software candle) are adjustments as much as compare's are.
     adjustments = Counter(result.adjustments) + Counter(recording.reference.adjustments) + Counter(port.adjustments)
     return replace(result, adjustments=dict(adjustments))
