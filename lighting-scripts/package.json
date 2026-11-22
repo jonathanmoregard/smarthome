@@ -13,6 +13,7 @@
     "audit:responses": "python3 scripts/audit_response_consumers.py",
     "parity": "python3 tests/parity/gate.py",
     "parity:inventory": "python3 tests/parity/run.py --inventory",
+    "e2e": "python3 tests/e2e/gate.py",
     "verify": "npm run check && npm test && npm run parity"
   },
   "dependencies": { "home-assistant-js-websocket": "9.7.1" },
