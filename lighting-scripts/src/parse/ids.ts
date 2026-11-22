@@ -9,7 +9,8 @@
  */
 import type { BulbId, EffectName, LampId, PowerTarget, RemoteId, RemoteSource, RoomId, SavedOverlayKey, SwitchId, UserId }
   from '../domain/types/ids.ts';
-import type { Brightness, Kelvin, Level, Percent, PercentRange } from '../domain/types/light.ts';
+import type { Brightness, ColourChannel, Kelvin, Level, Percent, PercentRange } from '../domain/types/light.ts';
+import type { Instant, Seconds, TimeOfDay, Timezone } from '../domain/types/time.ts';
 import type { Step } from '../domain/types/remote.ts';
 import type { Minutes } from '../domain/types/overlay.ts';
 import type { Progress } from '../domain/types/schedule.ts';
@@ -166,4 +167,53 @@ export function toPercent(raw: number): Percent {
   inRange(raw, PERCENT.low, PERCENT.high, 'A percent');
   // Cast: checked just above; this is the one place a number becomes a percent.
   return raw as Percent;
+}
+
+export function toColourChannel(raw: number): ColourChannel {
+  inRange(raw, 0, 255, 'A colour channel');
+  // Cast: checked just above; this is the one place a number becomes a colour channel.
+  return raw as ColourChannel;
+}
+
+export function toInstant(raw: number): Instant {
+  inRange(raw, -Infinity, Infinity, 'An instant');
+  // Cast: checked just above; this is the one place a number becomes an instant.
+  return raw as Instant;
+}
+
+export function toSeconds(raw: number): Seconds {
+  inRange(raw, 0, Infinity, 'A duration in seconds');
+  // Cast: checked just above; this is the one place a number becomes seconds.
+  return raw as Seconds;
+}
+
+/*
+ * The two fades. They sit here, not beside `Transition`, because a `Seconds`
+ * is built only by `toSeconds` and the domain may not import this file or cast;
+ * M2 hands them to the domain through the config.
+ */
+
+/** The fade of a change a person makes. */
+export const MANUAL_FADE: Seconds = toSeconds(0.2);
+/** The fade into an effect's start. */
+export const EFFECT_START_FADE: Seconds = toSeconds(0.4);
+
+export function toTimeOfDay(hour: number, minute: number): TimeOfDay {
+  inRange(hour, 0, 23, 'An hour');
+  inRange(minute, 0, 59, 'A minute');
+  if (!Number.isInteger(hour) || !Number.isInteger(minute)) {
+    throw new ParseError(`A time of day must be whole hours and minutes, got ${hour}:${minute}`);
+  }
+  // Cast: both checked just above; this is the one place two numbers become a time of day.
+  return { hour: hour as TimeOfDay['hour'], minute: minute as TimeOfDay['minute'] };
+}
+
+export function toTimezone(raw: string): Timezone {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: raw });
+  } catch {
+    throw new ParseError(`A timezone must be an IANA zone id, got '${raw}'`);
+  }
+  // Cast: checked just above; this is the one place a string becomes a timezone.
+  return raw as Timezone;
 }

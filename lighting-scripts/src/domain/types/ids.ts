@@ -7,7 +7,7 @@
  * call them. They check nothing: an id is branded where the edge reads it.
  */
 declare const brand: unique symbol;
-type Id<Name extends string> = string & { readonly [brand]: Name };
+export type Id<Name extends string> = string & { readonly [brand]: Name };
 
 /** A room: Home Assistant's area id (`kitchen`). */
 export type RoomId = Id<'RoomId'>;
