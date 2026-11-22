@@ -14,9 +14,9 @@ import {
 } from '../parse/controller.ts';
 import type { RemotePlanResult } from '../domain/remote-input.ts';
 import { remoteAnswerDocument, remotePlanDocument } from '../parse/results.ts';
-import { drive, perform } from '../runtime/effects.ts';
-import { planAnswer, remoteCommandStart, remoteCommandStep, switchPlan } from '../domain/controller.ts';
-import type { ApplyArgs, PlanArgs, PlanResult, RemoteCommandArgs, RemoteCommandCmd, RemoteCommandMsg } from '../domain/controller.ts';
+import { perform } from '../runtime/effects.ts';
+import { acceptedPowerSwitch, planAnswer, remoteCommit, switchPlan } from '../domain/controller.ts';
+import type { ApplyArgs, PlanArgs, PlanResult, PowerSwitch, RemoteCommandArgs } from '../domain/controller.ts';
 import { overlayKeyText, SARA_MODE } from '../domain/types/overlay.ts';
 import { pressText } from '../domain/types/remote.ts';
 import { roomText } from '../parse/rooms.ts';
@@ -91,27 +91,35 @@ function apply(ctx: ScriptContext, args: ApplyArgs): Verbatim | null {
   ctx.run('ls_commit', { data: { op: 'render_request', via: 'render_request', reason: args.reason, lights: args.lights() } });
   return null;
 }
-/** The interpreter: each command is one inter-handler call or one effect. */
+/** The captured script's retry budget for a revision that keeps moving under the commit. */
+const REMOTE_ATTEMPTS = 1_000;
+
+/**
+ * `ls_remote_command`: plan, commit the plan against the revision it was
+ * planned at, and plan again while the store refuses the commit, up to
+ * {@link REMOTE_ATTEMPTS} times. A dry run answers the first plan; a noop is
+ * accepted without a commit; an accepted change answers nothing.
+ */
 function remoteCommand(ctx: ScriptContext, args: RemoteCommandArgs): RemotePlanResult | null {
-  return drive(remoteCommandStep, remoteCommandStart(args), { tag: 'start' }, (cmd: RemoteCommandCmd): RemoteCommandMsg | undefined => {
-    switch (cmd.tag) {
-      case 'plan': {
-        // The press goes out as the text the remote sent, whatever it is.
-        const { source, area, command } = cmd.input;
-        return { tag: 'planned', result: ctx.call('ls_remote_plan', { source, area, command: pressText(command) }) };
-      }
-      case 'commit': return { tag: 'committed', accepted: ctx.call('ls_commit', { data: remotePlanDocument(cmd.data) }).accepted };
-      case 'effect': perform(ctx, cmd.effect); return undefined;
-      default: {
-        const unknown: never = cmd;
-        throw new Error(`Unhandled ls_remote_command command ${JSON.stringify(unknown)}`);
-      }
-    }
-  }, phase => {
-    if (phase.tag === 'done') return { value: phase.answer };
-    if (phase.tag === 'exhausted') throw new Error('Override revision kept changing; retry budget exhausted');
-    return undefined;
-  });
+  // The press goes out as the text the remote sent, whatever it is.
+  const request = { source: args.source, area: args.area, command: pressText(args.command) };
+  for (let attempt = 0; attempt < REMOTE_ATTEMPTS; attempt++) {
+    const plan = ctx.call('ls_remote_plan', request);
+    if (args.dryRun) return plan;
+    if (plan.op !== 'noop' && !ctx.call('ls_commit', { data: remotePlanDocument(remoteCommit(plan, args)) }).accepted) continue;
+    const power = acceptedPowerSwitch(plan);
+    if (power !== undefined) switchPower(ctx, power);
+    return null;
+  }
+  throw new Error('Override revision kept changing; retry budget exhausted');
+}
+
+/** Switch the targets, then render switched-on targets as a lamp-on apply. */
+function switchPower(ctx: ScriptContext, power: PowerSwitch): void {
+  const on = power.tag === 'on_then_render';
+  perform(ctx, { kind: 'service', service: on ? 'homeassistant.turn_on' : 'homeassistant.turn_off', data: {},
+    target: { entity_id: power.targets } });
+  if (on) perform(ctx, { kind: 'script', name: 'ls_apply', args: { reason: 'lamp_on', lights: power.targets } });
 }
 export const controllerHandlers: ScriptHandlers = {
   ls_switch_plan: typed('ls_switch_plan', { parse: parseSwitchPlanArgs, run: (ctx, args) => switchPlan(ctx.rooms.ofId, args) }),
