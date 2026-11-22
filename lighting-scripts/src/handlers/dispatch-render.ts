@@ -13,7 +13,7 @@ import type { StoredValue } from '../parse/overrides.ts';
 import { overridesRevision } from '../parse/sensors.ts';
 import { fullPlan, parseDispatchArgs, roomPlanView } from '../parse/dispatch-render.ts';
 import {
-  cacheWrite, dispatchStart, dispatchStep, fullLights, fullReason, gradientUpdates, mergeRoomPlan, renderAck, renderOpening,
+  cacheWrite, dispatchInit, dispatchUpdate, fullLights, fullReason, gradientUpdates, mergeRoomPlan, renderAck, renderOpening,
     roomPlanRequest, roomsPlan, roomsStart,
 } from '../domain/dispatch-render.ts';
 import type { DispatchArgs, DispatchCmd, DispatchMsg, DispatchResult, RoomsPlan } from '../domain/dispatch-render.ts';
@@ -22,7 +22,7 @@ import type { RoomId } from '../domain/types/ids.ts';
 
 /** Delta output actor: invalidate touched lamps before sending, acknowledge only complete batches. */
 export function dispatch(ctx: ScriptContext, args: DispatchArgs): DispatchResult {
-  return drive(dispatchStep, dispatchStart(args), { tag: 'start', house: ctx }, (cmd: DispatchCmd): DispatchMsg => {
+  return drive(dispatchUpdate, dispatchInit(args), { tag: 'start', house: ctx }, (cmd: DispatchCmd): DispatchMsg => {
     switch (cmd.tag) {
       case 'catalog': return { tag: 'catalog', catalog: carry(ctx.run('effects_catalog')), house: ctx };
       case 'assign': return { tag: 'assigned', result: ctx.call('effects_assign', cmd.args), house: ctx };
@@ -38,7 +38,7 @@ export function dispatch(ctx: ScriptContext, args: DispatchArgs): DispatchResult
         throw new Error(`Unhandled ls_dispatch command ${JSON.stringify(unknown)}`);
       }
     }
-  }, phase => phase.tag === 'done' ? { value: phase.answer } : undefined);
+  }, model => model.tag === 'done' ? { value: model.answer } : undefined);
 }
 /**
  * Coalesce pending room versions, preserving unrelated rooms and retrying

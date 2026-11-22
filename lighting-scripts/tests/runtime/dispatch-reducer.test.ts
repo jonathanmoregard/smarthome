@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { dispatchStart, dispatchStep } from '../../src/domain/dispatch-render.ts';
-import type { DispatchCmd, DispatchPhase } from '../../src/domain/dispatch-render.ts';
+import { dispatchInit, dispatchUpdate } from '../../src/domain/dispatch-render.ts';
+import type { DispatchCmd, DispatchModel } from '../../src/domain/dispatch-render.ts';
 import type { GroupCommand } from '../../src/domain/grouping.ts';
 import { parseDispatchArgs } from '../../src/parse/dispatch-render.ts';
 import { timestamp } from '../../src/parse/accessors.ts';
@@ -34,13 +34,13 @@ const generation = carry('g1');
 const light: GroupCommand = { topic: 'z2m/bulb/set', payload: carry({ brightness: 100 }), members: ['light.bulb'], owners: ['light.lamp'], group: null };
 const batch = { commands: [light], rejected: [], input_count: 1, endpoint_count: 1, command_count: 1 };
 
-type Step = [DispatchPhase, DispatchCmd[]];
-const open = (a = args(), v = view()): Step => dispatchStep(dispatchStart(a), { tag: 'start', house: v });
-const catalogued = (a = args(), v = view()): Step => dispatchStep(open(a, v)[0], { tag: 'catalog', catalog, house: v });
-const assigned = (a = args(), v = view()): Step => dispatchStep(catalogued(a, v)[0], { tag: 'assigned', result: { generation }, house: v });
-const framed = (a = args(), v = view()): Step => dispatchStep(assigned(a, v)[0], { tag: 'framed', batch, house: v });
+type Step = [DispatchModel, DispatchCmd[]];
+const open = (a = args(), v = view()): Step => dispatchUpdate(dispatchInit(a), { tag: 'start', house: v });
+const catalogued = (a = args(), v = view()): Step => dispatchUpdate(open(a, v)[0], { tag: 'catalog', catalog, house: v });
+const assigned = (a = args(), v = view()): Step => dispatchUpdate(catalogued(a, v)[0], { tag: 'assigned', result: { generation }, house: v });
+const framed = (a = args(), v = view()): Step => dispatchUpdate(assigned(a, v)[0], { tag: 'framed', batch, house: v });
 const emitted = (a = args(), v = view(), after = v): Step =>
-  dispatchStep(framed(a, v)[0], { tag: 'emitted', result: { published_at: [1], completed: true }, house: after });
+  dispatchUpdate(framed(a, v)[0], { tag: 'emitted', result: { published_at: [1], completed: true }, house: after });
 const effects = (cmds: DispatchCmd[]): Effect[] => cmds.map(cmd => {
   assert.equal(cmd.tag, 'effect');
   return (cmd as Extract<DispatchCmd, { tag: 'effect' }>).effect;
@@ -52,8 +52,8 @@ test('a plan for a moved revision, or older than the last dispatched, is dropped
 });
 
 test('an accepted plan parses its details, then fetches the catalog', () => {
-  const [phase, cmds] = open();
-  assert.equal(phase.tag, 'cataloguing');
+  const [model, cmds] = open();
+  assert.equal(model.tag, 'cataloguing');
   assert.deepEqual(cmds, [{ tag: 'catalog' }]);
   assert.throws(() => open(parseDispatchArgs({ plan: { revision: REVISION, plan_order: 10 } })), /ls_dispatch\.plan.*resolved/);
 });
@@ -73,7 +73,7 @@ test('the lamps to send are the on, sendable lamps whose light is not already ap
 
 test('the frame plan gets the lamps to send, the catalog as fetched, and the clock as read after the assignment', () => {
   const later = house({ ...Object.fromEntries(Object.entries(view().state)) }, { catalogDocument, now: '2026-10-26T12:00:05+01:00' });
-  const [, cmds] = dispatchStep(catalogued()[0], { tag: 'assigned', result: { generation }, house: later });
+  const [, cmds] = dispatchUpdate(catalogued()[0], { tag: 'assigned', result: { generation }, house: later });
   assert.deepEqual(cmds, [{ tag: 'frame', args: {
     targets: { 'light.lamp': steady }, catalog, timestamp: timestamp('2026-10-26T12:00:05+01:00'), transition_cap: null, transition_rooms: [],
   } }]);
@@ -87,8 +87,8 @@ test('the light goes out through effects_emit under the assigned generation', ()
 });
 
 test('a candle lamp is started after its light: a second emission of channel_change per on member', () => {
-  const [phase, cmds] = emitted(args({}, { 'light.lamp': candle }));
-  assert.equal(phase.tag, 'starting');
+  const [model, cmds] = emitted(args({}, { 'light.lamp': candle }));
+  assert.equal(model.tag, 'starting');
   assert.deepEqual(cmds, [{ tag: 'emit', args: { commands: [
     { topic: 'z2m/bulb/set', payload: { effect: 'channel_change' }, members: ['light.bulb'], owners: ['light.lamp'], group: null },
   ], revision: REVISION, generation } }]);
@@ -96,8 +96,8 @@ test('a candle lamp is started after its light: a second emission of channel_cha
 
 test('a complete output records what was applied under the generation, guarded on output success', () => {
   const v = view({}, { applied: { 'light.other': steady } });
-  const [phase, cmds] = emitted(args(), view(), v);
-  assert.equal(phase.tag, 'switching');
+  const [model, cmds] = emitted(args(), view(), v);
+  assert.equal(model.tag, 'switching');
   assert.deepEqual(effects(cmds), [{
     kind: 'service', service: 'variable.update_sensor', target: { entity_id: runtime },
     data: { value: generation, replace_attributes: false, attributes: { applied: { 'light.other': steady, 'light.lamp': steady } } },
@@ -107,7 +107,7 @@ test('a complete output records what was applied under the generation, guarded o
 
 test('a candle start that completes records the applied light and nothing else', () => {
   const a = args({}, { 'light.lamp': candle });
-  const [, cmds] = dispatchStep(emitted(a)[0], { tag: 'emitted', result: { published_at: [2], completed: true }, house: view() });
+  const [, cmds] = dispatchUpdate(emitted(a)[0], { tag: 'emitted', result: { published_at: [2], completed: true }, house: view() });
   const update = effects(cmds)[0];
   assert.ok(update !== undefined && update.kind === 'service');
   assert.deepEqual(update.data.attributes, { applied: { 'light.lamp': candle } });
@@ -115,8 +115,8 @@ test('a candle start that completes records the applied light and nothing else',
 
 test('output that moved the generation, or did not complete, records nothing', () => {
   assert.deepEqual(emitted(args(), view(), view({}, { generation: 'g2' })), [{ tag: 'done', answer: null }, []]);
-  const [phase, cmds] = dispatchStep(framed()[0], { tag: 'emitted', result: { published_at: [], completed: false }, house: view() });
-  assert.equal(phase.tag, 'finishing');
+  const [model, cmds] = dispatchUpdate(framed()[0], { tag: 'emitted', result: { published_at: [], completed: false }, house: view() });
+  assert.equal(model.tag, 'finishing');
   assert.equal(cmds.length, 1);
   assert.equal(cmds[0]?.tag, 'plan');
 });
@@ -127,9 +127,9 @@ test('each switch whose state differs is switched, one per step, with the house 
   const [first, firstCmds] = emitted(a, v);
   assert.deepEqual(effects(firstCmds), [{ kind: 'service', service: 'homeassistant.turn_on', data: {}, target: { entity_id: 'switch.a' },
     guard: { revision: REVISION, generation } }]);
-  const [second, secondCmds] = dispatchStep(first, { tag: 'performed', house: v });
+  const [second, secondCmds] = dispatchUpdate(first, { tag: 'performed', house: v });
   assert.deepEqual(effects(secondCmds).map(e => e.kind === 'service' ? e.target : e), [{ entity_id: 'switch.c' }]);
-  const [third, thirdCmds] = dispatchStep(second, { tag: 'performed', house: v });
+  const [third, thirdCmds] = dispatchUpdate(second, { tag: 'performed', house: v });
   assert.equal(third.tag, 'finishing');
   assert.equal(thirdCmds[0]?.tag, 'plan');
 });
@@ -137,8 +137,8 @@ test('each switch whose state differs is switched, one per step, with the house 
 test('the tail mirrors, flips the Sara mirror and clears stale keys, lazily, then answers', () => {
   const a = args({ mirror: [{ entity: 'input_select.x', option: 'Day' }], sara_mirror: 'on', stale_keys: ['k'] });
   const v = view({}, { applied: { 'light.lamp': steady } });
-  const [phase, cmds] = emitted(a, v);
-  assert.equal(phase.tag, 'finishing');
+  const [model, cmds] = emitted(a, v);
+  assert.equal(model.tag, 'finishing');
   const tail = cmds[0];
   assert.ok(tail !== undefined && tail.tag === 'plan');
   assert.deepEqual([...tail.plan], [
@@ -146,8 +146,8 @@ test('the tail mirrors, flips the Sara mirror and clears stale keys, lazily, the
     { kind: 'service', service: 'input_boolean.turn_on', data: {}, target: { entity_id: 'input_boolean.ls_sara_mode_mirror' }, guard: { revision: REVISION, generation } },
     { kind: 'event', event: 'ls_override', data: { op: 'clear', keys: ['k'], via: 'rule_next_block', expected_revision: REVISION } },
   ]);
-  assert.deepEqual(dispatchStep(phase, { tag: 'performed', house: v }), [{ tag: 'done', answer: { completed: true, published_at: [1] } }, []]);
-  assert.deepEqual(dispatchStep(phase, { tag: 'performed', house: view({}, { generation: 'g2' }) }),
+  assert.deepEqual(dispatchUpdate(model, { tag: 'performed', house: v }), [{ tag: 'done', answer: { completed: true, published_at: [1] } }, []]);
+  assert.deepEqual(dispatchUpdate(model, { tag: 'performed', house: view({}, { generation: 'g2' }) }),
     [{ tag: 'done', answer: { completed: false, published_at: [1] } }, []]);
 });
 
@@ -156,11 +156,11 @@ test('a revision that moves during the switches stops the switching and drops th
   const applied = { applied: { 'light.lamp': steady } };
   const v = view({ 'switch.a': 'off', 'switch.b': 'off' }, applied);
   const moved = view({ 'sensor.ls_overrides': { state: '0', attributes: {}, last_updated: 'later' }, 'switch.a': 'on', 'switch.b': 'off' }, applied);
-  const [phase, cmds] = emitted(a, v);
+  const [model, cmds] = emitted(a, v);
   assert.equal(effects(cmds).length, 1);
-  assert.deepEqual(dispatchStep(phase, { tag: 'performed', house: moved }), [{ tag: 'done', answer: null }, []]);
+  assert.deepEqual(dispatchUpdate(model, { tag: 'performed', house: moved }), [{ tag: 'done', answer: null }, []]);
 });
 
 test('a message the phase does not expect is a defect', () => {
-  assert.throws(() => dispatchStep(open()[0], { tag: 'performed', house: view() }), /ls_dispatch.*cataloguing.*performed/);
+  assert.throws(() => dispatchUpdate(open()[0], { tag: 'performed', house: view() }), /ls_dispatch.*cataloguing.*performed/);
 });

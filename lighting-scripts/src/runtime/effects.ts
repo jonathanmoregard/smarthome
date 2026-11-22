@@ -62,33 +62,34 @@ export function run<R>(ctx: ScriptContext, plan: Plan<R>): R {
 }
 
 /**
- * A state machine for a handler that needs answers from the house mid-way:
- * from the current phase and the message just received, the next phase and
- * the commands to perform, in order. Pure; the phase never holds the house.
+ * A state machine for a handler that needs answers from the house mid-way, in
+ * the Elm shape: from the current model and the message just received, the
+ * next model and the commands to perform, in order. Pure; the model never
+ * holds the house.
  */
-export type Reducer<P, M, C> = (phase: P, msg: M) => [P, C[]];
+export type Reducer<Model, Msg, Cmd> = (model: Model, msg: Msg) => [Model, Cmd[]];
 
 /**
  * Run a reducer to its end. Each step's commands are performed in order; the
- * last reply any of them gives is the next message. A terminal phase (`settle`
+ * last reply any of them gives is the next message. A terminal model (`settle`
  * answers) ends the run after its own commands are performed.
  */
-export function drive<P, M, C, R>(
-  reducer: Reducer<P, M, C>, phase: P, first: M,
-  perform: (cmd: C) => M | undefined, settle: (phase: P) => { value: R } | undefined,
+export function drive<Model, Msg, Cmd, R>(
+  reducer: Reducer<Model, Msg, Cmd>, model: Model, first: Msg,
+  perform: (cmd: Cmd) => Msg | undefined, settle: (model: Model) => { value: R } | undefined,
 ): R {
   let msg = first;
   for (;;) {
-    const [next, cmds] = reducer(phase, msg);
-    phase = next;
-    let reply: M | undefined;
+    const [next, cmds] = reducer(model, msg);
+    model = next;
+    let reply: Msg | undefined;
     for (const cmd of cmds) {
       const answer = perform(cmd);
       if (answer !== undefined) reply = answer;
     }
-    const settled = settle(phase);
+    const settled = settle(model);
     if (settled !== undefined) return settled.value;
-    if (reply === undefined) throw new Error(`Reducer stalled: no reply to feed back in phase ${JSON.stringify(phase)}`);
+    if (reply === undefined) throw new Error(`Reducer stalled: no reply to feed back in phase ${JSON.stringify(model)}`);
     msg = reply;
   }
 }

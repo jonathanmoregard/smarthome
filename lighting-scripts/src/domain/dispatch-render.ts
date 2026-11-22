@@ -77,7 +77,7 @@ type Settled = Assigned & { completed: boolean; publishedAt: number[] };
  * `effects_emit` (the light), `effects_emit` again (the bulb-effect starts),
  * then the guarded runtime record, the switches one by one, and the tail.
  */
-export type DispatchPhase =
+export type DispatchModel =
   | { tag: 'opening'; args: DispatchArgs }
   | { tag: 'cataloguing'; run: Accepted }
   | { tag: 'assigning'; run: Chosen }
@@ -116,32 +116,32 @@ export type DispatchCmd =
   | { tag: 'effect'; effect: Effect }
   /** Perform a lazy plan, whose raising reads sit between its effects; answers `performed`. */
   | { tag: 'plan'; plan: Plan<void> };
-type Transition = [DispatchPhase, DispatchCmd[]];
+type Transition = [DispatchModel, DispatchCmd[]];
 
-export function dispatchStart(args: DispatchArgs): DispatchPhase {
+export function dispatchInit(args: DispatchArgs): DispatchModel {
   return { tag: 'opening', args };
 }
 
-export function dispatchStep(phase: DispatchPhase, msg: DispatchMsg): Transition {
-  switch (phase.tag) {
+export function dispatchUpdate(model: DispatchModel, msg: DispatchMsg): Transition {
+  switch (model.tag) {
     case 'opening': {
-      if (msg.tag !== 'start') return unexpected(phase, msg);
-      const { args } = phase, revision = args.revision, house = msg.house;
+      if (msg.tag !== 'start') return unexpected(model, msg);
+      const { args } = model, revision = args.revision, house = msg.house;
       if (revision !== overridesRevision(house, 'ls_dispatch') || args.planOrder < dispatchPlanOrder(house)) return done(null);
       return [{ tag: 'cataloguing', run: { revision, planOrder: args.planOrder, details: args.details() } }, [{ tag: 'catalog' }]];
     }
     case 'cataloguing': {
-      if (msg.tag !== 'catalog') return unexpected(phase, msg);
-      const { revision, planOrder, details } = phase.run;
+      if (msg.tag !== 'catalog') return unexpected(model, msg);
+      const { revision, planOrder, details } = model.run;
       const previous = dispatchRuntime(msg.house);
       const ordinary = ordinaryTargets(msg.house, details, previous);
-      return [{ tag: 'assigning', run: { ...phase.run, catalog: msg.catalog, previous, ordinary } }, [{ tag: 'assign', args: {
+      return [{ tag: 'assigning', run: { ...model.run, catalog: msg.catalog, previous, ordinary } }, [{ tag: 'assign', args: {
         targets: details.targets, assignments: details.assignments, revision, invalidate: Object.keys(ordinary), plan_order: planOrder,
       } }]];
     }
     case 'assigning': {
-      if (msg.tag !== 'assigned') return unexpected(phase, msg);
-      const run = { ...phase.run, generation: msg.result.generation };
+      if (msg.tag !== 'assigned') return unexpected(model, msg);
+      const run = { ...model.run, generation: msg.result.generation };
       const { remote, remoteRooms } = run.details;
       return [{ tag: 'framing', run }, [{ tag: 'frame', args: {
         targets: run.ordinary, catalog: run.catalog, timestamp: timestamp(msg.house.now),
@@ -149,35 +149,35 @@ export function dispatchStep(phase: DispatchPhase, msg: DispatchMsg): Transition
       } }]];
     }
     case 'framing': {
-      if (msg.tag !== 'framed') return unexpected(phase, msg);
-      const run = phase.run;
+      if (msg.tag !== 'framed') return unexpected(model, msg);
+      const run = model.run;
       return [{ tag: 'emitting', run }, [{ tag: 'emit', args: { commands: msg.batch.commands, revision: run.revision,
         generation: run.generation } }]];
     }
     case 'emitting': {
-      if (msg.tag !== 'emitted') return unexpected(phase, msg);
-      const commands = bulbStartCommands(msg.house, sentStarts(phase.run));
-      const run: Lit = { ...phase.run, emission: msg.result };
+      if (msg.tag !== 'emitted') return unexpected(model, msg);
+      const commands = bulbStartCommands(msg.house, sentStarts(model.run));
+      const run: Lit = { ...model.run, emission: msg.result };
       if (commands.length === 0) return settle(msg.house, run, { published_at: [], completed: true });
       return [{ tag: 'starting', run }, [{ tag: 'emit', args: { commands, revision: run.revision, generation: run.generation } }]];
     }
     case 'starting': {
-      if (msg.tag !== 'emitted') return unexpected(phase, msg);
-      return settle(msg.house, phase.run, msg.result);
+      if (msg.tag !== 'emitted') return unexpected(model, msg);
+      return settle(msg.house, model.run, msg.result);
     }
     case 'switching': {
-      if (msg.tag !== 'performed') return unexpected(phase, msg);
-      return switching(msg.house, phase.run, phase.next);
+      if (msg.tag !== 'performed') return unexpected(model, msg);
+      return switching(msg.house, model.run, model.next);
     }
     case 'finishing': {
-      if (msg.tag !== 'performed') return unexpected(phase, msg);
-      const { revision, generation, completed, publishedAt } = phase.run;
+      if (msg.tag !== 'performed') return unexpected(model, msg);
+      const { revision, generation, completed, publishedAt } = model.run;
       return done({ completed: completed && stillCurrent(msg.house, 'ls_dispatch', revision, generation), published_at: publishedAt });
     }
     case 'done':
-      return unexpected(phase, msg);
+      return unexpected(model, msg);
     default: {
-      const unknown: never = phase;
+      const unknown: never = model;
       throw new Error(`Unhandled ls_dispatch phase ${JSON.stringify(unknown)}`);
     }
   }
@@ -186,8 +186,8 @@ export function dispatchStep(phase: DispatchPhase, msg: DispatchMsg): Transition
 function done(answer: DispatchResult): Transition {
   return [{ tag: 'done', answer }, []];
 }
-function unexpected(phase: DispatchPhase, msg: DispatchMsg): never {
-  throw new Error(`ls_dispatch: phase ${phase.tag} cannot take ${msg.tag}`);
+function unexpected(model: DispatchModel, msg: DispatchMsg): never {
+  throw new Error(`ls_dispatch: phase ${model.tag} cannot take ${msg.tag}`);
 }
 
 /**
