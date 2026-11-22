@@ -5,7 +5,7 @@ import json
 import unittest
 from zoneinfo import ZoneInfo
 
-from tests.e2e.codec import (Advance, Checkpoint, PersonLightChange, PressSwitch, UnknownKind, decode, encode)
+from tests.e2e.codec import (Advance, Checkpoint, PersonLightChange, PressSwitch, MalformedKind, UnknownKind, decode, encode)
 from tests.e2e.router import Context, Event, HaStart, Mqtt, ScriptCall, StateChanged, Tick
 from tests.e2e.world import Kelvin, Off, On, Rgb
 
@@ -73,6 +73,18 @@ class RoundTrip(unittest.TestCase):
     def test_unknown_kind_raises(self):
         with self.assertRaises(UnknownKind):
             decode({'kind': 'NotAThing'})
+
+    def test_missing_field_names_the_kind_and_field(self):
+        wire = encode(PressSwitch(entity='switch.plug_x'))
+        del wire['entity']
+        with self.assertRaisesRegex(MalformedKind, r"PressSwitch.*missing.*entity"):
+            decode(wire)
+
+    def test_extra_field_names_the_kind_and_field(self):
+        wire = encode(PressSwitch(entity='switch.plug_x'))
+        wire['surplus'] = 1
+        with self.assertRaisesRegex(MalformedKind, r"PressSwitch.*unexpected.*surplus"):
+            decode(wire)
 
     def test_unencodable_value_raises(self):
         with self.assertRaises(TypeError):

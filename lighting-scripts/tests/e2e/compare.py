@@ -47,6 +47,7 @@ class Comparison:
 
 class Adjustment(Protocol):
     name: str
+    fields: frozenset[str]  # the bulb fields it explains, from 'power', 'level', 'colour', 'effect'
 
     def applies(self, ref: BulbState, port: BulbState, subject: str) -> bool: ...
 
@@ -95,12 +96,17 @@ def _compare_checkpoint(ref: Checkpoint, port: Checkpoint, adjustments: Sequence
         bulb_differences = _compare_bulb(ref.bulbs[name], port.bulbs[name], fading)
         if not bulb_differences:
             continue
-        adjustment = next((a for a in adjustments if a.applies(ref.bulbs[name], port.bulbs[name], name)), None)
-        if adjustment is not None:
-            counted[adjustment.name] += 1  # one count per bulb per checkpoint, however many fields differed
-            continue
+        claimed: set[str] = set()
+        for adjustment in adjustments:
+            if not adjustment.applies(ref.bulbs[name], port.bulbs[name], name):
+                continue
+            explained = {field for field, _, _ in bulb_differences if field in adjustment.fields}
+            if explained:
+                counted[adjustment.name] += 1  # once per bulb per checkpoint, however many fields it explains
+                claimed |= explained
         for field, reference, new in bulb_differences:
-            add(name, field, reference, new)
+            if field not in claimed:
+                add(name, field, reference, new)
     for name in sorted(ref.switches.keys() | port.switches.keys()):
         if ref.switches.get(name) != port.switches.get(name):
             add(name, 'power', ref.switches.get(name), port.switches.get(name))

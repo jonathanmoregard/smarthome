@@ -25,6 +25,16 @@ def fields(result):
     return [(d.subject, d.field) for d in result.differences]
 
 
+def adjustment(name, claimed, applies=True):
+    class Fake:
+        fields = frozenset(claimed)
+
+        def applies(self, ref, port, subject):
+            return applies
+    Fake.name = name
+    return Fake()
+
+
 class Tolerances(unittest.TestCase):
     def test_equal_within_tolerances(self):
         ref = bulb(on(level=200, colour=Kelvin(2700)))
@@ -110,25 +120,53 @@ class Reporting(unittest.TestCase):
         ref = [checkpoint(step=0, t=0.0), checkpoint(step=1, t=1.0), checkpoint(step=1, t=2.0)]
         self.assertEqual(dict(compare(ref, port).not_ported), {'automation_a': 2, 'automation_b': 1})
 
-    def test_adjustment_counts_and_suppresses(self):
-        class Candle:
-            name = 'software-candle-is-firmware-candle'
-
-            def applies(self, ref, port, subject):
-                return isinstance(ref, On) and isinstance(port, On) and ref.effect == 'none' and port.effect == 'candle'
-
+    def test_adjustment_counts_and_suppresses_only_its_fields(self):
         ref = [checkpoint(step=0, t=0.0, bulbs={'bulb_a': on(level=50)}),
                checkpoint(step=1, t=1.0, bulbs={'bulb_a': on(level=50)})]
-        port = [checkpoint(step=0, t=0.0, bulbs={'bulb_a': on(level=90, effect='candle')}),
+        port = [checkpoint(step=0, t=0.0, bulbs={'bulb_a': on(level=50, effect='candle')}),
                 checkpoint(step=1, t=1.0, bulbs={'bulb_a': on(level=50)})]
-        result = compare(ref, port, [Candle()])
+        result = compare(ref, port, [adjustment('candle', {'effect'})])
         self.assertEqual(result.differences, ())
-        self.assertEqual(dict(result.adjustments), {'software-candle-is-firmware-candle': 1})
-        self.assertEqual(fields(compare(ref, port)), [('bulb_a', 'level'), ('bulb_a', 'effect')])
+        self.assertEqual(dict(result.adjustments), {'candle': 1})
+        self.assertEqual(fields(compare(ref, port)), [('bulb_a', 'effect')])
+
+    def test_adjustment_leaves_other_fields_on_the_same_bulb_reported(self):
+        ref = [checkpoint(bulbs={'bulb_a': on(level=50, colour=Kelvin(2700), effect='none')})]
+        port = [checkpoint(bulbs={'bulb_a': on(level=90, colour=Kelvin(4000), effect='candle')})]
+        result = compare(ref, port, [adjustment('candle', {'effect'})])
+        self.assertEqual(fields(result), [('bulb_a', 'level'), ('bulb_a', 'colour')])
+        self.assertEqual(dict(result.adjustments), {'candle': 1})
+
+    def test_two_adjustments_on_different_fields_both_count(self):
+        ref = [checkpoint(bulbs={'bulb_a': on(level=50, effect='none')})]
+        port = [checkpoint(bulbs={'bulb_a': on(level=90, effect='candle')})]
+        result = compare(ref, port, [adjustment('one', {'effect'}), adjustment('two', {'level'})])
+        self.assertEqual(result.differences, ())
+        self.assertEqual(dict(result.adjustments), {'one': 1, 'two': 1})
+
+    def test_a_field_claimed_by_two_adjustments_counts_for_both(self):
+        ref = [checkpoint(bulbs={'bulb_a': on(effect='none')})]
+        port = [checkpoint(bulbs={'bulb_a': on(effect='candle')})]
+        result = compare(ref, port, [adjustment('one', {'effect'}), adjustment('two', {'effect'})])
+        self.assertEqual(result.differences, ())
+        self.assertEqual(dict(result.adjustments), {'one': 1, 'two': 1})
+
+    def test_adjustment_that_does_not_apply_suppresses_nothing(self):
+        ref = [checkpoint(bulbs={'bulb_a': on(effect='none')})]
+        port = [checkpoint(bulbs={'bulb_a': on(effect='candle')})]
+        result = compare(ref, port, [adjustment('never', {'effect'}, applies=False)])
+        self.assertEqual(fields(result), [('bulb_a', 'effect')])
+        self.assertEqual(dict(result.adjustments), {})
+
+    def test_power_adjustment_claims_the_power_difference(self):
+        result = compare([bulb(Off())], [bulb(on())], [adjustment('p', {'power'})])
+        self.assertEqual(result.differences, ())
+        self.assertEqual(dict(result.adjustments), {'p': 1})
 
     def test_adjustment_does_not_count_when_nothing_differs(self):
         class Always:
             name = 'always'
+            fields = frozenset({'effect'})
 
             def applies(self, ref, port, subject):
                 return True

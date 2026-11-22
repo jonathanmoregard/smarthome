@@ -58,6 +58,10 @@ class UnknownKind(ValueError):
     """A tagged object names a kind the codec does not know."""
 
 
+class MalformedKind(ValueError):
+    """A tagged object has a missing or unexpected field for its kind."""
+
+
 _KINDS = {cls.__name__: cls for cls in (
     HaStart, Tick, StateChanged, Event, Mqtt, ScriptCall, Context,
     Advance, PressSwitch, PersonLightChange,
@@ -106,4 +110,11 @@ def decode(obj: object) -> object:
     cls = _KINDS.get(kind) if isinstance(kind, str) else None
     if cls is None:
         raise UnknownKind(f'unknown kind {kind!r}')
-    return cls(**{f.name: decode(obj[f.name]) for f in fields(cls)})
+    expected = [f.name for f in fields(cls)]
+    missing = [name for name in expected if name not in obj]
+    if missing:
+        raise MalformedKind(f'{kind}: missing field {missing[0]!r}')
+    unexpected = sorted(key for key in obj if key != 'kind' and key not in expected)
+    if unexpected:
+        raise MalformedKind(f'{kind}: unexpected field {unexpected[0]!r}')
+    return cls(**{name: decode(obj[name]) for name in expected})
