@@ -42,6 +42,24 @@ test("a saved profile naming Breathe shows the lamp's normal light", () => {
     [{ brightness: 80, color_temp: 400, transition: 0.4 }]);
 });
 
+test("a saved profile naming Breathe shows the lamp's normal light once the catalog no longer lists it", () => {
+  const { Breathe, 'Colour loop': loop, ...effects } = catalogDocument.effects as JsonObject;
+  assert.ok(Breathe !== undefined && loop !== undefined);
+  const target = { on: true, area: 'room', brightness: effect('Breathe'),
+    color: { kind: 'constant', value: { kelvin: 2500 } } };
+  const result = execute({ script: 'effects_frame_plan', snapshot,
+    args: { targets: { 'light.lamp': target }, timestamp: 0,
+      catalog: { ...catalogDocument, effects, members: { 'light.lamp': ['light.bulb'] }, topics: { 'light.bulb': 'zigbee2mqtt/bulb/set' } } } }, handlers).result as JsonObject;
+  assert.deepEqual((result.commands as JsonObject[]).map(command => command.payload),
+    [{ brightness: 80, color_temp: 400, transition: 0.4 }]);
+});
+
+test('the catalog parse drops Breathe and Colour loop, from the effects and from the UI choices', () => {
+  const parsed = parseCatalog({ ...catalogDocument, ui_choices: ['Candle', 'Breathe', 'Colour loop', 'Normal light'] });
+  assert.deepEqual(Object.keys(parsed.effects), ['Candle', 'Normal light']);
+  assert.deepEqual(parsed.ui_choices, ['Candle', 'Normal light']);
+});
+
 const stops = (previous: JsonObject, next: JsonObject, extra: Record<string, string> = {}) => {
   const view = house({ [runtime]: ['g0', { assignments: { 'light.lamp': previous }, targets: { 'light.lamp': previous } }],
     'light.bulb': 'on', 'light.second': 'on', 'light.off': 'off', ...extra });

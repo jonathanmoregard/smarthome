@@ -215,7 +215,7 @@ export function parseCatalog(document: JsonValue | undefined): Catalog {
   // consumer of this parsed view raises on an absent collection -- they all
   // iterate or look up, so absent and empty are the same to them.
   return {
-    effects: recordMap(document, 'effects', at, parseEffect),
+    effects: withoutRemovedEffects(recordMap(document, 'effects', at, parseEffect)),
     members: lampMembers(document, at),
     groups: stringListMap(document, 'groups', at),
     baseline_groups: stringListMap(document, 'baseline_groups', at),
@@ -225,11 +225,23 @@ export function parseCatalog(document: JsonValue | undefined): Catalog {
     remotes: recordMap(document, 'remotes', at, parseRemote),
     ui_choices: document.ui_choices === undefined
       ? undefined
-      : stringList(document.ui_choices, `${at}.ui_choices`),
+      : stringList(document.ui_choices, `${at}.ui_choices`).filter(choice => !REMOVED_EFFECTS.has(choice)),
     multicast: valueList(document, 'multicast', at),
     ui_rows: document.ui_rows === undefined ? undefined : requireArray(document, 'ui_rows', at),
     ui_discovery: document.ui_discovery === undefined ? undefined : requireArray(document, 'ui_discovery', at),
   };
+}
+
+/**
+ * Effects a catalog may still list that the lamps no longer run (the owner,
+ * 2026-11-22: Breathe and Colour loop are removed). They are dropped here,
+ * once, so no menu built from the parsed catalog offers one; a saved profile
+ * that still names one shows the lamp's normal light.
+ */
+const REMOVED_EFFECTS: ReadonlySet<string> = new Set(['Breathe', 'Colour loop']);
+
+function withoutRemovedEffects<T>(effects: Record<string, T>): Record<string, T> {
+  return Object.fromEntries(Object.entries(effects).filter(([name]) => !REMOVED_EFFECTS.has(name)));
 }
 
 function recordMap<T>(document: JsonObject, key: string, context: string,

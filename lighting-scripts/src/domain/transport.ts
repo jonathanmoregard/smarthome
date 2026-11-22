@@ -323,14 +323,6 @@ function frameColourOf(view: HouseView, effect: FrameEffect, details: FrameDetai
 }
 
 /**
- * Effects a catalog may still list that the lamps no longer run. A saved
- * profile naming one shows the lamp's normal light; no menu offers one.
- */
-export function isRemovedEffect(name: string): boolean {
-  return name === 'Breathe' || name === 'Colour loop';
-}
-
-/**
  * Is the request still the house's: the overrides revision (read bare, so a
  * missing sensor raises) and then the runtime generation, both unchanged?
  */

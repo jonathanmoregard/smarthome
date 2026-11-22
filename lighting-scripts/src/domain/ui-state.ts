@@ -8,7 +8,6 @@ import {
 } from '../parse/ui-state.ts';
 import type { Display, RangeSaveRequest } from '../parse/ui-state.ts';
 import { payloadNumber } from '../runtime/format.ts';
-import { isRemovedEffect } from './transport.ts';
 import type { SwitchId } from './types/ids.ts';
 import type { Percent } from './types/light.ts';
 
@@ -135,10 +134,9 @@ export function* saveRange(result: RangeSaveDecision): Plan<RangeSaveDecision> {
 }
 /**
  * The UI's effect choices: the catalog's, or these two when it names none (a
- * malformed list was already rejected). Breathe and Colour loop are removed
- * effects and are never offered, whatever the catalog lists.
+ * malformed list was already rejected). The catalog parse has already
+ * dropped Breathe and Colour loop, which the lamps no longer run.
  */
 export function uiChoices(view: HouseView): string[] {
-  const listed = view.catalog.ui_choices === undefined ? ['Normal Light', 'Candle'] : view.catalog.ui_choices;
-  return listed.filter(choice => !isRemovedEffect(choice));
+  return view.catalog.ui_choices === undefined ? ['Normal Light', 'Candle'] : view.catalog.ui_choices;
 }
