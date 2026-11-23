@@ -18,7 +18,7 @@
  */
 import { groupedPublishes } from './bulb-groups.ts';
 import type { BulbGroups } from './bulb-groups.ts';
-import type { Send } from './reconcile.ts';
+import type { Outcome, Send } from './reconcile.ts';
 import { roundEven } from '../domain/blend.ts';
 import type { BulbAppearance } from '../domain/effect.ts';
 import type { BulbId, Id, SwitchId } from '../domain/types/ids.ts';
@@ -71,27 +71,45 @@ export function mqttPublishCall(topic: string, payload: string, retain: boolean)
 }
 
 /**
- * One send as publishes, in order: stop_effect when leaving the candle; level and colour (or OFF) with the transition;
- * then the candle's start. Nothing after the start carries On or a brightness. A bulb with no topic is sent nothing.
+ * The sends as publishes, in three rounds: stop_effect for each bulb leaving the candle; each light (level and colour,
+ * or OFF) with its transition; then each candle's start, a start sent alone included. Nothing after a start carries
+ * On or a brightness. A bulb with no topic is sent nothing.
  */
 export function publishes(sends: readonly Send[], topics: Readonly<Record<BulbId, MqttTopic>>, groups: BulbGroups): Publish[] {
-  const round = (payloadOf: (send: Extract<Send, { kind: 'bulb' }>) => BulbPayload | undefined): Publish[] =>
+  const round = (payloadOf: (send: Extract<Send, { kind: 'bulb' | 'start' }>) => BulbPayload | undefined): Publish[] =>
     groupedPublishes(sends.flatMap(send => {
-      if (send.kind !== 'bulb') return [];
+      if (send.kind === 'switch') return [];
       const topic = topics[send.bulb], payload = payloadOf(send);
       return topic === undefined || payload === undefined ? [] : [{ bulb: send.bulb, topic, payload }];
     }), groups);
   return [
-    ...round(send => send.stopFirst ? STOP : undefined),
-    ...round(send => lightPayload(send.appearance, send.over)),
+    ...round(send => send.kind === 'bulb' && send.stopFirst ? STOP : undefined),
+    ...round(send => send.kind === 'bulb' ? lightPayload(send.appearance, send.over) : undefined),
     ...round(send => send.appearance.power === 'on' && send.appearance.firmwareEffect === 'candle' ? START : undefined),
   ];
+}
+
+/**
+ * How one send went, from the publishes that failed: a publish to the bulb's topic, or to a Zigbee group it is in,
+ * carries its part. Its light (or OFF) failed: `failed`, every member of a failed group publish alike. Only its
+ * candle's start failed: `start failed`, or `failed` for a start sent alone. A failed stop alone is no failure: the
+ * light after it ends the candle too. A switch's power is no publish.
+ */
+export function outcomeOf(send: Send, failed: readonly Publish[], topics: Readonly<Record<BulbId, MqttTopic>>, groups: BulbGroups): Outcome {
+  if (send.kind === 'switch') return 'sent';
+  const bulb = send.bulb;
+  const carried = failed.filter(publish => publish.topic === topics[bulb]
+    || groups.some(group => group.topic === publish.topic && group.members.includes(bulb)));
+  const startFailed = carried.some(publish => 'effect' in publish.payload && publish.payload.effect === START.effect);
+  if (send.kind === 'start') return startFailed ? 'failed' : 'sent';
+  if (carried.some(publish => !('effect' in publish.payload))) return 'failed';
+  return startFailed ? 'start failed' : 'sent';
 }
 
 /** Leaving the candle: the Innr firmware's stop. */
 const STOP: BulbPayload = { effect: 'stop_effect' };
 /** The candle's start: Identify TriggerEffect 0x0b on the candle firmware. */
-const START: BulbPayload = { effect: 'channel_change' };
+const START = { effect: 'channel_change' } as const satisfies BulbPayload;
 
 /** A switch's power as Home Assistant's `homeassistant.turn_on` or `homeassistant.turn_off` on the switch. */
 export function switchCall(target: SwitchId, power: Power): ServiceCall {

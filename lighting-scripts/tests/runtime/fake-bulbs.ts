@@ -2,7 +2,10 @@
  * Fake bulbs for the reconciler tests: each bulb's power, level, colour and
  * firmware effect, moved by the publishes it receives the way the candle
  * firmware moves them. A level or an On command ends a running candle; Off
- * ends it too. A publish can be dropped, as a lost Zigbee message is.
+ * ends it too. A publish can be dropped, as a lost Zigbee message is, or
+ * fail, as a publish Home Assistant refuses does: the bulb never gets it and
+ * the sender is told. A bulb's wall power can be cut and restored: it comes
+ * back showing what it showed, without the candle.
  *
  * What a bulb reports is its power, level and colour, never its effect: the
  * firmware does not report the candle.
@@ -25,6 +28,8 @@ export function lit(level: number, colour: Colour | undefined, effect: 'none' | 
 
 export class FakeBulbs {
   private readonly bulbs = new Map<BulbId, FakeBulb>();
+  /** What each bulb whose power is cut showed, to come back to. */
+  private readonly unpowered = new Map<BulbId, FakeLight>();
   private readonly byTopic = new Map<MqttTopic, readonly BulbId[]>();
   readonly switches = new Map<SwitchId, Power | 'unreachable'>();
   /** Every publish that reached a bulb, in order, with the bulbs it reached. */
@@ -39,9 +44,12 @@ export class FakeBulbs {
     for (const group of groups) this.byTopic.set(group.topic, group.members);
   }
 
-  /** Each publish in order, except those `dropped` says were lost. */
-  apply(publishes: readonly Publish[], dropped: (publish: Publish) => boolean = () => false): void {
+  /** Each publish in order, except those `dropped` says were lost and those `failing` says failed; the failed ones are returned. */
+  apply(publishes: readonly Publish[], dropped: (publish: Publish) => boolean = () => false,
+    failing: (publish: Publish) => boolean = () => false): Publish[] {
+    const failed: Publish[] = [];
     for (const publish of publishes) {
+      if (failing(publish)) { failed.push(publish); continue; }
       if (dropped(publish)) continue;
       const reached = this.byTopic.get(publish.topic);
       if (reached === undefined) throw new Error(`No bulb listens on ${publish.topic}`);
@@ -51,6 +59,23 @@ export class FakeBulbs {
         if (now?.reach === 'reachable') this.bulbs.set(bulb, { reach: 'reachable', light: received(now.light, publish) });
       }
     }
+    return failed;
+  }
+
+  /** The wall power to `bulb` goes: it cannot be reached, and keeps what it showed, without the candle, to come back to. */
+  cut(bulb: BulbId): void {
+    const shown = this.shows(bulb);
+    if (shown.reach === 'unreachable') throw new Error(`${bulb} has no power to cut`);
+    this.unpowered.set(bulb, shown.light.power === 'off' ? shown.light : { ...shown.light, effect: 'none' });
+    this.bulbs.set(bulb, { reach: 'unreachable' });
+  }
+
+  /** The wall power to `bulb` comes back: it shows what it showed when it was cut. */
+  restore(bulb: BulbId): void {
+    const light = this.unpowered.get(bulb);
+    if (light === undefined) throw new Error(`${bulb} has power already`);
+    this.unpowered.delete(bulb);
+    this.bulbs.set(bulb, { reach: 'reachable', light });
   }
 
   /** What the bulb shows, the candle included. */

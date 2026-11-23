@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { BulbGroups } from '../../src/adapter/bulb-groups.ts';
-import { publishes } from '../../src/adapter/encode.ts';
+import { outcomeOf, publishes } from '../../src/adapter/encode.ts';
 import type { MqttTopic, Publish } from '../../src/adapter/encode.ts';
-import { afterSend, EFFECT_START_FADE, forgotten, MANUAL_FADE, NO_BELIEFS, nextSends, SETTLE_MARGIN } from '../../src/adapter/reconcile.ts';
+import type { Observed } from '../../src/adapter/observed.ts';
+import {
+  afterSend, backOn, EFFECT_START_FADE, forgotten, MANUAL_FADE, NO_BELIEFS, newlyParked, nextSends, REAPPLY_LIMIT, REAPPLY_WINDOW, SETTLE_MARGIN,
+  unexplained,
+} from '../../src/adapter/reconcile.ts';
 import type { Beliefs, Send } from '../../src/adapter/reconcile.ts';
 import type { Config } from '../../src/domain/config.ts';
 import { candle, normal } from '../../src/domain/effect.ts';
@@ -48,19 +52,26 @@ const EVENING: LightingState = {
 
 const at = (seconds: number): Instant => toInstant(1_790_000_000 + seconds);
 
-/** One pass: observe, send what differs, apply the publishes the bulbs did not lose, record each send. */
+/**
+ * One pass: observe, send what differs, apply the publishes the bulbs did not lose, record each send with how its
+ * publishes went (`lost` ones went out and never arrived; `failing` ones failed, and the sender is told).
+ */
 function pass(bulbs: FakeBulbs, target: LightingState, beliefs: Beliefs, now: Instant,
-  lost: (publish: Publish) => boolean = () => false): { beliefs: Beliefs; sends: Send[]; sent: Publish[] } {
+  { lost = () => false, failing = () => false, groups = NO_GROUPS }: {
+    lost?: (publish: Publish) => boolean; failing?: (publish: Publish) => boolean; groups?: BulbGroups;
+  } = {}): { beliefs: Beliefs; sends: Send[]; sent: Publish[] } {
   const { sends } = nextSends(target, config, bulbs.observed(), beliefs, now);
-  const sent = publishes(sends, topics, NO_GROUPS);
-  bulbs.apply(sent, lost);
+  const sent = publishes(sends, topics, groups);
+  const failed = bulbs.apply(sent, lost, failing);
   let after = beliefs;
-  for (const send of sends) {
-    const failed = send.kind === 'bulb' && sent.some(publish => publish.topic === topics[send.bulb] && lost(publish));
-    after = afterSend(after, send, failed ? 'failed' : 'sent', now);
-  }
+  for (const send of sends) after = afterSend(after, send, outcomeOf(send, failed, topics, groups), now);
   return { beliefs: after, sends, sent };
 }
+
+/** The bulb or switch a send goes to. */
+const to = (send: Send) => send.kind === 'switch' ? send.switch : send.bulb;
+/** What each publish to `bulb` carried: the stop, the light, or the candle's start. */
+const kinds = (sent: readonly Publish[], bulb: BulbId) => sentTo(sent, bulb).map(payload => 'effect' in payload ? payload.effect : 'light');
 
 /** A steady house: one pass from cold, every switch reporting its target. */
 function steady(target: LightingState = EVENING): { bulbs: FakeBulbs; beliefs: Beliefs } {
@@ -69,7 +80,9 @@ function steady(target: LightingState = EVENING): { bulbs: FakeBulbs; beliefs: B
   return { bulbs, beliefs: pass(bulbs, target, NO_BELIEFS, at(0)).beliefs };
 }
 
-const sentTo = (sent: readonly Publish[], bulb: BulbId) => sent.filter(publish => publish.topic === topics[bulb]).map(publish => publish.payload);
+function sentTo(sent: readonly Publish[], bulb: BulbId) {
+  return sent.filter(publish => publish.topic === topics[bulb]).map(publish => publish.payload);
+}
 
 test('a cold start sends each bulb its light, then the candle\'s start', () => {
   // Break: the start is sent before the light (the light would end it), a stock bulb is started, or a bulb is skipped.
@@ -97,7 +110,7 @@ test('a level change under a candle sends the light, then the start again', () =
   const { bulbs, beliefs } = steady();
   const brighter: LightingState = { ...EVENING, lamps: { ...EVENING.lamps, [lampA1]: on(120, WARM, candle) } };
   const { sends, sent } = pass(bulbs, brighter, beliefs, at(60));
-  assert.deepEqual(sends.map(send => send.kind === 'bulb' ? send.bulb : send.switch), [bulbA1, bulbA2]);
+  assert.deepEqual(sends.map(send => to(send)), [bulbA1, bulbA2]);
   assert.deepEqual(sentTo(sent, bulbA1).map(payload => 'effect' in payload ? payload.effect : 'light'), ['light', 'channel_change']);
   assert.deepEqual(bulbs.shows(bulbA1), { reach: 'reachable', light: lit(120, WARM, 'candle') });
 });
@@ -160,7 +173,7 @@ test('a bulb that reports something else after settling is sent its target again
   const { bulbs, beliefs } = steady();
   bulbs.set(bulbA3, { reach: 'reachable', light: lit(40, kelvin(3003)) });
   const { sends } = pass(bulbs, EVENING, beliefs, at(60));
-  assert.deepEqual(sends.map(send => send.kind === 'bulb' ? send.bulb : send.switch), [bulbA3]);
+  assert.deepEqual(sends.map(send => to(send)), [bulbA3]);
   assert.deepEqual(bulbs.shows(bulbA3), { reach: 'reachable', light: lit(150, kelvin(3003)) });
 });
 
@@ -171,7 +184,7 @@ test('a report inside the settle window is not a difference', () => {
   const { beliefs } = pass(bulbs, EVENING, NO_BELIEFS, at(0));
   bulbs.set(bulbA3, { reach: 'reachable', light: lit(200, kelvin(3003)) });
   assert.deepEqual(pass(bulbs, EVENING, beliefs, at(1)).sends, []);
-  assert.deepEqual(pass(bulbs, EVENING, beliefs, at(3)).sends.map(send => send.kind === 'bulb' ? send.bulb : send.switch), [bulbA3]);
+  assert.deepEqual(pass(bulbs, EVENING, beliefs, at(3)).sends.map(send => to(send)), [bulbA3]);
 });
 
 test('a report within the tolerances is not a difference', () => {
@@ -181,7 +194,7 @@ test('a report within the tolerances is not a difference', () => {
   bulbs.set(bulbA2, { reach: 'reachable', light: lit(98, { kind: 'rgb', rgb: { red: toColourChannel(255), green: toColourChannel(128), blue: toColourChannel(2) } }) });
   assert.deepEqual(pass(bulbs, EVENING, beliefs, at(60)).sends, []);
   bulbs.set(bulbA3, { reach: 'reachable', light: lit(150, kelvin(3100)) });
-  assert.deepEqual(pass(bulbs, EVENING, beliefs, at(120)).sends.map(send => send.kind === 'bulb' ? send.bulb : send.switch), [bulbA3]);
+  assert.deepEqual(pass(bulbs, EVENING, beliefs, at(120)).sends.map(send => to(send)), [bulbA3]);
 });
 
 test('an unreachable bulb is sent nothing', () => {
@@ -202,7 +215,7 @@ test('a reachable bulb that reports off under a lit target is sent its light', (
   assert.deepEqual(cold.shows(bulbA3), { reach: 'reachable', light: lit(150, kelvin(3003)) });
   const { bulbs, beliefs } = steady();
   bulbs.set(bulbA3, { reach: 'reachable', light: { power: 'off' } });
-  assert.deepEqual(pass(bulbs, EVENING, beliefs, at(60)).sends.map(send => send.kind === 'bulb' ? send.bulb : send.switch), [bulbA3]);
+  assert.deepEqual(pass(bulbs, EVENING, beliefs, at(60)).sends.map(send => to(send)), [bulbA3]);
   assert.deepEqual(bulbs.shows(bulbA3), { reach: 'reachable', light: lit(150, kelvin(3003)) });
 });
 
@@ -229,13 +242,14 @@ test('a lamp with a bulb out of reach does not restart the candle on its live bu
   assert.deepEqual(bulbs.shows(bulbA1), { reach: 'reachable', light: lit(100, WARM, 'candle') });
 });
 
-test('a bulb whose belief is forgotten is sent its light again, the candle\'s start included', () => {
+test('a bulb whose belief is forgotten is sent what it does not show, the candle\'s start included', () => {
   // Break: a lamp switched back on (today's `lamp_on`, which names it) keeps its old belief, so its candle is never restarted.
+  // With no belief, the light it reports is not sent again (M4: a restart re-sends nothing a bulb already shows).
   const { bulbs, beliefs } = steady();
   bulbs.set(bulbA1, { reach: 'reachable', light: lit(100, WARM) });
   assert.deepEqual(pass(bulbs, EVENING, beliefs, at(60)).sends, []);
   const { sent } = pass(bulbs, EVENING, forgotten(beliefs, [bulbA1]), at(60));
-  assert.deepEqual(sentTo(sent, bulbA1).map(payload => 'effect' in payload ? payload.effect : 'light'), ['light', 'channel_change']);
+  assert.deepEqual(kinds(sent, bulbA1), ['channel_change']);
   assert.deepEqual(bulbs.shows(bulbA1), { reach: 'reachable', light: lit(100, WARM, 'candle') });
 });
 
@@ -246,15 +260,14 @@ test('a disconnected bridge sends the bulbs nothing', () => {
   assert.equal(sends.some(send => send.kind === 'bulb'), false);
 });
 
-test('a failed send leaves the belief unchanged', () => {
-  // Break: a lost send is recorded as shown, so the bulb is never sent its light again.
+test('a failed send is sent again once its first backoff has passed, and is not taken as shown', () => {
+  // Break: a failed send is recorded as shown (the bulb is never sent its light again), or retried at once, every pass.
   const bulbs = new FakeBulbs(topics);
-  const lost = (publish: Publish) => publish.topic === topics[bulbA3];
-  const first = pass(bulbs, EVENING, NO_BELIEFS, at(0), lost);
-  const sendA3 = first.sends.find(send => send.kind === 'bulb' && send.bulb === bulbA3);
-  assert.ok(sendA3 !== undefined);
-  assert.deepEqual(afterSend(NO_BELIEFS, sendA3, 'failed', at(0)), NO_BELIEFS);
-  assert.deepEqual(pass(bulbs, EVENING, first.beliefs, at(60)).sends.map(send => send.kind === 'bulb' ? send.bulb : send.switch), [bulbA3]);
+  const failing = (publish: Publish) => publish.topic === topics[bulbA3];
+  const first = pass(bulbs, EVENING, NO_BELIEFS, at(0), { failing });
+  assert.ok(first.sends.some(send => to(send) === bulbA3));
+  assert.deepEqual(pass(bulbs, EVENING, first.beliefs, at(0.5)).sends.filter(send => to(send) === bulbA3), []);
+  assert.deepEqual(pass(bulbs, EVENING, first.beliefs, at(1)).sends.map(to), [bulbA3]);
   assert.deepEqual(bulbs.shows(bulbA3), { reach: 'reachable', light: lit(150, kelvin(3003)) });
 });
 
@@ -316,4 +329,185 @@ test('the next wake is when the first send settles, and a steady house asks for 
 test('the fades are 0.2 s for a manual change and 0.4 s into an effect start', () => {
   assert.equal(MANUAL_FADE, 0.2);
   assert.equal(EFFECT_START_FADE, 0.4);
+});
+
+// --- M4: retries, parking, the flap limit, power-on, restart -------------------------------------------------------
+
+const toStart = (publish: Publish) => 'effect' in publish.payload && publish.payload.effect === 'channel_change';
+
+test('a lost start is sent again alone', () => {
+  // Break: the start's failure fails the whole send (the light goes out again), or it is taken as running.
+  const bulbs = new FakeBulbs(topics);
+  bulbs.switches.set(plugA, 'on');
+  const first = pass(bulbs, EVENING, NO_BELIEFS, at(0), { failing: publish => publish.topic === topics[bulbA1] && toStart(publish) });
+  assert.deepEqual(bulbs.shows(bulbA1), { reach: 'reachable', light: lit(100, WARM) });
+  assert.deepEqual(pass(bulbs, EVENING, first.beliefs, at(0.5)).sends, [], 'not before its backoff');
+  const retry = pass(bulbs, EVENING, first.beliefs, at(1));
+  assert.deepEqual(retry.sent, [{ topic: topics[bulbA1], payload: { effect: 'channel_change' } }]);
+  assert.deepEqual(bulbs.shows(bulbA1), { reach: 'reachable', light: lit(100, WARM, 'candle') });
+  assert.deepEqual(pass(bulbs, EVENING, retry.beliefs, at(60)).sends, []);
+});
+
+test('a single bulb power-cycled under a lit lamp gets its light and effect back with the short fade', () => {
+  // Review Focus 2. Break: the bulb keeps the light it had when it lost power (its belief says it shows the light,
+  // the candle included, which it lost), or comes back over the scheduled fade's step instead of the short fade.
+  let { bulbs, beliefs } = steady();
+  const step = { kind: 'scheduled fade', over: toSeconds(60) } as const;
+  const fading = (level: number): LightingState => ({ ...EVENING, lamps: { ...EVENING.lamps, [lampA1]: on(level, WARM, candle, step),
+    [lampA2]: on(level, kelvin(3000), normal, step) } });
+  beliefs = pass(bulbs, fading(100), beliefs, at(30)).beliefs;
+  bulbs.cut(bulbA1);
+  bulbs.cut(bulbA3);
+  const dark = bulbs.observed();
+  beliefs = pass(bulbs, fading(110), beliefs, at(60)).beliefs;
+  bulbs.restore(bulbA1);
+  bulbs.restore(bulbA3);
+  const back = bulbs.observed();
+  const found = unexplained(dark, back, beliefs);
+  assert.deepEqual(found, [{ kind: 'bulb back on', bulb: bulbA1 }, { kind: 'bulb back on', bulb: bulbA3 }]);
+  const { sends, sent } = pass(bulbs, fading(120), backOn(beliefs, [bulbA1, bulbA3]), at(90));
+  const over = Object.fromEntries(sends.flatMap(send => send.kind === 'bulb' ? [[send.bulb, send.over]] : []));
+  assert.deepEqual(over, { [bulbA1]: EFFECT_START_FADE, [bulbA2]: 60, [bulbA3]: MANUAL_FADE });
+  assert.deepEqual(kinds(sent, bulbA1), ['light', 'channel_change']);
+  assert.deepEqual(bulbs.shows(bulbA1), { reach: 'reachable', light: lit(120, WARM, 'candle') });
+  assert.deepEqual(bulbs.shows(bulbA3), { reach: 'reachable', light: lit(120, kelvin(3003)) });
+});
+
+test('a bulb we switched on is not back on; one switched on from outside is', () => {
+  // Break: our own switch-on reads as a power-on (sent again with the short fade), or an outside one is missed.
+  const offA3: LightingState = { ...EVENING, lamps: { ...EVENING.lamps, [lampA2]: OFF } };
+  const { bulbs, beliefs } = steady(offA3);
+  const before = bulbs.observed();
+  const lighting = pass(bulbs, EVENING, beliefs, at(60));
+  assert.deepEqual(unexplained(before, bulbs.observed(), lighting.beliefs), []);
+  const outside = bulbs.observed();
+  bulbs.set(bulbA3, { reach: 'reachable', light: { power: 'off' } });
+  const offAgain = bulbs.observed();
+  assert.deepEqual(unexplained(outside, offAgain, lighting.beliefs), []);
+  const offBelief = pass(bulbs, offA3, lighting.beliefs, at(120)).beliefs;
+  bulbs.set(bulbA3, { reach: 'reachable', light: { power: 'on', level: toLevel(254), colour: undefined, effect: 'none' } });
+  assert.deepEqual(unexplained(offAgain, bulbs.observed(), offBelief), [{ kind: 'bulb back on', bulb: bulbA3 }]);
+});
+
+test('a dead bulb gets five sends, then silence', () => {
+  // Break: a failing bulb is sent every pass, never given up on, or given up on before its fifth send.
+  const bulbs = new FakeBulbs(topics);
+  const failing = (publish: Publish) => publish.topic === topics[bulbA3];
+  let beliefs = NO_BELIEFS;
+  const sentAt: number[] = [];
+  for (const time of [0, 0.5, 1, 2, 3, 5, 7, 10, 15, 20, 31, 60, 600, 3600]) {
+    const next = pass(bulbs, EVENING, beliefs, at(time), { failing });
+    if (next.sends.some(send => to(send) === bulbA3)) sentAt.push(time);
+    beliefs = next.beliefs;
+  }
+  assert.deepEqual(sentAt, [0, 1, 3, 7, 15]);
+});
+
+test('a parked bulb is logged once', () => {
+  // Break: the bulb is reported every pass it stays parked, or never.
+  const bulbs = new FakeBulbs(topics);
+  const failing = (publish: Publish) => publish.topic === topics[bulbA3];
+  let beliefs = NO_BELIEFS;
+  const parked: BulbId[] = [];
+  for (let second = 0; second <= 120; second++) {
+    const next = pass(bulbs, EVENING, beliefs, at(second), { failing });
+    parked.push(...newlyParked(beliefs, next.beliefs));
+    beliefs = next.beliefs;
+  }
+  assert.deepEqual(parked, [bulbA3]);
+});
+
+/** A3 failing until parked, at 15 s. */
+function parkedA3(bulbs: FakeBulbs): Beliefs {
+  const failing = (publish: Publish) => publish.topic === topics[bulbA3];
+  let beliefs = NO_BELIEFS;
+  for (const time of [0, 1, 3, 7, 15]) beliefs = pass(bulbs, EVENING, beliefs, at(time), { failing }).beliefs;
+  assert.deepEqual(newlyParked(NO_BELIEFS, beliefs), [bulbA3]);
+  return beliefs;
+}
+
+test('a parked bulb is released when it comes back on', () => {
+  // Break: a parked bulb stays parked after its power-on, so a bulb given up on while off at the wall is never lit again.
+  const bulbs = new FakeBulbs(topics);
+  const parked = parkedA3(bulbs);
+  bulbs.cut(bulbA3);
+  const dark = bulbs.observed();
+  bulbs.restore(bulbA3);
+  const found = unexplained(dark, bulbs.observed(), parked);
+  assert.deepEqual(found, [{ kind: 'bulb back on', bulb: bulbA3 }]);
+  const { sends } = pass(bulbs, EVENING, backOn(parked, [bulbA3]), at(60));
+  assert.deepEqual(sends.map(to), [bulbA3]);
+  assert.deepEqual(bulbs.shows(bulbA3), { reach: 'reachable', light: lit(150, kelvin(3003)) });
+});
+
+test('a parked bulb is released when its light changes', () => {
+  // Reconciler spec 3.8. Break: a bulb given up on misses every later block until it is power-cycled.
+  const bulbs = new FakeBulbs(topics);
+  const parked = parkedA3(bulbs);
+  assert.deepEqual(pass(bulbs, EVENING, parked, at(60)).sends.filter(send => to(send) === bulbA3), []);
+  const dimmer: LightingState = { ...EVENING, lamps: { ...EVENING.lamps, [lampA2]: on(90, kelvin(3000)) } };
+  assert.deepEqual(pass(bulbs, dimmer, parked, at(120)).sends.map(to), [bulbA3]);
+  assert.deepEqual(bulbs.shows(bulbA3), { reach: 'reachable', light: lit(90, kelvin(3003)) });
+});
+
+test('flapping is capped at six in ten minutes', () => {
+  // Break: a bulb something keeps changing is put back forever, or the cap counts put-backs older than the window.
+  const putBack = (every: number, times: number): number => {
+    let { bulbs, beliefs } = steady();
+    let count = 0;
+    for (let n = 1; n <= times; n++) {
+      bulbs.set(bulbA3, { reach: 'reachable', light: lit(40, kelvin(3003)) });
+      const next = pass(bulbs, EVENING, beliefs, at(n * every));
+      if (next.sends.some(send => to(send) === bulbA3)) count++;
+      beliefs = next.beliefs;
+    }
+    return count;
+  };
+  assert.equal(putBack(60, 12), REAPPLY_LIMIT);
+  assert.equal(putBack(REAPPLY_WINDOW / (REAPPLY_LIMIT - 1), 12), 12, 'spread out, every put-back goes');
+});
+
+test('a group failure invalidates every member', () => {
+  // Break: a failed group publish leaves its members' beliefs as they were, so a member that may run a leftover candle
+  // is not stopped, or only one member is sent again.
+  const group = { topic: toMqttTopic('zigbee2mqtt/group-a1/set'), members: [bulbA1, bulbA2] };
+  const groups: BulbGroups = [group];
+  const plain = (level: number): LightingState => ({ ...EVENING, lamps: { ...EVENING.lamps, [lampA1]: on(level, WARM) } });
+  const bulbs = new FakeBulbs(topics, groups);
+  bulbs.switches.set(plugA, 'on');
+  let { beliefs } = pass(bulbs, plain(100), NO_BELIEFS, at(0), { groups });
+  const failed = pass(bulbs, plain(120), beliefs, at(60), { groups, failing: publish => publish.topic === group.topic });
+  assert.ok(failed.sent.some(publish => publish.topic === group.topic), 'the two went as one group publish');
+  beliefs = failed.beliefs;
+  const again = pass(bulbs, plain(120), beliefs, at(61), { groups });
+  assert.deepEqual(again.sends.flatMap(send => send.kind === 'bulb' ? [[send.bulb, send.stopFirst]] : []), [[bulbA1, true], [bulbA2, false]]);
+  assert.deepEqual(bulbs.shows(bulbA2), { reach: 'reachable', light: lit(120, WARM) });
+});
+
+test('a restart re-sends nothing a bulb already shows', () => {
+  // Review Focus 1. Break: with no beliefs every bulb is sent its light again (a flash mid-fade), or the candle, which
+  // is not reported, is never started, or started every pass.
+  const bulbs = new FakeBulbs(topics);
+  bulbs.switches.set(plugA, 'on');
+  bulbs.set(bulbA1, { reach: 'reachable', light: lit(100, WARM, 'candle') });
+  bulbs.set(bulbA2, { reach: 'reachable', light: lit(100, WARM) });
+  bulbs.set(bulbA3, { reach: 'reachable', light: lit(150, kelvin(3003)) });
+  bulbs.set(bulbB1, { reach: 'reachable', light: { power: 'off' } });
+  const restart = pass(bulbs, EVENING, NO_BELIEFS, at(0));
+  assert.deepEqual(restart.sent, [{ topic: topics[bulbA1], payload: { effect: 'channel_change' } }]);
+  assert.deepEqual(pass(bulbs, EVENING, restart.beliefs, at(60)).sends, []);
+  assert.deepEqual(bulbs.shows(bulbA1), { reach: 'reachable', light: lit(100, WARM, 'candle') });
+});
+
+test('a switch that changed with no send of ours is a press; one we switched is not', () => {
+  // Break: a plug's own button is taken for a difference to undo, or our own switching for a press.
+  const bulbs = new FakeBulbs(topics);
+  bulbs.switches.set(plugA, 'off');
+  const before: Observed = bulbs.observed();
+  const { beliefs } = pass(bulbs, EVENING, NO_BELIEFS, at(0));
+  bulbs.switches.set(plugA, 'on');
+  assert.deepEqual(unexplained(before, bulbs.observed(), beliefs), [], 'we switched it on');
+  const shown = bulbs.observed();
+  bulbs.switches.set(plugA, 'off');
+  assert.deepEqual(unexplained(shown, bulbs.observed(), beliefs), [{ kind: 'switch pressed', switch: plugA, power: 'off' }]);
 });
