@@ -12,6 +12,7 @@ import type { LampProfile, Model, RemoteModel, SwitchProfile } from '../../domai
 import type { LampId, RemoteId, RoomId, SwitchId } from '../../domain/types/ids.ts';
 import { entriesOf } from '../../domain/types/ids.ts';
 import type { Catalog } from '../../runtime/catalog.ts';
+import type { HouseView } from '../../runtime/effects.ts';
 import { decodeConfig } from './config.ts';
 import type { ConfigSource } from './config.ts';
 import { FOLLOWS_ROOM, decodeLampProfile } from './lamp-profiles.ts';
@@ -20,6 +21,11 @@ import { decodeOverrides } from './overrides-sensor.ts';
 import { IDLE_REMOTE } from '../../domain/remote.ts';
 import { decodeRemoteModel } from './remote-helpers.ts';
 import { FOLLOWS_ROOM_SWITCH, decodeSwitchProfile } from './switch-profiles.ts';
+
+/** The house as the config is read from it: the states, the rooms, the labels and the timezone. */
+export function configSource(house: Pick<HouseView, 'state' | 'rooms' | 'labels' | 'timezone'>): ConfigSource {
+  return { states: house.state, rooms: house.rooms, labels: house.labels === undefined ? {} : house.labels, timezone: house.timezone };
+}
 
 export function decodeModel(source: ConfigSource, catalog: Catalog): Model {
   const config = decodeConfig(source, catalog);
@@ -38,7 +44,7 @@ export function decodeModel(source: ConfigSource, catalog: Catalog): Model {
  * and its switches with a range rule (today's toggle `targets`). A power
  * burst read from the helpers keeps it, as a press keeps what it reported.
  */
-function reportsOn(source: ConfigSource, config: Config, switchRanges: Model['switchRanges'], room: RoomId): boolean {
+export function reportsOn(source: ConfigSource, config: Config, switchRanges: Model['switchRanges'], room: RoomId): boolean {
   const on = (entity: LampId | SwitchId) => source.states[entity]?.state === 'on';
   return entriesOf(config.lamps).some(([lamp, placed]) => placed.room === room && on(lamp))
     || entriesOf(switchRanges).some(([plug]) => config.switches[plug]?.room === room && on(plug));
@@ -70,7 +76,7 @@ function switchProfilesOf(source: ConfigSource, plug: SwitchId): Record<Block, S
 }
 
 /** The store's entity: the object is the entity id after its domain (`ls_base`'s `L.split('.')[1]`). */
-function profileStore(entity: LampId | SwitchId, block: Block): string {
+export function profileStore(entity: LampId | SwitchId, block: Block): string {
   const object = entity.includes('.') ? entity.slice(entity.indexOf('.') + 1) : entity;
   return `input_text.ls_lamp_${object}_${block}`;
 }

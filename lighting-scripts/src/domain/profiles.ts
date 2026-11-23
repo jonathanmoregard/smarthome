@@ -19,7 +19,7 @@ export function lampProfileSaved(model: Model, lamp: LampId, block: Block, chang
   return { ...model, lampProfiles: { ...model.lampProfiles, [lamp]: { ...saved, [block]: savedLampProfile(saved[block], change) } } };
 }
 
-function savedLampProfile(saved: LampProfile, change: LampProfileChange): LampProfile {
+export function savedLampProfile(saved: LampProfile, change: LampProfileChange): LampProfile {
   const follows = change.own === undefined ? saved.follows : change.own ? 'own' : 'room';
   const was = saved.own.power === 'on' ? saved.own.light : saved.own.remembered;
   const light: LitLight = {
