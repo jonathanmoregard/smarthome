@@ -194,3 +194,28 @@ test('a turn that throws still leaves a wake set', async () => {
   assert.equal(timers.live().length, 1, 'a wake is set again');
   await host.close();
 });
+
+test("a house read does not undo a newer state: a plug falling back off is not read as a press", async () => {
+  // Review 4. Break: the read, started before the plug fell back off, is put back whole over the newer event, so the
+  // next turn sees the plug on, takes it for its own button, and holds it on.
+  const ha = new FakeHa(), now = { time: at('12:00:00') };
+  const host = await open(ha, new MemoryJournal(), now).host;
+  host.accept({ kind: 'started' });
+  await host.idle();
+  const plug = (state: string, time: string): EntityState =>
+    ({ entity_id: 'switch.plug_a', state, attributes: {}, last_changed: `2026-09-21T${time}Z`, last_updated: `2026-09-21T${time}Z` });
+  const stale = ha.mirror();
+  stale.state['switch.plug_a'] = plug('on', '12:00:05');
+  host.stateChanged('switch.plug_a', plug('on', '12:00:05'));
+  host.stateChanged('switch.plug_a', plug('off', '12:00:20'));
+  host.houseRead(stale, at('12:00:10'));
+  await host.idle();
+  const before = ha.calls.length;
+  now.time = at('12:01:00');
+  host.accept({ kind: 'tick' });
+  await host.idle();
+  assert.equal(host.house().state['switch.plug_a']?.state, 'off');
+  const overlays = ha.calls.slice(before).filter(call => call.target?.entity_id === 'sensor.ls_overrides' || call.data.entity_id === 'sensor.ls_overrides');
+  assert.deepEqual(overlays, [], 'no hold is written for the plug');
+  await host.close();
+});

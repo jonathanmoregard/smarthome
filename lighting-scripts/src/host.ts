@@ -8,7 +8,7 @@
  */
 import type { Catalog } from './adapter/codecs/catalog.ts';
 import type { HouseMirror } from './adapter/codecs/house.ts';
-import { afterCall, houseView } from './adapter/codecs/house.ts';
+import { afterCall, houseView, mergedRead } from './adapter/codecs/house.ts';
 import { loadBeliefs, saveBeliefs } from './adapter/codecs/journal.ts';
 import { outputCall, timingCall } from './adapter/encode.ts';
 import type { EntityState, HaClient, JsonObject } from './adapter/ha-client.ts';
@@ -129,9 +129,17 @@ export class Host {
     });
   }
 
-  /** Home Assistant's states and registry read again whole, after a reconnect or a registry change. */
-  houseRead(mirror: HouseMirror): void {
-    this.enqueue(async () => { this.mirror = structuredClone(mirror); });
+  /**
+   * Home Assistant's states and registry read again whole, after a reconnect or a registry change, from a read that
+   * started at `startedAt`: a state that changed since (an event, or a write of ours) is kept over the read's.
+   */
+  houseRead(mirror: HouseMirror, startedAt: Instant): void {
+    this.enqueue(async () => { this.mirror = mergedRead(this.mirror, structuredClone(mirror), startedAt); });
+  }
+
+  /** The house as the host holds it now. */
+  house(): HouseMirror {
+    return this.mirror;
   }
 
   /** A new catalog; the next turn reads it. */

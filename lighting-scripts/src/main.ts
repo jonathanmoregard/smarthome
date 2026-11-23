@@ -51,7 +51,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       clock: () => toInstant(Date.now() / 1000), log: console,
       timer: (delayMs, wake) => { const timer = setTimeout(wake, delayMs); return () => clearTimeout(timer); } }, mirror, catalog);
     const report = (error: unknown) => console.error(error instanceof Error ? error.message : String(error));
-    const reread = () => read().then(house => host.houseRead(house));
+    const reread = () => { const startedAt = toInstant(Date.now() / 1000); return read().then(house => host.houseRead(house, startedAt)); };
     ha.onConnection(connected => { if (connected) void reread().then(() => host.accept({ kind: 'wake' })).catch(report); });
     await ha.subscribe('state_changed', event => {
       const state = event.data.new_state;

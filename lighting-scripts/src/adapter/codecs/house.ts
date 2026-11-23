@@ -6,6 +6,7 @@
 import type { EntityState, JsonObject, JsonValue, ServiceCall } from '../ha-client.ts';
 import type { Catalog } from './catalog.ts';
 import type { Rooms } from './rooms.ts';
+import type { Instant } from '../../domain/types/time.ts';
 import { parseRooms } from './rooms.ts';
 
 export type HouseView = {
@@ -35,6 +36,25 @@ export type HouseMirror = {
   entitySources?: Record<string, string>;
   timezone?: string;
 };
+
+/**
+ * A whole read of the house, started at `startedAt`, laid over the mirror: the read's registry, and each state as the
+ * read has it unless the mirror's changed after the read started and after the read's own copy (an event that came
+ * in, or a write of ours, while the read was on its way). A state the read lacks is gone, unless it changed since.
+ */
+export function mergedRead(current: HouseMirror, read: HouseMirror, startedAt: Instant): HouseMirror {
+  const state: Record<string, EntityState> = {};
+  const updated = (entity: EntityState | undefined): number => {
+    const seconds = entity?.last_updated === undefined ? NaN : Date.parse(entity.last_updated) / 1000;
+    return Number.isFinite(seconds) ? seconds : -Infinity;
+  };
+  for (const [entity, mine] of Object.entries(current.state)) {
+    const theirs = read.state[entity], at = updated(mine);
+    if (at > startedAt && at > updated(theirs)) state[entity] = mine;
+  }
+  for (const [entity, theirs] of Object.entries(read.state)) state[entity] ??= theirs;
+  return { ...read, state };
+}
 
 /** The house a turn reads: the mirror, its rooms parsed, the catalog and the turn's clock as ISO text. */
 export function houseView(mirror: HouseMirror, now: string, catalog: Catalog): HouseView {
