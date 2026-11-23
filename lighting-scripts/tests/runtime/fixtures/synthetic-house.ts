@@ -116,6 +116,7 @@ export function syntheticHouse(): Model {
       }],
       lamps: [
         {
+          kind: 'parts',
           over: { kind: 'lamp', lamp: lampA1 },
           from: { kind: 'dashboard', control: toDashboardControlId('control-a') },
           since: at(30),
@@ -124,6 +125,7 @@ export function syntheticHouse(): Model {
           effect: { kind: 'candle', at: at(30) },
         },
         {
+          kind: 'parts',
           over: { kind: 'lamp', lamp: lampA1 },
           from: { kind: 'person' },
           since: at(35),
@@ -132,6 +134,7 @@ export function syntheticHouse(): Model {
           effect: undefined,
         },
         {
+          kind: 'parts',
           over: { kind: 'room', room: roomA },
           from: { kind: 'dashboard', control: toDashboardControlId('control-b') },
           since: at(45),

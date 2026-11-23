@@ -12,7 +12,7 @@ import { blendPositionOrThrow } from '../../src/domain/types/range.ts';
 import type { Instant } from '../../src/domain/types/time.ts';
 import {
   toBrightness, toBulbId, toColourChannel, toDashboardControlId, toInstant, toKelvin, toLampId, toLevel, toMinutes, toProgress,
-  toRemoteSource, toRoomId, toSeconds, toStep, toStepCount, toTimeOfDay,
+  toRemoteSource, toRoomId, toSeconds, toStep, toStepCount, toSwitchId, toTimeOfDay,
 } from '../../src/parse/ids.ts';
 import { syntheticHouse } from './fixtures/synthetic-house.ts';
 
@@ -62,10 +62,13 @@ function lamp(model: Model, id: LampId, now: Instant): LampLight | undefined {
   return lightingState(model, now).lamps[id];
 }
 
-const person = (over: LampOverlay['over'], parts: Partial<Pick<LampOverlay, 'brightness' | 'colour' | 'effect'>>, since: Instant): LampOverlay =>
-  ({ over, from: { kind: 'person' }, since, brightness: undefined, colour: undefined, effect: undefined, ...parts });
-const dashboard = (over: LampOverlay['over'], parts: Partial<Pick<LampOverlay, 'brightness' | 'colour' | 'effect'>>, since: Instant): LampOverlay =>
+type PartsOverlay = Extract<LampOverlay, { kind: 'parts' }>;
+const person = (over: LampOverlay['over'], parts: Partial<Pick<PartsOverlay, 'brightness' | 'colour' | 'effect'>>, since: Instant): LampOverlay =>
+  ({ kind: 'parts', over, from: { kind: 'person' }, since, brightness: undefined, colour: undefined, effect: undefined, ...parts });
+const dashboard = (over: LampOverlay['over'], parts: Partial<Pick<PartsOverlay, 'brightness' | 'colour' | 'effect'>>, since: Instant): LampOverlay =>
   ({ ...person(over, parts, since), from: { kind: 'dashboard', control: toDashboardControlId('control-x') } });
+/** A person's off in Home Assistant, held over a lamp or a room. */
+const switchedOff = (over: LampOverlay['over'], since: Instant): LampOverlay => ({ kind: 'off', over, from: { kind: 'person' }, since });
 const onLamp = (id: LampId) => ({ kind: 'lamp', lamp: id }) as const;
 const fixed = (brightness: number, setAt: Instant) => ({ kind: 'fixed', brightness: toBrightness(brightness), at: setAt }) as const;
 
@@ -358,6 +361,65 @@ test('a room switched off is off whatever its overlays say', () => {
   assert.deepEqual(lamp(model, lampA2, at('12:30:00')), OFF);
   assert.deepEqual(lamp(model, lampA1, at('12:30:00')), OFF);
   assert.deepEqual(lamp(model, lampB1, at('12:30:00')), shows(220, kelvin(4000)));
+});
+
+// 5.1 A person's off (owner, 2026-11-23: a person's off in HA is a hold).
+
+test("a person's off holds the lamp off over its lit block", () => {
+  // Break: the off hold is ignored, so the lamp shows its block light, or it reaches the other lamps of the room.
+  const model = house(m => { m.overlays.lamps = [switchedOff(onLamp(lampA2), at('12:00:00'))]; });
+  assert.deepEqual(lamp(model, lampA2, at('12:30:00')), OFF);
+  assert.deepEqual(lamp(model, lampA1, at('12:30:00')), shows(220, kelvin(4000)));
+});
+
+test('a later brightness, colour or effect, from anyone, ends the off hold', () => {
+  // Break: a newer part leaves the lamp off, or an older part ends a newer off.
+  const off = switchedOff(onLamp(lampA2), at('12:00:00'));
+  const brighter = house(m => { m.overlays.lamps = [off, dashboard(onLamp(lampA2), { brightness: fixed(80, at('12:10:00')) }, at('12:10:00'))]; });
+  assert.deepEqual(lamp(brighter, lampA2, at('12:30:00')), shows(80, kelvin(4000)));
+  const coloured = house(m => {
+    m.overlays.lamps = [off, person(onLamp(lampA2), { colour: { kind: 'fixed', colour: kelvin(3000), at: at('12:10:00') } }, at('12:10:00'))];
+  });
+  assert.deepEqual(lamp(coloured, lampA2, at('12:30:00')), shows(220, kelvin(3000)));
+  const older = house(m => { m.overlays.lamps = [dashboard(onLamp(lampA2), { brightness: fixed(80, at('11:50:00')) }, at('11:50:00')), off]; });
+  assert.deepEqual(lamp(older, lampA2, at('12:30:00')), OFF);
+});
+
+test('a room switched off by a person, then a colour on one lamp, lights that lamp only', () => {
+  // Carry-over 1.3: the off is its own flag, so a colour change, which leaves `lit` alone, still ends it.
+  // Break: the off rides on `lit` and the colour leaves the lamp off, or the colour lights the whole room.
+  const model = house(m => {
+    m.overlays.lamps = [
+      switchedOff({ kind: 'room', room: roomA }, at('12:00:00')),
+      person(onLamp(lampA2), { colour: { kind: 'fixed', colour: kelvin(3000), at: at('12:10:00') } }, at('12:10:00')),
+    ];
+  });
+  assert.deepEqual(lamp(model, lampA2, at('12:30:00')), shows(220, kelvin(3000)));
+  assert.deepEqual(lamp(model, lampA1, at('12:30:00')), OFF);
+  assert.deepEqual(lamp(model, lampB1, at('12:30:00')), shows(220, kelvin(4000)));
+});
+
+test('a later remote step ends the off hold', () => {
+  // Break: the step leaves the lamp off under an older off.
+  const model = house(m => {
+    m.overlays.lamps = [switchedOff({ kind: 'room', room: roomA }, at('11:00:00'))];
+    m.overlays.remotes = [remote('remote-a', at('11:30:00'), { adjustment: steps(3, at('11:30:00'), -17, 20) })];
+  });
+  assert.deepEqual(lamp(model, lampA2, at('12:00:00')), shows(230, kelvin(4750)));
+});
+
+test("the next block's fade start releases the off hold", () => {
+  // `room-a`'s cosy fade starts at 16:45. Break: the off outlives the fade start.
+  const model = house(m => { m.overlays.lamps = [switchedOff(onLamp(lampA2), at('12:00:00'))]; });
+  assert.deepEqual(lamp(model, lampA2, at('16:00:00')), OFF);
+  assert.deepEqual(lamp(model, lampA2, at('20:00:00')), shows(90, ORANGE));
+});
+
+test("a room's off hold switches off its range switch", () => {
+  // The plug's range rule (20..60 %) reads its room's own light, cosy's 90 at 20:00. Break: the room's light ignores the off hold.
+  const model = house(m => { m.overlays.lamps = [switchedOff({ kind: 'room', room: roomA }, at('19:00:00'))]; });
+  assert.equal(lightingState(house(), at('20:00:00')).switches[toSwitchId('switch.plug_a')], 'on');
+  assert.equal(lightingState(model, at('20:00:00')).switches[toSwitchId('switch.plug_a')], 'off');
 });
 
 // 7. Overlay resets.

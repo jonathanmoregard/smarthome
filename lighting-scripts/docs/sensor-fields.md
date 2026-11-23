@@ -99,6 +99,7 @@ An entry is shared across rooms when its key is `block:house` or `mode:sara`, or
 | 32 | `...updated` of a channel | effects_resolve, ls_remote_plan, ls_commit | no | the part's `at` |
 | 33 | `value.selection` (dashboard effect pick; the port also writes it on a person's reset) | none | no | `Normal light` with both channels held as constants: `lamps[].effect` `normal` at the earlier constant's time, from any control; otherwise left out: 1. Today's person reset (effects_native_plan) writes no `selection`, so a stored one reads as fixed parts only |
 | 34 | an entry of kind `light`, or a `channels` entry with scope `house` | ls_base, effects_resolve | yes for scope `house` | left out: 4 |
+| 35 | `value.power` `off` of a `channels` entry (new, 2026-11-23: a person's or a control's off is a hold) | none (today's readers see a record with no channel claims) | no | `lamps[]` of kind `off`; the port writes it with empty `channels` and no `selection`; any other value is ignored and the record reads as its channels |
 
 ## `sensor.ls_effects_runtime` attributes
 

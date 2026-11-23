@@ -354,6 +354,8 @@ function decodeLamp(keyed: LampOverlay['over'] | undefined, from: LampOverlay['f
     : scope === 'room' ? { kind: 'room', room: toRoomId(target) } : undefined;
   if (over === undefined || keyed !== undefined && !isDeepStrictEqual(keyed, over)) return undefined;
   const since = savedWhen(raw['when']);
+  // A person's or a control's off: a stored `power` that is anything else is garbage, and the record reads as its channels.
+  if (value['power'] === 'off') return { kind: 'lamp', overlay: { kind: 'off', over, from, since } };
   const channels = value['channels'];
   const brightness = channelPart('brightness', channels, since, BRIGHTNESS), colour = channelPart('color', channels, since, COLOUR);
   let effect = newest(brightness.effect, colour.effect);
@@ -365,7 +367,7 @@ function decodeLamp(keyed: LampOverlay['over'] | undefined, from: LampOverlay['f
   return {
     kind: 'lamp',
     overlay: {
-      over, from, since,
+      kind: 'parts', over, from, since,
       brightness: brightness.part,
       colour: colour.part,
       effect,
@@ -643,6 +645,11 @@ function storedContexts(overlay: RemoteOverlay, before: RemoteOverlay['remembere
  * under an effect that is newer than the effect.
  */
 function lampValue(overlay: LampOverlay, found: JsonObject, foundWhen: Instant | undefined): JsonObject {
+  if (overlay.kind === 'off') {
+    const value: JsonObject = { ...found, channels: {}, power: 'off' };
+    delete value['selection'];
+    return value;
+  }
   const foundChannels = isObject(found['channels']) ? found['channels'] : {};
   const effect = overlay.effect;
   const wanted = effect?.kind === 'normal' ? heldChannels(overlay, effect.at) : effectChannels(overlay, effect);
@@ -656,6 +663,7 @@ function lampValue(overlay: LampOverlay, found: JsonObject, foundWhen: Instant |
     if (claim === undefined) delete channels[channel]; else channels[channel] = claim;
   }
   const value: JsonObject = { ...found, channels };
+  delete value['power'];
   if (effect?.kind === 'normal') value['selection'] = 'Normal light';
   else if (overlay.from.kind === 'dashboard' && effect?.kind === 'candle') value['selection'] = 'Candle';
   else if (found['selection'] === 'Normal light') delete value['selection'];
@@ -663,7 +671,7 @@ function lampValue(overlay: LampOverlay, found: JsonObject, foundWhen: Instant |
 }
 
 /** The two channels a reset to normal light at `at` holds: each part from the reset's time on, the schedule's where there is none. */
-function heldChannels(overlay: LampOverlay, at: Instant): Record<Channel, ChannelPart<BrightnessOverlay | ColourOverlay>> {
+function heldChannels(overlay: PartsOverlay, at: Instant): Record<Channel, ChannelPart<BrightnessOverlay | ColourOverlay>> {
   const brightness: BrightnessOverlay = overlay.brightness === undefined ? { kind: 'schedule', at }
     : overlay.brightness.at < at ? { ...overlay.brightness, at } : overlay.brightness;
   const colour: ColourOverlay = overlay.colour === undefined ? { kind: 'schedule', at }
@@ -672,7 +680,7 @@ function heldChannels(overlay: LampOverlay, at: Instant): Record<Channel, Channe
 }
 
 /** Which channel runs the overlay's effect (none, the candle or the schedule's): see `lampValue`. */
-function effectChannels(overlay: LampOverlay, effect: EffectOverlay | undefined): Record<Channel, ChannelPart<BrightnessOverlay | ColourOverlay>> {
+function effectChannels(overlay: PartsOverlay, effect: EffectOverlay | undefined): Record<Channel, ChannelPart<BrightnessOverlay | ColourOverlay>> {
   const brightness = overlay.brightness, colour = overlay.colour;
   const runs = (part: BrightnessOverlay | ColourOverlay | undefined) => effect !== undefined && (part === undefined || effect.at >= part.at);
   if (effect !== undefined && brightness !== undefined && !runs(brightness) && !runs(colour)) {
@@ -716,6 +724,9 @@ function nativeBase(over: LampOverlay['over']): string {
 
 /** The two channels a stored lamp entry claims, by their stored names. */
 type Channel = 'brightness' | 'color';
+
+/** A lamp overlay that sets parts, which the channels hold; an off claims none. */
+type PartsOverlay = Extract<LampOverlay, { kind: 'parts' }>;
 
 /** What one stored channel claim says: the part it sets, and the effect it runs, if any. */
 type ChannelPart<P> = { part: P | undefined; effect: EffectOverlay | undefined };

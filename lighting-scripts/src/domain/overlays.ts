@@ -86,20 +86,32 @@ export type HeldBlock = { block: 'day' | 'cosy'; since: Instant };
 export type RememberedPreset = Exclude<RemotePreset, { choice: 'none' }>;
 
 /**
- * A lamp or a room held by a person or from the dashboard, part by part. Each
- * part is undefined when this overlay leaves it alone. The effect is a part of
- * its own: a newer level or colour hold on a candle lamp keeps the candle
- * running at the new level or colour, and only a newer effect part ends it.
+ * A lamp or a room held by a person or from the dashboard: part by part, or
+ * switched off.
+ *
+ * Part by part, each part is undefined when this overlay leaves it alone. The
+ * effect is a part of its own: a newer level or colour hold on a candle lamp
+ * keeps the candle running at the new level or colour, and only a newer effect
+ * part ends it.
+ *
+ * Off (owner, 2026-11-23: a person's off in HA is a hold) holds the lamp or
+ * room off from `since` until a newer part or remote step, from anyone, or an
+ * overlay reset. It has no level, colour or effect, and never switches the room's power.
  */
-export type LampOverlay = {
-  over: LampOrRoom;
-  /** A person's HA change (one per lamp or room), or a dashboard control (one per control). */
-  from: { kind: 'person' } | { kind: 'dashboard'; control: DashboardControlId };
-  since: Instant;
-  brightness: BrightnessOverlay | undefined;
-  colour: ColourOverlay | undefined;
-  effect: EffectOverlay | undefined;
-};
+export type LampOverlay =
+  | {
+    kind: 'parts';
+    over: LampOrRoom;
+    from: LampOverlayFrom;
+    since: Instant;
+    brightness: BrightnessOverlay | undefined;
+    colour: ColourOverlay | undefined;
+    effect: EffectOverlay | undefined;
+  }
+  | { kind: 'off'; over: LampOrRoom; from: LampOverlayFrom; since: Instant };
+
+/** A person's HA change (one per lamp or room), or a dashboard control (one per control). */
+export type LampOverlayFrom = { kind: 'person' } | { kind: 'dashboard'; control: DashboardControlId };
 
 /** `at` is when this part was last set (the stored per-channel `updated`): the newest part of each kind wins per lamp. */
 export type BrightnessOverlay = BrightnessPart & { at: Instant };

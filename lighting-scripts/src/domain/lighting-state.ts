@@ -240,6 +240,8 @@ type Shown = {
   effect: Effect;
   /** Set by a remote step on a blend with an off end, which decides whether the lamp is lit; undefined leaves that to the schedule. */
   lit: boolean | undefined;
+  /** A person's or a control's off holds it, until a newer part or remote step. Apart from `lit`: a colour part never resets that. */
+  off: boolean;
 };
 
 /** One part an overlay sets, or a remote step, with the instant it was set. */
@@ -247,7 +249,8 @@ type Change =
   | { kind: 'brightness'; part: BrightnessOverlay }
   | { kind: 'colour'; part: ColourOverlay }
   | { kind: 'effect'; part: EffectOverlay }
-  | { kind: 'step'; step: RemoteAdjustment; range: StepRange };
+  | { kind: 'step'; step: RemoteAdjustment; range: StepRange }
+  | { kind: 'off'; at: Instant };
 
 /**
  * Every part the overlays set, oldest first. On a tie an effect comes after a
@@ -257,6 +260,10 @@ type Change =
 function changesOf(lamps: readonly LampOverlay[], remote: RemoteOverlay | undefined): Change[] {
   const changes: Change[] = [];
   for (const overlay of lamps) {
+    if (overlay.kind === 'off') {
+      changes.push({ kind: 'off', at: overlay.since });
+      continue;
+    }
     if (overlay.brightness !== undefined) changes.push({ kind: 'brightness', part: overlay.brightness });
     if (overlay.colour !== undefined) changes.push({ kind: 'colour', part: overlay.colour });
     if (overlay.effect !== undefined) changes.push({ kind: 'effect', part: overlay.effect });
@@ -289,7 +296,11 @@ function remoteChanges(remote: RemoteOverlay): Change[] {
 }
 
 function setAt(change: Change): Instant {
-  return change.kind === 'step' ? change.step.at : change.part.at;
+  switch (change.kind) {
+    case 'step': return change.step.at;
+    case 'off': return change.at;
+    default: return change.part.at;
+  }
 }
 
 function sameSteps(a: RemoteAdjustment, b: RemoteAdjustment): boolean {
@@ -369,7 +380,7 @@ function shownLight(model: Model, subject: Subject, stage: Stage, block: Block, 
     ? { ...staged, colour: fallbackColour(model.config, subject, room, block, now) } : staged;
   const shown = fold(base, changesOf(overlays.lamps, overlays.remote), subject);
   const lit = shown.lit === undefined ? base.power === 'on' : shown.lit;
-  if (!lit || (room !== undefined && model.overlays.roomPower[room] === 'off') || shown.brightness === undefined) return OFF;
+  if (shown.off || !lit || (room !== undefined && model.overlays.roomPower[room] === 'off') || shown.brightness === undefined) return OFF;
   const warmColour: Colour = { kind: 'rgb', rgb: subject.warmEnd };
   const colour = overlays.mode && block !== 'night' ? MODE_COLOUR : shown.warmColour ? warmColour : shown.colour;
   const transition = stage.moving ? FADE_STEP : MANUAL;
@@ -390,16 +401,23 @@ function stageLight(stage: Stage, lightIn: (block: Block) => SceneLight | undefi
  * the candle keeps the candle running at it (owner, 2026-11-22); only a newer
  * effect part ends it. A remote step does nothing under an effect that ignores
  * steps (`Effect.ignoresRemoteSteps`), nor where the blend has no light to
- * give.
+ * give. An off holds the subject off until any newer part or remote step
+ * (owner, 2026-11-23).
  */
 function fold(base: SceneLight, changes: readonly Change[], subject: Subject): Shown {
   const named = base.power === 'on' ? effectNamed(base.effect) : normal;
   const baseEffect = subject.canRun(named) ? named : normal;
   const baseBrightness = base.power === 'on' ? base.brightness : undefined;
   const baseColour = base.power === 'on' ? base.colour : undefined;
-  let shown: Shown = { brightness: baseBrightness, colour: baseColour, warmColour: baseEffect.holdsWarmColour, effect: baseEffect, lit: undefined };
+  let shown: Shown = {
+    brightness: baseBrightness, colour: baseColour, warmColour: baseEffect.holdsWarmColour, effect: baseEffect, lit: undefined, off: false,
+  };
   for (const change of changes) {
+    if (change.kind !== 'off') shown = { ...shown, off: false };
     switch (change.kind) {
+      case 'off':
+        shown = { ...shown, off: true };
+        break;
       case 'brightness':
         shown = { ...shown, brightness: change.part.kind === 'fixed' ? change.part.brightness : baseBrightness, lit: undefined };
         break;
@@ -497,7 +515,7 @@ function roomShown(model: Model, scope: RoomOrHouse, now: Instant): { light: Roo
   const base = stageLight(stage, lightIn, undefined);
   const shown = fold(base, changesOf(on.lamps, on.remote), subject);
   const lit = shown.lit === undefined ? base.power === 'on' : shown.lit;
-  const off = !lit || (room !== undefined && model.overlays.roomPower[room] === 'off') || shown.brightness === undefined;
+  const off = shown.off || !lit || (room !== undefined && model.overlays.roomPower[room] === 'off') || shown.brightness === undefined;
   const switchStage: RoomLight['stage'] = stage.moving ? { moving: true } : { moving: false, block: blockAt(stage.into, position.current) };
   const light: RoomLight['light'] = off || shown.brightness === undefined ? OFF : { power: 'on', brightness: shown.brightness };
   return { light: { stage: switchStage, light }, placed };

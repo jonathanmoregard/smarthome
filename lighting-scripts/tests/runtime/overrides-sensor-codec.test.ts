@@ -63,7 +63,7 @@ test('person change: a fixed brightness and colour on one lamp, the room on', ()
   const state = decode({ [`channels:native:${lampA1}`]: nativeEntry('lamp', lampA1, { brightness: constant(90, 5), color: constant({ kelvin: 3000 }, 5) }, 5) },
     { power: { [roomA]: true } });
   assert.deepEqual(state.overlays.lamps, [{
-    over: { kind: 'lamp', lamp: lampA1 }, from: { kind: 'person' }, since: at(5),
+    kind: 'parts', over: { kind: 'lamp', lamp: lampA1 }, from: { kind: 'person' }, since: at(5),
     brightness: { kind: 'fixed', brightness: toBrightness(90), at: at(5) },
     colour: { kind: 'fixed', colour: kelvin(3000), at: at(5) },
     effect: undefined,
@@ -127,7 +127,7 @@ test("a dashboard control's candle on one lamp", () => {
   // Break: the candle is read as a brightness or colour kind, or the control's id is lost.
   const value = { channels: { brightness: candleClaim('ui:control-a:Candle', 8), color: candleClaim('ui:control-a:Candle', 8) }, selection: 'Candle' };
   assert.deepEqual(decode({ 'channels:ui:control-a': uiEntry('control-a', 'lamp', lampA1, value, 8) }).overlays.lamps, [{
-    over: { kind: 'lamp', lamp: lampA1 }, from: { kind: 'dashboard', control: toDashboardControlId('control-a') }, since: at(8),
+    kind: 'parts', over: { kind: 'lamp', lamp: lampA1 }, from: { kind: 'dashboard', control: toDashboardControlId('control-a') }, since: at(8),
     brightness: undefined, colour: undefined, effect: { kind: 'candle', at: at(8) },
   } satisfies LampOverlay]);
 });
@@ -336,9 +336,9 @@ test("the normal light is written as today's reset writes it: both channels held
   // Review items 1 and 2. Break: the normal light is written as `Normal light` effect claims, which today's resolver reads as
   // an invalid source (the effect names no channels), or a person's reset is written without the marker that reads it back.
   const schedule = (minute: number) => ({ kind: 'schedule', at: at(minute) }) as const;
-  const person: LampOverlay = { over: { kind: 'lamp', lamp: lampA1 }, from: { kind: 'person' }, since: at(7),
+  const person: LampOverlay = { kind: 'parts', over: { kind: 'lamp', lamp: lampA1 }, from: { kind: 'person' }, since: at(7),
     brightness: { kind: 'fixed', brightness: toBrightness(120), at: at(7) }, colour: schedule(7), effect: { kind: 'normal', at: at(7) } };
-  const room: LampOverlay = { over: { kind: 'room', room: roomA }, from: { kind: 'dashboard', control: toDashboardControlId('control-n') },
+  const room: LampOverlay = { kind: 'parts', over: { kind: 'room', room: roomA }, from: { kind: 'dashboard', control: toDashboardControlId('control-n') },
     since: at(8), brightness: schedule(8), colour: schedule(8), effect: { kind: 'normal', at: at(8) } };
   const state: OverridesState = { ...decodeOverrides({}), overlays: { ...decodeOverrides({}).overlays, lamps: [person, room] } };
   const written = encodeOverrides(state, {}, allRooms, config);
@@ -354,7 +354,7 @@ test("the normal light is written as today's reset writes it: both channels held
 test('a candle older than both its parts runs at the new level, which the old resolver reads as its intensity', () => {
   // Review item 3. Break: the new level is kept as an underlying newer than the candle, which today's resolver drops,
   // so the lamp runs the candle at the stale level.
-  const overlay: LampOverlay = { over: { kind: 'lamp', lamp: lampA1 }, from: { kind: 'person' }, since: at(35),
+  const overlay: LampOverlay = { kind: 'parts', over: { kind: 'lamp', lamp: lampA1 }, from: { kind: 'person' }, since: at(35),
     brightness: { kind: 'fixed', brightness: toBrightness(90), at: at(35) }, colour: { kind: 'fixed', colour: kelvin(3000), at: at(36) },
     effect: { kind: 'candle', at: at(30) } };
   const state: OverridesState = { ...decodeOverrides({}), overlays: { ...decodeOverrides({}).overlays, lamps: [overlay] } };
@@ -386,7 +386,7 @@ test('a new overlay is written as today\'s writers write it', () => {
     overlays: {
       blocks: { [roomA]: { block: 'night', since: at(1) } },
       remotes: [{ source: sourceA, room: roomA, since: at(2), stepRange: DEFAULT_STEP_RANGE, adjustment: adjustment(1, -19, 20, 2, 'up'), preset: { choice: 'none' }, remembered: {} }],
-      lamps: [{ over: { kind: 'lamp', lamp: lampA1 }, from: { kind: 'person' }, since: at(3), brightness: { kind: 'fixed', brightness: toBrightness(90), at: at(3) }, colour: undefined, effect: undefined }],
+      lamps: [{ kind: 'parts', over: { kind: 'lamp', lamp: lampA1 }, from: { kind: 'person' }, since: at(3), brightness: { kind: 'fixed', brightness: toBrightness(90), at: at(3) }, colour: undefined, effect: undefined }],
       roomPower: { [roomA]: 'off' },
       switches: {},
     },
@@ -400,6 +400,58 @@ test('a new overlay is written as today\'s writers write it', () => {
     'mode:sara': modeEntry(4),
   });
   assert.deepEqual(written.power, { [roomA]: false });
+});
+
+// A person's off (owner, 2026-11-23): a new stored shape, the native record with no channel claims and `power: off`.
+
+const offOver = (over: LampOverlay['over'], from: LampOverlay['from'], minute: number): LampOverlay => ({ kind: 'off', over, from, since: at(minute) });
+
+test("a person's off and a dashboard control's off are written as a record that claims no channel, and read back", () => {
+  // The record claims no channel, so the old resolver gives it no part. Break: the off is not written, is written
+  // with a channel claim the old scripts read as a light, or reads back as a lamp overlay with no parts.
+  const lamps = [
+    offOver({ kind: 'lamp', lamp: lampA1 }, { kind: 'person' }, 3),
+    offOver({ kind: 'room', room: roomB }, { kind: 'person' }, 4),
+    offOver({ kind: 'room', room: roomA }, { kind: 'dashboard', control: toDashboardControlId('control-c') }, 5),
+  ];
+  const state: OverridesState = { ...decodeOverrides({}), overlays: { ...decodeOverrides({}).overlays, lamps } };
+  const written = encodeOverrides(state, {}, allRooms, config);
+  assert.deepEqual(written.overrides, {
+    [`channels:native:${lampA1}`]: { ...nativeEntry('lamp', lampA1, {}, 3), value: { channels: {}, power: 'off' } },
+    [`channels:native:room:${roomB}`]: { ...nativeEntry('room', roomB, {}, 4), value: { channels: {}, power: 'off' } },
+    'channels:ui:control-c': uiEntry('control-c', 'room', roomA, { channels: {}, power: 'off' }, 5),
+  });
+  assert.deepEqual(decodeOverrides(written).overlays.lamps, lamps);
+  assertKept(written);
+});
+
+test("an off over a person's light replaces it in place, and a light over an off replaces the off", () => {
+  // Carry-over 1.5: one person overlay per lamp or room. Break: the old channels stay claimed under the off, or the
+  // `power: off` stays under the new light.
+  const found = { overrides: { [`channels:native:${lampA1}`]: nativeEntry('lamp', lampA1, { brightness: constant(90, 3) }, 3) } };
+  const off: OverridesState = { ...decodeOverrides(found), overlays: { ...decodeOverrides(found).overlays,
+    lamps: [offOver({ kind: 'lamp', lamp: lampA1 }, { kind: 'person' }, 6)] } };
+  const once = encodeOverrides(off, found, allRooms, config);
+  const entry = (once.overrides as JsonObject)[`channels:native:${lampA1}`] as JsonObject;
+  assert.deepEqual(entry.value, { channels: {}, power: 'off' });
+  assert.equal(entry.when, iso(6));
+  const relit: OverridesState = { ...off, overlays: { ...off.overlays, lamps: [{ kind: 'parts', over: { kind: 'lamp', lamp: lampA1 },
+    from: { kind: 'person' }, since: at(7), brightness: { kind: 'fixed', brightness: toBrightness(40), at: at(7) }, colour: undefined, effect: undefined }] } };
+  const twice = encodeOverrides(relit, once, allRooms, config);
+  assert.deepEqual(((twice.overrides as JsonObject)[`channels:native:${lampA1}`] as JsonObject).value, { channels: { brightness: constant(40, 7) } });
+  assert.deepEqual(decodeOverrides(twice).overlays.lamps, relit.overlays.lamps);
+});
+
+test('a stored power that is not off is garbage: the record reads as the light its channels claim', () => {
+  // Recover-not-raise (owner, 2026-11-21). Break: a garbage power raises, drops the record, or reads as an off.
+  for (const power of ['on', 'dim', 0, null, ['off'], { off: true }] as JsonValue[]) {
+    const raw = nativeEntry('lamp', lampA1, { brightness: constant(90, 3) }, 3);
+    const overrides = { [`channels:native:${lampA1}`]: { ...raw, value: { ...(raw.value as JsonObject), power } } };
+    const lamps = decode(overrides).overlays.lamps;
+    assert.equal(lamps.length, 1, JSON.stringify(power));
+    assert.equal(lamps[0]!.kind, 'parts', JSON.stringify(power));
+    assertKept({ overrides });
+  }
 });
 
 // Garbage: each saved value a person can change recovers to its default, and the encoder keeps its bytes.

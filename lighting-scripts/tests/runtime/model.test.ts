@@ -92,7 +92,7 @@ test('a fixed brightness hold on a candle lamp leaves the candle running; a Norm
   // Break: the candle goes back to being a kind of brightness or colour, so
   // the newer fixed brightness would replace it, and no overlay could say
   // Normal over a block's candle.
-  const onLampA1 = house.overlays.lamps.filter(overlay => overlay.over.kind === 'lamp' && overlay.over.lamp === lampA1);
+  const onLampA1 = house.overlays.lamps.flatMap(overlay => overlay.kind === 'parts' && overlay.over.kind === 'lamp' && overlay.over.lamp === lampA1 ? [overlay] : []);
   const candle = onLampA1.find(overlay => overlay.effect?.kind === 'candle');
   const level = onLampA1.find(overlay => overlay.brightness?.kind === 'fixed');
   assert.ok(candle !== undefined && level !== undefined && candle !== level);
@@ -102,7 +102,7 @@ test('a fixed brightness hold on a candle lamp leaves the candle running; a Norm
   const roomCosy = house.config.rooms[roomA]!.blocks.cosy.light;
   assert.equal(roomCosy.follows === 'own' && roomCosy.own?.power === 'on' ? roomCosy.own.effect : 'not lit', 'Candle');
   const normalOverRoom = house.overlays.lamps.find(overlay => overlay.over.kind === 'room' && overlay.over.room === roomA);
-  assert.equal(normalOverRoom?.effect?.kind, 'normal');
+  assert.equal(normalOverRoom?.kind === 'parts' ? normalOverRoom.effect?.kind : 'not parts', 'normal');
 });
 
 test('day then the candle keeps the day block; the candle from no preset holds none', () => {

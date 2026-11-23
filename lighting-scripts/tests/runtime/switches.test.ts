@@ -42,7 +42,7 @@ function power(model: Model, now: Instant, id: SwitchId = plugA): Power | undefi
 }
 
 const roomLevel = (brightness: number) => (m: Model) => {
-  m.overlays.lamps = [{ over: { kind: 'room', room: roomA }, from: { kind: 'person' }, since: at('11:00:00'),
+  m.overlays.lamps = [{ kind: 'parts', over: { kind: 'room', room: roomA }, from: { kind: 'person' }, since: at('11:00:00'),
     brightness: { kind: 'fixed', brightness: toBrightness(brightness), at: at('11:00:00') }, colour: undefined, effect: undefined }];
 };
 
