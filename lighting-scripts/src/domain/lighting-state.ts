@@ -26,6 +26,7 @@ import type {
 import { blockLight, blockPosition, nextTimeOfDay, sceneBetween, scheduledStage, wakeStage } from './schedule.ts';
 import type { BlockPosition, Stage, StageEnd } from './schedule.ts';
 import { switchPower } from './switches.ts';
+import type { RoomLight } from './switches.ts';
 import type { LampId, RoomId } from './types/ids.ts';
 import { entriesOf } from './types/ids.ts';
 import type { LampOrRoom, LightingState } from './types/lighting-state.ts';
@@ -150,17 +151,6 @@ function presetBlock(remote: RemoteOverlay): { block: Block; stamp: Instant } | 
   if (preset.choice === 'candle' && preset.block !== undefined) return { block: preset.block.block, stamp: preset.block.since };
   return undefined;
 }
-
-/**
- * What a room's switches read: the room's stage, still in a block or moving (a
- * fade or the wake fade, during which today's switches are sent nothing), and
- * the room's own light, its block light with the room's overlays, whose level a
- * range rule reads.
- */
-export type RoomLight = {
-  stage: { moving: false; block: Block } | { moving: true };
-  light: { power: 'off' } | { power: 'on'; brightness: Brightness };
-};
 
 /** What the overlays work on: a lamp, or a room's own light. */
 type Subject = {

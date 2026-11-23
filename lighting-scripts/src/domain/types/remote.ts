@@ -1,4 +1,4 @@
-import type { Ranged } from './range.ts';
+import type { Ranged } from './ranged.ts';
 
 /**
  * A bound of a remote's step range: -20..20, the captured default

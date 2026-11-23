@@ -1,5 +1,5 @@
 import type { Id } from './ids.ts';
-import type { Ranged } from './range.ts';
+import type { Ranged } from './ranged.ts';
 
 /** A moment: seconds since the epoch, finite. The unit today's schedule arithmetic runs on. */
 export type Instant = Ranged<'Instant'>;

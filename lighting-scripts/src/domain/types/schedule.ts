@@ -1,5 +1,5 @@
 import type { RoomId } from './ids.ts';
-import type { Ranged } from './range.ts';
+import type { Ranged } from './ranged.ts';
 
 /** How far a transition between two blocks has got, 0 (at the first) to 1 (at the second). */
 export type Progress = Ranged<'Progress'>;

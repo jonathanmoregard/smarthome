@@ -9,14 +9,24 @@
  */
 import type { Block } from './blocks.ts';
 import type { Config } from './config.ts';
-import type { RoomLight } from './lighting-state.ts';
 import type { Model, RangeDefaults, RangeRule } from './model.ts';
 import { blockPosition } from './schedule.ts';
 import type { RoomId, SwitchId } from './types/ids.ts';
 import { entriesOf } from './types/ids.ts';
-import type { Power } from './types/light.ts';
+import type { Brightness, Power } from './types/light.ts';
 import type { RoomOrHouse } from './types/schedule.ts';
 import type { Instant } from './types/time.ts';
+
+/**
+ * What a room's switches read: the room's stage, still in a block or moving (a
+ * fade or the wake fade, during which today's switches are sent nothing), and
+ * the room's own light, its block light with the room's overlays, whose level a
+ * range rule reads.
+ */
+export type RoomLight = {
+  stage: { moving: false; block: Block } | { moving: true };
+  light: { power: 'off' } | { power: 'on'; brightness: Brightness };
+};
 
 /**
  * A switch overlay that still applies wins over the range rule, the plug's own

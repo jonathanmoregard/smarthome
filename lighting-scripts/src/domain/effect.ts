@@ -1,7 +1,7 @@
-import type { BulbAppearance, BulbInfo, Effect, EffectName } from './types/effect.ts';
+import type { BulbAppearance, BulbInfo, Effect, EffectName } from './types/light.ts';
 import type { LampLight } from './types/light.ts';
 
-export type { BulbAppearance, BulbInfo, Effect, EffectName, Firmware } from './types/effect.ts';
+export type { BulbAppearance, BulbInfo, Effect, EffectName, Firmware } from './types/light.ts';
 
 /** What one bulb of a lamp shows: the lamp's effect where the bulb can run it, the normal light where it cannot. */
 export function bulbAppearance(light: LampLight, bulb: BulbInfo): BulbAppearance {

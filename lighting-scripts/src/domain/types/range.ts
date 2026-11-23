@@ -12,11 +12,7 @@ import type { Brightness, BrightnessStep, ColourChannel, Kelvin, Level, Percent,
 import type { Step, StepCount } from './remote.ts';
 import type { Progress } from './schedule.ts';
 import type { Instant, Seconds, TimeOfDay } from './time.ts';
-
-declare const range: unique symbol;
-export type Ranged<Name extends string> = number & { readonly [range]: Name };
-/** The same mark on a value that is not a number (`PercentRange`). */
-export type RangeMark<Name extends string> = { readonly [range]: Name };
+import type { Ranged } from './ranged.ts';
 
 export const PERCENT_BOUNDS = { low: 0, high: 100 };
 export const STEP_BOUNDS = { low: -20, high: 20 };
