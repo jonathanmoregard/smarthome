@@ -8,7 +8,7 @@ import { lightingState } from '../../src/domain/lighting-state.ts';
 import type { Model, Msg } from '../../src/domain/model.ts';
 import { update } from '../../src/domain/update.ts';
 import type { Instant } from '../../src/domain/types/time.ts';
-import { toBrightness, toDashboardControlId, toInstant, toKelvin, toLampId, toPercentRange, toRemoteId, toRoomId, toSwitchId,
+import { toBrightness, toBrightnessStep, toDashboardControlId, toInstant, toKelvin, toLampId, toPercentRange, toRemoteId, toRoomId, toSwitchId,
 } from '../../src/parse/ids.ts';
 import type { EntityState, JsonObject } from '../../src/runtime/context.ts';
 import { ParseError } from '../../src/runtime/parse.ts';
@@ -82,7 +82,8 @@ test('the override event\'s hold is an overlay request', () => {
 test('a person\'s light.turn_on with a brightness is a lamp change', () => {
   assert.deepEqual(read('automation.lighting_schedule_lamp_change_detector', call('turn_on', { entity_id: [lampA1], brightness: 80,
     color_temp_kelvin: 3000 })), [{ kind: 'lampChangedByPerson', lamps: [lampA1], rooms: [], at: NOW,
-    light: { power: 'on', brightness: toBrightness(80), colour: { kind: 'kelvin', kelvin: toKelvin(3000) }, effect: undefined } }]);
+    light: { power: 'on', brightness: { kind: 'fixed', brightness: toBrightness(80) }, colour: { kind: 'kelvin', kelvin: toKelvin(3000) },
+      effect: undefined } }]);
 });
 
 test('a person\'s brightness step moves from the level the lamp shows', () => {
@@ -90,8 +91,12 @@ test('a person\'s brightness step moves from the level the lamp shows', () => {
   const house = houseView(states(), NOW_TEXT), model = modelOf(house), shown = lightingState(model, NOW).lamps[lampA1];
   assert.ok(shown !== undefined && shown.power === 'on');
   const input = haInput('automation.lighting_schedule_lamp_change_detector', call('turn_on', { entity_id: [lampA1], brightness_step: 30 }));
-  assert.deepEqual(messages(input!, model, NOW, house), [{ kind: 'lampChangedByPerson', lamps: [lampA1], rooms: [], at: NOW,
-    light: { power: 'on', brightness: toBrightness(shown.level + 30), colour: undefined, effect: undefined } }]);
+  const msgs = messages(input!, model, NOW, house);
+  assert.deepEqual(msgs, [{ kind: 'lampChangedByPerson', lamps: [lampA1], rooms: [], at: NOW,
+    light: { power: 'on', brightness: { kind: 'step', by: toBrightnessStep(30) }, colour: undefined, effect: undefined } }]);
+  const after = lightingState(msgs.reduce(update, model), NOW).lamps[lampA1];
+  assert.ok(after !== undefined && after.power === 'on');
+  assert.equal(after.level, shown.level + 30);
 });
 
 test('a brightness step on a lamp that shows off starts from 0, as Home Assistant steps an off light', () => {
@@ -101,14 +106,18 @@ test('a brightness step on a lamp that shows off starts from 0, as Home Assistan
     at: toInstant(NOW - 60) });
   assert.equal(lightingState(off, NOW).lamps[lampA1]?.power, 'off');
   const input = haInput('automation.lighting_schedule_lamp_change_detector', call('turn_on', { entity_id: [lampA1], brightness_step: 40 }));
-  assert.deepEqual(messages(input!, off, NOW, house), [{ kind: 'lampChangedByPerson', lamps: [lampA1], rooms: [], at: NOW,
-    light: { power: 'on', brightness: toBrightness(40), colour: undefined, effect: undefined } }]);
+  const msgs = messages(input!, off, NOW, house);
+  assert.deepEqual(msgs, [{ kind: 'lampChangedByPerson', lamps: [lampA1], rooms: [], at: NOW,
+    light: { power: 'on', brightness: { kind: 'step', by: toBrightnessStep(40) }, colour: undefined, effect: undefined } }]);
+  const after = lightingState(msgs.reduce(update, off), NOW).lamps[lampA1];
+  assert.ok(after !== undefined && after.power === 'on');
+  assert.equal(after.level, 40);
 });
 
 test('a call naming a room whole changes the room', () => {
   const msgs = read('automation.lighting_schedule_lamp_change_detector', call('turn_on', { area_id: roomA, brightness_pct: 50 }));
   assert.deepEqual(msgs, [{ kind: 'lampChangedByPerson', lamps: [lampA1, lampA2], rooms: [roomA], at: NOW,
-    light: { power: 'on', brightness: toBrightness(128), colour: undefined, effect: undefined } }]);
+    light: { power: 'on', brightness: { kind: 'fixed', brightness: toBrightness(128) }, colour: undefined, effect: undefined } }]);
 });
 
 test('the same call without a user is not', () => {

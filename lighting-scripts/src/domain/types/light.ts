@@ -10,6 +10,12 @@ export type Level = Ranged<'Level'>;
  * as is, while a Zigbee level stops at 254.
  */
 export type Brightness = Ranged<'Brightness'>;
+/**
+ * A change of brightness a person asks for, in Home Assistant's 0..255 steps:
+ * -255..255, positive is brighter. Not necessarily whole: a percent step
+ * comes to a fraction of 255.
+ */
+export type BrightnessStep = Ranged<'BrightnessStep'>;
 /** A share of full, 0..100. */
 export type Percent = Ranged<'Percent'>;
 /**

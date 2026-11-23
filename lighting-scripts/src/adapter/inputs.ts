@@ -17,13 +17,13 @@
 import type { Block } from '../domain/blocks.ts';
 import { BLOCKS } from '../domain/blocks.ts';
 import type { EffectName } from '../domain/effect.ts';
-import { lightingState } from '../domain/lighting-state.ts';
 import type {
-  ControlLight, LampProfileChange, Model, Msg, PresetButton, RangeDefaults, RangeRule, RemoteButton, RequestedEffect, RequestedLight,
+  ControlLight, LampProfileChange, Model, Msg, PresetButton, RangeDefaults, RangeRule, RemoteButton, RequestedBrightness, RequestedEffect,
+  RequestedLight,
 } from '../domain/model.ts';
 import type { LampId, RemoteId, RoomId, SwitchId } from '../domain/types/ids.ts';
 import { entriesOf } from '../domain/types/ids.ts';
-import type { Brightness, Colour, PercentRange, Power } from '../domain/types/light.ts';
+import type { Colour, PercentRange, Power } from '../domain/types/light.ts';
 import type { LampOrRoom } from '../domain/types/lighting-state.ts';
 import type { RemoteCommand } from '../domain/types/remote.ts';
 import type { RoomOrHouse } from '../domain/types/schedule.ts';
@@ -31,7 +31,7 @@ import type { Instant } from '../domain/types/time.ts';
 import { onOffOnly, ownRange, storedRangeBounds } from '../parse/ui-state.ts';
 import type { RangeBound } from '../parse/ui-state.ts';
 import {
-  percentRangeOf, toBrightness, toColourChannel, toDashboardControlId, toKelvin, toLampId, toRemoteId, toRoomId, toSwitchId,
+  percentRangeOf, toBrightness, toBrightnessStep, toColourChannel, toDashboardControlId, toKelvin, toLampId, toRemoteId, toRoomId, toSwitchId,
 } from '../parse/ids.ts';
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { HouseView } from '../runtime/effects.ts';
@@ -304,29 +304,29 @@ function personCall(event: JsonObject, model: Model, now: Instant, house: HouseV
   const sd = object(data.service_data);
   const { lamps, rooms } = callReach(sd, model.config, house);
   if (lamps.length === 0) return [];
-  const light: RequestedLight = data.service === 'turn_off' ? { power: 'off' } : requestedLight(sd, model, lamps, now, house);
+  const light: RequestedLight = data.service === 'turn_off' ? { power: 'off' } : requestedLight(sd, lamps, house);
   return [{ kind: 'lampChangedByPerson', lamps, rooms, light, at: now }];
 }
 
-/** What a switch-on sets: a brightness (absolute, a percent, or a step from the first lamp's level), a colour, an effect. */
-function requestedLight(sd: JsonObject, model: Model, lamps: readonly LampId[], now: Instant, house: HouseView): RequestedLight {
+/** What a switch-on sets: a brightness (absolute, a percent, or a step the domain resolves per lamp), a colour, an effect. */
+function requestedLight(sd: JsonObject, lamps: readonly LampId[], house: HouseView): RequestedLight {
   const [first] = lamps;
-  const shown = first === undefined ? undefined : lightingState(model, now).lamps[first];
-  const current = shown === undefined || shown.power === 'off' ? 0 : shown.level;
-  return { power: 'on', brightness: requestedBrightness(sd, current), colour: callColour(sd, house, first), effect: requestedEffect(sd.effect) };
+  return { power: 'on', brightness: requestedBrightness(sd), colour: callColour(sd, house, first), effect: requestedEffect(sd.effect) };
 }
 
-function requestedBrightness(sd: JsonObject, current: number): Brightness | undefined {
+/** A step is held to ±255: from any level 0 to 255 a larger one comes to the same light. */
+function requestedBrightness(sd: JsonObject): RequestedBrightness | undefined {
   const number = (key: string) => {
     const value = sd[key];
     if (typeof value !== 'number') throw new ParseError(`light.turn_on: ${key} is not a number`);
     return value;
   };
-  const raw = 'brightness' in sd ? number('brightness') : 'brightness_pct' in sd ? number('brightness_pct') * 255 / 100
-    : 'brightness_step' in sd ? current + number('brightness_step')
-      : 'brightness_step_pct' in sd ? current + number('brightness_step_pct') * 255 / 100
-        : typeof sd.white === 'number' ? sd.white : undefined;
-  return raw === undefined ? undefined : toBrightness(Math.round(Math.min(255, Math.max(0, raw))));
+  const fixed = (raw: number): RequestedBrightness => ({ kind: 'fixed', brightness: toBrightness(Math.round(Math.min(255, Math.max(0, raw)))) });
+  const step = (raw: number): RequestedBrightness => ({ kind: 'step', by: toBrightnessStep(Math.min(255, Math.max(-255, raw))) });
+  return 'brightness' in sd ? fixed(number('brightness')) : 'brightness_pct' in sd ? fixed(number('brightness_pct') * 255 / 100)
+    : 'brightness_step' in sd ? step(number('brightness_step'))
+      : 'brightness_step_pct' in sd ? step(number('brightness_step_pct') * 255 / 100)
+        : typeof sd.white === 'number' ? fixed(sd.white) : undefined;
 }
 
 /** The candle by name (any case); any other effect named is the normal light. */

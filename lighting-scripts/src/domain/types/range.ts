@@ -9,7 +9,7 @@
  * instead of calling one with a value that may be out of range.
  */
 import type { BlendPosition } from '../blend.ts';
-import type { Brightness, ColourChannel, Kelvin, Level, Percent, PercentRange } from './light.ts';
+import type { Brightness, BrightnessStep, ColourChannel, Kelvin, Level, Percent, PercentRange } from './light.ts';
 import type { Step, StepCount } from './remote.ts';
 import type { Progress } from './schedule.ts';
 import type { Instant, Seconds, TimeOfDay } from './time.ts';
@@ -56,6 +56,12 @@ export function brightnessOrThrow(raw: number): Brightness {
   mustBeWhole(raw, 'A brightness');
   // Cast: checked just above; this is the one place a number becomes a brightness.
   return raw as Brightness;
+}
+
+export function brightnessStepOrThrow(raw: number): BrightnessStep {
+  mustBeWithin(raw, -255, 255, 'A brightness step');
+  // Cast: checked just above; this is the one place a number becomes a brightness step.
+  return raw as BrightnessStep;
 }
 
 export function kelvinOrThrow(raw: number): Kelvin {

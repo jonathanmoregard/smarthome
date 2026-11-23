@@ -40,7 +40,7 @@
 //   constructors and the parse layer's range wrappers), or a cast to a type that
 //   holds one declared under src/domain/types (a brand or a range), as the
 //   checker resolves it, so a local alias is seen through. The range types are
-//   minted in src/domain/types/range.ts by `...OrThrow` constructors: their 15
+//   minted in src/domain/types/range.ts by `...OrThrow` constructors: their 16
 //   casts count here (the ceiling), but a call to one does not, since the
 //   domain may build a range value that way.
 //

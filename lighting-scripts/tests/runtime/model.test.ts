@@ -59,7 +59,7 @@ const oneOfEach = {
   configChanged: { kind: 'configChanged', config: house.config, lampProfiles: house.lampProfiles, switchProfiles: house.switchProfiles, at: now },
   overlayRequested: { kind: 'overlayRequested', request: oneRequestOfEach['hold block'], at: now },
   lampChangedByPerson: { kind: 'lampChangedByPerson', lamps: [lampA1], rooms: [],
-    light: { power: 'on', brightness: toBrightness(80), colour: undefined, effect: undefined }, at: now },
+    light: { power: 'on', brightness: { kind: 'fixed', brightness: toBrightness(80) }, colour: undefined, effect: undefined }, at: now },
   remotePressed: { kind: 'remotePressed', remote: remoteA, command: 'up', anyOn: true, at: now },
   remoteButtonPressed: { kind: 'remoteButtonPressed', remote: remoteA, button: { kind: 'preset', button: 'warmest' }, anyOn: false, at: now },
   rangeDefaultsSaved: { kind: 'rangeDefaultsSaved', defaults: { bright: toPercentRange(80, 100), cosy: toPercentRange(20, 50) }, at: now },

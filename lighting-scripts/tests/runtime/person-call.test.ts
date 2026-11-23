@@ -101,7 +101,7 @@ test('color_name is the named CSS colour, any case and spacing; an unknown name 
 test('white is white, and its number is the brightness', () => {
   const [msg] = read({ entity_id: lampA1, white: 120 });
   assert.deepEqual(msg, { kind: 'lampChangedByPerson', lamps: [lampA1], rooms: [], at: NOW,
-    light: { power: 'on', brightness: toBrightness(120), colour: rgb(255, 255, 255), effect: undefined } });
+    light: { power: 'on', brightness: { kind: 'fixed', brightness: toBrightness(120) }, colour: rgb(255, 255, 255), effect: undefined } });
 });
 
 test('the first colour key wins, in today\'s order', () => {

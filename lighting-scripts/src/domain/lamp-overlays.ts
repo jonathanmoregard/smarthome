@@ -8,16 +8,19 @@
  * channels stored under one key. What stays at the edge for M3 Task 3: which
  * lamps a call reaches and which rooms it names whole (areas, devices, labels,
  * groups), the colour a call's payload stands for (`nativeColor`), the
- * brightness a step or a percent comes to, and the dashboard's checks of its
- * values.
+ * brightness a percent comes to, and the dashboard's checks of its values. A
+ * brightness step is resolved here, from the level each lamp or room shows
+ * (Amendment 7.2).
  */
 import type { Config } from './config.ts';
-import { pinnedLight } from './lighting-state.ts';
+import { lightingState, pinnedLight } from './lighting-state.ts';
 import type { Pinned } from './lighting-state.ts';
-import type { ControlLight, Model, RequestedLight } from './model.ts';
+import type { ControlLight, Model, RequestedBrightness, RequestedLight } from './model.ts';
 import type { BrightnessOverlay, ColourOverlay, EffectOverlay, LampOverlay, LampOverlayFrom } from './overlays.ts';
 import type { DashboardControlId, LampId, RoomId } from './types/ids.ts';
+import type { Brightness } from './types/light.ts';
 import type { LampOrRoom } from './types/lighting-state.ts';
+import { brightnessOrThrow } from './types/range.ts';
 import type { Instant } from './types/time.ts';
 
 /** The parts one change sets, stamped; undefined leaves a part as the earlier overlay had it. */
@@ -37,14 +40,21 @@ function withParts(earlier: LampOverlay | undefined, over: LampOrRoom, from: Lam
 /**
  * A person's light as parts: a fixed brightness and colour, the candle, or the
  * normal light, which pins what the call leaves at what the lamp or room shows.
+ * A step moves from `shown`, the level there.
  */
-function requestedParts(light: Extract<RequestedLight, { power: 'on' }>, pinned: Pinned | undefined, now: Instant): Parts {
+function requestedParts(light: Extract<RequestedLight, { power: 'on' }>, shown: number, pinned: Pinned | undefined, now: Instant): Parts {
   const normal = light.effect !== undefined && light.effect.kind === 'normal';
+  const brightness = light.brightness === undefined ? undefined : resolved(light.brightness, shown);
   return {
-    brightness: light.brightness !== undefined ? { kind: 'fixed', brightness: light.brightness, at: now } : pinnedBrightness(normal, pinned, now),
+    brightness: brightness !== undefined ? { kind: 'fixed', brightness, at: now } : pinnedBrightness(normal, pinned, now),
     colour: light.colour !== undefined ? { kind: 'fixed', colour: light.colour, at: now } : pinnedColour(normal, pinned, now),
     effect: light.effect === undefined ? undefined : { ...light.effect, at: now },
   };
+}
+
+/** A fixed level as it is; a step from the level shown, held to 0 to 255 as Home Assistant holds it. */
+function resolved(brightness: RequestedBrightness, shown: number): Brightness {
+  return brightness.kind === 'fixed' ? brightness.brightness : brightnessOrThrow(Math.round(Math.min(255, Math.max(0, shown + brightness.by))));
 }
 
 /** A control's parts, stamped; the normal light pins what the control leaves, as a person's does. */
@@ -95,11 +105,15 @@ export function personChanged(model: Model, lamps: readonly LampId[], rooms: rea
   const known = [...new Set(lamps)].filter(lamp => config.lamps[lamp] !== undefined);
   const whole = [...new Set(rooms)].filter(room => config.rooms[room] !== undefined).sort();
   const from: LampOverlayFrom = { kind: 'person' };
+  const levels = lightingState(model, now).lamps;
   let overlays = model.overlays.lamps;
   for (const over of changedOver(config, known, whole)) {
     const mine = (overlay: LampOverlay) => overlay.from.kind === 'person' && sameOver(overlay.over, over);
+    const first = firstLampOf(config, known, over);
+    const shown = first === undefined ? undefined : levels[first];
+    const level = shown === undefined || shown.power === 'off' ? 0 : shown.level;
     overlays = replaced(overlays, mine, earlier => light.power === 'off' ? { kind: 'off', over, from, since: now }
-      : withParts(earlier, over, from, requestedParts(light, pinnedLight(model, over, now), now), now));
+      : withParts(earlier, over, from, requestedParts(light, level, pinnedLight(model, over, now), now), now));
   }
   const roomPower = { ...model.overlays.roomPower };
   if (light.power === 'on') for (const room of roomsOf(config, known)) roomPower[room] = 'on';
@@ -114,6 +128,11 @@ function changedOver(config: Config, lamps: readonly LampId[], rooms: readonly R
     return room === undefined || !covered.has(room);
   });
   return [...rooms.map((room): LampOrRoom => ({ kind: 'room', room })), ...single.map((lamp): LampOrRoom => ({ kind: 'lamp', lamp }))];
+}
+
+/** The lamp a step on `over` moves from: the lamp itself, or the first lamp the call reaches in the room. */
+function firstLampOf(config: Config, lamps: readonly LampId[], over: LampOrRoom): LampId | undefined {
+  return over.kind === 'lamp' ? over.lamp : lamps.find(lamp => config.lamps[lamp]?.room === over.room);
 }
 
 function sameOver(a: LampOrRoom, b: LampOrRoom): boolean {

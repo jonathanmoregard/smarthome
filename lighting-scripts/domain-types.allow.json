@@ -37,6 +37,11 @@
     },
     {
       "file": "src/domain/types/range.ts",
+      "symbol": "brightnessStepOrThrow",
+      "reason": "A range constructor: its input is the plain number it checks and turns into the range type."
+    },
+    {
+      "file": "src/domain/types/range.ts",
       "symbol": "kelvinOrThrow",
       "reason": "A range constructor: its input is the plain number it checks and turns into the range type."
     },

@@ -11,7 +11,7 @@ import type { Colour, LampLight, OnLight } from '../../src/domain/types/light.ts
 import type { Instant } from '../../src/domain/types/time.ts';
 import {
   toBrightness, toBulbId, toColourChannel, toDashboardControlId, toInstant, toKelvin, toLampId, toLevel, toPercentRange,
-  toRemoteId, toRoomId, toStep, toSwitchId, toTimeOfDay,
+  toBrightnessStep, toRemoteId, toRoomId, toStep, toSwitchId, toTimeOfDay,
 } from '../../src/parse/ids.ts';
 import { syntheticHouse } from './fixtures/synthetic-house.ts';
 
@@ -68,7 +68,7 @@ const clock = (time: string, day = 21): Msg => ({ kind: 'clock', now: at(time, d
 const person = (lamps: readonly LampId[], light: RequestedLight, time: string, rooms: readonly RoomId[] = []): Msg =>
   ({ kind: 'lampChangedByPerson', lamps, rooms, light, at: at(time) });
 const brightness = (lamps: readonly LampId[], value: number, time: string, rooms: readonly RoomId[] = []): Msg =>
-  person(lamps, { power: 'on', brightness: toBrightness(value), colour: undefined, effect: undefined }, time, rooms);
+  person(lamps, { power: 'on', brightness: { kind: 'fixed', brightness: toBrightness(value) }, colour: undefined, effect: undefined }, time, rooms);
 const personOff = (lamps: readonly LampId[], time: string, rooms: readonly RoomId[] = []): Msg => person(lamps, { power: 'off' }, time, rooms);
 const PLAIN_ON: RequestedLight = { power: 'on', brightness: undefined, colour: undefined, effect: undefined };
 const pressed = (power: 'on' | 'off', time: string): Msg => ({ kind: 'switchButtonPressed', switch: plugA, power, at: at(time) });
@@ -151,6 +151,22 @@ test("a person's change of a whole room is one room overlay", () => {
   assert.deepEqual(lamp(model, lampB1, at('12:00:00')), DAY);
 });
 
+test("a person's brightness step moves each lamp it reaches from that lamp's own level", () => {
+  // Amendment 7.2. Break: the step is resolved once, from the first lamp the call reaches (the adapter did that), and
+  // every lamp gets that level.
+  const step = (by: number): RequestedLight => ({ power: 'on', brightness: { kind: 'step', by: toBrightnessStep(by) }, colour: undefined,
+    effect: undefined });
+  const held = after(house(), brightness([lampA1], 80, '11:00:00'));
+  const model = after(held, person([lampA1, lampA2], step(30), '12:00:00'));
+  assert.deepEqual(lamp(model, lampA1, at('12:00:00')), shows(110, kelvin(4000)));
+  assert.deepEqual(lamp(model, lampA2, at('12:00:00')), shows(250, kelvin(4000)));
+  const down = after(held, person([lampA1, lampA2], step(-100), '12:00:00'));
+  const a1 = down.overlays.lamps.find(overlay => overlay.over.kind === 'lamp' && overlay.over.lamp === lampA1);
+  assert.ok(a1 !== undefined && a1.kind === 'parts');
+  assert.deepEqual(a1.brightness, { kind: 'fixed', brightness: toBrightness(0), at: at('12:00:00') }, 'held at 80, stepped down 100: held at 0');
+  assert.deepEqual(lamp(down, lampA2, at('12:00:00')), shows(120, kelvin(4000)));
+});
+
 test("a call naming each lamp of a room is one overlay per lamp, as today", () => {
   // Only a named area or group gives a room overlay (today's roomScopes). Break: the lamps are folded into a room overlay.
   const model = after(house(), brightness([lampA1, lampA2], 60, '12:00:00'), brightness([lampB1], 60, '12:00:00'));
@@ -176,7 +192,7 @@ test("a person's brightness change on a candle lamp keeps the candle", () => {
 test("a person's change to the normal light pins the level and colour the lamp shows, and ends the candle", () => {
   // Today's `held` (review ruling): a dimmed candle switched to the normal light stays dim, at the colour under the
   // candle, and stays there. Break: the parts are handed back to the schedule, or the candle keeps running.
-  const candleAt60 = person([lampA1], { power: 'on', brightness: toBrightness(60), colour: undefined, effect: { kind: 'candle' } }, '12:00:00');
+  const candleAt60 = person([lampA1], { power: 'on', brightness: { kind: 'fixed', brightness: toBrightness(60) }, colour: undefined, effect: { kind: 'candle' } }, '12:00:00');
   const toNormal = person([lampA1], { power: 'on', brightness: undefined, colour: undefined, effect: { kind: 'normal' } }, '12:10:00');
   const model = after(house(), candleAt60);
   assert.deepEqual(lamp(model, lampA1, at('12:00:00')), shows(60, WARM_END, candle));

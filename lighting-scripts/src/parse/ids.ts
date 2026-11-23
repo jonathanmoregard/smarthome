@@ -12,13 +12,14 @@ import type { BulbId, DashboardControlId, LampId, RemoteId, RemoteSource, RoomId
 import type { SavedOverlayKey } from '../adapter/codecs/overlay-key.ts';
 import type { CatalogEffectName } from '../runtime/catalog.ts';
 import type { MqttTopic } from '../adapter/encode.ts';
-import type { Brightness, ColourChannel, Kelvin, Level, Percent, PercentRange } from '../domain/types/light.ts';
+import type { Brightness, BrightnessStep, ColourChannel, Kelvin, Level, Percent, PercentRange } from '../domain/types/light.ts';
 import type { Instant, Seconds, TimeOfDay, Timezone } from '../domain/types/time.ts';
 import type { Step, StepCount } from '../domain/types/remote.ts';
 import type { Minutes } from '../domain/types/range.ts';
 import type { Progress } from '../domain/types/schedule.ts';
 import {
-  brightnessOrThrow, colourChannelOrThrow, instantOrThrow, isWithin, kelvinOrThrow, levelOrThrow, minutesOrThrow, percentOrThrow,
+  brightnessOrThrow, brightnessStepOrThrow, colourChannelOrThrow, instantOrThrow, isWithin, kelvinOrThrow, levelOrThrow,
+  minutesOrThrow, percentOrThrow,
   percentRangeOrThrow, PERCENT_BOUNDS, progressOrThrow, secondsOrThrow, stepCountOrThrow, stepOrThrow, STEP_BOUNDS, timeOfDayOrThrow,
 } from '../domain/types/range.ts';
 import { ParseError } from '../runtime/parse.ts';
@@ -104,6 +105,10 @@ export function toLevel(raw: number): Level {
 
 export function toBrightness(raw: number): Brightness {
   return asParseError(() => brightnessOrThrow(raw));
+}
+
+export function toBrightnessStep(raw: number): BrightnessStep {
+  return asParseError(() => brightnessStepOrThrow(raw));
 }
 
 export function toKelvin(raw: number): Kelvin {

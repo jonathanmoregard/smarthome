@@ -3,7 +3,7 @@ import type { Config } from './config.ts';
 import type { EffectName } from './effect.ts';
 import type { BrightnessPart, ColourPart, EffectPart, ModeOverlay, Overlays } from './overlays.ts';
 import type { DashboardControlId, LampId, RemoteId, RoomId, SwitchId } from './types/ids.ts';
-import type { Brightness, Colour, PercentRange, Power, SceneLight } from './types/light.ts';
+import type { Brightness, BrightnessStep, Colour, PercentRange, Power, SceneLight } from './types/light.ts';
 import type { LampOrRoom } from './types/lighting-state.ts';
 import type { RemoteCommand } from './types/remote.ts';
 import type { RoomOrHouse } from './types/schedule.ts';
@@ -149,7 +149,13 @@ export type ControlLight =
  */
 export type RequestedLight =
   | { power: 'off' }
-  | { power: 'on'; brightness: Brightness | undefined; colour: Colour | undefined; effect: RequestedEffect | undefined };
+  | { power: 'on'; brightness: RequestedBrightness | undefined; colour: Colour | undefined; effect: RequestedEffect | undefined };
+
+/**
+ * A person's brightness: a fixed level, or a step that moves each lamp the
+ * call reaches from the level that lamp shows (off counts as 0).
+ */
+export type RequestedBrightness = { kind: 'fixed'; brightness: Brightness } | { kind: 'step'; by: BrightnessStep };
 
 /** The effect a person's call can choose: the candle, or the normal light. */
 export type RequestedEffect = Extract<EffectPart, { kind: 'candle' } | { kind: 'normal' }>;

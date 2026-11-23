@@ -132,7 +132,7 @@ test('a step restarts from zero under a newer overlay on the room', () => {
 test("a newer overlay on one lamp does not restart the room's steps", () => {
   // Today only an overlay over the whole room restarts them. Break: a person's change of one lamp restarts the count.
   const person: Msg = { kind: 'lampChangedByPerson', lamps: [lampA2], rooms: [], at: at('12:05:00'),
-    light: { power: 'on', brightness: toBrightness(150), colour: undefined, effect: undefined } };
+    light: { power: 'on', brightness: { kind: 'fixed', brightness: toBrightness(150) }, colour: undefined, effect: undefined } };
   const model = after(house(), ...presses('up', 3), person, send('up', '12:06:00'));
   assert.equal(stepsOf(model), 4);
   assert.deepEqual(lamp(model, lampA1, '12:07:00'), lamp(after(house(), ...presses('up', 3), send('up', '12:06:00')), lampA1, '12:07:00'));
