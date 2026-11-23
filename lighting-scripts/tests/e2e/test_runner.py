@@ -456,13 +456,20 @@ class RealBackends(unittest.TestCase):
                     from datetime import datetime, timezone
                     from tests.e2e.backend import Session
                     from tests.e2e.env import open_sim
+                    from tests.e2e.router import HaStart
                     with open_sim({backend!r}) as sim:
                         session = Session.open(sim, {backend!r}, datetime(2026, 10, 23, 10, tzinfo=timezone.utc))
                         # The house's day block wants on/off plugs on, so the schedule names every plug it sees.
                         sim.put('input_boolean.ls_house_day_on_off', 'on', {{}})
-                        base = sim.run('ls_base', reason='config', overrides={{}})
-                        wanted = [entity for command in base['schedule']['cmds'] if command.get('kind') == 'switch'
-                                  for entity in command['ids']]
+                        if {backend!r} == 'reference':
+                            # The captured scripts' schedule, asked directly.
+                            base = sim.run('ls_base', reason='config', overrides={{}})
+                            wanted = [entity for command in base['schedule']['cmds'] if command.get('kind') == 'switch'
+                                      for entity in command['ids']]
+                        else:
+                            # The port has no schedule script to ask; its start switches on what its schedule wants.
+                            session.run([HaStart()])
+                            wanted = [plug for plug in session.world.switch_names() if session.world.switch(plug) == 'on']
                         print(json.dumps({{'plugs': session.plugs, 'switches': session.world.switch_names(),
                                           'wanted': wanted}}))
                 ''')
