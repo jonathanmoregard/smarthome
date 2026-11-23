@@ -72,12 +72,19 @@ EXPECTED: tuple[ExpectedDifference, ...] = (
     # target is switched back on, and only an unreachable bulb or a disconnected bridge is left alone. A lamp whose
     # scheduled light is off in one block (both backends switch it off) and lit in the next: from that block's fade
     # the port lights it and keeps it lit; today's scripts send only to bulbs HA shows on, so they leave it off.
+    # Owner rule 2026-11-23 ("A"), The schedule lights lamps again by itself: "the schedule switches lamps on as
+    # well as off".
+    # A window opens at a step, and a step's first checkpoints can come before the lamp's fade (another bulb's fade
+    # is sampled): there the port still shows the off it shares with the reference, so `port_holds` (held from the
+    # first checkpoint) cannot hold. Those entries do without it: still only power differences on the bulbs the
+    # schedule names, from that step on, and `expected-missing` if the port never lights them.
     *(ExpectedDifference('reconciler-lights-the-next-block', scenario, 'lamp lit again by the block whose fade starts '
-                         'in the step', 'power', after_step=step, until='scenario end', port_holds=True)
-      for scenario, step in (('schedule_day', 19), ('schedule_day', 22), ('ha_restart_mid_fade', 1),
-                             ('midnight_weekend', 1), ('midnight_weekend', 6), ('next_block_reset', 3),
-                             ('person_change_then_expiry', 2), ('person_change_then_expiry', 3), ('range_save', 3),
-                             ('plug_button', 6))),
+                         'in the step', 'power', after_step=step, until='scenario end', port_holds=holds)
+      for scenario, step, holds in (('schedule_day', 19, True), ('schedule_day', 22, True),
+                                    ('ha_restart_mid_fade', 1, True), ('midnight_weekend', 1, True),
+                                    ('midnight_weekend', 6, False), ('next_block_reset', 3, False),
+                                    ('person_change_then_expiry', 2, True), ('person_change_then_expiry', 3, False),
+                                    ('range_save', 3, True), ('plug_button', 6, True))),
     # The same rule: a lamp the dashboard's house block hold has off and its own block lights is lit again when the
     # hold is cleared; today's scripts leave it off.
     ExpectedDifference('reconciler-lights-after-the-hold', 'dashboard_block_then_clear',
