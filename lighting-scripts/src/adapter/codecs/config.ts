@@ -36,8 +36,8 @@ import type { EntityState, JsonValue } from '../ha-client.ts';
 import { ParseError, isObject, parseFinite } from './parse.ts';
 import { decodeLampProfile } from './lamp-profiles.ts';
 import type { Rooms } from './rooms.ts';
-import { uiRowsOf } from './inputs.ts';
-import type { UiRow } from './inputs.ts';
+import { uiRowsOf } from './catalog.ts';
+import type { UiRow } from './catalog.ts';
 
 /** The HA state the config is read from: each helper's state and attributes, the registry's rooms, the labels. */
 export type ConfigSource = {
@@ -76,7 +76,7 @@ export function decodeConfig(source: ConfigSource, catalog: Catalog): Config {
 
 /** The catalog's live controls (the UI rows with no profile store) that are over a lamp or a room of the house. */
 function decodeControls(catalog: Catalog, lamps: Record<LampId, Lamp>, rooms: Record<RoomId, Room>): Record<DashboardControlId, LampOrRoom> {
-  return Object.fromEntries(uiRowsOf({ catalog }).flatMap(row => {
+  return Object.fromEntries(uiRowsOf(catalog).flatMap(row => {
     if (row.store !== undefined) return [];
     const over = controlOver(row, lamps, rooms);
     return over === undefined ? [] : [[toDashboardControlId(row.source), over]];

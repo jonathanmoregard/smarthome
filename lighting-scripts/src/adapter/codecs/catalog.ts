@@ -39,7 +39,7 @@
  * at load time. A catalog whose `topics` hold a number is an authoring error,
  * and failing on the file beats publishing to the topic `7`.
  */
-import { ParseError, describe, isObject, requireArray, requireBoolean, requireObject, requireString } from './parse.ts';
+import { ParseError, describe, isObject, object, requireArray, requireBoolean, requireObject, requireString } from './parse.ts';
 import type { JsonObject, JsonValue } from '../ha-client.ts';
 import type { BulbId, Id, LampId, RemoteId } from '../../domain/types/ids.ts';
 import type { RemoteSource } from './ids.ts';
@@ -284,6 +284,25 @@ function stringMap(document: JsonObject, key: string, context: string): Record<s
 /** An absent list is an empty one; a present non-list is an error. */
 function valueList(document: JsonObject, key: string, context: string): JsonValue[] {
   return document[key] === undefined ? [] : requireArray(document, key, context);
+}
+
+/** A UI row of the catalog: the control's source, its proxy, its profile store (none for a live control), its members and topics. */
+export type UiRow = {
+  source: string; proxy: string | undefined; store: string | undefined; members: string[]; topics: Partial<Record<string, string>>;
+};
+
+/** The catalog's UI rows; a row without a source is left out. */
+export function uiRowsOf(catalog: Catalog): UiRow[] {
+  return (catalog.ui_rows === undefined ? [] : catalog.ui_rows).flatMap(raw => {
+    const row = object(raw);
+    if (typeof row.source !== 'string') return [];
+    const store = typeof row.store === 'string' && row.store !== '' ? row.store : undefined;
+    const topics = Object.fromEntries(Object.entries(object(row.topics)).flatMap(([key, value]) =>
+      typeof value === 'string' ? [[key, value]] : []));
+    const proxy = typeof row.proxy === 'string' ? row.proxy : undefined;
+    const members = Array.isArray(row.members) ? row.members.flatMap(member => typeof member === 'string' ? [member] : []) : [];
+    return [{ source: row.source, proxy, store, members, topics }];
+  });
 }
 
 function stringList(value: JsonValue | undefined, context: string): string[] {

@@ -41,6 +41,7 @@ import { configSource, reportsOn } from './model.ts';
 import { callColour, callReach } from './native-call.ts';
 import type { Unexplained } from '../reconcile.ts';
 import type { CatalogRemote } from './catalog.ts';
+import { uiRowsOf } from './catalog.ts';
 
 /** What happened in Home Assistant, as a script or automation run names it. Fields are read by `messages`. */
 export type HaInput =
@@ -207,6 +208,10 @@ function optionalText(value: JsonValue | undefined): string | undefined {
   return typeof value === 'string' && value !== '' ? value : undefined;
 }
 
+function texts(values: readonly JsonValue[]): string[] {
+  return values.flatMap(value => typeof value === 'string' ? [value] : []);
+}
+
 /**
  * The override event's operations the Model holds: clear all, a room's power,
  * a block held, the mode on or off, a switch's range and the range defaults.
@@ -270,6 +275,15 @@ function rangeSaved(named: string | undefined, profile: string, minimum: RangeBo
   return [{ kind: 'rangeSaved', switch: toSwitchId(entity), rule, room, at: now }];
 }
 
+/**
+ * A switch's range rule saved, after today's checks (`decideRangeSave`): a
+ * physical switch or on/off-only light with a device, in a room, and a rule
+ * that is bright, cosy, or an own range in order inside 0..100. A missing
+ * own-range end keeps the saved one. A save that fails a check raises.
+ */
+/** Today's refusal of a range save that names no physical switch or on/off lamp. */
+const NOT_PHYSICAL = 'Choose a physical on/off lamp or smart plug.';
+
 function rangeRule(profile: string, entity: string, minimum: RangeBound, maximum: RangeBound, house: HouseView): RangeRule {
   if (profile === 'bright' || profile === 'cosy') return { kind: profile };
   if (profile !== 'custom') throw new ParseError('Choose Bright Default, Cosy Default, or Own Range.');
@@ -279,15 +293,6 @@ function rangeRule(profile: string, entity: string, minimum: RangeBound, maximum
   if (range === undefined) throw new ParseError('Enter both ends of Own Range: 0–100%, with From no higher than Through.');
   return { kind: 'custom', range };
 }
-
-/**
- * A switch's range rule saved, after today's checks (`decideRangeSave`): a
- * physical switch or on/off-only light with a device, in a room, and a rule
- * that is bright, cosy, or an own range in order inside 0..100. A missing
- * own-range end keeps the saved one. A save that fails a check raises.
- */
-/** Today's refusal of a range save that names no physical switch or on/off lamp. */
-const NOT_PHYSICAL = 'Choose a physical on/off lamp or smart plug.';
 
 function bound(value: JsonValue | undefined): RangeBound {
   return value === undefined || value === null || typeof value === 'number' || typeof value === 'string' || typeof value === 'boolean'
@@ -391,19 +396,19 @@ function roomReportsOn(model: Model, remote: RemoteId, house: HouseView): boolea
   return room !== undefined && reportsOn(configSource(house), model.config, model.switchRanges, room);
 }
 
+/** The preset buttons, coolest first, by the colour temperature (in mireds) each sends: today's `presets` table. */
+const PRESETS: ReadonlyArray<readonly [number, PresetButton]> = [[200, 'coolest'], [285, 'cool'], [370, 'neutral'], [454, 'warm'],
+  [588, 'warmest']];
+
 /** A dashboard control's MQTT set: the row its topic's alias names, then as `effects_set`. */
 function effectPreview(topic: string | undefined, payload: JsonValue | undefined, model: Model, now: Instant, house: HouseView): Msg[] {
   if (topic === undefined) throw new ParseError('A control set with no topic');
   const parts = topic.split('/'), alias = parts[3], attribute = parts.at(-1);
   if (alias === undefined || attribute === undefined) throw new ParseError(`Not a control topic: ${topic}`);
-  const row = uiRowsOf(house).find(candidate => candidate.topics.power?.split('/')[3] === alias);
+  const row = uiRowsOf(house.catalog).find(candidate => candidate.topics.power?.split('/')[3] === alias);
   if (row === undefined) throw new ParseError(`No dashboard control for ${alias}`);
   return controlSet(row.source, attribute, payload, model, now, house);
 }
-
-/** The preset buttons, coolest first, by the colour temperature (in mireds) each sends: today's `presets` table. */
-const PRESETS: ReadonlyArray<readonly [number, PresetButton]> = [[200, 'coolest'], [285, 'cool'], [370, 'neutral'], [454, 'warm'],
-  [588, 'warmest']];
 
 /**
  * A dashboard control set (today's `effects_set`): on a lamp's profile row,
@@ -412,7 +417,7 @@ const PRESETS: ReadonlyArray<readonly [number, PresetButton]> = [[200, 'coolest'
  * The OFF of a lamp's control is its off hold, the ON the hold's end.
  */
 function controlSet(source: string, attribute: string, value: JsonValue | undefined, model: Model, now: Instant, house: HouseView): Msg[] {
-  const row = uiRowsOf(house).find(candidate => candidate.source === source);
+  const row = uiRowsOf(house.catalog).find(candidate => candidate.source === source);
   if (row === undefined) throw new ParseError(`effects_set: no dashboard control for ${source}`);
   if (row.store !== undefined) return profileSaved(storeSaveOf({ store: row.store, ...storeField(attribute, value) }, model), now);
   const over = model.config.controls[toDashboardControlId(source)];
@@ -437,12 +442,12 @@ function controlLight(attribute: string, value: JsonValue | undefined): ControlL
   }
 }
 
+/** The commands a room's remote sends (`ls_remote_command`). */
+const COMMANDS: readonly RemoteCommand[] = ['up', 'down', 'left', 'right', 'toggle', 'reset', 'mode'];
+
 function miredsColour(text: string): Colour {
   return { kind: 'kelvin', kelvin: toKelvin(Math.round(1_000_000 / wholeNumber(text, 100, 1000))) };
 }
-
-/** The commands a room's remote sends (`ls_remote_command`). */
-const COMMANDS: readonly RemoteCommand[] = ['up', 'down', 'left', 'right', 'toggle', 'reset', 'mode'];
 
 function rgbColour(text: string): Colour {
   const parts = text.split(',').map(part => toColourChannel(wholeNumber(part, 0, 255)));
@@ -471,23 +476,6 @@ function remoteButton(action: RemoteAction): RemoteButton | undefined {
       return { kind: 'preset', button: PRESETS.find(([preset]) => preset === mireds)?.[1] };
     }
   }
-}
-
-/** A UI row of the catalog: the control's source, its proxy, its profile store (none for a live control), its members and topics. */
-export type UiRow = {
-  source: string; proxy: string | undefined; store: string | undefined; members: string[]; topics: Partial<Record<string, string>>;
-};
-
-/** The catalog's UI rows; a row without a source is left out. */
-export function uiRowsOf(house: Pick<HouseView, 'catalog'>): UiRow[] {
-  return (house.catalog.ui_rows === undefined ? [] : house.catalog.ui_rows).flatMap(raw => {
-    const row = object(raw);
-    if (typeof row.source !== 'string') return [];
-    const store = typeof row.store === 'string' && row.store !== '' ? row.store : undefined;
-    const topics = Object.fromEntries(Object.entries(object(row.topics)).flatMap(([key, value]) => typeof value === 'string' ? [[key, value]] : []));
-    const proxy = typeof row.proxy === 'string' ? row.proxy : undefined;
-    return [{ source: row.source, proxy, store, members: Array.isArray(row.members) ? texts(row.members) : [], topics }];
-  });
 }
 
 /** A store save (today's `ls_store`): the profile or block light the store is, and the fields it sets. */
@@ -605,7 +593,7 @@ export function storeSaveIn(input: HaInput, house: HouseView, model: Model): Sto
     : input.kind === 'effect preview' && input.topic !== undefined ? previewSet(input.topic, input.payload, house) : undefined;
   if (set === undefined || typeof set.source !== 'string' || typeof set.attribute !== 'string') return undefined;
   const source = set.source;
-  const row = uiRowsOf(house).find(candidate => candidate.source === source);
+  const row = uiRowsOf(house.catalog).find(candidate => candidate.source === source);
   return row === undefined || row.store === undefined ? undefined
     : storeSaveOf({ store: row.store, ...storeField(set.attribute, set.value) }, model);
 }
@@ -613,7 +601,7 @@ export function storeSaveIn(input: HaInput, house: HouseView, model: Model): Sto
 /** A control topic's set as `effects_set` takes it: the row's source, the attribute and the value. */
 function previewSet(topic: string, payload: JsonValue | undefined, house: HouseView): JsonObject | undefined {
   const parts = topic.split('/'), alias = parts[3], attribute = parts.at(-1);
-  const row = uiRowsOf(house).find(candidate => alias !== undefined && candidate.topics.power?.split('/')[3] === alias);
+  const row = uiRowsOf(house.catalog).find(candidate => alias !== undefined && candidate.topics.power?.split('/')[3] === alias);
   return row === undefined || attribute === undefined ? undefined : { source: row.source, attribute, value: payload === undefined ? null : payload };
 }
 
@@ -633,8 +621,4 @@ function wholeNumber(text: string, low: number, high: number): number {
   const number = Number(text);
   if (text.trim() === '' || !Number.isFinite(number) || number < low || number > high) throw new ParseError(`${text} is not ${low}..${high}`);
   return Math.round(number);
-}
-
-function texts(values: readonly JsonValue[]): string[] {
-  return values.flatMap(value => typeof value === 'string' ? [value] : []);
 }

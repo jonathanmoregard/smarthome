@@ -23,7 +23,8 @@ import { configSource, decodeModel } from './codecs/model.ts';
 import { decodeRangeDefaults } from './codecs/range-defaults.ts';
 import { carries, outcomeOf, publishes } from './encode.ts';
 import type { Output } from './encode.ts';
-import { messages, storeSaveIn, uiRowsOf, unexplainedMessages } from './codecs/inputs.ts';
+import { messages, storeSaveIn, unexplainedMessages } from './codecs/inputs.ts';
+import { uiRowsOf } from './codecs/catalog.ts';
 import type { HaInput, StoreSave } from './codecs/inputs.ts';
 import { decodeObserved } from './codecs/observed.ts';
 import type { Observed } from './reconcile.ts';
@@ -219,7 +220,7 @@ function blockLightRead(light: BlockLight, change: LampProfileChange, write: Sto
 
 /** The config's live controls with their proxy topics, from the catalog's UI rows. */
 function controlRows(model: Model, house: HouseView): ControlRow[] {
-  return uiRowsOf(house).flatMap(row => {
+  return uiRowsOf(house.catalog).flatMap(row => {
     const control = toDashboardControlId(row.source);
     return row.store !== undefined || model.config.controls[control] === undefined ? [] : [{ control, topics: row.topics }];
   });

@@ -22,8 +22,8 @@ import type { HouseView } from './house.ts';
 import { roundEven } from '../../domain/blend.ts';
 import { lampReading, proxyKelvin, proxyShowsRgb, uiProfile } from './ui-state.ts';
 import { object } from './parse.ts';
-import { uiRowsOf } from './inputs.ts';
-import type { UiRow } from './inputs.ts';
+import { uiRowsOf } from './catalog.ts';
+import type { UiRow } from './catalog.ts';
 import { blockLightStore } from './config.ts';
 import type { BlockLight } from './config.ts';
 import { decodeLampProfile, encodeLampProfile } from './lamp-profiles.ts';
@@ -77,7 +77,7 @@ export const OVERRIDES_SENSOR = 'sensor.ls_overrides';
  */
 export function uiSyncWrites(house: HouseView, force: boolean): DashboardWrite[] {
   const writes: DashboardWrite[] = [];
-  for (const row of uiRowsOf(house)) if (row.proxy !== undefined) writes.push(...rowSync(house, row, row.proxy, force));
+  for (const row of uiRowsOf(house.catalog)) if (row.proxy !== undefined) writes.push(...rowSync(house, row, row.proxy, force));
   const choices = house.catalog.ui_choices === undefined ? DEFAULT_CHOICES : house.catalog.ui_choices;
   for (const row of discoveryRowsOf(house)) {
     if (house.state[row.entity] === undefined || isDeepStrictEqual(house.attr(row.entity, 'effect_list'), choices)) continue;
