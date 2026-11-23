@@ -546,6 +546,11 @@ function profileStoreOf(store: string, model: Model): ProfileStore | undefined {
   return model.config.switches[plug] === undefined ? undefined : { kind: 'switch', switch: plug, block };
 }
 
+/** A bridge event (`smarthome_script`): the script or automation it forwards, and its arguments. */
+export function bridgeRunOf(data: JsonObject): { script: string; args: JsonObject } {
+  return { script: String(data.script), args: object(data.args) };
+}
+
 /** May this bridge run be the echo of a call of ours? */
 export function mayBeEcho(script: string): boolean {
   return ECHOED.includes(script);

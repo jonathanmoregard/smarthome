@@ -102,8 +102,7 @@ export class Host {
 
   /** One turn: its outputs made one at a time; the answer is when to be woken. */
   private async run(input: HaInput, now: Instant): Promise<Instant | undefined> {
-    const nowText = new Date(now * 1000).toISOString();
-    const turn = handleInput(this.kept, houseView(this.mirror, nowText, this.catalog), input);
+    const turn = handleInput(this.kept, houseView(this.mirror, now, this.catalog), input);
     if (turn.dropped !== undefined) this.io.log.error(`lighting: ${input.kind}: ${turn.dropped}; dropped`);
     const failed: boolean[] = [];
     const started = performance.now();
@@ -113,7 +112,7 @@ export class Host {
       try {
         const context = await this.io.ha.call(call);
         if (context !== undefined) this.ownContexts = [...this.ownContexts, context].slice(-OWN_CONTEXTS);
-        this.mirror = { ...this.mirror, state: afterCall(this.mirror.state, call, nowText) };
+        this.mirror = { ...this.mirror, state: afterCall(this.mirror.state, call, now) };
         failed.push(false);
       } catch (error) {
         this.io.log.error(`lighting: ${call.service} failed: ${error instanceof Error ? error.message : String(error)}`);

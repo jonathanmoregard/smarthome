@@ -42,7 +42,7 @@ class FakeHa {
     const context = `context-${this.calls.length}`;
     await this.during(call);
     if (this.failing(call)) throw new Error('Home Assistant did not take it');
-    this.states = afterCall(this.states, call, new Date().toISOString());
+    this.states = afterCall(this.states, call, toInstant(Date.now() / 1000));
     if (call.service === 'mqtt.publish' && typeof call.data.topic === 'string' && typeof call.data.payload === 'string'
       && call.data.topic.startsWith('zigbee2mqtt/')) {
       this.bulbs.apply([{ topic: toMqttTopic(call.data.topic), payload: JSON.parse(call.data.payload) as Publish['payload'] }]);

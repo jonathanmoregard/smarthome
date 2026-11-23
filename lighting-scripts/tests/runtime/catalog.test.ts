@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseCatalog, emptyCatalog } from '../../src/adapter/codecs/catalog.ts';
+import { parseCatalog, parseDeployedCatalog, emptyCatalog } from '../../src/adapter/codecs/catalog.ts';
 import type { JsonObject } from '../../src/adapter/ha-client.ts';
 
 /**
@@ -139,8 +139,8 @@ test('a remote must name its device and source', () => {
 });
 
 test('a partial catalog parses, because requiring a registry is the loading edge\'s job', () => {
-  // main.ts and live.ts both refuse to start without members, groups and
-  // effects, and say so in terms of the registry. Repeating that rule here
+  // parseDeployedCatalog, which main.ts loads with, refuses a catalog without
+  // members, groups and effects. Repeating that rule here
   // would reject the single-script snapshots that carry only the collection
   // under test, and buy nothing: every consumer of the parsed view iterates or
   // looks up, so an absent collection and an empty one are the same to it.
@@ -187,4 +187,11 @@ test('a catalog remote whose source spells a dashboard or native key is refused 
     assert.throws(() => parseCatalog({ ...minimal, remotes: { studio: { device_id: 'abc', source } } }),
       /A remote source must not begin/, source);
   }
+});
+
+test('a deployed catalog names its members, groups and effects', () => {
+  // Break: the live process starts on a catalog with no members (moved from main.ts's own checks into the codec).
+  assert.throws(() => parseDeployedCatalog({ groups: {}, effects: {} }), /catalog\.members must be an object/);
+  assert.throws(() => parseDeployedCatalog({ members: {}, effects: {} }), /catalog\.groups must be an object/);
+  assert.deepEqual(parseDeployedCatalog({ members: {}, groups: {}, effects: {} }).members, {});
 });

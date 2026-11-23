@@ -8,22 +8,19 @@ import type { FSWatcher } from 'node:fs';
 import { mkdir, open, readFile, rename } from 'node:fs/promises';
 import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseCatalog } from './adapter/codecs/catalog.ts';
+import { parseDeployedCatalog } from './adapter/codecs/catalog.ts';
 import type { Catalog } from './adapter/codecs/catalog.ts';
+import { houseMirrorOf, stateChangedOf } from './adapter/codecs/house.ts';
+import { bridgeRunOf } from './adapter/codecs/inputs.ts';
 import { toInstant } from './adapter/codecs/ids.ts';
 import { parseRooms } from './adapter/codecs/rooms.ts';
-import type { JsonObject, ServiceCall } from './adapter/ha-client.ts';
+import { HomeAssistantClient } from './adapter/ha-client.ts';
+import type { JsonValue, ServiceCall } from './adapter/ha-client.ts';
 import { heartbeatCall } from './adapter/encode.ts';
 import { readLiveRoomsFlag, refuseUnlessWholeHouse } from './adapter/live-rooms.ts';
 import type { LiveRooms } from './adapter/live-rooms.ts';
 import { Host } from './host.ts';
 import type { Journal } from './host.ts';
-import { entityState, HomeAssistantClient } from './live.ts';
-
-const record = (value: unknown): JsonObject => {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('Expected a JSON object');
-  return value as JsonObject;
-};
 
 export async function main(argv = process.argv.slice(2)): Promise<void> {
   // First: a port started without its rooms must not touch anything.
@@ -40,9 +37,9 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   if (configuration === undefined) throw new Error('Live mode requires --config with the runtime catalog');
   const url = process.env.HA_URL, tokenFile = process.env.HA_TOKEN_FILE;
   if (url === undefined || tokenFile === undefined) throw new Error('Live mode requires HA_URL and an existing HA_TOKEN_FILE');
-  let catalog = parseCatalog(await readRuntimeCatalog(configuration));
+  let catalog = await readRuntimeCatalog(configuration);
   const ha = await HomeAssistantClient.connect(url, await readFile(tokenFile, 'utf8'));
-  const read = () => ha.read(new Set(Object.keys(catalog.members)));
+  const read = async () => houseMirrorOf(await ha.read(), new Set(Object.keys(catalog.members)));
   let stopHeartbeat = () => {}, watcher: FSWatcher | undefined;
   try {
     const mirror = await read();
@@ -54,18 +51,17 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     const reread = () => { const startedAt = toInstant(Date.now() / 1000); return read().then(house => host.houseRead(house, startedAt)); };
     ha.onConnection(connected => { if (connected) void reread().then(() => host.accept({ kind: 'wake' })).catch(report); });
     await ha.subscribe('state_changed', event => {
-      const state = event.data.new_state;
-      host.stateChanged(String(event.data.entity_id), state === null || state === undefined ? undefined
-        : entityState(state as unknown as Parameters<typeof entityState>[0]));
+      const changed = stateChangedOf(event.data);
+      host.stateChanged(changed.entity, changed.state);
     });
     // Home Assistant keeps the triggers only; every decision runs in this process.
-    await ha.subscribe('smarthome_script', event => host.script(String(event.data.script), record(event.data.args ?? {})));
+    await ha.subscribe('smarthome_script', event => { const run = bridgeRunOf(event.data); host.script(run.script, run.args); });
     for (const event of ['entity_registry_updated', 'device_registry_updated', 'area_registry_updated', 'label_registry_updated']) {
       await ha.subscribe(event, () => { void reread().catch(report); });
     }
     stopHeartbeat = startHeartbeat(liveRooms, call => ha.call(call), report);
-    watcher = watchRuntimeCatalog(configuration, async document => {
-      catalog = parseCatalog(document);
+    watcher = watchRuntimeCatalog(configuration, async read => {
+      catalog = read;
       host.catalogChanged(catalog);
       host.accept({ kind: 'wake' });
       console.error('Runtime config reloaded.');
@@ -86,11 +82,9 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
 }
 
 /** The runtime catalog, parsed in full at load and at every reload, so a catalog the lighting would refuse never replaces the running one. */
-export async function readRuntimeCatalog(path: string): Promise<JsonObject> {
-  const catalog = record(JSON.parse(await readFile(path, 'utf8')));
-  record(catalog.members); record(catalog.groups); record(catalog.effects);
-  parseCatalog(catalog);
-  return catalog;
+export async function readRuntimeCatalog(path: string): Promise<Catalog> {
+  const document: JsonValue = JSON.parse(await readFile(path, 'utf8'));
+  return parseDeployedCatalog(document);
 }
 
 /** The journal in a file: none before the first save; each save written whole and renamed into place. */
@@ -127,7 +121,7 @@ export function startHeartbeat(live: LiveRooms, send: (call: ServiceCall) => Pro
   return () => clearInterval(timer);
 }
 
-export function watchRuntimeCatalog(path: string, accept: (catalog: JsonObject) => Promise<void>, reject: (error: unknown) => void): FSWatcher {
+export function watchRuntimeCatalog(path: string, accept: (catalog: Catalog) => Promise<void>, reject: (error: unknown) => void): FSWatcher {
   let revision = 0;
   return watch(dirname(resolve(path)), (_event, filename) => {
     if (filename !== basename(path)) return;

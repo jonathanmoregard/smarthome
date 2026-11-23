@@ -39,7 +39,7 @@
  * at load time. A catalog whose `topics` hold a number is an authoring error,
  * and failing on the file beats publishing to the topic `7`.
  */
-import { ParseError, describe, requireArray, requireBoolean, requireObject, requireString } from './parse.ts';
+import { ParseError, describe, isObject, requireArray, requireBoolean, requireObject, requireString } from './parse.ts';
 import type { JsonObject, JsonValue } from '../ha-client.ts';
 import type { BulbId, Id, LampId, RemoteId } from '../../domain/types/ids.ts';
 import type { RemoteSource } from './ids.ts';
@@ -183,6 +183,18 @@ export function emptyCatalog(): Catalog {
 }
 
 /**
+ * The catalog a live house runs on: as {@link parseCatalog}, and it must name its members, groups and effects, which
+ * a partial catalog (a test's, a single script's snapshot) may leave out.
+ */
+export function parseDeployedCatalog(document: JsonValue | undefined): Catalog {
+  for (const key of ['members', 'groups', 'effects']) {
+    const value = isObject(document) ? document[key] : undefined;
+    if (!isObject(value)) throw new ParseError(`catalog.${key} must be an object: a deployed catalog names its ${key}`);
+  }
+  return parseCatalog(document);
+}
+
+/**
  * Parse a catalog document. Raises on anything the lighting logic would later
  * mis-read; see the module comment for which fields are deliberately lenient.
  */
@@ -192,9 +204,9 @@ export function parseCatalog(document: JsonValue | undefined): Catalog {
   }
   const at = 'catalog';
   // Nothing is required here. Whether a *deployed* catalog must name members,
-  // groups and effects is a question for the edge that loads one: `main.ts`
-  // and `live.ts` both already refuse to start without them, and say so in
-  // terms of the registry. Repeating it here would only reject the partial
+  // groups and effects is a question for the edge that loads one
+  // (`parseDeployedCatalog`, which `main.ts` reads the runtime catalog with).
+  // Requiring it here would only reject the partial
   // catalogs that tests and single-script snapshots legitimately carry, and no
   // consumer of this parsed view raises on an absent collection -- they all
   // iterate or look up, so absent and empty are the same to them.

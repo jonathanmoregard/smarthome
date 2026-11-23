@@ -19,14 +19,15 @@ Every input goes Home Assistant → `HaInput` → `Msg` → `update` →
    never sees Home Assistant's JSON.
 2. `src/adapter/`: one turn (`loop.ts`: `handleInput`, `afterOutputs`), the
    reconciler (`reconcile.ts`), the outputs and their Home Assistant calls
-   (`encode.ts`) and the client's types (`ha-client.ts`).
+   (`encode.ts`) and the websocket client with its wire types (`ha-client.ts`).
 3. `src/adapter/codecs/`: every read and write of Home Assistant's JSON: the
    house mirror, the inputs, the config and Model, the helper and store
    writes, the catalog and the journal.
 4. The host: `src/host.ts` keeps the Home Assistant mirror and the journal,
    runs turns one at a time, makes each output's call in order and sets one
-   timer for the next wake. `src/main.ts` runs it live; `src/live.ts` is the
-   websocket client; `src/rpc.ts` is the JSON-lines host the e2e harness drives.
+   timer for the next wake. `src/main.ts` runs it live, over the websocket client
+   in `src/adapter/ha-client.ts`; `src/rpc.ts` is the JSON-lines host the e2e
+   harness drives.
 
 `npm run check` holds these layers: `scripts/domain-imports.mjs` (the domain
 imports only itself, the adapter never the host), `scripts/json-edges.mjs` (no

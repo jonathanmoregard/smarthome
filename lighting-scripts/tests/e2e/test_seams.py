@@ -357,7 +357,7 @@ const cases = {cases};
 const out = [];
 for (const [service, target, data] of cases) {{
   const call = Object.keys(target).length === 0 ? {{ service, data }} : {{ service, data, target }};
-  const state = afterCall(structuredClone({state}), call, '2026-10-23T12:00:00+02:00');
+  const state = afterCall(structuredClone({state}), call, Date.parse('2026-10-23T12:00:00+02:00') / 1000);
   out.push(Object.fromEntries(Object.entries(state).map(([entity, value]) => [entity, [value.state, value.attributes]])));
 }}
 console.log(JSON.stringify(out));

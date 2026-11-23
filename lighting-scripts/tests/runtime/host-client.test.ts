@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createConnection } from 'home-assistant-js-websocket';
 import type { HaWebSocket } from 'home-assistant-js-websocket';
-import { HomeAssistantClient } from '../../src/live.ts';
+import { HomeAssistantClient } from '../../src/adapter/ha-client.ts';
+import { houseMirrorOf } from '../../src/adapter/codecs/house.ts';
 
 class SocketPort extends EventTarget {
   OPEN = 1; readyState = 1; haVersion = '2026.7.4'; frames: Record<string, unknown>[] = [];
@@ -56,7 +57,7 @@ test('entity context survives a full read', async () => {
   const socket = new SnapshotPort();
   const connection = await createConnection({ createSocket: async () => socket as unknown as HaWebSocket });
   const transport = new HomeAssistantClient(connection);
-  const read = await transport.read(new Set());
+  const read = houseMirrorOf(await transport.read(), new Set());
   assert.deepEqual(read.state['script.test']?.context, { id: 'script-call' });
   assert.deepEqual(read.state['sensor.ls_overrides']?.context, { id: 'state-call' });
   await transport.close();

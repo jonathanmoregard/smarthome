@@ -2,7 +2,7 @@
 //
 // 1. A file under `src/domain/` imports only from `src/domain/`.
 // 2. A file under `src/adapter/` never imports the host: `src/host.ts`,
-//    `src/main.ts`, `src/live.ts` or `src/rpc.ts`.
+//    `src/main.ts` or `src/rpc.ts`.
 //
 // Every relative specifier is read: imports and re-exports, `import()` calls,
 // and `import('…')` type references. A package or `node:` import is outside
@@ -17,7 +17,7 @@ import { fail, option, ts } from './ts-project.mjs';
 const root = resolve(option('--root') ?? fileURLToPath(new URL('../', import.meta.url)));
 
 /** The host: what runs the adapter. */
-const HOST = new Set(['src/host.ts', 'src/main.ts', 'src/live.ts', 'src/rpc.ts']);
+const HOST = new Set(['src/host.ts', 'src/main.ts', 'src/rpc.ts']);
 
 const rel = file => relative(root, file).split(sep).join('/');
 const inside = (file, dir) => file === dir || file.startsWith(`${dir}/`);

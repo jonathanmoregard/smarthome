@@ -25,6 +25,7 @@ import { scriptInput } from './adapter/codecs/inputs.ts';
 import { afterOutputs, handleInput } from './adapter/loop.ts';
 import type { Kept } from './adapter/loop.ts';
 import { NO_BELIEFS } from './adapter/reconcile.ts';
+import { toInstant } from './adapter/codecs/ids.ts';
 
 /** A task the harness runs when the house's clock reaches `due` (epoch milliseconds). */
 export type ScheduledTask = { script: string; args: JsonObject; due: number };
@@ -83,12 +84,13 @@ export function answer(request: Request, adjust: (catalog: Catalog) => void = ()
     console.error(`lighting: ${script} is a dry run; dropped`);
     return { result: null, snapshot, calls: [], events: [], scriptRuns: [script] };
   }
-  const turn = handleInput(kept, houseView(snapshot, snapshot.now, catalog), input);
+  const now = toInstant(Date.parse(snapshot.now) / 1000);
+  const turn = handleInput(kept, houseView(snapshot, now, catalog), input);
   if (turn.dropped !== undefined) console.error(`lighting: ${script}: ${turn.dropped}; dropped`);
   let state: Record<string, EntityState> = snapshot.state;
   const calls = turn.outputs.map(output => {
     const call: TimedCall = { ...outputCall(output, turn.now), time: snapshot.elapsed ?? 0 };
-    state = afterCall(state, call, snapshot.now);
+    state = afterCall(state, call, now);
     return call;
   });
   const settled = afterOutputs(turn, turn.outputs.map(() => false));

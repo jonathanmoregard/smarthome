@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 /**
  * `scripts/domain-imports.mjs` keeps the layers importing downward: `src/domain/` imports only from itself, and
- * `src/adapter/` never imports the host (`src/host.ts`, `main.ts`, `live.ts`, `rpc.ts`). Type references written
+ * `src/adapter/` never imports the host (`src/host.ts`, `main.ts`, `rpc.ts`). Type references written
  * `import('…')` count as imports.
  */
 
@@ -50,7 +50,7 @@ test('an import() type reference counts as an import', () => {
 
 test('an adapter file importing the host fails; importing the domain passes', () => {
   // Break: the adapter reaches up into the host, so the host is no longer a wrapper the adapter can run without.
-  for (const host of ['host', 'main', 'live', 'rpc']) {
+  for (const host of ['host', 'main', 'rpc']) {
     const result = run({ 'src/adapter/a.ts': `import type { H } from '../${host}.ts';\nexport type A = H;\n`, [`src/${host}.ts`]: 'export type H = 1;\n' });
     assert.equal(result.status, 1, host);
     assert.match(result.output, new RegExp(`src/adapter/a\\.ts imports \\.\\./${host}\\.ts: the adapter never imports the host`));
