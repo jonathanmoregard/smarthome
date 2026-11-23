@@ -442,6 +442,17 @@ test("an off over a person's light replaces it in place, and a light over an off
   assert.deepEqual(decodeOverrides(twice).overlays.lamps, relit.overlays.lamps);
 });
 
+test("an off whose record has claims again (today's ls_commit merged a light onto its key) reads as that light", () => {
+  // Old ls_commit writes `{...old.value, channels}`, so `power: off` survives under the new claims.
+  // Break: the record still reads as off and its claims are dropped.
+  const raw = nativeEntry('lamp', lampA1, { brightness: constant(90, 7) }, 7);
+  const overrides = { [`channels:native:${lampA1}`]: { ...raw, value: { ...(raw.value as JsonObject), power: 'off' } } };
+  const lamps = decode(overrides).overlays.lamps;
+  assert.equal(lamps[0]?.kind, 'parts');
+  assert.deepEqual(lamps[0]?.kind === 'parts' ? lamps[0].brightness : undefined, { kind: 'fixed', brightness: toBrightness(90), at: at(7) });
+  assertKept({ overrides });
+});
+
 test('a stored power that is not off is garbage: the record reads as the light its channels claim', () => {
   // Recover-not-raise (owner, 2026-11-21). Break: a garbage power raises, drops the record, or reads as an off.
   for (const power of ['on', 'dim', 0, null, ['off'], { off: true }] as JsonValue[]) {

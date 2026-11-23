@@ -354,9 +354,11 @@ function decodeLamp(keyed: LampOverlay['over'] | undefined, from: LampOverlay['f
     : scope === 'room' ? { kind: 'room', room: toRoomId(target) } : undefined;
   if (over === undefined || keyed !== undefined && !isDeepStrictEqual(keyed, over)) return undefined;
   const since = savedWhen(raw['when']);
-  // A person's or a control's off: a stored `power` that is anything else is garbage, and the record reads as its channels.
-  if (value['power'] === 'off') return { kind: 'lamp', overlay: { kind: 'off', over, from, since } };
   const channels = value['channels'];
+  // A person's or a control's off claims no channel. A stored `power` that is anything else is garbage, and so is
+  // an off whose record claims channels again (today's ls_commit merges a light over it, keeping `power`): either
+  // record reads as its channels.
+  if (value['power'] === 'off' && Object.keys(channels).length === 0) return { kind: 'lamp', overlay: { kind: 'off', over, from, since } };
   const brightness = channelPart('brightness', channels, since, BRIGHTNESS), colour = channelPart('color', channels, since, COLOUR);
   let effect = newest(brightness.effect, colour.effect);
   // A reset to normal light saves the held level and colour and names the pick; it ends a candle.
