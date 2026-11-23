@@ -360,3 +360,24 @@ test('a button pressed while Home Assistant is coming back is applied after the 
   assert.equal(ha.states['bulb-a3']?.state, 'off', 'the press was applied, after the reconnect');
   await host.close();
 });
+
+test("our write is stamped when Home Assistant answered it, so a read started during the call does not undo it", async () => {
+  // Re-review 5. Break: the write is stamped with the turn's start, before the read started, so the read's older copy
+  // is taken over it.
+  const ha = new FakeHa(), now = { time: at('12:00:00') };
+  const host = await open(ha, new MemoryJournal(), now).host;
+  host.accept({ kind: 'started' });
+  await host.idle();
+  const stale = ha.mirror();
+  stale.state['sensor.ls_overrides'] = { ...stale.state['sensor.ls_overrides']!, last_updated: '2026-09-21T12:00:00Z' };
+  ha.during = async call => { if (call.service === 'variable.update_sensor') now.time = at('12:00:20'); };
+  now.time = at('12:00:10');
+  host.accept({ kind: 'dashboard script', script: 'hold block', data: { scope: 'room-a', block: 'night' } });
+  await host.idle();
+  const written = host.house().state['sensor.ls_overrides'];
+  assert.notDeepEqual(written?.attributes, stale.state['sensor.ls_overrides']?.attributes, 'the hold was written');
+  host.houseRead(stale, at('12:00:15'));
+  await host.idle();
+  assert.deepEqual(host.house().state['sensor.ls_overrides']?.attributes, written?.attributes);
+  await host.close();
+});

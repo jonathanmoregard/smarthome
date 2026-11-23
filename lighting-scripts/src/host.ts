@@ -110,7 +110,7 @@ export class Host {
       try {
         const context = await this.io.ha.call(call);
         if (context !== undefined) this.ownContexts = [...this.ownContexts, context].slice(-OWN_CONTEXTS);
-        this.mirror = { ...this.mirror, state: afterCall(this.mirror.state, call, now) };
+        this.mirror = { ...this.mirror, state: afterCall(this.mirror.state, call, this.io.clock()) };
         failed.push(false);
       } catch (error) {
         // Out of reach is no failure of the bulb or helper: the call, and the turn's later ones, count as not made.
