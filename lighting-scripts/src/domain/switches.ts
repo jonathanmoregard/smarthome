@@ -10,7 +10,7 @@
 import type { Block } from './blocks.ts';
 import type { Config } from './config.ts';
 import type { RoomLight } from './lighting-state.ts';
-import type { Model } from './model.ts';
+import type { Model, RangeDefaults, RangeRule } from './model.ts';
 import { blockPosition } from './schedule.ts';
 import type { RoomId, SwitchId } from './types/ids.ts';
 import { entriesOf } from './types/ids.ts';
@@ -61,4 +61,30 @@ export function switchPower(model: Model, rooms: Readonly<Record<RoomOrHouse, Ro
 function switchesOn(config: Config, room: RoomId | undefined, block: Block): boolean | undefined {
   const own = room === undefined ? undefined : config.rooms[room]?.blocks[block].switchesOn;
   return own !== undefined && own.follows === 'own' ? own.own : config.house[block].switchesOn;
+}
+
+/**
+ * A press on a plug's own button: an overlay on that switch, replacing any it
+ * had (M1 plan, decision 8; owner, 2026-11-22). It holds the switch over its
+ * range rule and its block until a reset releases it; today's scripts take
+ * the press back at the next tick, a named behaviour change. A switch the
+ * config does not hold is left alone.
+ */
+export function switchButtonPressed(model: Model, pressed: SwitchId, power: Power, now: Instant): Model {
+  if (model.config.switches[pressed] === undefined) return model;
+  return { ...model, overlays: { ...model.overlays, switches: { ...model.overlays.switches, [pressed]: { power, since: now } } } };
+}
+
+/**
+ * A switch's range rule saved from the dashboard (today's `range_set`, after
+ * `decideRangeSave`'s checks, which read Home Assistant's devices and stay at
+ * the edge). A switch overlay on it stays.
+ */
+export function rangeSaved(model: Model, saved: SwitchId, rule: RangeRule): Model {
+  return { ...model, switchRanges: { ...model.switchRanges, [saved]: rule } };
+}
+
+/** The bright and cosy default ranges saved (today's `range_defaults`, sent only when both are valid, which their type is). */
+export function rangeDefaultsSaved(model: Model, defaults: RangeDefaults): Model {
+  return { ...model, rangeDefaults: defaults };
 }

@@ -211,6 +211,13 @@ export function nextTimeOfDay(at: Instant, time: TimeOfDay, zone: Timezone): Ins
   return instantOrThrow(sameDay > at ? sameDay : localTime(today.year, today.month, today.day + 1, time.hour, time.minute, zone));
 }
 
+/** The last instant at or before `at` at which the clock in `zone` showed `time`: today's, or else yesterday's. */
+export function lastTimeOfDay(at: Instant, time: TimeOfDay, zone: Timezone): Instant {
+  const today = localParts(at, zone);
+  const sameDay = localTime(today.year, today.month, today.day, time.hour, time.minute, zone);
+  return instantOrThrow(sameDay <= at ? sameDay : localTime(today.year, today.month, today.day - 1, time.hour, time.minute, zone));
+}
+
 /**
  * The instant a wall-clock time in `zone` names, as Python's ZoneInfo reads it
  * by default: a time the clock shows twice (autumn) is its first showing; a

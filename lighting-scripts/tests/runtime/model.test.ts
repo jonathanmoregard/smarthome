@@ -3,7 +3,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import type { Model, Msg, OverlayRequest, RemoteModel, RequestedLight } from '../../src/domain/model.ts';
-import type { BrightnessOverlay, ColourOverlay, LampOverlayParts, ModeOverlay, RemotePreset } from '../../src/domain/overlays.ts';
+import type { BrightnessOverlay, ColourOverlay, LampOverlay, LampOverlayParts, ModeOverlay, RemotePreset } from '../../src/domain/overlays.ts';
 import type { LampLight, SceneLight } from '../../src/domain/types/light.ts';
 import { entriesOf } from '../../src/domain/types/ids.ts';
 import { toBrightness, toDashboardControlId, toInstant, toKelvin, toLevel, toPercentRange } from '../../src/parse/ids.ts';
@@ -49,24 +49,26 @@ const oneRequestOfEach = {
   'hold block': { kind: 'hold block', over: 'house', block: 'night' },
   'clear all': { kind: 'clear all' },
   'dashboard control': { kind: 'dashboard control', control: toDashboardControlId('control-a'), over: { kind: 'room', room: roomA },
-    light: { brightness: undefined, colour: undefined, effect: { kind: 'candle' } } },
+    light: { power: 'on', brightness: undefined, colour: undefined, effect: { kind: 'candle' } } },
   'room power': { kind: 'room power', room: roomA, power: 'off' },
 } satisfies { [K in OverlayRequest['kind']]: Extract<OverlayRequest, { kind: K }> };
 
 /** One message of each kind, built against the house; a kind with no value here does not compile. */
 const oneOfEach = {
   clock: { kind: 'clock', now },
-  configChanged: { kind: 'configChanged', config: house.config },
-  overlayRequested: { kind: 'overlayRequested', request: oneRequestOfEach['hold block'] },
+  configChanged: { kind: 'configChanged', config: house.config, at: now },
+  overlayRequested: { kind: 'overlayRequested', request: oneRequestOfEach['hold block'], at: now },
   lampChangedByPerson: { kind: 'lampChangedByPerson', lamps: [lampA1],
-    light: { brightness: toBrightness(80), colour: undefined, effect: undefined } },
-  remotePressed: { kind: 'remotePressed', remote: remoteA, press: { kind: 'command', command: 'up' } },
+    light: { power: 'on', brightness: toBrightness(80), colour: undefined, effect: undefined }, at: now },
+  remotePressed: { kind: 'remotePressed', remote: remoteA, press: { kind: 'command', command: 'up' }, at: now },
   remoteButtonPressed: { kind: 'remoteButtonPressed', remote: remoteA, button: { kind: 'preset', button: 'warmest' }, at: now },
-  rangeDefaultsSaved: { kind: 'rangeDefaultsSaved', defaults: { bright: toPercentRange(80, 100), cosy: toPercentRange(20, 50) } },
-  switchButtonPressed: { kind: 'switchButtonPressed', switch: switchA, power: 'off' },
-  modeToggled: { kind: 'modeToggled', on: false },
-  rangeSaved: { kind: 'rangeSaved', switch: switchA, rule: { kind: 'bright' } },
-  lampProfileSaved: { kind: 'lampProfileSaved', lamp: lampA1, block: 'cosy', profile: { follows: 'room' } },
+  rangeDefaultsSaved: { kind: 'rangeDefaultsSaved', defaults: { bright: toPercentRange(80, 100), cosy: toPercentRange(20, 50) }, at: now },
+  switchButtonPressed: { kind: 'switchButtonPressed', switch: switchA, power: 'off', at: now },
+  modeToggled: { kind: 'modeToggled', on: false, at: now },
+  rangeSaved: { kind: 'rangeSaved', switch: switchA, rule: { kind: 'bright' }, at: now },
+  lampProfileSaved: { kind: 'lampProfileSaved', lamp: lampA1, block: 'cosy', at: now,
+    change: { own: false, power: undefined, brightness: undefined, colour: undefined, effect: undefined } },
+  switchProfileSaved: { kind: 'switchProfileSaved', switch: switchA, block: 'day', change: { own: true, power: 'off' }, at: now },
 } satisfies { [K in Msg['kind']]: Extract<Msg, { kind: K }> };
 
 test('the model test and the synthetic house compile, and every refusal below is a refusal', () => {
@@ -160,14 +162,19 @@ test('the types refuse what the domain does not allow', () => {
   // @ts-expect-error the candle is the effect part, not a kind of colour
   const candleColour: ColourOverlay = { kind: 'candle', at: now };
   // @ts-expect-error a person's request names at least one part
-  const nothingRequested: RequestedLight = { brightness: undefined, colour: undefined, effect: undefined };
+  const nothingRequested: RequestedLight = { power: 'on', brightness: undefined, colour: undefined, effect: undefined };
+  // @ts-expect-error a person's off has no level, colour or effect
+  const offWithLevel: RequestedLight = { power: 'off', brightness: toBrightness(80) };
+  const offOverlayLevel: LampOverlay = { kind: 'off', over: { kind: 'lamp', lamp: lampA1 }, from: { kind: 'person' }, since: now,
+    // @ts-expect-error an off overlay holds no level, colour or effect (owner, 2026-11-23)
+    brightness: { kind: 'fixed', brightness, at: now } };
   // @ts-expect-error a dashboard request names at least one part
   const noParts: LampOverlayParts = { brightness: undefined, colour: undefined, effect: undefined };
   // @ts-expect-error a dashboard request carries no instants: update stamps them
   const stamped: LampOverlayParts = { brightness: { kind: 'fixed', brightness, at: now }, colour: undefined, effect: undefined };
   const asPerson: OverlayRequest = {
     kind: 'dashboard control', control: toDashboardControlId('control-a'), over: { kind: 'lamp', lamp: lampA1 },
-    light: { brightness: undefined, colour: undefined, effect: { kind: 'normal' } },
+    light: { power: 'on', brightness: undefined, colour: undefined, effect: { kind: 'normal' } },
     // @ts-expect-error a dashboard request cannot claim to come from a person
     from: { kind: 'person' },
   };
@@ -178,5 +185,5 @@ test('the types refuse what the domain does not allow', () => {
   // @ts-expect-error an inactive mode overlay has no since
   const inactive: ModeOverlay = { active: false, since: now };
   assert.equal([offScene, offEffect, litNoEffect, offLamp, offColour, dayPreset, candleUnsaid, candleNight, fixed, candleBrightness,
-    candleColour, nothingRequested, noParts, stamped, asPerson, chordForever, fourPresses, inactive].length, 18);
+    candleColour, nothingRequested, offWithLevel, offOverlayLevel, noParts, stamped, asPerson, chordForever, fourPresses, inactive].length, 20);
 });

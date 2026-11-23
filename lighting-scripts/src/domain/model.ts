@@ -66,33 +66,60 @@ export type RemoteButton =
   /** A preset button; undefined when the press named a temperature not in the table, which only ends a chord. */
   | { kind: 'preset'; button: PresetButton | undefined };
 
-/** Everything that can happen to the Model (Elm's Msg). */
+/**
+ * Everything that can happen to the Model (Elm's Msg). `at` is when the input
+ * arrived: what every overlay it sets is stamped with. The clock's `now` is
+ * the instant it reads.
+ */
 export type Msg =
   | { kind: 'clock'; now: Instant }
-  | { kind: 'configChanged'; config: Config }
-  | { kind: 'overlayRequested'; request: OverlayRequest }
-  | { kind: 'lampChangedByPerson'; lamps: readonly LampId[]; light: RequestedLight }
+  | { kind: 'configChanged'; config: Config; at: Instant }
+  | { kind: 'overlayRequested'; request: OverlayRequest; at: Instant }
+  | { kind: 'lampChangedByPerson'; lamps: readonly LampId[]; light: RequestedLight; at: Instant }
   /** A command a remote's gestures (or another caller) send for its room. */
-  | { kind: 'remotePressed'; remote: RemoteId; press: RemotePress }
+  | { kind: 'remotePressed'; remote: RemoteId; press: RemotePress; at: Instant }
   /** A raw button press; `at` starts the chord and power-burst windows. */
   | { kind: 'remoteButtonPressed'; remote: RemoteId; button: RemoteButton; at: Instant }
-  | { kind: 'switchButtonPressed'; switch: SwitchId; power: Power }
-  | { kind: 'modeToggled'; on: boolean }
-  | { kind: 'rangeSaved'; switch: SwitchId; rule: RangeRule }
-  | { kind: 'rangeDefaultsSaved'; defaults: RangeDefaults }
-  | { kind: 'lampProfileSaved'; lamp: LampId; block: Block; profile: LampProfile };
+  | { kind: 'switchButtonPressed'; switch: SwitchId; power: Power; at: Instant }
+  | { kind: 'modeToggled'; on: boolean; at: Instant }
+  | { kind: 'rangeSaved'; switch: SwitchId; rule: RangeRule; at: Instant }
+  | { kind: 'rangeDefaultsSaved'; defaults: RangeDefaults; at: Instant }
+  | { kind: 'lampProfileSaved'; lamp: LampId; block: Block; change: LampProfileChange; at: Instant }
+  | { kind: 'switchProfileSaved'; switch: SwitchId; block: Block; change: SwitchProfileChange; at: Instant };
 
 /** An overlay asked for from the dashboard. */
 export type OverlayRequest =
   | { kind: 'hold block'; over: RoomOrHouse; block: Block }
   | { kind: 'clear all' }
-  /** A control's parts on a lamp or room; `update` stamps them and makes the overlay the control's. */
-  | { kind: 'dashboard control'; control: DashboardControlId; over: LampOrRoom; light: LampOverlayParts }
+  /** A control's parts, or its off, on a lamp or room; `update` stamps them and makes the overlay the control's. */
+  | { kind: 'dashboard control'; control: DashboardControlId; over: LampOrRoom; light: ControlLight }
   /** A room control's power: switches the room off or on. */
   | { kind: 'room power'; room: RoomId; power: Power };
 
-/** What a person's HA call set: a brightness, a colour, the candle or the normal light. At least one part. */
+/** What a dashboard control sets: parts of the light, or the lamp or room off (a hold, as a person's off is). */
+export type ControlLight = { power: 'off' } | ({ power: 'on' } & LampOverlayParts);
+
+/**
+ * What a person's HA call set: off, or a brightness, a colour, the candle or
+ * the normal light, at least one part.
+ */
 export type RequestedLight =
-  | { brightness: Brightness; colour: Colour | undefined; effect: EffectName | undefined }
-  | { brightness: undefined; colour: Colour; effect: EffectName | undefined }
-  | { brightness: undefined; colour: undefined; effect: EffectName };
+  | { power: 'off' }
+  | { power: 'on'; brightness: Brightness; colour: Colour | undefined; effect: EffectName | undefined }
+  | { power: 'on'; brightness: undefined; colour: Colour; effect: EffectName | undefined }
+  | { power: 'on'; brightness: undefined; colour: undefined; effect: EffectName };
+
+/**
+ * A save from a lamp's profile for one block, as today's `ls_store` takes it:
+ * each field the save names, undefined where it leaves the saved one as it is.
+ */
+export type LampProfileChange = {
+  own: boolean | undefined;
+  power: Power | undefined;
+  brightness: Brightness | undefined;
+  colour: Colour | undefined;
+  effect: EffectName | undefined;
+};
+
+/** A save of a plug's own on/off for one block; undefined leaves the saved field as it is. */
+export type SwitchProfileChange = { own: boolean | undefined; power: Power | undefined };
