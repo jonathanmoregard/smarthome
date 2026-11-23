@@ -118,6 +118,17 @@ test("a save to a plug's store writes the plug's store, once, with the plug's fi
   assert.deepEqual(turn.state.model.switchProfiles[toSwitchId('switch.plug_a')]?.cosy, { follows: 'own', power: 'on' });
 });
 
+test('a start sends each control its availability; a later turn only what its proxy shows otherwise', () => {
+  // Break: the turn leaves out the proxies' sync (availability, profile editors, effect list), or forces it every turn.
+  const house = new House();
+  const availability = (turn: Turn) => turn.outputs.flatMap(output =>
+    output.kind === 'dashboard' && output.write.kind === 'control sync' && output.write.topic.endsWith('/availability') ? [output.write.payload] : []);
+  assert.deepEqual(availability(house.turn('12:00:00', { kind: 'started' })), ['offline']);
+  assert.deepEqual(availability(house.turn('12:01:00', { kind: 'tick' })), []);
+  house.states['light.room_a_all'] = { state: 'on', attributes: {} };
+  assert.deepEqual(availability(house.turn('12:02:00', { kind: 'tick' })), ['online']);
+});
+
 test('the turn asks to be woken at nextChange', () => {
   const house = new House();
   house.turn('12:00:00', { kind: 'started' });

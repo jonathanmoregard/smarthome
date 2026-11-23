@@ -76,7 +76,7 @@ function effectOf(output: Output, now: Instant): Effect {
           target: { entity_id: write.entity } };
         case 'mode mirror': return { kind: 'service', service: `input_boolean.turn_${write.on ? 'on' : 'off'}`, data: {},
           target: { entity_id: write.entity } };
-        case 'control sync': return mqtt(write.topic, write.payload, true);
+        case 'control sync': case 'discovery': return mqtt(write.topic, write.payload, true);
       }
     }
   }

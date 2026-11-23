@@ -3,8 +3,10 @@
  * M1 codecs (the overrides sensor, each changed remote's helpers, each changed
  * lamp's and plug's profile store, a block light's store saved from the dashboard), and
  * the dashboard view's changes (each scope's block selector, the mode mirror,
- * and the live controls' sync messages, moved from `uiMessages`). Nothing is
- * written when nothing changed.
+ * and the live controls' sync messages, moved from `uiMessages`), and the
+ * proxies and discovered lights Home Assistant shows otherwise (the profile
+ * editors, each row's availability, the effect list). Nothing is written when
+ * nothing changed.
  */
 import { isDeepStrictEqual } from 'node:util';
 import { BLOCKS } from '../domain/blocks.ts';
@@ -17,7 +19,12 @@ import { entriesOf } from '../domain/types/ids.ts';
 import type { Instant } from '../domain/types/time.ts';
 import type { JsonObject } from '../runtime/context.ts';
 import type { HouseView } from '../runtime/effects.ts';
-import type { StoreSave } from './inputs.ts';
+import { roundEven } from '../domain/blend.ts';
+import { lampReading, proxyKelvin, proxyShowsRgb, uiProfile } from '../parse/ui-state.ts';
+import { payloadNumber } from '../runtime/format.ts';
+import { object } from '../runtime/parse.ts';
+import { uiRowsOf } from './inputs.ts';
+import type { StoreSave, UiRow } from './inputs.ts';
 import { decodeLampProfile, encodeLampProfile } from './codecs/lamp-profiles.ts';
 import { profileStore } from './codecs/model.ts';
 import { remoteSources } from './codecs/overlay-key.ts';
@@ -45,10 +52,75 @@ export function configStoreWrite(save: StoreSave, house: HouseView): StoreWrite 
 export type DashboardWrite =
   | { kind: 'block selector'; entity: string; option: string }
   | { kind: 'mode mirror'; entity: string; on: boolean }
-  /** One retained MQTT message to a live control's proxy. */
-  | { kind: 'control sync'; topic: string; payload: string };
+  /** One retained MQTT message to a control's proxy. */
+  | { kind: 'control sync'; topic: string; payload: string }
+  /** A discovered light's config republished, retained, with the catalog's effect choices. */
+  | { kind: 'discovery'; topic: string; payload: string };
 
 export const OVERRIDES_SENSOR = 'sensor.ls_overrides';
+
+/**
+ * What the proxies and the discovered lights show otherwise, moved from
+ * `uiMessages` and `effects_ui_catalog`. It covers:
+ * 1. each row's availability, from whether its source reports on or off;
+ * 2. each available profile editor's power, effect, brightness and colour,
+ *    as its source light shows them;
+ * 3. each discovered light's effect list: the catalog's choices.
+ *
+ * Each is compared with what Home Assistant shows, as today, so nothing is
+ * sent when the proxy already shows it. `force` (a start) sends every
+ * row's availability and every editor's channels. A live control's channels
+ * come from the dashboard view ({@link dashboardWrites}). A malformed row,
+ * or a channel a row has no topic for, is passed over.
+ */
+export function uiSyncWrites(house: HouseView, force: boolean): DashboardWrite[] {
+  const writes: DashboardWrite[] = [];
+  for (const row of uiRowsOf(house)) if (row.proxy !== undefined) writes.push(...rowSync(house, row, row.proxy, force));
+  const choices = house.catalog.ui_choices === undefined ? DEFAULT_CHOICES : house.catalog.ui_choices;
+  for (const row of discoveryRowsOf(house)) {
+    if (isDeepStrictEqual(house.attr(row.entity, 'effect_list'), choices)) continue;
+    const topic = `homeassistant/light/${row.uniqueId}/config`;
+    writes.push({ kind: 'discovery', topic, payload: JSON.stringify({ ...row.config, effect_list: [...choices] }) });
+  }
+  return writes;
+}
+
+/** One row's availability and, for an available profile editor, each channel its proxy shows otherwise (today's rules). */
+function rowSync(house: HouseView, row: UiRow, proxy: string, force: boolean): DashboardWrite[] {
+  const writes: DashboardWrite[] = [];
+  const send = (channel: string, payload: string) => {
+    const topic = row.topics[channel];
+    if (topic !== undefined) writes.push({ kind: 'control sync', topic, payload });
+  };
+  const source = row.source, available = reportsPower(house.get(source));
+  if (force || available !== reportsPower(house.get(proxy))) send('availability', available ? 'online' : 'offline');
+  if (!available || row.store === undefined) return writes;
+  if (force || house.get(proxy) !== house.get(source)) send('power', house.get(source) === 'on' ? 'ON' : 'OFF');
+  const profile = uiProfile(house, row.store);
+  const effect = profile.namesEffectChannels && profile.effect !== 'Normal light' ? profile.effect : 'Normal Light';
+  if (force || house.attr(proxy, 'effect') !== effect) send('effect', effect);
+  const reading = lampReading(house, source);
+  if (reading.brightness !== undefined) {
+    const level = roundEven(reading.brightness);
+    if (force || house.attr(proxy, 'brightness') !== level) send('brightness', payloadNumber(level));
+  }
+  if (reading.colourTemp && reading.kelvin !== undefined && reading.kelvin > 0) {
+    const mired = roundEven(1e6 / reading.kelvin), proxyKelvinShown = proxyKelvin(house, proxy);
+    const proxyMired = proxyKelvinShown > 0 ? roundEven(1e6 / proxyKelvinShown) : 0;
+    if (force || house.attr(proxy, 'color_mode') !== 'color_temp' || proxyMired !== mired) send('temperature', payloadNumber(mired));
+  } else if (reading.rgb !== undefined) {
+    if (force || house.attr(proxy, 'color_mode') !== 'rgb' || !proxyShowsRgb(house, proxy, reading.rgb)) send('rgb', reading.rgb.text);
+  }
+  return writes;
+}
+
+/** A source or proxy that reports on or off is available. */
+function reportsPower(state: string): boolean {
+  return state === 'on' || state === 'off';
+}
+
+/** The mode mirror: the dashboard's switch for the mode overlay. */
+const MODE_MIRROR = 'input_boolean.ls_sara_mode_mirror';
 
 /** The Model's writes: the overrides sensor, each changed remote's helpers and each changed lamp or plug profile store. */
 export type ModelWrites = { sensor: SensorWrite | undefined; helpers: HelperWrite[]; stores: StoreWrite[] };
@@ -90,8 +162,8 @@ export function modelWrites(before: Model, after: Model, house: HouseView, now: 
 /** A live control's row: its control and the proxy topic of each channel. */
 export type ControlRow = { control: string; topics: Partial<Record<string, string>> };
 
-/** The mode mirror: the dashboard's switch for the mode overlay. */
-const MODE_MIRROR = 'input_boolean.ls_sara_mode_mirror';
+/** The dashboard's effect choices when the catalog names none (today's `uiChoices`). */
+const DEFAULT_CHOICES: readonly string[] = ['Normal Light', 'Candle'];
 
 type Channel = 'power' | 'brightness' | 'temperature' | 'rgb' | 'effect';
 
@@ -106,6 +178,17 @@ function channels(light: ControlShown): Record<Channel, string | undefined> {
     rgb: colour !== undefined && colour.kind === 'rgb' ? `${colour.rgb.red},${colour.rgb.green},${colour.rgb.blue}` : undefined,
     effect: light.effect === undefined ? undefined : light.effect === 'Candle' ? 'Candle' : 'Normal Light',
   };
+}
+
+/** One discovery row of the catalog: its light, the unique id its config topic is named for, and the config. */
+type DiscoveryRow = { entity: string; uniqueId: string; config: JsonObject };
+
+/** The catalog's discovery rows; a row with no entity, or whose config has no unique id, is left out. */
+function discoveryRowsOf(house: HouseView): DiscoveryRow[] {
+  return (house.catalog.ui_discovery === undefined ? [] : house.catalog.ui_discovery).flatMap(raw => {
+    const row = object(raw), config = object(row.config), uniqueId = config.unique_id;
+    return typeof row.entity === 'string' && typeof uniqueId === 'string' ? [{ entity: row.entity, uniqueId, config }] : [];
+  });
 }
 
 /**

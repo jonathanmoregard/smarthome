@@ -24,7 +24,8 @@ export const CATALOG: JsonObject = {
   ui_rows: [{
     source: 'light.room_a_all', proxy: 'light.ep_room_a_all', store: '', members: ['light.lamp_a1', 'light.lamp_a2'],
     topics: { power: 'house/v1/effect_preview/room_a_all/set/power', brightness: 'house/v1/effect_preview/room_a_all/set/brightness',
-      temperature: 'house/v1/effect_preview/room_a_all/set/temperature', effect: 'house/v1/effect_preview/room_a_all/set/effect' },
+      temperature: 'house/v1/effect_preview/room_a_all/set/temperature', effect: 'house/v1/effect_preview/room_a_all/set/effect',
+      availability: 'house/v1/effect_preview/room_a_all/set/availability' },
   }],
 };
 

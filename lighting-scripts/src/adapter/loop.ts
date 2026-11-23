@@ -28,7 +28,7 @@ import type { HaInput } from './inputs.ts';
 import { decodeObserved } from './observed.ts';
 import { afterSend, forgotten, NO_BELIEFS, nextSends } from './reconcile.ts';
 import type { Beliefs } from './reconcile.ts';
-import { configStoreWrite, dashboardWrites, modelWrites } from './writes.ts';
+import { configStoreWrite, dashboardWrites, modelWrites, uiSyncWrites } from './writes.ts';
 import type { ControlRow, DashboardWrite, HelperWrite, SensorWrite, StoreWrite } from './writes.ts';
 
 /** What the adapter keeps between turns: the Model, what each bulb and switch was sent, and the dashboard last shown. */
@@ -83,6 +83,7 @@ export function handleInput(state: AdapterState | undefined, house: HouseView, i
   const previous = state === undefined || input.kind === 'started' ? undefined : state.view;
   const sync: ControlRow[] = rows.map(row => ({ control: row.control.control, topics: row.topics }));
   for (const write of dashboardWrites(previous, view, sync, house)) outputs.push({ kind: 'dashboard', write });
+  for (const write of uiSyncWrites(house, previous === undefined)) outputs.push({ kind: 'dashboard', write });
 
   let beliefs = state === undefined ? NO_BELIEFS : state.beliefs;
   if (input.kind === 'state changed') {

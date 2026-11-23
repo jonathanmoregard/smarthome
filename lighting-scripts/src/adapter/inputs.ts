@@ -469,8 +469,10 @@ function remoteButton(action: RemoteAction): RemoteButton | undefined {
   }
 }
 
-/** A UI row of the catalog: the control's source, its profile store (none for a live control), its members and topics. */
-type UiRow = { source: string; store: string | undefined; members: string[]; topics: Partial<Record<string, string>> };
+/** A UI row of the catalog: the control's source, its proxy, its profile store (none for a live control), its members and topics. */
+export type UiRow = {
+  source: string; proxy: string | undefined; store: string | undefined; members: string[]; topics: Partial<Record<string, string>>;
+};
 
 /** The catalog's UI rows; a row without a source is left out. */
 export function uiRowsOf(house: Pick<HouseView, 'catalog'>): UiRow[] {
@@ -479,7 +481,8 @@ export function uiRowsOf(house: Pick<HouseView, 'catalog'>): UiRow[] {
     if (typeof row.source !== 'string') return [];
     const store = typeof row.store === 'string' && row.store !== '' ? row.store : undefined;
     const topics = Object.fromEntries(Object.entries(object(row.topics)).flatMap(([key, value]) => typeof value === 'string' ? [[key, value]] : []));
-    return [{ source: row.source, store, members: Array.isArray(row.members) ? texts(row.members) : [], topics }];
+    const proxy = typeof row.proxy === 'string' ? row.proxy : undefined;
+    return [{ source: row.source, proxy, store, members: Array.isArray(row.members) ? texts(row.members) : [], topics }];
   });
 }
 
