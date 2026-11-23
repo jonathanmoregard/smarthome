@@ -61,14 +61,16 @@ export function handleInput(state: AdapterState | undefined, house: HouseView, i
   const now = toInstant(timestamp(house.now));
   const before = state === undefined || input.kind === 'started' ? decodeModel(configSource(house), house.catalog)
     : input.kind === 'helper changed' ? withHelpersRead(state.model, house) : state.model;
+  // The clock runs first, and the input is read against what it leaves: a reset at this instant is already applied.
+  const clocked = update(before, { kind: 'clock', now });
   let own: Msg[] = [], dropped: string | undefined;
   try {
-    own = [...messages(input, before, now, house), ...rangeDefaultsMessages(input, house, now)];
+    own = [...messages(input, clocked, now, house), ...rangeDefaultsMessages(input, house, now)];
   } catch (error) {
     if (!(error instanceof ParseError)) throw error;
     dropped = `${input.kind}: ${error.message}`;
   }
-  const model = [{ kind: 'clock', now } satisfies Msg, ...own].reduce(update, before);
+  const model = own.reduce(update, clocked);
   const outputs: Output[] = [];
   const written = modelWrites(before, model, house, now);
   if (written.sensor !== undefined) outputs.push({ kind: 'sensor', write: written.sensor });

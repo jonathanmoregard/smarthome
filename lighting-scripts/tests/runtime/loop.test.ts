@@ -129,6 +129,18 @@ test('a start sends each control its availability; a later turn only what its pr
   assert.deepEqual(availability(house.turn('12:02:00', { kind: 'tick' })), ['online']);
 });
 
+test('an input is read against the clocked model: a mode toggle as the age reset releases the mode switches it on', () => {
+  // The synthetic house resets overlays after 180 minutes. The mode switched on at 09:00 is released by the clock at
+  // 12:00, so a toggle in that turn switches it on again. Break: the toggle reads the mode from before the clock ran,
+  // sends on: false, and is lost.
+  const house = new House();
+  house.turn('09:00:00', { kind: 'started' });
+  house.turn('09:00:00', { kind: 'dashboard script', script: 'toggle mode', data: {} });
+  assert.equal(house.state!.model.modeOverlay.active, true);
+  const toggled = house.turn('12:00:00', { kind: 'dashboard script', script: 'toggle mode', data: {} });
+  assert.deepEqual(toggled.state.model.modeOverlay, { active: true, since: Date.parse('2026-09-21T12:00:00Z') / 1000 });
+});
+
 test('the turn asks to be woken at nextChange', () => {
   const house = new House();
   house.turn('12:00:00', { kind: 'started' });
@@ -141,9 +153,10 @@ test('the turn asks to be woken at nextChange', () => {
 test('an input that cannot be read is logged and dropped, and the turn goes on', () => {
   const house = new House();
   house.turn('12:00:00', { kind: 'started' });
+  const overlaysBefore = structuredClone(house.state!.model.overlays);
   const turn = house.turn('12:01:00', { kind: 'overlay event', data: { op: 'no such operation' } });
   assert.match(turn.dropped === undefined ? '' : turn.dropped, /no such operation/);
-  assert.deepEqual(turn.state.model.overlays, house.state!.model.overlays);
+  assert.deepEqual(turn.state.model.overlays, overlaysBefore);
   const held = house.turn('12:02:00', { kind: 'dashboard script', script: 'hold block', data: { scope: roomA, block: 'night' } });
   assert.equal(held.dropped, undefined);
   assert.equal(held.state.model.overlays.blocks[roomA]?.block, 'night');
