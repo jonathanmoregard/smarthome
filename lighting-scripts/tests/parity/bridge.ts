@@ -6,7 +6,7 @@ import { StringDecoder } from 'node:string_decoder';
 import { execute, type ExecutionHooks, type ExecutionRequest } from '../../src/runtime/engine.ts';
 import { handlers } from '../../src/runtime/registry.ts';
 import { effectsResolve } from '../../src/handlers/resolution.ts';
-import type { JsonObject, JsonValue, ScriptContext, ServiceCall, Snapshot } from '../../src/runtime/context.ts';
+import type { JsonObject, JsonValue, ScriptContext, ScriptHandler, ScriptHandlers, ServiceCall, Snapshot } from '../../src/runtime/context.ts';
 
 type PathPart = string | number;
 interface Nonfinite { path: PathPart[]; value: 'NaN' | 'Infinity' | '-Infinity' }
@@ -69,6 +69,15 @@ function readMessage(): unknown {
 function send(value: unknown): void { writeSync(1, JSON.stringify(encode(value)) + '\n'); }
 /** The one lamp the preserved fixtures let run Candle (the port's former hard-coded `CANDLE_LAMP`). */
 const FIXTURE_CANDLE_LAMPS: ReadonlySet<string> = new Set(['light.living_room_yellow_retro_lamp']);
+/** `handler` with the fixture candle lamps' bulbs flagged as candle firmware in the run's parsed catalog. */
+function withFixtureCandle(handler: ScriptHandler): ScriptHandler {
+  return (ctx, args) => {
+    for (const [lamp, bulbs] of Object.entries(ctx.catalog.members)) {
+      if (FIXTURE_CANDLE_LAMPS.has(lamp)) for (const bulb of bulbs) ctx.catalog.bulbs[bulb] = { candle: true };
+    }
+    return handler(ctx, args);
+  };
+}
 const nativeLog = Math.log;
 function isJsonLiteral(value: unknown): value is JsonValue {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
@@ -132,7 +141,11 @@ function perform(value: unknown): void {
     // them, one lamp ran Candle by name. That lamp stays capable here, and the
     // flag is NOT written into any catalog document, since `effects_catalog`
     // output is compared byte for byte. Production reads the flag instead.
-    const requestHandlers = { ...handlers, effects_resolve: effectsResolve(() => FIXTURE_CANDLE_LAMPS) };
+    // The reconciler reads the same capability from the per-bulb flag, so the
+    // lamp's bulbs are marked in each run's parsed catalog view, never in the document.
+    const requestHandlers: ScriptHandlers = { ...handlers, effects_resolve: effectsResolve(() => FIXTURE_CANDLE_LAMPS),
+      ls_apply: withFixtureCandle(handlers.ls_apply!), ls_render: withFixtureCandle(handlers.ls_render!),
+      ls_dispatch: withFixtureCandle(handlers.ls_dispatch!) };
     const dependencyCalls: string[] = [];
     for (const [name, result] of Object.entries(request.parityDependencies ?? {})) {
       if (name !== 'ls_plan') throw new Error(`Unsupported parity literal dependency: ${name}`);
