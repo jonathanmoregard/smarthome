@@ -91,12 +91,7 @@ export async function answer(request: Request, adjust: (catalog: Catalog) => voi
   }
   const catalog = snapshot.catalog === undefined ? emptyCatalog() : parseCatalog(snapshot.catalog);
   adjust(catalog);
-  const input = scriptInput(script, args, catalog.remotes);
-  if (input === 'not ours') throw new Error(`Unsupported script: ${script}`);
-  if (input === 'dry run') {
-    console.error(`lighting: ${script} is a dry run; dropped`);
-    return { result: null, snapshot, calls: [], events: [], scriptRuns: [script] };
-  }
+  if (scriptInput(script, args, catalog.remotes) === 'not ours') throw new Error(`Unsupported script: ${script}`);
   current = { now: toInstant(ms / 1000), elapsed: snapshot.elapsed ?? 0, calls: [], wakeMs: undefined };
   const mirror = mirrorOf(snapshot);
   if (host === undefined) {
@@ -110,7 +105,8 @@ export async function answer(request: Request, adjust: (catalog: Catalog) => voi
     host.catalogChanged(catalog);
     host.houseRead(mirror, current.now);
   }
-  host.accept(input);
+  // As Home Assistant's bridge forwards it: the host reads it (an echo of ours, a dry run, an input) as live.
+  host.script(script, args);
   await host.idle();
   const tick = (Math.floor(current.now / TICK_SECONDS) + 1) * TICK_SECONDS, wakeMs = current.wakeMs;
   const scheduled = wakeMs === undefined || current.now + wakeMs / 1000 >= tick ? snapshot.scheduled
