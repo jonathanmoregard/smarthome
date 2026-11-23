@@ -5,7 +5,7 @@
  */
 import { watch } from 'node:fs';
 import type { FSWatcher } from 'node:fs';
-import { mkdir, open, readFile, rename } from 'node:fs/promises';
+import { mkdir, open, readFile, rename, unlink } from 'node:fs/promises';
 import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseDeployedCatalog } from './adapter/codecs/catalog.ts';
@@ -40,14 +40,16 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   const url = process.env.HA_URL, tokenFile = process.env.HA_TOKEN_FILE;
   if (url === undefined || tokenFile === undefined) throw new Error('Live mode requires HA_URL and an existing HA_TOKEN_FILE');
   let catalog = await readRuntimeCatalog(configuration);
-  const ha = await HomeAssistantClient.connect(url, await readFile(tokenFile, 'utf8'));
+  const journal = resolve(option('--state') ?? '.runtime/journal.json'), unlock = await lockJournal(journal);
+  const ha = await HomeAssistantClient.connect(url, await readFile(tokenFile, 'utf8'))
+    .catch(async (error: unknown) => { await unlock(); throw error; });
   const read = async () => houseMirrorOf(await ha.read(), new Set(Object.keys(catalog.members)));
   let stopHeartbeat = () => {}, watcher: FSWatcher | undefined;
   try {
     const mirror = await read();
     refuseUnknownRooms(liveRooms, catalog, parseRooms(mirror.areas));
     const clock = () => toInstant(Date.now() / 1000), warn = (message: string) => console.warn(message);
-    const host = await Host.open({ ha, journal: fileJournal(resolve(option('--state') ?? '.runtime/journal.json')), clock, log: console,
+    const host = await Host.open({ ha, journal: fileJournal(journal), clock, log: console,
       timer, rooms: { kind: 'listed', rooms: liveRooms }, took: seconds => void ha.call(timingCall(seconds)).catch(() => undefined) }, mirror, catalog);
     const reread = rereading(read, (house, startedAt) => host.houseRead(house, startedAt), warn, clock, timer);
     const reconnect = rereading(read, (house, startedAt) => host.reconnected(house, startedAt), warn, clock, timer);
@@ -71,13 +73,13 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     let stopping = false;
     const stop = async () => {
       if (stopping) return;
-      stopping = true; stopHeartbeat(); watcher?.close(); await host.close(); await ha.close();
+      stopping = true; stopHeartbeat(); watcher?.close(); await host.close(); await ha.close(); await unlock();
     };
     process.once('SIGINT', () => { void stop().then(() => process.exit()); });
     process.once('SIGTERM', () => { void stop().then(() => process.exit()); });
     console.error('Home Assistant host ready.');
   } catch (error) {
-    stopHeartbeat(); watcher?.close(); await ha.close();
+    stopHeartbeat(); watcher?.close(); await ha.close(); await unlock();
     throw error;
   }
 }
@@ -106,6 +108,41 @@ function fileJournal(path: string): Journal {
       await rename(temporary, path);
     },
   };
+}
+
+/**
+ * Take the journal for this process: one port per journal, since two would each trust what the other sent. The lock
+ * is `<journal>.lock`, holding the owner's process id. A lock whose process has ended is taken over; one whose
+ * process runs stops this start. The answer gives the lock back.
+ */
+export async function lockJournal(path: string): Promise<() => Promise<void>> {
+  const lock = `${path}.lock`;
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  for (let tries = 0; ; tries++) {
+    try {
+      const file = await open(lock, 'wx', 0o600);
+      try { await file.writeFile(`${process.pid}\n`); } finally { await file.close(); }
+      return async () => { await unlink(lock).catch(() => undefined); };
+    } catch (error) {
+      if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST') || tries > 0) throw error;
+    }
+    const owner = Number.parseInt(await readFile(lock, 'utf8').catch(() => ''), 10);
+    if (Number.isInteger(owner) && owner > 0 && running(owner)) {
+      throw new Error(`The journal ${path} is held by process ${owner}: another port runs on it. Stop that one first.`);
+    }
+    // The owner has ended (or the lock names none): its lock is left over, and this process takes it.
+    await unlink(lock).catch(() => undefined);
+  }
+}
+
+/** Whether a process runs: signal 0 checks without sending; one of another user still runs. */
+function running(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error instanceof Error && 'code' in error && error.code === 'EPERM';
+  }
 }
 
 /** Node's timer as the host's. */
