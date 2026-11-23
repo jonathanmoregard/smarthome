@@ -251,7 +251,7 @@ test('the warm end is the helper\'s three numbers, and 255, 126, 0 otherwise', (
   const warm = (rgb: JsonObject[string] | undefined) =>
     decode({ 'light.candle_test_rgb_warm_end': state('on', rgb === undefined ? {} : { rgb_color: rgb }) }).warmEnd;
   assert.deepEqual(warm([200, 100, 50]), { red: 200, green: 100, blue: 50 });
-  for (const bad of [undefined, [200, 100], 'warm', null, [200, 100, 300], [200, 'a', 5]]) {
+  for (const bad of [undefined, [200, 100], 'warm', null, [200, 100, 300], [200, 'a', 5], [], {}, 0, '']) {
     assert.deepEqual(warm(bad), { red: 255, green: 126, blue: 0 });
   }
   assert.deepEqual(decode().warmEnd, { red: 255, green: 126, blue: 0 });
