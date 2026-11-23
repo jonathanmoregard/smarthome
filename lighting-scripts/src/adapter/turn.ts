@@ -16,7 +16,7 @@ import { toInstant } from './codecs/ids.ts';
 import { timestamp } from './codecs/accessors.ts';
 import { mqttPublishCall, publishCall, switchCall } from './encode.ts';
 import { haInput } from './inputs.ts';
-import { handleInput } from './loop.ts';
+import { afterOutputs, handleInput } from './loop.ts';
 import type { AdapterState, Output } from './loop.ts';
 import type { HelperValue } from './codecs/remote-helpers.ts';
 import type { Instant } from '../domain/types/time.ts';
@@ -53,18 +53,19 @@ export function turnHandler(name: string): ScriptHandler {
       return null;
     }
     const turn = handleInput(state, ctx, input);
-    state = turn.state;
+    const settled = afterOutputs(turn, turn.outputs.map(() => false));
+    state = settled.state;
     if (turn.dropped !== undefined) console.error(`lighting: ${name}: ${turn.dropped}; dropped`);
     // A bulb given up on is most often switched off at the wall: logged once, at info level (owner, 2026-11-20).
-    for (const bulb of turn.parked) {
+    for (const bulb of settled.parked) {
       console.info(`lighting: ${bulb} is parked: it does not take what it is sent; left until it comes back on or its light changes`);
     }
     const now = toInstant(timestamp(ctx.now));
     for (const output of turn.outputs) perform(ctx, effectOf(output, now));
     const tick = Math.floor(now / TICK_SECONDS) * TICK_SECONDS + TICK_SECONDS;
-    if (turn.wakeAt !== undefined && turn.wakeAt < tick) {
+    if (settled.wakeAt !== undefined && settled.wakeAt < tick) {
       ctx.scheduled = ctx.scheduled === undefined ? [] : ctx.scheduled.filter(task => task.script !== WAKE);
-      perform(ctx, { kind: 'schedule', script: WAKE, args: {}, delayMs: Math.max(0, Math.round((turn.wakeAt - now) * 1000)) });
+      perform(ctx, { kind: 'schedule', script: WAKE, args: {}, delayMs: Math.max(0, Math.round((settled.wakeAt - now) * 1000)) });
     }
     return null;
   };

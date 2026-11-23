@@ -133,6 +133,34 @@ export type Attempts = 1 | 2 | 3 | 4;
 export type Beliefs = { bulbs: Record<BulbId, Belief>; switches: Record<SwitchId, SwitchSent> };
 
 /**
+ * The beliefs once Home Assistant reported `bulbs` changed (a lamp switched on names its bulbs): each is sent its
+ * light again, as today's `lamp_on` does, but not a bulb our own put-back lit between `before` and `after`, whose
+ * belief and put-backs stay so a bulb that keeps going off still reaches the flap limit.
+ */
+export function reportedChanged(beliefs: Beliefs, before: Observed, after: Observed, bulbs: readonly BulbId[]): Beliefs {
+  const ours = new Set(litByUs(before, after, beliefs));
+  return forgotten(beliefs, bulbs.filter(bulb => !ours.has(bulb)));
+}
+
+/**
+ * The bulbs whose power-on between two observations a send of ours explains: off and in reach before, on now, and
+ * last sent a light (the put-back that parked it included). Its report is our own put-back's, so what is held about
+ * it stays: its put-backs, or its parking.
+ */
+export function litByUs(before: Observed, after: Observed, beliefs: Beliefs): BulbId[] {
+  return entriesOf(after.bulbs).flatMap(([bulb, now]) => {
+    const was = before.bulbs[bulb], belief = beliefs.bulbs[bulb];
+    const lit = was !== undefined && was.reach === 'reachable' && was.light.power === 'off' && now.reach === 'reachable'
+      && now.light.power === 'on';
+    const sentLit = belief !== undefined && (belief.kind === 'sent' ? belief.shows.power === 'on'
+      : belief.kind === 'parked' && belief.lastSent.power === 'on');
+    return lit && sentLit ? [bulb] : [];
+  });
+}
+
+export const NO_BELIEFS: Beliefs = { bulbs: {}, switches: {} };
+
+/**
  * The beliefs without those of `bulbs`, so the next pass sends them what they do not show, the candle's start
  * included. Today's dispatch sends a lamp it was asked for (switched back on, or handed to the port).
  */
@@ -140,8 +168,6 @@ export function forgotten(beliefs: Beliefs, bulbs: readonly BulbId[]): Beliefs {
   const forget = new Set(bulbs);
   return { ...beliefs, bulbs: Object.fromEntries(entriesOf(beliefs.bulbs).filter(([bulb]) => !forget.has(bulb))) };
 }
-
-export const NO_BELIEFS: Beliefs = { bulbs: {}, switches: {} };
 
 /** The beliefs with `bulbs` back on: each is owed its light with the short fade, and is no longer parked. */
 export function backOn(beliefs: Beliefs, bulbs: readonly BulbId[]): Beliefs {
@@ -173,22 +199,6 @@ export function newlyParked(before: Beliefs, after: Beliefs): BulbId[] {
 export function nextRetry(beliefs: Beliefs, now: Instant): Instant | undefined {
   const due = entriesOf(beliefs.bulbs).flatMap(([, belief]) => belief.kind === 'retrying' && belief.retryAt > now ? [belief.retryAt] : []);
   return due.length === 0 ? undefined : toInstant(Math.min(...due));
-}
-
-/**
- * The bulbs whose power-on between two observations a send of ours explains: off and in reach before, on now, and
- * last sent a light (the put-back that parked it included). Its report is our own put-back's, so what is held about
- * it stays: its put-backs, or its parking.
- */
-export function litByUs(before: Observed, after: Observed, beliefs: Beliefs): BulbId[] {
-  return entriesOf(after.bulbs).flatMap(([bulb, now]) => {
-    const was = before.bulbs[bulb], belief = beliefs.bulbs[bulb];
-    const lit = was !== undefined && was.reach === 'reachable' && was.light.power === 'off' && now.reach === 'reachable'
-      && now.light.power === 'on';
-    const sentLit = belief !== undefined && (belief.kind === 'sent' ? belief.shows.power === 'on'
-      : belief.kind === 'parked' && belief.lastSent.power === 'on');
-    return lit && sentLit ? [bulb] : [];
-  });
 }
 
 /** A switch we sent `power` at `sentAt`, not yet seen to land. */

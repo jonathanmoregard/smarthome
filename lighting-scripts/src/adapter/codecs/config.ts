@@ -21,6 +21,7 @@ import type {
 import type { BulbInfo } from '../../domain/effect.ts';
 import type { LampProfileChange } from '../../domain/model.ts';
 import type { BulbId, LampId, RemoteId, RoomId, SwitchId } from '../../domain/types/ids.ts';
+import { entriesOf } from '../../domain/types/ids.ts';
 import type { Colour, RGB, SceneLight } from '../../domain/types/light.ts';
 import type { Minutes } from '../../domain/types/range.ts';
 import type { TimeOfDay, Timezone } from '../../domain/types/time.ts';
@@ -297,4 +298,13 @@ export function bulbTopics(catalog: Catalog): Record<BulbId, MqttTopic> {
     const topic = catalog.topics[bulb];
     return topic === undefined ? [] : [[bulb, toMqttTopic(topic)]];
   }));
+}
+
+/**
+ * The bulbs Home Assistant reported changed, from the entity ids it names: a lamp names its bulbs, a bulb itself.
+ * An id the config does not know names none.
+ */
+export function reportedBulbs(entities: readonly string[], config: Config): BulbId[] {
+  const named = new Set(entities);
+  return entriesOf(config.lamps).flatMap(([lamp, { bulbs }]) => bulbs.flatMap(({ bulb }) => named.has(lamp) || named.has(bulb) ? [bulb] : []));
 }

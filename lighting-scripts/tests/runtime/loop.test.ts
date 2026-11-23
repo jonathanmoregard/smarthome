@@ -3,8 +3,8 @@ import test from 'node:test';
 import type { Publish } from '../../src/adapter/encode.ts';
 import { configSource, decodeModel } from '../../src/adapter/codecs/model.ts';
 import type { HaInput } from '../../src/adapter/inputs.ts';
-import { handleInput } from '../../src/adapter/loop.ts';
-import type { AdapterState, Turn } from '../../src/adapter/loop.ts';
+import { afterOutputs, handleInput } from '../../src/adapter/loop.ts';
+import type { AdapterState, Output, Settled, Turn } from '../../src/adapter/loop.ts';
 import { nextChange } from '../../src/domain/lighting-state.ts';
 import type { BulbId } from '../../src/domain/types/ids.ts';
 import type { EntityState } from '../../src/adapter/ha-client.ts';
@@ -34,11 +34,13 @@ class House {
     writeBack(this.bulbs, this.states);
   }
 
-  /** One turn at `time` (UTC, on the Monday): its writes land in the states, its publishes reach the bulbs. */
-  turn(time: string, input: HaInput): Turn {
+  /**
+   * One turn at `time` (UTC, on the Monday): its writes land in the states, its publishes reach the bulbs but for the
+   * `failing` ones, and the turn is settled with how each output went.
+   */
+  turn(time: string, input: HaInput, failing: (output: Output) => boolean = () => false): Turn & Settled {
     const turn = handleInput(this.state, houseView(this.states, `2026-09-21T${time}Z`), input);
-    this.state = turn.state;
-    this.last = turn;
+    const failed = turn.outputs.map(failing);
     for (const output of turn.outputs) {
       if (output.kind === 'sensor') {
         const sensor = this.states[output.write.entity]!;
@@ -46,9 +48,12 @@ class House {
       }
       if (output.kind === 'switch') this.states[output.switch] = { state: output.power, attributes: {} };
     }
-    this.bulbs.apply(publishesOf(turn));
+    this.bulbs.apply(turn.outputs.flatMap((output, index) => output.kind === 'publish' && !failed[index] ? [output.publish] : []));
     writeBack(this.bulbs, this.states);
-    return turn;
+    const settled = afterOutputs(turn, failed);
+    this.state = settled.state;
+    this.last = turn;
+    return { ...turn, ...settled };
   }
 }
 
@@ -307,4 +312,32 @@ test('the turn asks to be woken for a retry due before the next change', () => {
   house.state = { ...state, beliefs: { ...state.beliefs, bulbs: { ...state.beliefs.bulbs,
     [bulbA3]: { kind: 'retrying', shows: undefined, attempts: 1, retryAt } } } };
   assert.equal(house.turn('12:01:00', { kind: 'tick' }).wakeAt, retryAt);
+});
+
+test("a failed publish is retried after its backoff, and the turn asks to be woken for it", () => {
+  // Amendment 8.2. Break: every send is taken as sent whatever the host reports, so a lost publish waits for the
+  // next change, which may be hours away, and the bulb shows the wrong light until then.
+  const house = new House();
+  house.turn('12:00:00', { kind: 'started' });
+  house.bulbs.set(bulbA3, { reach: 'reachable', light: lit(40, { kind: 'kelvin', kelvin: toKelvin(4000) }) });
+  writeBack(house.bulbs, house.states);
+  const failing = (output: Output) => output.kind === 'publish' && output.publish.topic === `zigbee2mqtt/${bulbA3}`;
+  const turn = house.turn('12:01:00', { kind: 'tick' }, failing);
+  const retryAt = toInstant(Date.parse('2026-09-21T12:01:01Z') / 1000);
+  assert.deepEqual(turn.state.beliefs.bulbs[bulbA3], { kind: 'retrying', shows: undefined, attempts: 1, retryAt });
+  assert.equal(turn.wakeAt, retryAt);
+});
+
+test("the beliefs part-way through a turn hold only the sends whose outputs have all gone", () => {
+  // Break: the journal saved after a bulb's send holds sends not yet made, so a restart part-way through a turn
+  // believes a bulb shows a light it was never sent.
+  const house = new House();
+  const turn = handleInput(undefined, houseView(house.states, '2026-09-21T12:00:00Z'), { kind: 'started' });
+  const none = afterOutputs(turn, []);
+  assert.deepEqual(none.state.beliefs.bulbs, turn.state.beliefs.bulbs);
+  const last = turn.outputs.map(output => output.kind).lastIndexOf('publish');
+  const some = afterOutputs(turn, turn.outputs.slice(0, last).map(() => false));
+  const all = afterOutputs(turn, turn.outputs.map(() => false));
+  const believed = (settled: Settled) => Object.keys(settled.state.beliefs.bulbs).length;
+  assert.ok(believed(none) < believed(some) && believed(some) < believed(all), `${believed(none)} ${believed(some)} ${believed(all)}`);
 });

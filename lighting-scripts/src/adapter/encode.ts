@@ -70,6 +70,9 @@ export function mqttPublishCall(topic: string, payload: string, retain: boolean)
   return { service: 'mqtt.publish', data: { topic, payload, qos: 0, retain } };
 }
 
+/** A send to a bulb: its light, or its candle's start alone. */
+export type BulbSend = Exclude<Send, { kind: 'switch' }>;
+
 /**
  * The sends as publishes, in three rounds: stop_effect for each bulb leaving the candle; each light (level and colour,
  * or OFF) with its transition; then each candle's start, a start sent alone included. Nothing after a start carries
@@ -89,20 +92,20 @@ export function publishes(sends: readonly Send[], topics: Readonly<Record<BulbId
   ];
 }
 
+/** Does `publish` carry part of `send`: is it to the bulb's own topic, or to a Zigbee group the bulb is in? */
+export function carries(send: BulbSend, publish: Publish, topics: Readonly<Record<BulbId, MqttTopic>>, groups: BulbGroups): boolean {
+  return publish.topic === topics[send.bulb] || groups.some(group => group.topic === publish.topic && group.members.includes(send.bulb));
+}
+
 /**
- * How one send went, from the publishes that failed: a publish to the bulb's topic, or to a Zigbee group it is in,
- * carries its part. Its light (or OFF) failed: `failed`, every member of a failed group publish alike. Only its
- * candle's start failed: `start failed`, or `failed` for a start sent alone. A failed stop alone is no failure: the
- * light after it ends the candle too. A switch's power is no publish.
+ * How a bulb's send went, from the publishes carrying it that failed (see {@link carries}). Its light (or OFF)
+ * failed: `failed`, every member of a failed group publish alike. Only its candle's start failed: `start failed`, or
+ * `failed` for a start sent alone. A failed stop alone is no failure: the light after it ends the candle too.
  */
-export function outcomeOf(send: Send, failed: readonly Publish[], topics: Readonly<Record<BulbId, MqttTopic>>, groups: BulbGroups): Outcome {
-  if (send.kind === 'switch') return 'sent';
-  const bulb = send.bulb;
-  const carried = failed.filter(publish => publish.topic === topics[bulb]
-    || groups.some(group => group.topic === publish.topic && group.members.includes(bulb)));
-  const startFailed = carried.some(publish => 'effect' in publish.payload && publish.payload.effect === START.effect);
+export function outcomeOf(send: BulbSend, failed: readonly Publish[]): Outcome {
+  const startFailed = failed.some(publish => 'effect' in publish.payload && publish.payload.effect === START.effect);
   if (send.kind === 'start') return startFailed ? 'failed' : 'sent';
-  if (carried.some(publish => !('effect' in publish.payload))) return 'failed';
+  if (failed.some(publish => !('effect' in publish.payload))) return 'failed';
   return startFailed ? 'start failed' : 'sent';
 }
 

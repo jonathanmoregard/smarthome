@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { BulbGroups } from '../../src/adapter/bulb-groups.ts';
-import { outcomeOf, publishes } from '../../src/adapter/encode.ts';
+import { carries, outcomeOf, publishes } from '../../src/adapter/encode.ts';
 import type { MqttTopic, Publish } from '../../src/adapter/encode.ts';
 import type { Observed } from '../../src/adapter/observed.ts';
 import {
-  afterSend, backOn, EFFECT_START_FADE, forgotten, MANUAL_FADE, NO_BELIEFS, newlyParked, nextSends, REAPPLY_LIMIT, REAPPLY_WINDOW, RETRY_FIRST,
+  afterSend, backOn, EFFECT_START_FADE, forgotten, MANUAL_FADE, NO_BELIEFS, newlyParked, nextSends, REAPPLY_LIMIT, REAPPLY_WINDOW, reportedChanged, RETRY_FIRST,
   switchesSeen, unexplained,
 } from '../../src/adapter/reconcile.ts';
 import type { Beliefs, Send } from '../../src/adapter/reconcile.ts';
@@ -64,7 +64,10 @@ function pass(bulbs: FakeBulbs, target: LightingState, beliefs: Beliefs, now: In
   const sent = publishes(sends, topics, groups);
   const failed = bulbs.apply(sent, lost, failing);
   let after = beliefs;
-  for (const send of sends) after = afterSend(after, send, outcomeOf(send, failed, topics, groups), now);
+  for (const send of sends) {
+    after = afterSend(after, send, send.kind === 'switch' ? 'sent'
+      : outcomeOf(send, failed.filter(publish => carries(send, publish, topics, groups))), now);
+  }
   return { beliefs: after, sends, sent };
 }
 
@@ -251,6 +254,19 @@ test('a bulb whose belief is forgotten is sent what it does not show, the candle
   const { sent } = pass(bulbs, EVENING, forgotten(beliefs, [bulbA1]), at(60));
   assert.deepEqual(kinds(sent, bulbA1), ['channel_change']);
   assert.deepEqual(bulbs.shows(bulbA1), { reach: 'reachable', light: lit(100, WARM, 'candle') });
+});
+
+test('a bulb reported changed is forgotten, but not one our own put-back lit', () => {
+  // Amendment 8.2. Break: a bulb Home Assistant reports switched on keeps its old belief (its candle never restarts), or
+  // the report of our own put-back forgets the put-backs, so a bulb that keeps going off is never parked.
+  const { bulbs, beliefs } = steady();
+  bulbs.set(bulbA3, { reach: 'reachable', light: { power: 'off' } });
+  const dark = bulbs.observed();
+  const putBack = pass(bulbs, EVENING, beliefs, at(60)).beliefs;
+  const after = reportedChanged(putBack, dark, bulbs.observed(), [bulbA1, bulbA3]);
+  assert.equal(after.bulbs[bulbA1], undefined);
+  assert.deepEqual(after.bulbs[bulbA3], putBack.bulbs[bulbA3]);
+  assert.deepEqual(after.bulbs[bulbA2], putBack.bulbs[bulbA2]);
 });
 
 test('a disconnected bridge sends the bulbs nothing', () => {
