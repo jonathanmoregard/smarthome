@@ -26,11 +26,11 @@ import type {
   BlockOverlay, BrightnessOverlay, ColourOverlay, EffectOverlay, HeldBlock, LampOverlay, ModeOverlay, Overlays, PresetChoice, RememberedPreset,
   RemoteAdjustment, RemoteOverlay, RemotePreset, StepRange, SwitchOverlay,
 } from '../../domain/overlays.ts';
-import type { RoomId, SwitchId } from '../../domain/types/ids.ts';
+import type { RemoteId, RemoteSource, RoomId, SwitchId } from '../../domain/types/ids.ts';
 import { entriesOf } from '../../domain/types/ids.ts';
 import type { Colour, PercentRange, Power } from '../../domain/types/light.ts';
 import { overlayKeyText, SARA_MODE } from './overlay-key.ts';
-import type { OverlayKey } from './overlay-key.ts';
+import type { OverlayKey, RemoteSources } from './overlay-key.ts';
 import type { RoomOrHouse } from '../../domain/types/schedule.ts';
 import type { Instant } from '../../domain/types/time.ts';
 import {
@@ -69,9 +69,14 @@ const PRESET_FIELDS = ['selection', 'period', 'period_updated', 'selection_updat
 /** The preset choices a remote remembers a context for, each under its selection's name. */
 const PRESET_CHOICES: readonly PresetChoice[] = ['day', 'cosy', 'candle'];
 
-export function decodeOverrides(attributes: JsonObject | undefined): OverridesState {
+/**
+ * The overlays, the mode overlay and the saved ranges the sensor holds. A
+ * remote's overlay saved under a source no remote of the catalog has takes no
+ * part, and stays in the sensor as found.
+ */
+export function decodeOverrides(attributes: JsonObject | undefined, sources: RemoteSources): OverridesState {
   const stored = attributes === undefined ? {} : attributes;
-  const entries = decodeEntries(stored['overrides']);
+  const entries = decodeEntries(stored['overrides'], sources);
   const mode = entries.find(entry => entry.kind === 'mode');
   return {
     overlays: {
@@ -94,13 +99,14 @@ export function decodeOverrides(attributes: JsonObject | undefined): OverridesSt
  * and switch is in. A house-wide overlay (a block over the house, the mode
  * overlay, a lamp in no room) is the Model's to write.
  */
-export function encodeOverrides(state: OverridesState, found: JsonObject, live: ReadonlySet<RoomId>, config: Config): JsonObject {
+export function encodeOverrides(state: OverridesState, found: JsonObject, live: ReadonlySet<RoomId>, config: Config,
+  sources: RemoteSources): JsonObject {
   const liveRoom = (room: RoomId | undefined) => room === undefined || live.has(room);
   const switchLive = (entity: SwitchId) => config.switches[entity] !== undefined && liveRoom(config.switches[entity].room);
   const owned = (entry: StoredOverlay) => entryIsLive(entry, liveRoom, config);
   const written: JsonObject = { ...found };
   const set = (attribute: string, value: JsonValue | undefined) => { if (value !== undefined) written[attribute] = value; };
-  set('overrides', encodeEntries(state, found['overrides'], owned));
+  set('overrides', encodeEntries(state, found['overrides'], owned, sources));
   set('power', encodeKeyed(state.overlays.roomPower, found['power'], toRoomId, decodePower, power => power === 'on', liveRoom));
   set('switch_ranges', encodeKeyed(state.switchRanges, found['switch_ranges'], toSwitchId, decodeRangeRule, storedRangeRule, switchLive));
   set('range_defaults', isDeepStrictEqual(decodeRangeDefaults(found['range_defaults']), state.rangeDefaults) ? undefined
@@ -167,13 +173,14 @@ function decodeRangeDefaults(raw: JsonValue | undefined): RangeDefaults {
  * The `overrides` attribute with the Model's overlays written in, or none when
  * nothing changed (the stored value stays, garbage included).
  */
-function encodeEntries(state: OverridesState, found: JsonValue | undefined, owned: (entry: StoredOverlay) => boolean): JsonObject | undefined {
-  const wanted = wantedEntries(state);
+function encodeEntries(state: OverridesState, found: JsonValue | undefined, owned: (entry: StoredOverlay) => boolean,
+  sources: RemoteSources): JsonObject | undefined {
+  const wanted = wantedEntries(state, sources);
   const stored = isObject(found) ? found : {};
   const written: JsonObject = {};
   let changed = false;
   for (const [key, raw] of Object.entries(stored)) {
-    const before = decodeEntry(key, raw), after = wanted.get(key);
+    const before = decodeEntry(key, raw, sources), after = wanted.get(key);
     wanted.delete(key);
     const ours = (before === undefined || owned(before)) && (after === undefined || owned(after));
     if (!ours || after === undefined && before === undefined) written[key] = raw;
@@ -192,14 +199,20 @@ function encodeEntries(state: OverridesState, found: JsonValue | undefined, owne
   return changed ? written : undefined;
 }
 
-/** The Model's overlays by the key each is stored under. Two overlays under one key cannot be stored. */
-function wantedEntries(state: OverridesState): Map<string, StoredOverlay> {
+/**
+ * The Model's overlays by the key each is stored under. Two overlays under one
+ * key cannot be stored; a remote the catalog gives no source has no key.
+ */
+function wantedEntries(state: OverridesState, sources: RemoteSources): Map<string, StoredOverlay> {
   const overlays: Overlays = state.overlays;
   const entries: StoredOverlay[] = [];
   for (const [scope, overlay] of Object.entries(overlays.blocks)) {
     if (overlay !== undefined) entries.push({ kind: 'block', scope: scope === 'house' ? 'house' : toRoomId(scope), overlay });
   }
-  for (const overlay of overlays.remotes) entries.push({ kind: 'remote', overlay });
+  for (const overlay of overlays.remotes) {
+    const source = sources.sourceOf.get(overlay.remote);
+    if (source !== undefined) entries.push({ kind: 'remote', overlay, source });
+  }
   for (const overlay of overlays.lamps) entries.push({ kind: 'lamp', overlay });
   if (state.modeOverlay.active) entries.push({ kind: 'mode', overlay: state.modeOverlay });
   const wanted = new Map<string, StoredOverlay>();
@@ -284,25 +297,33 @@ const COLOUR: ClaimReader<ColourOverlay> = {
 type StoredOverlay =
   | { kind: 'block'; scope: RoomOrHouse; overlay: BlockOverlay }
   | { kind: 'mode'; overlay: Extract<ModeOverlay, { active: true }> }
-  | { kind: 'remote'; overlay: RemoteOverlay }
+  /** `source`: what the overlay's key names. */
+  | { kind: 'remote'; overlay: RemoteOverlay; source: RemoteSource }
   | { kind: 'lamp'; overlay: LampOverlay };
 
 /** The stored entries of a known shape, in stored order; an `overrides` that is not a mapping holds none. */
-function decodeEntries(overrides: JsonValue | undefined): StoredOverlay[] {
+function decodeEntries(overrides: JsonValue | undefined, sources: RemoteSources): StoredOverlay[] {
   return isObject(overrides) ? Object.entries(overrides).flatMap(([key, raw]) => {
-    const entry = decodeEntry(key, raw);
+    const entry = decodeEntry(key, raw, sources);
     return entry === undefined ? [] : [entry];
   }) : [];
 }
 
-/** One stored entry, by its key and kind; none when it is of no known shape (old shapes, unknown kinds and keys, garbage). */
-function decodeEntry(key: string, raw: JsonValue): StoredOverlay | undefined {
+/**
+ * One stored entry, by its key and kind; none when it is of no known shape
+ * (old shapes, unknown kinds and keys, garbage) or a remote's whose source no
+ * remote of the catalog has.
+ */
+function decodeEntry(key: string, raw: JsonValue, sources: RemoteSources): StoredOverlay | undefined {
   const parsed = parseOverlayKey(key);
   if (parsed.kind === 'sara mode') return { kind: 'mode', overlay: { active: true, since: isObject(raw) ? savedWhen(raw['when']) : EPOCH } };
   if (!isObject(raw)) return undefined;
   switch (parsed.kind) {
     case 'block': return decodeBlock(parsed.scope, raw);
-    case 'remote input': return decodeRemote(parsed.source, raw);
+    case 'remote input': {
+      const remote = sources.remoteOf.get(parsed.source);
+      return remote === undefined ? undefined : decodeRemote(remote, parsed.source, raw);
+    }
     case 'native control': return decodeLamp(nativeOver(parsed.base), { kind: 'person' }, raw);
     case 'dashboard control': return decodeLamp(undefined, { kind: 'dashboard', control: toDashboardControlId(parsed.control) }, raw);
     case 'empty': case 'saved': return undefined;
@@ -318,7 +339,7 @@ function decodeBlock(scope: string, raw: JsonObject): StoredOverlay | undefined 
 }
 
 /** A remote's input for its room: kind `input`, scope `room`, its room as `target`. */
-function decodeRemote(source: RemoteOverlay['source'], raw: JsonObject): StoredOverlay | undefined {
+function decodeRemote(remote: RemoteId, source: RemoteSource, raw: JsonObject): StoredOverlay | undefined {
   const value = raw['value'], target = raw['target'];
   if (raw['kind'] !== 'input' || raw['scope'] !== 'room' || typeof target !== 'string' || target === '' || !isObject(value)) return undefined;
   const since = savedWhen(raw['when']);
@@ -328,8 +349,9 @@ function decodeRemote(source: RemoteOverlay['source'], raw: JsonObject): StoredO
   const overOldRecord = isObject(value['legacy_channels']) && chosen !== undefined && chosen !== null && chosen !== 'day' && chosen !== 'cosy';
   return {
     kind: 'remote',
+    source,
     overlay: {
-      source,
+      remote,
       room: toRoomId(target),
       since,
       stepRange: !Object.hasOwn(value, 'step_range') || !isObject(range) ? DEFAULT_STEP_RANGE
@@ -412,10 +434,10 @@ function encodeEntry(entry: StoredOverlay, before: StoredOverlay | undefined, ra
     case 'remote': {
       const overlay = entry.overlay;
       const foundValue = found !== undefined && isObject(found['value']) ? found['value'] : {};
-      const value = remoteValue(overlay, before?.kind === 'remote' ? before.overlay : undefined, foundValue);
+      const value = remoteValue(overlay, entry.source, before?.kind === 'remote' ? before.overlay : undefined, foundValue);
       const key = overlayKeyText(entryKey(entry));
       return found === undefined
-        ? fresh({ kind: 'input', key, source: overlay.source, scope: 'room', target: overlay.room, value }, 'remote')
+        ? fresh({ kind: 'input', key, source: entry.source, scope: 'room', target: overlay.room, value }, 'remote')
         : { ...found, kind: 'input', scope: 'room', target: overlay.room, value, ...when };
     }
     case 'lamp': {
@@ -437,7 +459,7 @@ function entryKey(entry: StoredOverlay): OverlayKey {
   switch (entry.kind) {
     case 'mode': return SARA_MODE;
     case 'block': return { kind: 'block', scope: entry.scope };
-    case 'remote': return { kind: 'remote input', source: entry.overlay.source };
+    case 'remote': return { kind: 'remote input', source: entry.source };
     case 'lamp': {
       const { over, from } = entry.overlay;
       return from.kind === 'dashboard' ? { kind: 'dashboard control', control: from.control } : { kind: 'native control', base: nativeBase(over) };
@@ -558,7 +580,7 @@ function newest(a: EffectOverlay | undefined, b: EffectOverlay | undefined): Eff
 }
 
 /** A remote overlay's stored value: the found value with each part the Model changed written in. */
-function remoteValue(overlay: RemoteOverlay, before: RemoteOverlay | undefined, found: JsonObject): JsonObject {
+function remoteValue(overlay: RemoteOverlay, source: RemoteSource, before: RemoteOverlay | undefined, found: JsonObject): JsonObject {
   const value: JsonObject = { ...found };
   if (before === undefined || !isDeepStrictEqual(before.stepRange, overlay.stepRange)) {
     value['step_range'] = { min: overlay.stepRange.min, max: overlay.stepRange.max };
@@ -570,10 +592,10 @@ function remoteValue(overlay: RemoteOverlay, before: RemoteOverlay | undefined, 
   if (before === undefined || !isDeepStrictEqual(before.preset, overlay.preset)) {
     for (const field of PRESET_FIELDS) delete value[field];
     const preset = overlay.preset;
-    if (preset.choice !== 'none') Object.assign(value, { selection: contextName(preset.choice), ...presetFields(preset, overlay.source, found) });
+    if (preset.choice !== 'none') Object.assign(value, { selection: contextName(preset.choice), ...presetFields(preset, source, found) });
   }
   if (before === undefined ? Object.keys(overlay.remembered).length > 0 : !isDeepStrictEqual(before.remembered, overlay.remembered)) {
-    value['preset_contexts'] = storedContexts(overlay, before === undefined ? {} : before.remembered,
+    value['preset_contexts'] = storedContexts(overlay, source, before === undefined ? {} : before.remembered,
       isObject(found['preset_contexts']) ? found['preset_contexts'] : {});
   }
   return value;
@@ -596,7 +618,7 @@ function storedAdjustment(adjustment: RemoteAdjustment, found: JsonObject): Json
  * them, and as a context in `preset_contexts` holds them; a candle keeps the
  * stored `selection_instance`.
  */
-function presetFields(preset: RememberedPreset, source: RemoteOverlay['source'], found: JsonObject): JsonObject {
+function presetFields(preset: RememberedPreset, source: RemoteSource, found: JsonObject): JsonObject {
   switch (preset.choice) {
     case 'day': case 'cosy':
       return { period: preset.choice, period_updated: preset.since, selection_updated: preset.since };
@@ -618,13 +640,13 @@ function heldBlockFields(block: HeldBlock | undefined): JsonObject {
 }
 
 /** The presets the remote left, each saved under its name, where it changed; a stored context the Model does not read stays. */
-function storedContexts(overlay: RemoteOverlay, before: RemoteOverlay['remembered'], found: JsonObject): JsonObject {
+function storedContexts(overlay: RemoteOverlay, source: RemoteSource, before: RemoteOverlay['remembered'], found: JsonObject): JsonObject {
   const contexts: JsonObject = { ...found };
   for (const choice of PRESET_CHOICES) {
     const name = contextName(choice), remembered = overlay.remembered[choice], stored = contexts[name];
     if (isDeepStrictEqual(before[choice], remembered)) continue;
     if (remembered === undefined) delete contexts[name];
-    else contexts[name] = presetFields(remembered, overlay.source, isObject(stored) ? stored : {});
+    else contexts[name] = presetFields(remembered, source, isObject(stored) ? stored : {});
   }
   return contexts;
 }

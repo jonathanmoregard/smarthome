@@ -18,7 +18,7 @@ import { perform } from '../runtime/effects.ts';
 import { acceptedPowerSwitch, planAnswer, remoteCommit, switchPlan } from '../legacy/domain/controller.ts';
 import type { ApplyRequest, PlanRequest, LightingPlan, PowerSwitch, RemoteCommandRequest } from '../legacy/domain/controller.ts';
 import { overlayKeyText, SARA_MODE } from '../adapter/codecs/overlay-key.ts';
-import { pressText } from '../domain/types/remote.ts';
+import { pressText } from '../legacy/domain/remote-input.ts';
 import { roomText } from '../parse/rooms.ts';
 import { showLightingState } from '../adapter/show.ts';
 

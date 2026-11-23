@@ -2,7 +2,7 @@ import type { Block } from './blocks.ts';
 import type { Config } from './config.ts';
 import type { Model } from './model.ts';
 import { blockPosition, lastTimeOfDay } from './schedule.ts';
-import type { DashboardControlId, RemoteSource, RoomId, SwitchId } from './types/ids.ts';
+import type { DashboardControlId, RemoteId, RoomId, SwitchId } from './types/ids.ts';
 import { entriesOf } from './types/ids.ts';
 import type { LampOrRoom } from './types/lighting-state.ts';
 import type { Brightness, Colour, Power } from './types/light.ts';
@@ -36,7 +36,7 @@ export type BlockOverlay = { block: Block; since: Instant };
 
 export type RemoteOverlay = {
   /** The key: one overlay per remote. */
-  source: RemoteSource;
+  remote: RemoteId;
   /** Stored `target`. */
   room: RoomId;
   /** Stored `when`. */

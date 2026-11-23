@@ -19,15 +19,15 @@ import { latestRemoteKey, savedSelection, savedWhen } from './resolution.ts';
 import type { SavedSelection } from './resolution.ts';
 import { assembledMap, storedFact } from './overrides.ts';
 import type { Assembled, AssembledMap, StoredFact, StoredValue } from './overrides.ts';
-import type { Adjustment, RemotePlanRequest } from '../legacy/domain/remote-input.ts';
+import type { Adjustment, RemotePlanRequest, RemotePress } from '../legacy/domain/remote-input.ts';
 import { stepBoundsOf, toRemoteSource, toRoomId } from './ids.ts';
 import { roomText } from './rooms.ts';
 import type { OverlayKey } from '../adapter/codecs/overlay-key.ts';
 import { overlayKeyText } from '../adapter/codecs/overlay-key.ts';
 import { parseOverlayKey } from './overlay-key.ts';
 import type { RoomId } from '../domain/types/ids.ts';
-import type { RemotePress, Step } from '../domain/types/remote.ts';
-import { REMOTE_COMMANDS } from '../domain/types/remote.ts';
+import type { Step } from '../domain/types/remote.ts';
+import { REMOTE_COMMANDS } from '../legacy/domain/remote-input.ts';
 
 const OVERRIDES = 'sensor.ls_overrides';
 const numeric = (v: JsonValue | undefined): v is number => typeof v === 'number' && Number.isFinite(v);

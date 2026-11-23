@@ -102,12 +102,16 @@ function applied(model: Model, room: RoomId | undefined, lamp: LampId | undefine
   };
 }
 
-/** The newest of a room's remote overlays: only it applies. A tie goes to the source that sorts last, as today's key order. */
+/**
+ * The newest of a room's remote overlays: only it applies. A tie goes to the
+ * remote whose id sorts last (today's key order sorts by the source the
+ * overlay is saved under; amendment 6.4 keys it by the remote).
+ */
 function newestRemote(remotes: readonly RemoteOverlay[]): RemoteOverlay | undefined {
   let newest: RemoteOverlay | undefined;
   for (const remote of remotes) {
     if (newest === undefined || remote.since > newest.since
-      || (remote.since === newest.since && remote.source.toLowerCase() >= newest.source.toLowerCase())) newest = remote;
+      || (remote.since === newest.since && remote.remote.toLowerCase() >= newest.remote.toLowerCase())) newest = remote;
   }
   return newest;
 }

@@ -9,7 +9,7 @@ import type { LampId, RoomId } from '../../src/domain/types/ids.ts';
 import type { Colour, LampLight, OnLight } from '../../src/domain/types/light.ts';
 import type { Instant } from '../../src/domain/types/time.ts';
 import {
-  toBrightness, toColourChannel, toDashboardControlId, toInstant, toKelvin, toLampId, toLevel, toPercentRange, toRemoteSource,
+  toBrightness, toColourChannel, toDashboardControlId, toInstant, toKelvin, toLampId, toLevel, toPercentRange,
   toRemoteId, toRoomId, toStep, toSwitchId, toTimeOfDay,
 } from '../../src/parse/ids.ts';
 import { syntheticHouse } from './fixtures/synthetic-house.ts';
@@ -106,7 +106,7 @@ test('clear all returns every lamp to the schedule', () => {
     brightness([lampA2], 50, '11:10:00'),
     { kind: 'modeToggled', on: true, at: at('11:20:00') },
     pressed('on', '11:30:00'));
-  held.overlays.remotes = [{ source: toRemoteSource('remote-a'), room: roomA, since: at('11:40:00'), stepRange: { min: toStep(-20), max: toStep(20) },
+  held.overlays.remotes = [{ remote: toRemoteId('remote-a'), room: roomA, since: at('11:40:00'), stepRange: { min: toStep(-20), max: toStep(20) },
     adjustment: undefined, preset: { choice: 'day', since: at('11:40:00') }, remembered: {} }];
   const cleared = after(held, requested({ kind: 'clear all' }, '12:00:00'));
   assert.deepEqual(cleared.overlays, { blocks: {}, remotes: [], lamps: [], roomPower: { [roomB]: 'off', [roomA]: 'on' }, switches: {} });
@@ -471,6 +471,6 @@ test('a config change is taken whole', () => {
 test('a remote press changes nothing yet (M3 Task 2)', () => {
   // Break: update raises on, or acts on, a message M3 Task 2 has not built yet.
   const model = house();
-  assert.equal(after(model, { kind: 'remotePressed', remote: toRemoteId('remote-a'), press: { kind: 'command', command: 'up' }, at: at('12:00:00') }),
+  assert.equal(after(model, { kind: 'remotePressed', remote: toRemoteId('remote-a'), command: 'up', at: at('12:00:00') }),
     model);
 });

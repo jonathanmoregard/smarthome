@@ -8,8 +8,7 @@ import { catalogOf, emptyCatalog } from '../runtime/catalog.ts';
 import { typed } from '../runtime/entrypoints.ts';
 import { parseRemotePlanArgs, remoteRoomPlan } from '../parse/remote-input.ts';
 import { roomText } from '../parse/rooms.ts';
-import { remoteDecision, remoteOpening } from '../legacy/domain/remote-input.ts';
-import { pressCommand } from '../domain/types/remote.ts';
+import { pressCommand, remoteDecision, remoteOpening } from '../legacy/domain/remote-input.ts';
 import type { RemotePlanRequest, RemotePlan } from '../legacy/domain/remote-input.ts';
 
 /**

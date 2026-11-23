@@ -1,7 +1,7 @@
 import { stateText } from '../../runtime/format.ts';
 import type { Plan } from '../../runtime/effects.ts';
 import type { RemoteId, RoomId } from '../../domain/types/ids.ts';
-import type { RemoteCommand } from '../../domain/types/remote.ts';
+import type { RemoteCommand } from './remote-input.ts';
 
 const presets = [200, 285, 370, 454, 588];
 export type Direction = 'left' | 'right' | 'up' | 'down';

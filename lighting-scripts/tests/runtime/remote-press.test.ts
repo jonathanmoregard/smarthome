@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { JsonObject } from '../../src/runtime/context.ts';
 import { remotePress } from '../../src/parse/remote-input.ts';
-import { pressCommand, pressText, REMOTE_COMMANDS } from '../../src/domain/types/remote.ts';
+import { pressCommand, pressText, REMOTE_COMMANDS } from '../../src/legacy/domain/remote-input.ts';
 import { controllerHandlers } from '../../src/handlers/controller.ts';
 import { context } from './gestures-context.ts';
 

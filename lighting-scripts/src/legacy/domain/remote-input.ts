@@ -10,13 +10,25 @@ import type { RemoteOverrides, RemoteRoomPlan } from '../../parse/remote-input.t
 import { clamp } from './scale.ts';
 import type { PowerTarget, RemoteSource, RoomId } from '../../domain/types/ids.ts';
 import { entriesOf } from '../../domain/types/ids.ts';
-import type { RemotePress } from '../../domain/types/remote.ts';
-import { pressCommand } from '../../domain/types/remote.ts';
 import type { OverlayKey } from '../../adapter/codecs/overlay-key.ts';
 import { remoteInputKey, sameOverlayKey, SARA_MODE } from '../../adapter/codecs/overlay-key.ts';
 
-const omit = (v: AssembledMap, keys: string[]): AssembledMap => Object.fromEntries(Object.entries(v).filter(([k]) => !keys.includes(k)));
-const pick = (v: AssembledMap, keys: string[]): AssembledMap => Object.fromEntries(Object.entries(v).filter(([k]) => keys.includes(k)));
+/** A command a remote's press acts on, as `ls_remote_command` takes it on the wire. */
+export type RemoteCommand = 'up' | 'down' | 'left' | 'right' | 'toggle' | 'reset' | 'sara_toggle';
+/** Every {@link RemoteCommand}, for the parser that reads a press. */
+export const REMOTE_COMMANDS: readonly RemoteCommand[] = ['up', 'down', 'left', 'right', 'toggle', 'reset', 'sara_toggle'];
+
+/**
+ * A press as a remote sends it: a command it acts on, or any other text, which
+ * does nothing (the scripts' noop). The other text is never read; it is kept
+ * only so a forwarded press names the bytes the remote sent.
+ */
+export type RemotePress = { kind: 'command'; command: RemoteCommand } | { kind: 'unknown'; text: string };
+
+/** The press as the text it was sent as. */
+export function pressText(press: RemotePress): string {
+  return press.kind === 'command' ? press.command : press.text;
+}
 
 /**
  * An input adjustment as the planner carries it: the document (stored keys in
@@ -34,6 +46,9 @@ export interface Adjustment {
   hasUp(pressedUp: boolean): StoredValue;
 }
 
+const omit = (v: AssembledMap, keys: string[]): AssembledMap => Object.fromEntries(Object.entries(v).filter(([k]) => !keys.includes(k)));
+const pick = (v: AssembledMap, keys: string[]): AssembledMap => Object.fromEntries(Object.entries(v).filter(([k]) => keys.includes(k)));
+
 /** An adjustment the planner builds itself; it has no `has_up`. */
 function built(fields: AssembledMap & { updated: number; lower: number; upper: number; steps: number }): Adjustment {
   return { fields, updated: () => fields.updated, lower: () => fields.lower, upper: () => fields.upper, steps: () => fields.steps,
@@ -45,6 +60,7 @@ function built(fields: AssembledMap & { updated: number; lower: number; upper: n
  * off is a `clear` of its key, so the target and value are these literals.
  */
 export type RemoteModeRecord = { kind: 'mode'; target: 'sara'; value: 'on' };
+
 /**
  * A channel claim. `value` is `next`, which is assembled by spreading the
  * stored override document through `omit`/`pick` and the preset contexts -- it
@@ -86,7 +102,6 @@ export type RemotePlan = RemotePlanOp & {
   request_id: string;
 };
 
-
 /** What `ls_remote_plan` reads before it may ask `ls_room_plan` for the room's context. */
 export interface RemoteOpening {
   /** The area, when some entity is in it; else none. */
@@ -107,6 +122,7 @@ export interface RemotePlanRequest {
   area: RoomId;
   command: RemotePress;
 }
+
 export function remoteOpening(view: HouseView, args: RemotePlanRequest): RemoteOpening {
   const command = pressCommand(args.command), area = args.area;
   const room = Object.values(view.rooms.ofId).includes(area) ? area : undefined;
@@ -129,6 +145,11 @@ export function remoteOpening(view: HouseView, args: RemotePlanRequest): RemoteO
     && (inputValue.validUntil() <= stamp || inputValue.timingRevision !== timingRevision));
   const cache = remoteCache(view.attr(`sensor.ls_cache_${roomText(room)}`, 'cache'));
   return { room, overrides, stamp, revision, timingRevision, needsContext, cache };
+}
+
+/** The command a press acts on; none for a press that does nothing. */
+export function pressCommand(press: RemotePress): RemoteCommand | undefined {
+  return press.kind === 'command' ? press.command : undefined;
 }
 
 /** The command's operation, from the opening reads, the room plan and the catalog, on the house after both runs. */

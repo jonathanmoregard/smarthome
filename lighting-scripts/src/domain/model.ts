@@ -5,7 +5,7 @@ import type { BrightnessPart, ColourPart, EffectPart, ModeOverlay, Overlays } fr
 import type { DashboardControlId, LampId, RemoteId, RoomId, SwitchId } from './types/ids.ts';
 import type { Brightness, Colour, PercentRange, Power, SceneLight } from './types/light.ts';
 import type { LampOrRoom } from './types/lighting-state.ts';
-import type { RemotePress } from './types/remote.ts';
+import type { RemoteCommand } from './types/remote.ts';
 import type { RoomOrHouse } from './types/schedule.ts';
 import type { Instant } from './types/time.ts';
 
@@ -98,7 +98,7 @@ export type Msg =
    */
   | { kind: 'lampChangedByPerson'; lamps: readonly LampId[]; rooms: readonly RoomId[]; light: RequestedLight; at: Instant }
   /** A command a remote's gestures (or another caller) send for its room. */
-  | { kind: 'remotePressed'; remote: RemoteId; press: RemotePress; at: Instant }
+  | { kind: 'remotePressed'; remote: RemoteId; command: RemoteCommand; at: Instant }
   /** A raw button press; `at` starts the chord and power-burst windows. */
   | { kind: 'remoteButtonPressed'; remote: RemoteId; button: RemoteButton; at: Instant }
   | { kind: 'switchButtonPressed'; switch: SwitchId; power: Power; at: Instant }

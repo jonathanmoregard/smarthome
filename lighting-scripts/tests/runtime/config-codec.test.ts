@@ -195,7 +195,6 @@ test('a remote with no room has none', () => {
   const config = decode();
   assert.equal(config.remotes[toRemoteId('device-remote-a')]!.room, roomA);
   assert.equal(config.remotes[toRemoteId('device-remote-b')]!.room, undefined);
-  assert.equal(config.remotes[toRemoteId('device-remote-b')]!.source, 'source-b');
 });
 
 test('a lamp reads its room and its bulbs with their firmware, and a lamp in no area has no room', () => {

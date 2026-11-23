@@ -14,13 +14,14 @@ import type { Catalog } from '../../runtime/catalog.ts';
 import { decodeConfig } from './config.ts';
 import type { ConfigSource } from './config.ts';
 import { FOLLOWS_ROOM, decodeLampProfile } from './lamp-profiles.ts';
+import { remoteSources } from './overlay-key.ts';
 import { decodeOverrides } from './overrides-sensor.ts';
 import { IDLE_REMOTE, decodeRemoteModel } from './remote-helpers.ts';
 import { FOLLOWS_ROOM_SWITCH, decodeSwitchProfile } from './switch-profiles.ts';
 
 export function decodeModel(source: ConfigSource, catalog: Catalog): Model {
   const config = decodeConfig(source, catalog);
-  const overrides = decodeOverrides(source.states['sensor.ls_overrides']?.attributes);
+  const overrides = decodeOverrides(source.states['sensor.ls_overrides']?.attributes, remoteSources(catalog));
   const remotes: Record<RemoteId, RemoteModel> = Object.fromEntries(entriesOf(config.remotes).map(([remote, { room }]) =>
     [remote, room === undefined ? IDLE_REMOTE : decodeRemoteModel(source, room)]));
   const lampProfiles: Record<LampId, Record<Block, LampProfile>> = Object.fromEntries(entriesOf(config.lamps).map(([lamp]) =>

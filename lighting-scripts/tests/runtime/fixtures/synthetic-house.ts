@@ -87,7 +87,7 @@ const config: Config = {
     [lampB1]: { room: roomB, bulbs: [{ bulb: toBulbId('bulb-b1'), firmware: 'stock' }] },
   },
   switches: { [plugA]: { room: roomA, onOff: true } },
-  remotes: { [remoteA]: { room: roomA, source: sourceA }, [remoteB]: { room: undefined, source: sourceB } },
+  remotes: { [remoteA]: { room: roomA }, [remoteB]: { room: undefined } },
   overlayReset: { atNextBlock: true, atSetTime: undefined, afterAge: toMinutes(180) },
   warmEnd: { red: toColourChannel(255), green: toColourChannel(126), blue: toColourChannel(0) },
 };
@@ -108,7 +108,7 @@ export function syntheticHouse(): Model {
     overlays: {
       blocks: { [roomA]: { block: 'night', since: at(10) } },
       remotes: [{
-        source: sourceA,
+        remote: remoteA,
         room: roomA,
         since: at(55),
         stepRange: { min: toStep(-20), max: toStep(20) },

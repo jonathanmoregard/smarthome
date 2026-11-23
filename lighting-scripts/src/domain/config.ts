@@ -1,6 +1,6 @@
 import type { Block } from './blocks.ts';
 import type { BulbInfo } from './effect.ts';
-import type { LampId, RemoteId, RemoteSource, RoomId, SwitchId } from './types/ids.ts';
+import type { LampId, RemoteId, RoomId, SwitchId } from './types/ids.ts';
 import type { RGB, SceneLight } from './types/light.ts';
 import type { Minutes } from './types/range.ts';
 import type { Instant, TimeOfDay, Timezone } from './types/time.ts';
@@ -58,7 +58,7 @@ export type Lamp = { room: RoomId | undefined; bulbs: readonly BulbInfo[] };
 export type Switch = { room: RoomId | undefined; onOff: boolean };
 
 /** No room: the remote does nothing. */
-export type Remote = { room: RoomId | undefined; source: RemoteSource };
+export type Remote = { room: RoomId | undefined };
 
 /** The three rules that end overlays; each is on or off. */
 export type OverlayReset = {

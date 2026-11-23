@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { BUILT_IN_RANGE_DEFAULTS, DEFAULT_STEP_RANGE, EPOCH, decodeOverrides, encodeOverrides } from '../../src/adapter/codecs/overrides-sensor.ts';
+import { remoteSources } from '../../src/adapter/codecs/overlay-key.ts';
 import type { OverridesState } from '../../src/adapter/codecs/overrides-sensor.ts';
 import type { LampOverlay, RemoteAdjustment, RemoteOverlay } from '../../src/domain/overlays.ts';
 import type { JsonObject, JsonValue } from '../../src/runtime/context.ts';
 import { isObject } from '../../src/runtime/parse.ts';
-import { toBrightness, toDashboardControlId, toInstant, toKelvin, toPercentRange, toRemoteSource, toStep, toStepCount } from '../../src/parse/ids.ts';
-import { syntheticHouse } from './fixtures/synthetic-house.ts';
+import { parseCatalog } from '../../src/runtime/catalog.ts';
+import { toBrightness, toDashboardControlId, toInstant, toKelvin, toPercentRange, toStep, toStepCount } from '../../src/parse/ids.ts';
+import { syntheticCatalog, syntheticHouse } from './fixtures/synthetic-house.ts';
 import { id } from './support/ids.ts';
 
 /**
@@ -18,9 +20,10 @@ import { id } from './support/ids.ts';
  * adjustment's `updated` and a preset's `period_updated` are seconds.
  */
 const config = syntheticHouse().config;
+const sources = remoteSources(syntheticCatalog());
 const roomA = id.room('room-a'), roomB = id.room('room-b');
 const lampA1 = id.lamp('light.lamp_a1'), plugA = id.switch('switch.plug_a');
-const sourceA = toRemoteSource('remote-a');
+const remoteA = id.remote('remote-a');
 const allRooms = new Set([roomA, roomB]);
 
 const T0 = 1_790_000_000;
@@ -51,9 +54,9 @@ const storedAdjustment = (steps: number, lower: number, upper: number, minute: n
 const adjustment = (steps: number, lower: number, upper: number, minute: number, lastPress: 'up' | 'down'): RemoteAdjustment =>
   ({ steps: toStepCount(steps), lower: toStep(lower), upper: toStep(upper), from: 'current', at: at(minute), lastPress, everBrighter: true });
 
-const decode = (overrides: JsonValue, extra: JsonObject = {}) => decodeOverrides({ overrides, ...extra });
+const decode = (overrides: JsonValue, extra: JsonObject = {}) => decodeOverrides({ overrides, ...extra }, sources);
 /** Encode the decoded state back over the same attributes, every room live: nothing changed, so nothing may move. */
-const reencoded = (attributes: JsonObject) => encodeOverrides(decodeOverrides(attributes), attributes, allRooms, config);
+const reencoded = (attributes: JsonObject) => encodeOverrides(decodeOverrides(attributes, sources), attributes, allRooms, config, sources);
 const assertKept = (attributes: JsonObject) => assert.equal(JSON.stringify(reencoded(attributes)), JSON.stringify(attributes));
 
 // The golden scenarios, each on the store its steps leave.
@@ -77,7 +80,7 @@ test('remote presses: an adjustment after brighter then dimmer', () => {
   const value = { step_range: { min: -20, max: 20 }, adjustment: storedAdjustment(0, -20, 19, 12, 'down'), remote_valid_until: sec(600), remote_timing_revision: 0 };
   const state = decode({ 'channels:remote-a': inputEntry(value, 12) });
   assert.deepEqual(state.overlays.remotes, [{
-    source: sourceA, room: roomA, since: at(12), stepRange: { min: toStep(-20), max: toStep(20) },
+    remote: remoteA, room: roomA, since: at(12), stepRange: { min: toStep(-20), max: toStep(20) },
     adjustment: adjustment(0, -20, 19, 12, 'down'), preset: { choice: 'none' }, remembered: {},
   } satisfies RemoteOverlay]);
 });
@@ -118,7 +121,7 @@ test('range save: a bright rule on the switch', () => {
 
 test('restart: decoding twice from the same attributes gives equal state', () => {
   const attributes = fullStore();
-  assert.deepEqual(decodeOverrides(structuredClone(attributes)), decodeOverrides(attributes));
+  assert.deepEqual(decodeOverrides(structuredClone(attributes), sources), decodeOverrides(attributes, sources));
 });
 
 // Parts no golden scenario covers.
@@ -278,9 +281,9 @@ test('a store with one overlay of each kind encodes back exactly', () => {
 test('after one change to one overlay, only that overlay\'s stored fields differ', () => {
   // Break: a change rewrites other entries, or rewrites fields of the changed one it did not change.
   const found = fullStore();
-  const state = decodeOverrides(found);
+  const state = decodeOverrides(found, sources);
   const changed: OverridesState = { ...state, overlays: { ...state.overlays, blocks: { ...state.overlays.blocks, [roomA]: { block: 'day', since: at(14) } } } };
-  const written = encodeOverrides(changed, found, allRooms, config);
+  const written = encodeOverrides(changed, found, allRooms, config, sources);
   const before = found.overrides as JsonObject, after = written.overrides as JsonObject;
   assert.deepEqual(Object.keys(after), Object.keys(before));
   for (const key of Object.keys(before)) if (key !== `block:${roomA}`) assert.equal(JSON.stringify(after[key]), JSON.stringify(before[key]), key);
@@ -291,9 +294,9 @@ test('after one change to one overlay, only that overlay\'s stored fields differ
 test('a stored overlay of a room that is not live is left exactly as found', () => {
   // Review Focus 4. Break: the encoder drops or rewrites an overlay of a room the old scripts still drive.
   const found = fullStore();
-  const state = decodeOverrides(found);
+  const state = decodeOverrides(found, sources);
   const cleared: OverridesState = { ...state, overlays: { blocks: {}, remotes: [], lamps: [], roomPower: {}, switches: {} }, modeOverlay: { active: false } };
-  const written = encodeOverrides(cleared, found, new Set([roomB]), config);
+  const written = encodeOverrides(cleared, found, new Set([roomB]), config, sources);
   const before = found.overrides as JsonObject, after = written.overrides as JsonObject;
   for (const key of [`block:${roomA}`, 'channels:remote-a', `channels:native:${lampA1}`, 'channels:ui:control-a']) {
     assert.equal(JSON.stringify(after[key]), JSON.stringify(before[key]), key);
@@ -307,8 +310,8 @@ test('a stored overlay of a room that is not live is left exactly as found', () 
 test('attributes the Model does not own are left exactly as found', () => {
   // Review Focus 4: key order included. Break: a bookkeeping attribute is dropped, rewritten or moved.
   const found = fullStore();
-  const state = decodeOverrides(found);
-  const written = encodeOverrides({ ...state, modeOverlay: { active: false } }, found, allRooms, config);
+  const state = decodeOverrides(found, sources);
+  const written = encodeOverrides({ ...state, modeOverlay: { active: false } }, found, allRooms, config, sources);
   assert.deepEqual(Object.keys(written), Object.keys(found));
   for (const key of ['remote_ack', 'last_via', 'pending_rooms', 'last_request', 'received_at', 'full_version', 'full_reason', 'full_lights']) {
     assert.equal(JSON.stringify(written[key]), JSON.stringify(found[key]), key);
@@ -321,15 +324,15 @@ test("the Model's overlays written into an empty store decode back to the same o
   // a candle, a Normal over a room). Break: an encoder writes a part the decoder reads back differently.
   const house = syntheticHouse();
   const state: OverridesState = { overlays: house.overlays, modeOverlay: house.modeOverlay, switchRanges: house.switchRanges, rangeDefaults: house.rangeDefaults };
-  const written = encodeOverrides(state, {}, allRooms, config);
-  assert.deepEqual(decodeOverrides(written), state);
+  const written = encodeOverrides(state, {}, allRooms, config, sources);
+  assert.deepEqual(decodeOverrides(written, sources), state);
   // A candle older than both parts runs from the level's time (review item 3); what is written then reads back as itself.
   const level = { ...state.overlays.lamps[1]!, effect: { kind: 'candle', at: at(30) } } satisfies LampOverlay;
   const mixed: OverridesState = { ...state, overlays: { ...state.overlays, lamps: [level] } };
   const fromLevel = { ...level, effect: { kind: 'candle', at: at(35) } } satisfies LampOverlay;
-  const once = decodeOverrides(encodeOverrides(mixed, {}, allRooms, config));
+  const once = decodeOverrides(encodeOverrides(mixed, {}, allRooms, config, sources), sources);
   assert.deepEqual(once.overlays.lamps, [fromLevel]);
-  assert.deepEqual(decodeOverrides(encodeOverrides(once, {}, allRooms, config)), once);
+  assert.deepEqual(decodeOverrides(encodeOverrides(once, {}, allRooms, config, sources), sources), once);
 });
 
 test("the normal light is written as today's reset writes it: both channels held as constants, and the pick's name", () => {
@@ -340,15 +343,15 @@ test("the normal light is written as today's reset writes it: both channels held
     brightness: { kind: 'fixed', brightness: toBrightness(120), at: at(7) }, colour: schedule(7), effect: { kind: 'normal', at: at(7) } };
   const room: LampOverlay = { kind: 'parts', over: { kind: 'room', room: roomA }, from: { kind: 'dashboard', control: toDashboardControlId('control-n') },
     since: at(8), brightness: schedule(8), colour: schedule(8), effect: { kind: 'normal', at: at(8) } };
-  const state: OverridesState = { ...decodeOverrides({}), overlays: { ...decodeOverrides({}).overlays, lamps: [person, room] } };
-  const written = encodeOverrides(state, {}, allRooms, config);
+  const state: OverridesState = { ...decodeOverrides({}, sources), overlays: { ...decodeOverrides({}, sources).overlays, lamps: [person, room] } };
+  const written = encodeOverrides(state, {}, allRooms, config, sources);
   assert.deepEqual(written.overrides, {
     [`channels:native:${lampA1}`]: { ...nativeEntry('lamp', lampA1, {}, 7),
       value: { channels: { brightness: constant(120, 7), color: { kind: 'constant', updated: sec(7) } }, selection: 'Normal light' } },
     'channels:ui:control-n': uiEntry('control-n', 'room', roomA,
       { channels: { brightness: { kind: 'constant', updated: sec(8) }, color: { kind: 'constant', updated: sec(8) } }, selection: 'Normal light' }, 8),
   });
-  assert.deepEqual(decodeOverrides(written).overlays.lamps, [person, room]);
+  assert.deepEqual(decodeOverrides(written, sources).overlays.lamps, [person, room]);
 });
 
 test('a candle older than both its parts runs at the new level, which the old resolver reads as its intensity', () => {
@@ -357,8 +360,8 @@ test('a candle older than both its parts runs at the new level, which the old re
   const overlay: LampOverlay = { kind: 'parts', over: { kind: 'lamp', lamp: lampA1 }, from: { kind: 'person' }, since: at(35),
     brightness: { kind: 'fixed', brightness: toBrightness(90), at: at(35) }, colour: { kind: 'fixed', colour: kelvin(3000), at: at(36) },
     effect: { kind: 'candle', at: at(30) } };
-  const state: OverridesState = { ...decodeOverrides({}), overlays: { ...decodeOverrides({}).overlays, lamps: [overlay] } };
-  const written = encodeOverrides(state, {}, allRooms, config);
+  const state: OverridesState = { ...decodeOverrides({}, sources), overlays: { ...decodeOverrides({}, sources).overlays, lamps: [overlay] } };
+  const written = encodeOverrides(state, {}, allRooms, config, sources);
   const entry = isObject(written.overrides) ? written.overrides[`channels:native:${lampA1}`] : undefined;
   assert.deepEqual(isObject(entry) && isObject(entry['value']) ? entry['value']['channels'] : undefined, {
     brightness: { kind: 'effect', effect: 'Candle', instance: `native:${lampA1}:Candle`, updated: sec(35), intensity: 90 },
@@ -370,29 +373,29 @@ test('a preset change clears the old channels record the remote kept (legacy_cha
   // Review item 4. Break: legacy_channels is kept, and today's resolver then drops the candle the Model chose.
   const value = { step_range: { min: -20, max: 20 }, selection: 'Candle', selection_updated: sec(55), legacy_channels: { brightness: constant(80, 20) } };
   const found = { overrides: { 'channels:remote-a': inputEntry(value, 55) } };
-  const state = decodeOverrides(found);
+  const state = decodeOverrides(found, sources);
   const remote = state.overlays.remotes[0]!;
   const chosen: RemoteOverlay = { ...remote, preset: { choice: 'candle', since: at(57), adjustment: undefined, block: undefined } };
-  const written = encodeOverrides({ ...state, overlays: { ...state.overlays, remotes: [chosen] } }, found, allRooms, config);
+  const written = encodeOverrides({ ...state, overlays: { ...state.overlays, remotes: [chosen] } }, found, allRooms, config, sources);
   const entry = isObject(written.overrides) ? written.overrides['channels:remote-a'] : undefined;
   assert.equal(isObject(entry) && isObject(entry['value']) ? Object.hasOwn(entry['value'], 'legacy_channels') : 'no entry', false);
-  assert.deepEqual(decodeOverrides(written).overlays.remotes[0]?.preset, chosen.preset);
+  assert.deepEqual(decodeOverrides(written, sources).overlays.remotes[0]?.preset, chosen.preset);
 });
 
 test('a new overlay is written as today\'s writers write it', () => {
   // Break: a new entry misses a field the old scripts read (kind, scope, target, when, via) or gets the wrong key.
   const state: OverridesState = {
-    ...decodeOverrides({}),
+    ...decodeOverrides({}, sources),
     overlays: {
       blocks: { [roomA]: { block: 'night', since: at(1) } },
-      remotes: [{ source: sourceA, room: roomA, since: at(2), stepRange: DEFAULT_STEP_RANGE, adjustment: adjustment(1, -19, 20, 2, 'up'), preset: { choice: 'none' }, remembered: {} }],
+      remotes: [{ remote: remoteA, room: roomA, since: at(2), stepRange: DEFAULT_STEP_RANGE, adjustment: adjustment(1, -19, 20, 2, 'up'), preset: { choice: 'none' }, remembered: {} }],
       lamps: [{ kind: 'parts', over: { kind: 'lamp', lamp: lampA1 }, from: { kind: 'person' }, since: at(3), brightness: { kind: 'fixed', brightness: toBrightness(90), at: at(3) }, colour: undefined, effect: undefined }],
       roomPower: { [roomA]: 'off' },
       switches: {},
     },
     modeOverlay: { active: true, since: at(4) },
   };
-  const written = encodeOverrides(state, {}, allRooms, config);
+  const written = encodeOverrides(state, {}, allRooms, config, sources);
   assert.deepEqual(written.overrides, {
     [`block:${roomA}`]: blockEntry(roomA, 'night', 1),
     'channels:remote-a': inputEntry({ step_range: { min: -20, max: 20 }, adjustment: { steps: 1, lower: -19, upper: 20, anchor: 'current', updated: sec(2), last: 'up', has_up: true } }, 2),
@@ -414,14 +417,14 @@ test("a person's off and a dashboard control's off are written as a record that 
     offOver({ kind: 'room', room: roomB }, { kind: 'person' }, 4),
     offOver({ kind: 'room', room: roomA }, { kind: 'dashboard', control: toDashboardControlId('control-c') }, 5),
   ];
-  const state: OverridesState = { ...decodeOverrides({}), overlays: { ...decodeOverrides({}).overlays, lamps } };
-  const written = encodeOverrides(state, {}, allRooms, config);
+  const state: OverridesState = { ...decodeOverrides({}, sources), overlays: { ...decodeOverrides({}, sources).overlays, lamps } };
+  const written = encodeOverrides(state, {}, allRooms, config, sources);
   assert.deepEqual(written.overrides, {
     [`channels:native:${lampA1}`]: { ...nativeEntry('lamp', lampA1, {}, 3), value: { channels: {}, power: 'off' } },
     [`channels:native:room:${roomB}`]: { ...nativeEntry('room', roomB, {}, 4), value: { channels: {}, power: 'off' } },
     'channels:ui:control-c': uiEntry('control-c', 'room', roomA, { channels: {}, power: 'off' }, 5),
   });
-  assert.deepEqual(decodeOverrides(written).overlays.lamps, lamps);
+  assert.deepEqual(decodeOverrides(written, sources).overlays.lamps, lamps);
   assertKept(written);
 });
 
@@ -429,17 +432,17 @@ test("an off over a person's light replaces it in place, and a light over an off
   // Carry-over 1.5: one person overlay per lamp or room. Break: the old channels stay claimed under the off, or the
   // `power: off` stays under the new light.
   const found = { overrides: { [`channels:native:${lampA1}`]: nativeEntry('lamp', lampA1, { brightness: constant(90, 3) }, 3) } };
-  const off: OverridesState = { ...decodeOverrides(found), overlays: { ...decodeOverrides(found).overlays,
+  const off: OverridesState = { ...decodeOverrides(found, sources), overlays: { ...decodeOverrides(found, sources).overlays,
     lamps: [offOver({ kind: 'lamp', lamp: lampA1 }, { kind: 'person' }, 6)] } };
-  const once = encodeOverrides(off, found, allRooms, config);
+  const once = encodeOverrides(off, found, allRooms, config, sources);
   const entry = (once.overrides as JsonObject)[`channels:native:${lampA1}`] as JsonObject;
   assert.deepEqual(entry.value, { channels: {}, power: 'off' });
   assert.equal(entry.when, iso(6));
   const relit: OverridesState = { ...off, overlays: { ...off.overlays, lamps: [{ kind: 'parts', over: { kind: 'lamp', lamp: lampA1 },
     from: { kind: 'person' }, since: at(7), brightness: { kind: 'fixed', brightness: toBrightness(40), at: at(7) }, colour: undefined, effect: undefined }] } };
-  const twice = encodeOverrides(relit, once, allRooms, config);
+  const twice = encodeOverrides(relit, once, allRooms, config, sources);
   assert.deepEqual(((twice.overrides as JsonObject)[`channels:native:${lampA1}`] as JsonObject).value, { channels: { brightness: constant(40, 7) } });
-  assert.deepEqual(decodeOverrides(twice).overlays.lamps, relit.overlays.lamps);
+  assert.deepEqual(decodeOverrides(twice, sources).overlays.lamps, relit.overlays.lamps);
 });
 
 test("an off whose record has claims again (today's ls_commit merged a light onto its key) reads as that light", () => {
@@ -578,4 +581,30 @@ test('an entry of no known shape is not in the Model and is kept as found', () =
   const state = decode(overrides);
   assert.deepEqual([state.overlays.remotes, state.overlays.lamps, state.overlays.blocks], [[], [], {}]);
   assertKept({ overrides });
+});
+
+// A remote's overlay is the remote's (amendment 5.2); the key it is saved under names the remote's source.
+
+test('a remote overlay is the remote the catalog lists under its source, and is saved back under that source', () => {
+  // Break: the source's text is read as the remote's id, or the overlay is written under the remote's id.
+  const catalog = remoteSources(parseCatalog({ remotes: { [roomA]: { device_id: 'device-x', source: 'source-x' } } }));
+  const found = { overrides: { 'channels:source-x': inputEntry({ step_range: { min: -20, max: 20 } }, 12, 'source-x') } };
+  const state = decodeOverrides(found, catalog);
+  assert.deepEqual(state.overlays.remotes.map(overlay => overlay.remote), [id.remote('device-x')]);
+  const moved = { ...state, overlays: { ...state.overlays, remotes: state.overlays.remotes.map(overlay => ({ ...overlay, since: at(13) })) } };
+  const written = encodeOverrides(moved, {}, allRooms, config, catalog);
+  assert.deepEqual(isObject(written.overrides) ? Object.keys(written.overrides) : [], ['channels:source-x']);
+});
+
+test('an overlay saved under a source no remote of the catalog has takes no part, and stays as found', () => {
+  // Break: the orphan is given a made-up remote, or dropped from the store when the Model writes.
+  const overrides = { 'channels:gone': inputEntry({ step_range: { min: -20, max: 20 } }, 12, 'gone') };
+  assert.deepEqual(decode(overrides).overlays.remotes, []);
+  assertKept({ overrides });
+});
+
+test('two remotes the catalog lists under one source are refused', () => {
+  // One source is one overlay key, so the two remotes would share an overlay. Break: the second silently wins.
+  const twice = parseCatalog({ remotes: { a: { device_id: 'device-a', source: 'shared' }, b: { device_id: 'device-b', source: 'shared' } } });
+  assert.throws(() => remoteSources(twice), /source shared/);
 });

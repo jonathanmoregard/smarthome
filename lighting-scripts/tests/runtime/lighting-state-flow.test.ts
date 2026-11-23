@@ -12,7 +12,7 @@ import { blendPositionOrThrow } from '../../src/domain/types/range.ts';
 import type { Instant } from '../../src/domain/types/time.ts';
 import {
   toBrightness, toBulbId, toColourChannel, toDashboardControlId, toInstant, toKelvin, toLampId, toLevel, toMinutes, toProgress,
-  toRemoteSource, toRoomId, toSeconds, toStep, toStepCount, toSwitchId, toTimeOfDay,
+  toRemoteId, toRoomId, toSeconds, toStep, toStepCount, toSwitchId, toTimeOfDay,
 } from '../../src/parse/ids.ts';
 import { syntheticHouse } from './fixtures/synthetic-house.ts';
 
@@ -78,9 +78,9 @@ function steps(count: number, setAt: Instant, lower = -20, upper = 20): RemoteAd
     lastPress: count < 0 ? 'down' : 'up', everBrighter: count > 0,
   };
 }
-function remote(source: string, since: Instant, parts: Partial<RemoteOverlay>): RemoteOverlay {
+function remote(id: string, since: Instant, parts: Partial<RemoteOverlay>): RemoteOverlay {
   return {
-    source: toRemoteSource(source), room: roomA, since, stepRange: { min: toStep(-20), max: toStep(20) }, adjustment: undefined,
+    remote: toRemoteId(id), room: roomA, since, stepRange: { min: toStep(-20), max: toStep(20) }, adjustment: undefined,
     preset: { choice: 'none' }, remembered: {}, ...parts,
   };
 }
@@ -276,6 +276,19 @@ test('only the newest remote\'s overlay in a room applies', () => {
     ];
   });
   assert.deepEqual(lamp(model, lampA2, at('12:00:00')), onTheBlend(0.7));
+});
+
+test('of two remote overlays set at the same instant, the one whose remote id sorts last applies', () => {
+  // Amendment 6.4: the tie goes by the remote's id, not by the source its overlay is saved under.
+  // Break: the first one listed wins, or the tie reads a field the overlay no longer has.
+  const tied = (first: string, second: string) => house(m => {
+    m.overlays.remotes = [
+      remote(first, at('11:00:00'), { adjustment: steps(first === 'remote-b' ? -3 : 3, at('11:00:00'), -20, 20) }),
+      remote(second, at('11:00:00'), { adjustment: steps(second === 'remote-b' ? -3 : 3, at('11:00:00'), -20, 20) }),
+    ];
+  });
+  assert.deepEqual(lamp(tied('remote-a', 'remote-b'), lampA2, at('12:00:00')), onTheBlend(0.7));
+  assert.deepEqual(lamp(tied('remote-b', 'remote-a'), lampA2, at('12:00:00')), onTheBlend(0.7));
 });
 
 test('a lamp steps from its room\'s place on the blend, not from its own level', () => {

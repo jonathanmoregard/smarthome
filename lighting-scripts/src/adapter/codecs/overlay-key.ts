@@ -1,4 +1,6 @@
-import type { RemoteSource, SavedOverlayKey } from '../../domain/types/ids.ts';
+import type { RemoteId, RemoteSource, SavedOverlayKey } from '../../domain/types/ids.ts';
+import type { Catalog } from '../../runtime/catalog.ts';
+import { ParseError } from '../../runtime/parse.ts';
 
 /**
  * The key an overlay is saved under in the overlay store, as the overlay it
@@ -57,6 +59,26 @@ export function byOverlayKeyText(a: OverlayKey, b: OverlayKey): number {
 /** The overlay key a remote's input is saved under: its source's (`channels:<source>`). */
 export function remoteInputKey(source: RemoteSource): OverlayKey {
   return { kind: 'remote input', source };
+}
+
+/**
+ * The catalog's remotes by the source each one's overlay is saved under
+ * (`channels:<source>`), and each remote's source. The Model keys a remote's
+ * overlay by the remote (amendment 5.2); only the stored key names the source.
+ */
+export type RemoteSources = { remoteOf: ReadonlyMap<RemoteSource, RemoteId>; sourceOf: ReadonlyMap<RemoteId, RemoteSource> };
+
+/** The catalog's remotes and their sources. A source is one overlay key, so two remotes listed under one are refused. */
+export function remoteSources(catalog: Catalog): RemoteSources {
+  const remoteOf = new Map<RemoteSource, RemoteId>(), sourceOf = new Map<RemoteId, RemoteSource>();
+  for (const { device_id: remote, source } of Object.values(catalog.remotes)) {
+    if (remoteOf.has(source)) {
+      throw new ParseError(`catalog.remotes: source ${source} is listed for more than one remote; a source is one remote's overlay`);
+    }
+    remoteOf.set(source, remote);
+    sourceOf.set(remote, source);
+  }
+  return { remoteOf, sourceOf };
 }
 
 /** The Sara mode overlay's key. */

@@ -15,24 +15,10 @@ export type Step = Ranged<'Step'>;
  */
 export type StepCount = Ranged<'StepCount'>;
 
-/** A command a remote's press acts on. */
-export type RemoteCommand = 'up' | 'down' | 'left' | 'right' | 'toggle' | 'reset' | 'sara_toggle';
-/** Every {@link RemoteCommand}, for the parser that reads a press. */
-export const REMOTE_COMMANDS: readonly RemoteCommand[] = ['up', 'down', 'left', 'right', 'toggle', 'reset', 'sara_toggle'];
-
 /**
- * A press as a remote sends it: a command it acts on, or any other text, which
- * does nothing (the scripts' noop). The other text is never read; it is kept
- * only so a forwarded press names the bytes the remote sent.
+ * A command a remote's presses send for its room: brighter (`up`) or dimmer
+ * (`down`), the presets to the left or right, the power toggle, the room's
+ * reset, and the mode overlay's toggle (today's `sara_toggle`). A press that
+ * is no command never reaches the domain: the adapter drops it.
  */
-export type RemotePress = { kind: 'command'; command: RemoteCommand } | { kind: 'unknown'; text: string };
-
-/** The press as the text it was sent as. */
-export function pressText(press: RemotePress): string {
-  return press.kind === 'command' ? press.command : press.text;
-}
-
-/** The command a press acts on; none for a press that does nothing. */
-export function pressCommand(press: RemotePress): RemoteCommand | undefined {
-  return press.kind === 'command' ? press.command : undefined;
-}
+export type RemoteCommand = 'up' | 'down' | 'left' | 'right' | 'toggle' | 'reset' | 'mode';

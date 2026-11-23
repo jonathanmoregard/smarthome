@@ -92,7 +92,7 @@ function decodeRemotes(source: ConfigSource, catalog: Catalog): Record<RemoteId,
   const twice = devices.find((device, index) => devices.indexOf(device) !== index);
   if (twice !== undefined) throw new ParseError(`catalog.remotes: device ${twice} is listed for more than one remote; a device is one remote`);
   return Object.fromEntries(Object.values(catalog.remotes).map(remote =>
-    [remote.device_id, { room: roomOf(source.rooms.ofRemote[remote.device_id]), source: remote.source } satisfies Remote]));
+    [remote.device_id, { room: roomOf(source.rooms.ofRemote[remote.device_id]) } satisfies Remote]));
 }
 
 function decodeHouse(source: ConfigSource): Schedule {
