@@ -9,8 +9,6 @@
  * added. Whether an id names something the registry knows is a later, named unit.
  */
 import type { BulbId, DashboardControlId, Id, LampId, RemoteId, RoomId, SwitchId } from '../../domain/types/ids.ts';
-import type { SavedOverlayKey } from './overlay-key.ts';
-import type { CatalogEffectName } from './catalog.ts';
 import type { Brightness, BrightnessStep, ColourChannel, Kelvin, Level, Percent, PercentRange } from '../../domain/types/light.ts';
 import type { Instant, Seconds, TimeOfDay, Timezone } from '../../domain/types/time.ts';
 import type { Step, StepCount } from '../../domain/types/remote.ts';
@@ -53,6 +51,29 @@ export function toRemoteSource(raw: string): RemoteSource {
   return raw as RemoteSource;
 }
 
+/** An effect the catalog names (`Candle`): open text the catalog file defines, not the domain's closed `EffectName`. */
+export type CatalogEffectName = Id<'CatalogEffectName'>;
+
+export function toCatalogEffectName(raw: string): CatalogEffectName {
+  // Cast: the edge read this string as a catalog effect; this is the one place that says so.
+  return raw as CatalogEffectName;
+}
+
+/**
+ * A saved overlay key of no known shape, kept as saved. Never text a known
+ * shape claims (empty, `mode:sara`, `block:...`, `channels:...`), so it reads
+ * back as itself; its constructor (`toSavedOverlayKey`) checks that.
+ */
+export type SavedOverlayKey = Id<'SavedOverlayKey'>;
+
+export function toSavedOverlayKey(raw: string): SavedOverlayKey {
+  if (raw === '' || raw === 'mode:sara' || raw.startsWith('block:') || raw.startsWith('channels:')) {
+    throw new ParseError(`A saved overlay key of no known shape must not have a known shape, got '${raw}'`);
+  }
+  // Cast: checked just above; this is the one place a string becomes a saved overlay key.
+  return raw as SavedOverlayKey;
+}
+
 /** A Zigbee2MQTT command topic: a bulb's (`zigbee2mqtt/<bulb>/set`) or a Zigbee group's. */
 export type MqttTopic = Id<'MqttTopic'>;
 
@@ -86,22 +107,9 @@ export function toRemoteId(raw: string): RemoteId {
   return raw as RemoteId;
 }
 
-export function toCatalogEffectName(raw: string): CatalogEffectName {
-  // Cast: the edge read this string as a catalog effect; this is the one place that says so.
-  return raw as CatalogEffectName;
-}
-
 export function toDashboardControlId(raw: string): DashboardControlId {
   // Cast: the edge read this string as a dashboard control; this is the one place that says so.
   return raw as DashboardControlId;
-}
-
-export function toSavedOverlayKey(raw: string): SavedOverlayKey {
-  if (raw === '' || raw === 'mode:sara' || raw.startsWith('block:') || raw.startsWith('channels:')) {
-    throw new ParseError(`A saved overlay key of no known shape must not have a known shape, got '${raw}'`);
-  }
-  // Cast: checked just above; this is the one place a string becomes a saved overlay key.
-  return raw as SavedOverlayKey;
 }
 
 /*

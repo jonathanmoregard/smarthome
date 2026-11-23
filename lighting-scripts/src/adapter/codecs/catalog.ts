@@ -42,7 +42,7 @@
 import { ParseError, describe, isObject, object, requireArray, requireBoolean, requireObject, requireString } from './parse.ts';
 import type { JsonObject, JsonValue } from '../ha-client.ts';
 import type { BulbId, Id, LampId, RemoteId } from '../../domain/types/ids.ts';
-import type { RemoteSource } from './ids.ts';
+import type { CatalogEffectName, RemoteSource } from './ids.ts';
 import { toBulbId, toLampId, toRemoteId, toRemoteSource } from './ids.ts';
 
 /**
@@ -127,9 +127,6 @@ function remoteSourceOf(raw: string, context: string): RemoteSource {
     throw error;
   }
 }
-
-/** An effect the catalog names (`Candle`): open text the catalog file defines, not the domain's closed `EffectName`. */
-export type CatalogEffectName = Id<'CatalogEffectName'>;
 
 export interface Catalog {
   /** The effect names the registry knows, each with the channels it drives. */
