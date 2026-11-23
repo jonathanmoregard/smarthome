@@ -24,6 +24,7 @@ import type { BulbId, LampId, RemoteId, RoomId, SwitchId } from '../../domain/ty
 import { entriesOf } from '../../domain/types/ids.ts';
 import type { Colour, RGB, SceneLight } from '../../domain/types/light.ts';
 import type { Minutes } from '../../domain/types/range.ts';
+import type { RoomOrHouse } from '../../domain/types/schedule.ts';
 import type { TimeOfDay, Timezone } from '../../domain/types/time.ts';
 import {
   toBrightness, toBulbId, toColourChannel, toInstant, toKelvin, toLampId, toMinutes, toMqttTopic, toRoomId, toSwitchId, toTimeOfDay, toTimezone,
@@ -93,6 +94,12 @@ function decodeSwitches(source: ConfigSource): Record<SwitchId, Switch> {
     [toSwitchId(entity), { room: roomOf(source.rooms.ofId[entity]), onOff: labelled.includes(entity) } satisfies Switch]));
 }
 
+/** The entities with a saved switch range: the keys of `sensor.ls_overrides`'s `switch_ranges`. */
+function rangeEntities(source: ConfigSource): Record<string, JsonValue> {
+  const ranges = source.states['sensor.ls_overrides']?.attributes['switch_ranges'];
+  return isObject(ranges) ? ranges : {};
+}
+
 /** A remote's room is its device's room in the registry; a device in none gives a remote that does nothing. */
 function decodeRemotes(source: ConfigSource, catalog: Catalog): Record<RemoteId, Remote> {
   const devices = Object.values(catalog.remotes).map(remote => remote.device_id);
@@ -132,24 +139,18 @@ function minutesOf(source: ConfigSource, entity: string, fallback: Minutes): Min
   return value === undefined ? fallback : toMinutes(Math.max(value, 0));
 }
 
-/** A scope's on/off helper for a block; undefined when it holds no state. */
-function onOff(source: ConfigSource, scope: string, block: Block): boolean | undefined {
-  const entity = `input_boolean.ls_${scope}_${block}_on_off`;
-  return holdsState(source, entity) ? isOn(source, entity) : undefined;
-}
-
 /**
  * The light entity of `lightScope` as a scene, with the effect the `profileScope` saved profile names.
  * Absent when the light is missing or unreadable.
  */
-function decodeBlockLight(source: ConfigSource, lightScope: string, profileScope: string, block: Block): SceneLight | undefined {
-  const light = source.states[`light.ls_${lightScope}_${block}`];
+function decodeBlockLight(source: ConfigSource, lightScope: RoomOrHouse, profileScope: RoomOrHouse, block: Block): SceneLight | undefined {
+  const light = source.states[blockLightEntity(lightScope, block)];
   if (light === undefined) return undefined;
   if (light.state === 'off') return { power: 'off' };
   if (light.state !== 'on') return undefined;
   const level = parseFinite(light.attributes['brightness']);
   if (level === undefined || level < 0 || level >= 256) return undefined;
-  const effect = savedEffect(source, `input_text.ls_${profileScope}_${block}`);
+  const effect = savedEffect(source, blockLightStore({ scope: profileScope, block }));
   return { power: 'on', brightness: toBrightness(Math.trunc(level)), colour: decodeColour(light), effect };
 }
 
@@ -160,6 +161,18 @@ function savedEffect(source: ConfigSource, entity: string): 'Candle' | 'Normal' 
   let profile: JsonValue;
   try { profile = JSON.parse(text) as JsonValue; } catch { return 'Normal'; }
   return isObject(profile) && profile['effect'] === 'Candle' ? 'Candle' : 'Normal';
+}
+
+/** A scope's on/off helper for a block; undefined when it holds no state. */
+function onOff(source: ConfigSource, scope: string, block: Block): boolean | undefined {
+  const entity = `input_boolean.ls_${scope}_${block}_on_off`;
+  return holdsState(source, entity) ? isOn(source, entity) : undefined;
+}
+
+/** A helper that holds a state: present, and neither `unknown` nor `unavailable`. */
+function holdsState(source: ConfigSource, entity: string): boolean {
+  const state = source.states[entity]?.state;
+  return state !== undefined && state !== 'unknown' && state !== 'unavailable';
 }
 
 /** An input_boolean or switch that states `on`; anything else is off. */
@@ -180,12 +193,6 @@ function decodeRooms(source: ConfigSource, placed: readonly (RoomId | undefined)
   } satisfies Room]));
 }
 
-/** The entities with a saved switch range: the keys of `sensor.ls_overrides`'s `switch_ranges`. */
-function rangeEntities(source: ConfigSource): Record<string, JsonValue> {
-  const ranges = source.states['sensor.ls_overrides']?.attributes['switch_ranges'];
-  return isObject(ranges) ? ranges : {};
-}
-
 function decodeRoomBlock(source: ConfigSource, room: RoomId, block: Block): RoomBlock {
   const prefix = `ls_${room}_${block}`;
   const ownTiming = isOn(source, `input_boolean.${prefix}_own_timing`);
@@ -196,15 +203,9 @@ function decodeRoomBlock(source: ConfigSource, room: RoomId, block: Block): Room
   const house: { follows: 'house' } = { follows: 'house' };
   return {
     timing: ownTiming ? own(decodeTiming(source, room, block)) : house,
-    light: !ownFlag ? house : own(decodeBlockLight(source, holdsState(source, `light.${prefix}`) ? room : 'house', room, block)),
+    light: !ownFlag ? house : own(decodeBlockLight(source, holdsState(source, blockLightEntity(room, block)) ? room : 'house', room, block)),
     switchesOn: ownFlag && holdsState(source, `input_boolean.${prefix}_on_off`) ? own(onOff(source, room, block)) : house,
   };
-}
-
-/** A helper that holds a state: present, and neither `unknown` nor `unavailable`. */
-function holdsState(source: ConfigSource, entity: string): boolean {
-  const state = source.states[entity]?.state;
-  return state !== undefined && state !== 'unknown' && state !== 'unavailable';
 }
 
 function decodeWakeLight(source: ConfigSource, room: RoomId): WakeLight | undefined {
@@ -241,19 +242,33 @@ function perBlock<T>(make: (block: Block) => T): Record<Block, T> {
   return { day: make(day), cosy: make(cosy), night: make(night) };
 }
 
+/** A block's light of the house or a room: the store its saved profile is kept in, and the template light over it. */
+export type BlockLight = { scope: RoomOrHouse; block: Block };
+
+/** The block light of the config a store is: the house's or a configured room's, for a block. */
+export function blockLightOf(store: string, config: Config): BlockLight | undefined {
+  const scopes: RoomOrHouse[] = ['house', ...entriesOf(config.rooms).map(([room]) => room)];
+  return scopes.flatMap(scope => BLOCKS.map(block => ({ scope, block }))).find(light => blockLightStore(light) === store);
+}
+
+/** The store a block's light is saved in: `input_text.ls_<scope>_<block>`. */
+export function blockLightStore(light: BlockLight): string {
+  return `input_text.ls_${light.scope}_${light.block}`;
+}
+
 /**
  * The helper states as Home Assistant shows them once a block's light is
- * saved: `store` holds `text`, and the template light over it (the store's
- * name in the `light` domain, where Home Assistant has one) shows the power,
+ * saved: its store holds `text`, and the template light over it (where Home
+ * Assistant has one) shows the power,
  * level and colour the save set, the rest as it was. A light switched on that
  * reports no level or colour takes the store's, as the template reads it. The
  * config read from these is the one the helper echo brings a turn later.
  */
-export function blockLightSaved(states: Readonly<Record<string, EntityState>>, store: string, text: string,
+export function blockLightSaved(states: Readonly<Record<string, EntityState>>, target: BlockLight, text: string,
   change: LampProfileChange): Record<string, EntityState> {
-  const found = states[store];
+  const store = blockLightStore(target), found = states[store];
   const saved: Record<string, EntityState> = { ...states, [store]: { attributes: found === undefined ? {} : found.attributes, state: text } };
-  const entity = store.replace(/^input_text\./, 'light.'), light = states[entity];
+  const entity = blockLightEntity(target.scope, target.block), light = states[entity];
   if (light === undefined) return saved;
   const own = decodeLampProfile(text).own, kept = own.power === 'on' ? own.light : own.remembered;
   const shown = light.attributes;
@@ -307,4 +322,9 @@ export function bulbTopics(catalog: Catalog): Record<BulbId, MqttTopic> {
 export function reportedBulbs(entities: readonly string[], config: Config): BulbId[] {
   const named = new Set(entities);
   return entriesOf(config.lamps).flatMap(([lamp, { bulbs }]) => bulbs.flatMap(({ bulb }) => named.has(lamp) || named.has(bulb) ? [bulb] : []));
+}
+
+/** The template light over a block's light store: `light.ls_<scope>_<block>`. */
+function blockLightEntity(scope: RoomOrHouse, block: Block): string {
+  return `light.ls_${scope}_${block}`;
 }

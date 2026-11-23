@@ -201,6 +201,18 @@ test("a block light's save moves the lamps in the same turn, and Home Assistant'
   assert.deepEqual(publishesOf(house.turn('12:01:05', { kind: 'helper changed' })), []);
 });
 
+test("a save to a store the config names no profile or block light for is dropped, not written", () => {
+  // Amendment 8.2. Break: any store that is no lamp's or plug's profile is written as a block light, whatever its name.
+  const house = new House();
+  house.turn('12:00:00', { kind: 'started' });
+  const turn = house.turn('12:01:00', { kind: 'store saved', data: { store: 'input_text.ls_nowhere_day', brightness: 100 } });
+  assert.deepEqual(turn.outputs.filter(output => output.kind === 'store'), []);
+  assert.match(turn.dropped ?? '', /input_text\.ls_nowhere_day/);
+  const room = 'input_text.ls_room-a_day';
+  const saved = house.turn('12:02:00', { kind: 'store saved', data: { store: room, brightness: 100 } });
+  assert.deepEqual(saved.outputs.flatMap(output => output.kind === 'store' ? [output.write.entity] : []), [room]);
+});
+
 // --- M4: the plug's own button, power-on, put-backs, retries ------------------------------------------------------
 
 const plugA = toSwitchId('switch.plug_a');

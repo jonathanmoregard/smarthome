@@ -8,7 +8,7 @@
 import { dashboardView } from '../domain/dashboard.ts';
 import type { DashboardControl, DashboardView } from '../domain/dashboard.ts';
 import { lightingState, nextChange } from '../domain/lighting-state.ts';
-import type { Model, Msg } from '../domain/model.ts';
+import type { LampProfileChange, Model, Msg } from '../domain/model.ts';
 import { update } from '../domain/update.ts';
 import type { BulbId, SwitchId } from '../domain/types/ids.ts';
 import type { Instant } from '../domain/types/time.ts';
@@ -18,11 +18,12 @@ import type { HouseView } from './codecs/house.ts';
 import { ParseError } from './codecs/parse.ts';
 import { bulbGroups } from './codecs/bulb-groups.ts';
 import { blockLightSaved, bulbTopics, decodeConfig, reportedBulbs } from './codecs/config.ts';
+import type { BlockLight } from './codecs/config.ts';
 import { configSource, decodeModel } from './codecs/model.ts';
 import { decodeRangeDefaults } from './codecs/range-defaults.ts';
 import { carries, outcomeOf, publishes } from './encode.ts';
 import type { Output } from './encode.ts';
-import { controlOver, messages, profileStoreOf, storeSaveIn, uiRowsOf, unexplainedMessages } from './codecs/inputs.ts';
+import { controlOver, messages, storeSaveIn, uiRowsOf, unexplainedMessages } from './codecs/inputs.ts';
 import type { HaInput, StoreSave } from './codecs/inputs.ts';
 import { decodeObserved } from './codecs/observed.ts';
 import type { Observed } from './codecs/observed.ts';
@@ -110,17 +111,18 @@ export function handleInput(kept: Kept, house: HouseView, input: HaInput): Turn 
   let own: Msg[] = unexplainedMessages(changed, now), dropped: string | undefined, saved: StoreSave | undefined;
   try {
     own = [...own, ...messages(input, clocked, now, house), ...rangeDefaultsMessages(input, house, now)];
-    saved = storeSaveIn(input, house);
+    saved = storeSaveIn(input, house, clocked);
   } catch (error) {
     if (!(error instanceof ParseError)) throw error;
     dropped = `${input.kind}: ${error.message}`;
   }
-  // A block light's save (a store that is no lamp's or plug's profile) is written as it is, and goes through `update`
-  // as the config the helpers will hold once it lands, so the lamps move in this turn and not on the echo.
-  const configWrite = saved === undefined || profileStoreOf(saved.store, clocked) !== undefined ? undefined : configStoreWrite(saved, house);
+  // A block light's save is written as it is, and goes through `update` as the config the helpers will hold once it
+  // lands, so the lamps move in this turn and not on the echo.
+  const light = saved?.target.kind === 'block light' ? saved.target : undefined;
+  const configWrite = saved === undefined || light === undefined ? undefined : configStoreWrite(light, saved.change, house);
   const messaged = own.reduce(update, clocked);
-  const model = saved === undefined || configWrite === undefined ? messaged
-    : update(messaged, blockLightRead(saved, configWrite, messaged, house, now));
+  const model = saved === undefined || light === undefined || configWrite === undefined ? messaged
+    : update(messaged, blockLightRead(light, saved.change, configWrite, messaged, house, now));
   const outputs: Output[] = [];
   const written = modelWrites(before, model, house, now);
   if (written.sensor !== undefined) outputs.push({ kind: 'sensor', write: written.sensor });
@@ -177,8 +179,8 @@ function rangeDefaultsMessages(input: HaInput, house: HouseView, now: Instant): 
 }
 
 /** A block light's save as the config the helpers will hold once it lands; the profiles stay as the Model has them. */
-function blockLightRead(save: StoreSave, write: StoreWrite, model: Model, house: HouseView, now: Instant): Msg {
-  const states = blockLightSaved(house.state, save.store, write.text, save.change);
+function blockLightRead(light: BlockLight, change: LampProfileChange, write: StoreWrite, model: Model, house: HouseView, now: Instant): Msg {
+  const states = blockLightSaved(house.state, light, write.text, change);
   const config = decodeConfig({ ...configSource(house), states }, house.catalog);
   return { kind: 'configChanged', config, lampProfiles: model.lampProfiles, switchProfiles: model.switchProfiles, at: now };
 }

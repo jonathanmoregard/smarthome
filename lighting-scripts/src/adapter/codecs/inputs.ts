@@ -35,6 +35,8 @@ import {
 } from './ids.ts';
 import type { JsonObject, JsonValue } from '../ha-client.ts';
 import type { HouseView } from './house.ts';
+import { blockLightOf } from './config.ts';
+import type { BlockLight } from './config.ts';
 import { ParseError, isObject, jinjaString, object, requireBoolean, requireString } from './parse.ts';
 import { configSource, reportsOn } from './model.ts';
 import { callColour, callReach } from './native-call.ts';
@@ -175,7 +177,7 @@ export function messages(input: HaInput, model: Model, now: Instant, house: Hous
     case 'effect preview': return effectPreview(input.topic, input.payload, model, now, house);
     case 'control set': return controlSet(requireString(input.data, 'source', 'effects_set'),
       requireString(input.data, 'attribute', 'effects_set'), input.data.value, model, now, house);
-    case 'store saved': return profileSaved(storeSaveOf(input.data), model, now);
+    case 'store saved': return profileSaved(storeSaveOf(input.data, model), now);
   }
 }
 
@@ -402,7 +404,7 @@ function effectPreview(topic: string | undefined, payload: JsonValue | undefined
 function controlSet(source: string, attribute: string, value: JsonValue | undefined, model: Model, now: Instant, house: HouseView): Msg[] {
   const row = uiRowsOf(house).find(candidate => candidate.source === source);
   if (row === undefined) throw new ParseError(`effects_set: no dashboard control for ${source}`);
-  if (row.store !== undefined) return profileSaved(storeSaveOf({ store: row.store, ...storeField(attribute, value) }), model, now);
+  if (row.store !== undefined) return profileSaved(storeSaveOf({ store: row.store, ...storeField(attribute, value) }, model), now);
   const over = controlOver(row, model);
   if (over === undefined) throw new ParseError(`effects_set: ${source} is over no lamp of the house`);
   const light = controlLight(attribute, value);
@@ -492,15 +494,19 @@ export function controlOver(row: Pick<UiRow, 'source' | 'members'>, model: Model
   return first === undefined ? undefined : { kind: 'lamp', lamp: first };
 }
 
-/** A profile store save: the store and the fields it sets (today's `ls_store`). */
-export type StoreSave = { store: string; change: LampProfileChange };
+/** A store save (today's `ls_store`): the profile or block light the store is, and the fields it sets. */
+export type StoreSave = { target: StoreTarget; change: LampProfileChange };
 
-function storeSaveOf(data: JsonObject): StoreSave {
+/** A store save, its store read against the config. Raises a `ParseError` for a store the config names nothing for. */
+function storeSaveOf(data: JsonObject, model: Model): StoreSave {
   const store = requireString(data, 'store', 'ls_store');
+  const profile = profileStoreOf(store, model), light = profile === undefined ? blockLightOf(store, model.config) : undefined;
+  const target: StoreTarget | undefined = profile ?? (light === undefined ? undefined : { kind: 'block light', ...light });
+  if (target === undefined) throw new ParseError(`ls_store: ${store} is no lamp's or plug's profile and no block's light`);
   const kelvin = typeof data.kelvin === 'number' ? data.kelvin : typeof data.mireds === 'number' && data.mireds > 0 ? 1_000_000 / data.mireds
     : undefined;
   return {
-    store,
+    target,
     change: {
       own: typeof data.own === 'boolean' ? data.own : undefined,
       power: typeof data.on === 'boolean' ? powerOf(data.on) : undefined,
@@ -513,13 +519,13 @@ function storeSaveOf(data: JsonObject): StoreSave {
 
 /**
  * A lamp's or a plug's store save is its profile for the block, saved through
- * the Model; a plug's save keeps only `own` and `on`. Any other store is a
- * config helper (a block's light), which the loop writes as it is and reads
- * as the config the helpers will hold: no message here.
+ * the Model; a plug's save keeps only `own` and `on`. A block light's save is
+ * a config helper, which the loop writes as it is and reads as the config the
+ * helpers will hold: no message here.
  */
-function profileSaved(save: StoreSave, model: Model, now: Instant): Msg[] {
-  const found = profileStoreOf(save.store, model);
-  if (found === undefined) return [];
+function profileSaved(save: StoreSave, now: Instant): Msg[] {
+  const found = save.target;
+  if (found.kind === 'block light') return [];
   if (found.kind === 'lamp') return [{ kind: 'lampProfileSaved', lamp: found.lamp, block: found.block, change: save.change, at: now }];
   const change = { own: save.change.own, power: save.change.power };
   return [{ kind: 'switchProfileSaved', switch: found.switch, block: found.block, change, at: now }];
@@ -533,11 +539,14 @@ function effectName(text: string): EffectName {
   return text.toLowerCase() === 'candle' ? 'Candle' : 'Normal';
 }
 
+/** What a store is: a lamp's or a plug's profile for a block, or the house's or a room's light for a block. */
+export type StoreTarget = ProfileStore | ({ kind: 'block light' } & BlockLight);
+
 /** A store that is a profile: a lamp's or a plug's, for a block. */
 export type ProfileStore = { kind: 'lamp'; lamp: LampId; block: Block } | { kind: 'switch'; switch: SwitchId; block: Block };
 
 /** The lamp or plug of the config and the block a store is the profile of: `input_text.ls_lamp_<object>_<block>`. */
-export function profileStoreOf(store: string, model: Model): ProfileStore | undefined {
+function profileStoreOf(store: string, model: Model): ProfileStore | undefined {
   const match = /^input_text\.ls_lamp_(.+)_(day|cosy|night)$/.exec(store);
   const object = match?.[1], block = BLOCKS.find(known => known === match?.[2]);
   if (object === undefined || block === undefined) return undefined;
@@ -559,14 +568,15 @@ export function unexplainedMessages(found: readonly Unexplained[], now: Instant)
  * The store save an input makes: an `ls_store` call, or a dashboard control
  * set on a profile row. Undefined for any other input.
  */
-export function storeSaveIn(input: HaInput, house: HouseView): StoreSave | undefined {
-  if (input.kind === 'store saved') return storeSaveOf(input.data);
+export function storeSaveIn(input: HaInput, house: HouseView, model: Model): StoreSave | undefined {
+  if (input.kind === 'store saved') return storeSaveOf(input.data, model);
   const set = input.kind === 'control set' ? input.data
     : input.kind === 'effect preview' && input.topic !== undefined ? previewSet(input.topic, input.payload, house) : undefined;
   if (set === undefined || typeof set.source !== 'string' || typeof set.attribute !== 'string') return undefined;
   const source = set.source;
   const row = uiRowsOf(house).find(candidate => candidate.source === source);
-  return row === undefined || row.store === undefined ? undefined : storeSaveOf({ store: row.store, ...storeField(set.attribute, set.value) });
+  return row === undefined || row.store === undefined ? undefined
+    : storeSaveOf({ store: row.store, ...storeField(set.attribute, set.value) }, model);
 }
 
 /** A control topic's set as `effects_set` takes it: the row's source, the attribute and the value. */

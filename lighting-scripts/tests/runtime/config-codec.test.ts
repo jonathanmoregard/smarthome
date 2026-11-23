@@ -135,21 +135,22 @@ test("a block light's save is read as Home Assistant will show it: the fields sa
   const change = (fields: Partial<LampProfileChange>): LampProfileChange =>
     ({ own: undefined, power: undefined, brightness: undefined, colour: undefined, effect: undefined, ...fields });
   const before = source();
-  const dimmer = blockLightSaved(before.states, 'input_text.ls_house_day', JSON.stringify({ on: true, b: 90 }),
+  const dimmer = blockLightSaved(before.states, { scope: 'house', block: 'day' }, JSON.stringify({ on: true, b: 90 }),
     change({ brightness: toBrightness(90) }));
   assert.deepEqual(house(decodeConfig({ ...before, states: dimmer }, catalog()), 'day').light,
     { power: 'on', brightness: 90, colour: { kind: 'kelvin', kelvin: 4000 }, effect: 'Normal' });
   assert.equal(dimmer['input_text.ls_house_day']?.state, JSON.stringify({ on: true, b: 90 }));
-  const candle = blockLightSaved(before.states, 'input_text.ls_house_cosy', JSON.stringify({ on: true, effect: 'Candle' }),
+  const candle = blockLightSaved(before.states, { scope: 'house', block: 'cosy' }, JSON.stringify({ on: true, effect: 'Candle' }),
     change({ effect: 'Candle' }));
   assert.deepEqual(house(decodeConfig({ ...before, states: candle }, catalog()), 'cosy').light,
     { power: 'on', brightness: 120, colour: { kind: 'kelvin', kelvin: 2700 }, effect: 'Candle' });
   const dark = source({ 'light.ls_house_night': state('off') });
-  const lit = blockLightSaved(dark.states, 'input_text.ls_house_night', JSON.stringify({ on: true, b: 40, m: 'ct', k: 2200 }),
+  const lit = blockLightSaved(dark.states, { scope: 'house', block: 'night' }, JSON.stringify({ on: true, b: 40, m: 'ct', k: 2200 }),
     change({ power: 'on' }));
   assert.deepEqual(house(decodeConfig({ ...dark, states: lit }, catalog()), 'night').light,
     { power: 'on', brightness: 40, colour: { kind: 'kelvin', kelvin: toKelvin(2200) }, effect: 'Normal' });
-  assert.equal(blockLightSaved(before.states, 'input_text.ls_nowhere_day', '{}', change({ power: 'off' }))['light.ls_nowhere_day'], undefined);
+  assert.equal(blockLightSaved(before.states, { scope: toRoomId('nowhere'), block: 'day' }, '{}', change({ power: 'off' }))['light.ls_nowhere_day'],
+    undefined);
 });
 
 test('a block light that is missing or unreadable is no light', () => {

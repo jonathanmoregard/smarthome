@@ -12,7 +12,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { BLOCKS } from '../../domain/blocks.ts';
 import type { Block } from '../../domain/blocks.ts';
 import type { ControlShown, DashboardView } from '../../domain/dashboard.ts';
-import type { Model } from '../../domain/model.ts';
+import type { LampProfileChange, Model } from '../../domain/model.ts';
 import { savedLampProfile } from '../../domain/profiles.ts';
 import type { RoomId } from '../../domain/types/ids.ts';
 import { entriesOf } from '../../domain/types/ids.ts';
@@ -23,7 +23,9 @@ import { roundEven } from '../../domain/blend.ts';
 import { lampReading, proxyKelvin, proxyShowsRgb, uiProfile } from './ui-state.ts';
 import { object } from './parse.ts';
 import { uiRowsOf } from './inputs.ts';
-import type { StoreSave, UiRow } from './inputs.ts';
+import type { UiRow } from './inputs.ts';
+import { blockLightStore } from './config.ts';
+import type { BlockLight } from './config.ts';
 import { decodeLampProfile, encodeLampProfile } from './lamp-profiles.ts';
 import { profileStore } from './model.ts';
 import { remoteSources } from './overlay-key.ts';
@@ -42,10 +44,10 @@ export type HelperWrite = { entity: string; value: HelperValue };
 /** A store helper (a lamp's profile, or a block's light) set to its new text. */
 export type StoreWrite = { entity: string; text: string };
 
-/** A block light's store saved from the dashboard (a store that is no lamp's): the save written over the stored text. */
-export function configStoreWrite(save: StoreSave, house: HouseView): StoreWrite {
-  const found = storeText(house, save.store);
-  return { entity: save.store, text: encodeLampProfile(savedLampProfile(decodeLampProfile(found), save.change), found) };
+/** A block light's store saved from the dashboard: the save written over the stored text. */
+export function configStoreWrite(light: BlockLight, change: LampProfileChange, house: HouseView): StoreWrite {
+  const entity = blockLightStore(light), found = storeText(house, entity);
+  return { entity, text: encodeLampProfile(savedLampProfile(decodeLampProfile(found), change), found) };
 }
 
 export type DashboardWrite =
