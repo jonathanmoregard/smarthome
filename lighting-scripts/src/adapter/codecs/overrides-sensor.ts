@@ -28,11 +28,11 @@ import type {
   RemoteAdjustment, RemoteOverlay, RemotePreset, StepRange, SwitchOverlay,
 } from '../../domain/overlays.ts';
 import type { RemoteId, RoomId, SwitchId } from '../../domain/types/ids.ts';
-import type { RemoteSource } from './ids.ts';
+import type { ModeName, RemoteSource } from './ids.ts';
 import { entriesOf } from '../../domain/types/ids.ts';
 import type { Colour, PercentRange, Power } from '../../domain/types/light.ts';
-import { overlayKeyText, SARA_MODE } from './overlay-key.ts';
-import type { OverlayKey, RemoteSources } from './overlay-key.ts';
+import { overlayKeyText } from './overlay-key.ts';
+import type { OverlayKey, StoreKeys } from './overlay-key.ts';
 import type { RoomOrHouse } from '../../domain/types/schedule.ts';
 import type { Instant } from '../../domain/types/time.ts';
 import {
@@ -76,9 +76,9 @@ const PRESET_CHOICES: readonly PresetChoice[] = ['day', 'cosy', 'candle'];
  * remote's overlay saved under a source no remote of the catalog has takes no
  * part, and stays in the sensor as found.
  */
-export function decodeOverrides(attributes: JsonObject | undefined, sources: RemoteSources): OverridesState {
+export function decodeOverrides(attributes: JsonObject | undefined, keys: StoreKeys): OverridesState {
   const stored = attributes === undefined ? {} : attributes;
-  const entries = decodeEntries(stored['overrides'], sources);
+  const entries = decodeEntries(stored['overrides'], keys);
   const mode = entries.find(entry => entry.kind === 'mode');
   return {
     overlays: {
@@ -104,13 +104,13 @@ export function decodeOverrides(attributes: JsonObject | undefined, sources: Rem
  * rollout's one writer per part).
  */
 export function encodeOverrides(state: OverridesState, found: JsonObject, share: Share, config: Config,
-  sources: RemoteSources): JsonObject {
+  keys: StoreKeys): JsonObject {
   const liveRoom = (room: RoomId | undefined) => drives(share, room);
   const switchLive = (entity: SwitchId) => config.switches[entity] !== undefined && liveRoom(config.switches[entity].room);
   const owned = (entry: StoredOverlay) => entryIsLive(entry, liveRoom, config);
   const written: JsonObject = { ...found };
   const set = (attribute: string, value: JsonValue | undefined) => { if (value !== undefined) written[attribute] = value; };
-  set('overrides', encodeEntries(state, found['overrides'], owned, sources));
+  set('overrides', encodeEntries(state, found['overrides'], owned, keys));
   set('power', encodeKeyed(state.overlays.roomPower, found['power'], toRoomId, decodePower, power => power === 'on', liveRoom));
   set('switch_ranges', encodeKeyed(state.switchRanges, found['switch_ranges'], toSwitchId, decodeRangeRule, storedRangeRule, switchLive));
   set('range_defaults', isDeepStrictEqual(decodeRangeDefaults(found['range_defaults']), state.rangeDefaults) ? undefined
@@ -178,13 +178,13 @@ function decodeRangeDefaults(raw: JsonValue | undefined): RangeDefaults {
  * nothing changed (the stored value stays, garbage included).
  */
 function encodeEntries(state: OverridesState, found: JsonValue | undefined, owned: (entry: StoredOverlay) => boolean,
-  sources: RemoteSources): JsonObject | undefined {
-  const wanted = wantedEntries(state, sources);
+  keys: StoreKeys): JsonObject | undefined {
+  const wanted = wantedEntries(state, keys);
   const stored = isObject(found) ? found : {};
   const written: JsonObject = {};
   let changed = false;
   for (const [key, raw] of Object.entries(stored)) {
-    const before = decodeEntry(key, raw, sources), after = wanted.get(key);
+    const before = decodeEntry(key, raw, keys), after = wanted.get(key);
     wanted.delete(key);
     const ours = (before === undefined || owned(before)) && (after === undefined || owned(after));
     if (!ours || after === undefined && before === undefined) written[key] = raw;
@@ -205,20 +205,20 @@ function encodeEntries(state: OverridesState, found: JsonValue | undefined, owne
 
 /**
  * The Model's overlays by the key each is stored under. Two overlays under one
- * key cannot be stored; a remote the catalog gives no source has no key.
+ * key cannot be stored; a remote the catalog gives no source has no key, nor the mode of a catalog that names none.
  */
-function wantedEntries(state: OverridesState, sources: RemoteSources): Map<string, StoredOverlay> {
+function wantedEntries(state: OverridesState, keys: StoreKeys): Map<string, StoredOverlay> {
   const overlays: Overlays = state.overlays;
   const entries: StoredOverlay[] = [];
   for (const [scope, overlay] of Object.entries(overlays.blocks)) {
     if (overlay !== undefined) entries.push({ kind: 'block', scope: scope === 'house' ? 'house' : toRoomId(scope), overlay });
   }
   for (const overlay of overlays.remotes) {
-    const source = sources.sourceOf.get(overlay.remote);
+    const source = keys.sourceOf.get(overlay.remote);
     if (source !== undefined) entries.push({ kind: 'remote', overlay, source });
   }
   for (const overlay of overlays.lamps) entries.push({ kind: 'lamp', overlay });
-  if (state.modeOverlay.active) entries.push({ kind: 'mode', overlay: state.modeOverlay });
+  if (state.modeOverlay.active && keys.mode !== undefined) entries.push({ kind: 'mode', name: keys.mode, overlay: state.modeOverlay });
   const wanted = new Map<string, StoredOverlay>();
   for (const entry of entries) {
     const key = overlayKeyText(entryKey(entry));
@@ -300,32 +300,36 @@ const COLOUR: ClaimReader<ColourOverlay> = {
 /** A stored overlay entry of a known shape, read into the overlay it is. */
 type StoredOverlay =
   | { kind: 'block'; scope: RoomOrHouse; overlay: BlockOverlay }
-  | { kind: 'mode'; overlay: Extract<ModeOverlay, { active: true }> }
+  /** `name`: the catalog's mode, which the key and the record's target name. */
+  | { kind: 'mode'; name: ModeName; overlay: Extract<ModeOverlay, { active: true }> }
   /** `source`: what the overlay's key names. */
   | { kind: 'remote'; overlay: RemoteOverlay; source: RemoteSource }
   | { kind: 'lamp'; overlay: LampOverlay };
 
 /** The stored entries of a known shape, in stored order; an `overrides` that is not a mapping holds none. */
-function decodeEntries(overrides: JsonValue | undefined, sources: RemoteSources): StoredOverlay[] {
+function decodeEntries(overrides: JsonValue | undefined, keys: StoreKeys): StoredOverlay[] {
   return isObject(overrides) ? Object.entries(overrides).flatMap(([key, raw]) => {
-    const entry = decodeEntry(key, raw, sources);
+    const entry = decodeEntry(key, raw, keys);
     return entry === undefined ? [] : [entry];
   }) : [];
 }
 
 /**
  * One stored entry, by its key and kind; none when it is of no known shape
- * (old shapes, unknown kinds and keys, garbage) or a remote's whose source no
- * remote of the catalog has.
+ * (old shapes, unknown kinds and keys, garbage), a remote's whose source no
+ * remote of the catalog has, or a mode's other than the catalog's.
  */
-function decodeEntry(key: string, raw: JsonValue, sources: RemoteSources): StoredOverlay | undefined {
+function decodeEntry(key: string, raw: JsonValue, keys: StoreKeys): StoredOverlay | undefined {
   const parsed = parseOverlayKey(key);
-  if (parsed.kind === 'sara mode') return { kind: 'mode', overlay: { active: true, since: isObject(raw) ? savedWhen(raw['when']) : EPOCH } };
+  if (parsed.kind === 'mode') {
+    return keys.mode === undefined || parsed.name !== keys.mode ? undefined
+      : { kind: 'mode', name: keys.mode, overlay: { active: true, since: isObject(raw) ? savedWhen(raw['when']) : EPOCH } };
+  }
   if (!isObject(raw)) return undefined;
   switch (parsed.kind) {
     case 'block': return decodeBlock(parsed.scope, raw);
     case 'remote input': {
-      const remote = sources.remoteOf.get(parsed.source);
+      const remote = keys.remoteOf.get(parsed.source);
       return remote === undefined ? undefined : decodeRemote(remote, parsed.source, raw);
     }
     case 'native control': return decodeLamp(nativeOver(parsed.base), { kind: 'person' }, raw);
@@ -429,7 +433,7 @@ function encodeEntry(entry: StoredOverlay, before: StoredOverlay | undefined, ra
   const when = before === undefined || before.overlay.since !== since ? { when: isoText(since) } : {};
   const fresh = (record: JsonObject, via: string): JsonObject => ({ ...record, when: isoText(since), created: isoText(since), who: null, via });
   switch (entry.kind) {
-    case 'mode': return found === undefined ? fresh({ kind: 'mode', target: 'sara', value: 'on' }, 'app') : { ...found, kind: 'mode', ...when };
+    case 'mode': return found === undefined ? fresh({ kind: 'mode', target: entry.name, value: 'on' }, 'app') : { ...found, kind: 'mode', ...when };
     case 'block': {
       const record = { kind: 'block', target: entry.scope, value: entry.overlay.block };
       const value = before?.kind === 'block' && before.overlay.block === entry.overlay.block ? {} : { value: entry.overlay.block };
@@ -461,7 +465,7 @@ function encodeEntry(entry: StoredOverlay, before: StoredOverlay | undefined, ra
 /** The key an overlay is stored under. */
 function entryKey(entry: StoredOverlay): OverlayKey {
   switch (entry.kind) {
-    case 'mode': return SARA_MODE;
+    case 'mode': return { kind: 'mode', name: entry.name };
     case 'block': return { kind: 'block', scope: entry.scope };
     case 'remote': return { kind: 'remote input', source: entry.source };
     case 'lamp': {

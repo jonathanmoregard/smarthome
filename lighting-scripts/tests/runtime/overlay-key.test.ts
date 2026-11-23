@@ -5,7 +5,9 @@ import { overlayKeyText } from '../../src/adapter/codecs/overlay-key.ts';
 
 test('each saved key shape reads as the overlay it names', () => {
   // Break: mis-ordered prefixes would read `channels:native:...` as a remote's input.
-  assert.deepEqual(parseOverlayKey('mode:sara'), { kind: 'sara mode' });
+  assert.deepEqual(parseOverlayKey('mode:sara'), { kind: 'mode', name: 'sara' });
+  // The mode's name is the catalog's, so any name reads as a mode; which one is the house's is the catalog's to say.
+  assert.deepEqual(parseOverlayKey('mode:other'), { kind: 'mode', name: 'other' });
   assert.deepEqual(parseOverlayKey('block:studio'), { kind: 'block', scope: 'studio' });
   assert.deepEqual(parseOverlayKey('channels:remote_ieee'), { kind: 'remote input', source: 'remote_ieee' });
   assert.deepEqual(parseOverlayKey('channels:native:room:studio'), { kind: 'native control', base: 'room:studio' });
@@ -14,7 +16,7 @@ test('each saved key shape reads as the overlay it names', () => {
 
 test('a key of no known shape is kept as saved, never dropped', () => {
   // Break: rejecting it would make one unknown saved key fail every read of the store.
-  for (const key of ['light:light.lamp', 'mode:other', 'sara', 'block', 'channels']) {
+  for (const key of ['light:light.lamp', 'mode', 'block', 'channels']) {
     assert.deepEqual(parseOverlayKey(key), { kind: 'saved', key });
   }
 });

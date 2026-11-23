@@ -40,8 +40,9 @@ import { ParseError, isObject, jinjaString, object, requireBoolean, requireStrin
 import { configSource, reportsOn } from './model.ts';
 import { callColour, callReach } from './native-call.ts';
 import type { Unexplained } from '../reconcile.ts';
-import type { CatalogRemote } from './catalog.ts';
+import type { Catalog, HouseMode } from './catalog.ts';
 import { uiRowsOf } from './catalog.ts';
+import { overlayKeyText } from './overlay-key.ts';
 
 /** What happened in Home Assistant, as a script or automation run names it. Fields are read by `messages`. */
 export type HaInput =
@@ -82,40 +83,38 @@ export type HaInput =
  * A script or automation run Home Assistant's bridge forwards, read as an input: a dry run asks and changes nothing
  * (the bridge never forwards one; the old scripts answered it), and a name that is not one of ours is no input. A
  * room's own gesture script (`ls_remote_gesture_<room>`, `ls_remote_power_quiet_<room>`) is the shared one, bound to
- * that room's remote in the catalog.
+ * that room's remote in the catalog; the mode's script and switch are the ones the catalog's mode names.
  */
-export function scriptInput(script: string, args: JsonObject, remotes: Readonly<Record<string, CatalogRemote>>): HaInput | 'dry run' | 'not ours' {
+export function scriptInput(script: string, args: JsonObject, catalog: Pick<Catalog, 'remotes' | 'mode'>): HaInput | 'dry run' | 'not ours' {
   if (args.dry_run === true) return 'dry run';
   const named = ROOM_GESTURE.exec(script);
   const room = named === null ? undefined : named[2];
-  const remote = room === undefined ? undefined : remotes[room];
-  const input = named === null || room === undefined ? haInput(script, args)
-    : haInput(`${named[1]}`, { ...(remote === undefined ? {} : { device_id: remote.device_id, source: remote.source }), ...args, room });
+  const remote = room === undefined ? undefined : catalog.remotes[room];
+  const input = named === null || room === undefined ? haInput(script, args, catalog.mode)
+    : haInput(`${named[1]}`, { ...(remote === undefined ? {} : { device_id: remote.device_id, source: remote.source }), ...args, room },
+      catalog.mode);
   return input === undefined ? 'not ours' : input;
 }
 
 /**
- * The bridge runs that may be the echo of a call of ours: a mode switch or a lamp change our own write made comes
- * back through the bridge, and is not a person's. Each carries the context of the change that triggered it.
- */
-const ECHOED: readonly string[] = ['automation.lighting_schedule_sara_mode_switch', 'automation.lighting_schedule_lamp_change_detector'];
-
-/**
  * The input a script or automation run is; undefined when the name is not one
- * of ours. Reads only what tells the inputs apart, and never raises.
+ * of ours. Reads only what tells the inputs apart, and never raises. The mode's
+ * script and switch are the ones `mode` names; a catalog that names no mode has neither.
  */
-export function haInput(script: string, args: JsonObject): HaInput | undefined {
+export function haInput(script: string, args: JsonObject, mode: HouseMode | undefined): HaInput | undefined {
   const trigger = object(args.trigger);
   const remote = REMOTE_AUTOMATION.exec(script);
   if (remote !== null) return remoteAutomation(remote[1], args, trigger);
+  if (mode !== undefined && script === mode.switched) {
+    return { kind: 'mode switched', on: trigger.id === 'on', user: object(object(trigger.to_state).context).user_id };
+  }
+  if (mode !== undefined && script === mode.script) return { kind: 'dashboard script', script: 'toggle mode', data: args };
   switch (script) {
     case 'automation.lighting_schedule_engine': return scheduleEngine(trigger);
     case 'automation.lighting_schedule_end_overrides':
     case 'automation.lighting_recover_pending_output':
     case 'automation.effects_refresh_native_light_controls': return { kind: 'tick' };
     case 'automation.switch_lamps_validate_house_defaults': return { kind: 'helper changed' };
-    case 'automation.lighting_schedule_sara_mode_switch':
-      return { kind: 'mode switched', on: trigger.id === 'on', user: object(object(trigger.to_state).context).user_id };
     case 'automation.lighting_schedule_lamp_change_detector': return { kind: 'service called', event: object(trigger.event) };
     case 'automation.lighting_schedule_override_store_writer': return { kind: 'overlay event', data: object(object(trigger.event).data) };
     case 'automation.effects_native_light_controls':
@@ -124,7 +123,6 @@ export function haInput(script: string, args: JsonObject): HaInput | undefined {
     case 'ls_override_block': return { kind: 'dashboard script', script: 'hold block', data: args };
     case 'ls_clear_overrides': return { kind: 'dashboard script', script: 'clear overlays', data: args };
     case 'ls_range_save': return { kind: 'dashboard script', script: 'save range', data: args };
-    case 'ls_sara_mode': return { kind: 'dashboard script', script: 'toggle mode', data: args };
     case 'ls_remote_gesture': return gesture(args);
     case 'ls_remote_command': return { kind: 'remote command', data: args };
     case 'effects_set': return { kind: 'control set', data: args };
@@ -220,6 +218,7 @@ function texts(values: readonly JsonValue[]): string[] {
  * dropped.
  */
 function overlayEvent(data: JsonObject, model: Model, now: Instant, house: HouseView): Msg[] {
+  const mode = house.catalog.mode;
   switch (data.op) {
     case 'clear_all': return [{ kind: 'overlayRequested', request: { kind: 'clear all' }, at: now }];
     case 'power': {
@@ -229,13 +228,14 @@ function overlayEvent(data: JsonObject, model: Model, now: Instant, house: House
     }
     case 'set': return (Array.isArray(data.records) ? data.records : []).flatMap((raw): Msg[] => {
       const record = object(raw);
-      if (record.kind === 'mode' && record.target === 'sara') return [{ kind: 'modeToggled', on: true, at: now }];
+      if (record.kind === 'mode' && mode !== undefined && record.target === mode.name) return [{ kind: 'modeToggled', on: true, at: now }];
       if (record.kind !== 'block' || typeof record.target !== 'string') {
         throw new ParseError(`ls_override: record ${jinjaString(record.kind === undefined ? null : record.kind)} is not read here`);
       }
       return [{ kind: 'overlayRequested', request: { kind: 'hold block', over: scopeOf(record.target), block: blockOf(record.value) }, at: now }];
     });
-    case 'clear': return Array.isArray(data.keys) && data.keys.includes('mode:sara') ? [{ kind: 'modeToggled', on: false, at: now }] : [];
+    case 'clear': return mode !== undefined && Array.isArray(data.keys) && data.keys.includes(overlayKeyText({ kind: 'mode', name: mode.name }))
+      ? [{ kind: 'modeToggled', on: false, at: now }] : [];
     case 'range_set': return rangeSet(data, model, now, house);
     case 'range_defaults': return [{ kind: 'rangeDefaultsSaved', defaults: rangeDefaults(object(data.ranges)), at: now }];
     default: throw new ParseError(`ls_override: operation ${jinjaString(data.op)} is not read here`);
@@ -551,20 +551,28 @@ export function bridgeRunOf(data: JsonObject): { script: string; args: JsonObjec
 }
 
 /**
- * A bridge run, read against our own calls: a run our own call may trigger ({@link ECHOED}) is that call's echo when
- * its context is one of ours, and is dropped when it came as a call failed, since it cannot be told from a person's.
- * Otherwise it is an input, or dropped: a dry run, or a name that is not an input.
+ * A bridge run, read against our own calls: a run our own call may trigger is that call's echo when its context is
+ * one of ours, and is dropped when it came as a call failed, since it cannot be told from a person's. Otherwise it is
+ * an input, or dropped: a dry run, or a name that is not an input.
  */
-export function bridgeVerdict(script: string, args: JsonObject, remotes: Readonly<Record<string, CatalogRemote>>, own: OwnCalls): BridgeVerdict {
-  if (ECHOED.includes(script)) {
+export function bridgeVerdict(script: string, args: JsonObject, catalog: Pick<Catalog, 'remotes' | 'mode'>, own: OwnCalls): BridgeVerdict {
+  if (echoed(script, catalog.mode)) {
     if (own.callFailed) return { kind: 'dropped', why: `${script} came as a call failed` };
     const context = echoContext(args);
     if (context !== undefined && own.contexts.includes(context)) return { kind: 'echo' };
   }
-  const input = scriptInput(script, args, remotes);
+  const input = scriptInput(script, args, catalog);
   if (input === 'dry run') return { kind: 'dropped', why: `${script} is a dry run` };
   if (input === 'not ours') return { kind: 'dropped', why: `${script} is not an input` };
   return { kind: 'input', input };
+}
+
+/**
+ * The bridge runs that may be the echo of a call of ours: a mode switch or a lamp change our own write made comes
+ * back through the bridge, and is not a person's. Each carries the context of the change that triggered it.
+ */
+function echoed(script: string, mode: HouseMode | undefined): boolean {
+  return script === 'automation.lighting_schedule_lamp_change_detector' || (mode !== undefined && script === mode.switched);
 }
 
 /** The context id of the change that triggered a bridge run: its new state's, or its event's; none when it carries none. */

@@ -1,7 +1,7 @@
 /**
  * What the dashboard shows of the Model: each scope's block selector, the
  * mode switch and each live control's light, moved from the schedule mirror
- * (`ls_room_plan`'s `mirror` and `sara_mirror`) and the UI sync (`uiMessages`
+ * (`ls_room_plan`'s `mirror` and its mode mirror) and the UI sync (`uiMessages`
  * in `src/legacy/domain/ui-state.ts`). The adapter writes what changed.
  */
 import type { Block } from './blocks.ts';

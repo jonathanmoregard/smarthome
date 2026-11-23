@@ -42,8 +42,8 @@
 import { ParseError, describe, isObject, object, requireArray, requireBoolean, requireObject, requireString } from './parse.ts';
 import type { JsonObject, JsonValue } from '../ha-client.ts';
 import type { BulbId, Id, LampId, RemoteId } from '../../domain/types/ids.ts';
-import type { CatalogEffectName, RemoteSource } from './ids.ts';
-import { toBulbId, toLampId, toRemoteId, toRemoteSource } from './ids.ts';
+import type { CatalogEffectName, ModeName, RemoteSource } from './ids.ts';
+import { toBulbId, toLampId, toModeName, toRemoteId, toRemoteSource } from './ids.ts';
 
 /**
  * The channels an effect drives.
@@ -128,6 +128,24 @@ function remoteSourceOf(raw: string, context: string): RemoteSource {
   }
 }
 
+/**
+ * The house's mode: the overlay a person turns on for the whole house, from the dashboard or a remote. The catalog
+ * names it (`"mode": "<name>"`, lower-case letters, digits and `_`), and Home Assistant's names of it are spelled from
+ * that name, once, here: its overlay's key and record target (`mode:<name>`), its dashboard script, the automation
+ * that reads its switch, and the switch it mirrors to.
+ */
+export type HouseMode = { name: ModeName; script: string; switched: string; mirror: string };
+
+function parseMode(raw: JsonValue, context: string): HouseMode {
+  if (typeof raw !== 'string' || !/^[a-z0-9_]+$/.test(raw)) {
+    throw new ParseError(`${context} must be a name of lower-case letters, digits and _, got ${describe(raw)}`);
+  }
+  return {
+    name: toModeName(raw), script: `ls_${raw}_mode`, switched: `automation.lighting_schedule_${raw}_mode_switch`,
+    mirror: `input_boolean.ls_${raw}_mode_mirror`,
+  };
+}
+
 export interface Catalog {
   /** The effect names the registry knows, each with the channels it drives. */
   effects: Record<CatalogEffectName, CatalogEffect>;
@@ -161,6 +179,8 @@ export interface Catalog {
   ui_rows: JsonValue[] | undefined;
   /** MQTT discovery payloads; optional for the same reason as {@link Catalog.ui_rows}. */
   ui_discovery: JsonValue[] | undefined;
+  /** The house's mode; none in a catalog that names none (a test's), which a deployed catalog may not be. */
+  mode: HouseMode | undefined;
 }
 
 /**
@@ -175,20 +195,22 @@ export function emptyCatalog(): Catalog {
   return {
     effects: {}, members: {}, groups: {}, baseline_groups: {}, topics: {}, bulbs: {},
     processors: {}, remotes: {}, ui_choices: undefined,
-    multicast: [], ui_rows: undefined, ui_discovery: undefined,
+    multicast: [], ui_rows: undefined, ui_discovery: undefined, mode: undefined,
   };
 }
 
 /**
- * The catalog a live house runs on: as {@link parseCatalog}, and it must name its members, groups and effects, which
- * a partial catalog (a test's, a single script's snapshot) may leave out.
+ * The catalog a live house runs on: as {@link parseCatalog}, and it must name its members, groups and effects, and
+ * its mode, which a partial catalog (a test's, a single script's snapshot) may leave out.
  */
 export function parseDeployedCatalog(document: JsonValue | undefined): Catalog {
   for (const key of ['members', 'groups', 'effects']) {
     const value = isObject(document) ? document[key] : undefined;
     if (!isObject(value)) throw new ParseError(`catalog.${key} must be an object: a deployed catalog names its ${key}`);
   }
-  return parseCatalog(document);
+  const catalog = parseCatalog(document);
+  if (catalog.mode === undefined) throw new ParseError('catalog.mode must be the house mode\'s name: a deployed catalog names its mode');
+  return catalog;
 }
 
 /**
@@ -222,6 +244,7 @@ export function parseCatalog(document: JsonValue | undefined): Catalog {
     multicast: valueList(document, 'multicast', at),
     ui_rows: document.ui_rows === undefined ? undefined : requireArray(document, 'ui_rows', at),
     ui_discovery: document.ui_discovery === undefined ? undefined : requireArray(document, 'ui_discovery', at),
+    mode: document.mode === undefined ? undefined : parseMode(document.mode, `${at}.mode`),
   };
 }
 

@@ -27,7 +27,7 @@ import { blockLightStore } from './config.ts';
 import type { BlockLight } from './config.ts';
 import { decodeLampProfile, encodeLampProfile } from './lamp-profiles.ts';
 import { profileStore } from './model.ts';
-import { remoteSources } from './overlay-key.ts';
+import { storeKeys } from './overlay-key.ts';
 import { encodeOverrides } from './overrides-sensor.ts';
 import { drives } from './rooms.ts';
 import type { Share } from './rooms.ts';
@@ -122,9 +122,6 @@ function reportsPower(state: string): boolean {
   return state === 'on' || state === 'off';
 }
 
-/** The mode mirror: the dashboard's switch for the mode overlay. */
-const MODE_MIRROR = 'input_boolean.ls_sara_mode_mirror';
-
 /** The Model's writes: the overrides sensor, each changed remote's helpers and each changed lamp or plug profile store. */
 export type ModelWrites = { sensor: SensorWrite | undefined; helpers: HelperWrite[]; stores: StoreWrite[] };
 
@@ -139,7 +136,7 @@ export type ModelWrites = { sensor: SensorWrite | undefined; helpers: HelperWrit
 export function modelWrites(before: Model, after: Model, house: HouseView, now: Instant, share: Share): ModelWrites {
   const stored = house.state[OVERRIDES_SENSOR];
   const found: JsonObject = stored === undefined ? {} : stored.attributes;
-  const written = encodeOverrides(after, found, share, after.config, remoteSources(house.catalog));
+  const written = encodeOverrides(after, found, share, after.config, storeKeys(house.catalog));
   const changed = Object.fromEntries(Object.entries(written).filter(([key, value]) => !isDeepStrictEqual(found[key], value)));
   const sensor = Object.keys(changed).length === 0 ? undefined : { entity: OVERRIDES_SENSOR, revision: nowText(now), attributes: changed };
   const helpers = entriesOf(after.remotes).flatMap(([remote, state]): HelperWrite[] => {
@@ -207,8 +204,11 @@ export function dashboardWrites(before: DashboardView | undefined, after: Dashbo
     const entity = `input_select.ls_${scope}_override`, option = blockOption(block), shown = house.state[entity];
     if (shown !== undefined && shown.state !== option) writes.push({ kind: 'block selector', entity, option });
   }
-  const mirror = house.state[MODE_MIRROR];
-  if (mirror !== undefined && (mirror.state === 'on') !== after.modeOn) writes.push({ kind: 'mode mirror', entity: MODE_MIRROR, on: after.modeOn });
+  // The mode mirror: the dashboard's switch for the mode overlay, the one the catalog's mode names.
+  const mode = house.catalog.mode, mirror = mode === undefined ? undefined : house.state[mode.mirror];
+  if (mode !== undefined && mirror !== undefined && (mirror.state === 'on') !== after.modeOn) {
+    writes.push({ kind: 'mode mirror', entity: mode.mirror, on: after.modeOn });
+  }
   for (const control of after.controls) {
     const row = rows.find(candidate => candidate.control === control.control);
     const was = before === undefined ? undefined : before.controls.find(earlier => earlier.control === control.control)?.light;

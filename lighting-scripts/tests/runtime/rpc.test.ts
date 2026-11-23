@@ -10,7 +10,7 @@ import { CATALOG, syntheticStates } from './fixtures/house-view.ts';
  * the turn handler's tests when they were deleted with `src/runtime/`.
  */
 
-const remotes = { kitchen: { source: 'remote-a' as never, device_id: 'device-a' as never } };
+const remotes = { remotes: { kitchen: { source: 'remote-a' as never, device_id: 'device-a' as never } }, mode: undefined };
 const snapshot = (): Snapshot => ({ state: syntheticStates(), areas: { 'light.lamp_a1': 'room-a', 'light.lamp_a2': 'room-a',
   'light.lamp_b1': 'room-b', 'switch.plug_a': 'room-a', 'remote-a': 'room-a' }, members: [], now: '2026-09-21T12:00:00Z', timezone: 'UTC',
 catalog: CATALOG });

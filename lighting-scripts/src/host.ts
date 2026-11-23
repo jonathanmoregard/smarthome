@@ -70,7 +70,7 @@ export class Host {
     const during = this.calling ? this.turns : undefined;
     this.enqueue(async () => {
       const own = { contexts: this.ownContexts, callFailed: during !== undefined && this.failedTurn === during };
-      const verdict = bridgeVerdict(name, args, this.catalog.remotes, own);
+      const verdict = bridgeVerdict(name, args, this.catalog, own);
       if (verdict.kind === 'dropped') this.io.log.error(`lighting: ${verdict.why}; dropped`);
       else if (verdict.kind === 'input') await this.turn(verdict.input);
     });

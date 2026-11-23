@@ -18,7 +18,7 @@ export type StepCount = Ranged<'StepCount'>;
 /**
  * A command a remote's presses send for its room: brighter (`up`) or dimmer
  * (`down`), the presets to the left or right, the power toggle, the room's
- * reset, and the mode overlay's toggle (today's `sara_toggle`). A press that
+ * reset, and the mode overlay's toggle (the old scripts' mode toggle). A press that
  * is no command never reaches the domain: the adapter drops it.
  */
 export type RemoteCommand = 'up' | 'down' | 'left' | 'right' | 'toggle' | 'reset' | 'mode';

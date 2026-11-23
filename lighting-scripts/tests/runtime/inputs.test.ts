@@ -43,7 +43,7 @@ function modelOf(house = houseView(states(), NOW_TEXT)): Model {
 
 /** The messages of a script or automation run, as `haInput` names it and `messages` reads it. */
 function read(script: string, args: JsonObject, house = houseView(states(), NOW_TEXT)): Msg[] {
-  const input = haInput(script, args);
+  const input = haInput(script, args, house.catalog.mode);
   assert.ok(input !== undefined, `${script} is an input`);
   return messages(input, modelOf(house), NOW, house);
 }
@@ -59,18 +59,18 @@ test('a tick is a clock message: the time-pattern automations are the clock, whi
     ['automation.lighting_schedule_end_overrides', { trigger: { id: 'after' } }],
     ['automation.lighting_recover_pending_output', { trigger: { id: '0' } }],
   ] as const) {
-    const input = haInput(script, args);
+    const input = haInput(script, args, undefined);
     assert.deepEqual(input, { kind: 'tick' }, script);
     assert.deepEqual(messages(input!, modelOf(), NOW, houseView(states(), NOW_TEXT)), [], script);
   }
-  assert.deepEqual(haInput('automation.lighting_schedule_engine', { trigger: { id: 'start' } }), { kind: 'started' });
-  assert.deepEqual(haInput('ls_wake', {}), { kind: 'wake' });
+  assert.deepEqual(haInput('automation.lighting_schedule_engine', { trigger: { id: 'start' } }, undefined), { kind: 'started' });
+  assert.deepEqual(haInput('ls_wake', {}, undefined), { kind: 'wake' });
 });
 
 test('the dashboard\'s UI refresh scripts are a wake: the turn re-syncs the controls and discovery', () => {
   // Break: the catalog refresh, which HA still bridges as a command, is dropped as not an input.
-  assert.deepEqual(haInput('effects_ui_sync', {}), { kind: 'wake' });
-  assert.deepEqual(haInput('effects_ui_catalog', {}), { kind: 'wake' });
+  assert.deepEqual(haInput('effects_ui_sync', {}, undefined), { kind: 'wake' });
+  assert.deepEqual(haInput('effects_ui_catalog', {}, undefined), { kind: 'wake' });
 });
 
 test('the override event\'s hold is an overlay request', () => {
@@ -91,7 +91,7 @@ test('a person\'s brightness step moves from the level the lamp shows', () => {
   // Carried from the deleted resolution-native test. Break: the step is taken as an absolute brightness, or from 0.
   const house = houseView(states(), NOW_TEXT), model = modelOf(house), shown = lightingState(model, NOW).lamps[lampA1];
   assert.ok(shown !== undefined && shown.power === 'on');
-  const input = haInput('automation.lighting_schedule_lamp_change_detector', call('turn_on', { entity_id: [lampA1], brightness_step: 30 }));
+  const input = haInput('automation.lighting_schedule_lamp_change_detector', call('turn_on', { entity_id: [lampA1], brightness_step: 30 }), undefined);
   const msgs = messages(input!, model, NOW, house);
   assert.deepEqual(msgs, [{ kind: 'lampChangedByPerson', lamps: [lampA1], rooms: [], at: NOW,
     light: { power: 'on', brightness: { kind: 'step', by: toBrightnessStep(30) }, colour: undefined, effect: undefined } }]);
@@ -106,7 +106,7 @@ test('a brightness step on a lamp that shows off starts from 0, as Home Assistan
   const off = update(modelOf(house), { kind: 'lampChangedByPerson', lamps: [lampA1], rooms: [], light: { power: 'off' },
     at: toInstant(NOW - 60) });
   assert.equal(lightingState(off, NOW).lamps[lampA1]?.power, 'off');
-  const input = haInput('automation.lighting_schedule_lamp_change_detector', call('turn_on', { entity_id: [lampA1], brightness_step: 40 }));
+  const input = haInput('automation.lighting_schedule_lamp_change_detector', call('turn_on', { entity_id: [lampA1], brightness_step: 40 }), undefined);
   const msgs = messages(input!, off, NOW, house);
   assert.deepEqual(msgs, [{ kind: 'lampChangedByPerson', lamps: [lampA1], rooms: [], at: NOW,
     light: { power: 'on', brightness: { kind: 'step', by: toBrightnessStep(40) }, colour: undefined, effect: undefined } }]);
@@ -192,6 +192,23 @@ test('the mode switch in the dashboard is the mode toggled, only from a person',
   assert.deepEqual(read('automation.lighting_schedule_sara_mode_switch', trigger(null)), []);
 });
 
+test("the mode is the catalog's: its script, its switch, its record and its key carry the catalog's name", () => {
+  // M5 carry-over: the mode's name is the household's, so the code names none. Break: a name built in reads that
+  // name's runs and records, and misses the ones the catalog names.
+  const house: HouseView = { ...houseView(states(), NOW_TEXT), catalog: parseCatalog({ ...CATALOG, mode: 'evening' }) };
+  const on: Msg[] = [{ kind: 'modeToggled', on: true, at: NOW }], off: Msg[] = [{ kind: 'modeToggled', on: false, at: NOW }];
+  const switched = { trigger: { id: 'on', to_state: { context: { user_id: PERSON } } } };
+  assert.deepEqual(read('ls_evening_mode', {}, house), on);
+  assert.deepEqual(read('automation.lighting_schedule_evening_mode_switch', switched, house), on);
+  assert.deepEqual(read('ls_commit', { data: { op: 'set', records: [{ kind: 'mode', target: 'evening', value: 'on' }] } }, house), on);
+  assert.deepEqual(read('ls_commit', { data: { op: 'clear', keys: ['mode:evening'] } }, house), off);
+  assert.equal(haInput('ls_sara_mode', {}, house.catalog.mode), undefined);
+  assert.equal(haInput('automation.lighting_schedule_sara_mode_switch', switched, house.catalog.mode), undefined);
+  assert.deepEqual(read('ls_commit', { data: { op: 'clear', keys: ['mode:sara'] } }, house), []);
+  // A catalog that names no mode has no mode inputs.
+  assert.equal(haInput('ls_evening_mode', {}, undefined), undefined);
+});
+
 test('a dashboard control over a whole room switches the room, and sets a light over it', () => {
   const control = toDashboardControlId('light.room_a_all');
   assert.deepEqual(read('effects_set', { source: 'light.room_a_all', attribute: 'power', value: 'OFF' }),
@@ -221,7 +238,7 @@ test("a save to a block's light is no message, and a store whose name is no bloc
 });
 
 test('a name that is not an input is not ours, and a field that cannot be read raises', () => {
-  const notOurs: HaInput | undefined = haInput('effects_catalog', {});
+  const notOurs: HaInput | undefined = haInput('effects_catalog', {}, undefined);
   assert.equal(notOurs, undefined);
   assert.throws(() => read('ls_override_block', { scope: roomA, block: 'teatime' }), ParseError);
 });
@@ -241,11 +258,11 @@ test('a remote automation\'s source picks the remote, where its room has two and
 
 test('a missing room or topic is absent, not empty text, and an input that needs it raises', () => {
   // Break: an empty text stands in for the missing room or topic.
-  assert.deepEqual(haInput('ls_remote_gesture', { command: 'power' }),
+  assert.deepEqual(haInput('ls_remote_gesture', { command: 'power' }, undefined),
     { kind: 'remote action', room: undefined, device: undefined, source: undefined, button: { kind: 'power' } });
-  assert.deepEqual(haInput('automation.lighting_room_a_remote_center', { trigger: { payload: 'on' } }),
+  assert.deepEqual(haInput('automation.lighting_room_a_remote_center', { trigger: { payload: 'on' } }, undefined),
     { kind: 'remote action', room: undefined, device: undefined, source: undefined, button: { kind: 'power' } });
-  assert.deepEqual(haInput('automation.effects_native_light_controls', { trigger: { payload: 'ON' } }),
+  assert.deepEqual(haInput('automation.effects_native_light_controls', { trigger: { payload: 'ON' } }, undefined),
     { kind: 'effect preview', topic: undefined, payload: 'ON' });
   assert.throws(() => read('ls_remote_gesture', { command: 'power' }), /names no remote and no room/);
   assert.throws(() => read('automation.effects_native_light_controls', { trigger: { payload: 'ON' } }), /no topic/);

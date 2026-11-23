@@ -125,7 +125,14 @@ Cutover checklist:
    when it has at least one bulb and every one of its bulbs is marked; a
    malformed flag rejects the file and the previous config is kept. Replace this
    step when the firmware-version check lands.
-2. Clear `runtime.applied` once at cutover so every lamp is re-sent (starts the
+2. Name the house mode in `.runtime/catalog.json`: `"mode": "<name>"`, the
+   name the mode's Home Assistant helpers carry (lower-case letters, digits
+   and `_`). Its overlay key and record target (`mode:<name>`), its dashboard
+   script (`ls_<name>_mode`), the automation that reads its switch
+   (`automation.lighting_schedule_<name>_mode_switch`) and its mirror
+   (`input_boolean.ls_<name>_mode_mirror`) are spelled from it. A catalog
+   without it is refused at start.
+3. Clear `runtime.applied` once at cutover so every lamp is re-sent (starts the
    firmware candle). Set the `applied` attribute of `sensor.ls_effects_runtime`
    to an empty mapping `{}`: an absent or null `applied` is read as `targets`,
    which the old engine also wrote, so removing it re-sends nothing.
@@ -165,7 +172,7 @@ missing `--live-rooms` is refused at start-up: it never means every room.
    scripts commit (a hold over the house holds each room), and it writes back
    only its own rooms' overlays and remote helpers; everything else in the
    sensor, house-wide overlays included, is left exactly as found. The
-   dashboard mirror, the block selects and the Sara mirror stay with the old
+   dashboard mirror, the block selects and the mode mirror stay with the old
    scripts. The fields the old scripts read across rooms
    (`docs/sensor-fields.md`, "Carried": the render queue and its requests,
    `sensor.ls_effects_runtime`, the room caches) are never written by the

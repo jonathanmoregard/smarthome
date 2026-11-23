@@ -61,17 +61,25 @@ export function toCatalogEffectName(raw: string): CatalogEffectName {
 
 /**
  * A saved overlay key of no known shape, kept as saved. Never text a known
- * shape claims (empty, `mode:sara`, `block:...`, `channels:...`), so it reads
+ * shape claims (empty, `mode:...`, `block:...`, `channels:...`), so it reads
  * back as itself; its constructor (`toSavedOverlayKey`) checks that.
  */
 export type SavedOverlayKey = Id<'SavedOverlayKey'>;
 
 export function toSavedOverlayKey(raw: string): SavedOverlayKey {
-  if (raw === '' || raw === 'mode:sara' || raw.startsWith('block:') || raw.startsWith('channels:')) {
+  if (raw === '' || raw.startsWith('mode:') || raw.startsWith('block:') || raw.startsWith('channels:')) {
     throw new ParseError(`A saved overlay key of no known shape must not have a known shape, got '${raw}'`);
   }
   // Cast: checked just above; this is the one place a string becomes a saved overlay key.
   return raw as SavedOverlayKey;
+}
+
+/** The house mode's name, as the catalog names it (`catalog.mode`); every Home Assistant name of the mode is spelled from it. */
+export type ModeName = Id<'ModeName'>;
+
+export function toModeName(raw: string): ModeName {
+  // Cast: the catalog's parse checked this string as a mode's name; this is the one place that says so.
+  return raw as ModeName;
 }
 
 /** A Zigbee2MQTT command topic: a bulb's (`zigbee2mqtt/<bulb>/set`) or a Zigbee group's. */

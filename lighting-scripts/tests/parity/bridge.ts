@@ -4,6 +4,7 @@
 import { readSync, writeSync } from 'node:fs';
 import { StringDecoder } from 'node:string_decoder';
 import type { Catalog } from '../../src/adapter/codecs/catalog.ts';
+import { parseCatalog } from '../../src/adapter/codecs/catalog.ts';
 import { answer } from '../../src/rpc.ts';
 import type { Request } from '../../src/rpc.ts';
 
@@ -68,15 +69,19 @@ function readMessage(): unknown {
 function send(value: unknown): void { writeSync(1, JSON.stringify(encode(value)) + '\n'); }
 /** The one lamp the preserved fixtures let run Candle (the port's former hard-coded `CANDLE_LAMP`). */
 const FIXTURE_CANDLE_LAMPS: ReadonlySet<string> = new Set(['light.living_room_yellow_retro_lamp']);
+/** The mode the preserved fixtures name (the port's former hard-coded mode). */
+const FIXTURE_MODE = parseCatalog({ mode: 'sara' }).mode;
 /**
- * The preserved fixtures predate the catalog's per-bulb `candle` flag: in them, one lamp ran Candle by name. That
- * lamp's bulbs are marked in each run's parsed catalog, never in the document, since `effects_catalog` output is
- * compared byte for byte. Production reads the flag instead.
+ * The preserved fixtures predate the catalog's per-bulb `candle` flag and its `mode`: in them, one lamp ran Candle by
+ * name, and the mode's name was built in. That lamp's bulbs are marked, and the mode named, in each run's parsed
+ * catalog, never in the document, since `effects_catalog` output is compared byte for byte. Production reads the
+ * catalog's flag and mode instead.
  */
-function withFixtureCandle(catalog: Catalog): void {
+function withFixtureNames(catalog: Catalog): void {
   for (const [lamp, bulbs] of Object.entries(catalog.members)) {
     if (FIXTURE_CANDLE_LAMPS.has(lamp)) for (const bulb of bulbs) catalog.bulbs[bulb] = { candle: true };
   }
+  catalog.mode = FIXTURE_MODE;
 }
 const nativeLog = Math.log;
 
@@ -91,7 +96,7 @@ async function perform(value: unknown): Promise<void> {
     for (const name of Object.keys(request.parityDependencies ?? {})) {
       if (name !== 'ls_plan') throw new Error(`Unsupported parity literal dependency: ${name}`);
     }
-    send({ ...await answer(request, withFixtureCandle), mathLogCalls, dependencyCalls: [] });
+    send({ ...await answer(request, withFixtureNames), mathLogCalls, dependencyCalls: [] });
   } catch (error) {
     send({ error: error instanceof Error ? error.message : String(error) });
   } finally {

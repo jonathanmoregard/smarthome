@@ -20,6 +20,7 @@ export const CATALOG: JsonObject = {
   members: { 'light.lamp_a1': ['bulb-a1', 'bulb-a2'], 'light.lamp_a2': ['bulb-a3'], 'light.lamp_b1': ['bulb-b1'] },
   bulbs: { 'bulb-a1': { candle: true } },
   remotes: { 'room-a': { device_id: 'remote-a', source: 'remote-a' }, unplaced: { device_id: 'remote-b', source: 'remote-b' } },
+  mode: 'sara',
   topics: { 'bulb-a1': 'zigbee2mqtt/bulb-a1', 'bulb-a2': 'zigbee2mqtt/bulb-a2', 'bulb-a3': 'zigbee2mqtt/bulb-a3', 'bulb-b1': 'zigbee2mqtt/bulb-b1' },
   ui_rows: [{
     source: 'light.room_a_all', proxy: 'light.ep_room_a_all', store: '', members: ['light.lamp_a1', 'light.lamp_a2'],

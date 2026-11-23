@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { BUILT_IN_RANGE_DEFAULTS, EPOCH, decodeOverrides, encodeOverrides } from '../../src/adapter/codecs/overrides-sensor.ts';
 import { DEFAULT_STEP_RANGE } from '../../src/domain/remote.ts';
-import { remoteSources } from '../../src/adapter/codecs/overlay-key.ts';
+import { storeKeys } from '../../src/adapter/codecs/overlay-key.ts';
 import type { OverridesState } from '../../src/adapter/codecs/overrides-sensor.ts';
 import type { LampOverlay, RemoteAdjustment, RemoteOverlay } from '../../src/domain/overlays.ts';
 import type { JsonObject, JsonValue } from '../../src/adapter/ha-client.ts';
@@ -22,7 +22,7 @@ import { id } from './support/ids.ts';
  * adjustment's `updated` and a preset's `period_updated` are seconds.
  */
 const config = syntheticHouse().config;
-const sources = remoteSources(syntheticCatalog());
+const sources = storeKeys(syntheticCatalog());
 const roomA = id.room('room-a'), roomB = id.room('room-b');
 const lampA1 = id.lamp('light.lamp_a1'), plugA = id.switch('switch.plug_a');
 const remoteA = id.remote('remote-a');
@@ -590,7 +590,7 @@ test('an entry of no known shape is not in the Model and is kept as found', () =
 
 test('a remote overlay is the remote the catalog lists under its source, and is saved back under that source', () => {
   // Break: the source's text is read as the remote's id, or the overlay is written under the remote's id.
-  const catalog = remoteSources(parseCatalog({ remotes: { [roomA]: { device_id: 'device-x', source: 'source-x' } } }));
+  const catalog = storeKeys(parseCatalog({ remotes: { [roomA]: { device_id: 'device-x', source: 'source-x' } } }));
   const found = { overrides: { 'channels:source-x': inputEntry({ step_range: { min: -20, max: 20 } }, 12, 'source-x') } };
   const state = decodeOverrides(found, catalog);
   assert.deepEqual(state.overlays.remotes.map(overlay => overlay.remote), [id.remote('device-x')]);
@@ -609,5 +609,15 @@ test('an overlay saved under a source no remote of the catalog has takes no part
 test('two remotes the catalog lists under one source are refused', () => {
   // One source is one overlay key, so the two remotes would share an overlay. Break: the second silently wins.
   const twice = parseCatalog({ remotes: { a: { device_id: 'device-a', source: 'shared' }, b: { device_id: 'device-b', source: 'shared' } } });
-  assert.throws(() => remoteSources(twice), /source shared/);
+  assert.throws(() => storeKeys(twice), /source shared/);
+});
+
+test("the mode's entry is the one the catalog's mode names, and it is written under that name", () => {
+  // M5 carry-over: the mode's name is the household's, so the code names none. Break: a key or a target built in.
+  const evening = storeKeys(parseCatalog({ mode: 'evening' }));
+  const stored = { kind: 'mode', target: 'evening', value: 'on', ...stamped(7, 'app') };
+  assert.deepEqual(decodeOverrides({ overrides: { 'mode:evening': stored } }, evening).modeOverlay, { active: true, since: at(7) });
+  assert.deepEqual(decodeOverrides({ overrides: { 'mode:sara': modeEntry(7) } }, evening).modeOverlay, { active: false });
+  const state: OverridesState = { ...decodeOverrides({}, evening), modeOverlay: { active: true, since: at(7) } };
+  assert.deepEqual((encodeOverrides(state, {}, allRooms, config, evening).overrides as JsonObject)['mode:evening'], stored);
 });

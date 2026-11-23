@@ -16,7 +16,7 @@ import type { HouseView } from './house.ts';
 import { decodeConfig } from './config.ts';
 import type { ConfigSource } from './config.ts';
 import { FOLLOWS_ROOM, decodeLampProfile } from './lamp-profiles.ts';
-import { remoteSources } from './overlay-key.ts';
+import { storeKeys } from './overlay-key.ts';
 import { decodeOverrides } from './overrides-sensor.ts';
 import type { Share } from './rooms.ts';
 import { IDLE_REMOTE } from '../../domain/remote.ts';
@@ -30,7 +30,7 @@ export function configSource(house: Pick<HouseView, 'state' | 'rooms' | 'labels'
 
 export function decodeModel(source: ConfigSource, catalog: Catalog): Model {
   const config = decodeConfig(source, catalog);
-  const overrides = decodeOverrides(source.states['sensor.ls_overrides']?.attributes, remoteSources(catalog));
+  const overrides = decodeOverrides(source.states['sensor.ls_overrides']?.attributes, storeKeys(catalog));
   const remotes: Record<RemoteId, RemoteModel> = Object.fromEntries(entriesOf(config.remotes).map(([remote, { room }]) =>
     [remote, room === undefined ? IDLE_REMOTE : decodeRemoteModel(source, room, reportsOn(source, config, overrides.switchRanges, room))]));
   const lampProfiles: Record<LampId, Record<Block, LampProfile>> = Object.fromEntries(entriesOf(config.lamps).map(([lamp]) =>
@@ -89,5 +89,5 @@ function switchProfilesOf(source: ConfigSource, plug: SwitchId): Record<Block, S
  */
 export function followingSensor(model: Model, house: Pick<HouseView, 'state' | 'catalog'>, share: Share): Model {
   if (share.kind === 'house') return model;
-  return { ...model, ...decodeOverrides(house.state['sensor.ls_overrides']?.attributes, remoteSources(house.catalog)) };
+  return { ...model, ...decodeOverrides(house.state['sensor.ls_overrides']?.attributes, storeKeys(house.catalog)) };
 }

@@ -91,7 +91,7 @@ export async function answer(request: Request, adjust: (catalog: Catalog) => voi
   }
   const catalog = snapshot.catalog === undefined ? emptyCatalog() : parseCatalog(snapshot.catalog);
   adjust(catalog);
-  if (scriptInput(script, args, catalog.remotes) === 'not ours') throw new Error(`Unsupported script: ${script}`);
+  if (scriptInput(script, args, catalog) === 'not ours') throw new Error(`Unsupported script: ${script}`);
   current = { now: toInstant(ms / 1000), elapsed: snapshot.elapsed ?? 0, calls: [], wakeMs: undefined };
   const mirror = mirrorOf(snapshot);
   if (host === undefined) {

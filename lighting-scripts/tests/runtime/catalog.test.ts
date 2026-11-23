@@ -193,5 +193,19 @@ test('a deployed catalog names its members, groups and effects', () => {
   // Break: the live process starts on a catalog with no members (moved from main.ts's own checks into the codec).
   assert.throws(() => parseDeployedCatalog({ groups: {}, effects: {} }), /catalog\.members must be an object/);
   assert.throws(() => parseDeployedCatalog({ members: {}, effects: {} }), /catalog\.groups must be an object/);
-  assert.deepEqual(parseDeployedCatalog({ members: {}, groups: {}, effects: {} }).members, {});
+  assert.deepEqual(parseDeployedCatalog({ members: {}, groups: {}, effects: {}, mode: 'evening' }).members, {});
+});
+
+test("the catalog names the house's mode, and each name Home Assistant spells from it", () => {
+  // M5 carry-over: the mode's name is the household's, so it is configuration, not code. Break: a name built in.
+  assert.deepEqual(parseCatalog({ ...minimal, mode: 'evening' }).mode, {
+    name: 'evening', script: 'ls_evening_mode', switched: 'automation.lighting_schedule_evening_mode_switch',
+    mirror: 'input_boolean.ls_evening_mode_mirror',
+  });
+  assert.equal(parseCatalog(minimal).mode, undefined);
+  for (const name of ['', 'Evening', 'evening mode', 7]) {
+    assert.throws(() => parseCatalog({ ...minimal, mode: name }), /catalog\.mode/, String(name));
+  }
+  // Break: the live process starts with no mode, and every mode press is dropped as not an input.
+  assert.throws(() => parseDeployedCatalog({ members: {}, groups: {}, effects: {} }), /catalog\.mode must be/);
 });

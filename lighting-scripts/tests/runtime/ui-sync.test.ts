@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { uiSyncWrites } from '../../src/adapter/codecs/writes.ts';
+import { dashboardWrites, uiSyncWrites } from '../../src/adapter/codecs/writes.ts';
 import { parseCatalog } from '../../src/adapter/codecs/catalog.ts';
 import type { EntityState, JsonObject } from '../../src/adapter/ha-client.ts';
 import type { HouseView } from '../../src/adapter/codecs/house.ts';
@@ -114,4 +114,15 @@ test('a discovery row whose light Home Assistant does not report is not republis
   // Break: an unreported light's effect list reads as missing, so its config is republished every turn.
   const writes = uiSyncWrites(house(states => { inStep(states); delete states[DISCOVERED]; }), false);
   assert.deepEqual(writes.filter(write => write.kind === 'discovery'), []);
+});
+
+test("the mode's mirror is the one the catalog's mode names", () => {
+  // M5 carry-over: the mode's name is the household's, so the code names no mirror. Break: a mirror name built in.
+  const base = houseView(syntheticStates(states => {
+    states['input_boolean.ls_evening_mode_mirror'] = { state: 'off', attributes: {} };
+  }), NOW);
+  const view = { blockShown: { house: 'day' as const }, modeOn: true, controls: [] };
+  const named = { ...base, catalog: parseCatalog({ ...CATALOG, mode: 'evening' }) };
+  assert.deepEqual(dashboardWrites(undefined, view, [], named), [{ kind: 'mode mirror', entity: 'input_boolean.ls_evening_mode_mirror', on: true }]);
+  assert.deepEqual(dashboardWrites(undefined, view, [], { ...base, catalog: { ...named.catalog, mode: undefined } }), []);
 });

@@ -176,12 +176,13 @@ export function syntheticHouse(): Model {
 const iso = (minutesAfter: number) => new Date(at(minutesAfter) * 1000).toISOString();
 const helper = (state: string, attributes: JsonObject = {}): EntityState => ({ state, attributes });
 
-/** The catalog: the three lamps and their bulbs, the candle bulb flagged, and the two remotes. */
+/** The catalog: the three lamps and their bulbs, the candle bulb flagged, the two remotes and the mode. */
 export function syntheticCatalog(): Catalog {
   return parseCatalog({
     members: { [lampA1]: ['bulb-a1', 'bulb-a2'], [lampA2]: ['bulb-a3'], [lampB1]: ['bulb-b1'] },
     bulbs: { 'bulb-a1': { candle: true } },
     remotes: { [roomA]: { device_id: remoteA, source: sourceA }, unplaced: { device_id: remoteB, source: sourceB } },
+    mode: 'sara',
   });
 }
 

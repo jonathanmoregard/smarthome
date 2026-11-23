@@ -35,7 +35,7 @@ function house(change: Change = view => view): HouseView {
 
 function read(serviceData: JsonObject, view: HouseView = house()): Msg[] {
   const input = haInput(DETECTOR, { trigger: { event: { data: { domain: 'light', service: 'turn_on', service_data: serviceData },
-    context: { id: 'ctx-1', user_id: 'person-1' } } } });
+    context: { id: 'ctx-1', user_id: 'person-1' } } } }, undefined);
   assert.ok(input !== undefined);
   return messages(input, decodeModel(configSource(view), view.catalog), NOW, view);
 }

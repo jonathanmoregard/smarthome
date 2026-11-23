@@ -1,5 +1,5 @@
 import type { Id, RemoteId } from '../../domain/types/ids.ts';
-import type { RemoteSource, SavedOverlayKey } from './ids.ts';
+import type { ModeName, RemoteSource, SavedOverlayKey } from './ids.ts';
 import type { Catalog } from './catalog.ts';
 import { toRemoteSource, toSavedOverlayKey } from './ids.ts';
 import { ParseError } from './parse.ts';
@@ -11,8 +11,8 @@ import { ParseError } from './parse.ts';
  * is written or compared with another.
  */
 export type OverlayKey =
-  /** Sara mode: `mode:sara`. */
-  | { kind: 'sara mode' }
+  /** A mode, by its name: `mode:<name>`. Which mode is the house's is the catalog's to say (`catalog.mode`). */
+  | { kind: 'mode'; name: string }
   /** A block overlay on a room, or on the house: `block:<room or house>`. */
   | { kind: 'block'; scope: string }
   /** A remote's input for its room: `channels:<remote source>`. */
@@ -37,7 +37,8 @@ export type OverlayKey =
  */
 export function parseOverlayKey(text: string): OverlayKey {
   if (text === '') return { kind: 'empty' };
-  if (text === 'mode:sara') return { kind: 'sara mode' };
+  const name = after(text, 'mode:');
+  if (name !== undefined) return { kind: 'mode', name };
   const scope = after(text, 'block:');
   if (scope !== undefined) return { kind: 'block', scope };
   const base = after(text, 'channels:native:');
@@ -62,7 +63,7 @@ function after(text: string, prefix: string): string | undefined {
  */
 export function overlayKeyText(key: OverlayKey): string {
   switch (key.kind) {
-    case 'sara mode': return 'mode:sara';
+    case 'mode': return `mode:${key.name}`;
     case 'block': return `block:${key.scope}`;
     case 'remote input': return `channels:${key.source}`;
     case 'dashboard control': return `channels:ui:${key.control}`;
@@ -73,14 +74,16 @@ export function overlayKeyText(key: OverlayKey): string {
 }
 
 /**
- * The catalog's remotes by the source each one's overlay is saved under
- * (`channels:<source>`), and each remote's source. The Model keys a remote's
- * overlay by the remote (amendment 5.2); only the stored key names the source.
+ * The overlay store's keys the catalog names: its remotes by the source each one's overlay is saved under
+ * (`channels:<source>`), each remote's source, and the house mode's name (`mode:<name>`), none when the catalog names
+ * no mode. The Model keys a remote's overlay by the remote (amendment 5.2); only the stored key names the source.
  */
-export type RemoteSources = { remoteOf: ReadonlyMap<RemoteSource, RemoteId>; sourceOf: ReadonlyMap<RemoteId, RemoteSource> };
+export type StoreKeys = {
+  remoteOf: ReadonlyMap<RemoteSource, RemoteId>; sourceOf: ReadonlyMap<RemoteId, RemoteSource>; mode: ModeName | undefined;
+};
 
-/** The catalog's remotes and their sources. A source is one overlay key, so two remotes listed under one are refused. */
-export function remoteSources(catalog: Catalog): RemoteSources {
+/** The catalog's store keys. A source is one overlay key, so two remotes listed under one are refused. */
+export function storeKeys(catalog: Catalog): StoreKeys {
   const remoteOf = new Map<RemoteSource, RemoteId>(), sourceOf = new Map<RemoteId, RemoteSource>();
   for (const { device_id: remote, source } of Object.values(catalog.remotes)) {
     if (remoteOf.has(source)) {
@@ -89,8 +92,5 @@ export function remoteSources(catalog: Catalog): RemoteSources {
     remoteOf.set(source, remote);
     sourceOf.set(remote, source);
   }
-  return { remoteOf, sourceOf };
+  return { remoteOf, sourceOf, mode: catalog.mode?.name };
 }
-
-/** The Sara mode overlay's key. */
-export const SARA_MODE: OverlayKey = { kind: 'sara mode' };
