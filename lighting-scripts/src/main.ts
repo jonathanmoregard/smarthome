@@ -16,7 +16,7 @@ import { toInstant } from './adapter/codecs/ids.ts';
 import { parseRooms } from './adapter/codecs/rooms.ts';
 import { HomeAssistantClient } from './adapter/ha-client.ts';
 import type { JsonValue, ServiceCall } from './adapter/ha-client.ts';
-import { heartbeatCall } from './adapter/encode.ts';
+import { heartbeatCall, timingCall } from './adapter/encode.ts';
 import { readLiveRoomsFlag, refuseUnlessWholeHouse } from './adapter/live-rooms.ts';
 import type { LiveRooms } from './adapter/live-rooms.ts';
 import { Host } from './host.ts';
@@ -46,7 +46,8 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     refuseUnlessWholeHouse(liveRooms, catalog, parseRooms(mirror.areas));
     const host = await Host.open({ ha, journal: fileJournal(resolve(option('--state') ?? '.runtime/journal.json')),
       clock: () => toInstant(Date.now() / 1000), log: console,
-      timer: (delayMs, wake) => { const timer = setTimeout(wake, delayMs); return () => clearTimeout(timer); } }, mirror, catalog);
+      timer: (delayMs, wake) => { const timer = setTimeout(wake, delayMs); return () => clearTimeout(timer); },
+      took: seconds => void ha.call(timingCall(seconds)).catch(() => undefined) }, mirror, catalog);
     const report = (error: unknown) => console.error(error instanceof Error ? error.message : String(error));
     const reread = () => { const startedAt = toInstant(Date.now() / 1000); return read().then(house => host.houseRead(house, startedAt)); };
     const reconnect = () => {

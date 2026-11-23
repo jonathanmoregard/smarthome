@@ -7,7 +7,7 @@ import type { Catalog } from './adapter/codecs/catalog.ts';
 import type { HouseMirror } from './adapter/codecs/house.ts';
 import { afterCall, houseView, mergedRead } from './adapter/codecs/house.ts';
 import { loadBeliefs, saveBeliefs } from './adapter/codecs/journal.ts';
-import { outputCall, timingCall } from './adapter/encode.ts';
+import { outputCall } from './adapter/encode.ts';
 import { Unreachable } from './adapter/ha-client.ts';
 import type { EntityState, HaClient, JsonObject } from './adapter/ha-client.ts';
 import { echoContext, mayBeEcho, scriptInput } from './adapter/codecs/inputs.ts';
@@ -28,7 +28,8 @@ export type Log = { info(message: string): void; warn(message: string): void; er
 /** A timer: `wake` runs after `delayMs`, unless the answer is called first. */
 export type Timer = (delayMs: number, wake: () => void) => () => void;
 
-export type HostIo = { ha: HaClient; journal: Journal; clock: () => Instant; log: Log; timer: Timer };
+/** `took`, if given, hears how long each turn with outputs took to make them, in seconds. */
+export type HostIo = { ha: HaClient; journal: Journal; clock: () => Instant; log: Log; timer: Timer; took?: (seconds: number) => void };
 
 /** The longest a timer waits: Node's limit, about 24 days. A wake further away is set again when this one runs. */
 const LONGEST_WAIT_MS = 2_147_483_647;
@@ -127,7 +128,7 @@ export class Host {
     const settled = afterOutputs(turn, failed);
     this.kept = { kind: 'running', state: settled.state };
     for (const note of settled.notes) this.io.log.info(note);
-    if (turn.outputs.length > 0 && this.connected) await this.io.ha.call(timingCall((performance.now() - started) / 1000)).catch(() => undefined);
+    if (turn.outputs.length > 0 && this.connected) this.io.took?.((performance.now() - started) / 1000);
     return settled.wakeAt;
   }
 

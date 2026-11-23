@@ -15,9 +15,9 @@ const snapshot = (): Snapshot => ({ state: syntheticStates(), areas: { 'light.la
   'light.lamp_b1': 'room-b', 'switch.plug_a': 'room-a', 'remote-a': 'room-a' }, members: [], now: '2026-09-21T12:00:00Z', timezone: 'UTC',
 catalog: CATALOG });
 
-test('a name that is not an input fails explicitly', () => {
+test('a name that is not an input fails explicitly', async () => {
   // Break: an unknown name runs as some other input, or is quietly ignored, so the harness cannot tell it was not ported.
-  assert.throws(() => answer({ script: 'automation.unknown', args: {}, snapshot: snapshot() }), /Unsupported script: automation.unknown/);
+  await assert.rejects(answer({ script: 'automation.unknown', args: {}, snapshot: snapshot() }), /Unsupported script: automation.unknown/);
   assert.equal(scriptInput('automation.unknown', {}, remotes), 'not ours');
 });
 
@@ -31,10 +31,10 @@ test("a room's own gesture script is the shared one, bound to that room's remote
   assert.deepEqual(scriptInput('ls_remote_power_quiet_kitchen', {}, remotes), { kind: 'wake' });
 });
 
-test('a dry run changes nothing: it is logged once and dropped', () => {
+test('a dry run changes nothing: it is logged once and dropped', async () => {
   // Break: a dry run (the old scripts' "ask, don't touch") reaches the turn and saves the range or sends to the lamps.
   forgetState();
-  answer({ script: 'automation.lighting_schedule_engine', args: { trigger: { id: 'start' } }, snapshot: snapshot() });
+  await answer({ script: 'automation.lighting_schedule_engine', args: { trigger: { id: 'start' } }, snapshot: snapshot() });
   for (const [script, args] of [
     ['ls_range_save', { entity: 'switch.plug_a', profile: 'bright', minimum: 10, maximum: 90, dry_run: true }],
     ['ls_apply', { reason: 'config', dry_run: true }],
@@ -42,7 +42,7 @@ test('a dry run changes nothing: it is logged once and dropped', () => {
     const lines: string[] = [], original = console.error;
     console.error = (...parts: unknown[]) => { lines.push(parts.join(' ')); };
     try {
-      assert.deepEqual(answer({ script, args, snapshot: snapshot() }).calls, [], script);
+      assert.deepEqual((await answer({ script, args, snapshot: snapshot() })).calls, [], script);
     } finally {
       console.error = original;
     }
@@ -51,10 +51,10 @@ test('a dry run changes nothing: it is logged once and dropped', () => {
   forgetState();
 });
 
-test("the harness's wake is scheduled only before the next minute's tick", () => {
+test("the harness's wake is scheduled only before the next minute's tick", async () => {
   // Break: a wake hours away is scheduled, and the harness, which runs every task before its checkpoint, runs it at once.
   forgetState();
-  const started = answer({ script: 'automation.lighting_schedule_engine', args: { trigger: { id: 'start' } }, snapshot: snapshot() });
+  const started = await answer({ script: 'automation.lighting_schedule_engine', args: { trigger: { id: 'start' } }, snapshot: snapshot() });
   assert.equal((started.snapshot.scheduled ?? []).some(task => task.script === 'ls_wake'), false);
   assert.ok(started.calls.length > 0);
   forgetState();

@@ -80,7 +80,7 @@ function withFixtureCandle(catalog: Catalog): void {
 }
 const nativeLog = Math.log;
 
-function perform(value: unknown): void {
+async function perform(value: unknown): Promise<void> {
   const previousLog = Math.log;
   try {
     const request = value as Request & { parityHooks?: 'all' | 'commit'; parityLog?: boolean; parityDependencies?: Record<string, unknown> };
@@ -91,7 +91,7 @@ function perform(value: unknown): void {
     for (const name of Object.keys(request.parityDependencies ?? {})) {
       if (name !== 'ls_plan') throw new Error(`Unsupported parity literal dependency: ${name}`);
     }
-    send({ ...answer(request, withFixtureCandle), mathLogCalls, dependencyCalls: [] });
+    send({ ...await answer(request, withFixtureCandle), mathLogCalls, dependencyCalls: [] });
   } catch (error) {
     send({ error: error instanceof Error ? error.message : String(error) });
   } finally {
@@ -102,5 +102,5 @@ function perform(value: unknown): void {
 for (;;) {
   const value = readMessage();
   if (value === null) break;
-  perform(value);
+  await perform(value);
 }
