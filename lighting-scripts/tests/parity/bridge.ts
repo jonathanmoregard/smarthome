@@ -1,11 +1,11 @@
-/** Test-only transport for Python numeric edge cases that JSON cannot represent.
+/** Test-only transport for Python numeric edge cases that JSON cannot represent, over `src/rpc.ts`'s `answer`.
  * Production src/rpc.ts never accepts this envelope. No decision logic lives here.
  */
 import { readSync, writeSync } from 'node:fs';
 import { StringDecoder } from 'node:string_decoder';
-import { execute, type ExecutionHooks, type ExecutionRequest } from '../../src/runtime/engine.ts';
-import { handlers } from '../../src/runtime/registry.ts';
-import type { JsonObject, JsonValue, ScriptContext, ScriptHandler, ScriptHandlers, ServiceCall, Snapshot } from '../../src/runtime/context.ts';
+import type { Catalog } from '../../src/adapter/codecs/catalog.ts';
+import { answer } from '../../src/rpc.ts';
+import type { Request } from '../../src/rpc.ts';
 
 type PathPart = string | number;
 interface Nonfinite { path: PathPart[]; value: 'NaN' | 'Infinity' | '-Infinity' }
@@ -68,91 +68,30 @@ function readMessage(): unknown {
 function send(value: unknown): void { writeSync(1, JSON.stringify(encode(value)) + '\n'); }
 /** The one lamp the preserved fixtures let run Candle (the port's former hard-coded `CANDLE_LAMP`). */
 const FIXTURE_CANDLE_LAMPS: ReadonlySet<string> = new Set(['light.living_room_yellow_retro_lamp']);
-/** `handler` with the fixture candle lamps' bulbs flagged as candle firmware in the run's parsed catalog. */
-function withFixtureCandle(handler: ScriptHandler): ScriptHandler {
-  return (ctx, args) => {
-    for (const [lamp, bulbs] of Object.entries(ctx.catalog.members)) {
-      if (FIXTURE_CANDLE_LAMPS.has(lamp)) for (const bulb of bulbs) ctx.catalog.bulbs[bulb] = { candle: true };
-    }
-    return handler(ctx, args);
-  };
+/**
+ * The preserved fixtures predate the catalog's per-bulb `candle` flag: in them, one lamp ran Candle by name. That
+ * lamp's bulbs are marked in each run's parsed catalog, never in the document, since `effects_catalog` output is
+ * compared byte for byte. Production reads the flag instead.
+ */
+function withFixtureCandle(catalog: Catalog): void {
+  for (const [lamp, bulbs] of Object.entries(catalog.members)) {
+    if (FIXTURE_CANDLE_LAMPS.has(lamp)) for (const bulb of bulbs) catalog.bulbs[bulb] = { candle: true };
+  }
 }
 const nativeLog = Math.log;
-function isJsonLiteral(value: unknown): value is JsonValue {
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
-  if (typeof value === 'number') return Number.isFinite(value);
-  if (Array.isArray(value)) return value.every(isJsonLiteral);
-  return typeof value === 'object' && Object.values(value).every(isJsonLiteral);
-}
 
 function perform(value: unknown): void {
   const previousLog = Math.log;
   try {
-    const request = value as ExecutionRequest & { parityHooks?: 'all' | 'commit'; parityLog?: boolean; parityDependencies?: Record<string, unknown> };
+    const request = value as Request & { parityHooks?: 'all' | 'commit'; parityLog?: boolean; parityDependencies?: Record<string, unknown> };
     const mathLogCalls: number[] = [];
     Math.log = request.parityLog ? (input: number) => { mathLogCalls.push(input); return nativeLog(input); } : nativeLog;
-    let depth = 0;
-    const trace: ServiceCall[] = [];
-    function callback(phase: string, call: ServiceCall, context: ScriptContext): void {
-      const ctx = context as ScriptContext & { snapshot(): Snapshot; scriptRuns: string[]; setRawCatalog(document: JsonObject | undefined): void };
-      send({ callback: { phase, call, snapshot: ctx.snapshot(), calls: trace, events: ctx.events, scriptRuns: ctx.scriptRuns } });
-      for (;;) {
-        const incoming = readMessage();
-        if (!incoming || typeof incoming !== 'object') throw new Error('Missing callback response');
-        if ('callback_result' in incoming) {
-          const result = incoming.callback_result as { snapshot?: Snapshot; error?: string };
-          if (result.error) throw new Error(result.error);
-          if (!result.snapshot) throw new Error('Missing callback snapshot');
-          // The context's catalog is the parsed view and has no setter, so the
-          // raw document it carries is routed to the raw holder instead. An
-          // absent key leaves the current catalog alone, exactly as the plain
-          // Object.assign this replaces did.
-          const { catalog, ...rest } = result.snapshot;
-          Object.assign(ctx, rest);
-          if (Object.hasOwn(result.snapshot, 'catalog')) ctx.setRawCatalog(catalog);
-          return;
-        }
-        // Original callbacks may run another script while the outer action is
-        // paused. Run that independent transaction before awaiting its state.
-        perform(incoming);
-      }
-    }
-    const hooks: ExecutionHooks = request.parityHooks ? {
-      beforeService: (call, ctx) => {
-        if (request.parityHooks === 'all') callback('before', call, ctx);
-        trace.push(structuredClone(call));
-      },
-      afterService: (call, ctx) => {
-        if (request.parityHooks === 'all') callback('after', call, ctx);
-      },
-      beforeScript: (name, args, ctx) => {
-        if (depth++ > 0) {
-          const call = { service: 'script.' + name, data: args, time: ctx.elapsed ?? 0 };
-          if (request.parityHooks === 'all' || name === 'ls_commit') callback('before', call, ctx);
-          trace.push(structuredClone(call));
-        }
-      },
-      afterScript: (name, args, ctx) => {
-        if (--depth > 0 && request.parityHooks === 'all') callback('after', { service: 'script.' + name, data: args }, ctx);
-      },
-    } : {};
-    // The preserved fixtures predate the catalog's per-bulb `candle` flag: in
-    // them, one lamp ran Candle by name. That lamp stays capable here, and the
-    // flag is NOT written into any catalog document, since `effects_catalog`
-    // output is compared byte for byte. Production reads the flag instead.
-    // The reconciler reads the same capability from the per-bulb flag, so the
-    // lamp's bulbs are marked in each run's parsed catalog view, never in the document.
-    // Every input now ends in a reconcile, so every handler sees the fixture candle lamps.
-    const requestHandlers: ScriptHandlers =
-      Object.fromEntries(Object.entries(handlers).map(([name, handler]) => [name, withFixtureCandle(handler)]));
-    const dependencyCalls: string[] = [];
-    for (const [name, result] of Object.entries(request.parityDependencies ?? {})) {
+    // A turn runs no other script and stops at no call, so the commit hook never fires; a service hook cannot be kept.
+    if (request.parityHooks === 'all') throw new Error('Service callbacks are not supported: a turn does not stop at its calls');
+    for (const name of Object.keys(request.parityDependencies ?? {})) {
       if (name !== 'ls_plan') throw new Error(`Unsupported parity literal dependency: ${name}`);
-      if (!isJsonLiteral(result)) throw new Error(`Parity literal dependency is not finite JSON data: ${name}`);
-      requestHandlers[name] = () => { dependencyCalls.push(name); return structuredClone(result); };
     }
-    const result = execute(request, requestHandlers, hooks);
-    send({ ...result, ...(request.parityHooks ? { calls: trace } : {}), mathLogCalls, dependencyCalls });
+    send({ ...answer(request, withFixtureCandle), mathLogCalls, dependencyCalls: [] });
   } catch (error) {
     send({ error: error instanceof Error ? error.message : String(error) });
   } finally {

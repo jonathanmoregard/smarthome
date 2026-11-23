@@ -27,7 +27,7 @@ from tests.e2e.world import BulbInfo, Kelvin, Off, On, World
 STOCKHOLM = ZoneInfo('Europe/Stockholm')
 START = datetime(2026, 10, 23, 12, 0, tzinfo=STOCKHOLM)
 ROOT = Path(__file__).resolve().parents[2]
-ENGINE = ROOT / 'src' / 'runtime' / 'engine.ts'
+HA_CLIENT = ROOT / 'src' / 'adapter' / 'ha-client.ts'
 BLOCKS = ('day', 'cosy', 'night')
 HELPER_SETTINGS = {'light', 'start', 'weekend', 'fade', 'own_light', 'own_timing'}
 
@@ -352,15 +352,13 @@ SERVICE_STATE = {entity: {'entity_id': entity, 'state': state, 'attributes': {'k
                                        ('input_datetime.d', '06:00:00'))}
 
 PORT_PROBE = '''
-import {{ execute }} from {engine};
+import {{ afterCall }} from {client};
 const cases = {cases};
 const out = [];
 for (const [service, target, data] of cases) {{
-  const snapshot = {{ state: structuredClone({state}), areas: {{}}, members: [], now: '2026-10-23T12:00:00+02:00' }};
-  const handlers = {{ probe: (ctx) => {{ ctx.emit(service, data, Object.keys(target).length === 0 ? undefined : target); return null; }} }};
-  const result = execute({{ script: 'probe', args: {{}}, snapshot }}, handlers);
-  out.push(Object.fromEntries(Object.entries(result.snapshot.state).map(([entity, value]) =>
-    [entity, [value.state, value.attributes]])));
+  const call = Object.keys(target).length === 0 ? {{ service, data }} : {{ service, data, target }};
+  const state = afterCall(structuredClone({state}), call, '2026-10-23T12:00:00+02:00');
+  out.push(Object.fromEntries(Object.entries(state).map(([entity, value]) => [entity, [value.state, value.attributes]])));
 }}
 console.log(JSON.stringify(out));
 '''
@@ -384,7 +382,7 @@ class HelperServices(unittest.TestCase):
     def port_states(self):
         with tempfile.TemporaryDirectory(prefix='e2e-probe-') as directory:
             probe = Path(directory) / 'probe.ts'
-            probe.write_text(PORT_PROBE.format(engine=json.dumps(ENGINE.as_uri()), cases=json.dumps(SERVICE_CASES),
+            probe.write_text(PORT_PROBE.format(client=json.dumps(HA_CLIENT.as_uri()), cases=json.dumps(SERVICE_CASES),
                                                state=json.dumps(SERVICE_STATE)))
             completed = subprocess.run(['node', '--experimental-strip-types', '--no-warnings', str(probe)], cwd=ROOT,
                                        capture_output=True, text=True, timeout=60)

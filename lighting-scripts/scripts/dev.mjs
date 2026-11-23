@@ -17,11 +17,10 @@ export async function develop(root = fileURLToPath(new URL('../', import.meta.ur
         const output = join(builds, String(++sequence));
         if (!await compileCandidate(root, output)) { console.error('Compile failed; last working program remains active.'); continue; }
         if (stopped) break;
-        if (child) child.send({ type: 'reload', directory: output });
-        else {
-          child = spawn(process.execPath, ['--experimental-strip-types', 'src/main.ts', '--program', output, ...process.argv.slice(2)], { cwd: root, stdio: ['inherit', 'inherit', 'inherit', 'ipc'] });
-          child.once('exit', code => { if (!stopped) { stopped = true; watcher.close(); process.exitCode = code ?? 1; } });
-        }
+        // A good build restarts the host: the journal it keeps makes a restart send nothing the bulbs already show.
+        if (child) { child.removeAllListeners('exit'); const exited = new Promise(done => child.once('exit', done)); child.kill('SIGTERM'); await exited; }
+        child = spawn(process.execPath, ['--experimental-strip-types', 'src/main.ts', ...process.argv.slice(2)], { cwd: root, stdio: 'inherit' });
+        child.once('exit', code => { if (!stopped) { stopped = true; watcher.close(); process.exitCode = code ?? 1; } });
       }
     } finally { building = false; }
   };

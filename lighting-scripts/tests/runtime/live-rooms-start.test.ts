@@ -12,8 +12,11 @@ test('the port refuses to start live without a live-room list', async () => {
     /--live-rooms/);
 });
 
-test('the port refuses to start offline without a live-room list', async () => {
+test('the port refuses to start without a live-room list, live or not', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'lighting-live-start-'));
-  await assert.rejects(main(['--snapshot', join(directory, 'missing-snapshot.json'), '--state', join(directory, 'state.json')]),
-    /--live-rooms/);
+  await assert.rejects(main(['--state', join(directory, 'state.json')]), /--live-rooms/);
+});
+
+test('the port runs live only: the harness runs src/rpc.ts', async () => {
+  await assert.rejects(main(['--live-rooms', 'studio']), /live only/);
 });

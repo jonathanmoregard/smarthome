@@ -12,9 +12,10 @@
  * three rounds, every stop, then every light, then every start, as today's
  * dispatch sends them, so no bulb receives a light after its own start.
  *
- * It also builds the Home Assistant calls that carry a publish
- * (`mqtt.publish`) and a switch's power (`homeassistant.turn_on`/`turn_off`),
- * which `turn.ts` used to build inline.
+ * It also builds the Home Assistant call that carries each of a turn's
+ * outputs: a publish (`mqtt.publish`), a switch's power
+ * (`homeassistant.turn_on`/`turn_off`), and the helper, sensor, store and
+ * dashboard writes.
  */
 import { groupedPublishes } from './bulb-groups.ts';
 import type { BulbGroups } from './bulb-groups.ts';
@@ -23,8 +24,10 @@ import { roundEven } from '../domain/blend.ts';
 import type { BulbAppearance } from '../domain/effect.ts';
 import type { BulbId, Id, SwitchId } from '../domain/types/ids.ts';
 import type { Colour, Level, Power } from '../domain/types/light.ts';
-import type { Seconds } from '../domain/types/time.ts';
+import type { Instant, Seconds } from '../domain/types/time.ts';
 import type { ServiceCall } from './ha-client.ts';
+import type { HelperValue } from './codecs/remote-helpers.ts';
+import type { DashboardWrite, HelperWrite, SensorWrite, StoreWrite } from './writes.ts';
 
 /** A Zigbee2MQTT command topic: a bulb's (`zigbee2mqtt/<bulb>/set`) or a Zigbee group's. */
 export type MqttTopic = Id<'MqttTopic'>;
@@ -65,13 +68,67 @@ export function publishCall(publish: Publish): ServiceCall {
   return mqttPublishCall(publish.topic, JSON.stringify(publish.payload), false);
 }
 
-/** An MQTT message as Home Assistant's `mqtt.publish` call, at QoS 0; a dashboard control's state is retained. */
-export function mqttPublishCall(topic: string, payload: string, retain: boolean): ServiceCall {
-  return { service: 'mqtt.publish', data: { topic, payload, qos: 0, retain } };
-}
-
 /** A send to a bulb: its light, or its candle's start alone. */
 export type BulbSend = Exclude<Send, { kind: 'switch' }>;
+
+/** One thing a turn asks Home Assistant to do, in the order it is asked. */
+export type Output =
+  | { kind: 'publish'; publish: Publish }
+  | { kind: 'switch'; switch: SwitchId; power: Power }
+  | { kind: 'sensor'; write: SensorWrite }
+  | { kind: 'helper'; write: HelperWrite }
+  | { kind: 'store'; write: StoreWrite }
+  | { kind: 'dashboard'; write: DashboardWrite };
+
+/** An output as the Home Assistant call that carries it out, at the turn's clock `now`. */
+export function outputCall(output: Output, now: Instant): ServiceCall {
+  switch (output.kind) {
+    case 'publish': return publishCall(output.publish);
+    case 'switch': return switchCall(output.switch, output.power);
+    case 'sensor': return { service: 'variable.update_sensor', target: { entity_id: output.write.entity },
+      data: { value: output.write.revision, attributes: output.write.attributes, replace_attributes: false } };
+    case 'helper': return helperCall(output.write.entity, output.write.value, now);
+    case 'store': return { service: 'input_text.set_value', data: { value: output.write.text }, target: { entity_id: output.write.entity } };
+    case 'dashboard': return dashboardCall(output.write);
+  }
+}
+
+/** A switch's power as Home Assistant's `homeassistant.turn_on` or `homeassistant.turn_off` on the switch. */
+export function switchCall(target: SwitchId, power: Power): ServiceCall {
+  return { service: `homeassistant.turn_${power}`, data: {}, target: { entity_id: target } };
+}
+
+/** A remote helper's write, as the gesture script made it: a value set, or the chord timer started or cancelled. */
+function helperCall(entity: string, value: HelperValue, now: Instant): ServiceCall {
+  const target = { entity_id: entity };
+  switch (value.kind) {
+    case 'number': return { service: 'input_number.set_value', data: { value: value.value }, target };
+    case 'text': return { service: 'input_text.set_value', data: { value: value.value }, target };
+    case 'timer': return value.running
+      ? { service: 'timer.start', data: { duration: duration(value.until - now) }, target }
+      : { service: 'timer.cancel', data: {}, target };
+  }
+}
+
+/** Leaving the candle: the Innr firmware's stop. */
+const STOP: BulbPayload = { effect: 'stop_effect' };
+/** The candle's start: Identify TriggerEffect 0x0b on the candle firmware. */
+const START = { effect: 'channel_change' } as const satisfies BulbPayload;
+
+/** A timer's duration in whole seconds, as `HH:MM:SS`: the chord's three seconds are `00:00:03`. */
+function duration(seconds: number): string {
+  const whole = Math.max(0, Math.round(seconds));
+  const two = (part: number) => `${part}`.padStart(2, '0');
+  return `${two(Math.floor(whole / 3600))}:${two(Math.floor(whole / 60) % 60)}:${two(whole % 60)}`;
+}
+
+function dashboardCall(write: DashboardWrite): ServiceCall {
+  switch (write.kind) {
+    case 'block selector': return { service: 'input_select.select_option', data: { option: write.option }, target: { entity_id: write.entity } };
+    case 'mode mirror': return { service: `input_boolean.turn_${write.on ? 'on' : 'off'}`, data: {}, target: { entity_id: write.entity } };
+    case 'control sync': case 'discovery': return mqttPublishCall(write.topic, write.payload, true);
+  }
+}
 
 /**
  * The sends as publishes, in three rounds: stop_effect for each bulb leaving the candle; each light (level and colour,
@@ -109,12 +166,16 @@ export function outcomeOf(send: BulbSend, failed: readonly Publish[]): Outcome {
   return startFailed ? 'start failed' : 'sent';
 }
 
-/** Leaving the candle: the Innr firmware's stop. */
-const STOP: BulbPayload = { effect: 'stop_effect' };
-/** The candle's start: Identify TriggerEffect 0x0b on the candle firmware. */
-const START = { effect: 'channel_change' } as const satisfies BulbPayload;
-
-/** A switch's power as Home Assistant's `homeassistant.turn_on` or `homeassistant.turn_off` on the switch. */
-export function switchCall(target: SwitchId, power: Power): ServiceCall {
-  return { service: `homeassistant.turn_${power}`, data: {}, target: { entity_id: target } };
+/** The time a turn's sends took, in seconds, as the runtime sensor shows it (`last_latency`). */
+export function timingCall(seconds: number): ServiceCall {
+  return { service: 'variable.update_sensor', target: { entity_id: RUNTIME_SENSOR },
+    data: { attributes: { last_latency: Math.round(seconds * 1000) / 1000 }, replace_attributes: false } };
 }
+
+/** An MQTT message as Home Assistant's `mqtt.publish` call, at QoS 0; a dashboard control's state is retained. */
+export function mqttPublishCall(topic: string, payload: string, retain: boolean): ServiceCall {
+  return { service: 'mqtt.publish', data: { topic, payload, qos: 0, retain } };
+}
+
+/** The sensor that shows how the lighting runs. */
+const RUNTIME_SENSOR = 'sensor.ls_effects_runtime';

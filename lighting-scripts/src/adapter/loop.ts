@@ -11,7 +11,6 @@ import { lightingState, nextChange } from '../domain/lighting-state.ts';
 import type { Model, Msg } from '../domain/model.ts';
 import { update } from '../domain/update.ts';
 import type { BulbId, SwitchId } from '../domain/types/ids.ts';
-import type { Power } from '../domain/types/light.ts';
 import type { Instant } from '../domain/types/time.ts';
 import { toDashboardControlId, toInstant } from './codecs/ids.ts';
 import { timestamp } from './codecs/accessors.ts';
@@ -22,7 +21,7 @@ import { blockLightSaved, bulbTopics, decodeConfig, reportedBulbs } from './code
 import { configSource, decodeModel } from './codecs/model.ts';
 import { decodeRangeDefaults } from './codecs/range-defaults.ts';
 import { carries, outcomeOf, publishes } from './encode.ts';
-import type { Publish } from './encode.ts';
+import type { Output } from './encode.ts';
 import { controlOver, messages, profileStoreOf, storeSaveIn, uiRowsOf, unexplainedMessages } from './inputs.ts';
 import type { HaInput, StoreSave } from './inputs.ts';
 import { decodeObserved } from './observed.ts';
@@ -32,7 +31,7 @@ import {
 } from './reconcile.ts';
 import type { Beliefs, Outcome, Send } from './reconcile.ts';
 import { configStoreWrite, dashboardWrites, modelWrites, uiSyncWrites } from './writes.ts';
-import type { ControlRow, DashboardWrite, HelperWrite, SensorWrite, StoreWrite } from './writes.ts';
+import type { ControlRow, StoreWrite } from './writes.ts';
 
 /**
  * What the adapter keeps between turns: the Model, what each bulb and switch was sent, the dashboard last shown, and
@@ -40,19 +39,11 @@ import type { ControlRow, DashboardWrite, HelperWrite, SensorWrite, StoreWrite }
  */
 export type AdapterState = { model: Model; beliefs: Beliefs; view: DashboardView | undefined; observed: Observed };
 
-export type Output =
-  | { kind: 'publish'; publish: Publish }
-  | { kind: 'switch'; switch: SwitchId; power: Power }
-  | { kind: 'sensor'; write: SensorWrite }
-  | { kind: 'helper'; write: HelperWrite }
-  | { kind: 'store'; write: StoreWrite }
-  | { kind: 'dashboard'; write: DashboardWrite };
-
-/** How a send went, from its outputs that failed: a switch's failed call is a failed send. */
-function outcomeIn(send: Send, lost: readonly Output[]): Outcome {
-  if (send.kind === 'switch') return lost.length === 0 ? 'sent' : 'failed';
-  return outcomeOf(send, lost.flatMap(output => output.kind === 'publish' ? [output.publish] : []));
-}
+/**
+ * What the adapter has before a turn: the state it kept from the last turn, or, at the process's start, only the
+ * beliefs its journal held, so a restart sends nothing a bulb already shows.
+ */
+export type Kept = { kind: 'running'; state: AdapterState } | { kind: 'starting'; beliefs: Beliefs };
 
 /**
  * A turn's result, before its outputs are made: the state to keep, whose beliefs are those before any send; the
@@ -95,13 +86,20 @@ export function afterOutputs(turn: Turn, failed: readonly boolean[]): Settled {
   return { state: { ...turn.state, beliefs }, wakeAt, parked: newlyParked(turn.state.beliefs, beliefs) };
 }
 
+/** How a send went, from its outputs that failed: a switch's failed call is a failed send. */
+function outcomeIn(send: Send, lost: readonly Output[]): Outcome {
+  if (send.kind === 'switch') return lost.length === 0 ? 'sent' : 'failed';
+  return outcomeOf(send, lost.flatMap(output => output.kind === 'publish' ? [output.publish] : []));
+}
+
 /**
  * One turn: read, update, write back what changed, compute the lighting state,
  * reconcile. Pure but for the house it is handed, whose `now` is the clock.
  * Every input applies the clock first, then its own messages, in order. An
  * input that cannot be read is dropped, and the turn goes on with the clock.
  */
-export function handleInput(state: AdapterState | undefined, house: HouseView, input: HaInput): Turn {
+export function handleInput(kept: Kept, house: HouseView, input: HaInput): Turn {
+  const state = kept.kind === 'running' ? kept.state : undefined;
   const now = toInstant(timestamp(house.now));
   const before = state === undefined || input.kind === 'started' ? decodeModel(configSource(house), house.catalog)
     : input.kind === 'helper changed' ? update(state.model, helpersRead(house, now)) : state.model;
@@ -138,7 +136,7 @@ export function handleInput(state: AdapterState | undefined, house: HouseView, i
   for (const write of dashboardWrites(previous, view, sync, house)) outputs.push({ kind: 'dashboard', write });
   for (const write of uiSyncWrites(house, previous === undefined)) outputs.push({ kind: 'dashboard', write });
 
-  let beliefs = state === undefined ? NO_BELIEFS : state.beliefs;
+  let beliefs = kept.kind === 'running' ? kept.state.beliefs : kept.beliefs;
   const observed = decodeObserved(house.state, model.config);
   if (input.kind === 'state changed') {
     const reported = reportedBulbs(input.entities, model.config);

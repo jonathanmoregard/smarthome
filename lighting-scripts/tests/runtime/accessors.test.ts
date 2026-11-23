@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { list, saved, timestamp } from '../../src/adapter/codecs/accessors.ts';
-import { context } from './gestures-context.ts';
+import { house } from './house-view.ts';
 
 test('schedule list parsing defaults only absence and rejects present non-arrays', () => {
   assert.deepEqual(list(undefined), []);
@@ -23,19 +23,15 @@ test('schedule timestamps distinguish epoch zero from parse failure', () => {
 
 test('a saved profile that is not JSON reads as the captured from_json default, {}', () => {
   // Captured: `states(store) | from_json(default={})` in ls_base, `from_json({})` in effects_ui_sync.
-  const ctx = context();
-  assert.deepEqual(saved(ctx, 'input_text.missing'), {});
+  assert.deepEqual(saved(house({}), 'input_text.missing'), {});
   for (const text of ['unavailable', 'unknown', '{bad json', '', 'on']) {
-    ctx.put('input_text.profile', text);
-    assert.deepEqual(saved(ctx, 'input_text.profile'), {}, JSON.stringify(text));
+    assert.deepEqual(saved(house({ 'input_text.profile': text }), 'input_text.profile'), {}, JSON.stringify(text));
   }
 });
 
 test('a saved profile that parses to a non-mapping reads as no saved profile (lenient saved-value directive)', () => {
   // The captured `.get` on it raises; saved values take a named default instead.
-  const ctx = context();
   for (const text of ['[]', '5', '"x"', 'null']) {
-    ctx.put('input_text.profile', text);
-    assert.deepEqual(saved(ctx, 'input_text.profile'), {}, text);
+    assert.deepEqual(saved(house({ 'input_text.profile': text }), 'input_text.profile'), {}, text);
   }
 });

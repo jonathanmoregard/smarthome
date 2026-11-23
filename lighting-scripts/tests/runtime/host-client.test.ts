@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createConnection } from 'home-assistant-js-websocket';
 import type { HaWebSocket } from 'home-assistant-js-websocket';
-import { HomeAssistantTransport } from '../../src/live.ts';
+import { HomeAssistantClient } from '../../src/live.ts';
 
 class SocketPort extends EventTarget {
   OPEN = 1; readyState = 1; haVersion = '2026.7.4'; frames: Record<string, unknown>[] = [];
@@ -16,8 +16,8 @@ class SocketPort extends EventTarget {
 test('official HA client sends service frames and releases event subscriptions on close', async () => {
   const socket = new SocketPort();
   const connection = await createConnection({ createSocket: async () => socket as unknown as HaWebSocket });
-  const transport = new HomeAssistantTransport(connection);
-  await transport.send({ service: 'light.turn_on', target: { entity_id: 'light.test' }, data: { brightness: 80 } });
+  const transport = new HomeAssistantClient(connection);
+  await transport.call({ service: 'light.turn_on', target: { entity_id: 'light.test' }, data: { brightness: 80 } });
   assert.equal(socket.frames[0]?.type, 'call_service');
   assert.deepEqual(socket.frames[0]?.service_data, { brightness: 80 });
   assert.deepEqual(socket.frames[0]?.target, { entity_id: 'light.test' });
@@ -27,7 +27,7 @@ test('official HA client sends service frames and releases event subscriptions o
   socket.dispatchEvent(new MessageEvent('message', { data: JSON.stringify({ type: 'event', id, event: { event_type: 'smarthome_script', data: {} } }) }));
   assert.equal(events, 1);
   await transport.close();
-  await assert.rejects(transport.send({ service: 'light.turn_on', data: {} }), /disconnected/);
+  await assert.rejects(transport.call({ service: 'light.turn_on', data: {} }), /disconnected/);
   assert.equal(connection.commands.size, 0);
   assert.equal(events, 1);
 });
@@ -38,7 +38,7 @@ test('own Sara mirror events arriving before service ACK are suppressed while ge
   }
   const socket = new ControlledPort();
   const connection = await createConnection({ createSocket: async () => socket as unknown as HaWebSocket });
-  const transport = new HomeAssistantTransport(connection);
+  const transport = new HomeAssistantClient(connection);
   // The context id of each mirror change the port is handed.
   const delivered: unknown[] = [];
   await transport.subscribe('smarthome_script', event => {
@@ -46,7 +46,7 @@ test('own Sara mirror events arriving before service ACK are suppressed while ge
     delivered.push(trigger.to_state.context.id);
   });
   const subscription = socket.frames.at(-1)?.id;
-  const pending = transport.send({ service: 'input_boolean.turn_on', target: { entity_id: 'input_boolean.ls_sara_mode_mirror' }, data: {} });
+  const pending = transport.call({ service: 'input_boolean.turn_on', target: { entity_id: 'input_boolean.ls_sara_mode_mirror' }, data: {} });
   const command = socket.frames.at(-1)?.id;
   for (const id of ['own', 'real-user']) socket.dispatchEvent(new MessageEvent('message', { data: JSON.stringify({ type: 'event', id: subscription, event: { event_type: 'smarthome_script', data: { script: 'automation.lighting_schedule_sara_mode_switch', args: { trigger: { id: 'on', to_state: { state: 'on', context: { id, user_id: 'same-authenticated-user' } } } } } } }) }));
   assert.deepEqual(delivered, []);
@@ -56,7 +56,7 @@ test('own Sara mirror events arriving before service ACK are suppressed while ge
   await transport.close();
 });
 
-test('entity context survives full refresh and acknowledged state snapshots', async () => {
+test('entity context survives a full read', async () => {
   class SnapshotPort extends SocketPort {
     override send(data: string) {
       const frame = JSON.parse(data) as Record<string, unknown>;
@@ -79,11 +79,9 @@ test('entity context survives full refresh and acknowledged state snapshots', as
   }
   const socket = new SnapshotPort();
   const connection = await createConnection({ createSocket: async () => socket as unknown as HaWebSocket });
-  const transport = new HomeAssistantTransport(connection);
-  const previous = { state: {}, areas: {}, members: [], now: '2026-10-26T12:00:00Z', catalog: { members: {}, effects: {} } };
-  const refreshed = await transport.refresh(previous);
-  assert.deepEqual(refreshed.state['script.test']?.context, { id: 'script-call' });
-  const acknowledged = await transport.send({ service: 'variable.set_variable', data: { entity_id: 'sensor.ls_overrides' } });
-  assert.deepEqual(acknowledged?.states?.['sensor.ls_overrides']?.context, { id: 'state-call' });
+  const transport = new HomeAssistantClient(connection);
+  const read = await transport.read(new Set());
+  assert.deepEqual(read.state['script.test']?.context, { id: 'script-call' });
+  assert.deepEqual(read.state['sensor.ls_overrides']?.context, { id: 'state-call' });
   await transport.close();
 });

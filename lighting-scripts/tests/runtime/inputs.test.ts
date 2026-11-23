@@ -4,6 +4,7 @@ import { configSource, decodeModel } from '../../src/adapter/codecs/model.ts';
 import { haInput, messages } from '../../src/adapter/inputs.ts';
 import type { HaInput } from '../../src/adapter/inputs.ts';
 import { handleInput } from '../../src/adapter/loop.ts';
+import { NO_BELIEFS } from '../../src/adapter/reconcile.ts';
 import { lightingState } from '../../src/domain/lighting-state.ts';
 import type { Model, Msg } from '../../src/domain/model.ts';
 import { update } from '../../src/domain/update.ts';
@@ -167,10 +168,10 @@ test('a dashboard power message whose on is not a boolean is dropped, not read a
 
 test('a helper change re-reads the config', () => {
   const before = states();
-  const first = handleInput(undefined, houseView(before, NOW_TEXT), { kind: 'started' });
+  const first = handleInput({ kind: 'starting', beliefs: NO_BELIEFS }, houseView(before, NOW_TEXT), { kind: 'started' });
   const after = structuredClone(before);
   after['input_datetime.ls_house_day_start'] = { state: '08:00:00', attributes: {} };
-  const changed = handleInput(first.state, houseView(after, NOW_TEXT), { kind: 'helper changed' });
+  const changed = handleInput({ kind: 'running', state: first.state }, houseView(after, NOW_TEXT), { kind: 'helper changed' });
   assert.deepEqual(changed.state.model.config.house.day.weekdayStart, { hour: 8, minute: 0 });
   assert.deepEqual(changed.state.model.overlays, first.state.model.overlays);
 });

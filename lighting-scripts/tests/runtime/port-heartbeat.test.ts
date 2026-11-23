@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { ServiceCall } from '../../src/runtime/context.ts';
-import { heartbeatCall } from '../../src/runtime/live-rooms.ts';
-import { parseLiveRooms } from '../../src/adapter/live-rooms.ts';
+import type { ServiceCall } from '../../src/adapter/ha-client.ts';
+import { heartbeatCall, parseLiveRooms } from '../../src/adapter/live-rooms.ts';
 import { startHeartbeat } from '../../src/main.ts';
 
 /**

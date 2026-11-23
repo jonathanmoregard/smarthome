@@ -1,96 +1,178 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import test from 'node:test';
-import type { Snapshot, ServiceCall } from '../../src/runtime/context.ts';
-import { execute } from '../../src/runtime/engine.ts';
-import { sendsAll } from './support/scope.ts';
-const snapshot: Snapshot = { state: { 'sensor.ls_overrides': { state: '1', attributes: {}, last_updated: 'r1' }, 'sensor.ls_effects_runtime': { state: '1', attributes: { generation: 1, applied: {} } }, 'light.a': { state: 'on', attributes: {} } }, areas: { 'light.a': 'living' }, members: ['light.a'], now: '2026-10-26T12:00:00Z' };
-const guard = { revision: 'r1', generation: 1, owners: ['light.a'], members: ['light.a'] };
+import { Host } from '../../src/host.ts';
+import type { HostIo, Journal } from '../../src/host.ts';
+import { parseCatalog } from '../../src/adapter/codecs/catalog.ts';
+import type { HouseMirror } from '../../src/adapter/codecs/house.ts';
+import { loadBeliefs } from '../../src/adapter/codecs/journal.ts';
+import { toInstant, toMqttTopic } from '../../src/adapter/codecs/ids.ts';
+import type { Publish } from '../../src/adapter/encode.ts';
+import { afterCall } from '../../src/adapter/ha-client.ts';
+import type { EntityState, ServiceCall } from '../../src/adapter/ha-client.ts';
+import type { BulbId } from '../../src/domain/types/ids.ts';
+import type { Instant } from '../../src/domain/types/time.ts';
+import type { FakeBulbs } from './fake-bulbs.ts';
+import { CATALOG, syntheticStates, world, writeBack } from './fixtures/house-view.ts';
 
-test('stale async output stops the batch and does not persist speculative applied success', async () => {
-  const path = '../../src/runtime/host.ts'; const port = await import(path).catch(() => ({}));
-  assert.equal(typeof port.LightingHost, 'function');
-  const directory = await mkdtemp(join(tmpdir(), 'lighting-host-'));
-  let release!: () => void; const gate = new Promise<void>(resolve => { release = resolve; });
-  let entered!: () => void; const started = new Promise<void>(resolve => { entered = resolve; });
-  const calls: ServiceCall[] = [];
-  const host = await port.LightingHost.open({ path: join(directory, 'state.json'), initial: snapshot, autoTimers: false, scope: sendsAll,
-    program: (request: Parameters<typeof execute>[0]) => execute(request, { render: ctx => { ctx.emit('mqtt.publish', { topic: 'one' }, undefined, guard); ctx.emit('mqtt.publish', { topic: 'two' }, undefined, guard); ctx.emit('variable.update_sensor', { attributes: { applied: { a: 1 } } }, { entity_id: 'sensor.ls_effects_runtime' }, { ...guard, requiresOutputSuccess: true }); return null; } }),
-    transport: { send: async (call: ServiceCall) => { calls.push(call); if (calls.length === 1) { entered(); await gate; } }, close: async () => {} } });
-  await host.dispatch('render'); await started;
-  assert.deepEqual(host.snapshot().state['sensor.ls_effects_runtime'].attributes.applied, {});
-  await host.update(state => { state.state['sensor.ls_overrides'].last_updated = 'r2'; });
-  release(); await host.drain();
-  assert.deepEqual(calls.map(c => c.data.topic), ['one']);
-  assert.deepEqual(host.snapshot().state['sensor.ls_effects_runtime'].attributes.applied, {});
-  await host.close();
-  assert.deepEqual(JSON.parse(await readFile(join(directory, 'state.json'), 'utf8')).snapshot.state['sensor.ls_effects_runtime'].attributes.applied, {});
+/**
+ * The host on the synthetic house, with a fake Home Assistant whose bulbs the publishes move, an in-memory journal,
+ * a clock the test sets and timers the test fires. Monday 2026-09-21, UTC.
+ */
+
+const catalog = parseCatalog(CATALOG);
+const at = (time: string): Instant => toInstant(Date.parse(`2026-09-21T${time}Z`) / 1000);
+const bulbA1 = 'bulb-a1' as BulbId;
+
+/** Home Assistant as the host sees it: each call recorded, its helper writes applied, its publishes reaching the bulbs. */
+class FakeHa {
+  readonly calls: ServiceCall[] = [];
+  readonly bulbs: FakeBulbs = world();
+  states: Record<string, EntityState> = syntheticStates();
+  /** Calls that fail, and the moment each call is made, to hold it there. */
+  failing: (call: ServiceCall) => boolean = () => false;
+  during: (call: ServiceCall) => Promise<void> = async () => {};
+
+  constructor() {
+    writeBack(this.bulbs, this.states);
+  }
+
+  async call(call: ServiceCall): Promise<void> {
+    this.calls.push(call);
+    await this.during(call);
+    if (this.failing(call)) throw new Error('Home Assistant did not take it');
+    this.states = afterCall(this.states, call, new Date().toISOString());
+    if (call.service === 'mqtt.publish' && typeof call.data.topic === 'string' && typeof call.data.payload === 'string'
+      && call.data.topic.startsWith('zigbee2mqtt/')) {
+      this.bulbs.apply([{ topic: toMqttTopic(call.data.topic), payload: JSON.parse(call.data.payload) as Publish['payload'] }]);
+      writeBack(this.bulbs, this.states);
+    }
+  }
+
+  mirror(): HouseMirror {
+    return { state: structuredClone(this.states), areas: { 'light.lamp_a1': 'room-a', 'light.lamp_a2': 'room-a', 'light.lamp_b1': 'room-b',
+      'switch.plug_a': 'room-a', 'remote-a': 'room-a' }, members: [], labels: { on_off: ['switch.plug_a'], private_room: ['room-b'] },
+    devices: { 'device-plug-a': ['switch.plug_a'] }, timezone: 'UTC' };
+  }
+
+  publishesTo(bulb: BulbId): ServiceCall[] {
+    return this.calls.filter(call => call.service === 'mqtt.publish' && call.data.topic === `zigbee2mqtt/${bulb}`);
+  }
+}
+
+/** A journal in memory, with every text it was saved, in order. */
+class MemoryJournal implements Journal {
+  readonly saved: string[] = [];
+  private text: string | undefined = undefined;
+  async load(): Promise<string | undefined> { return this.text; }
+  async save(text: string): Promise<void> { this.text = text; this.saved.push(text); }
+}
+
+/** Timers the test fires: each set timer, and whether it was cancelled. */
+class FakeTimers {
+  readonly set: { delayMs: number; wake: () => void; cancelled: boolean }[] = [];
+  start(delayMs: number, wake: () => void): () => void {
+    const timer = { delayMs, wake, cancelled: false };
+    this.set.push(timer);
+    return () => { timer.cancelled = true; };
+  }
+  live() { return this.set.filter(timer => !timer.cancelled); }
+}
+
+function open(ha: FakeHa, journal: MemoryJournal, now: { time: Instant }, timers = new FakeTimers()) {
+  const logged: string[] = [];
+  const io: HostIo = { ha, journal, clock: () => now.time, log: { info: m => logged.push(m), error: m => logged.push(m) },
+    timer: (delayMs, wake) => timers.start(delayMs, wake) };
+  return { host: Host.open(io, ha.mirror(), catalog), logged, timers };
+}
+
+test('inputs run one at a time', async () => {
+  // Break: a second input's turn starts while the first is still sending, so both read the house before either wrote.
+  const ha = new FakeHa(), now = { time: at('12:00:00') };
+  let inside = 0, overlapped = false;
+  ha.during = async () => { inside++; if (inside > 1) overlapped = true; await new Promise(resolve => setImmediate(resolve)); inside--; };
+  const { host } = open(ha, new MemoryJournal(), now);
+  const opened = await host;
+  opened.accept({ kind: 'started' });
+  opened.accept({ kind: 'remote command', data: { command: 'toggle', area: 'room-a', source: 'remote-a' } });
+  opened.accept({ kind: 'tick' });
+  await opened.idle();
+  assert.equal(overlapped, false);
+  assert.ok(ha.calls.length > 0);
+  assert.equal(ha.states['bulb-a3']?.state, 'off');
+  await opened.close();
 });
 
-test('exclusive host ownership prevents duplicate writers and pending work is not replayed after uncertain shutdown', async () => {
-  const path = '../../src/runtime/host.ts'; const port = await import(path).catch(() => ({}));
-  assert.equal(typeof port.LightingHost, 'function');
-  const directory = await mkdtemp(join(tmpdir(), 'lighting-host-'));
-  const file = join(directory, 'state.json');
-  const calls: ServiceCall[] = [];
-  const options = { path: file, initial: snapshot, autoTimers: false, scope: sendsAll,
-    program: (request: Parameters<typeof execute>[0]) => execute(request, { emit: ctx => { ctx.emit('light.turn_on', { brightness: 80 }); return null; } }),
-    transport: { send: async (call: ServiceCall) => { calls.push(call); throw new Error('ack lost'); }, close: async () => {} } };
-  const first = await port.LightingHost.open(options);
-  await assert.rejects(port.LightingHost.open(options), /owner|locked/i);
-  await first.dispatch('emit'); await first.drain(); await first.close();
-  const recovered = await port.LightingHost.open(options); await recovered.drain();
-  assert.equal(calls.length, 1);
-  assert.equal(recovered.recoveryRequired, true);
-  await recovered.close();
+test("a send's failure reaches afterSend", async () => {
+  // Break: the host takes every call as made, so a bulb whose publish failed is believed to show its light.
+  const ha = new FakeHa(), now = { time: at('12:00:00') }, journal = new MemoryJournal();
+  ha.failing = call => call.data.topic === 'zigbee2mqtt/bulb-a3';
+  const host = await open(ha, journal, now).host;
+  host.accept({ kind: 'started' });
+  await host.idle();
+  const beliefs = loadBeliefs(journal.saved.at(-1));
+  assert.equal(beliefs.bulbs['bulb-a3' as BulbId]?.kind, 'retrying');
+  assert.equal(beliefs.bulbs['bulb-a2' as BulbId]?.kind, 'sent');
+  await host.close();
 });
 
-test('scheduled continuation starts after actual output completion and survives restart once', async () => {
-  const { LightingHost } = await import('../../src/runtime/host.ts');
-  const directory = await mkdtemp(join(tmpdir(), 'lighting-host-'));
-  let now = Date.parse(snapshot.now), release!: () => void;
-  const wait = new Promise<void>(resolve => { release = resolve; });
-  const program = (request: Parameters<typeof execute>[0]) => execute(request, {
-    start: ctx => { ctx.emit('mqtt.publish', { topic: 'request' }); ctx.schedule('complete', {}, 10_000); return null; },
-    complete: (ctx, args) => { ctx.put('sensor.completed', String(args.host_output_success)); return null; },
-  });
-  const options = { path: join(directory, 'state.json'), initial: snapshot, autoTimers: false, scope: sendsAll, now: () => now, program, transport: { send: async () => { await wait; }, close: async () => {} } };
-  const host = await LightingHost.open(options);
-  await host.dispatch('start'); now += 20_000; await host.runDue();
-  assert.equal(host.snapshot().state['sensor.completed'], undefined);
-  release(); await host.drain();
-  assert.equal(host.snapshot().scheduled?.[0]?.due, now + 10_000);
+test('the journal is saved after each bulb send', async () => {
+  // Break: the journal is saved once at the end of the turn, so a crash part-way through loses what was sent.
+  const ha = new FakeHa(), now = { time: at('12:00:00') }, journal = new MemoryJournal();
+  const host = await open(ha, journal, now).host;
+  host.accept({ kind: 'started' });
+  await host.idle();
+  const publishes = ha.calls.filter(call => call.service === 'mqtt.publish' && String(call.data.topic).startsWith('zigbee2mqtt/'));
+  assert.ok(publishes.length > 1);
+  assert.equal(journal.saved.length, publishes.length);
+  const believed = journal.saved.map(text => Object.keys(loadBeliefs(text).bulbs).length);
+  assert.deepEqual(believed, [...believed].sort((a, b) => a - b));
+  assert.equal(believed.at(-1), 4);
   await host.close();
-  const reopened = await LightingHost.open(options);
-  now += 11_000; await reopened.runDue(); await reopened.runDue();
-  assert.equal(reopened.snapshot().state['sensor.completed']?.state, 'true');
-  assert.equal(reopened.snapshot().scheduled?.length, 0);
-  await reopened.close();
 });
 
-test('confirmed helper revisions drive rendering and old echoes cannot overwrite newer pending intent', async () => {
-  const { LightingHost } = await import('../../src/runtime/host.ts');
-  const directory = await mkdtemp(join(tmpdir(), 'lighting-host-'));
-  let release!: () => void; const wait = new Promise<void>(resolve => { release = resolve; });
-  let entered!: () => void; const started = new Promise<void>(resolve => { entered = resolve; });
-  let writes = 0; const sends: ServiceCall[] = [];
-  const host = await LightingHost.open({ path: join(directory, 'state.json'), initial: snapshot, autoTimers: false, scope: sendsAll,
-    program: request => execute(request, {
-      input: (ctx, args) => { ctx.put('sensor.ls_overrides', '1', { wanted: args.value! }); ctx.emit('variable.update_sensor', { attributes: { wanted: args.value! } }, { entity_id: 'sensor.ls_overrides' }); ctx.emit('script.turn_on', {}, { entity_id: 'script.render' }); return null; },
-      render: ctx => { ctx.emit('mqtt.publish', { topic: 'lamp', payload: JSON.stringify({ brightness: ctx.attr('sensor.ls_overrides', 'wanted') }) }, undefined, { revision: ctx.state['sensor.ls_overrides']!.last_updated!, generation: 1 }); return null; },
-    }), transport: { send: async call => { sends.push(call); if (call.service === 'variable.update_sensor') { const version = ++writes; if (version === 1) { entered(); await wait; } return { states: { 'sensor.ls_overrides': { state: '1', attributes: { wanted: call.data.attributes.wanted }, last_updated: `2026-10-26T12:00:0${version}Z` } } }; } }, close: async () => {} } });
-  await host.dispatch('input', { value: 80 }); await started;
-  await host.dispatch('input', { value: 90 });
-  await host.ingestState('sensor.ls_overrides', { state: '1', attributes: { wanted: 80 }, last_updated: '2026-10-26T12:00:01Z' });
-  assert.equal(host.snapshot().state['sensor.ls_overrides']!.attributes.wanted, 90);
-  release(); await host.drain();
-  const physical = sends.filter(call => call.service === 'mqtt.publish');
-  assert.ok(physical.length > 0);
-  assert.equal(physical.at(-1)?.guard?.revision, '2026-10-26T12:00:02Z');
-  assert.equal(JSON.parse(String(physical.at(-1)?.data.payload)).brightness, 90);
-  await host.ingestState('sensor.ls_overrides', { state: '1', attributes: { wanted: 80 }, last_updated: '2026-10-26T12:00:01Z' });
-  assert.equal(host.snapshot().state['sensor.ls_overrides']!.attributes.wanted, 90);
+test("one timer is set for the turn's wake time and replaced by the next turn", async () => {
+  // Break: each turn adds a timer, so the house is woken once per earlier turn; or a fired timer wakes nothing.
+  const ha = new FakeHa(), now = { time: at('12:00:00') };
+  const { host: opening, timers } = open(ha, new MemoryJournal(), now);
+  const host = await opening;
+  host.accept({ kind: 'started' });
+  await host.idle();
+  assert.equal(timers.live().length, 1);
+  const first = timers.live()[0]!;
+  now.time = at('12:01:00');
+  host.accept({ kind: 'tick' });
+  await host.idle();
+  assert.equal(timers.live().length, 1);
+  assert.equal(first.cancelled, true);
+  const before = ha.calls.length;
+  now.time = at('17:00:00');
+  timers.live()[0]!.wake();
+  await host.idle();
+  assert.ok(ha.calls.length > before, 'the wake ran a turn');
   await host.close();
+});
+
+test('a restart loads the journal and sends nothing the bulbs already show', async () => {
+  // Break: the journal is not read, so the candle-firmware bulb, whose report cannot show a candle, is sent its stop
+  // and its light again at every restart.
+  const ha = new FakeHa(), now = { time: at('12:00:00') }, journal = new MemoryJournal();
+  const first = await open(ha, journal, now).host;
+  first.accept({ kind: 'started' });
+  await first.idle();
+  await first.close();
+  assert.ok(ha.publishesTo(bulbA1).length > 0);
+
+  ha.calls.length = 0;
+  now.time = at('12:00:30');
+  const restarted = await open(ha, journal, now).host;
+  restarted.accept({ kind: 'started' });
+  await restarted.idle();
+  assert.deepEqual(['bulb-a1', 'bulb-a2', 'bulb-a3', 'bulb-b1'].flatMap(bulb => ha.publishesTo(bulb as BulbId)), []);
+  await restarted.close();
+
+  const forgetful = await open(ha, new MemoryJournal(), now).host;
+  forgetful.accept({ kind: 'started' });
+  await forgetful.idle();
+  assert.ok(ha.publishesTo(bulbA1).length > 0, 'with no journal the candle-firmware bulb is sent again');
+  await forgetful.close();
 });

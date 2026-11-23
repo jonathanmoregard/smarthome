@@ -4,7 +4,9 @@ import type { Publish } from '../../src/adapter/encode.ts';
 import { configSource, decodeModel } from '../../src/adapter/codecs/model.ts';
 import type { HaInput } from '../../src/adapter/inputs.ts';
 import { afterOutputs, handleInput } from '../../src/adapter/loop.ts';
-import type { AdapterState, Output, Settled, Turn } from '../../src/adapter/loop.ts';
+import type { Output } from '../../src/adapter/encode.ts';
+import type { AdapterState, Kept, Settled, Turn } from '../../src/adapter/loop.ts';
+import { NO_BELIEFS } from '../../src/adapter/reconcile.ts';
 import { nextChange } from '../../src/domain/lighting-state.ts';
 import type { BulbId } from '../../src/domain/types/ids.ts';
 import type { EntityState } from '../../src/adapter/ha-client.ts';
@@ -19,6 +21,9 @@ import { houseView, syntheticStates, world, writeBack } from './fixtures/house-v
  * next turn reads. Monday 2026-09-21, UTC: day from 07:00 at 220 and 4000 K;
  * `room-a`'s own cosy fades in from 16:45 to 17:30.
  */
+
+/** A fresh process with an empty journal. */
+const STARTING: Kept = { kind: 'starting', beliefs: NO_BELIEFS };
 
 const roomA = toRoomId('room-a');
 const ROOM_A_BULBS = ['bulb-a1', 'bulb-a2', 'bulb-a3'] as BulbId[];
@@ -39,7 +44,7 @@ class House {
    * `failing` ones, and the turn is settled with how each output went.
    */
   turn(time: string, input: HaInput, failing: (output: Output) => boolean = () => false): Turn & Settled {
-    const turn = handleInput(this.state, houseView(this.states, `2026-09-21T${time}Z`), input);
+    const turn = handleInput(this.state === undefined ? STARTING : { kind: 'running', state: this.state }, houseView(this.states, `2026-09-21T${time}Z`), input);
     const failed = turn.outputs.map(failing);
     for (const output of turn.outputs) {
       if (output.kind === 'sensor') {
@@ -332,7 +337,7 @@ test("the beliefs part-way through a turn hold only the sends whose outputs have
   // Break: the journal saved after a bulb's send holds sends not yet made, so a restart part-way through a turn
   // believes a bulb shows a light it was never sent.
   const house = new House();
-  const turn = handleInput(undefined, houseView(house.states, '2026-09-21T12:00:00Z'), { kind: 'started' });
+  const turn = handleInput(STARTING, houseView(house.states, '2026-09-21T12:00:00Z'), { kind: 'started' });
   const none = afterOutputs(turn, []);
   assert.deepEqual(none.state.beliefs.bulbs, turn.state.beliefs.bulbs);
   const last = turn.outputs.map(output => output.kind).lastIndexOf('publish');

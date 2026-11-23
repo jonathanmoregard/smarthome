@@ -39,6 +39,7 @@ import { ParseError, isObject, jinjaString, object, requireBoolean, requireStrin
 import { configSource, reportsOn } from './codecs/model.ts';
 import { callColour, callReach } from './native-call.ts';
 import type { Unexplained } from './reconcile.ts';
+import type { CatalogRemote } from './codecs/catalog.ts';
 
 /** What happened in Home Assistant, as a script or automation run names it. Fields are read by `messages`. */
 export type HaInput =
@@ -69,6 +70,25 @@ export type HaInput =
   | { kind: 'control set'; data: JsonObject }
   /** A profile store save (`ls_store`). */
   | { kind: 'store saved'; data: JsonObject };
+
+/**
+ * A script or automation run Home Assistant's bridge forwards, read as an input: a dry run asks and changes nothing
+ * (the bridge never forwards one; the old scripts answered it), and a name that is not one of ours is no input. A
+ * room's own gesture script (`ls_remote_gesture_<room>`, `ls_remote_power_quiet_<room>`) is the shared one, bound to
+ * that room's remote in the catalog.
+ */
+export function scriptInput(script: string, args: JsonObject, remotes: Readonly<Record<string, CatalogRemote>>): HaInput | 'dry run' | 'not ours' {
+  if (args.dry_run === true) return 'dry run';
+  const named = ROOM_GESTURE.exec(script);
+  const room = named === null ? undefined : named[2];
+  const remote = room === undefined ? undefined : remotes[room];
+  const input = named === null || room === undefined ? haInput(script, args)
+    : haInput(`${named[1]}`, { ...(remote === undefined ? {} : { device_id: remote.device_id, source: remote.source }), ...args, room });
+  return input === undefined ? 'not ours' : input;
+}
+
+/** A room's own gesture script: the shared script's name, then the room. */
+const ROOM_GESTURE = /^(ls_remote_gesture|ls_remote_power_quiet)_(.+)$/;
 
 /**
  * The input a script or automation run is; undefined when the name is not one
