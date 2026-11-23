@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { BUILT_IN_RANGE_DEFAULTS, DEFAULT_STEP_RANGE, EPOCH, decodeOverrides, encodeOverrides } from '../../src/adapter/codecs/overrides-sensor.ts';
+import { BUILT_IN_RANGE_DEFAULTS, EPOCH, decodeOverrides, encodeOverrides } from '../../src/adapter/codecs/overrides-sensor.ts';
+import { DEFAULT_STEP_RANGE } from '../../src/domain/remote.ts';
 import { remoteSources } from '../../src/adapter/codecs/overlay-key.ts';
 import type { OverridesState } from '../../src/adapter/codecs/overrides-sensor.ts';
 import type { LampOverlay, RemoteAdjustment, RemoteOverlay } from '../../src/domain/overlays.ts';

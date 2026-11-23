@@ -5,6 +5,7 @@ import { bulbAppearance, candle, normal } from '../../src/domain/effect.ts';
 import { lightingState, MODE_COLOUR, nextChange, overlaysOn } from '../../src/domain/lighting-state.ts';
 import type { LitLight, Model } from '../../src/domain/model.ts';
 import type { LampOverlay, RemoteAdjustment, RemoteOverlay } from '../../src/domain/overlays.ts';
+import { IDLE_REMOTE } from '../../src/domain/remote.ts';
 import { sceneBetween } from '../../src/domain/schedule.ts';
 import type { LampId } from '../../src/domain/types/ids.ts';
 import type { Colour, LampLight, OnLight } from '../../src/domain/types/light.ts';
@@ -49,11 +50,12 @@ const roomA = toRoomId('room-a'), roomB = toRoomId('room-b');
 const DAY_LIGHT = lit(220, kelvin(4000)), ROOM_A_COSY = lit(90, rgb(255, 150, 60), 'Candle');
 const ORANGE = rgb(255, 150, 60), WARM_END = rgb(255, 126, 0);
 
-/** The synthetic house with no overlays and the mode overlay off; `change` makes the test's one change. */
+/** The synthetic house with no overlays, the mode overlay off and every remote idle; `change` makes the test's one change. */
 function house(change: (model: Model) => void = () => {}): Model {
   const model = structuredClone(syntheticHouse());
   model.overlays = { blocks: {}, remotes: [], lamps: [], roomPower: {}, switches: {} };
   model.modeOverlay = { active: false };
+  model.remotes = { [toRemoteId('remote-a')]: IDLE_REMOTE, [toRemoteId('remote-b')]: IDLE_REMOTE };
   change(model);
   return model;
 }

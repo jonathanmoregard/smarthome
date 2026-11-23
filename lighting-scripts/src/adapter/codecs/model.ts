@@ -16,7 +16,8 @@ import type { ConfigSource } from './config.ts';
 import { FOLLOWS_ROOM, decodeLampProfile } from './lamp-profiles.ts';
 import { remoteSources } from './overlay-key.ts';
 import { decodeOverrides } from './overrides-sensor.ts';
-import { IDLE_REMOTE, decodeRemoteModel } from './remote-helpers.ts';
+import { IDLE_REMOTE } from '../../domain/remote.ts';
+import { decodeRemoteModel } from './remote-helpers.ts';
 import { FOLLOWS_ROOM_SWITCH, decodeSwitchProfile } from './switch-profiles.ts';
 
 export function decodeModel(source: ConfigSource, catalog: Catalog): Model {

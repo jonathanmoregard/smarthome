@@ -21,9 +21,6 @@ import { jinjaFloat, jinjaInt } from '../../runtime/parse.ts';
 import type { ConfigSource } from './config.ts';
 import { dateSeconds, nowText } from './time-text.ts';
 
-/** A remote nobody has pressed: no chord, no power burst, no preset button. */
-export const IDLE_REMOTE: RemoteModel = { chord: { active: false }, power: { presses: 0 }, presetButton: undefined };
-
 /** The helpers one room's remotes keep their gesture state in. */
 export type RemoteHelper = 'preset' | 'power count' | 'chord step' | 'chord timer' | 'power token';
 

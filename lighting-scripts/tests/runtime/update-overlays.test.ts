@@ -4,6 +4,7 @@ import { candle, normal } from '../../src/domain/effect.ts';
 import { lightingState, MODE_COLOUR } from '../../src/domain/lighting-state.ts';
 import type { LitLight, Model, Msg, OverlayRequest, RequestedLight } from '../../src/domain/model.ts';
 import { clearRoom } from '../../src/domain/overlays.ts';
+import { IDLE_REMOTE } from '../../src/domain/remote.ts';
 import { update } from '../../src/domain/update.ts';
 import type { LampId, RoomId } from '../../src/domain/types/ids.ts';
 import type { Colour, LampLight, OnLight } from '../../src/domain/types/light.ts';
@@ -41,11 +42,12 @@ const plugA = toSwitchId('switch.plug_a');
 const controlX = toDashboardControlId('control-x');
 const onLamp = (lamp: LampId) => ({ kind: 'lamp', lamp }) as const;
 
-/** The synthetic house with no overlays and the mode overlay off; `change` makes the test's one change. */
+/** The synthetic house with no overlays, the mode overlay off and every remote idle; `change` makes the test's one change. */
 function house(change: (model: Model) => void = () => {}): Model {
   const model = structuredClone(syntheticHouse());
   model.overlays = { blocks: {}, remotes: [], lamps: [], roomPower: {}, switches: {} };
   model.modeOverlay = { active: false };
+  model.remotes = { [toRemoteId('remote-a')]: IDLE_REMOTE, [toRemoteId('remote-b')]: IDLE_REMOTE };
   change(model);
   return model;
 }
@@ -466,11 +468,4 @@ test('a config change is taken whole', () => {
   const model = after(house(), { kind: 'configChanged', config, at: at('12:00:00') });
   assert.equal(model.config, config);
   assert.deepEqual(lamp(model, lampA2, at('12:00:00')), shows(100, kelvin(5000)));
-});
-
-test('a remote press changes nothing yet (M3 Task 2)', () => {
-  // Break: update raises on, or acts on, a message M3 Task 2 has not built yet.
-  const model = house();
-  assert.equal(after(model, { kind: 'remotePressed', remote: toRemoteId('remote-a'), command: 'up', at: at('12:00:00') }),
-    model);
 });

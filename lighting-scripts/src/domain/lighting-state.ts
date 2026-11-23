@@ -70,6 +70,15 @@ export function overlaysOn(model: Model, lamp: LampId, now: Instant): AppliedOve
 }
 
 /**
+ * The overlays that apply to a room's own light at `now`, after the
+ * next-block reset: the remote reads its room's newest remote overlay and its
+ * held block here.
+ */
+export function roomOverlays(model: Model, room: RoomId, now: Instant): AppliedOverlays {
+  return applied(model, room, undefined, blockPosition(model.config, room, now), true);
+}
+
+/**
  * The overlays that reach a lamp (with `lamp`) or a whole room (without one).
  * `reset` false reads them as they were before the next-block reset, which is
  * the light a lamp fading out of a hold starts from.
@@ -588,8 +597,9 @@ function placeOnBlend(step: RemoteAdjustment, range: StepRange, ends: BlendEnds,
  * The next instant the lighting state changes by itself: inside a fade or a
  * wake fade, the next whole minute (which makes a fade a series of one-minute
  * moves, as today); else the next fade start, block start, wake time or wake
- * end, or the next overlay reset falling due (an overlay's age limit, the
- * daily reset time). Undefined when nothing is coming.
+ * end, the next overlay reset falling due (an overlay's age limit, the daily
+ * reset time), or a remote's chord or power burst closing its window (a
+ * burst of one press then toggles its room). Undefined when nothing is coming.
  */
 export function nextChange(model: Model, now: Instant): Instant | undefined {
   const config = model.config;
@@ -611,6 +621,10 @@ export function nextChange(model: Model, now: Instant): Instant | undefined {
   if (age !== undefined) for (const since of overlaySinces(model)) times.push(since + age * 60);
   const daily = config.overlayReset.atSetTime;
   if (daily !== undefined) times.push(nextTimeOfDay(now, daily, config.timezone));
+  for (const remote of Object.values(model.remotes)) {
+    if (remote.chord.active) times.push(remote.chord.until);
+    if (remote.power.presses !== 0) times.push(remote.power.until);
+  }
   const coming = times.filter(time => time > now);
   return coming.length === 0 ? undefined : instantOrThrow(Math.min(...coming));
 }

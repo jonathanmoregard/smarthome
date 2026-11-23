@@ -3,23 +3,25 @@
  * message, each calling its concept's module (Elm's update). Total and pure:
  * every message gives a Model, and nothing is read but the two arguments.
  *
- * A remote's presses are M3 Task 2's: until then they leave the Model as it is.
+ * The clock removes the overlays a reset makes due, then closes the remotes'
+ * chords and power bursts whose window has closed.
  */
 import { dashboardControlSet, personChanged } from './lamp-overlays.ts';
 import type { Model, Msg, OverlayRequest } from './model.ts';
 import { clearAll, holdBlock, resetsDue, setModeOverlay, setRoomPower } from './overlays.ts';
 import { lampProfileSaved, switchProfileSaved } from './profiles.ts';
+import { remoteButtonPressed, remotePressed, remoteTimeouts } from './remote.ts';
 import { rangeDefaultsSaved, rangeSaved, switchButtonPressed } from './switches.ts';
 import type { Instant } from './types/time.ts';
 
 export function update(model: Model, msg: Msg): Model {
   switch (msg.kind) {
-    case 'clock': return resetsDue(model, msg.now);
+    case 'clock': return remoteTimeouts(resetsDue(model, msg.now), msg.now);
     case 'configChanged': return { ...model, config: msg.config };
     case 'overlayRequested': return overlayRequested(model, msg.request, msg.at);
     case 'lampChangedByPerson': return personChanged(model, msg.lamps, msg.rooms, msg.light, msg.at);
-    case 'remotePressed': return model;
-    case 'remoteButtonPressed': return model;
+    case 'remotePressed': return remotePressed(model, msg.remote, msg.command, msg.at);
+    case 'remoteButtonPressed': return remoteButtonPressed(model, msg.remote, msg.button, msg.at);
     case 'switchButtonPressed': return switchButtonPressed(model, msg.switch, msg.power, msg.at);
     case 'modeToggled': return setModeOverlay(model, msg.on, msg.at);
     case 'rangeSaved': return rangeSaved(model, msg.switch, msg.rule);

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { IDLE_REMOTE, decodeRemoteModel, remoteHelperEntity, remoteHelperWrites } from '../../src/adapter/codecs/remote-helpers.ts';
+import { decodeRemoteModel, remoteHelperEntity, remoteHelperWrites } from '../../src/adapter/codecs/remote-helpers.ts';
+import { IDLE_REMOTE } from '../../src/domain/remote.ts';
 import type { ConfigSource } from '../../src/adapter/codecs/config.ts';
 import type { RemoteModel } from '../../src/domain/model.ts';
 import type { EntityState, JsonObject } from '../../src/runtime/context.ts';

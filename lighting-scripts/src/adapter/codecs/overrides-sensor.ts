@@ -22,6 +22,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { BLOCKS } from '../../domain/blocks.ts';
 import type { Config } from '../../domain/config.ts';
 import type { Model, RangeDefaults, RangeRule } from '../../domain/model.ts';
+import { DEFAULT_STEP_RANGE } from '../../domain/remote.ts';
 import type {
   BlockOverlay, BrightnessOverlay, ColourOverlay, EffectOverlay, HeldBlock, LampOverlay, ModeOverlay, Overlays, PresetChoice, RememberedPreset,
   RemoteAdjustment, RemoteOverlay, RemotePreset, StepRange, SwitchOverlay,
@@ -48,8 +49,6 @@ export type OverridesState = Pick<Model, 'overlays' | 'modeOverlay' | 'switchRan
 /** A `when` that is not a date, today's `as_timestamp(when, 0)`: the next overlay reset ends the overlay. */
 export const EPOCH: Instant = toInstant(0);
 
-/** A remote overlay's step range when none is saved, or the saved one is not an ordered pair inside -20..20: today's default. */
-export const DEFAULT_STEP_RANGE: StepRange = { min: toStep(-20), max: toStep(20) };
 
 /** The range defaults when none are saved, or a saved one is out of order: today's built-in `{bright: [90, 100], cosy: [30, 60]}`. */
 export const BUILT_IN_RANGE_DEFAULTS: RangeDefaults = { bright: toPercentRange(90, 100), cosy: toPercentRange(30, 60) };
