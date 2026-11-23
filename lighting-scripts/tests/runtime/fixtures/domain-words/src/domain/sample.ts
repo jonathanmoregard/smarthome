@@ -58,3 +58,9 @@ export function destructured({ get, now }: HouseView, view: HouseView): unknown[
   const { attr } = view;
   return [get, now, attr, view['state']];
 }
+
+// A domain value whose own type, declared in the domain, names one of the effect kinds is not an effect.
+type Part = { kind: 'schedule'; at: number } | { kind: 'fixed'; at: number };
+export function handedBack(at: number): Part | undefined {
+  return { kind: 'schedule', at };
+}
