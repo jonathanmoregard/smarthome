@@ -10,7 +10,7 @@ import type { LampId, RoomId } from '../../src/domain/types/ids.ts';
 import type { Colour, LampLight, OnLight } from '../../src/domain/types/light.ts';
 import type { Instant } from '../../src/domain/types/time.ts';
 import {
-  toBrightness, toColourChannel, toDashboardControlId, toInstant, toKelvin, toLampId, toLevel, toPercentRange,
+  toBrightness, toBulbId, toColourChannel, toDashboardControlId, toInstant, toKelvin, toLampId, toLevel, toPercentRange,
   toRemoteId, toRoomId, toStep, toSwitchId, toTimeOfDay,
 } from '../../src/parse/ids.ts';
 import { syntheticHouse } from './fixtures/synthetic-house.ts';
@@ -129,6 +129,17 @@ test("a person's brightness change holds the lamp and switches its room on", () 
   assert.deepEqual(model.overlays.roomPower, { [roomA]: 'on' });
   assert.deepEqual(model.overlays.lamps, [{ kind: 'parts', over: onLamp(lampA2), from: { kind: 'person' }, since: at('12:00:00'),
     brightness: { kind: 'fixed', brightness: toBrightness(80), at: at('12:00:00') }, colour: undefined, effect: undefined }]);
+});
+
+test("a person's change of a lamp in no room holds that lamp and switches no room on", () => {
+  // Break: the change is dropped for want of a room, or a room's power is written for it.
+  const lampC = toLampId('light.lamp_c');
+  const model = after(house(m => {
+    m.config.lamps[lampC] = { room: undefined, bulbs: [{ bulb: toBulbId('bulb-c'), firmware: 'stock' }] };
+  }), brightness([lampC], 80, '12:00:00'));
+  assert.deepEqual(model.overlays.lamps.map(overlay => overlay.over), [onLamp(lampC)]);
+  assert.deepEqual(lamp(model, lampC, at('12:00:00')), shows(80, kelvin(4000)));
+  assert.deepEqual(model.overlays.roomPower, {});
 });
 
 test("a person's change of a whole room is one room overlay", () => {

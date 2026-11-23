@@ -323,6 +323,27 @@ test('a step leaves a lamp whose blend has a lit end with no colour', () => {
   assert.deepEqual(lamp(model, lampA2, at('12:00:00')), shows(230, kelvin(4750)));
 });
 
+test('steps towards an off end stay in the lit end\'s colour, dimming to off at the off end', () => {
+  // Carried from the deleted off-lamp-blend tests (owner, 2026-11-20: "off is no color, so fade should be low color
+  // rather than white"). `room-a`'s cosy is off here. Break: the step mixes in a made-up colour from the off end, stays
+  // lit at the off end, or never lights the lamp when stepping up from it.
+  const cosyOff = (m: Model) => { m.config.rooms[roomA]!.blocks.cosy.light = { follows: 'own', own: { power: 'off' } }; };
+  const expected = (position: number): LampLight => {
+    const light = blend(DAY_LIGHT, { power: 'off' }, blendPositionOrThrow(position), { red: toColourChannel(255), green: toColourChannel(126), blue: toColourChannel(0) });
+    if (light === undefined || light.power === 'off') throw new Error(`the blend at ${position} is lit`);
+    return shows(Math.min(254, light.brightness), light.colour);
+  };
+  const dimmer = house(m => { cosyOff(m); m.overlays.remotes = [remote('remote-a', at('11:00:00'), { adjustment: steps(-3, at('11:00:00')) })]; });
+  assert.deepEqual(lamp(dimmer, lampA2, at('12:00:00')), expected(0.7));
+  assert.deepEqual((lamp(dimmer, lampA2, at('12:00:00')) as OnLight).colour, kelvin(4000));
+  const atOffEnd = house(m => { cosyOff(m); m.overlays.remotes = [remote('remote-a', at('11:00:00'), { adjustment: steps(-10, at('11:00:00')) })]; });
+  assert.equal(lamp(atOffEnd, lampA2, at('12:00:00'))?.power, 'off');
+  const inCosy = house(cosyOff);
+  assert.equal(lamp(inCosy, lampA2, at('20:00:00'))?.power, 'off');
+  const brighter = house(m => { cosyOff(m); m.overlays.remotes = [remote('remote-a', at('19:00:00'), { adjustment: steps(3, at('19:00:00')) })]; });
+  assert.deepEqual(lamp(brighter, lampA2, at('20:00:00')), expected(0.3));
+});
+
 test('steps beyond day and below cosy stay inside the step range', () => {
   // Twenty steps from day would be 3, clamped to the blend's 2; inside a range of -5..5 they stop at 0.5, and down at -0.5.
   // Break: the step range is not applied, or applied to the step count instead of the place on the blend.
