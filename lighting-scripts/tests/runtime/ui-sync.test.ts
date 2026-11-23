@@ -109,3 +109,9 @@ test('a malformed row or discovery row is passed over, and the others are still 
   }), false);
   assert.deepEqual(writes, [sent('lamp_a2_day', 'availability', 'offline')]);
 });
+
+test('a discovery row whose light Home Assistant does not report is not republished, turn after turn', () => {
+  // Break: an unreported light's effect list reads as missing, so its config is republished every turn.
+  const writes = uiSyncWrites(house(states => { inStep(states); delete states[DISCOVERED]; }), false);
+  assert.deepEqual(writes.filter(write => write.kind === 'discovery'), []);
+});

@@ -65,7 +65,8 @@ export const OVERRIDES_SENSOR = 'sensor.ls_overrides';
  * 1. each row's availability, from whether its source reports on or off;
  * 2. each available profile editor's power, effect, brightness and colour,
  *    as its source light shows them;
- * 3. each discovered light's effect list: the catalog's choices.
+ * 3. each discovered light's effect list: the catalog's choices (a light Home
+ *    Assistant does not report is left until it does).
  *
  * Each is compared with what Home Assistant shows, as today, so nothing is
  * sent when the proxy already shows it. `force` (a start) sends every
@@ -78,7 +79,7 @@ export function uiSyncWrites(house: HouseView, force: boolean): DashboardWrite[]
   for (const row of uiRowsOf(house)) if (row.proxy !== undefined) writes.push(...rowSync(house, row, row.proxy, force));
   const choices = house.catalog.ui_choices === undefined ? DEFAULT_CHOICES : house.catalog.ui_choices;
   for (const row of discoveryRowsOf(house)) {
-    if (isDeepStrictEqual(house.attr(row.entity, 'effect_list'), choices)) continue;
+    if (house.state[row.entity] === undefined || isDeepStrictEqual(house.attr(row.entity, 'effect_list'), choices)) continue;
     const topic = `homeassistant/light/${row.uniqueId}/config`;
     writes.push({ kind: 'discovery', topic, payload: JSON.stringify({ ...row.config, effect_list: [...choices] }) });
   }
