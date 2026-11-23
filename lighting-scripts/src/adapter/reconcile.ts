@@ -8,13 +8,17 @@
  * A bulb is sent its target when the target differs from what it is believed
  * to show (what it was last sent), or, once that send has settled, from what
  * it is observed to show, within the tolerances. The candle is not reported,
- * so it is known from the belief only, and a bulb believed to run it is not
- * checked against its report, which its flicker moves. A candle-firmware bulb
- * with no belief may still run a candle from before, so it is sent the stop
- * first when its target is anything but the candle. A bulb that cannot be
- * reached, one that reports off, and every bulb while Zigbee2MQTT is
- * disconnected are sent nothing: today's dispatch sends only to bulbs Home
- * Assistant shows on. A switch is sent its target when it reports otherwise.
+ * so it is known from the belief only, and a bulb believed to run it is
+ * checked against its report for its power only: its flicker moves the level
+ * and colour, but a candle bulb switched off is sent its light and the start
+ * again. A candle-firmware bulb with no belief may still run a candle from
+ * before, so it is sent the stop first when its target is anything but the
+ * candle. Only a bulb that cannot be reached (switched off at the wall) and
+ * every bulb while Zigbee2MQTT is disconnected are sent nothing; a reachable
+ * bulb that reports off under a lit target is sent its light (owner,
+ * 2026-11-23: a person's off is a hold in the lighting state, so anything else
+ * leaving a bulb off is undone). A switch is sent its target when it reports
+ * otherwise.
  *
  * Retries, parking, the flap limit, the fade for a bulb coming back on and a
  * plug's own button come in M4.
@@ -87,11 +91,10 @@ export function nextSends(target: LightingState, config: Config, observed: Obser
 /** The send one bulb needs, if any. */
 function bulbSend(light: LampLight, bulb: BulbInfo, observed: ObservedBulb | undefined, belief: Belief | undefined, now: Instant):
   Send | undefined {
-  if (observed === undefined || observed.reach === 'unreachable' || observed.light.power === 'off') return undefined;
+  if (observed === undefined || observed.reach === 'unreachable') return undefined;
   const appearance = bulbAppearance(light, bulb);
-  // A bulb believed to run the candle is trusted to: the candle is known from the belief only, and its flicker moves the report.
-  const checked = belief !== undefined && now >= belief.settlesAt && !runsCandle(belief.shows);
-  const differs = belief === undefined || !sameAppearance(belief.shows, appearance) || (checked && !reportsShowing(observed.light, appearance));
+  const settled = belief !== undefined && now >= belief.settlesAt;
+  const differs = belief === undefined || !sameAppearance(belief.shows, appearance) || (settled && !reportsSettled(observed.light, appearance));
   if (!differs) return undefined;
   // With no belief (a restart, or a belief forgotten) a candle bulb may still be running the candle.
   const mayRunCandle = belief === undefined ? bulb.firmware === 'candle' : runsCandle(belief.shows);
@@ -110,6 +113,14 @@ function sameSentColour(a: Colour | undefined, b: Colour | undefined): boolean {
   if (a.kind === 'kelvin') return b.kind === 'kelvin' && a.kelvin === b.kelvin;
   if (b.kind === 'kelvin') return false;
   return a.rgb.red === b.rgb.red && a.rgb.green === b.rgb.green && a.rgb.blue === b.rgb.blue;
+}
+
+/**
+ * Does a settled bulb's report show the appearance? A bulb running the candle is checked for its power only: the
+ * candle is known from the belief, and its flicker moves the reported level and colour.
+ */
+function reportsSettled(reported: ObservedLight, appearance: BulbAppearance): boolean {
+  return runsCandle(appearance) ? reported.power === 'on' : reportsShowing(reported, appearance);
 }
 
 /** Does the report show the appearance, within the tolerances? A lamp with no colour leaves the bulb's colour out of it. */

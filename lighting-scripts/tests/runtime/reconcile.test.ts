@@ -193,13 +193,27 @@ test('an unreachable bulb is sent nothing', () => {
   assert.equal(sends.some(send => send.kind === 'bulb' && send.bulb === bulbA1), true);
 });
 
-test('a bulb that reports off is not switched on', () => {
-  // Break: the reconciler lights a bulb that was switched off. Today's scripts send only to bulbs that are on.
-  const bulbs = new FakeBulbs(topics);
+test('a reachable bulb that reports off under a lit target is sent its light', () => {
+  // Break: a reachable bulb reporting off is skipped. The owner (2026-11-23): only unreachable bulbs and a disconnected
+  // bridge are left alone; a person's off is a hold in the lighting state, so anything else leaving a bulb off is undone.
+  const cold = new FakeBulbs(topics);
+  cold.set(bulbA3, { reach: 'reachable', light: { power: 'off' } });
+  assert.equal(pass(cold, EVENING, NO_BELIEFS, at(0)).sends.some(send => send.kind === 'bulb' && send.bulb === bulbA3), true);
+  assert.deepEqual(cold.shows(bulbA3), { reach: 'reachable', light: lit(150, kelvin(3003)) });
+  const { bulbs, beliefs } = steady();
   bulbs.set(bulbA3, { reach: 'reachable', light: { power: 'off' } });
-  const { sends } = pass(bulbs, EVENING, NO_BELIEFS, at(0));
-  assert.equal(sends.some(send => send.kind === 'bulb' && send.bulb === bulbA3), false);
-  assert.deepEqual(bulbs.shows(bulbA3), { reach: 'reachable', light: { power: 'off' } });
+  assert.deepEqual(pass(bulbs, EVENING, beliefs, at(60)).sends.map(send => send.kind === 'bulb' ? send.bulb : send.switch), [bulbA3]);
+  assert.deepEqual(bulbs.shows(bulbA3), { reach: 'reachable', light: lit(150, kelvin(3003)) });
+});
+
+test('a candle bulb switched off from outside is sent its light, then the start again', () => {
+  // Break: power is not compared for a bulb believed to run the candle, so a candle switched off stays off.
+  const { bulbs, beliefs } = steady();
+  bulbs.set(bulbA1, { reach: 'reachable', light: { power: 'off' } });
+  const { sends, sent } = pass(bulbs, EVENING, beliefs, at(60));
+  assert.deepEqual(sends.map(send => send.kind === 'bulb' ? [send.bulb, send.stopFirst] : []), [[bulbA1, false]]);
+  assert.deepEqual(sentTo(sent, bulbA1).map(payload => 'effect' in payload ? payload.effect : 'light'), ['light', 'channel_change']);
+  assert.deepEqual(bulbs.shows(bulbA1), { reach: 'reachable', light: lit(100, WARM, 'candle') });
 });
 
 test('a lamp with a bulb out of reach does not restart the candle on its live bulb', () => {
