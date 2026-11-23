@@ -54,6 +54,8 @@ export type Kept = { kind: 'running'; state: AdapterState } | { kind: 'starting'
 export type Turn = {
   state: AdapterState; outputs: Output[]; sends: readonly Sending[]; now: Instant; nextChange: Instant | undefined;
   dropped: string | undefined;
+  /** The outputs, by their place, after which the journal is saved: each bulb's publish, so a crash loses no send. */
+  journalled: readonly number[];
 };
 
 /** A send and the outputs that carry it, by their place in the turn's outputs: a bulb's publishes, a switch's call. */
@@ -65,7 +67,7 @@ export type Sending = { send: Send; carriedBy: readonly number[] };
  * wake of its own: the next minute's tick looks again, as today's scripts did, and a wake seconds after every send
  * would move the house's clock under the harness's checkpoints.
  */
-export type Settled = { state: AdapterState; wakeAt: Instant | undefined; parked: readonly BulbId[] };
+export type Settled = { state: AdapterState; wakeAt: Instant | undefined; parked: readonly BulbId[]; notes: readonly string[] };
 
 /**
  * The turn once its first `failed.length` outputs have gone, `failed` saying which of them failed. A send whose
@@ -84,7 +86,10 @@ export function afterOutputs(turn: Turn, failed: readonly boolean[]): Settled {
   }
   const wakeAt = [turn.nextChange, nextRetry(beliefs, turn.now)].reduce<Instant | undefined>((first, at) =>
     at === undefined || (first !== undefined && first <= at) ? first : at, undefined);
-  return { state: { ...turn.state, beliefs }, wakeAt, parked: newlyParked(turn.state.beliefs, beliefs) };
+  const parked = newlyParked(turn.state.beliefs, beliefs);
+  // A bulb given up on is most often switched off at the wall: said once, for the host's info log (owner, 2026-11-20).
+  const notes = parked.map(bulb => `lighting: ${bulb} is parked: it does not take what it is sent; left until it comes back on or its light changes`);
+  return { state: { ...turn.state, beliefs }, wakeAt, parked, notes };
 }
 
 /** How a send went, from its outputs that failed: a switch's failed call is a failed send. */
@@ -157,7 +162,8 @@ export function handleInput(kept: Kept, house: HouseView, input: HaInput): Turn 
       sending.push({ send, carriedBy: sent.flatMap((publish, index) => carries(send, publish, topics, groups) ? [first + index] : []) });
     }
   }
-  return { state: { model, beliefs, view, observed }, outputs, sends: sending, now, nextChange: nextChange(model, now), dropped };
+  const journalled = outputs.flatMap((output, index) => output.kind === 'publish' ? [index] : []);
+  return { state: { model, beliefs, view, observed }, outputs, sends: sending, now, nextChange: nextChange(model, now), dropped, journalled };
 }
 
 /** The config and the profiles read again from the helpers, as the message `update` takes them. */

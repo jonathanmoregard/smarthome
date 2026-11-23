@@ -95,7 +95,7 @@ export function answer(request: Request, adjust: (catalog: Catalog) => void = ()
   });
   const settled = afterOutputs(turn, turn.outputs.map(() => false));
   kept = { kind: 'running', state: settled.state };
-  for (const bulb of settled.parked) console.info(`lighting: ${bulb} is parked; left until it comes back on or its light changes`);
+  for (const note of settled.notes) console.info(note);
   const tick = Math.floor(turn.now / TICK_SECONDS) * TICK_SECONDS + TICK_SECONDS;
   const wakeAt = settled.wakeAt !== undefined && settled.wakeAt < tick ? settled.wakeAt : undefined;
   const scheduled = wakeAt === undefined ? snapshot.scheduled : [...(snapshot.scheduled ?? []).filter(task => task.script !== WAKE),

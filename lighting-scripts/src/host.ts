@@ -107,7 +107,7 @@ export class Host {
     const failed: boolean[] = [];
     const started = performance.now();
     this.turns++; this.calling = true;
-    for (const output of turn.outputs) {
+    for (const [index, output] of turn.outputs.entries()) {
       const call = outputCall(output, turn.now);
       try {
         const context = await this.io.ha.call(call);
@@ -118,15 +118,12 @@ export class Host {
         this.io.log.error(`lighting: ${call.service} failed: ${error instanceof Error ? error.message : String(error)}`);
         failed.push(true); this.failedTurn = this.turns;
       }
-      if (output.kind === 'publish') await this.save(afterOutputs(turn, failed).state.beliefs);
+      if (turn.journalled.includes(index)) await this.save(afterOutputs(turn, failed).state.beliefs);
     }
     this.calling = false;
     const settled = afterOutputs(turn, failed);
     this.kept = { kind: 'running', state: settled.state };
-    // A bulb given up on is most often switched off at the wall: logged once, at info level (owner, 2026-11-20).
-    for (const bulb of settled.parked) {
-      this.io.log.info(`lighting: ${bulb} is parked: it does not take what it is sent; left until it comes back on or its light changes`);
-    }
+    for (const note of settled.notes) this.io.log.info(note);
     if (turn.outputs.length > 0) await this.io.ha.call(timingCall((performance.now() - started) / 1000)).catch(() => undefined);
     return settled.wakeAt;
   }

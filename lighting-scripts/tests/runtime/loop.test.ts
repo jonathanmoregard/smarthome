@@ -293,16 +293,19 @@ test('a bulb put back six times in ten minutes is parked, and the turn says so o
   const house = new House();
   house.turn('12:00:00', { kind: 'started' });
   let putBack = 0;
-  const parked: BulbId[] = [];
+  const parked: BulbId[] = [], notes: string[] = [];
   for (let minute = 1; minute <= 9; minute++) {
     house.bulbs.set(bulbA3, { reach: 'reachable', light: lit(40, { kind: 'kelvin', kelvin: toKelvin(4000) }) });
     writeBack(house.bulbs, house.states);
     const turn = house.turn(`12:0${minute}:00`, { kind: 'tick' });
     if (publishedTo(turn, bulbA3).length > 0) putBack++;
     parked.push(...turn.parked);
+    notes.push(...turn.notes);
   }
   assert.equal(putBack, 6);
   assert.deepEqual(parked, [bulbA3]);
+  // Layer check 8: the line the host logs is the adapter's.
+  assert.deepEqual(notes, [`lighting: ${bulbA3} is parked: it does not take what it is sent; left until it comes back on or its light changes`]);
 });
 
 test("a bulb that flaps its power is parked though each put-back's own on is reported", () => {
