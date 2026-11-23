@@ -1,27 +1,23 @@
-// Guard: the new architecture stays apart from the old script-shaped code.
+// Guard: the layers import downward only.
 //
 // 1. A file under `src/domain/` imports only from `src/domain/`.
-// 2. Nothing under `src/domain/` or `src/adapter/` imports from `src/legacy/`,
-//    except the files `scripts/legacy-files.json` lists under `bridges`.
-// 3. `src/legacy/` holds only the files the list names under `files`. The list
-//    may only shrink: a new file there fails, and so does a listed file that
-//    is gone (delete its entry).
+// 2. A file under `src/adapter/` never imports the host: `src/host.ts`,
+//    `src/main.ts`, `src/live.ts` or `src/rpc.ts`.
 //
-// Only relative specifiers are read: a package or `node:` import is outside
+// Every relative specifier is read: imports and re-exports, `import()` calls,
+// and `import('…')` type references. A package or `node:` import is outside
 // the project and passes.
 //
-// Usage: node scripts/domain-imports.mjs [--root <dir>] [--legacy <file>]
+// Usage: node scripts/domain-imports.mjs [--root <dir>]
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { fail, option, ts } from './ts-project.mjs';
 
 const root = resolve(option('--root') ?? fileURLToPath(new URL('../', import.meta.url)));
-const listFile = resolve(option('--legacy') ?? join(root, 'scripts/legacy-files.json'));
 
-const list = JSON.parse(readFileSync(listFile, 'utf8'));
-const files = new Set(list.files);
-const bridges = new Set(list.bridges);
+/** The host: what runs the adapter. */
+const HOST = new Set(['src/host.ts', 'src/main.ts', 'src/live.ts', 'src/rpc.ts']);
 
 const rel = file => relative(root, file).split(sep).join('/');
 const inside = (file, dir) => file === dir || file.startsWith(`${dir}/`);
@@ -33,7 +29,7 @@ function sources(dir) {
   return readdirSync(full, { recursive: true }).filter(name => name.endsWith('.ts')).map(name => `${dir}/${name.split(sep).join('/')}`).sort();
 }
 
-/** The relative specifiers a file imports or re-exports, or loads with `import()`. */
+/** The relative specifiers a file imports or re-exports, loads with `import()`, or names in an `import('…')` type. */
 function specifiers(file) {
   const source = ts.createSourceFile(file, readFileSync(join(root, file), 'utf8'), ts.ScriptTarget.ESNext, true);
   const found = [];
@@ -42,6 +38,8 @@ function specifiers(file) {
       found.push(node.moduleSpecifier.text);
     } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword && node.arguments.length === 1 && ts.isStringLiteralLike(node.arguments[0])) {
       found.push(node.arguments[0].text);
+    } else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument) && ts.isStringLiteral(node.argument.literal)) {
+      found.push(node.argument.literal.text);
     }
     ts.forEachChild(node, visit);
   };
@@ -54,25 +52,17 @@ const problems = [];
 for (const file of [...sources('src/domain'), ...sources('src/adapter')]) {
   for (const spec of specifiers(file)) {
     const target = rel(resolve(root, dirname(file), spec));
-    if (inside(target, 'src/legacy')) {
-      if (!bridges.has(file)) problems.push(`${file} imports ${spec}: nothing outside src/legacy may import it unless legacy-files.json lists the file under "bridges"`);
-    } else if (inside(file, 'src/domain') && !inside(target, 'src/domain')) {
+    if (inside(file, 'src/domain') && !inside(target, 'src/domain')) {
       problems.push(`${file} imports ${spec}: src/domain imports only from src/domain`);
+    } else if (inside(file, 'src/adapter') && HOST.has(target)) {
+      problems.push(`${file} imports ${spec}: the adapter never imports the host`);
     }
   }
 }
 
-const present = sources('src/legacy');
-for (const file of present) {
-  if (!files.has(file)) problems.push(`${file} is not in legacy-files.json: src/legacy only holds the files that list names, and it only shrinks`);
-}
-for (const file of files) {
-  if (!present.includes(file)) problems.push(`${file} is in legacy-files.json but gone: remove it from the list`);
-}
-
-console.log(`Domain imports: ${sources('src/domain').length} domain, ${sources('src/adapter').length} adapter, ${present.length} legacy files\n`);
+console.log(`Domain imports: ${sources('src/domain').length} domain, ${sources('src/adapter').length} adapter files\n`);
 if (problems.length > 0) {
   for (const problem of problems) console.error(problem);
-  fail(`${problems.length} import or legacy-list problem(s).`);
+  fail(`${problems.length} import problem(s).`);
 }
 console.log('OK');

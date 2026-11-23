@@ -2,7 +2,7 @@
 // expected count is written in the test; keep the two in step.
 import type { HouseView, Plan } from '../runtime/effects.ts';
 import type { Verbatim } from '../runtime/verbatim.ts';
-import { roomId } from '../parse/ids.ts';
+import { roomId } from '../adapter/codecs/ids.ts';
 import type { RoomId } from './types/ids.ts';
 
 // Comments are not code: function* yield Plan<x> view.get('sensor.x') ?? x as y typeof z kind: 'service'.

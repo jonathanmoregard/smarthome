@@ -30,7 +30,13 @@ import { fileURLToPath } from 'node:url';
 // `--root <dir>` reads another project (a test fixture); the default is this one.
 const rootFlag = process.argv.indexOf('--root');
 const ROOT = rootFlag === -1 ? fileURLToPath(new URL('../', import.meta.url)) : process.argv[rootFlag + 1];
-const DOMAIN = join(ROOT, 'src/domain');
+const SRC = join(ROOT, 'src');
+/**
+ * What is counted: the domain, recursively, and the adapter outside its edges (Amendment 5.3). The adapter's edges
+ * hold JSON by design: `codecs/` reads and writes Home Assistant's, `encode.ts` builds the calls, `ha-client.ts`
+ * declares the wire. What is left of the adapter (the turn, the reconciler, the live-room flag) reads typed values.
+ */
+const ADAPTER_EDGES = new Set(['encode.ts', 'ha-client.ts']);
 
 /**
  * Ceilings for src/domain. Baseline measured 2026-11-03 before any rework was
@@ -464,12 +470,23 @@ const count = (text, pattern) => (text.match(pattern) ?? []).length;
 
 // Recursive: src/domain/types is domain too. The handler shells under
 // src/handlers were held to the same zero until M3 deleted them.
-const files = (await readdir(DOMAIN, { recursive: true })).filter(name => name.endsWith('.ts')).sort();
+const listed = async (dir, recursive) => {
+  try {
+    return (await readdir(join(SRC, dir), { recursive })).filter(name => name.endsWith('.ts')).map(name => `${dir}/${name}`);
+  } catch (error) {
+    if (error.code === 'ENOENT') return [];
+    throw error;
+  }
+};
+const files = [
+  ...await listed('domain', true),
+  ...(await listed('adapter', false)).filter(name => !ADAPTER_EDGES.has(name.slice('adapter/'.length))),
+].sort();
 const totals = Object.fromEntries(Object.keys(PATTERNS).map(key => [key, 0]));
 const rows = [];
 
 for (const name of files) {
-  const text = stripComments(await readFile(join(DOMAIN, name), 'utf8'));
+  const text = stripComments(await readFile(join(SRC, name), 'utf8'));
   const row = { name };
   for (const [key, pattern] of Object.entries(PATTERNS)) {
     row[key] = count(text, pattern);
@@ -488,7 +505,7 @@ const COLUMNS = [
 
 rows.sort((a, b) => b.jsonTypes - a.jsonTypes);
 const width = Math.max(...files.map(name => name.length), 8);
-console.log('src/domain — JSON at the edges\n');
+console.log('src/domain and src/adapter outside its edges — JSON at the edges\n');
 console.log(`${'file'.padEnd(width)}  ${COLUMNS.map(([, label]) => label.padStart(16)).join('  ')}`);
 for (const row of rows) {
   if (!COLUMNS.some(([key]) => row[key] > 0)) continue;

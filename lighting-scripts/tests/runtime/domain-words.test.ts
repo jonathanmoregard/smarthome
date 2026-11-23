@@ -36,15 +36,14 @@ const COLUMNS: [column: string, count: number, counted: string][] = [
   ['planTypes', 1, 'the `Plan<null>` return type; the import specifier is not a use'],
   ['effectKinds', 3, "`kind: 'service'` and `kind: 'script'` object literals and `called`'s domain-typed `kind: 'service'`; `handedBack`'s `kind: 'schedule'` is a domain `Part`"],
   ['haNames', 4, "'light.example' twice, 'light.turn_on' and 'ls_commit'; import paths and plain words are not names"],
-  ['parseRuntimeImports', 3, 'two `../runtime` imports and one `../parse` import; `./types/ids.ts` is the domain'],
   ['viewReads', 6, "`view.get` and `view.attr` on the HouseView, `get` and `now` destructured from a HouseView parameter, `attr` destructured from `view`, and `view['state']`"],
   ['carriedTypes', 6, 'the `Verbatim` parameter, the `Verbatim` in the `Carried` alias and in `Wrapper`, the `Carried` in `Documents`, and the uses of `Carried` and `Documents` (aliases seen through); `Wrapper` and the import specifier are not uses'],
-  ['casts', 4, '`state as string`, `raw as RoomId`, `raw as Room` and `keysOf`\'s `as K[]`; `as const` is not a cast'],
+  ['casts', 4, '`state as string`, `raw as RoomId`, `raw as Room` and `keysOf`\'s `as K[]`; `as const` is not a cast, and neither is `levelOrThrow`\'s or `entriesOf`\'s minting cast'],
   ['nonNull', 1, '`room!`'],
   ['nullish', 1, 'the one `??`'],
   ['typeofs', 1, 'the runtime `typeof value`; `typeof COLOURS` in a type is not a test'],
   ['literalIncludes', 2, "`['a', 'b'].includes` and `COLOURS.includes` (a const array literal); `names.includes` is not literal"],
-  ['brandConstructors', 3, 'the `roomId(...)` call into src/parse/ids.ts, the `as RoomId` cast to a domain type, and `as Room` through its local alias; `as K[]` names only a type parameter'],
+  ['brandConstructors', 3, 'the `roomId(...)` call into src/adapter/codecs/ids.ts, the `as RoomId` cast to a domain type, and `as Room` through its local alias; `as K[]` names only a type parameter'],
 ];
 
 for (const [column, count, counted] of COLUMNS) {

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 /**
  * `scripts/json-edges.mjs` counts JSON types and lenient accessors in
- * src/domain. Review round 3, item 4: it read src/domain
+ * src/domain and in src/adapter outside its edges. Review round 3, item 4: it read src/domain
  * with a flat `readdir`, so src/domain/types was never counted. It runs here
  * against a fixture whose only JSON sits in `src/domain/types/bag.ts`.
  */
@@ -18,6 +18,16 @@ test('json-edges reads src/domain recursively: a JSON type under src/domain/type
   const result = spawnSync(process.execPath, [SCRIPT, '--root', ROOT], { encoding: 'utf8' });
   assert.equal(result.status, 1, result.stdout);
   // Two: the import names `JsonValue`, and so does the field.
-  assert.match(result.stdout, /^types\/bag\.ts\s+2\s/m);
+  assert.match(result.stdout, /^domain\/types\/bag\.ts\s+2\s/m);
+  assert.match(result.stderr, /JsonObject\/Value: 2 exceeds the ceiling of 0/);
+});
+
+test('json-edges counts the adapter outside its edges: codecs/, encode.ts and ha-client.ts are not counted', () => {
+  // Amendment 5.3. Break: JSON in the turn or the reconciler goes uncounted, or an edge that holds JSON by design fails.
+  const root = fileURLToPath(new URL('./fixtures/json-edges-adapter/', import.meta.url));
+  const result = spawnSync(process.execPath, [SCRIPT, '--root', root], { encoding: 'utf8' });
+  assert.equal(result.status, 1, result.stdout);
+  assert.match(result.stdout, /^adapter\/loop\.ts\s+2\s/m);
+  assert.doesNotMatch(result.stdout, /codecs|encode|ha-client/);
   assert.match(result.stderr, /JsonObject\/Value: 2 exceeds the ceiling of 0/);
 });

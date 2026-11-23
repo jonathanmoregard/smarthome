@@ -2,7 +2,7 @@
 //
 // Spec v3 rule 0.1: the domain holds state types, pure updates and derivations;
 // no plans, generators, effects, Home Assistant names or carried documents.
-// Rule 0.3: ids and closed sets are built once in src/parse, ranges once in
+// Rule 0.3: ids and closed sets are built once in the adapter's codecs, ranges once in
 // src/domain/types/range.ts, so the domain never re-checks, defaults or casts. Each column below counts one sign
 // that a file is not there yet. Ceilings live in `domain-words.ceilings.json`
 // and ratchet DOWN only. Each count must equal its ceiling: a rise fails, and
@@ -24,25 +24,25 @@
 //   (or the bare `<ha domain>.` a template builds on), a helper domain on its
 //   own (`input_number`), or a script or event name (`ls_...`, `effects_...`).
 //   Import paths are not literals here.
-// - parseRuntimeImports: an import or re-export from src/parse or src/runtime.
 // - viewReads: a property read on a `HouseView`, whatever the variable is called:
 //   `view.x`, `view['x']`, and each name destructured from one (`const { x } = view`,
 //   or a destructured HouseView parameter).
 // - carriedTypes: a type reference to a carried document type
 //   (`Verbatim`, `OpaqueMap`, `StoredFact`, `StoredValue`, `Assembled`, `AssembledMap`),
 //   directly or through a project type alias that renames or contains one.
-// - casts: `x as T` or `<T>x`; `as const` is not a cast.
+// - casts: `x as T` or `<T>x`; `as const` is not a cast. The minting sites are not counted: the `...OrThrow`
+//   constructors in src/domain/types/range.ts and `entriesOf` in src/domain/types/ids.ts, the one place each type
+//   is made (`tests/runtime/domain-type-casts.test.ts` holds every cast to a domain type to those files).
 // - nonNull: postfix `!`.
 // - nullish: `??` and `??=`.
 // - typeofs: a runtime `typeof x` test; `typeof x` in a type is not one.
 // - literalIncludes: `.includes(` on an array literal, or on a const bound to one.
-// - brandConstructors: a call to a function declared in src/parse/ids.ts (the id
-//   constructors and the parse layer's range wrappers), or a cast to a type that
+// - brandConstructors: a call to a function declared in src/adapter/codecs/ids.ts (the id
+//   constructors and the codecs' range wrappers), or a cast to a type that
 //   holds one declared under src/domain/types (a brand or a range), as the
-//   checker resolves it, so a local alias is seen through. The range types are
-//   minted in src/domain/types/range.ts by `...OrThrow` constructors: their 16
-//   casts count here (the ceiling), but a call to one does not, since the
-//   domain may build a range value that way.
+//   checker resolves it, so a local alias is seen through. A minting site's
+//   cast is not counted (see casts), and a call to an `...OrThrow` constructor
+//   is not either, since the domain may build a range value that way.
 //
 // Usage: node scripts/domain-words.mjs [--root <dir>] [--ceilings <file>] [--files] [--json]
 // `--files` adds the per-file table; `--json` prints `{ totals, files }` instead of tables.
@@ -55,8 +55,49 @@ const CEILINGS = resolve(option('--ceilings') ?? join(root, 'domain-words.ceilin
 const inDomain = under('src/domain');
 const inDomainTypes = under('src/domain/types');
 const inSource = under('src');
-const isParseIds = file => resolve(file) === join(root, 'src', 'parse', 'ids.ts');
-const inParseOrRuntime = file => [join(root, 'src', 'parse'), join(root, 'src', 'runtime')].some(dir => resolve(file).startsWith(dir + sep));
+const isCodecIds = file => resolve(file) === join(root, 'src', 'adapter', 'codecs', 'ids.ts');
+/** The minting sites: the range constructors, and `entriesOf`, which gives a record's keys back their brand. */
+const MINTING = { [join(root, 'src', 'domain', 'types', 'range.ts')]: name => name.endsWith('OrThrow'),
+  [join(root, 'src', 'domain', 'types', 'ids.ts')]: name => name === 'entriesOf' };
+function measure(source) {
+  const row = Object.fromEntries(Object.keys(COLUMNS).map(column => [column, 0]));
+  const visit = node => {
+    if (ts.isFunctionLike(node) && node.asteriskToken !== undefined) row.generators++;
+    else if (ts.isYieldExpression(node)) row.yields++;
+    else if (ts.isTypeReferenceNode(node)) {
+      const typeName = ts.isIdentifier(node.typeName) ? node.typeName.text : node.typeName.right.text;
+      if (typeName === 'Plan') row.planTypes++;
+      if (namesCarriedType(node)) row.carriedTypes++;
+    } else if (ts.isPropertyAssignment(node) && ts.isIdentifier(node.name) && node.name.text === 'kind'
+      && ts.isStringLiteralLike(node.initializer) && EFFECT_KINDS.has(node.initializer.text)
+      && !(node.initializer.text === 'schedule' && kindOfDomainType(node))) row.effectKinds++;
+    else if ((ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) && isHouseView(node.expression)) row.viewReads++;
+    // `const { rooms } = view` and a destructured HouseView parameter: one read per name taken.
+    else if (ts.isObjectBindingPattern(node) && isHouseView(node)) row.viewReads += node.elements.length;
+    else if (ts.isNonNullExpression(node)) row.nonNull++;
+    else if (ts.isBinaryExpression(node) && (node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken
+      || node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionEqualsToken)) row.nullish++;
+    else if (ts.isTypeOfExpression(node)) row.typeofs++;
+    else if (ts.isCallExpression(node)) {
+      const callee = node.expression;
+      if (ts.isPropertyAccessExpression(callee) && callee.name.text === 'includes') {
+        const receiver = unwrap(callee.expression);
+        if (ts.isArrayLiteralExpression(receiver) || ts.isIdentifier(receiver) && boundToArrayLiteral(receiver)) row.literalIncludes++;
+      }
+      const target = resolved(checker.getSymbolAtLocation(ts.isPropertyAccessExpression(callee) ? callee.name : callee));
+      if ((target?.declarations ?? []).some(declaration => isCodecIds(declaration.getSourceFile().fileName))) row.brandConstructors++;
+    }
+    if (((ts.isAsExpression(node) && !isAsConst(node)) || ts.isTypeAssertionExpression(node)) && !minting(node)) {
+      row.casts++;
+      if (namesDomainType(node.type)) row.brandConstructors++;
+    }
+    if ((ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) || ts.isTemplateExpression(node))
+      && !isModuleSpecifier(node) && HA_NAME.test(literalText(node))) row.haNames++;
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return row;
+}
 
 const COLUMNS = {
   generators: 'function*',
@@ -64,7 +105,6 @@ const COLUMNS = {
   planTypes: 'Plan<',
   effectKinds: "kind: 'service' etc.",
   haNames: 'Home Assistant names',
-  parseRuntimeImports: '../parse, ../runtime imports',
   viewReads: 'view. reads',
   carriedTypes: 'carried types',
   casts: 'as (not as const)',
@@ -105,49 +145,6 @@ const unwrap = node => {
 
 const isAsConst = node => ts.isTypeReferenceNode(node.type) && ts.isIdentifier(node.type.typeName) && node.type.typeName.text === 'const';
 
-function measure(source) {
-  const row = Object.fromEntries(Object.keys(COLUMNS).map(column => [column, 0]));
-  const visit = node => {
-    if (ts.isFunctionLike(node) && node.asteriskToken !== undefined) row.generators++;
-    else if (ts.isYieldExpression(node)) row.yields++;
-    else if (ts.isTypeReferenceNode(node)) {
-      const typeName = ts.isIdentifier(node.typeName) ? node.typeName.text : node.typeName.right.text;
-      if (typeName === 'Plan') row.planTypes++;
-      if (namesCarriedType(node)) row.carriedTypes++;
-    } else if (ts.isPropertyAssignment(node) && ts.isIdentifier(node.name) && node.name.text === 'kind'
-      && ts.isStringLiteralLike(node.initializer) && EFFECT_KINDS.has(node.initializer.text)
-      && !(node.initializer.text === 'schedule' && kindOfDomainType(node))) row.effectKinds++;
-    else if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
-      && node.moduleSpecifier !== undefined && ts.isStringLiteral(node.moduleSpecifier)
-      && inParseOrRuntime(resolve(dirname(source.fileName), node.moduleSpecifier.text))) row.parseRuntimeImports++;
-    else if ((ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) && isHouseView(node.expression)) row.viewReads++;
-    // `const { rooms } = view` and a destructured HouseView parameter: one read per name taken.
-    else if (ts.isObjectBindingPattern(node) && isHouseView(node)) row.viewReads += node.elements.length;
-    else if (ts.isNonNullExpression(node)) row.nonNull++;
-    else if (ts.isBinaryExpression(node) && (node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken
-      || node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionEqualsToken)) row.nullish++;
-    else if (ts.isTypeOfExpression(node)) row.typeofs++;
-    else if (ts.isCallExpression(node)) {
-      const callee = node.expression;
-      if (ts.isPropertyAccessExpression(callee) && callee.name.text === 'includes') {
-        const receiver = unwrap(callee.expression);
-        if (ts.isArrayLiteralExpression(receiver) || ts.isIdentifier(receiver) && boundToArrayLiteral(receiver)) row.literalIncludes++;
-      }
-      const target = resolved(checker.getSymbolAtLocation(ts.isPropertyAccessExpression(callee) ? callee.name : callee));
-      if ((target?.declarations ?? []).some(declaration => isParseIds(declaration.getSourceFile().fileName))) row.brandConstructors++;
-    }
-    if ((ts.isAsExpression(node) && !isAsConst(node)) || ts.isTypeAssertionExpression(node)) {
-      row.casts++;
-      if (namesDomainType(node.type)) row.brandConstructors++;
-    }
-    if ((ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) || ts.isTemplateExpression(node))
-      && !isModuleSpecifier(node) && HA_NAME.test(literalText(node))) row.haNames++;
-    ts.forEachChild(node, visit);
-  };
-  visit(source);
-  return row;
-}
-
 /**
  * Does this type reference name a carried document type? Directly, or through
  * a type alias the checker resolves it to, followed through the syntax that
@@ -166,10 +163,6 @@ function namesCarriedType(reference, seen = new Set()) {
     && inSource(declaration.getSourceFile().fileName) && carriedWithin(declaration.type, seen));
 }
 
-/** A symbol's declarations; none for no symbol. */
-const declarationsOf = symbol => symbol === undefined || symbol.declarations === undefined ? [] : symbol.declarations;
-const declaredInDomainTypes = symbol => declarationsOf(symbol).some(declaration => inDomainTypes(declaration.getSourceFile().fileName));
-
 function carriedWithin(node, seen) {
   if (ts.isTypeReferenceNode(node)) {
     return namesCarriedType(node, seen) || (node.typeArguments !== undefined && node.typeArguments.some(argument => carriedWithin(argument, seen)));
@@ -181,7 +174,10 @@ function carriedWithin(node, seen) {
     || ts.isTypeOperatorNode(node)) return carriedWithin(node.type, seen);
   return false;
 }
-const namesDomainType = typeNode => holdsDomainType(checker.getTypeFromTypeNode(typeNode), new Set());
+
+/** A symbol's declarations; none for no symbol. */
+const declarationsOf = symbol => symbol === undefined || symbol.declarations === undefined ? [] : symbol.declarations;
+const declaredInDomainTypes = symbol => declarationsOf(symbol).some(declaration => inDomainTypes(declaration.getSourceFile().fileName));
 
 /**
  * Is this `kind:` the kind of a domain value? It is when the object literal's
@@ -196,17 +192,28 @@ function kindOfDomainType(kind) {
   const declarations = declarationsOf(kindProperty);
   return declarations.length > 0 && declarations.every(declaration => inDomain(declaration.getSourceFile().fileName));
 }
+const namesDomainType = typeNode => holdsDomainType(checker.getTypeFromTypeNode(typeNode), new Set());
 
 function isHouseView(expression) {
   const type = checker.getTypeAtLocation(expression);
   return type.aliasSymbol?.name === 'HouseView' || type.getSymbol()?.name === 'HouseView';
 }
+
 function boundToArrayLiteral(identifier) {
   const symbol = resolved(checker.getSymbolAtLocation(identifier));
   const declaration = symbol?.valueDeclaration;
   return declaration !== undefined && ts.isVariableDeclaration(declaration)
     && (ts.getCombinedNodeFlags(declaration) & ts.NodeFlags.Const) !== 0
     && declaration.initializer !== undefined && ts.isArrayLiteralExpression(unwrap(declaration.initializer));
+}
+/** Is the node inside a minting function? */
+function minting(node) {
+  const mints = MINTING[resolve(node.getSourceFile().fileName)];
+  if (mints === undefined) return false;
+  for (let current = node.parent; current !== undefined; current = current.parent) {
+    if (ts.isFunctionDeclaration(current)) return current.name !== undefined && mints(current.name.text);
+  }
+  return false;
 }
 
 function literalText(node) {

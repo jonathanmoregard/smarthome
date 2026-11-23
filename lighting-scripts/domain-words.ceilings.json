@@ -4,13 +4,12 @@
   "planTypes": 0,
   "effectKinds": 0,
   "haNames": 0,
-  "parseRuntimeImports": 0,
   "viewReads": 0,
   "carriedTypes": 0,
-  "casts": 17,
+  "casts": 0,
   "nonNull": 0,
   "nullish": 0,
   "typeofs": 0,
   "literalIncludes": 0,
-  "brandConstructors": 16
+  "brandConstructors": 0
 }
