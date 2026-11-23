@@ -84,7 +84,7 @@ from the command-only event shims.
 | 13 | `ls_remote_power_quiet_kitchen` | TypeScript-owned gesture wrapper only | None |
 | 14 | `ls_remote_power_quiet_living_room` | TypeScript-owned gesture wrapper only | None |
 | 15 | `ls_render` | TypeScript-owned automation and `ls_commit`, both asynchronous | None |
-| 16 | `ls_sara_mode` | No captured action caller | None |
+| 16 | `ls_<mode>_mode` | No captured action caller | None |
 | 17 | `ls_store` | Called only by TypeScript-owned `effects_set` | None |
 
 Five shimmed originals return a response: `effects_set`, `effects_ui_sync`,

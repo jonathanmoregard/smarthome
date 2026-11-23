@@ -47,7 +47,7 @@ M6 Task 1 found that no compatibility writer is needed for that. With the old-si
 | # | field | read by | across rooms | owner |
 |---|---|---|---|---|
 | 1 | state and `last_updated` | ls_commit, ls_plan, ls_room_plan, ls_remote_plan, ls_base, ls_room_base, ls_render, ls_dispatch, effects_assign, effects_emit, effects_engine | yes | carried |
-| 2 | `overrides` | ls_base, ls_room_base, ls_plan, ls_room_plan, ls_remote_plan, ls_commit, ls_render, ls_sara_mode, lighting_schedule_end_overrides, lighting_schedule_sara_mode_switch | yes | `Model.overlays`, `Model.modeOverlay` (each entry: next section) |
+| 2 | `overrides` | ls_base, ls_room_base, ls_plan, ls_room_plan, ls_remote_plan, ls_commit, ls_render, `ls_<mode>_mode`, lighting_schedule_end_overrides, `lighting_schedule_<mode>_mode_switch` | yes | `Model.overlays`, `Model.modeOverlay` (each entry: next section) |
 | 3 | `power` (room to boolean) | ls_commit, ls_plan, ls_room_plan, ls_remote_plan, effects_candle_plan, effects_emit, effects_engine, lighting_recover_failed_zigbee_commands | no (one key per room) | `Model.overlays.roomPower` |
 | 4 | `switch_ranges` (switch to rule) | ls_base, ls_room_base, ls_plan, ls_room_plan, ls_remote_plan, ls_commit, ls_range_save, effects_set | yes (its keys add rooms to every schedule pass) | `Model.switchRanges` |
 | 5 | `range_defaults` | ls_plan, ls_room_plan | yes | `Model.rangeDefaults` |
@@ -63,11 +63,11 @@ M6 Task 1 found that no compatibility writer is needed for that. With the old-si
 
 ## Fields of an overlay entry in `overrides`
 
-An entry is shared across rooms when its key is `block:house` or `mode:sara`, or its scope is `house`. Every other entry concerns one room or one lamp, so its fields are `across rooms: no` except where a row says so.
+An entry is shared across rooms when its key is `block:house` or `mode:<name>` (`<name>`, and `<mode>` in the old scripts' names, is the house mode's name in the catalog's `"mode"`), or its scope is `house`. Every other entry concerns one room or one lamp, so its fields are `across rooms: no` except where a row says so.
 
 | # | field | read by | across rooms | owner |
 |---|---|---|---|---|
-| 1 | the entry's key | every reader of `overrides` | yes for `block:house` and `mode:sara` | each overlay's identity: `blocks[<room or house>]`, `remotes[].source`, `lamps[].over` with `from`, `modeOverlay` |
+| 1 | the entry's key | every reader of `overrides` | yes for `block:house` and `mode:<name>` | each overlay's identity: `blocks[<room or house>]`, `remotes[].source`, `lamps[].over` with `from`, `modeOverlay` |
 | 2 | `kind` | ls_base, ls_room_base, ls_room_plan, ls_remote_plan, ls_commit, effects_resolve | no | the overlay kind |
 | 3 | `scope`, `target` | ls_base, ls_room_base, ls_room_plan, ls_remote_plan, ls_commit, effects_resolve, effects_native_plan, effects_set | yes for scope `house` | `lamps[].over`, `remotes[].room` (scope `house`: left out: 4) |
 | 4 | `value` of a block entry | ls_base, ls_room_base, ls_room_plan | yes for `block:house` | `Model.overlays.blocks[<room or house>].block` |

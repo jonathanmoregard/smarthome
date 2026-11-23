@@ -26,7 +26,7 @@ Every input goes Home Assistant → `HaInput` → `Msg` → `update` →
 4. The host: `src/host.ts` keeps the Home Assistant mirror and the journal,
    runs turns one at a time, makes each output's call in order and sets one
    timer for the next wake. `src/main.ts` runs it live, over the websocket client
-   in `src/adapter/ha-client.ts`; `src/rpc.ts` is the JSON-lines host the e2e
+   in `src/adapter/ha-client.ts`, one port per journal (`src/journal-lock.ts`); `src/rpc.ts` is the JSON-lines host the e2e
    harness drives.
 
 `npm run check` holds these layers: `scripts/domain-imports.mjs` (the domain
