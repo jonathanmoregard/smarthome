@@ -246,7 +246,8 @@ export function resetsDue(model: Model, now: Instant): Model {
  * released them is over: today's stale-key clear, which took an overlay out of
  * the store when it was set at or before its scope's last fade start and the
  * scope was not fading. Inside the fade a lamp still fades out of what held
- * it, so the overlay stays until then. A lamp's overlay is measured on its
+ * it, so the overlay stays until the block the fade led into has started
+ * (its fade start included, where the fade has not moved yet). A lamp's overlay is measured on its
  * room (the house's, for a lamp in no room), a block or room overlay on its
  * own scope, a remote's on its room, a switch's on its room as the range rule
  * reads it, and the mode overlay on every room outside the private ones. With
@@ -258,7 +259,8 @@ export function releasedAtNextBlock(model: Model, now: Instant): Model {
   const placed = (room: RoomId | undefined) => room !== undefined && config.rooms[room] !== undefined ? room : undefined;
   const released = (room: RoomId | undefined, since: Instant) => {
     const position = blockPosition(config, placed(room), now);
-    return position.lastFadeStart !== undefined && since <= position.lastFadeStart && position.fade === undefined;
+    const fadeStart = position.lastFadeStart, started = position.currentSince;
+    return fadeStart !== undefined && since <= fadeStart && started !== undefined && started >= fadeStart;
   };
   const lampRoom = (over: LampOrRoom) => over.kind === 'room' ? over.room : config.lamps[over.lamp]?.room;
   // A block over a room the config does not hold is measured on the house, as `blockPosition` reads such a room.

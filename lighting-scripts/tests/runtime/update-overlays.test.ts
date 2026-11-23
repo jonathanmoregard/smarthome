@@ -495,6 +495,16 @@ test('an overlay the next-block reset released leaves the model once its fade is
   assert.deepEqual(lightingState(done, at('17:31:00')), lightingState(after(nextBlockOnly(), clock('17:31:00')), at('17:31:00')));
 });
 
+test('a released overlay stays in the model at the instant its fade starts', () => {
+  // At 16:45:00 exactly the fade has not moved yet, but the lamp fades out of the overlay from the next minute
+  // (golden next_block_reset). Break: the removal reads the fade's first instant as no fade.
+  const nextBlockOnly = () => house(m => { m.config.overlayReset = { ...m.config.overlayReset, afterAge: undefined }; });
+  const held = after(nextBlockOnly(), brightness([lampA2], 50, '12:00:00'), clock('16:45:00'));
+  assert.equal(held.overlays.lamps.length, 1);
+  assert.deepEqual(lamp(after(held, clock('16:50:00')), lampA2, at('16:50:00')), lamp(after(nextBlockOnly(), brightness([lampA2], 50,
+    '12:00:00'), clock('16:50:00')), lampA2, at('16:50:00')));
+});
+
 test('with the next-block rule off a released overlay stays in the model', () => {
   // Break: the removal ignores the rule.
   const off = house(m => { m.config.overlayReset = { ...m.config.overlayReset, atNextBlock: false, afterAge: undefined }; });
