@@ -29,6 +29,13 @@ export type PercentRange = { readonly low: Percent; readonly high: Percent } & R
 export type ColourChannel = Ranged<'ColourChannel'>;
 export type RGB = { readonly red: ColourChannel; readonly green: ColourChannel; readonly blue: ColourChannel };
 export type Colour = { kind: 'kelvin'; kelvin: Kelvin } | { kind: 'rgb'; rgb: RGB };
+
+/** Two colours, or two missing ones, the same: the same kelvin, or the same three channels. */
+export function sameColour(a: Colour | undefined, b: Colour | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  if (a.kind === 'kelvin') return b.kind === 'kelvin' && a.kelvin === b.kelvin;
+  return b.kind === 'rgb' && a.rgb.red === b.rgb.red && a.rgb.green === b.rgb.green && a.rgb.blue === b.rgb.blue;
+}
 export type Power = 'on' | 'off';
 /**
  * How a lamp moves to its light: one step of a scheduled fade, or a change

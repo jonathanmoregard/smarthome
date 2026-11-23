@@ -36,6 +36,7 @@ import type { BulbId, SwitchId } from '../domain/types/ids.ts';
 import { entriesOf } from '../domain/types/ids.ts';
 import type { LightingState } from '../domain/types/lighting-state.ts';
 import type { Colour, LampLight, Power, RGB } from '../domain/types/light.ts';
+import { sameColour } from '../domain/types/light.ts';
 import type { Instant, Seconds } from '../domain/types/time.ts';
 import { toInstant, toSeconds } from './codecs/ids.ts';
 
@@ -72,14 +73,7 @@ function overOf(send: Extract<Send, { kind: 'bulb' | 'start' }>): Seconds {
 export type LitAppearance = Extract<BulbAppearance, { power: 'on' }>;
 
 function sameLight(a: LitAppearance, b: LitAppearance): boolean {
-  return a.level === b.level && sameSentColour(a.colour, b.colour);
-}
-
-function sameSentColour(a: Colour | undefined, b: Colour | undefined): boolean {
-  if (a === undefined || b === undefined) return a === b;
-  if (a.kind === 'kelvin') return b.kind === 'kelvin' && a.kelvin === b.kelvin;
-  if (b.kind === 'kelvin') return false;
-  return a.rgb.red === b.rgb.red && a.rgb.green === b.rgb.green && a.rgb.blue === b.rgb.blue;
+  return a.level === b.level && sameColour(a.colour, b.colour);
 }
 
 /** How a send went: every publish went out; its light (or off) failed; or its light went out and the candle's start failed. */

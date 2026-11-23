@@ -11,6 +11,7 @@ import { blockPosition } from './schedule.ts';
 import type { DashboardControlId, LampId } from './types/ids.ts';
 import { entriesOf } from './types/ids.ts';
 import type { Colour, Level, OnLight } from './types/light.ts';
+import { sameColour } from './types/light.ts';
 import type { LampOrRoom, LightingState } from './types/lighting-state.ts';
 import { levelOrThrow } from './types/range.ts';
 import type { RoomOrHouse } from './types/schedule.ts';
@@ -65,8 +66,3 @@ function controlShown(model: Model, lighting: LightingState, over: LampOrRoom): 
   return { power: 'on', level, colour, effect };
 }
 
-function sameColour(a: Colour | undefined, b: Colour | undefined): boolean {
-  if (a === undefined || b === undefined) return a === b;
-  if (a.kind === 'kelvin') return b.kind === 'kelvin' && a.kelvin === b.kelvin;
-  return b.kind === 'rgb' && a.rgb.red === b.rgb.red && a.rgb.green === b.rgb.green && a.rgb.blue === b.rgb.blue;
-}
