@@ -17,7 +17,6 @@
  * (`homeassistant.turn_on`/`turn_off`), and the helper, sensor, store and
  * dashboard writes.
  */
-import { groupedPublishes } from './codecs/bulb-groups.ts';
 import type { BulbGroups } from './codecs/bulb-groups.ts';
 import type { Outcome, Send } from './reconcile.ts';
 import { roundEven } from '../domain/blend.ts';
@@ -49,6 +48,11 @@ function lightPayload(appearance: BulbAppearance, transition: Seconds): BulbPayl
   const brightness = appearance.level, colour = appearance.colour;
   if (colour === undefined) return { brightness, transition };
   return { brightness, ...colourKeys(colour), transition };
+}
+
+/** Two payloads are the same publish when they go out as the same text. */
+function payloadText(payload: BulbPayload): string {
+  return JSON.stringify(payload);
 }
 
 /** A colour's keys: kelvin as whole mireds, RGB as whole channels joined `r,g,b`. */
@@ -85,8 +89,36 @@ export function publishes(sends: readonly Send[], topics: Readonly<Record<BulbId
   ];
 }
 
+/** The publishes for one round of bulbs: each whole group whose members all get the same payload as one, the rest one by one. */
+export function groupedPublishes(rows: readonly BulbPublish[], groups: BulbGroups): Publish[] {
+  const byBulb = new Map(rows.map(row => [row.bulb, row]));
+  const used = new Set<BulbId>();
+  const sent: Publish[] = [];
+  for (const group of groups) {
+    const members = group.members.map(bulb => byBulb.get(bulb));
+    const first = members[0];
+    if (first === undefined || group.members.some(bulb => used.has(bulb))
+      || members.some(row => row === undefined || payloadText(row.payload) !== payloadText(first.payload))) continue;
+    sent.push({ topic: group.topic, payload: first.payload });
+    for (const bulb of group.members) used.add(bulb);
+  }
+  for (const row of [...byBulb.values()].sort((a, b) => compare(a.bulb, b.bulb))) {
+    if (!used.has(row.bulb)) sent.push({ topic: row.topic, payload: row.payload });
+  }
+  return sent;
+}
+
+function compare(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 /** A send to a bulb: its light, or its candle's start alone. */
 export type BulbSend = Exclude<Send, { kind: 'switch' }>;
+
+/** Leaving the candle: the Innr firmware's stop. */
+const STOP: BulbPayload = { effect: 'stop_effect' };
+/** The candle's start: Identify TriggerEffect 0x0b on the candle firmware. */
+const START = { effect: 'channel_change' } as const satisfies BulbPayload;
 
 /** One thing a turn asks Home Assistant to do, in the order it is asked. */
 export type Output =
@@ -115,11 +147,6 @@ export function switchCall(target: SwitchId, power: Power): ServiceCall {
   return { service: `homeassistant.turn_${power}`, data: {}, target: { entity_id: target } };
 }
 
-/** Leaving the candle: the Innr firmware's stop. */
-const STOP: BulbPayload = { effect: 'stop_effect' };
-/** The candle's start: Identify TriggerEffect 0x0b on the candle firmware. */
-const START = { effect: 'channel_change' } as const satisfies BulbPayload;
-
 /** A remote helper's write, as the gesture script made it: a value set, or the chord timer started or cancelled. */
 function helperCall(entity: string, value: HelperValue, now: Instant): ServiceCall {
   const target = { entity_id: entity };
@@ -147,6 +174,10 @@ function dashboardCall(write: DashboardWrite): ServiceCall {
   }
 }
 
+/** An MQTT message as Home Assistant's `mqtt.publish` call, at QoS 0; a dashboard control's state is retained. */
+/** One bulb's wanted publish. */
+export type BulbPublish = { bulb: BulbId; topic: MqttTopic; payload: BulbPayload };
+
 /** Does `publish` carry part of `send`: is it to the bulb's own topic, or to a Zigbee group the bulb is in? */
 export function carries(send: BulbSend, publish: Publish, topics: Readonly<Record<BulbId, MqttTopic>>, groups: BulbGroups): boolean {
   return publish.topic === topics[send.bulb] || groups.some(group => group.topic === publish.topic && group.members.includes(send.bulb));
@@ -170,7 +201,6 @@ export function timingCall(seconds: number): ServiceCall {
     data: { attributes: { last_latency: Math.round(seconds * 1000) / 1000 }, replace_attributes: false } };
 }
 
-/** An MQTT message as Home Assistant's `mqtt.publish` call, at QoS 0; a dashboard control's state is retained. */
 export function mqttPublishCall(topic: string, payload: string, retain: boolean): ServiceCall {
   return { service: 'mqtt.publish', data: { topic, payload, qos: 0, retain } };
 }

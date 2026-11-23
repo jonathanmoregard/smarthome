@@ -2,6 +2,9 @@
  * Zigbee groups: bulbs that get the same publish and together form a whole
  * group go as one publish to the group's topic.
  *
+ * Which groups may stand in for their members is read here; sending a round
+ * through them is the encoder's (`groupedPublishes` in `../encode.ts`).
+ *
  * Moved from `planGroups` (the deleted `src/legacy/domain/grouping.ts`, today's
  * `effects_group_plan`) and the old group filter (`grouping.ts`): only
  * a verified group on a `/set` topic with two or more distinct members is
@@ -9,7 +12,6 @@
  * with different members is not used; a bulb goes in at most one group; the
  * rest go one by one, in bulb order.
  */
-import type { BulbPayload, Publish } from '../encode.ts';
 import type { MqttTopic } from './ids.ts';
 import type { BulbId } from '../../domain/types/ids.ts';
 import type { Catalog } from './catalog.ts';
@@ -39,43 +41,19 @@ function isMapping(value: JsonValue): value is JsonObject {
 
 export type BulbGroups = readonly BulbGroup[];
 
-/** The groups the catalog's `multicast` list holds that may stand in for their members; any other entry is skipped. */
+/**
+ * The groups the catalog's `multicast` list holds that may stand in for their members, largest first, then by
+ * topic; any other entry is skipped, and so is a topic two groups claim with different members.
+ */
 export function bulbGroups(catalog: Catalog): BulbGroups {
-  return catalog.multicast.flatMap(entry => {
+  const usable = catalog.multicast.flatMap(entry => {
     const group = usableGroup(entry);
     return group === undefined ? [] : [group];
   });
-}
-
-/** One bulb's wanted publish. */
-export type BulbPublish = { bulb: BulbId; topic: MqttTopic; payload: BulbPayload };
-
-/** The publishes for one round of bulbs: each whole group whose members all get the same payload as one, the rest one by one. */
-export function groupedPublishes(rows: readonly BulbPublish[], groups: BulbGroups): Publish[] {
-  const byBulb = new Map(rows.map(row => [row.bulb, row]));
-  const candidates = [...groups].sort((a, b) => b.members.length - a.members.length || compare(a.topic, b.topic));
-  const used = new Set<BulbId>();
-  const sent: Publish[] = [];
-  for (const group of candidates) {
-    if (candidates.some(other => other.topic === group.topic && !sameMembers(other, group))) continue;
-    const members = group.members.map(bulb => byBulb.get(bulb));
-    const first = members[0];
-    if (first === undefined || group.members.some(bulb => used.has(bulb))
-      || members.some(row => row === undefined || payloadText(row.payload) !== payloadText(first.payload))) continue;
-    sent.push({ topic: group.topic, payload: first.payload });
-    for (const bulb of group.members) used.add(bulb);
-  }
-  for (const row of [...byBulb.values()].sort((a, b) => compare(a.bulb, b.bulb))) {
-    if (!used.has(row.bulb)) sent.push({ topic: row.topic, payload: row.payload });
-  }
-  return sent;
+  return usable.filter(group => !usable.some(other => other.topic === group.topic && !sameMembers(other, group)))
+    .sort((a, b) => b.members.length - a.members.length || compare(a.topic, b.topic));
 }
 
 function compare(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
-}
-
-/** Two payloads are the same publish when they go out as the same text. */
-function payloadText(payload: BulbPayload): string {
-  return JSON.stringify(payload);
 }
