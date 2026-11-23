@@ -15,18 +15,8 @@ interface AreaEntry { area_id: string; labels?: string[] }
 interface LabelEntry { label_id: string; name: string }
 export interface HaEvent { event_type: string; data: JsonObject }
 
-/**
- * The bridge events whose own echo is dropped: a mode switch or a light call made by a call of ours comes back as
- * the bridge's event, and is not a person's.
- */
-const ECHOED = ['automation.lighting_schedule_sara_mode_switch', 'automation.lighting_schedule_lamp_change_detector'];
-
 export class HomeAssistantClient implements HaClient {
   private readonly connection: Connection;
-  private inFlight = 0;
-  private ownContexts: string[] = [];
-  private buffered: { event: HaEvent; callback: (event: HaEvent) => void }[] = [];
-  private ambiguous = false;
   private readonly subscriptions: (() => Promise<void>)[] = [];
   private readonly listeners: { name: 'ready' | 'disconnected'; callback: () => void }[] = [];
 
@@ -38,32 +28,19 @@ export class HomeAssistantClient implements HaClient {
     return new HomeAssistantClient(connection);
   }
 
-  /** A service call; rejects when Home Assistant is out of reach or refuses it. */
-  async call(call: ServiceCall): Promise<void> {
+  /** A service call; rejects when Home Assistant is out of reach or refuses it. The answer is the call's context id. */
+  async call(call: ServiceCall): Promise<string | undefined> {
     // Do not enter the client's suspended-connection queue with stale output.
     if (!this.connection.connected) throw new Error('Home Assistant is disconnected');
     const [domain, service, extra] = call.service.split('.');
     if (domain === undefined || service === undefined || extra !== undefined) throw new Error('Invalid Home Assistant service name');
-    this.inFlight++;
-    try {
-      const response: unknown = await callService(this.connection, domain, service, call.data, call.target);
-      const context = object(object(response).context).id;
-      if (typeof context === 'string') this.ownContexts = [...this.ownContexts, context].slice(-1024);
-    } catch (error) { this.ambiguous = true; throw error; }
-    finally {
-      this.inFlight--;
-      if (this.inFlight === 0) {
-        const events = this.buffered.splice(0);
-        if (this.ambiguous && events.length > 0) console.error('Discarded ambiguous user-control echoes after an unacknowledged output.');
-        else for (const item of events) this.deliverBridge(item.event, item.callback);
-        this.ambiguous = false;
-      }
-    }
+    const response: unknown = await callService(this.connection, domain, service, call.data, call.target);
+    const context = object(object(response).context).id;
+    return typeof context === 'string' ? context : undefined;
   }
 
   async subscribe(event: string, callback: (event: HaEvent) => void): Promise<void> {
-    const unsubscribe = await this.connection.subscribeEvents<HaEvent>(event === 'smarthome_script'
-      ? value => this.deliverBridge(value, callback) : callback, event);
+    const unsubscribe = await this.connection.subscribeEvents<HaEvent>(callback, event);
     this.subscriptions.push(unsubscribe);
   }
 
@@ -111,17 +88,6 @@ export class HomeAssistantClient implements HaClient {
     this.connection.close();
     await Promise.allSettled(this.subscriptions.map(unsubscribe => unsubscribe()));
     this.subscriptions.length = 0; this.listeners.length = 0;
-  }
-
-  private deliverBridge(event: HaEvent, callback: (event: HaEvent) => void): void {
-    const data = event.data;
-    if (ECHOED.includes(String(data.script))) {
-      if (this.inFlight > 0) { this.buffered.push({ event, callback }); return; }
-      const trigger = object(object(data.args).trigger);
-      const context = object(object(trigger.to_state).context).id ?? object(object(trigger.event).context).id;
-      if (typeof context === 'string' && this.ownContexts.includes(context)) return;
-    }
-    callback(event);
   }
 }
 

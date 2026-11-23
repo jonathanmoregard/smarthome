@@ -24,7 +24,10 @@ export interface ServiceCall {
   target?: JsonObject;
 }
 
-/** What the host needs of Home Assistant: a service call, which rejects when Home Assistant did not take it. */
+/**
+ * What the host needs of Home Assistant: a service call, which rejects when Home Assistant did not take it, and
+ * answers the context id Home Assistant gave it, when it gave one.
+ */
 export interface HaClient {
-  call(call: ServiceCall): Promise<void>;
+  call(call: ServiceCall): Promise<string | undefined>;
 }

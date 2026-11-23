@@ -36,8 +36,10 @@ class FakeHa {
     writeBack(this.bulbs, this.states);
   }
 
-  async call(call: ServiceCall): Promise<void> {
+  /** Each call is answered with the context id `context-<n>`, n counting the calls from 1. */
+  async call(call: ServiceCall): Promise<string | undefined> {
     this.calls.push(call);
+    const context = `context-${this.calls.length}`;
     await this.during(call);
     if (this.failing(call)) throw new Error('Home Assistant did not take it');
     this.states = afterCall(this.states, call, new Date().toISOString());
@@ -46,6 +48,7 @@ class FakeHa {
       this.bulbs.apply([{ topic: toMqttTopic(call.data.topic), payload: JSON.parse(call.data.payload) as Publish['payload'] }]);
       writeBack(this.bulbs, this.states);
     }
+    return context;
   }
 
   mirror(): HouseMirror {
@@ -217,5 +220,34 @@ test("a house read does not undo a newer state: a plug falling back off is not r
   assert.equal(host.house().state['switch.plug_a']?.state, 'off');
   const overlays = ha.calls.slice(before).filter(call => call.target?.entity_id === 'sensor.ls_overrides' || call.data.entity_id === 'sensor.ls_overrides');
   assert.deepEqual(overlays, [], 'no hold is written for the plug');
+  await host.close();
+});
+
+test("our own call's echo is dropped, though it arrives before the call is answered; a person's reaches the lighting", async () => {
+  // Layer check 1 (was the client's). Break: a mode change our own call made comes back through the bridge and is
+  // taken for a person's, or every bridge run of that automation is dropped, a person's with it.
+  const ha = new FakeHa(), now = { time: at('12:00:00') };
+  const host = await open(ha, new MemoryJournal(), now).host;
+  host.accept({ kind: 'started' });
+  await host.idle();
+  const modeSwitch = (on: boolean, context: string) => ({
+    trigger: { id: on ? 'on' : 'off', to_state: { state: on ? 'on' : 'off', context: { id: context, user_id: 'a-person' } } },
+  });
+  const sensorWrites = () => ha.calls.filter(call => call.service === 'variable.update_sensor' && JSON.stringify(call).includes('ls_overrides'));
+  let sent = false;
+  ha.during = async () => {
+    if (sent) return;
+    sent = true;
+    host.script('automation.lighting_schedule_sara_mode_switch', modeSwitch(true, `context-${ha.calls.length}`));
+  };
+  const before = sensorWrites().length;
+  now.time = at('12:00:10');
+  host.accept({ kind: 'dashboard script', script: 'hold block', data: { scope: 'room-a', block: 'night' } });
+  await host.idle();
+  ha.during = async () => {};
+  assert.equal(sensorWrites().length, before + 1, "the hold's write only: the echo turned no mode on");
+  host.script('automation.lighting_schedule_sara_mode_switch', modeSwitch(true, 'a-person-context'));
+  await host.idle();
+  assert.equal(sensorWrites().length, before + 2, "the person's change reached the lighting");
   await host.close();
 });

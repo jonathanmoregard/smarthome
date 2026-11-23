@@ -12,7 +12,7 @@ import { afterCall, houseView, mergedRead } from './adapter/codecs/house.ts';
 import { loadBeliefs, saveBeliefs } from './adapter/codecs/journal.ts';
 import { outputCall, timingCall } from './adapter/encode.ts';
 import type { EntityState, HaClient, JsonObject } from './adapter/ha-client.ts';
-import { scriptInput } from './adapter/codecs/inputs.ts';
+import { echoContext, mayBeEcho, scriptInput } from './adapter/codecs/inputs.ts';
 import type { HaInput } from './adapter/codecs/inputs.ts';
 import { afterOutputs, handleInput } from './adapter/loop.ts';
 import type { Kept } from './adapter/loop.ts';
@@ -34,6 +34,8 @@ export type HostIo = { ha: HaClient; journal: Journal; clock: () => Instant; log
 
 /** The longest a timer waits: Node's limit, about 24 days. A wake further away is set again when this one runs. */
 const LONGEST_WAIT_MS = 2_147_483_647;
+/** How many of our calls' context ids are kept to know their echoes by. */
+const OWN_CONTEXTS = 1024;
 /** How soon a turn that threw is followed by a wake. */
 const AFTER_A_FAILED_TURN_SECONDS = 5;
 
@@ -45,6 +47,11 @@ export class Host {
   private queue: Promise<void> = Promise.resolve();
   private cancelWake: (() => void) | undefined;
   private closed = false;
+  /** The context ids of our recent calls, the turns run so far, the last one with a failed call, and whether one is calling. */
+  private ownContexts: string[] = [];
+  private turns = 0;
+  private failedTurn = -1;
+  private calling = false;
 
   private constructor(io: HostIo, mirror: HouseMirror, catalog: Catalog, kept: Kept) {
     this.io = io; this.mirror = mirror; this.catalog = catalog; this.kept = kept;
@@ -55,17 +62,24 @@ export class Host {
     return new Host(io, structuredClone(mirror), catalog, { kind: 'starting', beliefs: loadBeliefs(await io.journal.load()) });
   }
 
-  /** A script or automation run Home Assistant's bridge forwards: an input, or logged and dropped. */
+  /**
+   * A script or automation run Home Assistant's bridge forwards: an input, or logged and dropped. It waits its turn,
+   * so the echo of a call still being made is known for ours once that call is answered; one that came while a call
+   * failed cannot be told from a person's, and is dropped.
+   */
   script(name: string, args: JsonObject): void {
-    const input = scriptInput(name, args, this.catalog.remotes);
-    if (input === 'dry run') this.io.log.error(`lighting: ${name} is a dry run; dropped`);
-    else if (input === 'not ours') this.io.log.error(`lighting: ${name} is not an input; dropped`);
-    else this.accept(input);
-  }
-
-  /** Queue an input; inputs run one at a time, in order. */
-  accept(input: HaInput): void {
-    this.enqueue(() => this.turn(input));
+    const during = this.calling ? this.turns : undefined;
+    this.enqueue(async () => {
+      if (mayBeEcho(name)) {
+        if (during !== undefined && this.failedTurn === during) return this.io.log.error(`lighting: ${name} came as a call failed; dropped`);
+        const context = echoContext(args);
+        if (context !== undefined && this.ownContexts.includes(context)) return;
+      }
+      const input = scriptInput(name, args, this.catalog.remotes);
+      if (input === 'dry run') this.io.log.error(`lighting: ${name} is a dry run; dropped`);
+      else if (input === 'not ours') this.io.log.error(`lighting: ${name} is not an input; dropped`);
+      else await this.turn(input);
+    });
   }
 
   private enqueue(step: () => Promise<void>): void {
@@ -93,18 +107,21 @@ export class Host {
     if (turn.dropped !== undefined) this.io.log.error(`lighting: ${input.kind}: ${turn.dropped}; dropped`);
     const failed: boolean[] = [];
     const started = performance.now();
+    this.turns++; this.calling = true;
     for (const output of turn.outputs) {
       const call = outputCall(output, turn.now);
       try {
-        await this.io.ha.call(call);
+        const context = await this.io.ha.call(call);
+        if (context !== undefined) this.ownContexts = [...this.ownContexts, context].slice(-OWN_CONTEXTS);
         this.mirror = { ...this.mirror, state: afterCall(this.mirror.state, call, nowText) };
         failed.push(false);
       } catch (error) {
         this.io.log.error(`lighting: ${call.service} failed: ${error instanceof Error ? error.message : String(error)}`);
-        failed.push(true);
+        failed.push(true); this.failedTurn = this.turns;
       }
       if (output.kind === 'publish') await this.save(afterOutputs(turn, failed).state.beliefs);
     }
+    this.calling = false;
     const settled = afterOutputs(turn, failed);
     this.kept = { kind: 'running', state: settled.state };
     // A bulb given up on is most often switched off at the wall: logged once, at info level (owner, 2026-11-20).
@@ -118,6 +135,11 @@ export class Host {
   private async save(beliefs: Parameters<typeof saveBeliefs>[0]): Promise<void> {
     await this.io.journal.save(saveBeliefs(beliefs)).catch(error =>
       this.io.log.error(`lighting: journal not saved: ${error instanceof Error ? error.message : String(error)}`));
+  }
+
+  /** Queue an input; inputs run one at a time, in order. */
+  accept(input: HaInput): void {
+    this.enqueue(() => this.turn(input));
   }
 
   /** A state Home Assistant reports changed, or removed; it lands in order with the inputs. */
@@ -147,9 +169,12 @@ export class Host {
     this.enqueue(async () => { this.catalog = catalog; });
   }
 
-  /** Settles once every input accepted so far has run. */
-  idle(): Promise<void> {
-    return this.queue;
+  /** Settles once every input has run, those accepted while waiting included. */
+  async idle(): Promise<void> {
+    for (let current = this.queue; ; current = this.queue) {
+      await current;
+      if (current === this.queue) return;
+    }
   }
 
   async close(): Promise<void> {

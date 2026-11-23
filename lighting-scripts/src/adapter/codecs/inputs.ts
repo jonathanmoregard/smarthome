@@ -88,8 +88,11 @@ export function scriptInput(script: string, args: JsonObject, remotes: Readonly<
   return input === undefined ? 'not ours' : input;
 }
 
-/** A room's own gesture script: the shared script's name, then the room. */
-const ROOM_GESTURE = /^(ls_remote_gesture|ls_remote_power_quiet)_(.+)$/;
+/**
+ * The bridge runs that may be the echo of a call of ours: a mode switch or a lamp change our own write made comes
+ * back through the bridge, and is not a person's. Each carries the context of the change that triggered it.
+ */
+const ECHOED: readonly string[] = ['automation.lighting_schedule_sara_mode_switch', 'automation.lighting_schedule_lamp_change_detector'];
 
 /**
  * The input a script or automation run is; undefined when the name is not one
@@ -133,8 +136,8 @@ function remoteAutomation(kind: string | undefined, args: JsonObject, trigger: J
   return { kind: 'remote action', room: optionalText(args.room), device: optionalText(args.device_id), source: optionalText(args.source), button };
 }
 
-/** The remote automations, by the kind their name ends in: the center button, the arrows, the preset buttons. */
-const REMOTE_AUTOMATION = /^automation\.(?:.*_)?remote_(center|directions|preset)(?:_arrows)?$/;
+/** A room's own gesture script: the shared script's name, then the room. */
+const ROOM_GESTURE = /^(ls_remote_gesture|ls_remote_power_quiet)_(.+)$/;
 
 /** The schedule engine's triggers: the minute, the start, a lamp back on, and the config helpers. */
 function scheduleEngine(trigger: JsonObject): HaInput {
@@ -158,6 +161,9 @@ function gesture(args: JsonObject): HaInput {
     default: return { kind: 'wake' };
   }
 }
+
+/** The remote automations, by the kind their name ends in: the center button, the arrows, the preset buttons. */
+const REMOTE_AUTOMATION = /^automation\.(?:.*_)?remote_(center|directions|preset)(?:_arrows)?$/;
 
 /**
  * The messages an input sends, read against the Model and the house at `now`.
@@ -242,15 +248,6 @@ function rangeSet(data: JsonObject, model: Model, now: Instant, house: HouseView
     bound(data.min), bound(data.max), model, now, house);
 }
 
-/**
- * A switch's range rule saved, after today's checks (`decideRangeSave`): a
- * physical switch or on/off-only light with a device, in a room, and a rule
- * that is bright, cosy, or an own range in order inside 0..100. A missing
- * own-range end keeps the saved one. A save that fails a check raises.
- */
-/** Today's refusal of a range save that names no physical switch or on/off lamp. */
-const NOT_PHYSICAL = 'Choose a physical on/off lamp or smart plug.';
-
 function rangeSaved(named: string | undefined, profile: string, minimum: RangeBound, maximum: RangeBound, model: Model, now: Instant,
   house: HouseView): Msg[] {
   if (named === undefined) throw new ParseError(NOT_PHYSICAL);
@@ -277,6 +274,15 @@ function rangeRule(profile: string, entity: string, minimum: RangeBound, maximum
   if (range === undefined) throw new ParseError('Enter both ends of Own Range: 0–100%, with From no higher than Through.');
   return { kind: 'custom', range };
 }
+
+/**
+ * A switch's range rule saved, after today's checks (`decideRangeSave`): a
+ * physical switch or on/off-only light with a device, in a room, and a rule
+ * that is bright, cosy, or an own range in order inside 0..100. A missing
+ * own-range end keeps the saved one. A save that fails a check raises.
+ */
+/** Today's refusal of a range save that names no physical switch or on/off lamp. */
+const NOT_PHYSICAL = 'Choose a physical on/off lamp or smart plug.';
 
 function bound(value: JsonValue | undefined): RangeBound {
   return value === undefined || value === null || typeof value === 'number' || typeof value === 'string' || typeof value === 'boolean'
@@ -375,10 +381,6 @@ function remoteOf(device: string | undefined, room: string | undefined, source: 
   return inRoom[0];
 }
 
-/** The preset buttons, coolest first, by the colour temperature (in mireds) each sends: today's `presets` table. */
-const PRESETS: ReadonlyArray<readonly [number, PresetButton]> = [[200, 'coolest'], [285, 'cool'], [370, 'neutral'], [454, 'warm'],
-  [588, 'warmest']];
-
 function roomReportsOn(model: Model, remote: RemoteId, house: HouseView): boolean {
   const room = model.config.remotes[remote]?.room;
   return room !== undefined && reportsOn(configSource(house), model.config, model.switchRanges, room);
@@ -393,6 +395,10 @@ function effectPreview(topic: string | undefined, payload: JsonValue | undefined
   if (row === undefined) throw new ParseError(`No dashboard control for ${alias}`);
   return controlSet(row.source, attribute, payload, model, now, house);
 }
+
+/** The preset buttons, coolest first, by the colour temperature (in mireds) each sends: today's `presets` table. */
+const PRESETS: ReadonlyArray<readonly [number, PresetButton]> = [[200, 'coolest'], [285, 'cool'], [370, 'neutral'], [454, 'warm'],
+  [588, 'warmest']];
 
 /**
  * A dashboard control set (today's `effects_set`): on a lamp's profile row,
@@ -413,9 +419,6 @@ function controlSet(source: string, attribute: string, value: JsonValue | undefi
   return [{ kind: 'overlayRequested', request: { kind: 'dashboard control', control: toDashboardControlId(source), over, light }, at: now }];
 }
 
-/** The commands a room's remote sends (`ls_remote_command`). */
-const COMMANDS: readonly RemoteCommand[] = ['up', 'down', 'left', 'right', 'toggle', 'reset', 'mode'];
-
 function controlLight(attribute: string, value: JsonValue | undefined): ControlLight {
   const text = jinjaString(value === undefined ? null : value);
   const none = { brightness: undefined, colour: undefined, effect: undefined };
@@ -432,6 +435,9 @@ function controlLight(attribute: string, value: JsonValue | undefined): ControlL
 function miredsColour(text: string): Colour {
   return { kind: 'kelvin', kelvin: toKelvin(Math.round(1_000_000 / wholeNumber(text, 100, 1000))) };
 }
+
+/** The commands a room's remote sends (`ls_remote_command`). */
+const COMMANDS: readonly RemoteCommand[] = ['up', 'down', 'left', 'right', 'toggle', 'reset', 'mode'];
 
 function rgbColour(text: string): Colour {
   const parts = text.split(',').map(part => toColourChannel(wholeNumber(part, 0, 255)));
@@ -538,6 +544,18 @@ function profileStoreOf(store: string, model: Model): ProfileStore | undefined {
   const lamp = toLampId(`light.${object}`), plug = toSwitchId(`switch.${object}`);
   if (model.config.lamps[lamp] !== undefined) return { kind: 'lamp', lamp, block };
   return model.config.switches[plug] === undefined ? undefined : { kind: 'switch', switch: plug, block };
+}
+
+/** May this bridge run be the echo of a call of ours? */
+export function mayBeEcho(script: string): boolean {
+  return ECHOED.includes(script);
+}
+
+/** The context id of the change that triggered a bridge run: its new state's, or its event's; none when it carries none. */
+export function echoContext(args: JsonObject): string | undefined {
+  const trigger = object(args.trigger);
+  const context = object(object(trigger.to_state).context).id ?? object(object(trigger.event).context).id;
+  return typeof context === 'string' ? context : undefined;
 }
 
 /**
