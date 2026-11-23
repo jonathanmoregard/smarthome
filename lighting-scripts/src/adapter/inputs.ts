@@ -175,7 +175,9 @@ function optionalText(value: JsonValue | undefined): string | undefined {
 /**
  * The override event's operations the Model holds: clear all, a room's power,
  * a block held, the mode on or off, a switch's range and the range defaults.
- * Other operations (a lamp's channels, a remote's records) are not read here.
+ * Other operations, and a set's other records (a lamp's channels, a remote's
+ * records), are not read here: they raise, so the input is logged once and
+ * dropped.
  */
 function overlayEvent(data: JsonObject, model: Model, now: Instant, house: HouseView): Msg[] {
   switch (data.op) {
@@ -185,7 +187,9 @@ function overlayEvent(data: JsonObject, model: Model, now: Instant, house: House
     case 'set': return (Array.isArray(data.records) ? data.records : []).flatMap((raw): Msg[] => {
       const record = object(raw);
       if (record.kind === 'mode' && record.target === 'sara') return [{ kind: 'modeToggled', on: true, at: now }];
-      if (record.kind !== 'block' || typeof record.target !== 'string') return [];
+      if (record.kind !== 'block' || typeof record.target !== 'string') {
+        throw new ParseError(`ls_override: record ${jinjaString(record.kind === undefined ? null : record.kind)} is not read here`);
+      }
       return [{ kind: 'overlayRequested', request: { kind: 'hold block', over: scopeOf(record.target), block: blockOf(record.value) }, at: now }];
     });
     case 'clear': return Array.isArray(data.keys) && data.keys.includes('mode:sara') ? [{ kind: 'modeToggled', on: false, at: now }] : [];
