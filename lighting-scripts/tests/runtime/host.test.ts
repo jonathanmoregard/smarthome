@@ -69,13 +69,14 @@ class MemoryJournal implements Journal {
 
 /** Timers the test fires: each set timer, and whether it was cancelled. */
 class FakeTimers {
-  readonly set: { delayMs: number; wake: () => void; cancelled: boolean }[] = [];
+  readonly set: { delayMs: number; wake: () => void; cancelled: boolean; fired: boolean }[] = [];
   start(delayMs: number, wake: () => void): () => void {
-    const timer = { delayMs, wake, cancelled: false };
+    const timer = { delayMs, wake: () => { timer.fired = true; wake(); }, cancelled: false, fired: false };
     this.set.push(timer);
     return () => { timer.cancelled = true; };
   }
-  live() { return this.set.filter(timer => !timer.cancelled); }
+  /** The timers still to fire: neither cancelled nor spent. */
+  live() { return this.set.filter(timer => !timer.cancelled && !timer.fired); }
 }
 
 function open(ha: FakeHa, journal: MemoryJournal, now: { time: Instant }, timers = new FakeTimers()) {
@@ -175,4 +176,21 @@ test('a restart loads the journal and sends nothing the bulbs already show', asy
   await forgetful.idle();
   assert.ok(ha.publishesTo(bulbA1).length > 0, 'with no journal the candle-firmware bulb is sent again');
   await forgetful.close();
+});
+
+test('a turn that throws still leaves a wake set', async () => {
+  // Review 5. Break: the timer is armed after the turn's sends only, so a turn that throws (here a state Home
+  // Assistant sent with no attributes) leaves the fired timer spent, and retries and fade steps wait for the next tick.
+  const ha = new FakeHa(), now = { time: at('12:00:00') };
+  const { host: opening, timers, logged } = open(ha, new MemoryJournal(), now);
+  const host = await opening;
+  host.accept({ kind: 'started' });
+  await host.idle();
+  host.stateChanged('bulb-a1', { state: 'on', attributes: null as never });
+  now.time = at('12:00:30');
+  timers.live()[0]!.wake();
+  await host.idle();
+  assert.ok(logged.some(line => /lighting: /.test(line)), 'the failed turn is logged');
+  assert.equal(timers.live().length, 1, 'a wake is set again');
+  await host.close();
 });

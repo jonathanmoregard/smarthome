@@ -17,6 +17,7 @@ import type { HaInput } from './adapter/codecs/inputs.ts';
 import { afterOutputs, handleInput } from './adapter/loop.ts';
 import type { Kept } from './adapter/loop.ts';
 import type { Instant } from './domain/types/time.ts';
+import { toInstant } from './adapter/codecs/ids.ts';
 
 /** Where the reconciler's beliefs are kept across a restart: the journal's text, none before the first save. */
 export interface Journal {
@@ -33,6 +34,8 @@ export type HostIo = { ha: HaClient; journal: Journal; clock: () => Instant; log
 
 /** The longest a timer waits: Node's limit, about 24 days. A wake further away is set again when this one runs. */
 const LONGEST_WAIT_MS = 2_147_483_647;
+/** How soon a turn that threw is followed by a wake. */
+const AFTER_A_FAILED_TURN_SECONDS = 5;
 
 export class Host {
   private readonly io: HostIo;
@@ -71,7 +74,21 @@ export class Host {
 
   private async turn(input: HaInput): Promise<void> {
     if (this.closed) return;
-    const now = this.io.clock(), nowText = new Date(now * 1000).toISOString();
+    const now = this.io.clock();
+    // A turn that throws still sets a wake, a little later, so the timer that started it is not the last one.
+    let wakeAt: Instant | undefined = toInstant(now + AFTER_A_FAILED_TURN_SECONDS);
+    try {
+      wakeAt = await this.run(input, now);
+    } finally {
+      this.cancelWake?.();
+      this.cancelWake = wakeAt === undefined || this.closed ? undefined
+        : this.io.timer(Math.min(LONGEST_WAIT_MS, Math.max(0, Math.round((wakeAt - now) * 1000))), () => this.accept({ kind: 'wake' }));
+    }
+  }
+
+  /** One turn: its outputs made one at a time; the answer is when to be woken. */
+  private async run(input: HaInput, now: Instant): Promise<Instant | undefined> {
+    const nowText = new Date(now * 1000).toISOString();
     const turn = handleInput(this.kept, houseView(this.mirror, nowText, this.catalog), input);
     if (turn.dropped !== undefined) this.io.log.error(`lighting: ${input.kind}: ${turn.dropped}; dropped`);
     const failed: boolean[] = [];
@@ -95,9 +112,7 @@ export class Host {
       this.io.log.info(`lighting: ${bulb} is parked: it does not take what it is sent; left until it comes back on or its light changes`);
     }
     if (turn.outputs.length > 0) await this.io.ha.call(timingCall((performance.now() - started) / 1000)).catch(() => undefined);
-    this.cancelWake?.();
-    this.cancelWake = settled.wakeAt === undefined ? undefined
-      : this.io.timer(Math.min(LONGEST_WAIT_MS, Math.max(0, Math.round((settled.wakeAt - now) * 1000))), () => this.accept({ kind: 'wake' }));
+    return settled.wakeAt;
   }
 
   private async save(beliefs: Parameters<typeof saveBeliefs>[0]): Promise<void> {
