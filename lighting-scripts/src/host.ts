@@ -1,7 +1,7 @@
 /**
- * The host, a minimal wrapper with no lighting rule: it mirrors Home Assistant's states and registry, runs one turn
- * at a time, makes each turn's calls in order (each one's outcome back to the adapter, the journal saved where the
- * turn says), pauses while Home Assistant is out of reach, and keeps one timer for the wake. The rest is the adapter's.
+ * The host, a minimal wrapper with no lighting rule: it mirrors Home Assistant's states and registry, runs one turn at a
+ * time, makes each turn's calls in order (each one's outcome back to the adapter, the journal saved where the turn says),
+ * pauses while Home Assistant is out of reach, holding inputs until it is back, and keeps one timer for the wake.
  */
 import type { Catalog } from './adapter/codecs/catalog.ts';
 import type { HouseMirror } from './adapter/codecs/house.ts';
@@ -18,10 +18,7 @@ import type { Instant } from './domain/types/time.ts';
 import { toInstant } from './adapter/codecs/ids.ts';
 
 /** Where the reconciler's beliefs are kept across a restart: the journal's text, none before the first save. */
-export interface Journal {
-  load(): Promise<string | undefined>;
-  save(text: string): Promise<void>;
-}
+export type Journal = { load(): Promise<string | undefined>; save(text: string): Promise<void> };
 
 export type Log = { info(message: string): void; warn(message: string): void; error(message: string): void };
 
@@ -48,11 +45,9 @@ export class Host {
   private closed = false;
   /** The context ids of our recent calls, the turns run so far, the last one with a failed call, and whether one is calling. */
   private ownContexts: string[] = [];
-  private turns = 0;
-  private failedTurn = -1;
-  private calling = false;
-  /** Whether Home Assistant is in reach: while it is not, nothing is sent and no wake runs. */
-  private connected = true;
+  private turns = 0; private failedTurn = -1; private calling = false;
+  /** Whether Home Assistant is in reach: while it is not, nothing is sent, no wake runs, and inputs are held. */
+  private connected = true; private held: HaInput[] = [];
 
   private constructor(io: HostIo, mirror: HouseMirror, catalog: Catalog, kept: Kept) {
     this.io = io; this.mirror = mirror; this.catalog = catalog; this.kept = kept;
@@ -88,6 +83,7 @@ export class Host {
   }
 
   private async turn(input: HaInput): Promise<void> {
+    if (!this.connected && input.kind !== 'wake' && input.kind !== 'tick') this.held.push(input);
     if (this.closed || !this.connected) return;
     const now = this.io.clock();
     // A turn that throws still sets a wake, a little later, so the timer that started it is not the last one.
@@ -167,15 +163,19 @@ export class Host {
     this.enqueue(async () => { this.mirror = mergedRead(this.mirror, structuredClone(mirror), startedAt); });
   }
 
-  /** Home Assistant is back, or started again, with its house read afresh from `startedAt`: reconciled anew. */
+  /** Home Assistant is back, or started again, its house read afresh from `startedAt`: reconciled anew, then held inputs run. */
   reconnected(mirror: HouseMirror, startedAt: Instant): void {
     this.enqueue(async () => {
       this.mirror = mergedRead(this.mirror, structuredClone(mirror), startedAt);
       if (!this.connected) this.io.log.warn('lighting: Home Assistant is back; every bulb is reconciled again');
       this.connected = true;
       await this.turn({ kind: 'reconnected' });
+      for (const input of this.held.splice(0)) await this.turn(input);
     });
   }
+
+  /** Whether sends and wakes are paused, Home Assistant being out of reach or not yet read again. */
+  paused(): boolean { return !this.connected; }
 
   /** The house as the host holds it now. */
   house(): HouseMirror { return this.mirror; }

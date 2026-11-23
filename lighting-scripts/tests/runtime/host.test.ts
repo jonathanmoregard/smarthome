@@ -341,3 +341,22 @@ test('a save made as Home Assistant goes out of reach survives the reconnect and
     effect: 'none' }, "the lamps show the save, which the reconnect's read did not undo");
   await host.close();
 });
+
+test('a button pressed while Home Assistant is coming back is applied after the reconnect', async () => {
+  // Re-review 3. Break: the press arrives after the connection is up but before the reconnect has run, finds the
+  // host paused, and is dropped without a word.
+  const ha = new FakeHa(), now = { time: at('12:00:00') };
+  const host = await open(ha, new MemoryJournal(), now).host;
+  host.accept({ kind: 'started' });
+  await host.idle();
+  assert.equal(ha.states['bulb-a3']?.state, 'on');
+  host.disconnected();
+  now.time = at('12:01:00');
+  host.accept({ kind: 'remote command', data: { command: 'toggle', area: 'room-a', source: 'remote-a' } });
+  await host.idle();
+  assert.equal(ha.states['bulb-a3']?.state, 'on', 'nothing is sent while paused');
+  host.reconnected(ha.mirror(), now.time);
+  await host.idle();
+  assert.equal(ha.states['bulb-a3']?.state, 'off', 'the press was applied, after the reconnect');
+  await host.close();
+});
