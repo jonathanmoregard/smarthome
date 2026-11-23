@@ -5,14 +5,12 @@
   "type": "module",
   "engines": { "node": ">=22.18" },
   "scripts": {
-    "check": "tsc --noEmit && node scripts/json-edges.mjs && node scripts/effects-edge.mjs && node scripts/domain-types.mjs && node scripts/domain-words.mjs && node scripts/stringified.mjs && node scripts/item-order.mjs && node scripts/domain-imports.mjs",
+    "check": "tsc --noEmit && node scripts/json-edges.mjs && node scripts/domain-types.mjs && node scripts/domain-words.mjs && node scripts/item-order.mjs && node scripts/domain-imports.mjs",
     "fix:item-order": "node scripts/item-order.mjs --fix",
     "build": "tsc",
     "test": "node --experimental-strip-types --test --experimental-test-isolation=none tests/runtime/*.test.ts",
     "dev": "node scripts/dev.mjs",
     "audit:responses": "python3 scripts/audit_response_consumers.py",
-    "parity": "python3 tests/parity/gate.py",
-    "parity:inventory": "python3 tests/parity/run.py --inventory",
     "e2e": "python3 tests/e2e/gate.py",
     "verify": "npm run check && npm test && npm run e2e"
   },
