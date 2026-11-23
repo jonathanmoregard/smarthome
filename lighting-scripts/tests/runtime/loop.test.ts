@@ -217,6 +217,21 @@ test("a block light's save is written for any room its store names; a store that
   assert.match(turn.dropped ?? '', /input_text\.ls_nowhere\b/);
 });
 
+test('a profile save Home Assistant did not take is written again on the backoff, and once taken is not', () => {
+  // Review 3. Break: the Model takes the save and the next turn diffs it against itself, so the failed write is never
+  // made again, Home Assistant keeps the old profile and a restart loses the save; or a taken write is made again.
+  const house = new House();
+  house.turn('12:00:00', { kind: 'started' });
+  const store = 'input_text.ls_lamp_lamp_a2_day';
+  const written = (turn: Turn) => turn.outputs.flatMap(output => output.kind === 'store' && output.write.entity === store ? [output.write.text] : []);
+  const failed = house.turn('12:01:00', { kind: 'store saved', data: { store, on: false } }, output => output.kind === 'store');
+  assert.equal(written(failed).length, 1);
+  assert.equal(failed.wakeAt, Date.parse('2026-09-21T12:01:01Z') / 1000, 'woken after the first backoff');
+  const again = house.turn('12:01:01', { kind: 'wake' });
+  assert.deepEqual(written(again), written(failed));
+  assert.deepEqual(written(house.turn('12:01:02', { kind: 'wake' })), []);
+});
+
 // --- M4: the plug's own button, power-on, put-backs, retries ------------------------------------------------------
 
 const plugA = toSwitchId('switch.plug_a');

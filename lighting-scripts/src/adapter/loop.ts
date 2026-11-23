@@ -28,17 +28,32 @@ import type { HaInput, StoreSave } from './codecs/inputs.ts';
 import { decodeObserved } from './codecs/observed.ts';
 import type { Observed } from './reconcile.ts';
 import {
-  afterSend, backOn, forgotten, NO_BELIEFS, newlyParked, nextRetry, nextSends, reportedChanged, switchesSeen, unexplained,
+  afterSend, backOn, forgotten, NO_BELIEFS, newlyParked, nextRetry, nextSends, reportedChanged, RETRY_CAP, RETRY_FIRST, switchesSeen,
+  unexplained,
 } from './reconcile.ts';
 import type { Beliefs, Outcome, Send } from './reconcile.ts';
 import { configStoreWrite, dashboardWrites, modelWrites, uiSyncWrites } from './codecs/writes.ts';
 import type { ControlRow, StoreWrite } from './codecs/writes.ts';
 
 /**
- * What the adapter keeps between turns: the Model, what each bulb and switch was sent, the dashboard last shown, and
- * what the bulbs and switches reported at the last turn, which the next one reads changes against.
+ * What the adapter keeps between turns: the Model, the Model as Home Assistant has taken its writes (`confirmed`, what
+ * the next writes are read against, so a write that failed is made again), what each bulb and switch was sent, the
+ * dashboard last shown, what the bulbs and switches reported at the last turn, which the next one reads changes
+ * against, and the backoff of writes that failed.
  */
-export type AdapterState = { model: Model; beliefs: Beliefs; view: DashboardView | undefined; observed: Observed };
+export type AdapterState = {
+  model: Model; confirmed: Model; beliefs: Beliefs; view: DashboardView | undefined; observed: Observed;
+  writes: WritesRetry | undefined;
+};
+
+/** Writes Home Assistant did not take: how many turns in a row, and when they are made again. */
+export type WritesRetry = { attempts: number; retryAt: Instant };
+
+/** The writes' next try, on the sends' backoff: 1 s after the first failure, doubling up to 60 s. */
+function retryOf(previous: WritesRetry | undefined, now: Instant): WritesRetry {
+  const attempts = (previous?.attempts ?? 0) + 1;
+  return { attempts, retryAt: toInstant(now + Math.min(RETRY_CAP, RETRY_FIRST * 2 ** (attempts - 1))) };
+}
 
 /**
  * What the adapter has before a turn: the state it kept from the last turn, or, at the process's start, only the
@@ -56,6 +71,8 @@ export type Turn = {
   dropped: string | undefined;
   /** The outputs, by their place, after which the journal is saved: each bulb's publish, so a crash loses no send. */
   journalled: readonly number[];
+  /** The Model as Home Assistant held it before this turn's writes: what is kept as confirmed when one fails. */
+  writtenFrom: Model;
 };
 
 /** A send and the outputs that carry it, by their place in the turn's outputs: a bulb's publishes, a switch's call. */
@@ -76,6 +93,12 @@ export type Settled = { state: AdapterState; wakeAt: Instant | undefined; parked
  */
 export function afterOutputs(turn: Turn, failed: readonly boolean[]): Settled {
   let beliefs = turn.state.beliefs;
+  const lost = turn.outputs.filter((_, index) => failed[index] === true);
+  const modelLost = lost.some(output => output.kind === 'sensor' || output.kind === 'helper' || output.kind === 'store');
+  const controlLost = lost.some(output => output.kind === 'dashboard' && output.write.kind === 'control sync');
+  const writeLost = modelLost || lost.some(output => output.kind === 'dashboard');
+  const previous = turn.state.writes, view = turn.state.view;
+  const writes = writeLost ? retryOf(previous, turn.now) : failed.length < turn.outputs.length ? previous : undefined;
   for (const { send, carriedBy } of turn.sends) {
     if (carriedBy.some(index => index >= failed.length)) continue;
     const lost = carriedBy.flatMap(index => {
@@ -84,12 +107,16 @@ export function afterOutputs(turn: Turn, failed: readonly boolean[]): Settled {
     });
     beliefs = afterSend(beliefs, send, outcomeIn(send, lost), turn.now);
   }
-  const wakeAt = [turn.nextChange, nextRetry(beliefs, turn.now)].reduce<Instant | undefined>((first, at) =>
+  const wakeAt = [turn.nextChange, nextRetry(beliefs, turn.now), writes?.retryAt].reduce<Instant | undefined>((first, at) =>
     at === undefined || (first !== undefined && first <= at) ? first : at, undefined);
   const parked = newlyParked(turn.state.beliefs, beliefs);
   // A bulb given up on is most often switched off at the wall: said once, for the host's info log (owner, 2026-11-20).
   const notes = parked.map(bulb => `lighting: ${bulb} is parked: it does not take what it is sent; left until it comes back on or its light changes`);
-  return { state: { ...turn.state, beliefs }, wakeAt, parked, notes };
+  // A write that failed stays pending: the Model's are read against what Home Assistant took, and a control's channels
+  // are all sent again, as at a start, since which of them went is not known.
+  const state: AdapterState = { ...turn.state, beliefs, writes, confirmed: modelLost ? turn.writtenFrom : turn.state.confirmed,
+    view: controlLost && view !== undefined ? { ...view, controls: [] } : view };
+  return { state, wakeAt, parked, notes };
 }
 
 /** How a send went, from its outputs that failed: a switch's failed call is a failed send. */
@@ -107,8 +134,10 @@ function outcomeIn(send: Send, lost: readonly Output[]): Outcome {
 export function handleInput(kept: Kept, house: HouseView, input: HaInput): Turn {
   const state = kept.kind === 'running' ? kept.state : undefined;
   const now = toInstant(timestamp(house.now));
-  const before = state === undefined || input.kind === 'started' ? decodeModel(configSource(house), house.catalog)
-    : input.kind === 'helper changed' ? update(state.model, helpersRead(house, now)) : state.model;
+  const fresh = state === undefined || input.kind === 'started', read = input.kind === 'helper changed' ? helpersRead(house, now) : undefined;
+  const before = fresh ? decodeModel(configSource(house), house.catalog) : read === undefined ? state.model : update(state.model, read);
+  // What Home Assistant holds of the Model: the writes are read against it, so one that failed is made again.
+  const writtenFrom = fresh ? before : read === undefined ? state.confirmed : update(state.confirmed, read);
   // The clock runs first, and the input is read against what it leaves: a reset at this instant is already applied.
   const clocked = update(before, { kind: 'clock', now });
   // What changed since the last turn that no send of ours explains: a plug's own button is pressed first, then the input.
@@ -129,7 +158,7 @@ export function handleInput(kept: Kept, house: HouseView, input: HaInput): Turn 
   const model = saved === undefined || light === undefined || configWrite === undefined ? messaged
     : update(messaged, blockLightRead(light, saved.change, configWrite, messaged, house, now));
   const outputs: Output[] = [];
-  const written = modelWrites(before, model, house, now);
+  const written = modelWrites(writtenFrom, model, house, now);
   if (written.sensor !== undefined) outputs.push({ kind: 'sensor', write: written.sensor });
   for (const write of written.helpers) outputs.push({ kind: 'helper', write });
   for (const write of written.stores) outputs.push({ kind: 'store', write });
@@ -163,7 +192,8 @@ export function handleInput(kept: Kept, house: HouseView, input: HaInput): Turn 
     }
   }
   const journalled = outputs.flatMap((output, index) => output.kind === 'publish' ? [index] : []);
-  return { state: { model, beliefs, view, observed }, outputs, sends: sending, now, nextChange: nextChange(model, now), dropped, journalled };
+  const next: AdapterState = { model, confirmed: model, beliefs, view, observed, writes: state?.writes };
+  return { state: next, outputs, sends: sending, now, nextChange: nextChange(model, now), dropped, journalled, writtenFrom };
 }
 
 /** The config and the profiles read again from the helpers, as the message `update` takes them. */
