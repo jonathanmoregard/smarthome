@@ -28,7 +28,7 @@ import type { BlockPosition, Stage, StageEnd } from './schedule.ts';
 import { switchPower } from './switches.ts';
 import type { LampId, RoomId } from './types/ids.ts';
 import { entriesOf } from './types/ids.ts';
-import type { LightingState } from './types/lighting-state.ts';
+import type { LampOrRoom, LightingState } from './types/lighting-state.ts';
 import type { Brightness, Colour, LampLight, Level, RGB, SceneLight, Transition } from './types/light.ts';
 import {
   blendPositionOrThrow, brightnessOrThrow, colourChannelOrThrow, instantOrThrow, levelOrThrow, progressOrThrow, secondsOrThrow,
@@ -205,6 +205,10 @@ function fallbackColour(config: Config, subject: Subject, room: RoomId | undefin
   return undefined;
 }
 
+function colourOf(light: SceneLight | undefined): Colour | undefined {
+  return light === undefined || light.power === 'off' ? undefined : light.colour;
+}
+
 /**
  * When the room's schedule last started `block`, at or before `now`, looking
  * back one cycle of blocks. A block the schedule did not start in that cycle
@@ -220,10 +224,6 @@ function lastStart(config: Config, room: RoomId | undefined, block: Block, now: 
     position = blockPosition(config, room, instantOrThrow(position.currentSince - 1));
   }
   return current.currentSince;
-}
-
-function colourOf(light: SceneLight | undefined): Colour | undefined {
-  return light === undefined || light.power === 'off' ? undefined : light.colour;
 }
 
 /** A remote step's place on the blend, and the level it was placed from (the dim-below-cosy rule reads it). */
@@ -250,7 +250,9 @@ type Change =
   | { kind: 'colour'; part: ColourOverlay }
   | { kind: 'effect'; part: EffectOverlay }
   | { kind: 'step'; step: RemoteAdjustment; range: StepRange }
-  | { kind: 'off'; at: Instant };
+  | { kind: 'off'; at: Instant }
+  /** A person's or a control's light, set at the overlay's `since`: it ends an older off, even with no part of its own (a plain switch-on). */
+  | { kind: 'on'; at: Instant };
 
 /**
  * Every part the overlays set, oldest first. On a tie an effect comes after a
@@ -260,10 +262,8 @@ type Change =
 function changesOf(lamps: readonly LampOverlay[], remote: RemoteOverlay | undefined): Change[] {
   const changes: Change[] = [];
   for (const overlay of lamps) {
-    if (overlay.kind === 'off') {
-      changes.push({ kind: 'off', at: overlay.since });
-      continue;
-    }
+    changes.push({ kind: overlay.kind === 'off' ? 'off' : 'on', at: overlay.since });
+    if (overlay.kind === 'off') continue;
     if (overlay.brightness !== undefined) changes.push({ kind: 'brightness', part: overlay.brightness });
     if (overlay.colour !== undefined) changes.push({ kind: 'colour', part: overlay.colour });
     if (overlay.effect !== undefined) changes.push({ kind: 'effect', part: overlay.effect });
@@ -298,7 +298,7 @@ function remoteChanges(remote: RemoteOverlay): Change[] {
 function setAt(change: Change): Instant {
   switch (change.kind) {
     case 'step': return change.step.at;
-    case 'off': return change.at;
+    case 'off': case 'on': return change.at;
     default: return change.part.at;
   }
 }
@@ -306,6 +306,23 @@ function setAt(change: Change): Instant {
 function sameSteps(a: RemoteAdjustment, b: RemoteAdjustment): boolean {
   return a.steps === b.steps && a.lower === b.lower && a.upper === b.upper && a.from === b.from && a.at === b.at
     && a.lastPress === b.lastPress && a.everBrighter === b.everBrighter;
+}
+
+/**
+ * What a lamp or a room shows under its overlays, before the mode overlay and
+ * an effect's own colour: what choosing the normal light pins (today's `held`,
+ * its colour `underlyingColour`). Undefined where it shows off, which has no
+ * level or colour to pin.
+ */
+export type Pinned = { brightness: Brightness; colour: Colour | undefined };
+
+export function pinnedLight(model: Model, over: LampOrRoom, now: Instant): Pinned | undefined {
+  return over.kind === 'lamp' ? lampShown(model, over.lamp, now, pinnedOf) : roomShown(model, over.room, now).pinned;
+}
+
+function pinnedOf(...args: Parameters<typeof foldedLight>): Pinned | undefined {
+  const { shown, off } = foldedLight(...args);
+  return off || shown.brightness === undefined ? undefined : { brightness: shown.brightness, colour: shown.colour };
 }
 
 /**
@@ -339,6 +356,11 @@ export function lightingState(model: Model, now: Instant): LightingState {
 }
 
 function lampLight(model: Model, lamp: LampId, now: Instant): LampLight {
+  return lampShown(model, lamp, now, shownLight);
+}
+
+/** A lamp through its stage and overlays, as `show` gives it; a fade out of a hold starts from its held light. */
+function lampShown<T>(model: Model, lamp: LampId, now: Instant, show: (...args: Parameters<typeof foldedLight>) => T): T {
   const config = model.config;
   const room = roomOfLamp(config, lamp);
   const position = blockPosition(config, room, now);
@@ -350,10 +372,10 @@ function lampLight(model: Model, lamp: LampId, now: Instant): LampLight {
     const held = sceneOf(shownLight(model, subject, still(heldAt), heldAt, before, room, now, undefined));
     const into = position.fade.into;
     const fade: Stage = { from: { kind: 'held light' }, into: { kind: 'block', block: into }, progress: position.fade.progress, moving: true };
-    return shownLight(model, subject, fade, into, on, room, now, held);
+    return show(model, subject, fade, into, on, room, now, held);
   }
   const stage = on.block === undefined ? roomStage(config, room, position, now) : still(on.block);
-  return shownLight(model, subject, stage, blockAt(stage.from, position.current), on, room, now, undefined);
+  return show(model, subject, stage, blockAt(stage.from, position.current), on, room, now, undefined);
 }
 
 /** The room a lamp is in, where the config holds that room; a lamp in no room, or one the config does not hold, follows the house. */
@@ -373,18 +395,25 @@ function sceneOf(light: LampLight): SceneLight {
  * power. `block` is the block the lamp is in (the mode overlay does nothing at
  * night); `held` is the held light a fade out of a hold starts from.
  */
-function shownLight(model: Model, subject: Subject, stage: Stage, block: Block, overlays: AppliedOverlays, room: RoomId | undefined,
-  now: Instant, held: SceneLight | undefined): LampLight {
+function shownLight(...args: Parameters<typeof foldedLight>): LampLight {
+  const [, subject, stage, block, overlays] = args;
+  const { shown, off } = foldedLight(...args);
+  if (off || shown.brightness === undefined) return OFF;
+  const warmColour: Colour = { kind: 'rgb', rgb: subject.warmEnd };
+  const colour = overlays.mode && block !== 'night' ? MODE_COLOUR : shown.warmColour ? warmColour : shown.colour;
+  const transition = stage.moving ? FADE_STEP : MANUAL;
+  return { power: 'on', level: levelOf(shown.brightness), colour, effect: shown.effect, transition };
+}
+
+/** The stage's light with every overlay part folded over it, and whether the lamp is off: held off, unlit, or its room switched off. */
+function foldedLight(model: Model, subject: Subject, stage: Stage, block: Block, overlays: AppliedOverlays, room: RoomId | undefined,
+  now: Instant, held: SceneLight | undefined): { shown: Shown; off: boolean } {
   const staged = stageLight(stage, subject.lightIn, held);
   const base = staged.power === 'on' && staged.colour === undefined
     ? { ...staged, colour: fallbackColour(model.config, subject, room, block, now) } : staged;
   const shown = fold(base, changesOf(overlays.lamps, overlays.remote), subject);
   const lit = shown.lit === undefined ? base.power === 'on' : shown.lit;
-  if (shown.off || !lit || (room !== undefined && model.overlays.roomPower[room] === 'off') || shown.brightness === undefined) return OFF;
-  const warmColour: Colour = { kind: 'rgb', rgb: subject.warmEnd };
-  const colour = overlays.mode && block !== 'night' ? MODE_COLOUR : shown.warmColour ? warmColour : shown.colour;
-  const transition = stage.moving ? FADE_STEP : MANUAL;
-  return { power: 'on', level: levelOf(shown.brightness), colour, effect: shown.effect, transition };
+  return { shown, off: shown.off || !lit || (room !== undefined && model.overlays.roomPower[room] === 'off') };
 }
 
 /** The light a stage shows: held, the destination; moving, part way between its ends. A missing light is off. */
@@ -417,6 +446,8 @@ function fold(base: SceneLight, changes: readonly Change[], subject: Subject): S
     switch (change.kind) {
       case 'off':
         shown = { ...shown, off: true };
+        break;
+      case 'on':
         break;
       case 'brightness':
         shown = { ...shown, brightness: change.part.kind === 'fixed' ? change.part.brightness : baseBrightness, lit: undefined };
@@ -495,7 +526,9 @@ function blockAt(end: StageEnd, otherwise: Block): Block {
 }
 
 /** A room's own light (the house's, for `house`), and where it places each of its remote's steps on its blend. */
-function roomShown(model: Model, scope: RoomOrHouse, now: Instant): { light: RoomLight; placed: ReadonlyMap<RemoteAdjustment, Placed> } {
+function roomShown(model: Model, scope: RoomOrHouse, now: Instant): {
+  light: RoomLight; placed: ReadonlyMap<RemoteAdjustment, Placed>; pinned: Pinned | undefined;
+} {
   const config = model.config;
   const room = scope === 'house' ? undefined : scope;
   const position = blockPosition(config, room, now);
@@ -519,7 +552,8 @@ function roomShown(model: Model, scope: RoomOrHouse, now: Instant): { light: Roo
   const off = !lit || (room !== undefined && model.overlays.roomPower[room] === 'off') || shown.brightness === undefined;
   const switchStage: RoomLight['stage'] = stage.moving ? { moving: true } : { moving: false, block: blockAt(stage.into, position.current) };
   const light: RoomLight['light'] = off || shown.brightness === undefined ? OFF : { power: 'on', brightness: shown.brightness };
-  return { light: { stage: switchStage, light }, placed };
+  const pinned = off || shown.off || shown.brightness === undefined ? undefined : { brightness: shown.brightness, colour: shown.colour };
+  return { light: { stage: switchStage, light }, placed, pinned };
 }
 
 /**

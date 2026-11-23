@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
-import type { Model, Msg, OverlayRequest, RemoteModel, RequestedLight } from '../../src/domain/model.ts';
-import type { BrightnessOverlay, ColourOverlay, LampOverlay, LampOverlayParts, ModeOverlay, RemotePreset } from '../../src/domain/overlays.ts';
+import type { ControlLight, Model, Msg, OverlayRequest, RemoteModel, RequestedLight } from '../../src/domain/model.ts';
+import type { BrightnessOverlay, ColourOverlay, LampOverlay, ModeOverlay, RemotePreset } from '../../src/domain/overlays.ts';
 import type { LampLight, SceneLight } from '../../src/domain/types/light.ts';
 import { entriesOf } from '../../src/domain/types/ids.ts';
 import { toBrightness, toDashboardControlId, toInstant, toKelvin, toLevel, toPercentRange } from '../../src/parse/ids.ts';
@@ -58,7 +58,7 @@ const oneOfEach = {
   clock: { kind: 'clock', now },
   configChanged: { kind: 'configChanged', config: house.config, at: now },
   overlayRequested: { kind: 'overlayRequested', request: oneRequestOfEach['hold block'], at: now },
-  lampChangedByPerson: { kind: 'lampChangedByPerson', lamps: [lampA1],
+  lampChangedByPerson: { kind: 'lampChangedByPerson', lamps: [lampA1], rooms: [],
     light: { power: 'on', brightness: toBrightness(80), colour: undefined, effect: undefined }, at: now },
   remotePressed: { kind: 'remotePressed', remote: remoteA, press: { kind: 'command', command: 'up' }, at: now },
   remoteButtonPressed: { kind: 'remoteButtonPressed', remote: remoteA, button: { kind: 'preset', button: 'warmest' }, at: now },
@@ -161,17 +161,18 @@ test('the types refuse what the domain does not allow', () => {
   const candleBrightness: BrightnessOverlay = { kind: 'candle', at: now };
   // @ts-expect-error the candle is the effect part, not a kind of colour
   const candleColour: ColourOverlay = { kind: 'candle', at: now };
-  // @ts-expect-error a person's request names at least one part
-  const nothingRequested: RequestedLight = { power: 'on', brightness: undefined, colour: undefined, effect: undefined };
+  // @ts-expect-error a person asks for the candle or the normal light, never the schedule's effect
+  const scheduleRequested: RequestedLight = { power: 'on', brightness: undefined, colour: undefined, effect: { kind: 'schedule' } };
   // @ts-expect-error a person's off has no level, colour or effect
   const offWithLevel: RequestedLight = { power: 'off', brightness: toBrightness(80) };
   const offOverlayLevel: LampOverlay = { kind: 'off', over: { kind: 'lamp', lamp: lampA1 }, from: { kind: 'person' }, since: now,
     // @ts-expect-error an off overlay holds no level, colour or effect (owner, 2026-11-23)
     brightness: { kind: 'fixed', brightness, at: now } };
-  // @ts-expect-error a dashboard request names at least one part
-  const noParts: LampOverlayParts = { brightness: undefined, colour: undefined, effect: undefined };
-  // @ts-expect-error a dashboard request carries no instants: update stamps them
-  const stamped: LampOverlayParts = { brightness: { kind: 'fixed', brightness, at: now }, colour: undefined, effect: undefined };
+  // @ts-expect-error a dashboard off has no level, colour or effect
+  const controlOffLevel: ControlLight = { power: 'off', brightness: { kind: 'schedule' } };
+  const stamped: ControlLight = { power: 'on',
+    // @ts-expect-error a dashboard request carries no instants: update stamps them
+    brightness: { kind: 'fixed', brightness, at: now }, colour: undefined, effect: undefined };
   const asPerson: OverlayRequest = {
     kind: 'dashboard control', control: toDashboardControlId('control-a'), over: { kind: 'lamp', lamp: lampA1 },
     light: { power: 'on', brightness: undefined, colour: undefined, effect: { kind: 'normal' } },
@@ -185,5 +186,5 @@ test('the types refuse what the domain does not allow', () => {
   // @ts-expect-error an inactive mode overlay has no since
   const inactive: ModeOverlay = { active: false, since: now };
   assert.equal([offScene, offEffect, litNoEffect, offLamp, offColour, dayPreset, candleUnsaid, candleNight, fixed, candleBrightness,
-    candleColour, nothingRequested, offWithLevel, offOverlayLevel, noParts, stamped, asPerson, chordForever, fourPresses, inactive].length, 20);
+    candleColour, scheduleRequested, offWithLevel, offOverlayLevel, controlOffLevel, stamped, asPerson, chordForever, fourPresses, inactive].length, 20);
 });

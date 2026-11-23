@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { candle, normal } from '../../src/domain/effect.ts';
 import { lightingState, MODE_COLOUR } from '../../src/domain/lighting-state.ts';
-import type { Model, Msg, OverlayRequest } from '../../src/domain/model.ts';
+import type { Model, Msg, OverlayRequest, RequestedLight } from '../../src/domain/model.ts';
 import { clearRoom } from '../../src/domain/overlays.ts';
 import { update } from '../../src/domain/update.ts';
-import type { LampId } from '../../src/domain/types/ids.ts';
+import type { LampId, RoomId } from '../../src/domain/types/ids.ts';
 import type { Colour, LampLight, OnLight } from '../../src/domain/types/light.ts';
 import type { Instant } from '../../src/domain/types/time.ts';
 import {
@@ -60,9 +60,13 @@ const plug = (model: Model, now: Instant) => lightingState(model, now).switches[
 
 const requested = (request: OverlayRequest, time: string): Msg => ({ kind: 'overlayRequested', request, at: at(time) });
 const clock = (time: string, day = 21): Msg => ({ kind: 'clock', now: at(time, day) });
-const brightness = (lamps: readonly LampId[], value: number, time: string): Msg =>
-  ({ kind: 'lampChangedByPerson', lamps, light: { power: 'on', brightness: toBrightness(value), colour: undefined, effect: undefined }, at: at(time) });
-const personOff = (lamps: readonly LampId[], time: string): Msg => ({ kind: 'lampChangedByPerson', lamps, light: { power: 'off' }, at: at(time) });
+/** A person's call: the lamps it reaches, and the rooms it named whole (an area, or a group covering the room). */
+const person = (lamps: readonly LampId[], light: RequestedLight, time: string, rooms: readonly RoomId[] = []): Msg =>
+  ({ kind: 'lampChangedByPerson', lamps, rooms, light, at: at(time) });
+const brightness = (lamps: readonly LampId[], value: number, time: string, rooms: readonly RoomId[] = []): Msg =>
+  person(lamps, { power: 'on', brightness: toBrightness(value), colour: undefined, effect: undefined }, time, rooms);
+const personOff = (lamps: readonly LampId[], time: string, rooms: readonly RoomId[] = []): Msg => person(lamps, { power: 'off' }, time, rooms);
+const PLAIN_ON: RequestedLight = { power: 'on', brightness: undefined, colour: undefined, effect: undefined };
 const pressed = (power: 'on' | 'off', time: string): Msg => ({ kind: 'switchButtonPressed', switch: plugA, power, at: at(time) });
 const control = (light: Extract<OverlayRequest, { kind: 'dashboard control' }>['light'], time: string, over = onLamp(lampA1)) =>
   requested({ kind: 'dashboard control', control: controlX, over, light }, time);
@@ -124,18 +128,24 @@ test("a person's brightness change holds the lamp and switches its room on", () 
 });
 
 test("a person's change of a whole room is one room overlay", () => {
-  // Break: one overlay per lamp, or the room overlay reaches the other room.
-  const model = after(house(), brightness([lampA1, lampA2], 60, '12:00:00'));
+  // The call named the room (an area or a group covering it). Break: one overlay per lamp, or the room overlay reaches the other room.
+  const model = after(house(), brightness([lampA1, lampA2], 60, '12:00:00', [roomA]));
   assert.deepEqual(model.overlays.lamps.map(overlay => overlay.over), [{ kind: 'room', room: roomA }]);
   assert.deepEqual(lamp(model, lampA1, at('12:00:00')), shows(60, kelvin(4000)));
   assert.deepEqual(lamp(model, lampA2, at('12:00:00')), shows(60, kelvin(4000)));
   assert.deepEqual(lamp(model, lampB1, at('12:00:00')), DAY);
 });
 
+test("a call naming each lamp of a room is one overlay per lamp, as today", () => {
+  // Only a named area or group gives a room overlay (today's roomScopes). Break: the lamps are folded into a room overlay.
+  const model = after(house(), brightness([lampA1, lampA2], 60, '12:00:00'), brightness([lampB1], 60, '12:00:00'));
+  assert.deepEqual(model.overlays.lamps.map(overlay => overlay.over), [onLamp(lampA1), onLamp(lampA2), onLamp(lampB1)]);
+  assert.deepEqual(lamp(model, lampA1, at('12:00:00')), shows(60, kelvin(4000)));
+});
+
 test("a person's second change of a lamp keeps the part the first set", () => {
   // Today's ls_commit merges the channels of one native key. Break: the newer change replaces the older one whole.
-  const colour: Msg = { kind: 'lampChangedByPerson', lamps: [lampA2], at: at('12:10:00'),
-    light: { power: 'on', brightness: undefined, colour: kelvin(3000), effect: undefined } };
+  const colour = person([lampA2], { power: 'on', brightness: undefined, colour: kelvin(3000), effect: undefined }, '12:10:00');
   const model = after(house(), brightness([lampA2], 80, '12:00:00'), colour);
   assert.equal(model.overlays.lamps.length, 1);
   assert.deepEqual(lamp(model, lampA2, at('12:10:00')), shows(80, kelvin(3000)));
@@ -148,15 +158,30 @@ test("a person's brightness change on a candle lamp keeps the candle", () => {
   assert.deepEqual(lamp(model, lampA1, at('12:10:00')), shows(60, WARM_END, candle));
 });
 
-test("a person's change to the normal light hands both parts back to the schedule and ends the candle", () => {
-  // Break: the held level or colour stays, or the candle keeps running.
-  const candleAt60: Msg = { kind: 'lampChangedByPerson', lamps: [lampA1], at: at('12:00:00'),
-    light: { power: 'on', brightness: toBrightness(60), colour: undefined, effect: 'Candle' } };
-  const toNormal: Msg = { kind: 'lampChangedByPerson', lamps: [lampA1], at: at('12:10:00'),
-    light: { power: 'on', brightness: undefined, colour: undefined, effect: 'Normal' } };
+test("a person's change to the normal light pins the level and colour the lamp shows, and ends the candle", () => {
+  // Today's `held` (review ruling): a dimmed candle switched to the normal light stays dim, at the colour under the
+  // candle, and stays there. Break: the parts are handed back to the schedule, or the candle keeps running.
+  const candleAt60 = person([lampA1], { power: 'on', brightness: toBrightness(60), colour: undefined, effect: { kind: 'candle' } }, '12:00:00');
+  const toNormal = person([lampA1], { power: 'on', brightness: undefined, colour: undefined, effect: { kind: 'normal' } }, '12:10:00');
   const model = after(house(), candleAt60);
   assert.deepEqual(lamp(model, lampA1, at('12:00:00')), shows(60, WARM_END, candle));
-  assert.deepEqual(lamp(after(model, toNormal), lampA1, at('12:10:00')), DAY);
+  const normalLight = after(model, toNormal);
+  assert.deepEqual(lamp(normalLight, lampA1, at('12:10:00')), shows(60, kelvin(4000)));
+  const pinned = normalLight.overlays.lamps[0];
+  assert.deepEqual(pinned?.kind === 'parts' ? [pinned.brightness, pinned.colour, pinned.effect] : undefined, [
+    { kind: 'fixed', brightness: toBrightness(60), at: at('12:10:00') },
+    { kind: 'fixed', colour: kelvin(4000), at: at('12:10:00') },
+    { kind: 'normal', at: at('12:10:00') },
+  ]);
+});
+
+test('the normal light on a lamp that shows off hands both parts back to the schedule', () => {
+  // Today's `held`: an off lamp has no level and no colour to pin. Break: a level or colour is invented for it.
+  const model = after(house(m => { m.overlays.roomPower[roomA] = 'off'; }),
+    person([lampA2], { power: 'on', brightness: undefined, colour: undefined, effect: { kind: 'normal' } }, '12:00:00'));
+  const pinned = model.overlays.lamps[0];
+  assert.deepEqual(pinned?.kind === 'parts' ? [pinned.brightness, pinned.colour] : undefined,
+    [{ kind: 'schedule', at: at('12:00:00') }, { kind: 'schedule', at: at('12:00:00') }]);
 });
 
 // A person's off (owner, 2026-11-23).
@@ -174,15 +199,14 @@ test("a person's off replaces their earlier light, and a later light replaces th
   // Carry-over 1.5. Break: two person overlays pile up on the lamp, or the off keeps the old parts.
   const off = after(house(), brightness([lampA2], 80, '12:00:00'), personOff([lampA2], '12:10:00'));
   assert.deepEqual(off.overlays.lamps, [{ kind: 'off', over: onLamp(lampA2), from: { kind: 'person' }, since: at('12:10:00') }]);
-  const relit = after(off, { kind: 'lampChangedByPerson', lamps: [lampA2], at: at('12:20:00'),
-    light: { power: 'on', brightness: undefined, colour: kelvin(3000), effect: undefined } });
+  const relit = after(off, person([lampA2], { power: 'on', brightness: undefined, colour: kelvin(3000), effect: undefined }, '12:20:00'));
   assert.equal(relit.overlays.lamps.length, 1);
   assert.deepEqual(lamp(relit, lampA2, at('12:20:00')), shows(220, kelvin(3000)));
 });
 
 test("a person's off of a whole room is one room overlay, released by the next block", () => {
   // Break: the room off is per lamp, or outlives the cosy fade start at 16:45.
-  const model = after(house(), personOff([lampA1, lampA2], '12:00:00'));
+  const model = after(house(), personOff([lampA1, lampA2], '12:00:00', [roomA]));
   assert.deepEqual(model.overlays.lamps.map(overlay => [overlay.kind, overlay.over]), [['off', { kind: 'room', room: roomA }]]);
   assert.deepEqual(lamp(model, lampA1, at('12:00:00')), OFF);
   assert.deepEqual(lamp(model, lampA2, at('20:00:00')), shows(90, ORANGE));
@@ -194,6 +218,28 @@ test("a dashboard control's off holds the lamp off like a person's", () => {
     '12:00:00'), control({ power: 'off' }, '12:10:00'));
   assert.deepEqual(lamp(model, lampA1, at('12:10:00')), OFF);
   assert.deepEqual(model.overlays.lamps, [{ kind: 'off', over: onLamp(lampA1), from: { kind: 'dashboard', control: controlX }, since: at('12:10:00') }]);
+});
+
+test("a person's plain switch-on ends their off and switches the room on", () => {
+  // Review ruling (open question 1, A). Break: the lamp stays held off, or the room's power stays off.
+  const model = after(house(m => { m.overlays.roomPower[roomA] = 'off'; }), personOff([lampA2], '12:00:00'), person([lampA2], PLAIN_ON, '12:10:00'));
+  assert.deepEqual(lamp(model, lampA2, at('12:10:00')), DAY);
+  assert.deepEqual(model.overlays.roomPower, { [roomA]: 'on' });
+});
+
+test('switching one lamp of a room held off back on leaves the others off', () => {
+  // Break: the plain switch-on ends the whole room's off, or does not reach the lamp under the room's off.
+  const model = after(house(), personOff([lampA1, lampA2], '12:00:00', [roomA]), person([lampA2], PLAIN_ON, '12:10:00'));
+  assert.deepEqual(lamp(model, lampA2, at('12:10:00')), DAY);
+  assert.deepEqual(lamp(model, lampA1, at('12:10:00')), OFF);
+});
+
+test("the dashboard's power on does the same, over a person's off too", () => {
+  // Review ruling: the dashboard's ON maps to the plain switch-on. Break: the person's off survives the control's ON.
+  const model = after(house(m => { m.overlays.roomPower[roomA] = 'off'; }), personOff([lampA1], '12:00:00'),
+    control({ power: 'on', brightness: undefined, colour: undefined, effect: undefined }, '12:10:00'));
+  assert.deepEqual(lamp(model, lampA1, at('12:10:00')), DAY);
+  assert.deepEqual(model.overlays.roomPower, { [roomA]: 'on' });
 });
 
 // Dashboard controls.
@@ -370,7 +416,7 @@ test('a reset of its room releases it', () => {
   const reset = clearRoom(held, roomA);
   assert.deepEqual(reset.overlays.switches, {});
   assert.deepEqual(reset.overlays.blocks, {});
-  assert.deepEqual(reset.overlays.lamps.map(overlay => overlay.over), [{ kind: 'room', room: roomB }]);
+  assert.deepEqual(reset.overlays.lamps.map(overlay => overlay.over), [onLamp(lampB1)]);
   assert.equal(plug(reset, at('12:10:00')), 'off');
   assert.deepEqual(lamp(reset, lampA2, at('12:10:00')), DAY);
 });

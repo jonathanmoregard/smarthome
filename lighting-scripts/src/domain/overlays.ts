@@ -136,12 +136,6 @@ export type ColourPart = { kind: 'fixed'; colour: Colour } | { kind: 'schedule' 
  */
 export type EffectPart = { kind: 'candle' } | { kind: 'normal' } | { kind: 'schedule' };
 
-/** The parts a dashboard control sets, before `update` stamps them: at least one. */
-export type LampOverlayParts =
-  | { brightness: BrightnessPart; colour: ColourPart | undefined; effect: EffectPart | undefined }
-  | { brightness: undefined; colour: ColourPart; effect: EffectPart | undefined }
-  | { brightness: undefined; colour: undefined; effect: EffectPart };
-
 /** The mode overlay: one colour on every lamp outside private rooms and outside the night block. */
 export type ModeOverlay = { active: false } | { active: true; since: Instant };
 

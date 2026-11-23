@@ -1,7 +1,7 @@
 import type { Block } from './blocks.ts';
 import type { Config } from './config.ts';
 import type { EffectName } from './effect.ts';
-import type { LampOverlayParts, ModeOverlay, Overlays } from './overlays.ts';
+import type { BrightnessPart, ColourPart, EffectPart, ModeOverlay, Overlays } from './overlays.ts';
 import type { DashboardControlId, LampId, RemoteId, RoomId, SwitchId } from './types/ids.ts';
 import type { Brightness, Colour, PercentRange, Power, SceneLight } from './types/light.ts';
 import type { LampOrRoom } from './types/lighting-state.ts';
@@ -75,7 +75,11 @@ export type Msg =
   | { kind: 'clock'; now: Instant }
   | { kind: 'configChanged'; config: Config; at: Instant }
   | { kind: 'overlayRequested'; request: OverlayRequest; at: Instant }
-  | { kind: 'lampChangedByPerson'; lamps: readonly LampId[]; light: RequestedLight; at: Instant }
+  /**
+   * A person's HA call: every lamp it reaches, and the rooms it named whole (an
+   * area, or a group holding every lamp of the room: today's `roomScopes`).
+   */
+  | { kind: 'lampChangedByPerson'; lamps: readonly LampId[]; rooms: readonly RoomId[]; light: RequestedLight; at: Instant }
   /** A command a remote's gestures (or another caller) send for its room. */
   | { kind: 'remotePressed'; remote: RemoteId; press: RemotePress; at: Instant }
   /** A raw button press; `at` starts the chord and power-burst windows. */
@@ -96,18 +100,26 @@ export type OverlayRequest =
   /** A room control's power: switches the room off or on. */
   | { kind: 'room power'; room: RoomId; power: Power };
 
-/** What a dashboard control sets: parts of the light, or the lamp or room off (a hold, as a person's off is). */
-export type ControlLight = { power: 'off' } | ({ power: 'on' } & LampOverlayParts);
+/**
+ * What a dashboard control sets: the lamp or room off (a hold, as a person's
+ * off is), or on with the parts it names. Switched on with no part, it ends
+ * the off holds there and switches the room on, as a person's plain switch-on does.
+ */
+export type ControlLight =
+  | { power: 'off' }
+  | { power: 'on'; brightness: BrightnessPart | undefined; colour: ColourPart | undefined; effect: EffectPart | undefined };
 
 /**
- * What a person's HA call set: off, or a brightness, a colour, the candle or
- * the normal light, at least one part.
+ * What a person's HA call set: off, or on with a brightness, a colour, the
+ * candle or the normal light. Switched on with none of them (a plain
+ * `turn_on`), it ends the off holds there and switches the room on.
  */
 export type RequestedLight =
   | { power: 'off' }
-  | { power: 'on'; brightness: Brightness; colour: Colour | undefined; effect: EffectName | undefined }
-  | { power: 'on'; brightness: undefined; colour: Colour; effect: EffectName | undefined }
-  | { power: 'on'; brightness: undefined; colour: undefined; effect: EffectName };
+  | { power: 'on'; brightness: Brightness | undefined; colour: Colour | undefined; effect: RequestedEffect | undefined };
+
+/** The effect a person's call can choose: the candle, or the normal light. */
+export type RequestedEffect = Extract<EffectPart, { kind: 'candle' } | { kind: 'normal' }>;
 
 /**
  * A save from a lamp's profile for one block, as today's `ls_store` takes it:

@@ -17,7 +17,7 @@ export function update(model: Model, msg: Msg): Model {
     case 'clock': return resetsDue(model, msg.now);
     case 'configChanged': return { ...model, config: msg.config };
     case 'overlayRequested': return overlayRequested(model, msg.request, msg.at);
-    case 'lampChangedByPerson': return personChanged(model, msg.lamps, msg.light, msg.at);
+    case 'lampChangedByPerson': return personChanged(model, msg.lamps, msg.rooms, msg.light, msg.at);
     case 'remotePressed': return model;
     case 'remoteButtonPressed': return model;
     case 'switchButtonPressed': return switchButtonPressed(model, msg.switch, msg.power, msg.at);
