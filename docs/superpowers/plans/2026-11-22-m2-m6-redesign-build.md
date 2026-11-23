@@ -448,6 +448,13 @@ Controller, not a worker.
    2. M3: `types/remote.ts` drops `sara_toggle`, `pressText` and the `unknown` press (the adapter drops unknown presses); key remotes by `RemoteId`, not the wire `RemoteSource`.
    3. M5: `blocks.ts` `blockOption` (an input_select label) and `UserId` leave the domain; `parseCatalog` lands in `src/adapter/codecs/catalog.ts`; extend `json-edges.mjs` to check `src/adapter` outside `codecs/`, and `domain-imports.mjs` to catch `import('…')` type references.
 
+6. **M2 layer check (Fable, 2026-11-23).**
+   1. Before M3 T3 deletes legacy on/off (handlers/controller.ts:122): `reconcile.ts` sends nothing to a bulb that reports off. That is the adapter deciding WHAT. A person's off must become domain state, and the reconciler then skips only unreachable bulbs and a disconnected bridge. The shape waits on an owner question (a person's off in HA: a hold released by resets / today's "stays off" / a hold until switched on); M3 T1 carries the answer.
+   2. M3 T1: `lighting-state.ts:396-415` tests `=== 'Candle'` for "holds the warm colour" and "ignores remote steps". Make both properties of the `Effect` interface before the remote builds on `overlaysOn`.
+   3. M3 T3: the `mqtt.publish` and switch `homeassistant.turn_*` calls built in `show.ts` move into `encode.ts`; `SavedOverlayKey` and `PowerTarget` (`types/ids.ts`) move to `codecs/overlay-key.ts` / legacy.
+   4. M3 (with 5.2): the remote tie-break in `lighting-state.ts:110` sorts by the wire `RemoteSource`; key by `RemoteId`.
+   5. M5 (with 5.3): `observed.ts` and `bulb-groups.ts` read HA/catalog JSON outside `codecs/`; `codecs/config.ts` imports `MqttTopic` from `encode.ts`.
+
 ## Self-review notes
 
 1. Spec coverage: section 3 → M2 Tasks 1 and 2, M3 Tasks 1 and 2; section 4 → M1, M3 Task 3, M5 (journal), M6 Task 1 (4.4); section 5.1 and 5.2 → M3 Task 3; 5.3 → M2 Task 3 and M4; 5.4 → M6 Task 1; section 6 → M1 Task 1 (the flow gate replaces exact comparison and fuzzing by the owner's later decisions); section 7 → the milestones here.
