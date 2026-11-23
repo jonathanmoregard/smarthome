@@ -41,7 +41,8 @@
  */
 import { ParseError, describe, requireArray, requireBoolean, requireObject, requireString } from './parse.ts';
 import type { JsonObject, JsonValue } from '../ha-client.ts';
-import type { BulbId, Id, LampId, RemoteId, RemoteSource } from '../../domain/types/ids.ts';
+import type { BulbId, Id, LampId, RemoteId } from '../../domain/types/ids.ts';
+import type { RemoteSource } from './ids.ts';
 import { toBulbId, toLampId, toRemoteId, toRemoteSource } from './ids.ts';
 
 /**

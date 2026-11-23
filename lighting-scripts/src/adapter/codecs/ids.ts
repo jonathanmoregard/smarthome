@@ -8,7 +8,7 @@
  * parse step already checked about the string still holds, and nothing is
  * added. Whether an id names something the registry knows is a later, named unit.
  */
-import type { BulbId, DashboardControlId, Id, LampId, RemoteId, RemoteSource, RoomId, SwitchId, UserId } from '../../domain/types/ids.ts';
+import type { BulbId, DashboardControlId, Id, LampId, RemoteId, RoomId, SwitchId } from '../../domain/types/ids.ts';
 import type { SavedOverlayKey } from './overlay-key.ts';
 import type { CatalogEffectName } from './catalog.ts';
 import type { Brightness, BrightnessStep, ColourChannel, Kelvin, Level, Percent, PercentRange } from '../../domain/types/light.ts';
@@ -22,6 +22,36 @@ import {
   percentRangeOrThrow, PERCENT_BOUNDS, progressOrThrow, secondsOrThrow, stepCountOrThrow, stepOrThrow, STEP_BOUNDS, timeOfDayOrThrow,
 } from '../../domain/types/range.ts';
 import { ParseError } from './parse.ts';
+
+/** A Home Assistant user, as an event's `user_id` names them. */
+export type UserId = Id<'UserId'>;
+
+export function toUserId(raw: string): UserId {
+  // Cast: the edge read this string as a user; this is the one place that says so.
+  return raw as UserId;
+}
+
+/**
+ * A remote's source, as its input's overlay key carries it
+ * (`channels:<source>`). Never begins `ui:` or `native:`, the prefixes of a
+ * dashboard or native control's key, so the key reads back as the remote's.
+ * Unlike the other ids, its constructor checks that.
+ */
+export type RemoteSource = Id<'RemoteSource'>;
+
+/*
+ * The overlay key ids. These two check: each refuses the text another overlay
+ * key's shape claims, so `overlayKeyText` and `parseOverlayKey` stay exact
+ * inverses (`src/domain/types/overlay.ts`).
+ */
+
+export function toRemoteSource(raw: string): RemoteSource {
+  if (raw.startsWith('ui:') || raw.startsWith('native:')) {
+    throw new ParseError(`A remote source must not begin 'ui:' or 'native:' (a dashboard or native control's key), got ${raw}`);
+  }
+  // Cast: checked just above; this is the one place a string becomes a remote source.
+  return raw as RemoteSource;
+}
 
 /** A Zigbee2MQTT command topic: a bulb's (`zigbee2mqtt/<bulb>/set`) or a Zigbee group's. */
 export type MqttTopic = Id<'MqttTopic'>;
@@ -56,11 +86,6 @@ export function toRemoteId(raw: string): RemoteId {
   return raw as RemoteId;
 }
 
-export function toUserId(raw: string): UserId {
-  // Cast: the edge read this string as a user; this is the one place that says so.
-  return raw as UserId;
-}
-
 export function toCatalogEffectName(raw: string): CatalogEffectName {
   // Cast: the edge read this string as a catalog effect; this is the one place that says so.
   return raw as CatalogEffectName;
@@ -69,20 +94,6 @@ export function toCatalogEffectName(raw: string): CatalogEffectName {
 export function toDashboardControlId(raw: string): DashboardControlId {
   // Cast: the edge read this string as a dashboard control; this is the one place that says so.
   return raw as DashboardControlId;
-}
-
-/*
- * The overlay key ids. These two check: each refuses the text another overlay
- * key's shape claims, so `overlayKeyText` and `parseOverlayKey` stay exact
- * inverses (`src/domain/types/overlay.ts`).
- */
-
-export function toRemoteSource(raw: string): RemoteSource {
-  if (raw.startsWith('ui:') || raw.startsWith('native:')) {
-    throw new ParseError(`A remote source must not begin 'ui:' or 'native:' (a dashboard or native control's key), got ${raw}`);
-  }
-  // Cast: checked just above; this is the one place a string becomes a remote source.
-  return raw as RemoteSource;
 }
 
 export function toSavedOverlayKey(raw: string): SavedOverlayKey {

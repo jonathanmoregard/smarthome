@@ -109,7 +109,7 @@
   "ceilings": [
     {
       "file": "src/domain/blocks.ts",
-      "ceiling": 2,
+      "ceiling": 1,
       "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls."
     }
   ]

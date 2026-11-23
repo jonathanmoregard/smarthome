@@ -1,4 +1,5 @@
-import type { Id, RemoteId, RemoteSource } from '../../domain/types/ids.ts';
+import type { Id, RemoteId } from '../../domain/types/ids.ts';
+import type { RemoteSource } from './ids.ts';
 import type { Catalog } from './catalog.ts';
 import { toRemoteSource, toSavedOverlayKey } from './ids.ts';
 import { ParseError } from './parse.ts';

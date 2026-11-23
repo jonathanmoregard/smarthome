@@ -19,17 +19,8 @@ export type BulbId = Id<'BulbId'>;
 export type SwitchId = Id<'SwitchId'>;
 /** A remote: the remote control's Home Assistant device id. */
 export type RemoteId = Id<'RemoteId'>;
-/** A Home Assistant user, as an event's `user_id` names them. */
-export type UserId = Id<'UserId'>;
 /** A dashboard control: one control whose lamp overlay it sets, one overlay per control. */
 export type DashboardControlId = Id<'DashboardControlId'>;
-/**
- * A remote's source, as its input's overlay key carries it
- * (`channels:<source>`). Never begins `ui:` or `native:`, the prefixes of a
- * dashboard or native control's key, so the key reads back as the remote's.
- * Unlike the other ids, its constructor checks that.
- */
-export type RemoteSource = Id<'RemoteSource'>;
 
 
 /**

@@ -10,7 +10,7 @@
  */
 import { isDeepStrictEqual } from 'node:util';
 import { BLOCKS } from '../../domain/blocks.ts';
-import { blockOption } from '../../domain/blocks.ts';
+import type { Block } from '../../domain/blocks.ts';
 import type { ControlShown, DashboardView } from '../../domain/dashboard.ts';
 import type { Model } from '../../domain/model.ts';
 import { savedLampProfile } from '../../domain/profiles.ts';
@@ -219,6 +219,13 @@ export function dashboardWrites(before: DashboardView | undefined, after: Dashbo
   }
   return writes;
 }
+
+/** The `input_select.ls_<room>_override` option label for a block: the oracle's `| capitalize`. */
+export function blockOption(block: Block): string {
+  return OPTION[block];
+}
+
+const OPTION: Record<Block, string> = { day: 'Day', cosy: 'Cosy', night: 'Night' };
 
 function storeText(house: HouseView, entity: string): string {
   const state = house.state[entity];

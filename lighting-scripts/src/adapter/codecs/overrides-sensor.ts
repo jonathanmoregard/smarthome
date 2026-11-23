@@ -27,7 +27,8 @@ import type {
   BlockOverlay, BrightnessOverlay, ColourOverlay, EffectOverlay, HeldBlock, LampOverlay, ModeOverlay, Overlays, PresetChoice, RememberedPreset,
   RemoteAdjustment, RemoteOverlay, RemotePreset, StepRange, SwitchOverlay,
 } from '../../domain/overlays.ts';
-import type { RemoteId, RemoteSource, RoomId, SwitchId } from '../../domain/types/ids.ts';
+import type { RemoteId, RoomId, SwitchId } from '../../domain/types/ids.ts';
+import type { RemoteSource } from './ids.ts';
 import { entriesOf } from '../../domain/types/ids.ts';
 import type { Colour, PercentRange, Power } from '../../domain/types/light.ts';
 import { overlayKeyText, SARA_MODE } from './overlay-key.ts';
