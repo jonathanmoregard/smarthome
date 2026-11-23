@@ -331,7 +331,7 @@ test('saving a range rule changes when the switch is on', () => {
   // Day's 86 % is outside 20..60 and inside 80..90. Break: the saved rule is not the one the switch reads.
   const model = house();
   assert.equal(plug(model, at('12:00:00')), 'off');
-  const saved = after(model, { kind: 'rangeSaved', switch: plugA, rule: { kind: 'custom', range: toPercentRange(80, 90) }, at: at('12:00:00') });
+  const saved = after(model, { kind: 'rangeSaved', switch: plugA, rule: { kind: 'custom', range: toPercentRange(80, 90) }, room: roomA, at: at('12:00:00') });
   assert.equal(plug(saved, at('12:00:00')), 'on');
 });
 
@@ -420,7 +420,7 @@ test('a switch\'s own button holds it over its range rule across the next clock'
 test('a range save for that switch does not release it', () => {
   // Break: saving the rule clears the switch overlay.
   const model = after(house(), pressed('on', '12:00:00'),
-    { kind: 'rangeSaved', switch: plugA, rule: { kind: 'cosy' }, at: at('12:10:00') });
+    { kind: 'rangeSaved', switch: plugA, rule: { kind: 'cosy' }, room: roomA, at: at('12:10:00') });
   assert.equal(plug(model, at('12:10:00')), 'on');
 });
 
@@ -468,4 +468,36 @@ test('a config change is taken whole', () => {
   const model = after(house(), { kind: 'configChanged', config, at: at('12:00:00') });
   assert.equal(model.config, config);
   assert.deepEqual(lamp(model, lampA2, at('12:00:00')), shows(100, kelvin(5000)));
+});
+
+// M3 T3 carry-overs: a first range save, and overlays the next-block reset released.
+
+test('a first range save for a switch the config does not hold takes it into its room', () => {
+  // A plug with no on/off label and no saved rule is no switch of the house until its first range save; the
+  // save names its room. Break: the save is kept but the plug is never switched (it stays out of the config).
+  const fresh = toSwitchId('switch.plug_new');
+  const model = after(house(), { kind: 'rangeSaved', switch: fresh, rule: { kind: 'custom', range: toPercentRange(80, 90) }, room: roomA,
+    at: at('12:00:00') });
+  assert.equal(lightingState(model, at('12:00:00')).switches[fresh], 'on');
+});
+
+test('an overlay the next-block reset released leaves the model once its fade is over', () => {
+  // room-a fades into its cosy from 16:45 to 17:30. Today's stale-key clear removed a released overlay once the
+  // room was out of the fade, never inside it, where the lamp still fades out of it. Break: the overlay stays in
+  // the model after the fade, or leaves it inside the fade, or its going changes what the lamp shows.
+  const nextBlockOnly = () => house(m => { m.config.overlayReset = { ...m.config.overlayReset, afterAge: undefined }; });
+  const held = after(nextBlockOnly(), brightness([lampA2], 50, '12:00:00'), { kind: 'modeToggled', on: true, at: at('12:00:00') });
+  const fading = after(held, clock('16:50:00'));
+  assert.equal(fading.overlays.lamps.length, 1);
+  const done = after(fading, clock('17:31:00'));
+  assert.deepEqual(done.overlays.lamps, []);
+  assert.deepEqual(done.modeOverlay, { active: false });
+  assert.deepEqual(lightingState(done, at('17:31:00')), lightingState(after(nextBlockOnly(), clock('17:31:00')), at('17:31:00')));
+});
+
+test('with the next-block rule off a released overlay stays in the model', () => {
+  // Break: the removal ignores the rule.
+  const off = house(m => { m.config.overlayReset = { ...m.config.overlayReset, atNextBlock: false, afterAge: undefined }; });
+  const model = after(off, brightness([lampA2], 50, '12:00:00'), clock('17:31:00'));
+  assert.equal(model.overlays.lamps.length, 1);
 });

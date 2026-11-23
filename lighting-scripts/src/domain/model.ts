@@ -113,7 +113,12 @@ export type Msg =
   | { kind: 'remoteButtonPressed'; remote: RemoteId; button: RemoteButton; anyOn: boolean; at: Instant }
   | { kind: 'switchButtonPressed'; switch: SwitchId; power: Power; at: Instant }
   | { kind: 'modeToggled'; on: boolean; at: Instant }
-  | { kind: 'rangeSaved'; switch: SwitchId; rule: RangeRule; at: Instant }
+  /**
+   * A switch's range rule saved from the dashboard. `room` is the room Home
+   * Assistant has the switch in: a plug with no on/off label is a switch of the
+   * house from its first range save on, in that room.
+   */
+  | { kind: 'rangeSaved'; switch: SwitchId; rule: RangeRule; room: RoomId | undefined; at: Instant }
   | { kind: 'rangeDefaultsSaved'; defaults: RangeDefaults; at: Instant }
   | { kind: 'lampProfileSaved'; lamp: LampId; block: Block; change: LampProfileChange; at: Instant }
   | { kind: 'switchProfileSaved'; switch: SwitchId; block: Block; change: SwitchProfileChange; at: Instant };

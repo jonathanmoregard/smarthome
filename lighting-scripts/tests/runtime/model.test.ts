@@ -65,7 +65,7 @@ const oneOfEach = {
   rangeDefaultsSaved: { kind: 'rangeDefaultsSaved', defaults: { bright: toPercentRange(80, 100), cosy: toPercentRange(20, 50) }, at: now },
   switchButtonPressed: { kind: 'switchButtonPressed', switch: switchA, power: 'off', at: now },
   modeToggled: { kind: 'modeToggled', on: false, at: now },
-  rangeSaved: { kind: 'rangeSaved', switch: switchA, rule: { kind: 'bright' }, at: now },
+  rangeSaved: { kind: 'rangeSaved', switch: switchA, rule: { kind: 'bright' }, room: undefined, at: now },
   lampProfileSaved: { kind: 'lampProfileSaved', lamp: lampA1, block: 'cosy', at: now,
     change: { own: false, power: undefined, brightness: undefined, colour: undefined, effect: undefined } },
   switchProfileSaved: { kind: 'switchProfileSaved', switch: switchA, block: 'day', change: { own: true, power: 'off' }, at: now },

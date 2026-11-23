@@ -78,10 +78,14 @@ export function switchButtonPressed(model: Model, pressed: SwitchId, power: Powe
 /**
  * A switch's range rule saved from the dashboard (today's `range_set`, after
  * `decideRangeSave`'s checks, which read Home Assistant's devices and stay at
- * the edge). A switch overlay on it stays.
+ * the edge). A switch overlay on it stays. A plug the config does not hold yet
+ * (no on/off label, no rule before) becomes one of the house's switches, in
+ * the room the save names, as reading the config again would make it.
  */
-export function rangeSaved(model: Model, saved: SwitchId, rule: RangeRule): Model {
-  return { ...model, switchRanges: { ...model.switchRanges, [saved]: rule } };
+export function rangeSaved(model: Model, saved: SwitchId, rule: RangeRule, room: RoomId | undefined): Model {
+  const switches = model.config.switches[saved] === undefined
+    ? { ...model.config.switches, [saved]: { room, onOff: false } } : model.config.switches;
+  return { ...model, config: { ...model.config, switches }, switchRanges: { ...model.switchRanges, [saved]: rule } };
 }
 
 /** The bright and cosy default ranges saved (today's `range_defaults`, sent only when both are valid, which their type is). */

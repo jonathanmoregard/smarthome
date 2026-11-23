@@ -241,6 +241,49 @@ export function resetsDue(model: Model, now: Instant): Model {
   };
 }
 
+/**
+ * The overlays the next-block reset has released, removed once the fade that
+ * released them is over: today's stale-key clear, which took an overlay out of
+ * the store when it was set at or before its scope's last fade start and the
+ * scope was not fading. Inside the fade a lamp still fades out of what held
+ * it, so the overlay stays until then. A lamp's overlay is measured on its
+ * room (the house's, for a lamp in no room), a block or room overlay on its
+ * own scope, a remote's on its room, a switch's on its room as the range rule
+ * reads it, and the mode overlay on every room outside the private ones. With
+ * the next-block rule off nothing is removed.
+ */
+export function releasedAtNextBlock(model: Model, now: Instant): Model {
+  const { config, overlays, modeOverlay } = model;
+  if (!config.overlayReset.atNextBlock) return model;
+  const placed = (room: RoomId | undefined) => room !== undefined && config.rooms[room] !== undefined ? room : undefined;
+  const released = (room: RoomId | undefined, since: Instant) => {
+    const position = blockPosition(config, placed(room), now);
+    return position.lastFadeStart !== undefined && since <= position.lastFadeStart && position.fade === undefined;
+  };
+  const lampRoom = (over: LampOrRoom) => over.kind === 'room' ? over.room : config.lamps[over.lamp]?.room;
+  // A block over a room the config does not hold is measured on the house, as `blockPosition` reads such a room.
+  const roomNamed = (scope: string) => entriesOf(config.rooms).find(([room]) => room === scope)?.[0];
+  const blocks: Overlays['blocks'] = Object.fromEntries(Object.entries(overlays.blocks).flatMap(([scope, overlay]) =>
+    overlay === undefined || released(roomNamed(scope), overlay.since) ? [] : [[scope, overlay]]));
+  const switches = { ...overlays.switches };
+  for (const [id, overlay] of entriesOf(overlays.switches)) {
+    if (overlay !== undefined && released(config.switches[id]?.room, overlay.since)) delete switches[id];
+  }
+  const shared = entriesOf(config.rooms).flatMap(([room, placedRoom]) => placedRoom.private ? [] : [room]);
+  const modeReleased = modeOverlay.active && shared.length > 0 && shared.every(room => released(room, modeOverlay.since));
+  return {
+    ...model,
+    overlays: {
+      ...overlays,
+      blocks,
+      remotes: overlays.remotes.filter(remote => !released(remote.room, remote.since)),
+      lamps: overlays.lamps.filter(overlay => !released(lampRoom(overlay.over), overlay.since)),
+      switches,
+    },
+    modeOverlay: modeReleased ? { active: false } : modeOverlay,
+  };
+}
+
 /** The mode overlay switched on or off (today's mode switch); switching it on again keeps when it started. */
 export function setModeOverlay(model: Model, on: boolean, now: Instant): Model {
   if (on === model.modeOverlay.active) return model;
