@@ -8,6 +8,10 @@
  * it before it is deployed. A helper a person edits at run time recovers to a
  * named default and never raises (2026-11-21). Helper names are built here,
  * from the room and the block, and appear nowhere in `src/domain/`.
+ *
+ * One write is foreseen here rather than waited for: a block light's save, as
+ * the helpers will show it, so the lamps move in the turn of the save
+ * (`blockLightSaved`, Amendment 7.2).
  */
 import { BLOCKS } from '../../domain/blocks.ts';
 import type { Block } from '../../domain/blocks.ts';
@@ -15,6 +19,7 @@ import type {
   BlockSchedule, BlockTiming, Config, Lamp, OverlayReset, OwnOrHouse, Remote, Room, RoomBlock, Schedule, Switch, WakeLight,
 } from '../../domain/config.ts';
 import type { BulbInfo } from '../../domain/effect.ts';
+import type { LampProfileChange } from '../../domain/model.ts';
 import type { BulbId, LampId, RemoteId, RoomId, SwitchId } from '../../domain/types/ids.ts';
 import type { Colour, RGB, SceneLight } from '../../domain/types/light.ts';
 import type { Minutes } from '../../domain/types/range.ts';
@@ -26,6 +31,7 @@ import type { MqttTopic } from '../encode.ts';
 import type { Catalog } from '../../runtime/catalog.ts';
 import type { EntityState, JsonValue } from '../../runtime/context.ts';
 import { ParseError, isObject, parseFinite } from '../../runtime/parse.ts';
+import { decodeLampProfile } from './lamp-profiles.ts';
 import type { Rooms } from './rooms.ts';
 
 /** The HA state the config is read from: each helper's state and attributes, the registry's rooms, the labels. */
@@ -232,6 +238,36 @@ function bulbInfo(catalog: Catalog, bulb: BulbId): BulbInfo {
 function perBlock<T>(make: (block: Block) => T): Record<Block, T> {
   const [day, cosy, night] = BLOCKS;
   return { day: make(day), cosy: make(cosy), night: make(night) };
+}
+
+/**
+ * The helper states as Home Assistant shows them once a block's light is
+ * saved: `store` holds `text`, and the template light over it (the store's
+ * name in the `light` domain, where Home Assistant has one) shows the power,
+ * level and colour the save set, the rest as it was. A light switched on that
+ * reports no level or colour takes the store's, as the template reads it. The
+ * config read from these is the one the helper echo brings a turn later.
+ */
+export function blockLightSaved(states: Readonly<Record<string, EntityState>>, store: string, text: string,
+  change: LampProfileChange): Record<string, EntityState> {
+  const found = states[store];
+  const saved: Record<string, EntityState> = { ...states, [store]: { attributes: found === undefined ? {} : found.attributes, state: text } };
+  const entity = store.replace(/^input_text\./, 'light.'), light = states[entity];
+  if (light === undefined) return saved;
+  const own = decodeLampProfile(text).own, kept = own.power === 'on' ? own.light : own.remembered;
+  const shown = light.attributes;
+  const brightness = change.brightness !== undefined ? change.brightness
+    : parseFinite(shown['brightness']) === undefined ? kept.brightness : undefined;
+  const colour = change.colour !== undefined ? change.colour : decodeColour(light) === undefined ? kept.colour : undefined;
+  const colourShown = colour === undefined ? {} : colour.kind === 'kelvin'
+    ? { color_mode: 'color_temp', color_temp_kelvin: colour.kelvin }
+    : { color_mode: 'rgb', rgb_color: [colour.rgb.red, colour.rgb.green, colour.rgb.blue] };
+  saved[entity] = {
+    ...light,
+    state: change.power === undefined ? light.state : change.power,
+    attributes: { ...shown, ...brightness === undefined ? {} : { brightness }, ...colourShown },
+  };
+  return saved;
 }
 
 /** A lit light's colour when it reports one: kelvin in the colour-temperature mode, else its rgb triple. */

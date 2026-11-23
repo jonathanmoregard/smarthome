@@ -174,6 +174,23 @@ test('a helper change reaches the lighting state the same turn, through the conf
   assert.equal(turn.outputs.some(output => output.kind === 'store'), false);
 });
 
+test("a block light's save moves the lamps in the same turn, and Home Assistant's echo moves nothing", () => {
+  // Amendment 7.2. Break: the save is written to its store and the lamps wait for the helper echo a turn later, or
+  // the echo, read again, comes to a different light and moves them twice.
+  const house = new House();
+  house.turn('12:00:00', { kind: 'started' });
+  const store = 'input_text.ls_house_day';
+  const saved = house.turn('12:01:00', { kind: 'store saved', data: { store, brightness: 100, kelvin: 2500 } });
+  const writes = saved.outputs.flatMap(output => output.kind === 'store' && output.write.entity === store ? [output.write.text] : []);
+  assert.deepEqual(writes.map(text => JSON.parse(text)), [{ b: 100, m: 'ct', k: 2500 }]);
+  for (const bulb of ['bulb-a2', 'bulb-b1'] as BulbId[]) {
+    assert.deepEqual(shows(house, bulb), { power: 'on', level: 100, colour: { kind: 'kelvin', kelvin: 2500 }, effect: 'none' }, bulb);
+  }
+  house.states[store] = { state: writes[0]!, attributes: {} };
+  house.states['light.ls_house_day'] = { state: 'on', attributes: { brightness: 100, color_mode: 'color_temp', color_temp_kelvin: 2500 } };
+  assert.deepEqual(publishesOf(house.turn('12:01:05', { kind: 'helper changed' })), []);
+});
+
 // --- M4: the plug's own button, power-on, put-backs, retries ------------------------------------------------------
 
 const plugA = toSwitchId('switch.plug_a');

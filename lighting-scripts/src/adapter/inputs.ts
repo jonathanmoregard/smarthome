@@ -494,8 +494,8 @@ function storeSaveOf(data: JsonObject): StoreSave {
 /**
  * A lamp's or a plug's store save is its profile for the block, saved through
  * the Model; a plug's save keeps only `own` and `on`. Any other store is a
- * config helper (a block's light), which the loop writes as it is and the
- * config reads back: no message.
+ * config helper (a block's light), which the loop writes as it is and reads
+ * as the config the helpers will hold: no message here.
  */
 function profileSaved(save: StoreSave, model: Model, now: Instant): Msg[] {
   const found = profileStoreOf(save.store, model);

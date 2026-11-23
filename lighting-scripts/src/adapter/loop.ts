@@ -19,12 +19,12 @@ import { timestamp } from '../parse/accessors.ts';
 import type { HouseView } from '../runtime/effects.ts';
 import { ParseError } from '../runtime/parse.ts';
 import { bulbGroups } from './bulb-groups.ts';
-import { bulbTopics } from './codecs/config.ts';
+import { blockLightSaved, bulbTopics, decodeConfig } from './codecs/config.ts';
 import { configSource, decodeModel } from './codecs/model.ts';
 import { publishes } from './encode.ts';
 import type { Publish } from './encode.ts';
 import { controlOver, messages, profileStoreOf, storeSaveIn, uiRowsOf, unexplainedMessages } from './inputs.ts';
-import type { HaInput } from './inputs.ts';
+import type { HaInput, StoreSave } from './inputs.ts';
 import { decodeObserved } from './observed.ts';
 import type { Observed } from './observed.ts';
 import { afterSend, backOn, forgotten, NO_BELIEFS, newlyParked, nextRetry, nextSends, switchesSeen, unexplained } from './reconcile.ts';
@@ -73,21 +73,26 @@ export function handleInput(state: AdapterState | undefined, house: HouseView, i
   const clocked = update(before, { kind: 'clock', now });
   // What changed since the last turn that no send of ours explains: a plug's own button is pressed first, then the input.
   const changed = state === undefined ? [] : unexplained(state.observed, decodeObserved(house.state, clocked.config), state.beliefs);
-  let own: Msg[] = unexplainedMessages(changed, now), dropped: string | undefined;
+  let own: Msg[] = unexplainedMessages(changed, now), dropped: string | undefined, saved: StoreSave | undefined;
   try {
     own = [...own, ...messages(input, clocked, now, house), ...rangeDefaultsMessages(input, house, now)];
+    saved = storeSaveIn(input, house);
   } catch (error) {
     if (!(error instanceof ParseError)) throw error;
     dropped = `${input.kind}: ${error.message}`;
   }
-  const model = own.reduce(update, clocked);
+  // A block light's save (a store that is no lamp's or plug's profile) is written as it is, and goes through `update`
+  // as the config the helpers will hold once it lands, so the lamps move in this turn and not on the echo.
+  const configWrite = saved === undefined || profileStoreOf(saved.store, clocked) !== undefined ? undefined : configStoreWrite(saved, house);
+  const messaged = own.reduce(update, clocked);
+  const model = saved === undefined || configWrite === undefined ? messaged
+    : update(messaged, blockLightRead(saved, configWrite, messaged, house, now));
   const outputs: Output[] = [];
   const written = modelWrites(before, model, house, now);
   if (written.sensor !== undefined) outputs.push({ kind: 'sensor', write: written.sensor });
   for (const write of written.helpers) outputs.push({ kind: 'helper', write });
   for (const write of written.stores) outputs.push({ kind: 'store', write });
-  const save = dropped === undefined ? storeSaveIn(input, house) : undefined;
-  if (save !== undefined && profileStoreOf(save.store, model) === undefined) outputs.push({ kind: 'store', write: configStoreWrite(save, house) });
+  if (configWrite !== undefined) outputs.push({ kind: 'store', write: configWrite });
 
   const lighting = lightingState(model, now);
   const rows = controlRows(model, house);
@@ -114,6 +119,13 @@ export function handleInput(state: AdapterState | undefined, house: HouseView, i
   const wakeAt = [nextChange(model, now), nextRetry(beliefs, now)].reduce<Instant | undefined>((first, at) =>
     at === undefined || (first !== undefined && first <= at) ? first : at, undefined);
   return { state: { model, beliefs, view, observed }, outputs, wakeAt, dropped, parked: newlyParked(sending, beliefs) };
+}
+
+/** A block light's save as the config the helpers will hold once it lands; the profiles stay as the Model has them. */
+function blockLightRead(save: StoreSave, write: StoreWrite, model: Model, house: HouseView, now: Instant): Msg {
+  const states = blockLightSaved(house.state, save.store, write.text, save.change);
+  const config = decodeConfig({ ...configSource(house), states }, house.catalog);
+  return { kind: 'configChanged', config, lampProfiles: model.lampProfiles, switchProfiles: model.switchProfiles, at: now };
 }
 
 /** The config and the profiles read again from the helpers, as the message `update` takes them. */
