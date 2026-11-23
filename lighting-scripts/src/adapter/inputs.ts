@@ -35,7 +35,7 @@ import {
 } from '../parse/ids.ts';
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { HouseView } from '../runtime/effects.ts';
-import { ParseError, isObject, jinjaString, object, requireString } from '../runtime/parse.ts';
+import { ParseError, isObject, jinjaString, object, requireBoolean, requireString } from '../runtime/parse.ts';
 import { configSource, reportsOn } from './codecs/model.ts';
 import { callColour, callReach } from './native-call.ts';
 
@@ -184,8 +184,11 @@ function optionalText(value: JsonValue | undefined): string | undefined {
 function overlayEvent(data: JsonObject, model: Model, now: Instant, house: HouseView): Msg[] {
   switch (data.op) {
     case 'clear_all': return [{ kind: 'overlayRequested', request: { kind: 'clear all' }, at: now }];
-    case 'power': return [{ kind: 'overlayRequested', at: now,
-      request: { kind: 'room power', room: toRoomId(requireString(data, 'area', 'ls_override')), power: data.on === true ? 'on' : 'off' } }];
+    case 'power': {
+      const room = toRoomId(requireString(data, 'area', 'ls_override'));
+      const power: Power = requireBoolean(data.on, 'ls_override.on') ? 'on' : 'off';
+      return [{ kind: 'overlayRequested', request: { kind: 'room power', room, power }, at: now }];
+    }
     case 'set': return (Array.isArray(data.records) ? data.records : []).flatMap((raw): Msg[] => {
       const record = object(raw);
       if (record.kind === 'mode' && record.target === 'sara') return [{ kind: 'modeToggled', on: true, at: now }];

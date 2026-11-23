@@ -143,6 +143,19 @@ test('a remote\'s action is a press, with what its room reports', () => {
     [{ kind: 'remoteButtonPressed', remote: remoteA, button: { kind: 'power' }, anyOn: false, at: NOW }]);
 });
 
+test('a dashboard power message whose on is not a boolean is dropped, not read as off', () => {
+  // Break: `on` is read as `data.on === true`, so an absent or unreadable one switches the room off.
+  const house = houseView(states(), NOW_TEXT);
+  const power = (on: JsonObject) => ({ kind: 'overlay event', data: { op: 'power', area: roomA, ...on } } as const);
+  for (const bad of [{}, { on: 'on' }, { on: 1 }, { on: null }, { on: 'true' }]) {
+    assert.throws(() => messages(power(bad), modelOf(house), NOW, house), ParseError, JSON.stringify(bad));
+  }
+  assert.deepEqual(messages(power({ on: false }), modelOf(house), NOW, house),
+    [{ kind: 'overlayRequested', request: { kind: 'room power', room: roomA, power: 'off' }, at: NOW }]);
+  assert.deepEqual(messages(power({ on: true }), modelOf(house), NOW, house),
+    [{ kind: 'overlayRequested', request: { kind: 'room power', room: roomA, power: 'on' }, at: NOW }]);
+});
+
 test('a helper change re-reads the config', () => {
   const before = states();
   const first = handleInput(undefined, houseView(before, NOW_TEXT), { kind: 'started' });
