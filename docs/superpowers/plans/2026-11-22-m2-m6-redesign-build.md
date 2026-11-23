@@ -454,6 +454,11 @@ Controller, not a worker.
    3. M3 T3: the `mqtt.publish` and switch `homeassistant.turn_*` calls built in `show.ts` move into `encode.ts`; `SavedOverlayKey` and `PowerTarget` (`types/ids.ts`) move to `codecs/overlay-key.ts` / legacy.
    4. M3 (with 5.2): the remote tie-break in `lighting-state.ts:110` sorts by the wire `RemoteSource`; key by `RemoteId`.
    5. M5 (with 5.3): `observed.ts` and `bulb-groups.ts` read HA/catalog JSON outside `codecs/`; `codecs/config.ts` imports `MqttTopic` from `encode.ts`.
+7. **M3 layer check (Fable, 2026-11-23). Verdict: layers match, with listed drifts; nothing blocks M4.**
+   1. Fix before M4 (M3 close-out): a helper change swaps `config` and profiles in `adapter/loop.ts` outside `update`, and `configChanged` (`domain/model.ts`) is never sent: route it through `update`. In `adapter/inputs.ts`, `data.on === true ? 'on' : 'off'` reads an unreadable `on` as off: raise `ParseError`.
+   2. M4 T1: a brightness step is resolved in the adapter (`inputs.ts`, from the first lamp only): `RequestedLight` carries fixed or step, resolved in `personChanged`. A block-light store save is written straight to HA and lamps follow only on the helper echo: route it through `update`. Range defaults read from `input_number.*` in `loop.ts`: move the read to a codec.
+   3. M5 T1 (with 6.5): HA readers and writers outside `codecs/`/`encode.ts` in `inputs.ts`, `native-call.ts`, `writes.ts`, `turn.ts`. Profile editors shown from HA state, not `dashboardView`; `controlOver` moves into `Config`, dropping `dashboardView`'s fourth argument. `HaInput` carries `JsonObject` and plain strings and is parsed twice: use branded fields. `turn.ts` module-level state and the wake rule move to the host. `UserId` and `RemoteSource` leave `domain/types/ids.ts`. The automation alias ids listed in `runtime/registry.ts` come from config, not source.
+   4. Notes: `lighting-state.ts` split seams: applied overlays; parts and remote steps; `nextChange`; replace the eight positional arguments with one record. Typing to revisit: `switches.ts` writes `Config`; `model.ts` mirrors `ls_store`; `anyOn` keeps observed state in the Model; `config.ts` has a three-state `boolean | undefined`. M6: `runtime/live-rooms.ts` re-parses inputs; read them from `HaInput`.
 
 ## Self-review notes
 
