@@ -17,8 +17,8 @@ import type { Block } from './blocks.ts';
 import { blend, OFF_END_LEVEL, roundEven } from './blend.ts';
 import type { BlendPosition } from './blend.ts';
 import type { Config } from './config.ts';
-import { effectNamed } from './effect.ts';
-import type { EffectName } from './effect.ts';
+import { candle, effectNamed, normal } from './effect.ts';
+import type { Effect } from './effect.ts';
 import type { Model } from './model.ts';
 import type {
   BlockOverlay, BrightnessOverlay, ColourOverlay, EffectOverlay, LampOverlay, RemoteAdjustment, RemoteOverlay, StepRange,
@@ -155,7 +155,8 @@ type Subject = {
   lightIn: (block: Block) => SceneLight | undefined;
   /** The two ends of the remote's blend. */
   ends: BlendEnds;
-  canRunCandle: boolean;
+  /** Some bulb of the subject can run the effect. */
+  canRun: (effect: Effect) => boolean;
   warmEnd: RGB;
   /** Where a remote step places the subject on its blend, from the level it shows; undefined where it cannot be placed. */
   place: (step: RemoteAdjustment, range: StepRange, level: Brightness | undefined) => Placed | undefined;
@@ -169,12 +170,11 @@ function lampSubject(model: Model, lamp: LampId, room: RoomId | undefined, now: 
     return profile !== undefined && profile.follows === 'own' ? profile.light : blockLight(config, room, block);
   };
   const ends = { day: lightIn('day'), cosy: lightIn('cosy') };
-  const candle = effectNamed('Candle');
   const bulbs = config.lamps[lamp]?.bulbs;
   return {
     lightIn,
     ends,
-    canRunCandle: bulbs !== undefined && bulbs.some(bulb => candle.canRunOn(bulb)),
+    canRun: effect => bulbs !== undefined && bulbs.some(bulb => effect.canRunOn(bulb)),
     warmEnd: config.warmEnd,
     // Rule 4: the room places each step from its own level, and every lamp of the room uses that place (today's room-first
     // order); where the room cannot place it, the lamp places it from its own.
@@ -235,9 +235,9 @@ type BlendEnds = { day: SceneLight | undefined; cosy: SceneLight | undefined };
 type Shown = {
   brightness: Brightness | undefined;
   colour: Colour | undefined;
-  /** The candle holds the colour: its warm end shows, unless a colour part set after it says otherwise. */
-  candleColour: boolean;
-  effect: EffectName;
+  /** The effect holds the warm colour: the warm end shows, unless a colour part set after it says otherwise. */
+  warmColour: boolean;
+  effect: Effect;
   /** Set by a remote step on a blend with an off end, which decides whether the lamp is lit; undefined leaves that to the schedule. */
   lit: boolean | undefined;
 };
@@ -370,10 +370,10 @@ function shownLight(model: Model, subject: Subject, stage: Stage, block: Block, 
   const shown = fold(base, changesOf(overlays.lamps, overlays.remote), subject);
   const lit = shown.lit === undefined ? base.power === 'on' : shown.lit;
   if (!lit || (room !== undefined && model.overlays.roomPower[room] === 'off') || shown.brightness === undefined) return OFF;
-  const candleColour: Colour = { kind: 'rgb', rgb: subject.warmEnd };
-  const colour = overlays.mode && block !== 'night' ? MODE_COLOUR : shown.candleColour ? candleColour : shown.colour;
+  const warmColour: Colour = { kind: 'rgb', rgb: subject.warmEnd };
+  const colour = overlays.mode && block !== 'night' ? MODE_COLOUR : shown.warmColour ? warmColour : shown.colour;
   const transition = stage.moving ? FADE_STEP : MANUAL;
-  return { power: 'on', level: levelOf(shown.brightness), colour, effect: effectNamed(shown.effect), transition };
+  return { power: 'on', level: levelOf(shown.brightness), colour, effect: shown.effect, transition };
 }
 
 /** The light a stage shows: held, the destination; moving, part way between its ends. A missing light is off. */
@@ -388,31 +388,32 @@ function stageLight(stage: Stage, lightIn: (block: Block) => SceneLight | undefi
 /**
  * Each part over the base in the order it was set. A level or colour set over
  * the candle keeps the candle running at it (owner, 2026-11-22); only a newer
- * effect part ends it. A remote step does nothing while the candle runs
- * (today's catalog: the candle's `remote_adjustment` is `ignore`), nor where
- * the blend has no light to give.
+ * effect part ends it. A remote step does nothing under an effect that ignores
+ * steps (`Effect.ignoresRemoteSteps`), nor where the blend has no light to
+ * give.
  */
 function fold(base: SceneLight, changes: readonly Change[], subject: Subject): Shown {
-  const baseEffect: EffectName = base.power === 'on' && base.effect === 'Candle' && subject.canRunCandle ? 'Candle' : 'Normal';
+  const named = base.power === 'on' ? effectNamed(base.effect) : normal;
+  const baseEffect = subject.canRun(named) ? named : normal;
   const baseBrightness = base.power === 'on' ? base.brightness : undefined;
   const baseColour = base.power === 'on' ? base.colour : undefined;
-  let shown: Shown = { brightness: baseBrightness, colour: baseColour, candleColour: baseEffect === 'Candle', effect: baseEffect, lit: undefined };
+  let shown: Shown = { brightness: baseBrightness, colour: baseColour, warmColour: baseEffect.holdsWarmColour, effect: baseEffect, lit: undefined };
   for (const change of changes) {
     switch (change.kind) {
       case 'brightness':
         shown = { ...shown, brightness: change.part.kind === 'fixed' ? change.part.brightness : baseBrightness, lit: undefined };
         break;
       case 'colour':
-        shown = { ...shown, colour: change.part.kind === 'fixed' ? change.part.colour : baseColour, candleColour: false };
+        shown = { ...shown, colour: change.part.kind === 'fixed' ? change.part.colour : baseColour, warmColour: false };
         break;
       case 'effect':
         if (change.part.kind === 'candle') {
-          if (subject.canRunCandle) shown = { ...shown, effect: 'Candle', candleColour: true, lit: undefined };
-        } else if (change.part.kind === 'normal') shown = { ...shown, effect: 'Normal', candleColour: false };
-        else shown = { ...shown, effect: baseEffect, candleColour: baseEffect === 'Candle' };
+          if (subject.canRun(candle)) shown = { ...shown, effect: candle, warmColour: candle.holdsWarmColour, lit: undefined };
+        } else if (change.part.kind === 'normal') shown = { ...shown, effect: normal, warmColour: normal.holdsWarmColour };
+        else shown = { ...shown, effect: baseEffect, warmColour: baseEffect.holdsWarmColour };
         break;
       case 'step':
-        if (shown.effect !== 'Candle') shown = stepped(shown, change.step, change.range, subject);
+        if (!shown.effect.ignoresRemoteSteps) shown = stepped(shown, change.step, change.range, subject);
         break;
     }
   }
@@ -431,11 +432,11 @@ function stepped(shown: Shown, step: RemoteAdjustment, range: StepRange, subject
   const sample = blend(day, cosy, placed.position, subject.warmEnd);
   if (sample === undefined) return shown;
   const bothLit = day.power === 'on' && cosy.power === 'on';
-  if (sample.power === 'off') return { ...shown, brightness: undefined, colour: undefined, candleColour: false, lit: bothLit ? undefined : false };
+  if (sample.power === 'off') return { ...shown, brightness: undefined, colour: undefined, warmColour: false, lit: bothLit ? undefined : false };
   const dims = step.lastPress === 'down' && !step.everBrighter && placed.from < Math.min(76.5, endLevel(cosy)) && step.from === 'current'
     && step.steps <= 0;
   const brightness = dims ? brightnessOrThrow(Math.min(levelOrOffEnd(shown.brightness), sample.brightness)) : sample.brightness;
-  return { ...shown, brightness, colour: sample.colour, candleColour: false, lit: bothLit ? undefined : true };
+  return { ...shown, brightness, colour: sample.colour, warmColour: false, lit: bothLit ? undefined : true };
 }
 
 /** An end's level for placing a position: an off end reads as {@link OFF_END_LEVEL}. */
@@ -486,7 +487,7 @@ function roomShown(model: Model, scope: RoomOrHouse, now: Instant): { light: Roo
   const ends = { day: lightIn('day'), cosy: lightIn('cosy') };
   const placed = new Map<RemoteAdjustment, Placed>();
   const subject: Subject = {
-    lightIn, ends, canRunCandle: false, warmEnd: config.warmEnd,
+    lightIn, ends, canRun: () => false, warmEnd: config.warmEnd,
     place: (step, range, level) => {
       const place = placeOnBlend(step, range, ends, level);
       if (place !== undefined) placed.set(step, place);

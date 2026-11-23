@@ -12,6 +12,10 @@ export type BulbAppearance = { power: 'off' } | { power: 'on'; level: Level; col
 
 export interface Effect {
   readonly name: EffectName;
+  /** The effect brings its own colour, the subject's warm end, unless a colour part set after it says otherwise. */
+  readonly holdsWarmColour: boolean;
+  /** A remote step does nothing while the effect runs (today's catalog: the candle's `remote_adjustment` is `ignore`). */
+  readonly ignoresRemoteSteps: boolean;
   canRunOn(bulb: BulbInfo): boolean;
   appearance(light: OnLight, bulb: BulbInfo): BulbAppearance;
 }
@@ -26,6 +30,8 @@ export function bulbAppearance(light: LampLight, bulb: BulbInfo): BulbAppearance
 /** Level and colour as given, no firmware effect; runs on every bulb. */
 export const normal: Effect = {
   name: 'Normal',
+  holdsWarmColour: false,
+  ignoresRemoteSteps: false,
   canRunOn: () => true,
   appearance: light => ({ power: 'on', level: light.level, colour: light.colour, firmwareEffect: 'none' }),
 };
@@ -33,6 +39,8 @@ export const normal: Effect = {
 /** Level and colour as given, with the firmware candle; runs on candle firmware only. */
 export const candle: Effect = {
   name: 'Candle',
+  holdsWarmColour: true,
+  ignoresRemoteSteps: true,
   canRunOn: bulb => bulb.firmware === 'candle',
   appearance: light => ({ power: 'on', level: light.level, colour: light.colour, firmwareEffect: 'candle' }),
 };
