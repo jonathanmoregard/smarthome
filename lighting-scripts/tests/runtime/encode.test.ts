@@ -2,14 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { bulbGroups } from '../../src/adapter/bulb-groups.ts';
 import type { BulbGroups } from '../../src/adapter/bulb-groups.ts';
-import { publishes } from '../../src/adapter/encode.ts';
+import { mqttPublishCall, publishCall, publishes, switchCall } from '../../src/adapter/encode.ts';
 import type { MqttTopic } from '../../src/adapter/encode.ts';
 import type { Send } from '../../src/adapter/reconcile.ts';
 import type { BulbAppearance } from '../../src/domain/effect.ts';
 import type { BulbId } from '../../src/domain/types/ids.ts';
 import type { Colour } from '../../src/domain/types/light.ts';
 import { parseCatalog } from '../../src/runtime/catalog.ts';
-import { toBulbId, toColourChannel, toKelvin, toLevel, toMqttTopic, toSeconds } from '../../src/parse/ids.ts';
+import { toBulbId, toColourChannel, toKelvin, toLevel, toMqttTopic, toSeconds, toSwitchId } from '../../src/parse/ids.ts';
 
 /** A send as Zigbee2MQTT publishes: what each payload carries, and in which order they go. */
 
@@ -89,4 +89,25 @@ test('only verified groups on a set topic with two or more distinct members are 
     'not a group',
   ] }));
   assert.deepEqual(groups, [{ topic: topic('ok'), members: [bulbA, bulbB] }]);
+});
+
+test('a publish goes to Home Assistant as mqtt.publish: its payload as JSON text, QoS 0, not retained', () => {
+  // Break: another service, the payload passed as an object, or a bulb command retained (the broker would replay it).
+  assert.deepEqual(publishCall({ topic: topics[bulbA], payload: { brightness: toLevel(100), transition: toSeconds(0.4) } }), {
+    service: 'mqtt.publish',
+    data: { topic: 'zigbee2mqtt/bulb-a/set', payload: '{"brightness":100,"transition":0.4}', qos: 0, retain: false },
+  });
+});
+
+test('a dashboard message is published as given, retained when asked', () => {
+  // Break: the retain flag is dropped, so a control's state is lost when Home Assistant reconnects.
+  assert.deepEqual(mqttPublishCall('lighting/ui/lamp/power/state', 'ON', true),
+    { service: 'mqtt.publish', data: { topic: 'lighting/ui/lamp/power/state', payload: 'ON', qos: 0, retain: true } });
+});
+
+test('a switch goes to Home Assistant as homeassistant.turn_on or turn_off on its entity', () => {
+  // Break: the power is not the service, or the switch is not the target.
+  const plug = toSwitchId('switch.plug');
+  assert.deepEqual(switchCall(plug, 'on'), { service: 'homeassistant.turn_on', data: {}, target: { entity_id: 'switch.plug' } });
+  assert.deepEqual(switchCall(plug, 'off'), { service: 'homeassistant.turn_off', data: {}, target: { entity_id: 'switch.plug' } });
 });

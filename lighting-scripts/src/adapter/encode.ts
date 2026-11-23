@@ -11,15 +11,20 @@
  * the stops before the lights and the starts after them. The publishes go in
  * three rounds, every stop, then every light, then every start, as today's
  * dispatch sends them, so no bulb receives a light after its own start.
+ *
+ * It also builds the Home Assistant calls that carry a publish
+ * (`mqtt.publish`) and a switch's power (`homeassistant.turn_on`/`turn_off`),
+ * which `turn.ts` used to build inline.
  */
 import { groupedPublishes } from './bulb-groups.ts';
 import type { BulbGroups } from './bulb-groups.ts';
 import type { Send } from './reconcile.ts';
 import { roundEven } from '../domain/blend.ts';
 import type { BulbAppearance } from '../domain/effect.ts';
-import type { BulbId, Id } from '../domain/types/ids.ts';
-import type { Colour, Level } from '../domain/types/light.ts';
+import type { BulbId, Id, SwitchId } from '../domain/types/ids.ts';
+import type { Colour, Level, Power } from '../domain/types/light.ts';
 import type { Seconds } from '../domain/types/time.ts';
+import type { ServiceCall } from '../runtime/context.ts';
 
 /** A Zigbee2MQTT command topic: a bulb's (`zigbee2mqtt/<bulb>/set`) or a Zigbee group's. */
 export type MqttTopic = Id<'MqttTopic'>;
@@ -55,6 +60,16 @@ function colourKeys(colour: Colour): { color_temp: number } | { color: { rgb: st
 
 export type Publish = { topic: MqttTopic; payload: BulbPayload };
 
+/** A publish as Home Assistant's `mqtt.publish` call: the payload as JSON text, not retained. */
+export function publishCall(publish: Publish): ServiceCall {
+  return mqttPublishCall(publish.topic, JSON.stringify(publish.payload), false);
+}
+
+/** An MQTT message as Home Assistant's `mqtt.publish` call, at QoS 0; a dashboard control's state is retained. */
+export function mqttPublishCall(topic: string, payload: string, retain: boolean): ServiceCall {
+  return { service: 'mqtt.publish', data: { topic, payload, qos: 0, retain } };
+}
+
 /**
  * One send as publishes, in order: stop_effect when leaving the candle; level and colour (or OFF) with the transition;
  * then the candle's start. Nothing after the start carries On or a brightness. A bulb with no topic is sent nothing.
@@ -77,3 +92,8 @@ export function publishes(sends: readonly Send[], topics: Readonly<Record<BulbId
 const STOP: BulbPayload = { effect: 'stop_effect' };
 /** The candle's start: Identify TriggerEffect 0x0b on the candle firmware. */
 const START: BulbPayload = { effect: 'channel_change' };
+
+/** A switch's power as Home Assistant's `homeassistant.turn_on` or `homeassistant.turn_off` on the switch. */
+export function switchCall(target: SwitchId, power: Power): ServiceCall {
+  return { service: `homeassistant.turn_${power}`, data: {}, target: { entity_id: target } };
+}

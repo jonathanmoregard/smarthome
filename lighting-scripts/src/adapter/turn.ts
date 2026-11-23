@@ -13,6 +13,7 @@ import { perform } from '../runtime/effects.ts';
 import type { Effect } from '../runtime/effects.ts';
 import { toInstant } from '../parse/ids.ts';
 import { timestamp } from '../parse/accessors.ts';
+import { mqttPublishCall, publishCall, switchCall } from './encode.ts';
 import { haInput } from './inputs.ts';
 import { handleInput } from './loop.ts';
 import type { AdapterState, Output } from './loop.ts';
@@ -62,8 +63,8 @@ export function turnHandler(name: string): ScriptHandler {
 /** An output as the Home Assistant call that carries it out. */
 function effectOf(output: Output, now: Instant): Effect {
   switch (output.kind) {
-    case 'publish': return mqtt(output.publish.topic, JSON.stringify(output.publish.payload), false);
-    case 'switch': return { kind: 'service', service: `homeassistant.turn_${output.power}`, data: {}, target: { entity_id: output.switch } };
+    case 'publish': return { kind: 'service', ...publishCall(output.publish) };
+    case 'switch': return { kind: 'service', ...switchCall(output.switch, output.power) };
     case 'sensor': return { kind: 'service', service: 'variable.update_sensor', target: { entity_id: output.write.entity },
       data: { value: output.write.revision, attributes: output.write.attributes, replace_attributes: false } };
     case 'helper': return helperEffect(output.write.entity, output.write.value, now);
@@ -76,14 +77,10 @@ function effectOf(output: Output, now: Instant): Effect {
           target: { entity_id: write.entity } };
         case 'mode mirror': return { kind: 'service', service: `input_boolean.turn_${write.on ? 'on' : 'off'}`, data: {},
           target: { entity_id: write.entity } };
-        case 'control sync': case 'discovery': return mqtt(write.topic, write.payload, true);
+        case 'control sync': case 'discovery': return { kind: 'service', ...mqttPublishCall(write.topic, write.payload, true) };
       }
     }
   }
-}
-
-function mqtt(topic: string, payload: string, retain: boolean): Effect {
-  return { kind: 'service', service: 'mqtt.publish', data: { topic, payload, qos: 0, retain } };
 }
 
 /** A remote helper's write, as the gesture script made it: a value set, or the chord timer started or cancelled. */
