@@ -1,11 +1,3 @@
 {
-  "kept": [
-    {
-      "file": "src/parse/resolution.ts",
-      "within": "rawStamp",
-      "text": "String(value)",
-      "sites": 1,
-      "reason": "The input-position memo key, captured `ref=candidate.key~':'~candidate.updated`: Jinja joins a saved `updated` whatever it holds, so two candidates share one position exactly when their stamps print alike. The key is never written out. Saved data, and the scripts name no default for a stamp that is not a number; kept as today. Python and JavaScript print a non-number differently, so only the sharing between two such stamps could differ."
-    }
-  ]
+  "kept": []
 }

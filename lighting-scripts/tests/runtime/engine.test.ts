@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { execute } from '../../src/runtime/engine.ts';
 import type { Snapshot } from '../../src/runtime/context.ts';
-import { gestureHandlers } from '../../src/handlers/gestures.ts';
 
 const initial = (): Snapshot => ({ state: {}, areas: {}, members: [], now: '2026-10-26T12:00:00+01:00' });
 
@@ -36,16 +35,14 @@ test('suffix gesture dispatch supplies room and preserves explicit data', () => 
   assert.deepEqual(result.result, { command: 'up', room: 'kitchen' });
 });
 
-test('delayed power completion retains the configured remote identity', () => {
+test('a room\'s remote script is run with the configured remote identity', () => {
+  // Break: the suffixed power script loses the catalog remote's source and device, so its press names no remote.
   const snapshot = initial();
   snapshot.catalog = { remotes: { kitchen: { source: 'remote-a', device_id: 'device-a' } } };
-  const quiet = execute({ script: 'ls_remote_power_quiet_kitchen', snapshot, args: { token: snapshot.now } }, gestureHandlers);
-  const task = quiet.snapshot.scheduled?.[0];
-  assert.ok(task);
-  assert.equal(task.args.source, 'remote-a');
-  assert.equal(task.args.device_id, 'device-a');
-  assert.equal(task.args.room, 'kitchen');
-  assert.equal(task.args.command, 'power_done');
+  const quiet = execute({ script: 'ls_remote_power_quiet_kitchen', snapshot, args: { token: snapshot.now } }, {
+    ls_remote_power_quiet(_ctx, args) { return args; },
+  });
+  assert.deepEqual(quiet.result, { source: 'remote-a', device_id: 'device-a', token: snapshot.now, room: 'kitchen' });
 });
 
 test('failed operation does not change its input and invalid numeric output is rejected', () => {

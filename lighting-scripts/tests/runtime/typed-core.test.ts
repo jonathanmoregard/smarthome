@@ -11,7 +11,6 @@ import test from 'node:test';
 
 import { optionalBoolean, optionalFinite, parseFinite, ParseError, parsePythonNumeric, requireBoolean, requireFinite } from '../../src/runtime/parse.ts';
 import { blockOption, BLOCKS, DEFAULT_BLOCK } from '../../src/domain/blocks.ts';
-import { isBlock, optionalBlock, requireBlock } from '../../src/parse/blocks.ts';
 
 test('parseFinite uses Python float grammar, not JavaScript Number', () => {
   // The divergence that motivates a shared parser: JavaScript reads hex,
@@ -77,62 +76,7 @@ test('requireBoolean accepts only real booleans', () => {
 test('Block is a closed union with a label lookup, not string surgery', () => {
   assert.deepEqual([...BLOCKS], ['day', 'cosy', 'night']);
   assert.equal(DEFAULT_BLOCK, 'night');
-  assert.equal(requireBlock('cosy', 'cur'), 'cosy');
   assert.deepEqual(BLOCKS.map(blockOption), ['Day', 'Cosy', 'Night']);
-  assert.ok(isBlock('day'));
-  // `| capitalize` would have repaired the first of these and `or 'night'`
-  // would have swallowed the rest. Both hid a malformed cache.
-  for (const value of ['NIGHT', 'Night', 'evening', '', 0, 5, true, null, undefined, [], {}]) {
-    assert.throws(() => requireBlock(value as never, 'cur'), /must be one of day\/cosy\/night/,
-      `${JSON.stringify(value) ?? 'undefined'} must not pass as a block`);
-    assert.equal(isBlock(value as never), false);
-  }
-});
-
-test('optionalBlock treats absent and null as undecided, and ill-typed as an error', () => {
-  assert.equal(optionalBlock(undefined, 'cur'), undefined);
-  assert.equal(optionalBlock(null, 'cur'), undefined);
-  assert.equal(optionalBlock('night', 'cur'), 'night');
-  assert.throws(() => optionalBlock(0, 'cur'), ParseError, 'a falsy non-null value is not an absence');
-});
-
-test('effects_set still reports an out-of-range value, without a -1 sentinel', async () => {
-  // This is the one path the probe found the gate depending on: a null
-  // brightness took `| float(-1)`, failed the bound, and produced this error.
-  // The sentinel is gone; the observable outcome must not have moved.
-  const { nativeHandlers } = await import('../../src/handlers/native-controls.ts');
-  const { execute } = await import('../../src/runtime/engine.ts');
-  const snapshot = { now: '2026-10-26T12:00:00+01:00', state: {}, areas: { 'light.logical': 'living' }, members: [] };
-  const base = { brightness: 110, color: { kelvin: 2200 } };
-  const resolved = { level: 110, color: { kind: 'constant', value: { kelvin: 2200 } } };
-  const catalog = { groups: { 'light.living': ['light.logical'] }, members: { 'light.logical': [] }, effects: {} };
-  const plan = { plan: { base: { 'light.logical': base }, resolved: { targets: { 'light.logical': resolved } } } };
-  const handlers = { ...nativeHandlers, effects_catalog: () => catalog, ls_plan: () => plan };
-  const run = (value: unknown) => execute({
-    script: 'effects_set',
-    snapshot,
-    args: { source: 'light.logical', attribute: 'brightness', value, dry_run: true },
-  } as never, handlers as never);
-  for (const bad of [null, 'hot', '', 300, -1, '0x10', 'inf']) {
-    const errors = (run(bad) as { result?: { errors?: unknown } }).result?.errors;
-    assert.ok(Array.isArray(errors) && errors.includes('Brightness must be 0–255.'),
-      `brightness ${JSON.stringify(bad) ?? 'null'} must be reported out of range, got ${JSON.stringify(errors)}`);
-  }
-  for (const good of [0, 255, 128, '128', '1e2']) {
-    const errors = (run(good) as { result?: { errors?: unknown } }).result?.errors;
-    assert.ok(Array.isArray(errors) && !errors.includes('Brightness must be 0–255.'),
-      `brightness ${JSON.stringify(good)} must be accepted, got ${JSON.stringify(errors)}`);
-  }
-  // The one inherited numeric quirk still in force: Python's `bool` is an
-  // `int` subclass, so the oracle reads `true` as brightness 1 and accepts it.
-  // A parity test covers this, which is why `inRange` goes through
-  // `parsePythonNumeric` rather than `parseFinite`. If that behaviour is ever
-  // dropped, this assertion and that parity module move together.
-  for (const boolish of [true, false]) {
-    const errors = (run(boolish) as { result?: { errors?: unknown } }).result?.errors;
-    assert.ok(Array.isArray(errors) && !errors.includes('Brightness must be 0–255.'),
-      `brightness ${boolish} is Python-numeric and must be accepted, got ${JSON.stringify(errors)}`);
-  }
 });
 
 test('the Python-numeric quirk is confined to its own parser', () => {

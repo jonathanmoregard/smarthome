@@ -1,5 +1,4 @@
 import type { Catalog } from './catalog.ts';
-import type { TypedResults } from './entrypoints.ts';
 import type { Rooms } from '../adapter/codecs/rooms.ts';
 
 /** Explicit, serializable boundary between lighting decisions and HA I/O. */
@@ -73,27 +72,8 @@ export interface ScriptContext extends Omit<Snapshot, 'catalog'> {
    * {@link ScriptContext.catalog}.
    */
   rawCatalog(): JsonObject;
-  /**
-   * Call another script by name and get JSON back.
-   *
-   * The name-keyed view, for the edges: Home Assistant, the parity RPC, and the
-   * scripts not yet converted. Prefer {@link ScriptContext.call} for anything
-   * in {@link TypedResults} -- `run` hands back `JsonValue`, so the caller has
-   * to re-dissolve what the callee already built.
-   */
+  /** Run a script by name and get its JSON answer. */
   run(name: string, args?: JsonObject): JsonValue;
-  /**
-   * Call a converted entrypoint and get its real type back.
-   *
-   * The arguments stay a `JsonObject` on purpose and are not a leftover: the
-   * parity harness records every inter-handler call as
-   * `{service: 'script.' + name, data: args}` and compares those bytes
-   * (`tests/parity/bridge.ts:117`), and `scriptRuns` records the name
-   * (`adapters.py:249`). So the name and the argument bytes are observable
-   * behaviour and must not change; the result is the only part of the data flow
-   * that was never observed, and the only part this types.
-   */
-  call<K extends keyof TypedResults>(name: K, args?: JsonObject): TypedResults[K];
   get(entity: string): string;
   attr(entity: string, key: string): JsonValue | undefined;
   put(entity: string, state: string, attributes?: JsonObject): void;

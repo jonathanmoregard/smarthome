@@ -31,13 +31,6 @@ import { fileURLToPath } from 'node:url';
 const rootFlag = process.argv.indexOf('--root');
 const ROOT = rootFlag === -1 ? fileURLToPath(new URL('../', import.meta.url)) : process.argv[rootFlag + 1];
 const DOMAIN = join(ROOT, 'src/domain');
-/**
- * The handler shells (refactor U8). They read the live house, make the
- * inter-handler calls and perform effects; JSON reaches them already parsed
- * by `src/parse` and leaves through the effects, so they are held to the
- * domain's zero on every count.
- */
-const HANDLERS = join(ROOT, 'src/handlers');
 
 /**
  * Ceilings for src/domain. Baseline measured 2026-11-03 before any rework was
@@ -469,17 +462,14 @@ const PATTERNS = {
 
 const count = (text, pattern) => (text.match(pattern) ?? []).length;
 
-const files = [
-  // Recursive: src/domain/types is domain too.
-  ...(await readdir(DOMAIN, { recursive: true })).filter(name => name.endsWith('.ts')).sort().map(name => ({ name, dir: DOMAIN })),
-  ...(await readdir(HANDLERS)).filter(name => name.endsWith('.ts')).sort().map(name => ({ name: `handlers/${name}`, dir: HANDLERS, base: name })),
-];
+// Recursive: src/domain/types is domain too. The handler shells under
+// src/handlers were held to the same zero until M3 deleted them.
+const files = (await readdir(DOMAIN, { recursive: true })).filter(name => name.endsWith('.ts')).sort();
 const totals = Object.fromEntries(Object.keys(PATTERNS).map(key => [key, 0]));
 const rows = [];
 
-for (const file of files) {
-  const name = file.name;
-  const text = stripComments(await readFile(join(file.dir, file.base ?? file.name), 'utf8'));
+for (const name of files) {
+  const text = stripComments(await readFile(join(DOMAIN, name), 'utf8'));
   const row = { name };
   for (const [key, pattern] of Object.entries(PATTERNS)) {
     row[key] = count(text, pattern);
@@ -497,8 +487,8 @@ const COLUMNS = [
 ];
 
 rows.sort((a, b) => b.jsonTypes - a.jsonTypes);
-const width = Math.max(...files.map(file => file.name.length), 8);
-console.log('src/domain and src/handlers — JSON at the edges\n');
+const width = Math.max(...files.map(name => name.length), 8);
+console.log('src/domain — JSON at the edges\n');
 console.log(`${'file'.padEnd(width)}  ${COLUMNS.map(([, label]) => label.padStart(16)).join('  ')}`);
 for (const row of rows) {
   if (!COLUMNS.some(([key]) => row[key] > 0)) continue;

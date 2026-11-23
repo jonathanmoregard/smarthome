@@ -1,10 +1,8 @@
 import type { EntityState, EventRecord, JsonObject, JsonValue, OutputGuard, ScheduledTask, ScriptContext, ScriptHandlers, ServiceCall,
   Snapshot } from './context.ts';
 import type { Catalog } from './catalog.ts';
-import type { TypedResults } from './entrypoints.ts';
 import type { Rooms } from '../adapter/codecs/rooms.ts';
 import { emptyCatalog, parseCatalog } from './catalog.ts';
-import { typedDispatch } from './entrypoints.ts';
 import { parseRooms } from '../parse/rooms.ts';
 
 export interface ExecutionRequest { script: string; args: JsonObject; snapshot: Snapshot }
@@ -19,13 +17,7 @@ export interface ExecutionHooks {
   beforeService?: (call: ServiceCall, context: ScriptContext) => void;
   afterService?: (call: ServiceCall, context: ScriptContext) => void;
   beforeScript?: (name: string, args: JsonObject, context: ScriptContext) => void;
-  /**
-   * No `result` parameter, deliberately. A converted entrypoint's result never
-   * becomes JSON on the typed path, so a hook that received one would either
-   * force a serialisation nobody reads or hand out a lie. Its one consumer,
-   * `tests/parity/bridge.ts`, never read it: the parity trace is built from the
-   * name and the arguments.
-   */
+  /** No `result` parameter: its one consumer, `tests/parity/bridge.ts`, builds its trace from the name and the arguments. */
   afterScript?: (name: string, args: JsonObject, context: ScriptContext) => void;
 }
 
@@ -142,21 +134,6 @@ class Context implements ScriptContext {
       this.hooks.afterScript?.(name, args, this);
       return result;
     } finally { this.depth--; }
-  }
-
-  /**
-   * The typed half of {@link run}.
-   *
-   * Identical dispatch -- same `scriptRuns` entry, same hooks, same depth
-   * guard, same argument bytes -- and then the converted handler's own result,
-   * with no JSON in between. When something else answers to this name (a unit
-   * test's stub, or the parity harness's literal dependency) it speaks JSON, so
-   * that answer is decoded at the edge instead.
-   */
-  call<K extends keyof TypedResults>(name: K, args: JsonObject = {}): TypedResults[K] {
-    const handler = this.handlers[name];
-    if (!handler) throw new Error(`Unsupported script: ${name}`);
-    return typedDispatch(name, handler, this, args, call => this.dispatch(name, args, call));
   }
 
   attr(entity: string, key: string): JsonValue | undefined { return this.state[entity]?.attributes[key]; }

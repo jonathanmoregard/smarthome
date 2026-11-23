@@ -22,15 +22,6 @@ export function parseRooms(areas: Readonly<Record<string, string>>): Rooms {
   return { ofId, ofRemote };
 }
 
-/**
- * A room as the scripts spell it on the wire -- in the arguments one script
- * passes another and in the entity names built from a room: the room itself,
- * or `''` for no room (the captured `default('')`).
- */
-export function roomText(room: RoomId | undefined): string {
-  return room === undefined ? '' : room;
-}
-
 /** A room argument's text read back: `''` is no room, as the captured `default('')` and its falsy test read it. */
 export function roomOfText(text: string): RoomId | undefined {
   return text === '' ? undefined : toRoomId(text);

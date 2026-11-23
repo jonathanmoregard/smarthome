@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { JsonValue } from '../../src/runtime/context.ts';
-import { onOffOnly, proxyShowsRgb, runtimeTargets } from '../../src/parse/ui-state.ts';
+import { onOffOnly, proxyKelvin, proxyShowsRgb } from '../../src/parse/ui-state.ts';
 import { carry } from '../../src/runtime/verbatim.ts';
 import { house } from './house-view.ts';
 
@@ -30,13 +30,15 @@ test('supported_color_modes is on/off only exactly when it equals ["onoff"]; not
   assert.equal(onOffOnly(house({ 'light.lamp': ['off', {}] }), 'light.lamp'), false);
 });
 
-test('a truthy non-text effect on a runtime target is published as Jinja prints it: True, not true', () => {
-  // Break: the effect is read with JavaScript's String(), which prints `true` where the scripts' `fx.names+[effect]` prints `True`.
-  const runtime = house({ 'sensor.ls_effects_runtime': ['ok', {
-    targets: { 'light.lamp': { effect: true, brightness: { kind: 'effect', effect: true } } },
-    assignments: {},
-  }] });
-  const view = runtimeTargets(runtime).member('light.lamp');
-  assert.equal(view.effect, 'True');
-  assert.deepEqual(view.claimEffects, ['True']);
+// Light attributes read back from Home Assistant recover to a default, never raise (2026-11-21).
+
+test("a dashboard proxy's colour temperature that is not a number reads as 0, its default", () => {
+  assert.equal(proxyKelvin(house({ 'light.proxy': ['on', { color_temp_kelvin: 'warm' }] }), 'light.proxy'), 0);
+});
+
+test("a dashboard proxy's rgb that cannot be listed shows no triple", () => {
+  for (const rgb_color of [5, true] as JsonValue[]) {
+    const view = house({ 'light.proxy': ['on', { rgb_color }] });
+    assert.equal(proxyShowsRgb(view, 'light.proxy', { text: '1,2,3', value: carry([1, 2, 3]) }), false, JSON.stringify(rgb_color));
+  }
 });

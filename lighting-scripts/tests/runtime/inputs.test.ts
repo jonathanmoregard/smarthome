@@ -66,6 +66,12 @@ test('a tick is a clock message: the time-pattern automations are the clock, whi
   assert.deepEqual(haInput('ls_wake', {}), { kind: 'wake' });
 });
 
+test('the dashboard\'s UI refresh scripts are a wake: the turn re-syncs the controls and discovery', () => {
+  // Break: the catalog refresh, which HA still bridges as a command, is dropped as not an input.
+  assert.deepEqual(haInput('effects_ui_sync', {}), { kind: 'wake' });
+  assert.deepEqual(haInput('effects_ui_catalog', {}), { kind: 'wake' });
+});
+
 test('the override event\'s hold is an overlay request', () => {
   assert.deepEqual(read('ls_commit', { data: { op: 'set', records: [{ kind: 'block', target: roomA, value: 'night' }], via: 'app' } }),
     [{ kind: 'overlayRequested', request: { kind: 'hold block', over: roomA, block: 'night' }, at: NOW }]);

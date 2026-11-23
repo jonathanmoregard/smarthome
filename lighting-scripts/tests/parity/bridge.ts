@@ -5,7 +5,6 @@ import { readSync, writeSync } from 'node:fs';
 import { StringDecoder } from 'node:string_decoder';
 import { execute, type ExecutionHooks, type ExecutionRequest } from '../../src/runtime/engine.ts';
 import { handlers } from '../../src/runtime/registry.ts';
-import { effectsResolve } from '../../src/handlers/resolution.ts';
 import type { JsonObject, JsonValue, ScriptContext, ScriptHandler, ScriptHandlers, ServiceCall, Snapshot } from '../../src/runtime/context.ts';
 
 type PathPart = string | number;
@@ -144,10 +143,8 @@ function perform(value: unknown): void {
     // The reconciler reads the same capability from the per-bulb flag, so the
     // lamp's bulbs are marked in each run's parsed catalog view, never in the document.
     // Every input now ends in a reconcile, so every handler sees the fixture candle lamps.
-    const requestHandlers: ScriptHandlers = {
-      ...Object.fromEntries(Object.entries(handlers).map(([name, handler]) => [name, withFixtureCandle(handler)])),
-      effects_resolve: effectsResolve(() => FIXTURE_CANDLE_LAMPS),
-    };
+    const requestHandlers: ScriptHandlers =
+      Object.fromEntries(Object.entries(handlers).map(([name, handler]) => [name, withFixtureCandle(handler)]));
     const dependencyCalls: string[] = [];
     for (const [name, result] of Object.entries(request.parityDependencies ?? {})) {
       if (name !== 'ls_plan') throw new Error(`Unsupported parity literal dependency: ${name}`);

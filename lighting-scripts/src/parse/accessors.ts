@@ -1,46 +1,13 @@
 /**
- * The lenient and semi-lenient accessors the domain used to call on raw JSON.
- *
- * They lived in `domain/schedule.ts` and nine domain modules imported them from
- * there. They are parse-layer tools -- each takes a `JsonValue` and decides
- * what it means -- so they live here now. `schedule.ts` keeps a temporary
- * re-export until every importer has been repointed (criterion 7's close-out
- * deletes it). Moved unchanged: every message, fallback and raise is the same.
+ * The lenient and semi-lenient accessors for raw JSON read at the edge. Each
+ * takes a `JsonValue` and decides what it means.
  */
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { HouseView } from '../runtime/effects.ts';
-import { isObject, jinjaList, jinjaTruthy, parseFinite, ParseError, requireArray, requireFinite, requireString } from '../runtime/parse.ts';
+import { isObject, jinjaList, ParseError, requireArray } from '../runtime/parse.ts';
 
 export const list = (value: JsonValue | undefined): JsonValue[] =>
   value === undefined ? [] : requireArray({ value }, 'value', 'schedule list');
-export const strings = (value: JsonValue | undefined): string[] => list(value).map((item, index) =>
-  requireString({ item }, 'item', `schedule string list[${index}]`));
-export function num(value: JsonValue | undefined, fallback?: number): number {
-  // `null` is Home Assistant's no-value spelling for entity attributes. A
-  // caller that has a real default must state it; malformed present values do
-  // not get to take that default.
-  if ((value === undefined || value === null || value === 'unknown' || value === 'unavailable') && fallback !== undefined) return fallback;
-  return requireFinite(value, 'schedule number');
-}
-/**
- * Home Assistant native-template output coercion at the render/re-entry
- * boundary. This is deliberately not a general parser: HA turns a template's
- * exact scalar output back into a native value before a script or variable
- * sensor receives it, so confining that behavior here models the transport
- * boundary without weakening lighting-domain numbers or strings.
- */
-export function nativeScalar(value: JsonValue): JsonValue {
-  if (typeof value !== 'string') return value;
-  const text = value.trim();
-  if (text === 'True') return true;
-  if (text === 'False') return false;
-  if (text === 'None') return null;
-  const numeric = /^[+-]?(?!0\d)\d*(?:\.\d*)?$/.test(text) && /\d/.test(text);
-  return numeric && Number.isFinite(Number(text)) ? Number(text) : value;
-}
-export function optionalTimestamp(value: JsonValue | undefined): number | undefined {
-  return value === undefined || value === null ? undefined : timestamp(value);
-}
 export function timestamp(value: JsonValue | undefined): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   const ts = typeof value === 'string' ? Date.parse(value) / 1000 : NaN;
@@ -50,24 +17,6 @@ export function timestamp(value: JsonValue | undefined): number {
   return ts;
 }
 /**
- * A `test_now` argument, read as the captured `test_now is defined and test_now`:
- * absent or Jinja-falsy (`0`, `''`, `false`, `none`) is now, `undefined` here;
- * a truthy value must be a timestamp.
- */
-export function testNow(value: JsonValue | undefined): number | undefined {
-  return value === undefined || !jinjaTruthy(value) ? undefined : timestamp(value);
-}
-/**
- * A saved number a captured template compares or adds: a finite number is
- * itself, a boolean is Python's 0 or 1, and anything else -- where the captured
- * arithmetic raises -- is `fallback` (lenient saved-value directive). Never raises.
- */
-export function savedNumberOr(value: JsonValue | undefined, fallback: number): number {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'boolean') return value ? 1 : 0;
-  return fallback;
-}
-/**
  * Jinja's `| list` over what it can list -- a list, a string's characters, a
  * mapping's keys -- and none for anything else, where the filter raises. For
  * values read back from Home Assistant (2026-11-21: a value a person can edit
@@ -75,34 +24,6 @@ export function savedNumberOr(value: JsonValue | undefined, fallback: number): n
  */
 export function jinjaListOf(value: JsonValue | undefined): JsonValue[] | undefined {
   return Array.isArray(value) || typeof value === 'string' || isObject(value) ? jinjaList(value) : undefined;
-}
-/**
- * A helper state a person sets (an `input_number`), read as a number: numeric
- * text is that number, and anything else -- Home Assistant's `unknown` and
- * `unavailable`, and text that is not a finite number -- is `fallback`
- * (2026-11-21: a value a person can edit recovers to a default). Never raises.
- */
-export function stateNumberOr(state: string, fallback: number): number {
-  const parsed = parseFinite(state);
-  return parsed === undefined ? fallback : parsed;
-}
-/**
- * Home Assistant's `as_timestamp(value, fallback)`: date text is its instant;
- * anything else -- unreadable text, `none`, a container, and numeric Unix
- * seconds too (measured: `as_timestamp(1700000000, 0)` is `0`) -- is `fallback`.
- */
-export function asTimestampOr(value: JsonValue | undefined, fallback: number): number {
-  const parsed = typeof value === 'string' ? Date.parse(value) / 1000 : NaN;
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
-/**
- * A saved mapping attribute read as the captured `attr or fallback`: absent or
- * Jinja-falsy is `fallback`, and so -- by the lenient saved-value directive
- * (2026-11-19) -- is a truthy value that is not a mapping, where the captured
- * `.get`/`.items()` on it raises. Never raises.
- */
-export function savedMappingOr(value: JsonValue | undefined, fallback: JsonObject): JsonObject {
-  return value !== undefined && jinjaTruthy(value) && isObject(value) ? value : structuredClone(fallback);
 }
 /**
  * What a saved profile reads as when it holds no profile: the captured

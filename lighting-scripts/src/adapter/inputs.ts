@@ -99,7 +99,8 @@ export function haInput(script: string, args: JsonObject): HaInput | undefined {
     case 'effects_set': return { kind: 'control set', data: args };
     case 'ls_store': return { kind: 'store saved', data: args };
     case 'ls_apply': return Array.isArray(args.lights) ? { kind: 'state changed', entities: texts(args.lights) } : { kind: 'wake' };
-    case 'ls_remote_power_quiet': case 'ls_render': case 'ls_dispatch': case 'ls_wake': case 'effects_ui_sync': return { kind: 'wake' };
+    case 'ls_remote_power_quiet': case 'ls_render': case 'ls_dispatch': case 'ls_wake': case 'effects_ui_sync': case 'effects_ui_catalog':
+      return { kind: 'wake' };
     default: return undefined;
   }
 }

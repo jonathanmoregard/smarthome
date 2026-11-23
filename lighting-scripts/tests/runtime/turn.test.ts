@@ -58,3 +58,24 @@ test('an override set with a record the turn does not read is logged once and dr
   assert.equal(lines.length, 1, lines.join('\n'));
   assert.match(lines[0]!, /ls_commit: .*record lamp is not read here; dropped$/);
 });
+
+test('a dry run changes nothing: it is logged once and dropped', () => {
+  // Break: a dry run (the old scripts' "ask, don't touch") reaches the turn and saves the range or sends to the lamps.
+  for (const [script, args] of [
+    ['ls_range_save', { entity: 'switch.plug_a', profile: 'bright', minimum: 10, maximum: 90, dry_run: true }],
+    ['ls_apply', { reason: 'config', dry_run: true }],
+  ] as const) {
+    forgetAdapterState();
+    execute({ script: 'automation.lighting_schedule_engine', args: { trigger: { id: 'start' } }, snapshot: snapshot() }, handlers);
+    const lines: string[] = [], original = console.error;
+    console.error = (...parts: unknown[]) => { lines.push(parts.join(' ')); };
+    try {
+      const outcome = execute({ script, args, snapshot: snapshot() }, handlers);
+      assert.deepEqual(outcome.calls, [], script);
+    } finally {
+      console.error = original;
+      forgetAdapterState();
+    }
+    assert.deepEqual(lines, [`lighting: ${script} is a dry run; dropped`], script);
+  }
+});

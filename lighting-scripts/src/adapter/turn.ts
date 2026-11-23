@@ -36,11 +36,16 @@ const TICK_SECONDS = 60;
 
 /**
  * The handler for an input name: the turn, its outputs performed in order, its
- * wake scheduled. A name that is not an input, or an input that cannot be
- * read, is logged once and dropped; the loop goes on.
+ * wake scheduled. A name that is not an input, a dry run, or an input that
+ * cannot be read, is logged once and dropped; the loop goes on.
  */
 export function turnHandler(name: string): ScriptHandler {
   return (ctx: ScriptContext, args: JsonObject): JsonValue => {
+    // A dry run asks and changes nothing. Home Assistant's bridge never forwards one; the old scripts answered it.
+    if (args.dry_run === true) {
+      console.error(`lighting: ${name} is a dry run; dropped`);
+      return null;
+    }
     const input = haInput(name, args);
     if (input === undefined) {
       console.error(`lighting: ${name} is not an input; dropped`);

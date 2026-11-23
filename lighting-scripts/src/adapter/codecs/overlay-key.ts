@@ -27,11 +27,6 @@ export type OverlayKey =
   /** Any other key a saved store holds, kept exactly as saved. */
   | { kind: 'saved'; key: SavedOverlayKey };
 
-/** Two keys name the same saved overlay. */
-export function sameOverlayKey(a: OverlayKey, b: OverlayKey): boolean {
-  return overlayKeyText(a) === overlayKeyText(b);
-}
-
 /**
  * The key's saved text: the exact inverse of `parseOverlayKey`, both ways. A
  * remote source and a saved key's text are ids whose constructors refuse the
@@ -48,17 +43,6 @@ export function overlayKeyText(key: OverlayKey): string {
     case 'empty': return '';
     case 'saved': return key.key;
   }
-}
-
-/** Order keys as their saved text sorts (`sorted()` over the saved keys). */
-export function byOverlayKeyText(a: OverlayKey, b: OverlayKey): number {
-  const x = overlayKeyText(a), y = overlayKeyText(b);
-  return x < y ? -1 : x > y ? 1 : 0;
-}
-
-/** The overlay key a remote's input is saved under: its source's (`channels:<source>`). */
-export function remoteInputKey(source: RemoteSource): OverlayKey {
-  return { kind: 'remote input', source };
 }
 
 /**
@@ -83,5 +67,3 @@ export function remoteSources(catalog: Catalog): RemoteSources {
 
 /** The Sara mode overlay's key. */
 export const SARA_MODE: OverlayKey = { kind: 'sara mode' };
-/** The empty key. */
-export const EMPTY_KEY: OverlayKey = { kind: 'empty' };

@@ -6,6 +6,7 @@ import type { Origin } from '../../src/runtime/host.ts';
 import type { LiveRooms } from '../../src/parse/live-rooms.ts';
 import type { JsonObject } from '../../src/runtime/context.ts';
 import { parseLiveRooms, readLiveRoomsFlag } from '../../src/parse/live-rooms.ts';
+import { controlTopic } from '../../src/parse/automations.ts';
 
 /**
  * A made-up house: two rooms with one lamp of one bulb each, a lamp the
@@ -281,4 +282,9 @@ test('only a room\'s port switch is a port switch', () => {
   assert.equal(isPortSwitch('input_boolean.ls__on_port'), false);
   assert.equal(isPortSwitch('input_boolean.ls_sara_mode_mirror'), false);
   assert.equal(isPortSwitch('light.studio'), false);
+});
+
+test('a native control topic names its alias and a supported attribute, else nothing', () => {
+  assert.deepEqual(controlTopic('zigbee2mqtt/x/set/lamp/brightness'), { alias: 'lamp', attribute: 'brightness' });
+  assert.equal(controlTopic('zigbee2mqtt/x/set/lamp/hue'), undefined);
 });

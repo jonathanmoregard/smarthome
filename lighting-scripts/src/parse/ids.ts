@@ -43,11 +43,6 @@ export function toSwitchId(raw: string): SwitchId {
   return raw as SwitchId;
 }
 
-export function toPowerTarget(raw: string): PowerTarget {
-  // Cast: the edge read this string as a lamp or switch a power toggle names; this is the one place that says so.
-  return raw as PowerTarget;
-}
-
 export function toRemoteId(raw: string): RemoteId {
   // Cast: the edge read this string as a remote; this is the one place that says so.
   return raw as RemoteId;

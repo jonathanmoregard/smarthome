@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 /**
  * `scripts/json-edges.mjs` counts JSON types and lenient accessors in
- * src/domain and src/handlers. Review round 3, item 4: it read src/domain
+ * src/domain. Review round 3, item 4: it read src/domain
  * with a flat `readdir`, so src/domain/types was never counted. It runs here
  * against a fixture whose only JSON sits in `src/domain/types/bag.ts`.
  */
