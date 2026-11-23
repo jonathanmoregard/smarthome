@@ -8,7 +8,6 @@
  * its name says. Where a saved value is read, the caller picks a named default
  * instead of calling one with a value that may be out of range.
  */
-import type { BlendPosition } from '../blend.ts';
 import type { Brightness, BrightnessStep, ColourChannel, Kelvin, Level, Percent, PercentRange } from './light.ts';
 import type { Step, StepCount } from './remote.ts';
 import type { Progress } from './schedule.ts';
@@ -29,6 +28,15 @@ export function minutesOrThrow(raw: number): Minutes {
   mustBeWithin(raw, 0, Infinity, 'A count of minutes');
   // Cast: checked just above; this is the one place a number becomes minutes.
   return raw as Minutes;
+}
+
+/** A place on the blend: 0 at cosy, 1 at day, beyond both within -2..2. */
+export type BlendPosition = Ranged<'BlendPosition'>;
+
+export function blendPositionOrThrow(raw: number): BlendPosition {
+  mustBeWithin(raw, -2, 2, 'A blend position');
+  // Cast: checked just above; this is the one place a number becomes a blend position.
+  return raw as BlendPosition;
 }
 
 export function levelOrThrow(raw: number): Level {
@@ -74,12 +82,6 @@ export function progressOrThrow(raw: number): Progress {
   mustBeWithin(raw, 0, 1, 'A transition progress');
   // Cast: checked just above; this is the one place a number becomes a progress.
   return raw as Progress;
-}
-
-export function blendPositionOrThrow(raw: number): BlendPosition {
-  mustBeWithin(raw, -2, 2, 'A blend position');
-  // Cast: checked just above; this is the one place a number becomes a blend position.
-  return raw as BlendPosition;
 }
 
 export function stepOrThrow(raw: number): Step {

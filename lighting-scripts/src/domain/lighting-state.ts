@@ -15,7 +15,7 @@
 import { BLOCKS } from './blocks.ts';
 import type { Block } from './blocks.ts';
 import { blend, OFF_END_LEVEL, roundEven } from './blend.ts';
-import type { BlendPosition } from './blend.ts';
+import type { BlendPosition } from './types/range.ts';
 import type { Config } from './config.ts';
 import { candle, effectNamed, normal } from './effect.ts';
 import type { Effect } from './effect.ts';

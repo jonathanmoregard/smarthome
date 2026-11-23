@@ -10,15 +10,60 @@
  */
 import type { EffectName } from './effect.ts';
 import type { Brightness, Colour, RGB, SceneLight } from './types/light.ts';
-import type { Ranged } from './types/range.ts';
+import type { BlendPosition } from './types/range.ts';
 import { brightnessOrThrow, colourChannelOrThrow, kelvinOrThrow, progressOrThrow } from './types/range.ts';
 import type { Progress } from './types/schedule.ts';
 
 /** One end of the blend: the block's light for the lamp, lit or off. */
 export type BlendEnd = SceneLight;
 
-/** A place on the blend: 0 at cosy, 1 at day, beyond both within -2..2. */
-export type BlendPosition = Ranged<'BlendPosition'>;
+/**
+ * The light at a position on the blend.
+ *
+ * Two lit ends: the curve between them, and past them. One end off
+ * (2026-11-20, "Remote blend towards an off scene"): the colour is the lit
+ * end's only; between the ends the level ramps up from {@link OFF_END_LEVEL}
+ * at the off end to the lit end's; at the off end and past it the lamp is
+ * off. Past the lit end its own rule applies (above day reads only the day
+ * end; below cosy reads the off day end as {@link OFF_END_LEVEL}). Both ends
+ * off, or a lit end with no colour: undefined, there is nothing to blend.
+ *
+ * The light runs the effect of the end the position is nearer (day from the
+ * middle up); beside an off end, the lit end's.
+ */
+export function blend(day: BlendEnd, cosy: BlendEnd, position: BlendPosition, warmEnd: RGB): SceneLight | undefined {
+  const p: number = position;
+  if (day.power === 'on' && cosy.power === 'on') {
+    if (day.colour === undefined || cosy.colour === undefined) return undefined;
+    const dayEnd: Anchor = { brightness: day.brightness, colour: day.colour };
+    const cosyEnd: Anchor = { brightness: cosy.brightness, colour: cosy.colour };
+    return litAt(onTheCurve(dayEnd, cosyEnd, p, warmEnd), p < 0.5 ? cosy.effect : day.effect);
+  }
+  if (day.power === 'on') {
+    if (day.colour === undefined) return undefined;
+    const dayEnd: Anchor = { brightness: day.brightness, colour: day.colour };
+    if (p <= 0) return OFF;
+    if (p >= 1) return litAt(p === 1 ? dayEnd : aboveDay(dayEnd, p), day.effect);
+    return litAt({ brightness: rampUp(day.brightness, progressOrThrow(p)), colour: day.colour }, day.effect);
+  }
+  if (cosy.power === 'on') {
+    if (cosy.colour === undefined) return undefined;
+    const cosyEnd: Anchor = { brightness: cosy.brightness, colour: cosy.colour };
+    if (p >= 1) return OFF;
+    if (p <= 0) return litAt(p === 0 ? cosyEnd : belowCosy(cosyEnd, OFF_END_LEVEL, p, warmEnd), cosy.effect);
+    return litAt({ brightness: rampUp(cosy.brightness, progressOrThrow(1 - p)), colour: cosy.colour }, cosy.effect);
+  }
+  return undefined;
+}
+
+/**
+ * Up from {@link OFF_END_LEVEL} towards `level`, `t` of the way (0 at the off
+ * end, 1 at the lit end), rounded half to even. Shared by the blend beside an
+ * off end and a scheduled fade out of an off block, so the two agree.
+ */
+export function rampUp(level: Brightness, t: Progress): Brightness {
+  return brightnessOrThrow(roundEven(OFF_END_LEVEL + (level - OFF_END_LEVEL) * t));
+}
 
 /** A point on the curve before it becomes a light: the level is not yet whole. */
 type Anchor = { brightness: number; colour: Colour };
@@ -83,54 +128,6 @@ function asRgb(colour: Colour): RGB {
 
 function clamp(value: number, low: number, high: number): number {
   return Math.max(low, Math.min(high, value));
-}
-
-/**
- * The light at a position on the blend.
- *
- * Two lit ends: the curve between them, and past them. One end off
- * (2026-11-20, "Remote blend towards an off scene"): the colour is the lit
- * end's only; between the ends the level ramps up from {@link OFF_END_LEVEL}
- * at the off end to the lit end's; at the off end and past it the lamp is
- * off. Past the lit end its own rule applies (above day reads only the day
- * end; below cosy reads the off day end as {@link OFF_END_LEVEL}). Both ends
- * off, or a lit end with no colour: undefined, there is nothing to blend.
- *
- * The light runs the effect of the end the position is nearer (day from the
- * middle up); beside an off end, the lit end's.
- */
-export function blend(day: BlendEnd, cosy: BlendEnd, position: BlendPosition, warmEnd: RGB): SceneLight | undefined {
-  const p: number = position;
-  if (day.power === 'on' && cosy.power === 'on') {
-    if (day.colour === undefined || cosy.colour === undefined) return undefined;
-    const dayEnd: Anchor = { brightness: day.brightness, colour: day.colour };
-    const cosyEnd: Anchor = { brightness: cosy.brightness, colour: cosy.colour };
-    return litAt(onTheCurve(dayEnd, cosyEnd, p, warmEnd), p < 0.5 ? cosy.effect : day.effect);
-  }
-  if (day.power === 'on') {
-    if (day.colour === undefined) return undefined;
-    const dayEnd: Anchor = { brightness: day.brightness, colour: day.colour };
-    if (p <= 0) return OFF;
-    if (p >= 1) return litAt(p === 1 ? dayEnd : aboveDay(dayEnd, p), day.effect);
-    return litAt({ brightness: rampUp(day.brightness, progressOrThrow(p)), colour: day.colour }, day.effect);
-  }
-  if (cosy.power === 'on') {
-    if (cosy.colour === undefined) return undefined;
-    const cosyEnd: Anchor = { brightness: cosy.brightness, colour: cosy.colour };
-    if (p >= 1) return OFF;
-    if (p <= 0) return litAt(p === 0 ? cosyEnd : belowCosy(cosyEnd, OFF_END_LEVEL, p, warmEnd), cosy.effect);
-    return litAt({ brightness: rampUp(cosy.brightness, progressOrThrow(1 - p)), colour: cosy.colour }, cosy.effect);
-  }
-  return undefined;
-}
-
-/**
- * Up from {@link OFF_END_LEVEL} towards `level`, `t` of the way (0 at the off
- * end, 1 at the lit end), rounded half to even. Shared by the blend beside an
- * off end and a scheduled fade out of an off block, so the two agree.
- */
-export function rampUp(level: Brightness, t: Progress): Brightness {
-  return brightnessOrThrow(roundEven(OFF_END_LEVEL + (level - OFF_END_LEVEL) * t));
 }
 
 /** Python's and Jinja's `round`: halves go to the even neighbour, where `Math.round` takes them up. */

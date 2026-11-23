@@ -1,4 +1,4 @@
-import type { Effect, EffectName } from '../effect.ts';
+import type { Effect, EffectName } from './effect.ts';
 import type { RangeMark, Ranged } from './range.ts';
 import type { Seconds } from './time.ts';
 
