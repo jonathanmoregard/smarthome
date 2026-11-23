@@ -98,7 +98,21 @@ test('a profile that follows its room or is off writes its own light under it, a
   assert.deepEqual(JSON.parse(encodeLampProfile(owned, found)),
     { on: false, own: true, b: 120, m: 'ct', k: 2700, effect: 'Candle', effect_channels: ['brightness', 'color'] });
   assert.deepEqual(JSON.parse(encodeLampProfile({ follows: 'room', own: { power: 'off', remembered: light(60, kelvin(2700), 'Candle') } }, found)),
-    { on: false, own: false, b: 60, m: 'ct', k: 2700, effect: 'Candle', effect_channels: ['brightness', 'color'] });
+    { on: false, own: false, b: 60, m: 'ct', k: 2700, effect: 'Candle', effect_channels: ['color'] });
+});
+
+test("a brightness or colour saved without an effect leaves the effect's channels, as ls_store's planStore did", () => {
+  // Carry-over 7. The old scripts read `effect_channels` as the parts the effect claims. Break: a saved brightness or
+  // colour stays claimed by the candle, so an old script still driving the room keeps the candle's level or colour.
+  const candle = (fields: Record<string, unknown>) => text({ on: true, own: true, b: 120, m: 'ct', k: 2700, effect: 'Candle', ...fields });
+  const channels = (profile: LampProfile, found: string) => JSON.parse(encodeLampProfile(profile, found)).effect_channels;
+  const saved = candle({ effect_channels: ['brightness', 'color'] });
+  assert.deepEqual(channels(lit(60, kelvin(2700), 'Candle'), saved), ['color']);
+  assert.deepEqual(channels(lit(120, kelvin(3000), 'Candle'), saved), ['brightness']);
+  assert.deepEqual(channels(lit(60, kelvin(3000), 'Candle'), saved), []);
+  assert.deepEqual(channels(lit(60, kelvin(2700), 'Candle'), candle({})), ['color'], 'no saved list: the effect\'s own channels');
+  assert.deepEqual(channels(lit(60, kelvin(2700), 'Candle'), candle({ effect_channels: 'garbage' })), ['color']);
+  assert.deepEqual(channels(lit(60, kelvin(2700)), text({ on: true, own: true, b: 120, effect: null })), [], 'a null effect claims none');
 });
 
 test('a profile written over an empty store decodes back to itself', () => {

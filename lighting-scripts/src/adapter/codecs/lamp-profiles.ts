@@ -45,8 +45,19 @@ export function encodeLampProfile(profile: LampProfile, foundText: string): stri
   const on = before.own.power === profile.own.power ? {} : { on: profile.own.power === 'on' };
   const b = was.brightness === light.brightness ? {} : { b: light.brightness };
   const colour = isDeepStrictEqual(was.colour, light.colour) ? {} : storedColour(light.colour);
-  const effect = was.effect === light.effect ? {} : { effect: STORED_EFFECT[light.effect], effect_channels: [...EFFECT_CHANNELS[light.effect]] };
+  const effect = was.effect !== light.effect ? { effect: STORED_EFFECT[light.effect], effect_channels: [...EFFECT_CHANNELS[light.effect]] }
+    : 'b' in b || 'm' in colour ? { effect_channels: releasedChannels(found, 'b' in b, 'm' in colour) } : {};
   return JSON.stringify({ ...found, ...on, ...own, ...b, ...colour, ...effect });
+}
+
+/**
+ * The effect's channels once a save set a brightness or a colour of its own, as `ls_store` wrote them: the saved
+ * list (or, when the store holds none, the saved effect's), less each channel the save set.
+ */
+function releasedChannels(found: JsonObject, brightness: boolean, colour: boolean): JsonValue[] {
+  const saved = found['effect_channels'], effect = found['effect'];
+  const channels: JsonValue[] = Array.isArray(saved) ? saved : effect === 'Candle' ? [...EFFECT_CHANNELS.Candle] : [];
+  return channels.filter(channel => !(brightness && channel === 'brightness') && !(colour && channel === 'color'));
 }
 
 /** The lit light an own light shows or remembers. */

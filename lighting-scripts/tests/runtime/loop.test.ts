@@ -195,7 +195,7 @@ test("a block light's save moves the lamps in the same turn, and Home Assistant'
   const store = 'input_text.ls_house_day';
   const saved = house.turn('12:01:00', { kind: 'store saved', data: { store, brightness: 100, kelvin: 2500 } });
   const writes = saved.outputs.flatMap(output => output.kind === 'store' && output.write.entity === store ? [output.write.text] : []);
-  assert.deepEqual(writes.map(text => JSON.parse(text)), [{ b: 100, m: 'ct', k: 2500 }]);
+  assert.deepEqual(writes.map(text => JSON.parse(text)), [{ b: 100, m: 'ct', k: 2500, effect_channels: [] }]);
   for (const bulb of ['bulb-a2', 'bulb-b1'] as BulbId[]) {
     assert.deepEqual(shows(house, bulb), { power: 'on', level: 100, colour: { kind: 'kelvin', kelvin: 2500 }, effect: 'none' }, bulb);
   }

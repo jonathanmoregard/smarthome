@@ -335,7 +335,7 @@ test('a save made as Home Assistant goes out of reach survives the reconnect and
   now.time = at('12:05:00');
   host.reconnected(ha.mirror(), now.time);
   await host.idle();
-  assert.deepEqual(JSON.parse(ha.states[store]?.state ?? '{}'), { b: 100, m: 'ct', k: 2500 });
+  assert.deepEqual(JSON.parse(ha.states[store]?.state ?? '{}'), { b: 100, m: 'ct', k: 2500, effect_channels: [] });
   const shown = ha.bulbs.shows('bulb-b1' as BulbId);
   assert.deepEqual(shown.reach === 'reachable' ? shown.light : shown, { power: 'on', level: 100, colour: { kind: 'kelvin', kelvin: 2500 },
     effect: 'none' }, "the lamps show the save, which the reconnect's read did not undo");
