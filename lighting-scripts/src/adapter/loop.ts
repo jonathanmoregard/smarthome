@@ -41,7 +41,11 @@ import type { ControlRow, StoreWrite } from './codecs/writes.ts';
  * the bulbs and switches reported at the last turn, which the next one reads changes against, and the writes to Home
  * Assistant still to land.
  */
-export type AdapterState = { model: Model; beliefs: Beliefs; view: DashboardView | undefined; observed: Observed; outbox: Outbox };
+export type AdapterState = {
+  model: Model; beliefs: Beliefs; view: DashboardView | undefined; observed: Observed; outbox: Outbox;
+  /** The helpers are read again next turn: a write was parked, and the Model follows what Home Assistant holds. */
+  reread: boolean;
+};
 
 /**
  * What the adapter has before a turn: the state it kept from the last turn, or, at the process's start, only the
@@ -101,8 +105,8 @@ export function afterOutputs(turn: Turn, failed: readonly boolean[]): Settled {
   // A bulb given up on is most often switched off at the wall: said once, for the host's info log (owner, 2026-11-20).
   const notes = parked.map(bulb => `lighting: ${bulb} is parked: it does not take what it is sent; left until it comes back on or its light changes`);
   const warnings = stopped.map(entry =>
-    `lighting: ${targetOf(entry.write)} is parked: Home Assistant refused it ${WRITE_TRIES} times; left until it is written anew or changes`);
-  return { state: { ...turn.state, beliefs, outbox }, wakeAt, parked, notes, warnings };
+    `lighting: ${targetOf(entry.write)} is parked: Home Assistant refused it ${WRITE_TRIES} times; the lighting follows what Home Assistant holds until it is written anew or changes`);
+  return { state: { ...turn.state, beliefs, outbox, reread: turn.state.reread || stopped.length > 0 }, wakeAt, parked, notes, warnings };
 }
 
 /** How a send went, from its outputs that failed: a switch's failed call is a failed send. */
@@ -122,7 +126,7 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput): Tu
   const now = toInstant(timestamp(reported.now));
   // The house as it will be once the writes still waiting land, so a read of the helpers keeps them.
   const waiting = settled(state?.outbox ?? [], reported), house = withWaiting(reported, waiting);
-  const read = input.kind === 'helper changed' || input.kind === 'reconnected' ? helpersRead(house, now) : undefined;
+  const read = input.kind === 'helper changed' || input.kind === 'reconnected' || state?.reread === true ? helpersRead(house, now) : undefined;
   const before = state === undefined || input.kind === 'started' ? decodeModel(configSource(house), house.catalog)
     : read === undefined ? state.model : update(state.model, read);
   // The clock runs first, and the input is read against what it leaves: a reset at this instant is already applied.
@@ -183,7 +187,7 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput): Tu
     }
   }
   const journalled = outputs.flatMap((output, index) => output.kind === 'publish' ? [index] : []);
-  const next: AdapterState = { model, beliefs, view, observed, outbox };
+  const next: AdapterState = { model, beliefs, view, observed, outbox, reread: false };
   return { state: next, outputs, sends: sending, now, nextChange: nextChange(model, now), dropped, journalled, writing };
 }
 

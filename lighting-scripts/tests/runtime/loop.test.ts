@@ -263,23 +263,34 @@ test("a person's newer change to the helper replaces a save still waiting to be 
   for (const time of ['12:01:01', '12:01:03', '12:01:30']) assert.deepEqual(storeWrites(house.turn(time, { kind: 'wake' })), [], time);
 });
 
-test('a write Home Assistant always refuses is tried five times on the backoff, then parked with one warning', () => {
-  // Re-review 4. Break: the write is tried every minute forever, or it is never parked, or the warning repeats.
-  const house = new House();
-  house.turn('12:00:00', { kind: 'started' });
-  const refused = (output: Output) => output.kind === 'store';
-  let turn = house.turn('12:01:00', { kind: 'store saved', data: { store: LAMP_A2_DAY, on: false } }, refused);
-  let tries = storeWrites(turn).length;
+/** Drive wakes from `turn` until none is due before `until`, adding up `count` and the warnings. */
+function wakesUntil(house: House, turn: Turn & Settled, until: string, refused: (output: Output) => boolean, count: (turn: Turn) => number) {
+  let tries = count(turn), last = turn;
   const warnings = [...turn.warnings];
-  for (let step = 0; step < 8 && turn.wakeAt !== undefined && turn.wakeAt < Date.parse('2026-09-21T12:10:00Z') / 1000; step++) {
-    turn = house.turn(new Date(turn.wakeAt * 1000).toISOString().slice(11, 23), { kind: 'wake' }, refused);
-    tries += storeWrites(turn).length;
-    warnings.push(...turn.warnings);
+  for (let step = 0; step < 8 && last.wakeAt !== undefined && last.wakeAt < Date.parse(`2026-09-21T${until}Z`) / 1000; step++) {
+    last = house.turn(new Date(last.wakeAt * 1000).toISOString().slice(11, 23), { kind: 'wake' }, refused);
+    tries += count(last);
+    warnings.push(...last.warnings);
   }
+  return { tries, warnings };
+}
+
+test('a write Home Assistant always refuses is tried five times on the backoff, then parked with one warning; the lamps follow Home Assistant', () => {
+  // Re-review 4, final review 3. Break: the write is tried every minute forever, or it is never parked, or the warning
+  // repeats; or the parked save is still laid over Home Assistant's states, so the lamps keep a light it never took.
+  const house = new House(), store = 'input_text.ls_house_day';
+  const saves = (turn: Turn) => turn.outputs.filter(output => output.kind === 'store' && output.write.entity === store).length;
+  const refused = (output: Output) => output.kind === 'store';
+  house.turn('12:00:00', { kind: 'started' });
+  const before = shows(house, 'bulb-b1' as BulbId);
+  const saved = house.turn('12:01:00', { kind: 'store saved', data: { store, brightness: 100, kelvin: 2500 } }, refused);
+  assert.deepEqual(shows(house, 'bulb-b1' as BulbId), { power: 'on', level: 100, colour: { kind: 'kelvin', kelvin: 2500 }, effect: 'none' });
+  const { tries, warnings } = wakesUntil(house, saved, '12:10:00', refused, saves);
   assert.equal(tries, 5);
-  for (const time of ['12:10:00', '12:20:00']) assert.deepEqual(storeWrites(house.turn(time, { kind: 'tick' }, refused)), [], time);
+  for (const time of ['12:10:00', '12:20:00']) assert.equal(saves(house.turn(time, { kind: 'tick' }, refused)), 0, time);
   assert.equal(warnings.length, 1);
-  assert.match(warnings[0] ?? '', /input_text\.ls_lamp_lamp_a2_day/);
+  assert.match(warnings[0] ?? '', /input_text\.ls_house_day.*follows what Home Assistant holds/);
+  assert.deepEqual(shows(house, 'bulb-b1' as BulbId), before, 'the lamps went back to what Home Assistant holds');
 });
 
 // --- M4: the plug's own button, power-on, put-backs, retries ------------------------------------------------------
