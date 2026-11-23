@@ -30,6 +30,41 @@ export function toUserId(raw: string): UserId {
 }
 
 /**
+ * A Home Assistant entity as a run names it (`light.kitchen`, `input_text.ls_lamp_<lamp>_<block>`): which lamp,
+ * bulb, switch or store it is, if any, is the config's or the house's to say, where the input is read.
+ */
+export type EntityId = Id<'EntityId'>;
+
+export function toEntityId(raw: string): EntityId {
+  // Cast: the edge read this string as an entity; this is the one place that says so.
+  return raw as EntityId;
+}
+
+/** The context id Home Assistant gives a change: what tells a running script's call from a person's. */
+export type ContextId = Id<'ContextId'>;
+
+export function toContextId(raw: string): ContextId {
+  // Cast: the edge read this string as a change's context; this is the one place that says so.
+  return raw as ContextId;
+}
+
+/** A Home Assistant device, as a light call targets it. */
+export type DeviceId = Id<'DeviceId'>;
+
+export function toDeviceId(raw: string): DeviceId {
+  // Cast: the edge read this string as a device; this is the one place that says so.
+  return raw as DeviceId;
+}
+
+/** A Home Assistant label, as a light call targets it. */
+export type LabelId = Id<'LabelId'>;
+
+export function toLabelId(raw: string): LabelId {
+  // Cast: the edge read this string as a label; this is the one place that says so.
+  return raw as LabelId;
+}
+
+/**
  * A remote's source, as its input's overlay key carries it
  * (`channels:<source>`). Never begins `ui:` or `native:`, the prefixes of a
  * dashboard or native control's key, so the key reads back as the remote's.

@@ -15,6 +15,11 @@
  * The colour: the first colour key the call holds, in today's order; a key
  * whose value cannot be read raises. `color_temp` (mireds) is read after
  * `kelvin`, which today's plan left to Home Assistant.
+ *
+ * The targets and the colour are read from the call once, where the input is
+ * named (`callTargets`, `parseCallColour`); what they reach, and an rgbw or
+ * rgbww colour's white, are read against the house when the input is
+ * (`callReach`, `callColour`).
  */
 import { roundEven } from '../../domain/blend.ts';
 import type { Config } from '../../domain/config.ts';
@@ -22,7 +27,8 @@ import type { LampId, RoomId } from '../../domain/types/ids.ts';
 import { entriesOf } from '../../domain/types/ids.ts';
 import type { Colour } from '../../domain/types/light.ts';
 import { COLOUR_NAMES } from './colour-names.ts';
-import { toColourChannel, toKelvin, toLampId, toRoomId } from './ids.ts';
+import type { DeviceId, EntityId, LabelId } from './ids.ts';
+import { toColourChannel, toDeviceId, toEntityId, toKelvin, toLabelId, toLampId, toRoomId } from './ids.ts';
 import { groupChildren, lampKelvinRange } from './native-controls.ts';
 import type { JsonObject, JsonValue } from '../ha-client.ts';
 import type { HouseView } from './house.ts';
@@ -45,10 +51,20 @@ function kelvinRgb(kelvin: number): Rgb {
   return [roundEven(clamped(r)), roundEven(clamped(g)), roundEven(clamped(b))];
 }
 
+/** What a light call targets: its areas, the entities it names, its devices and its labels. */
+export type CallTargets = { areas: readonly RoomId[]; entities: readonly EntityId[]; devices: readonly DeviceId[]; labels: readonly LabelId[] };
+
+/** A call's targets, from its service data. A target that is not text raises. */
+export function callTargets(sd: JsonObject): CallTargets {
+  return {
+    areas: selector(sd, 'area_id').map(toRoomId), entities: selector(sd, 'entity_id', true).map(toEntityId),
+    devices: selector(sd, 'device_id').map(toDeviceId), labels: selector(sd, 'label_id').map(toLabelId),
+  };
+}
+
 /** The lamps a call reaches, in the config's order, and the rooms of the config it names whole. */
-export function callReach(sd: JsonObject, config: Config, house: HouseView): { lamps: LampId[]; rooms: RoomId[] } {
-  const areas = selector(sd, 'area_id'), requested = selector(sd, 'entity_id', true);
-  const devices = selector(sd, 'device_id'), labels = selector(sd, 'label_id');
+export function callReach(targets: CallTargets, config: Config, house: HouseView): { lamps: LampId[]; rooms: RoomId[] } {
+  const { areas, devices, labels } = targets, requested: string[] = [...targets.entities];
   const rooms = house.rooms.ofId;
   for (const area of areas) requested.push(...Object.keys(rooms).filter(entity => rooms[entity] === area));
   for (const device of devices) requested.push(...listed(house.devices, device));
@@ -56,7 +72,7 @@ export function callReach(sd: JsonObject, config: Config, house: HouseView): { l
   const expanded = new Set([...requested, ...requested.flatMap(source => catalogGroup(house, source)), ...expandedEntities(house, requested)]);
   const lamps = entriesOf(config.lamps).flatMap(([lamp, placed]) =>
     expanded.has(lamp) || placed.bulbs.some(({ bulb }) => expanded.has(bulb)) ? [lamp] : []);
-  const named = [...areas];
+  const named: string[] = [...areas];
   for (const source of requested) {
     if (house.catalog.groups[source] === undefined) continue;
     const members = catalogGroup(house, source);
@@ -104,8 +120,14 @@ function expandedEntities(house: HouseView, entities: readonly string[]): string
   return result;
 }
 
-/** The colour a call asks for, by its first colour key; `lamp` is the lamp whose white range an rgbww colour mixes. */
-export function callColour(sd: JsonObject, house: HouseView, lamp: LampId | undefined): Colour | undefined {
+/**
+ * The colour a call asks for, as the call holds it: a colour, or an rgbw or rgbww colour whose white is mixed in
+ * against the lamp it reaches (`callColour`).
+ */
+export type CallColour = Colour | { kind: 'white mixed'; channels: readonly number[] };
+
+/** The colour a call asks for, by its first colour key; none when it holds none (or names a colour no one knows). */
+export function parseCallColour(sd: JsonObject): CallColour | undefined {
   if ('color_temp_kelvin' in sd) return kelvinColour(requireNumber(sd, 'color_temp_kelvin', 'light call'));
   if ('kelvin' in sd) return kelvinColour(requireNumber(sd, 'kelvin', 'light call'));
   if ('color_temp' in sd) {
@@ -122,13 +144,18 @@ export function callColour(sd: JsonObject, house: HouseView, lamp: LampId | unde
     const xy = numbers(sd, 'xy_color', 2);
     return rgbColour(xyRgb(nth(xy, 0), nth(xy, 1)));
   }
-  if ('rgbw_color' in sd) return rgbColour(whiteMixed(numbers(sd, 'rgbw_color', 4), house, lamp));
-  if ('rgbww_color' in sd) return rgbColour(whiteMixed(numbers(sd, 'rgbww_color', 5), house, lamp));
+  if ('rgbw_color' in sd) return { kind: 'white mixed', channels: numbers(sd, 'rgbw_color', 4) };
+  if ('rgbww_color' in sd) return { kind: 'white mixed', channels: numbers(sd, 'rgbww_color', 5) };
   if ('color_name' in sd) {
     const named = COLOUR_NAMES[jinjaString(sd.color_name).toLowerCase().replaceAll(' ', '')];
     return named === undefined ? undefined : rgbColour([...named]);
   }
   return 'white' in sd ? rgbColour([255, 255, 255]) : undefined;
+}
+
+/** The colour a call asks for, as `lamp` shows it: an rgbww colour mixes that lamp's white range. */
+export function callColour(colour: CallColour, house: HouseView, lamp: LampId | undefined): Colour {
+  return colour.kind === 'white mixed' ? rgbColour(whiteMixed(colour.channels, house, lamp)) : colour;
 }
 
 function kelvinColour(kelvin: number): Colour {
@@ -138,13 +165,6 @@ function kelvinColour(kelvin: number): Colour {
 function rgbColour(channels: readonly number[]): Colour {
   const channel = (index: number) => toColourChannel(Math.round(nth(channels, index)));
   return { kind: 'rgb', rgb: { red: channel(0), green: channel(1), blue: channel(2) } };
-}
-
-/** The value at `index` of a list whose length was checked. */
-function nth(values: readonly number[], index: number): number {
-  const value = values[index];
-  if (value === undefined) throw new ParseError(`light call: no value at ${index}`);
-  return value;
 }
 
 /** A key's list of exactly `length` numbers, or a raise. */
@@ -163,9 +183,6 @@ function hsRgb(hue: number, saturation: number): number[] {
   return triplet.map(component => roundEven((component + m) * 255));
 }
 
-/** A lamp that reports no white range: today's `| int(6500)` and `| int(2000)` defaults. */
-const UNKNOWN_WHITE_RANGE = { max: 6500, min: 2000 };
-
 /** CIE 1931 xy at full luminance to sRGB, scaled to its peak; a y of zero or less is black. */
 function xyRgb(x: number, y: number): number[] {
   if (y <= 0) return [0, 0, 0];
@@ -175,6 +192,9 @@ function xyRgb(x: number, y: number): number[] {
   const peak = Math.max(1, ...gamma);
   return gamma.map(v => roundEven(v / peak * 255));
 }
+
+/** A lamp that reports no white range: today's `| int(6500)` and `| int(2000)` defaults. */
+const UNKNOWN_WHITE_RANGE = { max: 6500, min: 2000 };
 
 /**
  * An rgbw or rgbww colour as rgb: the white (the w channel on each colour; for
@@ -193,4 +213,11 @@ function whiteMixed(channels: readonly number[], house: HouseView, lamp: LampId 
   const mixed = RGB_INDEX.map(i => nth(channels, i) + white[i]);
   const peak = Math.max(1, ...mixed), brightness = Math.max(...channels);
   return mixed.map(value => roundEven(value / peak * brightness));
+}
+
+/** The value at `index` of a list whose length was checked. */
+function nth(values: readonly number[], index: number): number {
+  const value = values[index];
+  if (value === undefined) throw new ParseError(`light call: no value at ${index}`);
+  return value;
 }

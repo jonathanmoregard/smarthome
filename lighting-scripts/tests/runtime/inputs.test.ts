@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { configSource, decodeModel } from '../../src/adapter/codecs/model.ts';
 import { haInput, messages } from '../../src/adapter/codecs/inputs.ts';
@@ -156,7 +157,11 @@ test('a remote\'s action is a press, with what its room reports', () => {
 test('a dashboard power message whose on is not a boolean is dropped, not read as off', () => {
   // Break: `on` is read as `data.on === true`, so an absent or unreadable one switches the room off.
   const house = houseView(states(), NOW_TEXT);
-  const power = (on: JsonObject) => ({ kind: 'overlay event', data: { op: 'power', area: roomA, ...on } } as const);
+  const power = (on: JsonObject): HaInput => {
+    const input = haInput('ls_commit', { data: { op: 'power', area: roomA, ...on } }, undefined);
+    assert.ok(input !== undefined);
+    return input;
+  };
   for (const bad of [{}, { on: 'on' }, { on: 1 }, { on: null }, { on: 'true' }]) {
     assert.throws(() => messages(power(bad), modelOf(house), NOW, house), ParseError, JSON.stringify(bad));
   }
@@ -258,14 +263,50 @@ test('a remote automation\'s source picks the remote, where its room has two and
 
 test('a missing room or topic is absent, not empty text, and an input that needs it raises', () => {
   // Break: an empty text stands in for the missing room or topic.
-  assert.deepEqual(haInput('ls_remote_gesture', { command: 'power' }, undefined),
-    { kind: 'remote action', room: undefined, device: undefined, source: undefined, button: { kind: 'power' } });
+  const nowhere = { device: undefined, room: undefined, source: undefined };
+  assert.deepEqual(haInput('ls_remote_gesture', { command: 'power' }, undefined), { kind: 'remote action', from: nowhere, button: { kind: 'power' } });
   assert.deepEqual(haInput('automation.lighting_room_a_remote_center', { trigger: { payload: 'on' } }, undefined),
-    { kind: 'remote action', room: undefined, device: undefined, source: undefined, button: { kind: 'power' } });
+    { kind: 'remote action', from: nowhere, button: { kind: 'power' } });
   assert.deepEqual(haInput('automation.effects_native_light_controls', { trigger: { payload: 'ON' } }, undefined),
-    { kind: 'effect preview', topic: undefined, payload: 'ON' });
+    { kind: 'unreadable', why: 'automation.effects_native_light_controls: A control set with no topic' });
   assert.throws(() => read('ls_remote_gesture', { command: 'power' }), /names no remote and no room/);
   assert.throws(() => read('automation.effects_native_light_controls', { trigger: { payload: 'ON' } }), /no topic/);
   assert.throws(() => read('ls_remote_command', { command: 'toggle' }), /names no remote and no room/);
   assert.throws(() => read('ls_range_save', { profile: 'bright' }), /Choose a physical on\/off lamp or smart plug\./);
+});
+
+test("a run's fields are read once, where it is named, into the input's own types", () => {
+  // M5 carry-over (brief item 2): the input carries what its run says, read, not the run's JSON for later readers.
+  // Break: a variant keeps the raw payload, and each reader parses it again.
+  const store = 'input_text.ls_lamp_lamp_a2_day';
+  assert.deepEqual(haInput('ls_override_block', { scope: 'house', block: 'Night' }, undefined),
+    { kind: 'dashboard script', script: { kind: 'hold block', over: 'house', block: 'night' } });
+  assert.deepEqual(haInput('ls_commit', { data: { op: 'power', area: 'room-a', on: false } }, undefined),
+    { kind: 'overlay event', event: { op: 'room power', room: roomA, power: 'off' } });
+  assert.deepEqual(haInput('ls_store', { store, own: true, brightness: 300, mireds: 400 }, undefined), {
+    kind: 'store saved', store,
+    change: { own: true, power: undefined, brightness: toBrightness(255), colour: { kind: 'kelvin', kelvin: toKelvin(2500) }, effect: undefined },
+  });
+  assert.deepEqual(haInput('effects_set', { source: 'light.room_a_all', attribute: 'brightness', value: '100' }, undefined), {
+    kind: 'control set', control: { kind: 'row', source: toDashboardControlId('light.room_a_all') },
+    value: { attribute: 'brightness', brightness: toBrightness(100) },
+  });
+  assert.deepEqual(haInput('ls_remote_command', { command: 'toggle', area: 'room-a', source: 'remote-a' }, undefined),
+    { kind: 'remote command', command: 'toggle', from: { device: undefined, room: roomA, source: 'remote-a' } });
+  assert.deepEqual(haInput('automation.lighting_room_a_remote_directions', { room: 'room-a', trigger: { id: 'up' } }, undefined),
+    { kind: 'remote action', from: { device: undefined, room: roomA, source: undefined }, button: { kind: 'arrow', direction: 'up' } });
+  const mode = parseCatalog({ mode: 'evening' }).mode;
+  assert.deepEqual(haInput('automation.lighting_schedule_evening_mode_switch', { trigger: { id: 'off', to_state: { context: { user_id: PERSON } } } }, mode),
+    { kind: 'mode switched', on: false, byPerson: true });
+  // A field that cannot be read makes the run unreadable, here: the turn drops it, logged once, and goes on.
+  assert.deepEqual(haInput('ls_override_block', { scope: roomA, block: 'teatime' }, undefined),
+    { kind: 'unreadable', why: 'ls_override_block: Not a block: teatime' });
+});
+
+test('no input type holds raw JSON: JSON stays at the run, where haInput reads it', () => {
+  // M5 carry-over. Break: a variant (or a type one carries) is declared with JsonObject or JsonValue again.
+  const source = readFileSync(new URL('../../src/adapter/codecs/inputs.ts', import.meta.url), 'utf8');
+  const types = [...source.matchAll(/^(?:export )?type (\w+)[^=]*=([\s\S]*?);\n/gm)];
+  assert.ok(types.some(([, name]) => name === 'HaInput'), 'HaInput is declared here');
+  assert.deepEqual(types.filter(([, , body]) => /Json(Object|Value)/.test(body!)).map(([, name]) => name), []);
 });

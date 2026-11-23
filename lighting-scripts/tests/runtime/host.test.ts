@@ -14,6 +14,7 @@ import type { BulbId } from '../../src/domain/types/ids.ts';
 import type { Instant } from '../../src/domain/types/time.ts';
 import type { FakeBulbs } from './fake-bulbs.ts';
 import { CATALOG, syntheticStates, world, writeBack } from './fixtures/house-view.ts';
+import { bridged } from './support/inputs.ts';
 
 /**
  * The host on the synthetic house, with a fake Home Assistant whose bulbs the publishes move, an in-memory journal,
@@ -102,7 +103,7 @@ test('inputs run one at a time', async () => {
   const { host } = open(ha, new MemoryJournal(), now);
   const opened = await host;
   opened.accept({ kind: 'started' });
-  opened.accept({ kind: 'remote command', data: { command: 'toggle', area: 'room-a', source: 'remote-a' } });
+  opened.accept(bridged('ls_remote_command', { command: 'toggle', area: 'room-a', source: 'remote-a' }));
   opened.accept({ kind: 'tick' });
   await opened.idle();
   assert.equal(overlapped, false);
@@ -247,7 +248,7 @@ test("our own call's echo is dropped, though it arrives before the call is answe
   };
   const before = sensorWrites().length;
   now.time = at('12:00:10');
-  host.accept({ kind: 'dashboard script', script: 'hold block', data: { scope: 'room-a', block: 'night' } });
+  host.accept(bridged('ls_override_block', { scope: 'room-a', block: 'night' }));
   await host.idle();
   ha.during = async () => {};
   assert.equal(sensorWrites().length, before + 1, "the hold's write only: the echo turned no mode on");
@@ -328,7 +329,7 @@ test('a save made as Home Assistant goes out of reach survives the reconnect and
   const store = 'input_text.ls_house_day', before = ha.states[store]?.state;
   ha.unreachable = true;
   now.time = at('12:01:00');
-  host.accept({ kind: 'store saved', data: { store, brightness: 100, kelvin: 2500 } });
+  host.accept(bridged('ls_store', { store, brightness: 100, kelvin: 2500 }));
   await host.idle();
   assert.equal(ha.states[store]?.state, before);
   ha.unreachable = false;
@@ -352,7 +353,7 @@ test('a button pressed while Home Assistant is coming back is applied after the 
   assert.equal(ha.states['bulb-a3']?.state, 'on');
   host.disconnected();
   now.time = at('12:01:00');
-  host.accept({ kind: 'remote command', data: { command: 'toggle', area: 'room-a', source: 'remote-a' } });
+  host.accept(bridged('ls_remote_command', { command: 'toggle', area: 'room-a', source: 'remote-a' }));
   await host.idle();
   assert.equal(ha.states['bulb-a3']?.state, 'on', 'nothing is sent while paused');
   host.reconnected(ha.mirror(), now.time);
@@ -372,7 +373,7 @@ test("our write is stamped when Home Assistant answered it, so a read started du
   stale.state['sensor.ls_overrides'] = { ...stale.state['sensor.ls_overrides']!, last_updated: '2026-09-21T12:00:00Z' };
   ha.during = async call => { if (call.service === 'variable.update_sensor') now.time = at('12:00:20'); };
   now.time = at('12:00:10');
-  host.accept({ kind: 'dashboard script', script: 'hold block', data: { scope: 'room-a', block: 'night' } });
+  host.accept(bridged('ls_override_block', { scope: 'room-a', block: 'night' }));
   await host.idle();
   const written = host.house().state['sensor.ls_overrides'];
   assert.notDeepEqual(written?.attributes, stale.state['sensor.ls_overrides']?.attributes, 'the hold was written');
@@ -397,8 +398,8 @@ test('a held input that throws is logged, and the press held after it is still a
   assert.equal(ha.states['bulb-a3']?.state, 'on');
   host.disconnected();
   now.time = at('12:01:00');
-  host.accept({ kind: 'dashboard script', script: 'hold block', data: { scope: 'room-b', block: 'night' } });
-  host.accept({ kind: 'remote command', data: { command: 'toggle', area: 'room-a', source: 'remote-a' } });
+  host.accept(bridged('ls_override_block', { scope: 'room-b', block: 'night' }));
+  host.accept(bridged('ls_remote_command', { command: 'toggle', area: 'room-a', source: 'remote-a' }));
   await host.idle();
   host.reconnected(ha.mirror(), now.time);
   await host.idle();

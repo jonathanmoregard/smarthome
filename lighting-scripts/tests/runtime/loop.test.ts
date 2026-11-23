@@ -15,6 +15,7 @@ import { toInstant, toKelvin, toRoomId, toSwitchId } from '../../src/adapter/cod
 import { lit } from './fake-bulbs.ts';
 import type { FakeBulbs } from './fake-bulbs.ts';
 import { houseView, syntheticStates, world, writeBack } from './fixtures/house-view.ts';
+import { bridged } from './support/inputs.ts';
 
 /**
  * The adapter's loop (M3 Task 3) on the synthetic house: each turn's outputs
@@ -88,7 +89,7 @@ test('a start with no state decodes it and lights the house', () => {
 test('a remote press changes the model, the sensor and the bulbs in one turn', () => {
   const house = new House();
   house.turn('12:00:00', { kind: 'started' });
-  const turn = house.turn('12:05:00', { kind: 'remote command', data: { command: 'toggle', area: roomA, source: 'remote-a' } });
+  const turn = house.turn('12:05:00', bridged('ls_remote_command', { command: 'toggle', area: roomA, source: 'remote-a' }));
   assert.equal(turn.state.model.overlays.roomPower[roomA], 'off');
   const sensor = turn.outputs.find(output => output.kind === 'sensor');
   assert.ok(sensor !== undefined && sensor.kind === 'sensor');
@@ -103,11 +104,11 @@ test('inputs are applied one at a time in arrival order', () => {
   house.turn('16:55:00', { kind: 'tick' });
   const fading = shows(house, 'bulb-a3' as BulbId);
   assert.equal(fading.power, 'on');
-  house.turn('16:55:20', { kind: 'remote command', data: { command: 'toggle', area: roomA, source: 'remote-a' } });
+  house.turn('16:55:20', bridged('ls_remote_command', { command: 'toggle', area: roomA, source: 'remote-a' }));
   const after = house.turn('16:56:00', { kind: 'tick' });
   assert.equal(after.state.model.overlays.roomPower[roomA], 'off');
   for (const bulb of ROOM_A_BULBS) assert.deepEqual(shows(house, bulb), { power: 'off' }, bulb);
-  house.turn('16:56:20', { kind: 'remote command', data: { command: 'toggle', area: roomA, source: 'remote-a' } });
+  house.turn('16:56:20', bridged('ls_remote_command', { command: 'toggle', area: roomA, source: 'remote-a' }));
   house.turn('16:57:00', { kind: 'tick' });
   const lit = shows(house, 'bulb-a3' as BulbId);
   assert.ok(lit.power === 'on' && fading.power === 'on' && lit.level !== fading.level, 'the fade went on after the press');
@@ -127,7 +128,7 @@ test("a save to a plug's store writes the plug's store, once, with the plug's fi
   const house = new House();
   house.turn('12:00:00', { kind: 'started' });
   const store = 'input_text.ls_lamp_plug_a_cosy';
-  const turn = house.turn('12:01:00', { kind: 'store saved', data: { store, own: true, on: true } });
+  const turn = house.turn('12:01:00', bridged('ls_store', { store, own: true, on: true }));
   const writes = turn.outputs.flatMap(output => output.kind === 'store' && output.write.entity === store ? [output.write.text] : []);
   assert.deepEqual(writes.map(text => JSON.parse(text)), [{ own: true, on: true }]);
   assert.deepEqual(turn.state.model.switchProfiles[toSwitchId('switch.plug_a')]?.cosy, { follows: 'own', power: 'on' });
@@ -150,9 +151,9 @@ test('an input is read against the clocked model: a mode toggle as the age reset
   // sends on: false, and is lost.
   const house = new House();
   house.turn('09:00:00', { kind: 'started' });
-  house.turn('09:00:00', { kind: 'dashboard script', script: 'toggle mode', data: {} });
+  house.turn('09:00:00', { kind: 'dashboard script', script: { kind: 'toggle mode' } });
   assert.equal(house.state!.model.modeOverlay.active, true);
-  const toggled = house.turn('12:00:00', { kind: 'dashboard script', script: 'toggle mode', data: {} });
+  const toggled = house.turn('12:00:00', { kind: 'dashboard script', script: { kind: 'toggle mode' } });
   assert.deepEqual(toggled.state.model.modeOverlay, { active: true, since: Date.parse('2026-09-21T12:00:00Z') / 1000 });
 });
 
@@ -169,10 +170,10 @@ test('an input that cannot be read is logged and dropped, and the turn goes on',
   const house = new House();
   house.turn('12:00:00', { kind: 'started' });
   const overlaysBefore = structuredClone(house.state!.model.overlays);
-  const turn = house.turn('12:01:00', { kind: 'overlay event', data: { op: 'no such operation' } });
+  const turn = house.turn('12:01:00', bridged('ls_commit', { data: { op: 'no such operation' } }));
   assert.match(turn.dropped === undefined ? '' : turn.dropped, /no such operation/);
   assert.deepEqual(turn.state.model.overlays, overlaysBefore);
-  const held = house.turn('12:02:00', { kind: 'dashboard script', script: 'hold block', data: { scope: roomA, block: 'night' } });
+  const held = house.turn('12:02:00', bridged('ls_override_block', { scope: roomA, block: 'night' }));
   assert.equal(held.dropped, undefined);
   assert.equal(held.state.model.overlays.blocks[roomA]?.block, 'night');
 });
@@ -193,7 +194,7 @@ test("a block light's save moves the lamps in the same turn, and Home Assistant'
   const house = new House();
   house.turn('12:00:00', { kind: 'started' });
   const store = 'input_text.ls_house_day';
-  const saved = house.turn('12:01:00', { kind: 'store saved', data: { store, brightness: 100, kelvin: 2500 } });
+  const saved = house.turn('12:01:00', bridged('ls_store', { store, brightness: 100, kelvin: 2500 }));
   const writes = saved.outputs.flatMap(output => output.kind === 'store' && output.write.entity === store ? [output.write.text] : []);
   assert.deepEqual(writes.map(text => JSON.parse(text)), [{ b: 100, m: 'ct', k: 2500, effect_channels: [] }]);
   for (const bulb of ['bulb-a2', 'bulb-b1'] as BulbId[]) {
@@ -211,11 +212,11 @@ test("a block light's save is written for any room its store names; a store that
   house.turn('12:00:00', { kind: 'started' });
   const stores = (turn: Turn) => turn.outputs.flatMap(output => output.kind === 'store' ? [output.write.entity] : []);
   for (const [time, store] of [['12:01:00', 'input_text.ls_room-a_day'], ['12:02:00', 'input_text.ls_nowhere_day']] as const) {
-    const saved = house.turn(time, { kind: 'store saved', data: { store, brightness: 100 } });
+    const saved = house.turn(time, bridged('ls_store', { store, brightness: 100 }));
     assert.deepEqual(stores(saved), [store]);
     assert.equal(saved.dropped, undefined);
   }
-  const turn = house.turn('12:03:00', { kind: 'store saved', data: { store: 'input_text.ls_nowhere', brightness: 100 } });
+  const turn = house.turn('12:03:00', bridged('ls_store', { store: 'input_text.ls_nowhere', brightness: 100 }));
   assert.deepEqual(stores(turn), []);
   assert.match(turn.dropped ?? '', /input_text\.ls_nowhere\b/);
 });
@@ -227,7 +228,7 @@ test('a profile save Home Assistant did not take is written again on the backoff
   house.turn('12:00:00', { kind: 'started' });
   const store = 'input_text.ls_lamp_lamp_a2_day';
   const written = (turn: Turn) => turn.outputs.flatMap(output => output.kind === 'store' && output.write.entity === store ? [output.write.text] : []);
-  const failed = house.turn('12:01:00', { kind: 'store saved', data: { store, on: false } }, output => output.kind === 'store');
+  const failed = house.turn('12:01:00', bridged('ls_store', { store, on: false }), output => output.kind === 'store');
   assert.equal(written(failed).length, 1);
   assert.equal(failed.wakeAt, Date.parse('2026-09-21T12:01:01Z') / 1000, 'woken after the first backoff');
   const again = house.turn('12:01:01', { kind: 'wake' });
@@ -245,7 +246,7 @@ test("a save Home Assistant did not take survives a change to another helper, an
   const saves = (turn: Turn) => turn.outputs.flatMap(output => output.kind === 'store' && output.write.entity === store ? [output.write.text] : []);
   const saved = { power: 'on', level: 100, colour: { kind: 'kelvin', kelvin: 2500 }, effect: 'none' };
   house.turn('12:00:00', { kind: 'started' });
-  const failed = house.turn('12:01:00', { kind: 'store saved', data: { store, brightness: 100, kelvin: 2500 } }, output => output.kind === 'store');
+  const failed = house.turn('12:01:00', bridged('ls_store', { store, brightness: 100, kelvin: 2500 }), output => output.kind === 'store');
   assert.equal(saves(failed).length, 1);
   assert.deepEqual(shows(house, 'bulb-b1' as BulbId), saved, 'the save moved the lamps');
   house.states['input_text.ls_lamp_lamp_b1_day'] = { state: '{"b":40}', attributes: {}, last_changed: '2026-09-21T12:01:00.500Z' };
@@ -258,7 +259,7 @@ test("a person's newer change to the helper replaces a save still waiting to be 
   // Outbox. Break: the waiting save is written over the person's later change, which is lost.
   const house = new House();
   house.turn('12:00:00', { kind: 'started' });
-  const failed = house.turn('12:01:00', { kind: 'store saved', data: { store: LAMP_A2_DAY, on: false } }, output => output.kind === 'store');
+  const failed = house.turn('12:01:00', bridged('ls_store', { store: LAMP_A2_DAY, on: false }), output => output.kind === 'store');
   assert.equal(storeWrites(failed).length, 1);
   const theirs = JSON.stringify({ own: true, on: true, b: 50 });
   house.states[LAMP_A2_DAY] = { state: theirs, attributes: {}, last_changed: '2026-09-21T12:01:00.500Z' };
@@ -286,7 +287,7 @@ test('a write Home Assistant always refuses is tried five times on the backoff, 
   const refused = (output: Output) => output.kind === 'store';
   house.turn('12:00:00', { kind: 'started' });
   const before = shows(house, 'bulb-b1' as BulbId);
-  const saved = house.turn('12:01:00', { kind: 'store saved', data: { store, brightness: 100, kelvin: 2500 } }, refused);
+  const saved = house.turn('12:01:00', bridged('ls_store', { store, brightness: 100, kelvin: 2500 }), refused);
   assert.deepEqual(shows(house, 'bulb-b1' as BulbId), { power: 'on', level: 100, colour: { kind: 'kelvin', kelvin: 2500 }, effect: 'none' });
   const { tries, warnings } = wakesUntil(house, saved, '12:10:00', refused, saves);
   assert.equal(tries, 5);

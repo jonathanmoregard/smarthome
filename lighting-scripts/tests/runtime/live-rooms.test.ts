@@ -14,6 +14,7 @@ import { NO_BELIEFS } from '../../src/adapter/reconcile.ts';
 import type { BulbId } from '../../src/domain/types/ids.ts';
 import type { FakeBulbs } from './fake-bulbs.ts';
 import { houseView, syntheticStates, world, writeBack } from './fixtures/house-view.ts';
+import { bridged } from './support/inputs.ts';
 
 /**
  * The rooms the live port drives (spec 5.4, plan M6 Task 1). A room is the port's when it is on the port's
@@ -117,8 +118,8 @@ class Shared {
 const listed = (...names: string[]): RoomsGiven => ({ kind: 'listed', rooms: new Set(names.map(toRoomId)) });
 const bulbsSent = (turn: Turn) => [...new Set(turn.outputs.flatMap(output => output.kind === 'publish' ? [output.publish.topic] : []))].sort();
 const sensorWrite = (turn: Turn) => turn.outputs.flatMap(output => output.kind === 'sensor' ? [output.write] : [])[0];
-const pressInRoomA: HaInput = { kind: 'remote command', data: { command: 'toggle', area: roomA, source: 'remote-a' } };
-const holdRoomB: HaInput = { kind: 'dashboard script', script: 'hold block', data: { scope: roomB, block: 'night' } };
+const pressInRoomA: HaInput = bridged('ls_remote_command', { command: 'toggle', area: roomA, source: 'remote-a' });
+const holdRoomB: HaInput = bridged('ls_override_block', { scope: roomB, block: 'night' });
 
 test('a lamp in a room that is not live is sent nothing', () => {
   // Break: the reconciler is handed the whole house's lamps, and the port fights the old scripts in room-a.
@@ -148,8 +149,8 @@ test('a house-wide input changes nothing while a room is still on the old script
   // systems commit the same toggle, or the port clears the old rooms' holds.
   const shared = new Shared(sharedStates({ [roomA]: 'on', [roomB]: 'on' }), listed(roomB));
   shared.turn('12:00:00', { kind: 'started' });
-  for (const input of [{ kind: 'dashboard script', script: 'toggle mode', data: {} }, { kind: 'dashboard script', script: 'clear overlays', data: {} },
-    { kind: 'dashboard script', script: 'hold block', data: { scope: 'house', block: 'day' } }] as HaInput[]) {
+  for (const input of [{ kind: 'dashboard script', script: { kind: 'toggle mode' } }, { kind: 'dashboard script', script: { kind: 'clear overlays' } },
+    bridged('ls_override_block', { scope: 'house', block: 'day' })] as HaInput[]) {
     assert.deepEqual(shared.turn('12:01:00', input).outputs, [], JSON.stringify(input));
   }
 });
@@ -194,8 +195,8 @@ test("a room handed to the port is sent its lamps again: the old scripts may hav
   delete (states['sensor.ls_overrides']!.attributes.overrides as JsonObject)[`block:${roomA}`];
   const shared = new Shared(states, listed(roomA));
   shared.turn('12:00:00', { kind: 'started' });
-  const candle = shared.turn('12:00:05', { kind: 'service called', event: { context: { user_id: 'someone', id: 'person' },
-    data: { domain: 'light', service: 'turn_on', service_data: { entity_id: 'light.lamp_a1', effect: 'candle' } } } });
+  const candle = shared.turn('12:00:05', bridged('automation.lighting_schedule_lamp_change_detector', { trigger: { event: { context: { user_id: 'someone', id: 'person' },
+    data: { domain: 'light', service: 'turn_on', service_data: { entity_id: 'light.lamp_a1', effect: 'candle' } } } } }));
   assert.ok(bulbsSent(candle).includes('zigbee2mqtt/bulb-a1'), 'the candle starts');
   states[portSwitch(roomA)] = { state: 'off', attributes: {}, last_changed: '2026-09-21T12:00:10+00:00' };
   assert.deepEqual(bulbsSent(shared.turn('12:00:20', { kind: 'wake' })), []);
@@ -219,7 +220,7 @@ test("a remote's helpers and a block light's store of a room that is not live ar
   const helpers = (turn: Turn) => turn.outputs.filter(output => output.kind === 'helper' || output.kind === 'store');
   shared.turn('12:00:00', { kind: 'started' });
   assert.deepEqual(helpers(shared.turn('12:01:00', { kind: 'tick' })), [], 'the chord timer ran out at 12:00:30');
-  assert.deepEqual(helpers(shared.turn('12:02:00', { kind: 'store saved', data: { store: `input_text.ls_${roomA}_day`, brightness: 100 } })), []);
+  assert.deepEqual(helpers(shared.turn('12:02:00', bridged('ls_store', { store: `input_text.ls_${roomA}_day`, brightness: 100 }))), []);
 });
 
 test('with every room live nothing extra is written: the turn is the whole house\'s', () => {
@@ -227,7 +228,7 @@ test('with every room live nothing extra is written: the turn is the whole house
   const run = (given: RoomsGiven) => {
     const shared = new Shared(sharedStates({ [roomA]: 'on', [roomB]: 'on' }), given);
     return [shared.turn('12:00:00', { kind: 'started' }), shared.turn('12:01:00', pressInRoomA),
-      shared.turn('12:02:00', { kind: 'dashboard script', script: 'toggle mode', data: {} })].map(turn => turn.outputs);
+      shared.turn('12:02:00', { kind: 'dashboard script', script: { kind: 'toggle mode' } })].map(turn => turn.outputs);
   };
   assert.deepEqual(run(listed(roomA, roomB)), run({ kind: 'house' }));
 });

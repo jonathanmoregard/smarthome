@@ -25,9 +25,9 @@ test("a room's own gesture script is the shared one, bound to that room's remote
   // Break: the room's script loses the catalog remote's source and device, so its press names no remote, or the
   // press's own command is overwritten.
   assert.deepEqual(scriptInput('ls_remote_gesture_kitchen', { command: 'up' }, remotes),
-    { kind: 'remote action', room: 'kitchen', device: 'device-a', source: 'remote-a', button: { kind: 'direction', id: 'up' } });
+    { kind: 'remote action', from: { room: 'kitchen', device: 'device-a', source: 'remote-a' }, button: { kind: 'arrow', direction: 'up' } });
   assert.deepEqual(scriptInput('ls_remote_gesture_kitchen', { command: 'power', source: 'remote-b' }, remotes),
-    { kind: 'remote action', room: 'kitchen', device: 'device-a', source: 'remote-b', button: { kind: 'power' } });
+    { kind: 'remote action', from: { room: 'kitchen', device: 'device-a', source: 'remote-b' }, button: { kind: 'power' } });
   assert.deepEqual(scriptInput('ls_remote_power_quiet_kitchen', {}, remotes), { kind: 'wake' });
 });
 
