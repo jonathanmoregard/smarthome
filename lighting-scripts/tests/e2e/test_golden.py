@@ -480,6 +480,43 @@ class Expected(unittest.TestCase):
         [window] = windows((before,), 'ha_restart_mid_fade', scenario, self.house)
         self.assertEqual(window.closes_at, (datetime(2026, 11, 18, 17, 0, tzinfo=LOCAL) - scenario.start).total_seconds())
 
+    def test_the_lamps_off_by_their_own_light_are_those_whose_own_light_is_off_in_the_starting_block(self):
+        # remote_presses starts at 12:00, in the day block (07:00 to 18:00). lamp_a1's own day light is off;
+        # lamp_b2's day light is off but not its own (it follows its room); lamp_b1's own day light is lit, and its
+        # own cosy light off. Only lamp_a1's bulb is named, one window each.
+        scenario = self.starting(lamp_a1={'day': (False, True)}, lamp_b1={'day': (True, True), 'cosy': (False, True)},
+                                 lamp_b2={'day': (False, False)})
+        entry = ExpectedDifference('x', 'remote_presses', 'lamp off by its own light at the start', 'power', 0,
+                                   'first press settled', True)
+        self.assertEqual([window.subject for window in windows((entry,), 'remote_presses', scenario, self.house)],
+                         ['bulb_a1'])
+        both = self.starting(lamp_a1={'day': (False, True)}, lamp_b1={'day': (False, True)})
+        self.assertEqual([window.subject for window in windows((entry,), 'remote_presses', both, self.house)],
+                         ['bulb_a1', 'bulb_b1', 'bulb_b2'])
+
+    def test_the_first_press_settles_at_the_checkpoint_after_its_gap(self):
+        # remote_presses: HA start, the first press at step 1, its gap (step 2) ends two minutes in.
+        scenario = scenarios(self.house)['remote_presses']
+        self.assertIsInstance(scenario.steps[1], Mqtt)
+        entry = ExpectedDifference('x', 'remote_presses', 'subject plug', 'power', 0, 'first press settled', True)
+        [window] = windows((entry,), 'remote_presses', scenario, self.house)
+        self.assertEqual(window.closes_at, scenario.steps[2].seconds)
+        [window] = windows((replace(entry, after_step=1),), 'remote_presses', scenario, self.house)   # the press itself
+        self.assertEqual(window.closes_at, scenario.steps[2].seconds)
+        with self.assertRaises(ValueError):
+            windows((replace(entry, scenario='range_save'),), 'range_save', scenarios(self.house)['range_save'], self.house)
+
+    def starting(self, **lights):
+        """remote_presses with the house's blocks at 07:00, 18:00 and 23:00 and each named lamp's `(on, own)` light."""
+        scenario = scenarios(self.house)['remote_presses']
+        pinned = {f'input_datetime.ls_house_{block}_{kind}': f'{clock}:00' for block, clock in
+                  (('day', '07:00'), ('cosy', '18:00'), ('night', '23:00')) for kind in ('start', 'weekend')}
+        for lamp, blocks in lights.items():
+            for block, (on, own) in blocks.items():
+                pinned[f'input_text.ls_lamp_{lamp}_{block}'] = json.dumps({'on': on, 'b': 150, 'own': own})
+        seeds = tuple(replace(seed, state=pinned[seed.entity]) if seed.entity in pinned else seed for seed in scenario.seeds)
+        return replace(scenario, seeds=seeds)
+
 
 # --- recordings ------------------------------------------------------------------------------------------
 

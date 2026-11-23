@@ -30,7 +30,7 @@ import sys
 from tests.e2e.codec import Advance, Checkpoint, HouseInfo, decode, encode
 from tests.e2e.compare import (Comparison, ExpectedWindow, FadeOffToOnGradual, FlowComparison, compare,
                                compare_flow)
-from tests.e2e.router import LOCAL
+from tests.e2e.router import LOCAL, Mqtt
 from tests.e2e.runner import ROOT, BackendRun, describe_house, run_backend
 from tests.e2e.scenarios import (BLOCKS, NAMES, Proof, Scenario, Scenarios, house_entity, plug_of, scenarios,
                                  subject_room)
@@ -52,14 +52,21 @@ class ExpectedDifference:
     """
     name: str                 # e.g. 'plug-press-held'
     scenario: str             # exactly one scenario
-    role: str                 # exactly one bulb or switch, by its `ROLES` name, never by entity
+    role: str                 # the bulbs or switches its `ROLES` name picks in the scenario (a window each), never by entity
     rule: str                 # exactly one flow rule, from `EXPECTED_RULES`
     after_step: int           # the window opens at the first checkpoint after this step's input ...
     until: str                # ... and closes at a named event, from `UNTIL`
     port_holds: bool          # inside the window the port keeps the value it showed at the window's first checkpoint
 
 
-EXPECTED: tuple[ExpectedDifference, ...] = ()     # empty in M1
+EXPECTED: tuple[ExpectedDifference, ...] = (
+    # Owner rule 2026-11-22, the reconciler always restores the target state: a lamp the world starts lit while its
+    # own light is off is switched off at HA start, so it is off from the first checkpoint after it (step 1; at
+    # step 0 the send has not landed). The reference leaves a lamp holding still alone on a tick, and switches it
+    # off only at the first press's render: off by the end of that press's gap.
+    ExpectedDifference('reconciler-restores-at-start', 'remote_presses', 'lamp off by its own light at the start',
+                       'power', after_step=1, until='first press settled', port_holds=True),
+)
 EXPECTED_RULES = ('power',)
 
 
@@ -113,13 +120,47 @@ def _first_after(scenario: Scenario, after_step: int, moments: Sequence[float], 
     return min(later) - scenario.start.timestamp()
 
 
+def _first_press_settled(scenario: Scenario, house: HouseInfo, after_step: int) -> float:
+    """Seconds into `scenario` of the checkpoint that ends the gap after the first remote press from step
+    `after_step` on (that step included)."""
+    press = next((index for index, step in enumerate(scenario.steps) if index >= after_step and isinstance(step, Mqtt)),
+                 None)
+    if press is None or press + 1 >= len(scenario.steps):
+        raise ValueError(f'{scenario.name}: no remote press with a gap from step {after_step} on')
+    return _checkpoint_time(scenario, press + 1) - scenario.start.timestamp()
+
+
 def _checkpoint_time(scenario: Scenario, step: int) -> float:
     return scenario.start.timestamp() + sum(s.seconds for s in scenario.steps[:step + 1] if isinstance(s, Advance))
 
 
-ROLES: Mapping[str, Callable[[HouseInfo], str]] = {'subject plug': lambda house: plug_of(house, subject_room(house))}
+def _off_by_own_light(scenario: Scenario, house: HouseInfo) -> tuple[str, ...]:
+    """The bulbs of each lamp whose own light (its store says `own` and not `on`) is off in the house's block as
+    the scenario starts."""
+    start = scenario.start.timestamp()
+    _, block = max((moment, block) for block, moment in _block_starts(scenario, house, 0) if moment <= start)
+    seeds = {seed.entity: seed.state for seed in scenario.seeds}
+    helpers = {helper.entity: helper.state for helper in house.helpers}
+    bulbs: list[str] = []
+    for lamp in house.lamps:
+        entity = house_entity(house, lamp.room, lamp.lamp, block, 'light')
+        text = None if entity is None else seeds.get(entity, helpers.get(entity))
+        try:
+            store = None if text is None else json.loads(text)
+        except ValueError:
+            store = None
+        if isinstance(store, dict) and store.get('own') is True and store.get('on') is False:
+            bulbs += lamp.bulbs
+    return tuple(sorted(bulbs))
+
+
+ROLES: Mapping[str, Callable[[Scenario, HouseInfo], tuple[str, ...]]] = {
+    'subject plug': lambda _scenario, house: (plug_of(house, subject_room(house)),),
+    'lamp off by its own light at the start': _off_by_own_light,
+}
 UNTIL: Mapping[str, Callable[[Scenario, HouseInfo, int], float]] = {'next block start': _next_block_start,
-                                                                     'next fade start': _next_fade_start}
+                                                                     'next fade start': _next_fade_start,
+                                                                     'first press settled': _first_press_settled}
 
 
 def check_expected(entries: Sequence[ExpectedDifference], built: Scenarios) -> None:
@@ -137,10 +178,10 @@ def check_expected(entries: Sequence[ExpectedDifference], built: Scenarios) -> N
 
 def windows(entries: Sequence[ExpectedDifference], name: str, scenario: Scenario, house: HouseInfo
             ) -> tuple[ExpectedWindow, ...]:
-    """The entries for scenario `name`, each resolved to its subject and its window in `scenario`."""
-    return tuple(ExpectedWindow(entry.name, ROLES[entry.role](house), entry.rule, entry.after_step,
+    """The entries for scenario `name`, each resolved to its window in `scenario`, one per subject its role picks."""
+    return tuple(ExpectedWindow(entry.name, subject, entry.rule, entry.after_step,
                                 UNTIL[entry.until](scenario, house, entry.after_step), entry.port_holds)
-                 for entry in entries if entry.scenario == name)
+                 for entry in entries if entry.scenario == name for subject in ROLES[entry.role](scenario, house))
 
 
 @dataclass(frozen=True)
