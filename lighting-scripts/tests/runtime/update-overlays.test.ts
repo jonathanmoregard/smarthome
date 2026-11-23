@@ -33,7 +33,9 @@ const rgb = (red: number, green: number, blue: number): Colour =>
   ({ kind: 'rgb', rgb: { red: toColourChannel(red), green: toColourChannel(green), blue: toColourChannel(blue) } });
 const shows = (level: number, colour: Colour | undefined, effect: OnLight['effect'] = normal): LampLight =>
   ({ power: 'on', level: toLevel(level), colour, effect, transition: { kind: 'manual' } });
-const OFF: LampLight = { power: 'off' };
+const OFF: LampLight = { power: 'off', transition: { kind: 'manual' } };
+/** Off by the room's power switch: at once. */
+const SWITCHED_OFF: LampLight = { power: 'off', transition: { kind: 'switch' } };
 const DAY = shows(220, kelvin(4000)), ORANGE = rgb(255, 150, 60), WARM_END = rgb(255, 126, 0);
 
 const lampA1 = toLampId('light.lamp_a1'), lampA2 = toLampId('light.lamp_a2'), lampB1 = toLampId('light.lamp_b1');
@@ -271,7 +273,7 @@ test("a control's second change keeps the part its first set", () => {
 test("a room control's power switches the room off and on", () => {
   // Break: the room's power is not written.
   const off = after(house(), requested({ kind: 'room power', room: roomA, power: 'off' }, '12:00:00'));
-  assert.deepEqual(lamp(off, lampA2, at('12:00:00')), OFF);
+  assert.deepEqual(lamp(off, lampA2, at('12:00:00')), SWITCHED_OFF);
   const on = after(off, requested({ kind: 'room power', room: roomA, power: 'on' }, '12:10:00'));
   assert.deepEqual(lamp(on, lampA2, at('12:10:00')), DAY);
 });

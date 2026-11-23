@@ -38,7 +38,9 @@ const rgb = (red: number, green: number, blue: number): Colour =>
   ({ kind: 'rgb', rgb: { red: toColourChannel(red), green: toColourChannel(green), blue: toColourChannel(blue) } });
 const shows = (level: number, colour: Colour | undefined, effect: OnLight['effect'] = normal): LampLight =>
   ({ power: 'on', level: toLevel(level), colour, effect, transition: { kind: 'manual' } });
-const OFF: LampLight = { power: 'off' };
+const OFF: LampLight = { power: 'off', transition: { kind: 'manual' } };
+/** Off by the room's power switch: at once. */
+const SWITCHED_OFF: LampLight = { power: 'off', transition: { kind: 'switch' } };
 const ORANGE = rgb(255, 150, 60), WARM_END = rgb(255, 126, 0);
 const DAY = shows(220, kelvin(4000)), COSY = shows(90, ORANGE);
 
@@ -196,7 +198,7 @@ test('returning to a preset restores what it held', () => {
 test('the power toggle switches a lit room off and back on', () => {
   // Carry-over 4: the toggle switches the room's power, as today. Break: the second toggle does not read the saved power.
   const off = after(house(), send('toggle', '12:00:00'));
-  assert.deepEqual([lamp(off, lampA1, '12:00:30'), lamp(off, lampA2, '12:00:30'), lamp(off, lampB1, '12:00:30')], [OFF, OFF, DAY]);
+  assert.deepEqual([lamp(off, lampA1, '12:00:30'), lamp(off, lampA2, '12:00:30'), lamp(off, lampB1, '12:00:30')], [SWITCHED_OFF, SWITCHED_OFF, DAY]);
   const on = after(off, send('toggle', '12:01:00'));
   assert.deepEqual([lamp(on, lampA1, '12:01:30'), lamp(on, lampA2, '12:01:30')], [DAY, DAY]);
 });
@@ -261,7 +263,7 @@ test("one power press toggles the room when its window closes on the clock", () 
   // once, or never.
   const pressed = after(house(), power('12:00:00'));
   assert.deepEqual(lamp(pressed, lampA2, '12:00:00.300'), DAY);
-  assert.deepEqual(lamp(after(pressed, clock('12:00:00.600')), lampA2, '12:00:01'), OFF);
+  assert.deepEqual(lamp(after(pressed, clock('12:00:00.600')), lampA2, '12:00:01'), SWITCHED_OFF);
 });
 
 test('two power presses toggle nothing', () => {
@@ -281,7 +283,7 @@ test('a power press after the window closed first completes the old burst', () =
   // Carried from gestures-reducer.test.ts: no clock ran between the presses, so the second press completes the first
   // (a toggle), then starts its own burst. Break: the two presses are counted as one burst.
   const second = after(house(), power('12:00:00'), power('12:00:01'));
-  assert.deepEqual(lamp(second, lampA2, '12:00:01'), OFF);
+  assert.deepEqual(lamp(second, lampA2, '12:00:01'), SWITCHED_OFF);
   assert.deepEqual(lamp(after(second, clock('12:00:01.600')), lampA2, '12:00:02'), DAY);
 });
 
@@ -363,7 +365,7 @@ test('two remotes in one room count their power presses apart', () => {
   // Break: the second remote's press joins the first one's burst, which then toggles nothing.
   const two = (model: Model) => { model.config.remotes[remoteC] = { room: roomA }; model.remotes[remoteC] = IDLE_REMOTE; };
   const first = after(house(two), power('12:00:00'), power('12:00:00.300', remoteC), clock('12:00:00.600'));
-  assert.deepEqual(lamp(first, lampA2, '12:00:00.700'), OFF);
+  assert.deepEqual(lamp(first, lampA2, '12:00:00.700'), SWITCHED_OFF);
   assert.deepEqual(lamp(after(first, clock('12:00:00.900')), lampA2, '12:00:01'), DAY);
 });
 

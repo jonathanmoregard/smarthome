@@ -55,6 +55,8 @@ export const XY_TOLERANCE = 0.01;
 export const SETTLE_MARGIN: Seconds = toSeconds(2);
 /** The fade of a change made at once. */
 export const MANUAL_FADE: Seconds = toSeconds(0.2);
+/** The fade of an off by a room's power switch: none, as today's `homeassistant.turn_off`. */
+export const SWITCHED: Seconds = toSeconds(0);
 /** The fade of a light the candle's start follows. */
 export const EFFECT_START_FADE: Seconds = toSeconds(0.4);
 
@@ -161,12 +163,12 @@ function runsCandle(appearance: BulbAppearance): boolean {
 }
 
 /**
- * The send's fade: a light the candle's start follows gets the effect start's
- * fade, a step of a scheduled fade its step, anything else (off included) the
- * manual fade.
+ * The send's fade: an off by a room's power switch none, a light the candle's
+ * start follows the effect start's fade, a step of a scheduled fade its step,
+ * anything else (any other off included) the manual fade.
  */
 function fadeOf(light: LampLight, appearance: BulbAppearance): Seconds {
-  if (light.power === 'off') return MANUAL_FADE;
+  if (light.power === 'off') return light.transition.kind === 'switch' ? SWITCHED : MANUAL_FADE;
   if (runsCandle(appearance)) return EFFECT_START_FADE;
   return light.transition.kind === 'scheduled fade' ? light.transition.over : MANUAL_FADE;
 }

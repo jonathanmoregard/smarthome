@@ -411,8 +411,10 @@ function sceneOf(light: LampLight): SceneLight {
  */
 function shownLight(...args: Parameters<typeof foldedLight>): LampLight {
   const [, subject, stage, block, overlays] = args;
+  const [model, , , , , room] = args;
   const { shown, off } = foldedLight(...args);
-  if (off || shown.brightness === undefined) return OFF;
+  if (room !== undefined && model.overlays.roomPower[room] === 'off') return SWITCHED_OFF;
+  if (off || shown.brightness === undefined) return FADED_OFF;
   const warmColour: Colour = { kind: 'rgb', rgb: subject.warmEnd };
   const colour = overlays.mode && block !== 'night' ? MODE_COLOUR : shown.warmColour ? warmColour : shown.colour;
   const transition = stage.moving ? FADE_STEP : MANUAL;
@@ -643,5 +645,8 @@ function overlaySinces(model: Model): Instant[] {
 
 const OFF = { power: 'off' } as const;
 const MANUAL: Transition = { kind: 'manual' };
+const FADED_OFF: LampLight = { power: 'off', transition: MANUAL };
+/** A lamp off by its room's power switch: at once. */
+const SWITCHED_OFF: LampLight = { power: 'off', transition: { kind: 'switch' } };
 /** One minute's move of a scheduled fade. */
 const FADE_STEP: Transition = { kind: 'scheduled fade', over: secondsOrThrow(60) };

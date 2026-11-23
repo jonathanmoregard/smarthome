@@ -42,4 +42,10 @@ export type SceneLight = { power: 'off' } | { power: 'on'; brightness: Brightnes
  * reconciler sends the level alone.
  */
 export type OnLight = { power: 'on'; level: Level; colour: Colour | undefined; effect: Effect; transition: Transition };
-export type LampLight = { power: 'off' } | OnLight;
+/**
+ * An unlit lamp, and how it goes off: with the manual fade, or switched at
+ * once by its room's power (the remote's toggle or a room's control), as
+ * today's `homeassistant.turn_off` does.
+ */
+export type OffLight = { power: 'off'; transition: { kind: 'manual' } | { kind: 'switch' } };
+export type LampLight = OffLight | OnLight;

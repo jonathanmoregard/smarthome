@@ -38,7 +38,7 @@ const WARM: Colour = { kind: 'rgb', rgb: { red: toColourChannel(255), green: toC
 const MANUAL = { kind: 'manual' } as const;
 const on = (level: number, colour: Colour | undefined, effect: OnLight['effect'] = normal, transition: OnLight['transition'] = MANUAL): LampLight =>
   ({ power: 'on', level: toLevel(level), colour, effect, transition });
-const OFF: LampLight = { power: 'off' };
+const OFF: LampLight = { power: 'off', transition: MANUAL };
 
 /** The evening: `light.lamp_a1` runs the candle in the warm end, `light.lamp_a2` is lit plainly, `light.lamp_b1` is off. */
 const EVENING: LightingState = {
@@ -290,6 +290,15 @@ test('a scheduled fade goes out over its step, a manual change over the manual f
   const over = Object.fromEntries(nextSends(fading, config, bulbs.observed(), NO_BELIEFS, at(0)).sends.flatMap(send =>
     send.kind === 'bulb' ? [[send.bulb, send.over]] : []));
   assert.deepEqual(over, { [bulbA1]: EFFECT_START_FADE, [bulbA2]: MANUAL_FADE, [bulbA3]: 60, [bulbB1]: MANUAL_FADE });
+});
+
+test('an off by a room\'s power switch goes out with no fade; any other off over the manual fade', () => {
+  // Break: the room's switch fades where today's homeassistant.turn_off is at once, or every off loses its fade.
+  const { bulbs, beliefs } = steady();
+  const target: LightingState = { ...EVENING, lamps: { ...EVENING.lamps, [lampA1]: { power: 'off', transition: { kind: 'switch' } }, [lampA2]: OFF } };
+  const { sends } = pass(bulbs, target, beliefs, at(10));
+  const over = Object.fromEntries(sends.flatMap(send => send.kind === 'bulb' ? [[send.bulb, send.over]] : []));
+  assert.deepEqual(over, { [bulbA1]: 0, [bulbA2]: 0, [bulbA3]: MANUAL_FADE });
 });
 
 test('the next wake is when the first send settles, and a steady house asks for none', () => {

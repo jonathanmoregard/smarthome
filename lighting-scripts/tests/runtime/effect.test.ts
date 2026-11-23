@@ -48,7 +48,7 @@ test('a lamp the schedule names no colour for leaves each bulb its own', () => {
 });
 
 test('an off lamp is off on every bulb', () => {
-  const lamp: LampLight = { power: 'off' };
+  const lamp: LampLight = { power: 'off', transition: { kind: 'manual' } };
   assert.deepEqual(bulbAppearance(lamp, candleBulb), { power: 'off' });
   assert.deepEqual(bulbAppearance(lamp, stockBulb), { power: 'off' });
 });

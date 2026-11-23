@@ -43,7 +43,9 @@ const MANUAL = { kind: 'manual' } as const;
 const FADING = { kind: 'scheduled fade', over: toSeconds(60) } as const;
 const shows = (level: number, colour: Colour | undefined, effect: OnLight['effect'] = normal, transition: OnLight['transition'] = MANUAL): LampLight =>
   ({ power: 'on', level: toLevel(level), colour, effect, transition });
-const OFF: LampLight = { power: 'off' };
+const OFF: LampLight = { power: 'off', transition: MANUAL };
+/** Off by its room's power switch: at once, as today's `homeassistant.turn_off`. */
+const SWITCHED_OFF: LampLight = { power: 'off', transition: { kind: 'switch' } };
 
 const lampA1 = toLampId('light.lamp_a1'), lampA2 = toLampId('light.lamp_a2'), lampB1 = toLampId('light.lamp_b1');
 const roomA = toRoomId('room-a'), roomB = toRoomId('room-b');
@@ -367,14 +369,15 @@ test('the mode overlay does nothing in the night block', () => {
 
 // 5. Room power.
 
-test('a room switched off is off whatever its overlays say', () => {
-  // Break: a lamp overlay switches a lamp of a room that is off back on, or the power reaches another room.
+test('a room switched off is off whatever its overlays say, switched at once', () => {
+  // Break: a lamp overlay switches a lamp of a room that is off back on, the power reaches another room, or the
+  // room's off fades where today's power switch is at once.
   const model = house(m => {
     m.overlays.roomPower[roomA] = 'off';
     m.overlays.lamps = [person(onLamp(lampA2), { brightness: fixed(200, at('12:00:00')) }, at('12:00:00'))];
   });
-  assert.deepEqual(lamp(model, lampA2, at('12:30:00')), OFF);
-  assert.deepEqual(lamp(model, lampA1, at('12:30:00')), OFF);
+  assert.deepEqual(lamp(model, lampA2, at('12:30:00')), SWITCHED_OFF);
+  assert.deepEqual(lamp(model, lampA1, at('12:30:00')), SWITCHED_OFF);
   assert.deepEqual(lamp(model, lampB1, at('12:30:00')), shows(220, kelvin(4000)));
 });
 
