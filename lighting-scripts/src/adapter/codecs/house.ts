@@ -3,6 +3,7 @@
  * catalog parsed once, and the clock. The codecs read it; nothing else looks
  * inside.
  */
+import { isDeepStrictEqual } from 'node:util';
 import type { EntityState, HouseRead, JsonObject, JsonValue, ServiceCall, WireState } from '../ha-client.ts';
 import { isObject } from './parse.ts';
 import type { Catalog } from './catalog.ts';
@@ -26,6 +27,11 @@ export type HouseView = {
   get(entity: string): string;
   attr(entity: string, key: string): JsonValue | undefined;
 };
+
+/** The house with `state` for its states. */
+export function withStates(house: HouseView, state: Record<string, EntityState>): HouseView {
+  return { ...house, state, get: entity => state[entity]?.state ?? 'unknown', attr: (entity, key) => state[entity]?.attributes[key] };
+}
 
 /** Home Assistant's states and registry as the host mirrors them. */
 export type HouseMirror = {
@@ -95,6 +101,24 @@ export function houseView(mirror: HouseMirror, now: Instant, catalog: Catalog): 
 /** An instant as Home Assistant's ISO time text, to the millisecond. */
 function isoText(at: Instant): string {
   return new Date(at * 1000).toISOString();
+}
+
+/**
+ * Whether Home Assistant is done with a call of ours made at `since`: the state of the entity it targets shows it
+ * taken (a sensor update's attributes, any other call's value, a number by its value), or changed after `since`, by
+ * someone else, which supersedes it. A call that targets no entity (an MQTT publish) shows nothing, so is never done here.
+ */
+export function callSettled(states: Readonly<Record<string, EntityState>>, call: ServiceCall, since: Instant): boolean {
+  const entity = call.target?.entity_id ?? call.data.entity_id, shown = typeof entity === 'string' ? states[entity] : undefined;
+  const expected = typeof entity === 'string' ? afterCall({}, call, since)[entity] : undefined;
+  if (shown === undefined || expected === undefined) return false;
+  const changed = Date.parse(shown.last_changed ?? '') / 1000;
+  if (Number.isFinite(changed) && changed > since) return true;
+  if (call.service === 'variable.update_sensor') {
+    return Object.entries(expected.attributes).every(([key, value]) => isDeepStrictEqual(shown.attributes[key], value));
+  }
+  const number = (text: string) => text.trim() === '' ? NaN : Number(text);
+  return shown.state === expected.state || number(shown.state) === number(expected.state);
 }
 
 /**

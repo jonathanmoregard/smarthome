@@ -319,6 +319,17 @@ export function blockLightSaved(states: Readonly<Record<string, EntityState>>, t
   return saved;
 }
 
+/**
+ * The helper states once a store's write lands: a block light's template light shows the stored light too, as
+ * {@link blockLightSaved} has it with the whole stored light for the change; any other store only holds its text.
+ */
+export function storeLanded(states: Readonly<Record<string, EntityState>>, store: string, text: string): Record<string, EntityState> {
+  const light = blockLightOf(store), found = states[store];
+  if (light === undefined) return { ...states, [store]: { attributes: found === undefined ? {} : found.attributes, state: text } };
+  const own = decodeLampProfile(text).own, kept = own.power === 'on' ? own.light : own.remembered;
+  return blockLightSaved(states, light, text, { own: undefined, power: own.power, brightness: kept.brightness, colour: kept.colour, effect: undefined });
+}
+
 /** A lit light's colour when it reports one: kelvin in the colour-temperature mode, else its rgb triple. */
 export function decodeColour(light: EntityState): Colour | undefined {
   if (light.attributes['color_mode'] === 'color_temp') {

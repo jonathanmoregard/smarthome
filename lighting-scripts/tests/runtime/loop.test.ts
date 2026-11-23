@@ -232,6 +232,56 @@ test('a profile save Home Assistant did not take is written again on the backoff
   assert.deepEqual(written(house.turn('12:01:02', { kind: 'wake' })), []);
 });
 
+const LAMP_A2_DAY = 'input_text.ls_lamp_lamp_a2_day';
+const storeWrites = (turn: Turn) => turn.outputs.flatMap(output => output.kind === 'store' && output.write.entity === LAMP_A2_DAY ? [output.write.text] : []);
+
+test("a save Home Assistant did not take survives a change to another helper, and is written on its backoff", () => {
+  // Re-review 1. Break: the helper change reads the profiles again from what Home Assistant still holds, the Model
+  // takes the old light over the save (the lamps go back), and the save is dropped, never written.
+  const house = new House(), store = 'input_text.ls_house_day';
+  const saves = (turn: Turn) => turn.outputs.flatMap(output => output.kind === 'store' && output.write.entity === store ? [output.write.text] : []);
+  const saved = { power: 'on', level: 100, colour: { kind: 'kelvin', kelvin: 2500 }, effect: 'none' };
+  house.turn('12:00:00', { kind: 'started' });
+  const failed = house.turn('12:01:00', { kind: 'store saved', data: { store, brightness: 100, kelvin: 2500 } }, output => output.kind === 'store');
+  assert.equal(saves(failed).length, 1);
+  assert.deepEqual(shows(house, 'bulb-b1' as BulbId), saved, 'the save moved the lamps');
+  house.states['input_text.ls_lamp_lamp_b1_day'] = { state: '{"b":40}', attributes: {}, last_changed: '2026-09-21T12:01:00.500Z' };
+  assert.deepEqual(saves(house.turn('12:01:00.500', { kind: 'helper changed' })), [], 'not sent again before its backoff');
+  assert.deepEqual(shows(house, 'bulb-b1' as BulbId), saved, 'the helper change kept the save');
+  assert.deepEqual(saves(house.turn('12:01:01', { kind: 'wake' })), saves(failed));
+});
+
+test("a person's newer change to the helper replaces a save still waiting to be written", () => {
+  // Outbox. Break: the waiting save is written over the person's later change, which is lost.
+  const house = new House();
+  house.turn('12:00:00', { kind: 'started' });
+  const failed = house.turn('12:01:00', { kind: 'store saved', data: { store: LAMP_A2_DAY, on: false } }, output => output.kind === 'store');
+  assert.equal(storeWrites(failed).length, 1);
+  const theirs = JSON.stringify({ own: true, on: true, b: 50 });
+  house.states[LAMP_A2_DAY] = { state: theirs, attributes: {}, last_changed: '2026-09-21T12:01:00.500Z' };
+  house.turn('12:01:00.500', { kind: 'helper changed' });
+  for (const time of ['12:01:01', '12:01:03', '12:01:30']) assert.deepEqual(storeWrites(house.turn(time, { kind: 'wake' })), [], time);
+});
+
+test('a write Home Assistant always refuses is tried five times on the backoff, then parked with one warning', () => {
+  // Re-review 4. Break: the write is tried every minute forever, or it is never parked, or the warning repeats.
+  const house = new House();
+  house.turn('12:00:00', { kind: 'started' });
+  const refused = (output: Output) => output.kind === 'store';
+  let turn = house.turn('12:01:00', { kind: 'store saved', data: { store: LAMP_A2_DAY, on: false } }, refused);
+  let tries = storeWrites(turn).length;
+  const warnings = [...turn.warnings];
+  for (let step = 0; step < 8 && turn.wakeAt !== undefined && turn.wakeAt < Date.parse('2026-09-21T12:10:00Z') / 1000; step++) {
+    turn = house.turn(new Date(turn.wakeAt * 1000).toISOString().slice(11, 23), { kind: 'wake' }, refused);
+    tries += storeWrites(turn).length;
+    warnings.push(...turn.warnings);
+  }
+  assert.equal(tries, 5);
+  for (const time of ['12:10:00', '12:20:00']) assert.deepEqual(storeWrites(house.turn(time, { kind: 'tick' }, refused)), [], time);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0] ?? '', /input_text\.ls_lamp_lamp_a2_day/);
+});
+
 // --- M4: the plug's own button, power-on, put-backs, retries ------------------------------------------------------
 
 const plugA = toSwitchId('switch.plug_a');

@@ -316,3 +316,28 @@ test('a reconnect unparks every parked bulb and sends it its light', async () =>
   assert.equal(loadBeliefs(journal.saved.at(-1)).bulbs['bulb-a3' as BulbId]?.kind, 'sent');
   await host.close();
 });
+
+
+test('a save made as Home Assistant goes out of reach survives the reconnect and lands', async () => {
+  // Re-review 1. Break: the reconnect reads the profiles again from what Home Assistant still holds, the Model takes
+  // the old profile over the save, and the save is never written.
+  const ha = new FakeHa(), now = { time: at('12:00:00') };
+  const host = await open(ha, new MemoryJournal(), now).host;
+  host.accept({ kind: 'started' });
+  await host.idle();
+  const store = 'input_text.ls_house_day', before = ha.states[store]?.state;
+  ha.unreachable = true;
+  now.time = at('12:01:00');
+  host.accept({ kind: 'store saved', data: { store, brightness: 100, kelvin: 2500 } });
+  await host.idle();
+  assert.equal(ha.states[store]?.state, before);
+  ha.unreachable = false;
+  now.time = at('12:05:00');
+  host.reconnected(ha.mirror(), now.time);
+  await host.idle();
+  assert.deepEqual(JSON.parse(ha.states[store]?.state ?? '{}'), { b: 100, m: 'ct', k: 2500 });
+  const shown = ha.bulbs.shows('bulb-b1' as BulbId);
+  assert.deepEqual(shown.reach === 'reachable' ? shown.light : shown, { power: 'on', level: 100, colour: { kind: 'kelvin', kelvin: 2500 },
+    effect: 'none' }, "the lamps show the save, which the reconnect's read did not undo");
+  await host.close();
+});

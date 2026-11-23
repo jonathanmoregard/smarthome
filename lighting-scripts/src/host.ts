@@ -128,6 +128,7 @@ export class Host {
     const settled = afterOutputs(turn, failed);
     this.kept = { kind: 'running', state: settled.state };
     for (const note of settled.notes) this.io.log.info(note);
+    for (const warning of settled.warnings) this.io.log.warn(warning);
     if (turn.outputs.length > 0 && this.connected) this.io.took?.((performance.now() - started) / 1000);
     return settled.wakeAt;
   }
