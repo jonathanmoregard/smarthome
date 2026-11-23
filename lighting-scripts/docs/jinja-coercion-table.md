@@ -1,6 +1,6 @@
 # Jinja coercion table (the oracle's semantics, measured)
 
-`src/runtime/parse.ts` reproduces the behaviour recorded here. Every row was
+`src/adapter/codecs/parse.ts` reproduces the behaviour recorded here. Every row was
 measured against this repository's own pinned Home Assistant 2026.7.4 /
 Jinja 3.1.6 closure — not taken from documentation — so that the TypeScript
 boundary parsers agree with the comparison oracle rather than with JavaScript.

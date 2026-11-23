@@ -11,13 +11,14 @@
 // and the host files outside src/adapter.
 // src/domain is not an edge, and inter-handler calls are not an edge either.
 //
-// Read this honestly: these counts cover src/domain ONLY, so moving a parser
-// into src/parse lowers them without deleting a single `JsonObject`. That is
+// Read this honestly: these counts cover src/domain (and the adapter outside
+// its edges) ONLY, so moving a parser into src/adapter/codecs (once src/parse)
+// lowers them without deleting a single `JsonObject`. That is
 // the intended mechanism for criteria 4 through 8 -- the parse layer is the
 // declared boundary and is EXPECTED to grow as the domain empties -- but it
 // means a falling total here is evidence about where JSON lives, not about how
 // much of it there is. Two things therefore do not count as progress: moving a
-// parser to src/parse and leaving its call sites in the domain (the accessor
+// parser to src/adapter/codecs and leaving its call sites in the domain (the accessor
 // and type counts stay put, correctly), and relocating domain logic that was
 // never a parser just to get it out of this directory.
 //
