@@ -143,9 +143,11 @@ function perform(value: unknown): void {
     // output is compared byte for byte. Production reads the flag instead.
     // The reconciler reads the same capability from the per-bulb flag, so the
     // lamp's bulbs are marked in each run's parsed catalog view, never in the document.
-    const requestHandlers: ScriptHandlers = { ...handlers, effects_resolve: effectsResolve(() => FIXTURE_CANDLE_LAMPS),
-      ls_apply: withFixtureCandle(handlers.ls_apply!), ls_render: withFixtureCandle(handlers.ls_render!),
-      ls_dispatch: withFixtureCandle(handlers.ls_dispatch!) };
+    // Every input now ends in a reconcile, so every handler sees the fixture candle lamps.
+    const requestHandlers: ScriptHandlers = {
+      ...Object.fromEntries(Object.entries(handlers).map(([name, handler]) => [name, withFixtureCandle(handler)])),
+      effects_resolve: effectsResolve(() => FIXTURE_CANDLE_LAMPS),
+    };
     const dependencyCalls: string[] = [];
     for (const [name, result] of Object.entries(request.parityDependencies ?? {})) {
       if (name !== 'ls_plan') throw new Error(`Unsupported parity literal dependency: ${name}`);

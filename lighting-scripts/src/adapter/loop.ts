@@ -44,7 +44,10 @@ export type Output =
 
 /**
  * A turn's result: the state to keep, the outputs in order, when to be woken
- * (the next change, or a send settling), and why the input was dropped, when it was.
+ * (the lighting's next change), and why the input was dropped, when it was. A
+ * send settling asks for no wake of its own: the next minute's tick looks
+ * again, as today's scripts did, and a wake seconds after every send would
+ * move the house's clock under the harness's checkpoints.
  */
 export type Turn = { state: AdapterState; outputs: Output[]; wakeAt: Instant | undefined; dropped: string | undefined };
 
@@ -92,9 +95,7 @@ export function handleInput(state: AdapterState | undefined, house: HouseView, i
     if (send.kind === 'switch') outputs.push({ kind: 'switch', switch: send.switch, power: send.power });
     beliefs = afterSend(beliefs, send, 'sent', now);
   }
-  const wakes = [nextChange(model, now), reconciled.wakeAt].flatMap(at => at === undefined ? [] : [at]);
-  const wakeAt = wakes.length === 0 ? undefined : toInstant(Math.min(...wakes));
-  return { state: { model, beliefs, view }, outputs, wakeAt, dropped };
+  return { state: { model, beliefs, view }, outputs, wakeAt: nextChange(model, now), dropped };
 }
 
 /** The Model with the config and the profiles read again from the helpers; the overlays and the remotes stay. */

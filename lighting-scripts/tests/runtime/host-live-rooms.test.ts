@@ -11,7 +11,7 @@ import { handlers } from '../../src/runtime/registry.ts';
 import { liveScope } from '../../src/runtime/live-rooms.ts';
 import { parseLiveRooms } from '../../src/parse/live-rooms.ts';
 import { RoomHandover, ingestChange } from '../../src/main.ts';
-import { forgetBeliefs } from '../../src/adapter/show.ts';
+import { forgetAdapterState } from '../../src/adapter/turn.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
 const overrides = { state: '1', attributes: {}, last_updated: 'r1' };
@@ -109,7 +109,7 @@ function crossGroup(): Snapshot {
 
 async function applyHouse(live: string, initial: Snapshot = twoRooms()): Promise<{ calls: ServiceCall[]; errors: string[]; host: LightingHost }> {
   const calls: ServiceCall[] = [], errors: string[] = [];
-  forgetBeliefs();
+  forgetAdapterState();
   const host = await LightingHost.open({ path: join(await directory(), 'state.json'), initial, autoTimers: false,
     scope: liveScope(parseLiveRooms(live)), report: message => errors.push(message), program: request => execute(request, handlers),
     transport: { send: async call => { calls.push(call); }, close: async () => {} } });
