@@ -37,6 +37,7 @@ import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { HouseView } from '../runtime/effects.ts';
 import { ParseError, isObject, jinjaString, object, requireString } from '../runtime/parse.ts';
 import { configSource, reportsOn } from './codecs/model.ts';
+import { callColour, callReach } from './native-call.ts';
 
 /** What happened in Home Assistant, as a script or automation run names it. Fields are read by `messages`. */
 export type HaInput =
@@ -58,11 +59,11 @@ export type HaInput =
   /** The mode mirror switched in the dashboard. */
   | { kind: 'mode switched'; on: boolean; user: JsonValue | undefined }
   /** A remote's button: the kind of automation or gesture script that saw it, and its trigger. */
-  | { kind: 'remote action'; room: string; device: string | undefined; button: RemoteAction }
+  | { kind: 'remote action'; room: string | undefined; device: string | undefined; source: string | undefined; button: RemoteAction }
   /** A command sent for a room's remote (`ls_remote_command`). */
   | { kind: 'remote command'; data: JsonObject }
   /** A dashboard control's MQTT set topic (`effects_native_light_controls`). */
-  | { kind: 'effect preview'; topic: string; payload: JsonValue | undefined }
+  | { kind: 'effect preview'; topic: string | undefined; payload: JsonValue | undefined }
   /** A dashboard control's set, by its row's source (`effects_set`). */
   | { kind: 'control set'; data: JsonObject }
   /** A profile store save (`ls_store`). */
@@ -87,7 +88,7 @@ export function haInput(script: string, args: JsonObject): HaInput | undefined {
     case 'automation.lighting_schedule_lamp_change_detector': return { kind: 'service called', event: object(trigger.event) };
     case 'automation.lighting_schedule_override_store_writer': return { kind: 'overlay event', data: object(object(trigger.event).data) };
     case 'automation.effects_native_light_controls':
-      return { kind: 'effect preview', topic: typeof trigger.topic === 'string' ? trigger.topic : '', payload: trigger.payload };
+      return { kind: 'effect preview', topic: optionalText(trigger.topic), payload: trigger.payload };
     case 'ls_commit': return { kind: 'overlay event', data: object(args.data) };
     case 'ls_override_block': return { kind: 'dashboard script', script: 'hold block', data: args };
     case 'ls_clear_overrides': return { kind: 'dashboard script', script: 'clear overlays', data: args };
@@ -106,7 +107,7 @@ export function haInput(script: string, args: JsonObject): HaInput | undefined {
 function remoteAutomation(kind: string | undefined, args: JsonObject, trigger: JsonObject): HaInput {
   const button: RemoteAction = kind === 'center' ? { kind: 'power' }
     : kind === 'directions' ? { kind: 'direction', id: trigger.id } : { kind: 'preset', payload: trigger.payload_json };
-  return { kind: 'remote action', room: typeof args.room === 'string' ? args.room : '', device: optionalText(args.device_id), button };
+  return { kind: 'remote action', room: optionalText(args.room), device: optionalText(args.device_id), source: optionalText(args.source), button };
 }
 
 /** The remote automations, by the kind their name ends in: the center button, the arrows, the preset buttons. */
@@ -124,13 +125,13 @@ function scheduleEngine(trigger: JsonObject): HaInput {
 
 /** A gesture script's command; `power_done` is the burst's window closing, which the clock closes now. */
 function gesture(args: JsonObject): HaInput {
-  const room = typeof args.room === 'string' ? args.room : '', device = optionalText(args.device_id);
+  const room = optionalText(args.room), device = optionalText(args.device_id), source = optionalText(args.source);
   switch (args.command) {
-    case 'power': return { kind: 'remote action', room, device, button: { kind: 'power' } };
-    case 'cancel': return { kind: 'remote action', room, device, button: { kind: 'cancel' } };
-    case 'preset': return { kind: 'remote action', room, device, button: { kind: 'preset', payload: args.payload } };
+    case 'power': return { kind: 'remote action', room, device, source, button: { kind: 'power' } };
+    case 'cancel': return { kind: 'remote action', room, device, source, button: { kind: 'cancel' } };
+    case 'preset': return { kind: 'remote action', room, device, source, button: { kind: 'preset', payload: args.payload } };
     case 'left': case 'right': case 'up': case 'down':
-      return { kind: 'remote action', room, device, button: { kind: 'direction', id: args.command } };
+      return { kind: 'remote action', room, device, source, button: { kind: 'direction', id: args.command } };
     default: return { kind: 'wake' };
   }
 }
@@ -164,7 +165,7 @@ export function messages(input: HaInput, model: Model, now: Instant, house: Hous
 function remoteAction(input: Extract<HaInput, { kind: 'remote action' }>, model: Model, now: Instant, house: HouseView): Msg[] {
   const button = remoteButton(input.button);
   if (button === undefined) return [];
-  const remote = remoteOf(input.device, input.room, undefined, model, house);
+  const remote = remoteOf(input.device, input.room, input.source, model, house);
   return [{ kind: 'remoteButtonPressed', remote, button, anyOn: roomReportsOn(model, remote, house), at: now }];
 }
 
@@ -204,8 +205,7 @@ function scopeOf(text: string): RoomOrHouse {
 }
 
 function blockOf(value: JsonValue | undefined): Block {
-  const text = typeof value === 'string' ? value.toLowerCase() : '';
-  const block = BLOCKS.find(known => known === text);
+  const block = BLOCKS.find(known => typeof value === 'string' && known === value.toLowerCase());
   if (block === undefined) throw new ParseError(`Not a block: ${jinjaString(value)}`);
   return block;
 }
@@ -222,13 +222,17 @@ function rangeSet(data: JsonObject, model: Model, now: Instant, house: HouseView
  * that is bright, cosy, or an own range in order inside 0..100. A missing
  * own-range end keeps the saved one. A save that fails a check raises.
  */
-function rangeSaved(entity: string, profile: string, minimum: RangeBound, maximum: RangeBound, model: Model, now: Instant,
+/** Today's refusal of a range save that names no physical switch or on/off lamp. */
+const NOT_PHYSICAL = 'Choose a physical on/off lamp or smart plug.';
+
+function rangeSaved(named: string | undefined, profile: string, minimum: RangeBound, maximum: RangeBound, model: Model, now: Instant,
   house: HouseView): Msg[] {
-  const domain = entity.split('.')[0];
+  if (named === undefined) throw new ParseError(NOT_PHYSICAL);
+  const entity = named, domain = entity.split('.')[0];
   const physical = (domain === 'switch' || domain === 'light') && house.state[entity] !== undefined
     && Object.values(house.devices === undefined ? {} : house.devices).some(entities => entities.includes(entity))
     && !/^(switch|light)\.(ls_|ep_)/.test(entity) && !entity.includes('permit_join');
-  if (!physical) throw new ParseError('Choose a physical on/off lamp or smart plug.');
+  if (!physical) throw new ParseError(NOT_PHYSICAL);
   if (domain === 'light' && !onOffOnly(house, entity)) {
     throw new ParseError('Choose an on/off lamp; dimmable lamps use the normal lighting settings.');
   }
@@ -272,7 +276,7 @@ function dashboardScript(script: 'hold block' | 'clear overlays' | 'save range' 
       request: { kind: 'hold block', over: scopeOf(requireString(data, 'scope', 'ls_override_block')), block: blockOf(data.block) } }];
     case 'clear overlays': return [{ kind: 'overlayRequested', request: { kind: 'clear all' }, at: now }];
     case 'toggle mode': return [{ kind: 'modeToggled', on: !model.modeOverlay.active, at: now }];
-    case 'save range': return rangeSaved(typeof data.entity === 'string' ? data.entity : '',
+    case 'save range': return rangeSaved(optionalText(data.entity),
       typeof data.profile === 'string' ? data.profile : 'bright', bound(data.minimum), bound(data.maximum), model, now, house);
   }
 }
@@ -293,51 +297,18 @@ function personCall(event: JsonObject, model: Model, now: Instant, house: HouseV
     entity.startsWith('script.') && state.state === 'on' && object(state.context).id === id);
   if (byScript) return [];
   const sd = object(data.service_data);
-  const { lamps, rooms } = reached(sd, model, house);
+  const { lamps, rooms } = callReach(sd, model.config, house);
   if (lamps.length === 0) return [];
-  const light: RequestedLight = data.service === 'turn_off' ? { power: 'off' } : requestedLight(sd, model, lamps, now);
+  const light: RequestedLight = data.service === 'turn_off' ? { power: 'off' } : requestedLight(sd, model, lamps, now, house);
   return [{ kind: 'lampChangedByPerson', lamps, rooms, light, at: now }];
 }
 
-/**
- * The lamps a call reaches and the rooms it names whole: an area names its
- * room whole; a lamp is itself; a group reaches its members, and names a room
- * whole when it holds every lamp of the room (today's `roomScopes`).
- */
-function reached(sd: JsonObject, model: Model, house: HouseView): { lamps: LampId[]; rooms: RoomId[] } {
-  const config = model.config;
-  const roomLamps = (room: RoomId) => entriesOf(config.lamps).flatMap(([lamp, placed]) => placed.room === room ? [lamp] : []);
-  const lamps: LampId[] = [], rooms: RoomId[] = [];
-  for (const area of listOf(sd.area_id)) {
-    const room = toRoomId(area);
-    if (config.rooms[room] === undefined) continue;
-    rooms.push(room);
-    lamps.push(...roomLamps(room));
-  }
-  for (const entity of listOf(sd.entity_id)) {
-    const lamp = toLampId(entity);
-    if (config.lamps[lamp] !== undefined) { lamps.push(lamp); continue; }
-    const members = listOf(house.state[entity]?.attributes.entity_id).map(toLampId).filter(member => config.lamps[member] !== undefined);
-    lamps.push(...members);
-    for (const [room] of entriesOf(config.rooms)) {
-      const all = roomLamps(room);
-      if (all.length > 0 && all.every(member => members.includes(member))) rooms.push(room);
-    }
-  }
-  return { lamps: [...new Set(lamps)], rooms: [...new Set(rooms)] };
-}
-
-function listOf(value: JsonValue | undefined): string[] {
-  if (typeof value === 'string') return [value];
-  return Array.isArray(value) ? texts(value) : [];
-}
-
 /** What a switch-on sets: a brightness (absolute, a percent, or a step from the first lamp's level), a colour, an effect. */
-function requestedLight(sd: JsonObject, model: Model, lamps: readonly LampId[], now: Instant): RequestedLight {
+function requestedLight(sd: JsonObject, model: Model, lamps: readonly LampId[], now: Instant, house: HouseView): RequestedLight {
   const [first] = lamps;
   const shown = first === undefined ? undefined : lightingState(model, now).lamps[first];
   const current = shown === undefined || shown.power === 'off' ? 0 : shown.level;
-  return { power: 'on', brightness: requestedBrightness(sd, current), colour: requestedColour(sd), effect: requestedEffect(sd.effect) };
+  return { power: 'on', brightness: requestedBrightness(sd, current), colour: callColour(sd, house, first), effect: requestedEffect(sd.effect) };
 }
 
 function requestedBrightness(sd: JsonObject, current: number): Brightness | undefined {
@@ -348,19 +319,9 @@ function requestedBrightness(sd: JsonObject, current: number): Brightness | unde
   };
   const raw = 'brightness' in sd ? number('brightness') : 'brightness_pct' in sd ? number('brightness_pct') * 255 / 100
     : 'brightness_step' in sd ? current + number('brightness_step')
-      : 'brightness_step_pct' in sd ? current + number('brightness_step_pct') * 255 / 100 : undefined;
+      : 'brightness_step_pct' in sd ? current + number('brightness_step_pct') * 255 / 100
+        : typeof sd.white === 'number' ? sd.white : undefined;
   return raw === undefined ? undefined : toBrightness(Math.round(Math.min(255, Math.max(0, raw))));
-}
-
-/** A kelvin (or mireds) or an rgb colour; the other colour keys are not read. */
-function requestedColour(sd: JsonObject): Colour | undefined {
-  const kelvin = typeof sd.color_temp_kelvin === 'number' ? sd.color_temp_kelvin : typeof sd.kelvin === 'number' ? sd.kelvin
-    : typeof sd.color_temp === 'number' && sd.color_temp > 0 ? 1_000_000 / sd.color_temp : undefined;
-  if (kelvin !== undefined) return { kind: 'kelvin', kelvin: toKelvin(Math.round(kelvin)) };
-  const rgb = sd.rgb_color;
-  if (!Array.isArray(rgb) || rgb.length !== 3 || !rgb.every(part => typeof part === 'number')) return undefined;
-  const [red, green, blue] = rgb.map(part => toColourChannel(Math.round(Number(part))));
-  return red === undefined || green === undefined || blue === undefined ? undefined : { kind: 'rgb', rgb: { red, green, blue } };
 }
 
 /** The candle by name (any case); any other effect named is the normal light. */
@@ -372,16 +333,17 @@ function requestedEffect(value: JsonValue | undefined): RequestedEffect | undefi
 function remoteCommand(data: JsonObject, model: Model, now: Instant, house: HouseView): Msg[] {
   const command = COMMANDS.find(known => known === data.command);
   if (command === undefined) throw new ParseError(`ls_remote_command: ${jinjaString(data.command)} is not a command`);
-  const remote = remoteOf(optionalText(data.device_id), typeof data.area === 'string' ? data.area : '', optionalText(data.source), model, house);
+  const remote = remoteOf(optionalText(data.device_id), optionalText(data.area), optionalText(data.source), model, house);
   return [{ kind: 'remotePressed', remote, command, anyOn: roomReportsOn(model, remote, house), at: now }];
 }
 
 /** The remote a press or command is from: the named device, else the remote with the source, else the room's. */
-function remoteOf(device: string | undefined, room: string, source: string | undefined, model: Model, house: HouseView): RemoteId {
+function remoteOf(device: string | undefined, room: string | undefined, source: string | undefined, model: Model, house: HouseView): RemoteId {
   const remotes = entriesOf(model.config.remotes);
   if (device !== undefined && model.config.remotes[toRemoteId(device)] !== undefined) return toRemoteId(device);
   const bySource = Object.values(house.catalog.remotes).find(remote => source !== undefined && remote.source === source);
   if (bySource !== undefined && model.config.remotes[bySource.device_id] !== undefined) return bySource.device_id;
+  if (room === undefined) throw new ParseError('The press names no remote and no room');
   const inRoom = remotes.find(([, placed]) => placed.room === room);
   if (inRoom === undefined) throw new ParseError(`No remote of the house is in room ${room}`);
   return inRoom[0];
@@ -397,7 +359,8 @@ function roomReportsOn(model: Model, remote: RemoteId, house: HouseView): boolea
 }
 
 /** A dashboard control's MQTT set: the row its topic's alias names, then as `effects_set`. */
-function effectPreview(topic: string, payload: JsonValue | undefined, model: Model, now: Instant, house: HouseView): Msg[] {
+function effectPreview(topic: string | undefined, payload: JsonValue | undefined, model: Model, now: Instant, house: HouseView): Msg[] {
+  if (topic === undefined) throw new ParseError('A control set with no topic');
   const parts = topic.split('/'), alias = parts[3], attribute = parts.at(-1);
   if (alias === undefined || attribute === undefined) throw new ParseError(`Not a control topic: ${topic}`);
   const row = uiRowsOf(house).find(candidate => candidate.topics.power?.split('/')[3] === alias);
@@ -565,7 +528,7 @@ export function profileStoreOf(store: string, model: Model): ProfileStore | unde
 export function storeSaveIn(input: HaInput, house: HouseView): StoreSave | undefined {
   if (input.kind === 'store saved') return storeSaveOf(input.data);
   const set = input.kind === 'control set' ? input.data
-    : input.kind === 'effect preview' ? previewSet(input.topic, input.payload, house) : undefined;
+    : input.kind === 'effect preview' && input.topic !== undefined ? previewSet(input.topic, input.payload, house) : undefined;
   if (set === undefined || typeof set.source !== 'string' || typeof set.attribute !== 'string') return undefined;
   const source = set.source;
   const row = uiRowsOf(house).find(candidate => candidate.source === source);

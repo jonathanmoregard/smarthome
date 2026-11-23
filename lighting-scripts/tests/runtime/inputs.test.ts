@@ -10,7 +10,10 @@ import { toBrightness, toDashboardControlId, toInstant, toKelvin, toLampId, toPe
 } from '../../src/parse/ids.ts';
 import type { EntityState, JsonObject } from '../../src/runtime/context.ts';
 import { ParseError } from '../../src/runtime/parse.ts';
-import { houseView, syntheticStates, world, writeBack } from './fixtures/house-view.ts';
+import { parseRooms } from '../../src/parse/rooms.ts';
+import { parseCatalog } from '../../src/runtime/catalog.ts';
+import type { HouseView } from '../../src/runtime/effects.ts';
+import { CATALOG, houseView, syntheticStates, world, writeBack } from './fixtures/house-view.ts';
 
 /**
  * Home Assistant's inputs read into messages (M3 Task 3, spec 5.1): one test
@@ -161,4 +164,31 @@ test('a name that is not an input is not ours, and a field that cannot be read r
   const notOurs: HaInput | undefined = haInput('effects_catalog', {});
   assert.equal(notOurs, undefined);
   assert.throws(() => read('ls_override_block', { scope: roomA, block: 'teatime' }), ParseError);
+});
+
+test('a remote automation\'s source picks the remote, where its room has two and the press names no device', () => {
+  // Break: the source is dropped, so the press goes to the first remote of the room (today's automation forwarded it).
+  const remoteC = toRemoteId('remote-c');
+  const base = houseView(states(), NOW_TEXT);
+  const two: HouseView = {
+    ...base,
+    rooms: parseRooms({ ...base.rooms.ofId, 'remote-c': 'room-a' }),
+    catalog: parseCatalog({ ...CATALOG, remotes: { ...(CATALOG.remotes as JsonObject), second: { device_id: 'remote-c', source: 'remote-c' } } }),
+  };
+  assert.deepEqual(read('automation.lighting_room_a_remote_center', { room: roomA, source: 'remote-c', trigger: { payload: 'on' } }, two),
+    [{ kind: 'remoteButtonPressed', remote: remoteC, button: { kind: 'power' }, anyOn: true, at: NOW }]);
+});
+
+test('a missing room or topic is absent, not empty text, and an input that needs it raises', () => {
+  // Break: an empty text stands in for the missing room or topic.
+  assert.deepEqual(haInput('ls_remote_gesture', { command: 'power' }),
+    { kind: 'remote action', room: undefined, device: undefined, source: undefined, button: { kind: 'power' } });
+  assert.deepEqual(haInput('automation.lighting_room_a_remote_center', { trigger: { payload: 'on' } }),
+    { kind: 'remote action', room: undefined, device: undefined, source: undefined, button: { kind: 'power' } });
+  assert.deepEqual(haInput('automation.effects_native_light_controls', { trigger: { payload: 'ON' } }),
+    { kind: 'effect preview', topic: undefined, payload: 'ON' });
+  assert.throws(() => read('ls_remote_gesture', { command: 'power' }), /names no remote and no room/);
+  assert.throws(() => read('automation.effects_native_light_controls', { trigger: { payload: 'ON' } }), /no topic/);
+  assert.throws(() => read('ls_remote_command', { command: 'toggle' }), /names no remote and no room/);
+  assert.throws(() => read('ls_range_save', { profile: 'bright' }), /Choose a physical on\/off lamp or smart plug\./);
 });
