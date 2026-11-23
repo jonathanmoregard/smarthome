@@ -28,7 +28,9 @@ import { controlOver, messages, profileStoreOf, storeSaveIn, uiRowsOf, unexplain
 import type { HaInput, StoreSave } from './inputs.ts';
 import { decodeObserved } from './observed.ts';
 import type { Observed } from './observed.ts';
-import { afterSend, backOn, forgotten, NO_BELIEFS, newlyParked, nextRetry, nextSends, switchesSeen, unexplained } from './reconcile.ts';
+import {
+  afterSend, backOn, forgotten, litByUs, NO_BELIEFS, newlyParked, nextRetry, nextSends, switchesSeen, unexplained,
+} from './reconcile.ts';
 import type { Beliefs } from './reconcile.ts';
 import { configStoreWrite, dashboardWrites, modelWrites, uiSyncWrites } from './writes.ts';
 import type { ControlRow, DashboardWrite, HelperWrite, SensorWrite, StoreWrite } from './writes.ts';
@@ -104,11 +106,14 @@ export function handleInput(state: AdapterState | undefined, house: HouseView, i
   for (const write of uiSyncWrites(house, previous === undefined)) outputs.push({ kind: 'dashboard', write });
 
   let beliefs = state === undefined ? NO_BELIEFS : state.beliefs;
-  if (input.kind === 'state changed') {
-    beliefs = forgotten(beliefs, entriesOf(model.config.lamps).flatMap(([lamp, { bulbs }]) =>
-      bulbs.flatMap(({ bulb }) => input.entities.includes(lamp) || input.entities.includes(bulb) ? [bulb] : [])));
-  }
   const observed = decodeObserved(house.state, model.config);
+  if (input.kind === 'state changed') {
+    // A lamp reported on is sent its light again, as today's lamp_on does; but not a bulb our own put-back lit, whose
+    // belief and put-backs stay so a bulb that keeps going off still reaches the flap limit.
+    const ours = state === undefined ? [] : litByUs(state.observed, observed, state.beliefs);
+    beliefs = forgotten(beliefs, entriesOf(model.config.lamps).flatMap(([lamp, { bulbs }]) => bulbs.flatMap(({ bulb }) =>
+      (input.entities.includes(lamp) || input.entities.includes(bulb)) && !ours.includes(bulb) ? [bulb] : [])));
+  }
   beliefs = switchesSeen(backOn(beliefs, changed.flatMap(change => change.kind === 'bulb back on' ? [change.bulb] : [])), observed);
   const reconciled = nextSends(lighting, model.config, observed, beliefs, now);
   for (const publish of publishes(reconciled.sends, bulbTopics(house.catalog), bulbGroups(house.catalog))) outputs.push({ kind: 'publish', publish });

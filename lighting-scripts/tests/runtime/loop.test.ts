@@ -265,6 +265,25 @@ test('a bulb put back six times in ten minutes is parked, and the turn says so o
   assert.deepEqual(parked, [bulbA3]);
 });
 
+test("a bulb that flaps its power is parked though each put-back's own on is reported", () => {
+  // Review fix 3. Break: the report of our own put-back (off to on) forgets the bulb's belief, its put-backs with it,
+  // so a bulb something keeps switching off is put back forever and never parked.
+  const house = new House();
+  house.turn('12:00:00', { kind: 'started' });
+  let putBack = 0;
+  const parked: BulbId[] = [];
+  for (let minute = 1; minute <= 7; minute++) {
+    house.bulbs.set(bulbA3, { reach: 'reachable', light: { power: 'off' } });
+    writeBack(house.bulbs, house.states);
+    const turn = house.turn(`12:0${minute}:00`, { kind: 'tick' });
+    if (publishedTo(turn, bulbA3).length > 0) putBack++;
+    parked.push(...turn.parked);
+    parked.push(...house.turn(`12:0${minute}:30`, { kind: 'state changed', entities: ['light.lamp_a2'] }).parked);
+  }
+  assert.equal(putBack, 6);
+  assert.deepEqual(parked, [bulbA3]);
+});
+
 test('the turn asks to be woken for a retry due before the next change', () => {
   // Break: a failed send waits for the next change, which may be hours away, instead of its backoff.
   const house = new House();

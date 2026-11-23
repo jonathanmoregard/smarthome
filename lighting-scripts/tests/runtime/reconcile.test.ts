@@ -5,7 +5,7 @@ import { outcomeOf, publishes } from '../../src/adapter/encode.ts';
 import type { MqttTopic, Publish } from '../../src/adapter/encode.ts';
 import type { Observed } from '../../src/adapter/observed.ts';
 import {
-  afterSend, backOn, EFFECT_START_FADE, forgotten, MANUAL_FADE, NO_BELIEFS, newlyParked, nextSends, REAPPLY_LIMIT, REAPPLY_WINDOW, SETTLE_MARGIN,
+  afterSend, backOn, EFFECT_START_FADE, forgotten, MANUAL_FADE, NO_BELIEFS, newlyParked, nextSends, REAPPLY_LIMIT, REAPPLY_WINDOW, RETRY_FIRST,
   unexplained,
 } from '../../src/adapter/reconcile.ts';
 import type { Beliefs, Send } from '../../src/adapter/reconcile.ts';
@@ -314,16 +314,16 @@ test('an off by a room\'s power switch goes out with no fade; any other off over
   assert.deepEqual(over, { [bulbA1]: 0, [bulbA2]: 0, [bulbA3]: MANUAL_FADE });
 });
 
-test('the next wake is when the first send settles, and a steady house asks for none', () => {
-  // Break: the reconciler does not ask to look again once what it sent has settled, or wakes for nothing.
+test('the next wake is a retry only: a settling send asks for none, the minute tick looks again', () => {
+  // Review fix 4. Break: nextSends asks to be woken when a send settles (a wake the loop does not use: it would move
+  // the house's clock under the harness's checkpoints), or forgets the retry a failed send is owed.
   const bulbs = new FakeBulbs(topics);
-  const { wakeAt } = nextSends(EVENING, config, bulbs.observed(), NO_BELIEFS, at(0));
-  assert.equal(wakeAt, at(0) + MANUAL_FADE + SETTLE_MARGIN);
+  assert.equal(nextSends(EVENING, config, bulbs.observed(), NO_BELIEFS, at(0)).wakeAt, undefined);
   const settling = pass(bulbs, EVENING, NO_BELIEFS, at(0)).beliefs;
-  const inWindow = nextSends(EVENING, config, bulbs.observed(), settling, at(1));
-  assert.deepEqual([inWindow.sends, inWindow.wakeAt], [[], at(0) + MANUAL_FADE + SETTLE_MARGIN]);
-  const { bulbs: settled, beliefs } = steady();
-  assert.equal(nextSends(EVENING, config, settled.observed(), beliefs, at(60)).wakeAt, undefined);
+  assert.deepEqual(nextSends(EVENING, config, bulbs.observed(), settling, at(1)), { sends: [], wakeAt: undefined });
+  const failing = (publish: Publish) => publish.topic === topics[bulbA3];
+  const failed = pass(new FakeBulbs(topics), EVENING, NO_BELIEFS, at(0), { failing }).beliefs;
+  assert.equal(nextSends(EVENING, config, bulbs.observed(), failed, at(0.5)).wakeAt, at(0) + RETRY_FIRST);
 });
 
 test('the fades are 0.2 s for a manual change and 0.4 s into an effect start', () => {
@@ -497,6 +497,11 @@ test('a restart re-sends nothing a bulb already shows', () => {
   assert.deepEqual(restart.sent, [{ topic: topics[bulbA1], payload: { effect: 'channel_change' } }]);
   assert.deepEqual(pass(bulbs, EVENING, restart.beliefs, at(60)).sends, []);
   assert.deepEqual(bulbs.shows(bulbA1), { reach: 'reachable', light: lit(100, WARM, 'candle') });
+  // The one exception: a candle-firmware bulb under a normal lit target is sent the stop and its light though it reports
+  // that light, since a candle left running from before cannot be told from its report.
+  const plain: LightingState = { ...EVENING, lamps: { ...EVENING.lamps, [lampA1]: on(100, WARM) } };
+  bulbs.set(bulbA1, { reach: 'reachable', light: lit(100, WARM) });
+  assert.deepEqual(kinds(pass(bulbs, plain, NO_BELIEFS, at(120)).sent, bulbA1), ['stop_effect', 'light']);
 });
 
 test('a switch that changed with no send of ours is a press; one we switched is not', () => {

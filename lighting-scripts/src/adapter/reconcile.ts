@@ -22,9 +22,11 @@
  * failed send is sent again after 1 s, doubling up to 60 s; the fifth failure
  * in a row parks the bulb. A bulb sent the same light again six times in ten
  * minutes is parked too. A parked bulb is sent nothing until it comes back on
- * or its light changes, and is logged once. A bulb that comes back on (from
- * off or out of reach, and nothing we sent explains it) is sent its light
- * with the short fade, then the candle's start.
+ * from out of reach (its wall power) or its light changes, and is logged once:
+ * a parked bulb's off to on in reach is the echo of the put-back that parked
+ * it, or someone else's, and either way not ours to fight. A bulb that comes
+ * back on (from off or out of reach, and nothing we sent explains it) is sent
+ * its light with the short fade, then the candle's start.
  */
 import type { Observed, ObservedBulb, ObservedLight } from './observed.ts';
 import type { Config } from '../domain/config.ts';
@@ -55,6 +57,9 @@ export type Send =
 function unknownSend(appearance: BulbAppearance, bulb: BulbInfo, reported: ObservedLight, full: (stopFirst: boolean) => Send,
   start: Send | undefined): Send | undefined {
   if (start !== undefined && runsCandle(appearance)) return reportsShowing(reported, appearance) ? start : full(false);
+  // The one exception to "a restart sends nothing a bulb already shows": a candle-firmware bulb under a normal lit
+  // target is sent the stop and its light even when its report shows that light, since a candle left running from
+  // before cannot be told from its report (its flicker hides in the level and colour).
   if (bulb.firmware === 'candle' && appearance.power === 'on') return full(true);
   return reportsShowing(reported, appearance) ? undefined : full(bulb.firmware === 'candle');
 }
@@ -110,8 +115,8 @@ export const REAPPLY_WINDOW: Seconds = toSeconds(600);
  *    times within the flap window it was sent that same light again because it reported something else.
  * 2. `retrying`: its last `attempts` sends failed, and it is sent again from `retryAt`. `shows` is the light it is
  *    known to show when only the candle's start failed; otherwise what it shows is not known.
- * 3. `parked`: given up on, after too many failed sends or put-backs: sent nothing until it comes back on or its
- *    light changes from `lastSent`.
+ * 3. `parked`: given up on, after too many failed sends or put-backs: sent nothing until it comes back on from out
+ *    of reach or its light changes from `lastSent`.
  * 4. `back on`: it came back on, and is owed its light with the short fade.
  * No belief at all is a bulb never sent anything, or whose belief was forgotten.
  */
@@ -161,10 +166,26 @@ export function nextRetry(beliefs: Beliefs, now: Instant): Instant | undefined {
   return due.length === 0 ? undefined : toInstant(Math.min(...due));
 }
 
+/**
+ * The bulbs whose power-on between two observations a send of ours explains: off and in reach before, on now, and
+ * last sent a light (the put-back that parked it included). Its report is our own put-back's, so what is held about
+ * it stays: its put-backs, or its parking.
+ */
+export function litByUs(before: Observed, after: Observed, beliefs: Beliefs): BulbId[] {
+  return entriesOf(after.bulbs).flatMap(([bulb, now]) => {
+    const was = before.bulbs[bulb], belief = beliefs.bulbs[bulb];
+    const lit = was !== undefined && was.reach === 'reachable' && was.light.power === 'off' && now.reach === 'reachable'
+      && now.light.power === 'on';
+    const sentLit = belief !== undefined && (belief.kind === 'sent' ? belief.shows.power === 'on'
+      : belief.kind === 'parked' && belief.lastSent.power === 'on');
+    return lit && sentLit ? [bulb] : [];
+  });
+}
+
 /** What an observation that nothing we sent explains means. */
 export type Unexplained = { kind: 'switch pressed'; switch: SwitchId; power: Power } | { kind: 'bulb back on'; bulb: BulbId };
 
-/** What to send now to make the house show `target`, and when to look again: the first send to settle or retry due. */
+/** What to send now to make the house show `target`, and when to look again: the first retry due, if any. */
 export function nextSends(target: LightingState, config: Config, observed: Observed, beliefs: Beliefs, now: Instant):
   { sends: Send[]; wakeAt: Instant | undefined } {
   const sends: Send[] = [];
@@ -182,7 +203,7 @@ export function nextSends(target: LightingState, config: Config, observed: Obser
     const reported = observed.switches[plug];
     if (reported !== undefined && reported !== 'unreachable' && reported !== power) sends.push({ kind: 'switch', switch: plug, power });
   }
-  return { sends, wakeAt: firstWake(sends, beliefs, now) };
+  return { sends, wakeAt: firstRetry(sends, beliefs, now) };
 }
 
 /** The send one bulb needs, if any, by what is held about it. */
@@ -278,25 +299,17 @@ function chromaticity(rgb: RGB): readonly [number, number] {
   return total === 0 ? [0.3127, 0.3290] : [x / total, y / total];
 }
 
-/** The first moment a send of this pass, or a belief still settling, can be compared with its report, or a retry is due. */
-function firstWake(sends: readonly Send[], beliefs: Beliefs, now: Instant): Instant | undefined {
-  const resent = new Set(sends.flatMap(send => send.kind === 'switch' ? [] : [send.bulb]));
-  const times = [
-    ...sends.flatMap(send => send.kind === 'switch' ? [] : [settlesAt(now, overOf(send))]),
-    ...entriesOf(beliefs.bulbs).flatMap(([bulb, belief]) => {
-      if (resent.has(bulb)) return [];
-      const at = belief.kind === 'sent' ? belief.settlesAt : belief.kind === 'retrying' ? belief.retryAt : undefined;
-      return at !== undefined && at > now ? [at] : [];
-    }),
-  ];
-  return times.length === 0 ? undefined : toInstant(Math.min(...times));
-}
-
 /** The attempts after one more failure, by the failures before it; past the table, the bulb is parked. */
 const NEXT_ATTEMPT: readonly (Attempts | undefined)[] = [1, 2, 3, 4, undefined];
 
-function settlesAt(now: Instant, over: Seconds): Instant {
-  return toInstant(now + over + SETTLE_MARGIN);
+/**
+ * The first retry due after `now` of a bulb this pass does not send to. A settling send asks for no wake: the
+ * minute's tick compares it with its report, as today's scripts did (a wake seconds after every send would move the
+ * house's clock under the harness's checkpoints, M3 T3-A).
+ */
+function firstRetry(sends: readonly Send[], beliefs: Beliefs, now: Instant): Instant | undefined {
+  const resent = new Set(sends.flatMap(send => send.kind === 'switch' ? [] : [send.bulb]));
+  return nextRetry({ ...beliefs, bulbs: Object.fromEntries(entriesOf(beliefs.bulbs).filter(([bulb]) => !resent.has(bulb))) }, now);
 }
 
 /**
@@ -329,6 +342,10 @@ function bulbAfter(before: Belief | undefined, send: Extract<Send, { kind: 'bulb
     attempts, retryAt: toInstant(now + Math.min(RETRY_CAP, RETRY_FIRST * 2 ** (attempts - 1))) };
 }
 
+function settlesAt(now: Instant, over: Seconds): Instant {
+  return toInstant(now + over + SETTLE_MARGIN);
+}
+
 /**
  * What changed between two observations that nothing we sent explains. A switch that changed to a power no send of
  * ours still waiting to be seen asked for is the plug's own button. A bulb that came on from out of reach, or from
@@ -341,11 +358,11 @@ export function unexplained(before: Observed, after: Observed, beliefs: Beliefs)
     if (power === 'unreachable' || was === undefined || was === 'unreachable' || was === power) continue;
     if (beliefs.switches[plug]?.power !== power) found.push({ kind: 'switch pressed', switch: plug, power });
   }
+  const ours = new Set(litByUs(before, after, beliefs));
   for (const [bulb, now] of entriesOf(after.bulbs)) {
-    const was = before.bulbs[bulb], belief = beliefs.bulbs[bulb];
-    if (was === undefined || now.reach === 'unreachable' || now.light.power === 'off') continue;
-    const litByUs = belief !== undefined && belief.kind === 'sent' && belief.shows.power === 'on';
-    if (was.reach === 'unreachable' || (was.light.power === 'off' && !litByUs)) found.push({ kind: 'bulb back on', bulb });
+    const was = before.bulbs[bulb];
+    if (was === undefined || now.reach === 'unreachable' || now.light.power === 'off' || ours.has(bulb)) continue;
+    if (was.reach === 'unreachable' || was.light.power === 'off') found.push({ kind: 'bulb back on', bulb });
   }
   return found;
 }
