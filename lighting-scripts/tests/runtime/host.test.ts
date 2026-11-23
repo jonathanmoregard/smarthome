@@ -381,3 +381,29 @@ test("our write is stamped when Home Assistant answered it, so a read started du
   assert.deepEqual(host.house().state['sensor.ls_overrides']?.attributes, written?.attributes);
   await host.close();
 });
+
+test('a held input that throws is logged, and the press held after it is still applied', async () => {
+  // Final review 1. Break: the held inputs run as one step, so the first that throws ends it, and the press held after
+  // it is lost without a word.
+  const ha = new FakeHa(), now = { time: at('12:00:00') }, logged: string[] = [];
+  let broken = false;
+  ha.during = async call => { if (call.data.topic === 'zigbee2mqtt/bulb-b1') broken = true; };
+  const host = await Host.open({ ha, journal: new MemoryJournal(), clock: () => now.time,
+    log: { info: () => {}, warn: () => {}, error: message => logged.push(message) }, timer: () => () => {},
+    took: () => { if (broken) { broken = false; throw new Error('the hold broke'); } } }, ha.mirror(), catalog);
+  host.accept({ kind: 'started' });
+  await host.idle();
+  const roomB = structuredClone(ha.states['bulb-b1']);
+  assert.equal(ha.states['bulb-a3']?.state, 'on');
+  host.disconnected();
+  now.time = at('12:01:00');
+  host.accept({ kind: 'dashboard script', script: 'hold block', data: { scope: 'room-b', block: 'night' } });
+  host.accept({ kind: 'remote command', data: { command: 'toggle', area: 'room-a', source: 'remote-a' } });
+  await host.idle();
+  host.reconnected(ha.mirror(), now.time);
+  await host.idle();
+  assert.notDeepEqual(ha.states['bulb-b1'], roomB, "the hold ran, sent room b its night, and threw");
+  assert.ok(logged.some(line => /the hold broke/.test(line)), 'the throw is logged');
+  assert.equal(ha.states['bulb-a3']?.state, 'off', 'the press held after it was applied');
+  await host.close();
+});

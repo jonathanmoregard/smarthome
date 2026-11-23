@@ -79,8 +79,10 @@ export class Host {
   }
 
   private enqueue(step: () => Promise<void>): void {
-    this.queue = this.queue.then(step).catch(error => this.io.log.error(`lighting: ${error instanceof Error ? error.message : String(error)}`));
+    this.queue = this.queue.then(step).catch(this.report);
   }
+
+  private readonly report = (error: unknown): void => this.io.log.error(`lighting: ${error instanceof Error ? error.message : String(error)}`);
 
   private async turn(input: HaInput): Promise<void> {
     if (!this.connected && input.kind !== 'wake' && input.kind !== 'tick') this.held.push(input);
@@ -170,7 +172,8 @@ export class Host {
       if (!this.connected) this.io.log.warn('lighting: Home Assistant is back; every bulb is reconciled again');
       this.connected = true;
       await this.turn({ kind: 'reconnected' });
-      for (const input of this.held.splice(0)) await this.turn(input);
+      // Each held input on its own, as when it was its own step: one that throws is logged, and the rest still run.
+      for (const input of this.held.splice(0)) await this.turn(input).catch(this.report);
     });
   }
 
@@ -193,8 +196,5 @@ export class Host {
     }
   }
 
-  async close(): Promise<void> {
-    this.closed = true; this.cancelWake?.();
-    await this.queue;
-  }
+  async close(): Promise<void> { this.closed = true; this.cancelWake?.(); await this.queue; }
 }
