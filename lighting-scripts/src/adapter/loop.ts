@@ -173,7 +173,7 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
   const model = saved === undefined || light === undefined || configWrite === undefined ? messaged
     : update(messaged, blockLightRead(light, saved.change, configWrite, messaged, house, now));
   const writes: Write[] = [];
-  const written = modelWrites(before, model, house, now, share);
+  const written = modelWrites(before, model, house, reported, now, share);
   if (written.sensor !== undefined) writes.push({ kind: 'sensor', write: written.sensor });
   for (const write of written.helpers) writes.push({ kind: 'helper', write });
   for (const write of written.stores) writes.push({ kind: 'store', write });

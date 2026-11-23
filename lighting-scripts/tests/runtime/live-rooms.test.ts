@@ -101,10 +101,11 @@ class Shared {
     writeBack(this.bulbs, this.states);
   }
 
-  turn(time: string, input: HaInput): Turn {
+  /** A turn whose outputs of the `refused` kinds Home Assistant refuses: they change nothing. */
+  turn(time: string, input: HaInput, refused: readonly Output['kind'][] = []): Turn {
     const kept: Kept = this.state === undefined ? { kind: 'starting', ...this.journal } : { kind: 'running', state: this.state };
     const turn = handleInput(kept, houseView(this.states, `2026-09-21T${time}Z`), input, this.given);
-    for (const output of turn.outputs) {
+    for (const output of turn.outputs.filter(output => !refused.includes(output.kind))) {
       if (output.kind === 'sensor') {
         const sensor = this.states[output.write.entity]!;
         this.states[output.write.entity] = { state: output.write.revision, attributes: { ...sensor.attributes, ...output.write.attributes },
@@ -114,7 +115,7 @@ class Shared {
     }
     this.bulbs.apply(turn.outputs.flatMap(output => output.kind === 'publish' ? [output.publish] : []));
     writeBack(this.bulbs, this.states);
-    this.state = afterOutputs(turn, turn.outputs.map(() => false)).state;
+    this.state = afterOutputs(turn, turn.outputs.map(output => refused.includes(output.kind))).state;
     return turn;
   }
 }
@@ -256,6 +257,31 @@ test("at a start, a room the journal's process did not drive is taken as found: 
   };
   assert.ok(!restart({ kind: 'rooms', rooms: new Set([roomA]) }).includes('zigbee2mqtt/bulb-a1'), 'the journal\'s room: its candle is believed');
   assert.ok(restart({ kind: 'rooms', rooms: new Set() }).includes('zigbee2mqtt/bulb-a1'));
+});
+
+test("the port's own overlay still on its way holds its room while the old scripts drive the rest", () => {
+  // Review finding 5. Break: while some room is the old scripts', the overlays are read from the store each turn, and
+  // the port's write still waiting is not in the house it reads, so its room goes back to the schedule until the
+  // write lands.
+  const shared = new Shared(sharedStates({ [roomA]: 'on', [roomB]: 'on' }), listed(roomB));
+  shared.turn('12:00:00', { kind: 'started' });
+  const held = shared.turn('12:01:00', holdRoomB, ['sensor']);
+  assert.ok(sensorWrite(held) !== undefined, 'the hold is written, and refused');
+  const next = shared.turn('12:01:01', { kind: 'wake' });
+  assert.equal(next.state.model.overlays.blocks[roomB]?.block, 'night');
+  assert.deepEqual(bulbsSent(next), []);
+});
+
+test("a newer write to the overrides sensor keeps what the one still waiting held", () => {
+  // Review finding 5. Break: with the waiting write laid over the house, the next write is made from that, holds only
+  // the newer change, replaces the waiting one, and the hold is never written.
+  const shared = new Shared(sharedStates({ [roomA]: 'on', [roomB]: 'on' }), listed(roomA, roomB));
+  shared.turn('12:00:00', { kind: 'started' });
+  shared.turn('12:01:00', holdRoomB, ['sensor']);
+  const ranged = shared.turn('12:01:01', bridged('ls_range_save', { entity: 'switch.plug_a', profile: 'custom', minimum: 10, maximum: 40 }));
+  const write = sensorWrite(ranged);
+  assert.ok(write !== undefined && 'switch_ranges' in write.attributes, 'the range is written');
+  assert.equal(((write.attributes.overrides as JsonObject)[`block:${roomB}`] as JsonObject | undefined)?.value, 'night');
 });
 
 test('the dashboard is left to the old scripts while a room is still theirs', () => {

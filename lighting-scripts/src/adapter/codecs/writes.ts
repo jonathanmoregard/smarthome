@@ -128,13 +128,14 @@ export type ModelWrites = { sensor: SensorWrite | undefined; helpers: HelperWrit
 /**
  * The writes that take Home Assistant from what it holds to `after`. The
  * sensor is written when its attributes, read with the Model written in,
- * differ from the stored ones (the codec keeps every untouched entry's bytes);
+ * differ from the ones Home Assistant reports (the codec keeps every untouched entry's bytes): the write is the
+ * whole difference from that, made again each turn, so a newer one never drops what an older one still waiting held;
  * a remote's helpers when its state changed this turn; a lamp's or a plug's
  * store when its profile did. The overrides sensor and the remotes' helpers are written only for what `share`
  * drives: the old scripts write the rest.
  */
-export function modelWrites(before: Model, after: Model, house: HouseView, now: Instant, share: Share): ModelWrites {
-  const stored = house.state[OVERRIDES_SENSOR];
+export function modelWrites(before: Model, after: Model, house: HouseView, reported: HouseView, now: Instant, share: Share): ModelWrites {
+  const stored = reported.state[OVERRIDES_SENSOR];
   const found: JsonObject = stored === undefined ? {} : stored.attributes;
   const written = encodeOverrides(after, found, share, after.config, storeKeys(house.catalog));
   const changed = Object.fromEntries(Object.entries(written).filter(([key, value]) => !isDeepStrictEqual(found[key], value)));

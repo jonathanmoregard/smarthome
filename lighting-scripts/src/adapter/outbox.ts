@@ -46,12 +46,11 @@ export function settled(outbox: Outbox, house: HouseView): Outbox {
 
 /**
  * The house as it will be once the waiting writes land: each laid over Home Assistant's states, so a read of the
- * helpers keeps them. The overrides sensor is left as Home Assistant holds it: its write is the whole difference from
- * that, made again each turn. A parked write is not laid over: Home Assistant refused it, and the Model follows what
- * Home Assistant holds.
+ * helpers, or of the overrides sensor, keeps them. A parked write is not laid over: Home Assistant refused it, and the
+ * Model follows what Home Assistant holds.
  */
 export function withWaiting(house: HouseView, outbox: Outbox): HouseView {
-  const laid = outbox.filter(entry => entry.write.kind !== 'sensor' && entry.status.kind !== 'parked');
+  const laid = outbox.filter(entry => entry.status.kind !== 'parked');
   return laid.length === 0 ? house : withStates(house, laid.reduce((states, { write, queuedAt }) => write.kind === 'store'
     ? storeLanded(states, write.write.entity, write.write.text) : afterCall(states, outputCall(write, queuedAt), queuedAt), house.state));
 }
