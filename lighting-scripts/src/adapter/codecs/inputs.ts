@@ -551,18 +551,36 @@ function profileStoreOf(store: string, model: Model): ProfileStore | undefined {
   return model.config.switches[plug] === undefined ? undefined : { kind: 'switch', switch: plug, block };
 }
 
+/** What the host makes of a bridge run: an input to run, the echo of a call of ours (dropped quietly), or dropped, and why. */
+export type BridgeVerdict = { kind: 'input'; input: HaInput } | { kind: 'echo' } | { kind: 'dropped'; why: string };
+
+/** What the host knows of its own calls: the context ids of the recent ones, and whether one failed as the run came. */
+export type OwnCalls = { contexts: readonly string[]; callFailed: boolean };
+
 /** A bridge event (`smarthome_script`): the script or automation it forwards, and its arguments. */
 export function bridgeRunOf(data: JsonObject): { script: string; args: JsonObject } {
   return { script: String(data.script), args: object(data.args) };
 }
 
-/** May this bridge run be the echo of a call of ours? */
-export function mayBeEcho(script: string): boolean {
-  return ECHOED.includes(script);
+/**
+ * A bridge run, read against our own calls: a run our own call may trigger ({@link ECHOED}) is that call's echo when
+ * its context is one of ours, and is dropped when it came as a call failed, since it cannot be told from a person's.
+ * Otherwise it is an input, or dropped: a dry run, or a name that is not an input.
+ */
+export function bridgeVerdict(script: string, args: JsonObject, remotes: Readonly<Record<string, CatalogRemote>>, own: OwnCalls): BridgeVerdict {
+  if (ECHOED.includes(script)) {
+    if (own.callFailed) return { kind: 'dropped', why: `${script} came as a call failed` };
+    const context = echoContext(args);
+    if (context !== undefined && own.contexts.includes(context)) return { kind: 'echo' };
+  }
+  const input = scriptInput(script, args, remotes);
+  if (input === 'dry run') return { kind: 'dropped', why: `${script} is a dry run` };
+  if (input === 'not ours') return { kind: 'dropped', why: `${script} is not an input` };
+  return { kind: 'input', input };
 }
 
 /** The context id of the change that triggered a bridge run: its new state's, or its event's; none when it carries none. */
-export function echoContext(args: JsonObject): string | undefined {
+function echoContext(args: JsonObject): string | undefined {
   const trigger = object(args.trigger);
   const context = object(object(trigger.to_state).context).id ?? object(object(trigger.event).context).id;
   return typeof context === 'string' ? context : undefined;

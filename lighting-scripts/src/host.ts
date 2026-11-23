@@ -10,7 +10,7 @@ import { loadBeliefs, saveBeliefs } from './adapter/codecs/journal.ts';
 import { outputCall } from './adapter/encode.ts';
 import { Unreachable } from './adapter/ha-client.ts';
 import type { EntityState, HaClient, JsonObject } from './adapter/ha-client.ts';
-import { echoContext, mayBeEcho, scriptInput } from './adapter/codecs/inputs.ts';
+import { bridgeVerdict } from './adapter/codecs/inputs.ts';
 import type { HaInput } from './adapter/codecs/inputs.ts';
 import { afterOutputs, handleInput } from './adapter/loop.ts';
 import type { Kept } from './adapter/loop.ts';
@@ -66,15 +66,10 @@ export class Host {
   script(name: string, args: JsonObject): void {
     const during = this.calling ? this.turns : undefined;
     this.enqueue(async () => {
-      if (mayBeEcho(name)) {
-        if (during !== undefined && this.failedTurn === during) return this.io.log.error(`lighting: ${name} came as a call failed; dropped`);
-        const context = echoContext(args);
-        if (context !== undefined && this.ownContexts.includes(context)) return;
-      }
-      const input = scriptInput(name, args, this.catalog.remotes);
-      if (input === 'dry run') this.io.log.error(`lighting: ${name} is a dry run; dropped`);
-      else if (input === 'not ours') this.io.log.error(`lighting: ${name} is not an input; dropped`);
-      else await this.turn(input);
+      const own = { contexts: this.ownContexts, callFailed: during !== undefined && this.failedTurn === during };
+      const verdict = bridgeVerdict(name, args, this.catalog.remotes, own);
+      if (verdict.kind === 'dropped') this.io.log.error(`lighting: ${verdict.why}; dropped`);
+      else if (verdict.kind === 'input') await this.turn(verdict.input);
     });
   }
 
