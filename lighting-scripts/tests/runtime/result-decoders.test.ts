@@ -41,42 +41,6 @@ test('a switch decision that is on without a brightness in its range is refused'
   assert.deepEqual(decoded === undefined ? undefined : Object.values(decoded).map(decision => decision.on), [true]);
 });
 
-// effects_group_plan / effects_frame_plan: `planGroups` counts its own
-// commands, sends a unicast command (group null) to one endpoint's bulb for
-// its one owner, and numbers an invalid row by its place among the rows.
-
-const unicast = { topic: 'z2m/bulb/set', payload: { state: 'ON' }, members: ['light.bulb'], owners: ['light.lamp'], group: null };
-const groupPlan = (fields: JsonObject): JsonValue => ({ commands: [unicast], rejected: [], input_count: 1, endpoint_count: 1, command_count: 1, ...fields });
-const decodeGroups = (fields: JsonObject) => resultCodecs.effects_group_plan.decode?.(groupPlan(fields), 'effects_group_plan');
-
-test('a group plan whose command count is not its commands is refused', () => {
-  // Break: command_count is read as any number, though it is always commands.length.
-  for (const command_count of [0, 2]) {
-    assert.throws(() => decodeGroups({ command_count }),
-      refused(new RegExp(`effects_group_plan\\.command_count must be 1, the number of commands, got ${command_count}`)));
-  }
-});
-
-test('a unicast command for more or fewer than one bulb and owner is refused', () => {
-  // Break: a command with group null is read like a multicast one, so a
-  // unicast to two bulbs, or for no owner, decodes.
-  for (const command of [{ ...unicast, members: ['light.a', 'light.b'] }, { ...unicast, members: [] }, { ...unicast, owners: [] },
-    { ...unicast, owners: ['light.a', 'light.b'] }]) {
-    assert.throws(() => decodeGroups({ commands: [command] }),
-      refused(/effects_group_plan\.commands\.0 is unicast \(group null\), so it must have one member and one owner/), JSON.stringify(command));
-  }
-});
-
-test('an invalid row numbered outside the rows is refused', () => {
-  // Break: the index is read as any number, though it is the row's place among input_count rows.
-  for (const index of [-1, 1, 0.5]) {
-    assert.throws(() => decodeGroups({ rejected: [{ reason: 'invalid_endpoint_row', index }] }),
-      refused(/effects_group_plan\.rejected\.0\.index must be a whole number below input_count 1/), String(index));
-  }
-  assert.deepEqual(decodeGroups({ rejected: [{ reason: 'invalid_endpoint_row', index: 0 }] })?.rejected,
-    [{ reason: 'invalid_endpoint_row', index: 0 }]);
-});
-
 // ls_base / ls_room_base: `scheduledBase` gives every lamp and room a block as
 // its period, and mirrors each scope's block into
 // `input_select.ls_<scope>_override` as the block's capitalised option.

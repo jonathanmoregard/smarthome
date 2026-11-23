@@ -61,42 +61,12 @@ test('ls_room_plan raises on a missing overrides sensor before it runs any scrip
   assert.deepEqual(entered, []);
 });
 
-test('ls_render raises on a missing overrides sensor', () => {
-  assert.throws(() => execute({ script: 'ls_render', snapshot: snapshot(), args: {} }, handlers),
-    /ls_render\.revision: sensor\.ls_overrides is missing/);
-});
-
-test('ls_dispatch raises on a missing overrides sensor at its stale-revision check', () => {
-  const { registry, entered } = recording(['effects_catalog', 'effects_assign']);
-  assert.throws(() => execute({ script: 'ls_dispatch', snapshot: snapshot(), args: { plan: {
-    revision: now, plan_order: 1, resolved: { targets: {}, assignments: {} }, base: {}, switches: {}, mirror: [], stale_keys: [],
-  }, lights: [] } }, registry), /ls_dispatch\.revision: sensor\.ls_overrides is missing/);
-  assert.deepEqual(entered, []);
-});
-
 test('ls_commit raises on a missing overrides sensor even with no expected revision, and writes nothing', () => {
   // Captured: `data.get('expected_revision') in [none, <bare read>]` builds the
   // list, so the read happens whatever the expected revision is.
   const ctx = context(stateStoreHandlers);
   assert.throws(() => ctx.run('ls_commit', { data: { op: 'clear_all' } }), /ls_commit\.revision: sensor\.ls_overrides is missing/);
   assert.deepEqual(ctx.calls, []);
-});
-
-test('effects_assign raises on a missing overrides sensor and writes nothing', () => {
-  const run = () => execute({ script: 'effects_assign', snapshot: snapshot(), args: { revision: now, targets: {}, assignments: {} } }, handlers);
-  assert.throws(run, /effects_assign\.revision: sensor\.ls_overrides is missing/);
-});
-
-test('effects_emit raises on a missing overrides sensor with no commands, at its result', () => {
-  // Captured result: `completed and <bare read> and ...`; `completed` starts true.
-  assert.throws(() => execute({ script: 'effects_emit', snapshot: snapshot(), args: { commands: [], revision: now, generation: 'g' } }, handlers),
-    /effects_emit\.revision: sensor\.ls_overrides is missing/);
-});
-
-test('effects_emit reads the revision before it reads the command', () => {
-  // Captured: `allowed` opens with the bare read; the command's fields come after.
-  assert.throws(() => execute({ script: 'effects_emit', snapshot: snapshot(), args: { commands: [{}], revision: now, generation: 'g' } }, handlers),
-    /effects_emit\.revision: sensor\.ls_overrides is missing/);
 });
 
 const noon = '2026-10-23T12:00:00+02:00';

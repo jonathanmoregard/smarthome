@@ -19,8 +19,10 @@ import type { BulbId, LampId, RemoteId, RoomId, SwitchId } from '../../domain/ty
 import type { Colour, RGB, SceneLight } from '../../domain/types/light.ts';
 import type { Minutes } from '../../domain/types/range.ts';
 import type { TimeOfDay, Timezone } from '../../domain/types/time.ts';
-import { toBrightness, toBulbId, toColourChannel, toInstant, toKelvin, toLampId, toMinutes, toRoomId, toSwitchId, toTimeOfDay, toTimezone }
-  from '../../parse/ids.ts';
+import {
+  toBrightness, toBulbId, toColourChannel, toInstant, toKelvin, toLampId, toMinutes, toMqttTopic, toRoomId, toSwitchId, toTimeOfDay, toTimezone,
+} from '../../parse/ids.ts';
+import type { MqttTopic } from '../encode.ts';
 import type { Catalog } from '../../runtime/catalog.ts';
 import type { EntityState, JsonValue } from '../../runtime/context.ts';
 import { ParseError, isObject, parseFinite } from '../../runtime/parse.ts';
@@ -233,7 +235,7 @@ function perBlock<T>(make: (block: Block) => T): Record<Block, T> {
 }
 
 /** A lit light's colour when it reports one: kelvin in the colour-temperature mode, else its rgb triple. */
-function decodeColour(light: EntityState): Colour | undefined {
+export function decodeColour(light: EntityState): Colour | undefined {
   if (light.attributes['color_mode'] === 'color_temp') {
     const kelvin = parseFinite(light.attributes['color_temp_kelvin']);
     const whole = kelvin === undefined ? undefined : Math.trunc(kelvin);
@@ -254,9 +256,9 @@ function rgbOf(value: JsonValue | undefined): RGB | undefined {
 }
 
 /** Where each bulb is reached. Sending is the adapter's, so this is not in Config. */
-export function bulbTopics(catalog: Catalog): Record<BulbId, string> {
+export function bulbTopics(catalog: Catalog): Record<BulbId, MqttTopic> {
   return Object.fromEntries(Object.values(catalog.members).flat().flatMap(bulb => {
     const topic = catalog.topics[bulb];
-    return topic === undefined ? [] : [[bulb, topic]];
+    return topic === undefined ? [] : [[bulb, toMqttTopic(topic)]];
   }));
 }

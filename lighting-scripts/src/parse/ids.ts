@@ -11,6 +11,7 @@
 import type { BulbId, DashboardControlId, LampId, PowerTarget, RemoteId, RemoteSource, RoomId, SavedOverlayKey, SwitchId, UserId }
   from '../domain/types/ids.ts';
 import type { CatalogEffectName } from '../runtime/catalog.ts';
+import type { MqttTopic } from '../adapter/encode.ts';
 import type { Brightness, ColourChannel, Kelvin, Level, Percent, PercentRange } from '../domain/types/light.ts';
 import type { Instant, Seconds, TimeOfDay, Timezone } from '../domain/types/time.ts';
 import type { Step, StepCount } from '../domain/types/remote.ts';
@@ -55,6 +56,11 @@ export function toRemoteId(raw: string): RemoteId {
 export function toUserId(raw: string): UserId {
   // Cast: the edge read this string as a user; this is the one place that says so.
   return raw as UserId;
+}
+
+export function toMqttTopic(raw: string): MqttTopic {
+  // Cast: the edge read this string as a Zigbee2MQTT command topic; this is the one place that says so.
+  return raw as MqttTopic;
 }
 
 export function toCatalogEffectName(raw: string): CatalogEffectName {
@@ -167,17 +173,6 @@ export function toInstant(raw: number): Instant {
 export function toSeconds(raw: number): Seconds {
   return asParseError(() => secondsOrThrow(raw));
 }
-
-/*
- * The two fades. They sit here, not beside `Transition`, because they belong
- * to the adapter's encoder and reconciler (moved there in M2 T3), which build
- * them with `toSeconds`; the domain never sees them.
- */
-
-/** The fade of a change a person makes. */
-export const MANUAL_FADE: Seconds = toSeconds(0.2);
-/** The fade into an effect's start. */
-export const EFFECT_START_FADE: Seconds = toSeconds(0.4);
 
 export function toTimeOfDay(hour: number, minute: number): TimeOfDay {
   return asParseError(() => timeOfDayOrThrow(hour, minute));

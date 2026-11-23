@@ -118,7 +118,9 @@ export function parseApplyArgs(args: JsonObject): ApplyRequest {
     hasTestOverrides,
     testOverrides: forwardedOrNone(args.test_overrides),
     reason: args.reason === undefined ? 'config' : requireString(args, 'reason', 'ls_apply'),
-    lights: lazy(() => carry(args.lights === undefined ? [] : requireArray(args, 'lights', 'ls_apply'))),
+    // A present non-list raises, as before; an entry that is not text names nothing (today's `requested` compared by identity).
+    lights: lazy(() => (args.lights === undefined ? [] : requireArray(args, 'lights', 'ls_apply'))
+      .filter((light): light is string => typeof light === 'string')),
   };
 }
 

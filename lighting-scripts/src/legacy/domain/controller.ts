@@ -44,8 +44,8 @@ export interface ApplyRequest {
   /** Forwarded to `ls_plan` unread (`null` when absent). */
   testOverrides: Verbatim;
   reason: string;
-  /** Forwarded to `ls_commit` unread. */
-  lights: () => Verbatim;
+  /** The lights asked for by name (a lamp switched back on, a room handed over), each sent its light again. */
+  lights: () => readonly string[];
 }
 
 /**

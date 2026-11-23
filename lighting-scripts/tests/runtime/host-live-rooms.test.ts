@@ -11,6 +11,7 @@ import { handlers } from '../../src/runtime/registry.ts';
 import { liveScope } from '../../src/runtime/live-rooms.ts';
 import { parseLiveRooms } from '../../src/parse/live-rooms.ts';
 import { RoomHandover, ingestChange } from '../../src/main.ts';
+import { forgetBeliefs } from '../../src/adapter/show.ts';
 
 const runtime = 'sensor.ls_effects_runtime';
 const overrides = { state: '1', attributes: {}, last_updated: 'r1' };
@@ -108,6 +109,7 @@ function crossGroup(): Snapshot {
 
 async function applyHouse(live: string, initial: Snapshot = twoRooms()): Promise<{ calls: ServiceCall[]; errors: string[]; host: LightingHost }> {
   const calls: ServiceCall[] = [], errors: string[] = [];
+  forgetBeliefs();
   const host = await LightingHost.open({ path: join(await directory(), 'state.json'), initial, autoTimers: false,
     scope: liveScope(parseLiveRooms(live)), report: message => errors.push(message), program: request => execute(request, handlers),
     transport: { send: async call => { calls.push(call); }, close: async () => {} } });
@@ -116,15 +118,11 @@ async function applyHouse(live: string, initial: Snapshot = twoRooms()): Promise
 }
 const bulbTopics = (calls: ServiceCall[]) => calls.filter(call => call.service === 'mqtt.publish').map(call => call.data.topic);
 
-test('the schedule computes every room but reaches only the lamps of live rooms', async () => {
+test('the schedule reaches only the lamps of live rooms', async () => {
   const { calls, errors, host } = await applyHouse('studio');
   try {
     assert.deepEqual(errors, []);
     assert.deepEqual(bulbTopics(calls), ['zigbee2mqtt/studio_bulb/set']);
-    // Both rooms were computed: the kept bookkeeping records both lamps' targets.
-    const targets = host.snapshot().state[runtime]?.attributes.targets;
-    assert.ok(targets !== undefined && targets !== null && typeof targets === 'object');
-    assert.deepEqual(Object.keys(targets).filter(key => key.startsWith('light.')).sort(), ['light.den', 'light.studio']);
     assert.equal(calls.some(call => call.target?.entity_id === runtime), false);
     assert.equal(calls.some(call => call.target?.entity_id === 'sensor.ls_overrides'), false, 'the old scripts commit house events');
   } finally { await host.close(); }
@@ -139,14 +137,6 @@ test('a house event commits nothing house-wide while a room is still on the old 
   const { calls, host } = await applyHouse('studio');
   try {
     assert.deepEqual(calls.filter(call => call.service !== 'mqtt.publish'), []);
-    assert.deepEqual(bulbTopics(calls), ['zigbee2mqtt/studio_bulb/set']);
-  } finally { await host.close(); }
-});
-
-test('a group publish over a driven and an old-scripts room reaches the driven lamp on its own topic', async () => {
-  const { calls, errors, host } = await applyHouse('studio', crossGroup());
-  try {
-    assert.deepEqual(errors, []);
     assert.deepEqual(bulbTopics(calls), ['zigbee2mqtt/studio_bulb/set']);
   } finally { await host.close(); }
 });
@@ -171,13 +161,11 @@ test('a lamp switched on in a room the port does not drive does nothing in the p
 test('a lamp switched on in a driven room reaches the port', async () => {
   const { calls, host } = await applyHouse('studio');
   try {
-    const before = host.snapshot();
+    calls.length = 0;
     await host.dispatch('automation.lighting_schedule_engine', { trigger: { platform: 'device', id: 'lamp_on', entity_id: 'light.studio' } });
     await host.drain();
-    assert.notDeepEqual(host.snapshot().state['sensor.ls_overrides'], before.state['sensor.ls_overrides']);
-    assert.ok(calls.length > 0);
-    // The port is this input's one writer, so its record of the lamp-on reaches the shared store.
-    assert.equal(calls.some(call => call.target?.entity_id === 'sensor.ls_overrides'), true);
+    // The lamp-on asks for the lamp by name, so its bulb is sent its light again though the port already sent it.
+    assert.deepEqual(bulbTopics(calls), ['zigbee2mqtt/studio_bulb/set']);
   } finally { await host.close(); }
 });
 

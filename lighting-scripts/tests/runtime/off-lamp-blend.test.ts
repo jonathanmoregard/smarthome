@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { execute } from '../../src/runtime/engine.ts';
 import { handlers } from '../../src/runtime/registry.ts';
-import type { JsonObject, JsonValue, Snapshot } from '../../src/runtime/context.ts';
+import type { JsonObject, Snapshot } from '../../src/runtime/context.ts';
 import { blend } from '../../src/legacy/domain/scale.ts';
 import { resolveEffects } from '../../src/legacy/domain/resolution.ts';
 import { parseResolveArgs } from '../../src/parse/resolution.ts';
@@ -132,25 +132,6 @@ test('a switch in an off room is off and reports no brightness', () => {
     targets: { 'room:studio': { on: false } }, ranges: { 'switch.plug': { profile: 'custom', min: 0, max: 100 } }, defaults: {},
   }));
   assert.deepEqual(switches, { 'switch.plug': { on: false, room: 'studio', range: [0, 100] } });
-});
-
-const frameSnapshot: Snapshot = { now: '2026-10-26T12:00:00.000Z', members: ['light.lamp'], areas: { 'light.lamp': 'room' }, state: {
-  'light.lamp': { state: 'on', attributes: {} }, 'light.bulb_1': { state: 'on', attributes: {} } } };
-const framePayloads = (target: JsonObject): JsonValue[] => {
-  const result = execute({ script: 'effects_frame_plan', snapshot: frameSnapshot, args: { targets: { 'light.lamp': target },
-    catalog: { members: { 'light.lamp': ['light.bulb_1'] }, topics: { 'light.bulb_1': 'zigbee2mqtt/bulb_1/set' }, multicast: [] } } },
-  handlers).result as JsonObject;
-  return (result.commands as JsonObject[]).map(command => command.payload!);
-};
-
-test('the frame plan sends an off target as OFF without reading its empty channels', () => {
-  assert.deepEqual(framePayloads({ on: false, area: 'room', transition: 3, brightness: { kind: 'none', updated: -1 },
-    color: { kind: 'none', updated: -1 } }), [{ state: 'OFF', transition: 3 }]);
-});
-
-test('the frame plan sends a lit target with no colour as brightness only', () => {
-  assert.deepEqual(framePayloads({ on: true, area: 'room', transition: 3, brightness: { kind: 'constant', value: 80, updated: -1 },
-    color: { kind: 'none', updated: -1 } }), [{ brightness: 80, transition: 3 }]);
 });
 
 const nativeSnapshot: Snapshot = { now: '2026-10-26T12:00:00+01:00', state: {}, areas: { 'light.logical': 'living', 'light.bulb': 'living' },

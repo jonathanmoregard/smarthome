@@ -20,6 +20,7 @@ import type { ApplyRequest, PlanRequest, LightingPlan, PowerSwitch, RemoteComman
 import { overlayKeyText, SARA_MODE } from '../adapter/codecs/overlay-key.ts';
 import { pressText } from '../domain/types/remote.ts';
 import { roomText } from '../parse/rooms.ts';
+import { showLightingState } from '../adapter/show.ts';
 
 /**
  * `ls_plan` is deliberately NOT in `TypedResults`, so no decoder exists for it
@@ -87,8 +88,9 @@ export function plan(ctx: ScriptContext, args: PlanRequest): LightingPlan {
  */
 function apply(ctx: ScriptContext, args: ApplyRequest): Verbatim | null {
   if (!args.dryRun && (args.testNowGiven || args.hasTestOverrides || args.forceAll)) return null;
+  // The dry run's plan stays for the legacy remote and lamp-change writers, which read it until M3 Task 3.
   if (args.dryRun) return planPassThrough(ctx.run('ls_plan', { reason: args.reason, test_now: args.testNow, test_overrides: args.testOverrides }));
-  ctx.run('ls_commit', { data: { op: 'render_request', via: 'render_request', reason: args.reason, lights: args.lights() } });
+  showLightingState(ctx, args.lights());
   return null;
 }
 /** The captured script's retry budget for a revision that keeps moving under the commit. */

@@ -1,15 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { execute } from '../../src/runtime/engine.ts';
-import { handlers } from '../../src/runtime/registry.ts';
-import { typed } from '../../src/runtime/entrypoints.ts';
-import type { JsonObject, JsonValue, ScriptHandlers, Snapshot } from '../../src/runtime/context.ts';
+import type { JsonObject, JsonValue } from '../../src/runtime/context.ts';
 import { stateStoreHandlers } from '../../src/handlers/state-store.ts';
 import { context } from './gestures-context.ts';
-import { house } from './house-view.ts';
 import { reveal } from '../../src/runtime/verbatim.ts';
-import { dispatchPlanOrder } from '../../src/parse/dispatch-render.ts';
-import { runtimePlanOrder } from '../../src/parse/transport.ts';
 import { planMapping, planOverrides, planRangeDefaults } from '../../src/parse/controller.ts';
 import { rangeDefaults } from '../../src/parse/planning.ts';
 
@@ -19,39 +13,6 @@ import { rangeDefaults } from '../../src/parse/planning.ts';
  * `&&` on the raw value diverge both ways. Home Assistant 2026.7.4 renders
  * `{{ {} or 'config' }}` as `'config'` and `{{ {} or [] }}` as `[]`.
  */
-const now = '2026-10-26T12:00:00.000Z';
-
-function fullRender(attributes: JsonObject): { reason: JsonValue | undefined; lights: JsonValue | undefined } {
-  const seen: { reason?: JsonValue; lights?: JsonValue } = {};
-  const registry: ScriptHandlers = { ...handlers,
-    ls_plan: (_ctx, args) => { seen.reason = args.reason; return { plan: {} }; },
-    ls_dispatch: typed('ls_dispatch', { parse: args => args, run: (_ctx, args) => { seen.lights = structuredClone(args.lights); return null; } }) };
-  const snapshot: Snapshot = { now, members: [], areas: {}, state: {
-    'sensor.ls_overrides': { state: '0', last_updated: now, attributes: { full_version: 'v1', pending_rooms: {}, ...attributes } },
-    'sensor.ls_effects_runtime': { state: '0', attributes: { generation: 'g', plan_order: 0 } },
-  } };
-  execute({ script: 'ls_render', args: {}, snapshot }, registry);
-  return { reason: seen.reason, lights: seen.lights };
-}
-
-test('ls_render passes config as the plan reason for an empty-container full_reason', () => {
-  // Captured: `state_attr('sensor.ls_overrides','full_reason') or 'config'`.
-  for (const empty of [{}, []] as JsonValue[]) {
-    assert.equal(fullRender({ full_reason: empty }).reason, 'config', `full_reason ${JSON.stringify(empty)}`);
-  }
-});
-
-test('ls_render keeps a truthy full_reason as the plan reason', () => {
-  assert.equal(fullRender({ full_reason: 'tick' }).reason, 'tick');
-  assert.equal(fullRender({}).reason, 'config');
-});
-
-test('ls_render hands ls_dispatch an empty light list for an empty-mapping full_lights', () => {
-  // Captured: `state_attr('sensor.ls_overrides','full_lights') or []`.
-  assert.deepEqual(fullRender({ full_lights: {} }).lights, []);
-  assert.deepEqual(fullRender({ full_lights: ['light.a'] }).lights, ['light.a']);
-});
-
 function tickCommit(previousReason: JsonValue): JsonValue | undefined {
   // Unhandled: the stored full_version is not the runtime's handled_full.
   const ctx = context(stateStoreHandlers);
@@ -82,25 +43,6 @@ test('ls_commit turns a tick into config over a non-tick previous reason, and no
 // default; a truthy value of the wrong type still raises, as the captured
 // comparison or `.get`/`.items()` downstream of it does.
 const falsy: JsonValue[] = [null, false, 0, '', [], {}];
-const runtimeView = (plan_order: JsonValue) => house({ 'sensor.ls_effects_runtime': ['0', { plan_order }] });
-
-test('the runtime plan order is 0 for every Jinja-falsy value (ls_dispatch and effects_assign: `plan_order or 0`)', () => {
-  for (const value of falsy) {
-    assert.equal(dispatchPlanOrder(runtimeView(value)), 0, `ls_dispatch ${JSON.stringify(value)}`);
-    assert.equal(runtimePlanOrder(runtimeView(value)), 0, `effects_assign ${JSON.stringify(value)}`);
-  }
-  assert.equal(dispatchPlanOrder(house({ 'sensor.ls_effects_runtime': ['0', {}] })), 0);
-  assert.equal(dispatchPlanOrder(runtimeView(7)), 7);
-  assert.equal(runtimePlanOrder(runtimeView(7)), 7);
-});
-
-test('a saved truthy non-number runtime plan order is the captured default 0 (lenient saved-value directive)', () => {
-  // Captured `plan.plan_order >= ('x' or 0)` compares a number with a string: TypeError.
-  for (const value of ['x', [1], { a: 1 }] as JsonValue[]) {
-    assert.equal(dispatchPlanOrder(runtimeView(value)), 0, `ls_dispatch ${JSON.stringify(value)}`);
-    assert.equal(runtimePlanOrder(runtimeView(value)), 0, `effects_assign ${JSON.stringify(value)}`);
-  }
-});
 
 test("ls_plan reads overrides, power and switch_ranges as `attr or {}`: every falsy value is the empty mapping", () => {
   for (const value of [...falsy, undefined]) {

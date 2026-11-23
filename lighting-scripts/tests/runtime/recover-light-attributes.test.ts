@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { JsonObject, JsonValue, ServiceCall, Snapshot } from '../../src/runtime/context.ts';
+import type { JsonObject, JsonValue, Snapshot } from '../../src/runtime/context.ts';
 import { execute } from '../../src/runtime/engine.ts';
 import { handlers } from '../../src/runtime/registry.ts';
 import { reveal } from '../../src/runtime/verbatim.ts';
@@ -98,36 +98,5 @@ test('ls_room_plan with a warm end that is not an rgb triple sends the built-in 
       },
     });
     assert.deepEqual(seen, [WARM_END, WARM_END], JSON.stringify(value));
-  }
-});
-
-const topics = { 'light.bulb_1': 'zigbee2mqtt/bulb_1/set' };
-const candleCatalog: JsonObject = {
-  effects: { Candle: { renderer: 'script.effect_candle_frame', channels: ['brightness', 'color'] } },
-  members: { 'light.lamp': ['light.bulb_1'] }, topics, phases: {}, multicast: [],
-};
-const effect: JsonObject = { kind: 'effect', effect: 'Candle', instance: 'base:light.lamp:Candle', intensity: 120, updated: 1 };
-const candle: JsonObject = { on: true, area: 'room', brightness: effect, color: effect };
-function candleSnapshot(warmEnd: JsonValue): Snapshot {
-  return { now, catalog: candleCatalog, members: ['light.lamp'], areas: { 'light.lamp': 'room' }, state: {
-    'sensor.ls_overrides': { state: '0', attributes: {}, last_updated: now },
-    'sensor.ls_effects_runtime': { state: '0', attributes: { revision: now, generation: 'g', plan_order: 0 } },
-    'binary_sensor.zigbee2mqtt_bridge_connection_state': { state: 'on', attributes: {} },
-    'light.candle_test_rgb_warm_end': { state: 'on', attributes: { rgb_color: warmEnd } },
-    'light.lamp': { state: 'on', attributes: {} },
-    'light.bulb_1': { state: 'on', attributes: {} },
-  } };
-}
-const bodies = (calls: ServiceCall[], topic: string) => calls.filter(call => call.service === 'mqtt.publish' && call.data.topic === topic)
-  .map(call => JSON.parse(String(call.data.payload)) as JsonObject);
-
-test('the candle with a warm end that is not an rgb triple starts in the built-in warm end', () => {
-  const plan = { revision: now, plan_order: 1, base: {}, resolved: { targets: { 'light.lamp': candle }, assignments: { 'light.lamp': candle } } };
-  for (const value of notATriple) {
-    const calls = execute({ script: 'ls_dispatch', args: { plan, lights: [] }, snapshot: candleSnapshot(value) }, handlers).calls;
-    assert.deepEqual(bodies(calls, topics['light.bulb_1']), [
-      { brightness: 120, color: { rgb: '255,126,0' }, transition: 0.4 },
-      { effect: 'channel_change' },
-    ], JSON.stringify(value));
   }
 });

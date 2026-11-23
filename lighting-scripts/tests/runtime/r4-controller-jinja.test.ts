@@ -58,14 +58,6 @@ test('ls_plan falls back to the stored overrides for any test_overrides that is 
   assert.deepEqual(baseArgs(seen).overrides, { given: { kind: 'block' } });
 });
 
-test('ls_apply commits for a Jinja-falsy test_now, as for none at all', () => {
-  for (const value of [0, '', false, null] as JsonValue[]) {
-    const { ctx, seen } = planContext();
-    assert.equal(ctx.run('ls_apply', { test_now: value }), null);
-    assert.equal(seen.filter(s => 'ls_commit' in s).length, 1, JSON.stringify(value));
-  }
-});
-
 test('ls_apply stops without parsing a truthy test_now when not a dry run', () => {
   for (const value of ['not a date', '2026-10-23T19:00:00+02:00', 1762000000, [1]] as JsonValue[]) {
     const { ctx, seen } = planContext();

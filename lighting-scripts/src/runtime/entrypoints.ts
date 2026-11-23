@@ -4,10 +4,7 @@ import type { SwitchDecision } from '../legacy/domain/controller.ts';
 import type { SwitchId } from '../domain/types/ids.ts';
 import type { Resolution } from '../legacy/domain/resolution.ts';
 import type { CompiledGradients } from '../legacy/domain/gradient.ts';
-import type { AssignedGeneration, EmitOutcome } from '../legacy/domain/transport.ts';
-import type { DispatchOutcome } from '../legacy/domain/dispatch-render.ts';
 import type { CommitOutcome } from '../legacy/domain/state-store.ts';
-import type { GroupedCommands } from '../legacy/domain/grouping.ts';
 import type { RemotePlan } from '../legacy/domain/remote-input.ts';
 import type { ScheduledBase } from '../legacy/domain/schedule.ts';
 
@@ -33,16 +30,7 @@ export interface TypedResults {
   ls_switch_plan: Record<SwitchId, SwitchDecision>;
   effects_resolve: Resolution;
   effects_gradient_plan: CompiledGradients;
-  effects_emit: EmitOutcome;
-  effects_assign: AssignedGeneration;
-  ls_dispatch: DispatchOutcome;
   ls_commit: CommitOutcome;
-  // One type for two names, because `framePlan` returns
-  // `ctx.call('effects_group_plan', ...)` unchanged. Registering both keeps the
-  // two addressable by name for HA and the parity RPC while making it
-  // impossible for their results to drift apart.
-  effects_group_plan: GroupedCommands;
-  effects_frame_plan: GroupedCommands;
   ls_remote_plan: RemotePlan;
   // One type, two names again: both run `scheduledBase`, which differs only in
   // the `roomLocal` flag, never in the shape it answers.

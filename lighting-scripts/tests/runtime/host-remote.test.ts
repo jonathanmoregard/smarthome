@@ -8,6 +8,7 @@ import { execute } from '../../src/runtime/engine.ts';
 import { handlers } from '../../src/runtime/registry.ts';
 import type { ServiceCall, Snapshot } from '../../src/runtime/context.ts';
 import { sendsAll } from './support/scope.ts';
+import { forgetBeliefs } from '../../src/adapter/show.ts';
 
 test('MQTT bridge remote goes through typed gesture, intent store, render and a dry physical sink', async () => {
   const now = Date.parse('2026-10-26T12:00:00Z');
@@ -26,6 +27,7 @@ test('MQTT bridge remote goes through typed gesture, intent store, render and a 
     initial.state[`input_text.ls_house_${period}`] = { state: JSON.stringify({ on: true, b: brightness, m: 'ct', k: kelvin }), attributes: {} };
     initial.state[`light.ls_house_${period}`] = { state: 'on', attributes: { brightness, color_mode: 'color_temp', color_temp_kelvin: kelvin } };
   }
+  forgetBeliefs();
   const directory = await mkdtemp(join(tmpdir(), 'lighting-remote-host-')), calls: ServiceCall[] = [], errors: string[] = [];
   const host = await LightingHost.open({ path: join(directory, 'state.json'), initial, autoTimers: false, scope: sendsAll, now: () => now, report: message => errors.push(message), program: request => execute(request, handlers), transport: { send: async call => { calls.push(call); }, close: async () => {} } });
   try {
@@ -35,8 +37,6 @@ test('MQTT bridge remote goes through typed gesture, intent store, render and a 
     const emitted = calls.filter(call => call.service === 'mqtt.publish' && call.data.topic === 'zigbee2mqtt/bulb/set');
     assert.equal(emitted.length, 1);
     assert.equal(JSON.parse(String(emitted[0]!.data.payload)).brightness, 224);
-    const runtime = host.snapshot().state['sensor.ls_effects_runtime']!.attributes;
-    assert.equal(runtime.targets['room:studio'].level, 223.5);
     assert.equal(Object.keys(host.snapshot().state['sensor.ls_overrides']!.attributes.overrides).length, 1);
   } finally { await host.close(); }
 });

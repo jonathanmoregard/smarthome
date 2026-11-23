@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ParseError } from '../../src/runtime/parse.ts';
-import { EFFECT_START_FADE, MANUAL_FADE, toColourChannel, toInstant, toSeconds, toTimeOfDay, toTimezone } from '../../src/parse/ids.ts';
+import { toColourChannel, toInstant, toSeconds, toTimeOfDay, toTimezone } from '../../src/parse/ids.ts';
 
 test('a colour channel is 0..255 and may be fractional', () => {
   assert.equal(toColourChannel(0), 0);
@@ -32,9 +32,4 @@ test('a time of day is hour 0..23 and minute 0..59, whole', () => {
 test('a timezone is a non-empty IANA zone id', () => {
   assert.equal(toTimezone('Europe/Stockholm'), 'Europe/Stockholm');
   for (const bad of ['', 'Not/AZone']) assert.throws(() => toTimezone(bad), ParseError);
-});
-
-test('the fades are 0.2 s for a manual change and 0.4 s into an effect start', () => {
-  assert.equal(MANUAL_FADE, 0.2);
-  assert.equal(EFFECT_START_FADE, 0.4);
 });

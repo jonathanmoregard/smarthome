@@ -1,10 +1,8 @@
 {
   "files": [
     "src/legacy/domain/controller.ts",
-    "src/legacy/domain/dispatch-render.ts",
     "src/legacy/domain/gestures.ts",
     "src/legacy/domain/gradient.ts",
-    "src/legacy/domain/grouping.ts",
     "src/legacy/domain/native-controls.ts",
     "src/legacy/domain/overlay-resets.ts",
     "src/legacy/domain/pending-output.ts",
@@ -16,8 +14,7 @@
     "src/legacy/domain/scale.ts",
     "src/legacy/domain/schedule.ts",
     "src/legacy/domain/state-store.ts",
-    "src/legacy/domain/transport.ts",
     "src/legacy/domain/ui-state.ts"
   ],
-  "bridges": []
+  "bridges": ["src/adapter/show.ts"]
 }

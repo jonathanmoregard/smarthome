@@ -1,18 +1,15 @@
 import type { JsonObject, JsonValue } from '../runtime/context.ts';
 import type { TypedResults } from '../runtime/entrypoints.ts';
 import type { SwitchDecision } from '../legacy/domain/controller.ts';
-import type { AssignedGeneration, EmitOutcome } from '../legacy/domain/transport.ts';
 import type { CommitOutcome } from '../legacy/domain/state-store.ts';
-import type { GroupCommand, GroupedCommands, RejectedRow } from '../legacy/domain/grouping.ts';
 import type { RemoteInputRecord, RemoteModeRecord, RemotePlanOp, RemotePlan } from '../legacy/domain/remote-input.ts';
 import type { LampColor, LampProfile, LampProfileEntry, ProfileLevel, ScheduleCommand, ScheduleDetails, ScheduleEnvelope, ScheduledBase,
   ScheduleMirror, TargetEntry } from '../legacy/domain/schedule.ts';
 import { optionalBlock, requireBlock } from './blocks.ts';
 import { BLOCKS, blockOption } from '../domain/blocks.ts';
 import { ParseError, requireArray, requireBoolean, requireFinite, requireNumber, requireObject, requireString } from '../runtime/parse.ts';
-import { carry } from '../runtime/verbatim.ts';
 import { assembledMap, storedFact } from './overrides.ts';
-import { toBulbId, toPowerTarget, toRemoteSource, toRoomId, toSwitchId } from './ids.ts';
+import { toPowerTarget, toRemoteSource, toRoomId, toSwitchId } from './ids.ts';
 import { overlayKeyText, remoteInputKey, SARA_MODE } from '../adapter/codecs/overlay-key.ts';
 import type { RemoteSource, SwitchId } from '../domain/types/ids.ts';
 
@@ -116,22 +113,6 @@ function decodeSwitchDecision(value: JsonValue, context: string): SwitchDecision
   return { on, room, ...(brightness === undefined ? {} : { brightness }), range: stored };
 }
 
-function decodeEmit(value: JsonValue, context: string): EmitOutcome {
-  const result = requireObject({ value }, 'value', context);
-  const published = requireArray(result, 'published_at', context);
-  return {
-    published_at: published.map((at, index) => requireFinite(at, `${context}.published_at.${index}`)),
-    completed: requireBoolean(result.completed, `${context}.completed`),
-  };
-}
-
-/** `generation` must be *present* and may legitimately be null; it is raw. */
-function decodeAssign(value: JsonValue, context: string): AssignedGeneration {
-  const result = requireObject({ value }, 'value', context);
-  if (!Object.hasOwn(result, 'generation')) throw new ParseError(`${context}.generation must be present, got undefined`);
-  return { generation: carry(result.generation ?? null) };
-}
-
 /**
  * Only `accepted` discriminates, and only the success branch carries the other
  * two fields -- so a stub claiming a commit succeeded has to say what it
@@ -145,79 +126,6 @@ function decodeCommit(value: JsonValue, context: string): CommitOutcome {
     revision: requireString(result, 'revision', context),
     committed_at: requireNumber(result, 'committed_at', context),
   };
-}
-
-/**
- * This decoder replaces a read rather than adding one. `dispatch-render.ts`
- * used to write `batch.commands ?? []` and `transport.ts` wrapped the same
- * field in `list(...).map(object)`; both could only ever fire for a stub,
- * because `planGroups` builds all five fields on every path. The decoder is
- * where that leniency now lives, and it is strict: a stub standing in for a
- * frame plan has to say what it planned.
- */
-function decodeGroupPlan(value: JsonValue, context: string): GroupedCommands {
-  const result = requireObject({ value }, 'value', context);
-  const commands = requireArray(result, 'commands', context);
-  const rejected = requireArray(result, 'rejected', context);
-  const input_count = requireNumber(result, 'input_count', context);
-  const endpoint_count = requireNumber(result, 'endpoint_count', context);
-  const command_count = requireNumber(result, 'command_count', context);
-  // `planGroups` counts its own commands.
-  if (command_count !== commands.length) {
-    throw new ParseError(`${context}.command_count must be ${commands.length}, the number of commands, got ${command_count}`);
-  }
-  return {
-    commands: commands.map((command, index) => decodeGroupCommand(command, `${context}.commands.${index}`)),
-    rejected: rejected.map((row, index) => decodeRejectedRow(row, `${context}.rejected.${index}`, input_count)),
-    input_count,
-    endpoint_count,
-    command_count,
-  };
-}
-
-/**
- * `payload` and `group` are read raw on purpose, matching `GroupCommand`: the
- * payload is the lamp's MQTT body and `group` is the catalog's own id, both
- * compared bytes. `group` must be *present* and may legitimately be null --
- * unicast commands carry `group: null`.
- */
-function decodeGroupCommand(value: JsonValue, context: string): GroupCommand {
-  const command = requireObject({ value }, 'value', context);
-  if (!Object.hasOwn(command, 'group')) throw new ParseError(`${context}.group must be present, got undefined`);
-  const group = command.group ?? null;
-  const topic = requireString(command, 'topic', context);
-  const payload = carry(requireObject(command, 'payload', context));
-  const members = decodeStrings(command, 'members', context).map(toBulbId);
-  const owners = decodeStrings(command, 'owners', context);
-  // `planGroups` sends a unicast command to one endpoint's bulb, for that endpoint's owner.
-  if (group === null && (members.length !== 1 || owners.length !== 1)) {
-    throw new ParseError(`${context} is unicast (group null), so it must have one member and one owner, `
-      + `got ${members.length} and ${owners.length}`);
-  }
-  return { topic, payload, members, owners, group: group === null ? null : carry(group) };
-}
-
-function decodeStrings(container: JsonObject, key: string, context: string): string[] {
-  return requireArray(container, key, context)
-    .map((value, index) => requireString({ value }, 'value', `${context}.${key}.${index}`));
-}
-
-/**
- * The two shapes `planGroups` pushes, and no third one, with their keys in the
- * order it writes them. An invalid row is numbered by its place among the rows.
- */
-function decodeRejectedRow(value: JsonValue, context: string, inputCount: number): RejectedRow {
-  const row = requireObject({ value }, 'value', context);
-  const reason = requireString(row, 'reason', context);
-  if (reason === 'invalid_endpoint_row') {
-    const index = requireNumber(row, 'index', context);
-    if (!Number.isInteger(index) || index < 0 || index >= inputCount) {
-      throw new ParseError(`${context}.index must be a whole number below input_count ${inputCount}, got ${index}`);
-    }
-    return { reason, index };
-  }
-  if (reason === 'conflicting_endpoint_rows') return { entity: requireString(row, 'entity', context), reason };
-  throw new ParseError(`${context}.reason must be invalid_endpoint_row or conflicting_endpoint_rows, got ${JSON.stringify(reason)}`);
 }
 
 function decodeRemotePlan(value: JsonValue, context: string): RemotePlan {
@@ -265,6 +173,11 @@ function decodeRemoteOp(result: JsonObject, context: string): RemotePlanOp {
     };
   }
   throw new ParseError(`${context}.op must be one of noop, clear, clear_room, power, set, got ${JSON.stringify(op)}`);
+}
+
+function decodeStrings(container: JsonObject, key: string, context: string): string[] {
+  return requireArray(container, key, context)
+    .map((value, index) => requireString({ value }, 'value', `${context}.${key}.${index}`));
 }
 
 /** Every operation but `noop` is tagged `via: 'remote'`; the literal is checked. */
@@ -517,25 +430,10 @@ export const resultCodecs: { [K in keyof TypedResults]: ResultCodec<TypedResults
   // No decoder, for the opposite reason: `GradientCurve` is a deep structure
   // and its only JSON stub is `{gradients: {}}`.
   effects_gradient_plan: { encode: gradients => ({ gradients }) },
-  // Decoders: both results are small and flat, and `ls_dispatch` reads every
-  // field of them, so a drifted stub here would corrupt a dispatch rather than
-  // fail loudly.
-  effects_emit: { encode: result => result, decode: decodeEmit },
-  effects_assign: { encode: result => result, decode: decodeAssign },
   // A decoder here is load-bearing for a real test: `falsy-boundaries` stubs
   // `{accepted: 'yes'}` precisely to assert a non-boolean is refused, and a
   // typed stub could not express that.
   ls_commit: { encode: result => result, decode: decodeCommit },
-  // No decoder: nothing stubs `ls_dispatch`, and `null` plus two built fields
-  // is not a shape a stub would get subtly wrong without failing loudly.
-  ls_dispatch: { encode: result => result },
-  // Both names share one result type, so they share its decoder. No unit
-  // test stubs either any more (the two that did tested the frame renderers
-  // and the engine tick, both gone with the bulb-run effects), so the decoder
-  // is only the edge for a JSON answer to these names. It also carries the
-  // leniency the two call sites used to apply inline.
-  effects_group_plan: { encode: result => result, decode: decodeGroupPlan },
-  effects_frame_plan: { encode: result => result, decode: decodeGroupPlan },
   // A decoder, and it is the most load-bearing one here. `ls_remote_command`
   // used to read this result with `requireString(input_revision)`,
   // `requireBoolean(on)` and `requireArray(targets)`, and
