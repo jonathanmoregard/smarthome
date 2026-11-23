@@ -68,9 +68,12 @@ const level = (model: Model, id: LampId, time: string): number => {
   return light.level;
 };
 
-const send = (command: RemoteCommand, time: string, remote: RemoteId = remoteA): Msg => ({ kind: 'remotePressed', remote, command, at: at(time) });
-const press = (button: RemoteButton, time: string, remote: RemoteId = remoteA): Msg => ({ kind: 'remoteButtonPressed', remote, button, at: at(time) });
-const power = (time: string, remote: RemoteId = remoteA) => press({ kind: 'power' }, time, remote);
+/** A remote's command; `anyOn` is what the room's lamps and switches report at the press (on, unless the test says). */
+const send = (command: RemoteCommand, time: string, remote: RemoteId = remoteA, anyOn = true): Msg =>
+  ({ kind: 'remotePressed', remote, command, anyOn, at: at(time) });
+const press = (button: RemoteButton, time: string, remote: RemoteId = remoteA, anyOn = true): Msg =>
+  ({ kind: 'remoteButtonPressed', remote, button, anyOn, at: at(time) });
+const power = (time: string, remote: RemoteId = remoteA, anyOn = true) => press({ kind: 'power' }, time, remote, anyOn);
 const arrow = (direction: 'left' | 'right' | 'up' | 'down', time: string) => press({ kind: 'arrow', direction }, time);
 const dial = (button: PresetButton | undefined, time: string) => press({ kind: 'preset', button }, time);
 const clock = (time: string): Msg => ({ kind: 'clock', now: at(time) });
@@ -199,11 +202,23 @@ test('the power toggle switches a lit room off and back on', () => {
 });
 
 test('in a dark room the power toggle switches the room on', () => {
-  // With no saved power the toggle goes against whether anything in the room is lit: at night nothing is, so it switches
-  // the room on, and a day held afterwards shows. Break: the toggle always switches off first.
-  const model = after(house(), send('toggle', '23:00:00'), holdBlock('day', '23:05:00'));
+  // With no saved power the toggle goes against whether anything in the room reports on: at night nothing does, so it
+  // switches the room on, and a day held afterwards shows. Break: the toggle always switches off first.
+  const model = after(house(), send('toggle', '23:00:00', remoteA, false), holdBlock('day', '23:05:00'));
   assert.equal(model.overlays.roomPower[roomA], 'on');
   assert.deepEqual(lamp(model, lampA2, '23:06:00'), DAY);
+});
+
+test('a room switched off at the wall is switched on by the toggle, though its schedule is lit', () => {
+  // Today the toggle reads what Home Assistant reports, not the light the room is meant to show: at noon the schedule is
+  // lit, but the lamps report off, so the press and the single power press both switch the room on.
+  // Break: the toggle goes against the lighting state, or a burst forgets what its press reported.
+  const sent = after(house(), send('toggle', '12:00:00', remoteA, false));
+  const burst = after(house(), power('12:00:00', remoteA, false), clock('12:00:00.600'));
+  for (const model of [sent, burst]) {
+    assert.equal(model.overlays.roomPower[roomA], 'on');
+    assert.deepEqual([lamp(model, lampA1, '12:00:30'), lamp(model, lampA2, '12:00:30')], [DAY, DAY]);
+  }
 });
 
 test('reset returns the room to the schedule', () => {

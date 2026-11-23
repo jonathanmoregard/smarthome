@@ -7,8 +7,9 @@
  */
 import { BLOCKS } from '../../domain/blocks.ts';
 import type { Block } from '../../domain/blocks.ts';
+import type { Config } from '../../domain/config.ts';
 import type { LampProfile, Model, RemoteModel, SwitchProfile } from '../../domain/model.ts';
-import type { LampId, RemoteId, SwitchId } from '../../domain/types/ids.ts';
+import type { LampId, RemoteId, RoomId, SwitchId } from '../../domain/types/ids.ts';
 import { entriesOf } from '../../domain/types/ids.ts';
 import type { Catalog } from '../../runtime/catalog.ts';
 import { decodeConfig } from './config.ts';
@@ -24,12 +25,23 @@ export function decodeModel(source: ConfigSource, catalog: Catalog): Model {
   const config = decodeConfig(source, catalog);
   const overrides = decodeOverrides(source.states['sensor.ls_overrides']?.attributes, remoteSources(catalog));
   const remotes: Record<RemoteId, RemoteModel> = Object.fromEntries(entriesOf(config.remotes).map(([remote, { room }]) =>
-    [remote, room === undefined ? IDLE_REMOTE : decodeRemoteModel(source, room)]));
+    [remote, room === undefined ? IDLE_REMOTE : decodeRemoteModel(source, room, reportsOn(source, config, overrides.switchRanges, room))]));
   const lampProfiles: Record<LampId, Record<Block, LampProfile>> = Object.fromEntries(entriesOf(config.lamps).map(([lamp]) =>
     [lamp, lampProfilesOf(source, lamp)]));
   const switchProfiles: Record<SwitchId, Record<Block, SwitchProfile>> = Object.fromEntries(entriesOf(config.switches).map(([plug]) =>
     [plug, switchProfilesOf(source, plug)]));
   return { config, ...overrides, remotes, lampProfiles, switchProfiles };
+}
+
+/**
+ * Whether anything the room's power toggle switches reports on: its lamps,
+ * and its switches with a range rule (today's toggle `targets`). A power
+ * burst read from the helpers keeps it, as a press keeps what it reported.
+ */
+function reportsOn(source: ConfigSource, config: Config, switchRanges: Model['switchRanges'], room: RoomId): boolean {
+  const on = (entity: LampId | SwitchId) => source.states[entity]?.state === 'on';
+  return entriesOf(config.lamps).some(([lamp, placed]) => placed.room === room && on(lamp))
+    || entriesOf(switchRanges).some(([plug]) => config.switches[plug]?.room === room && on(plug));
 }
 
 /**

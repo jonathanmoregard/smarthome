@@ -19,7 +19,7 @@
  * commit is the Model returned).
  */
 import type { Block } from './blocks.ts';
-import { lightingState, roomOverlays } from './lighting-state.ts';
+import { roomOverlays } from './lighting-state.ts';
 import type { ChordProgress, Model, PresetButton, RemoteButton, RemoteModel } from './model.ts';
 import { clearRoom, setModeOverlay, setRoomPower } from './overlays.ts';
 import type { HeldBlock, PresetChoice, RememberedPreset, RemoteAdjustment, RemoteOverlay, RemotePreset, StepRange } from './overlays.ts';
@@ -74,13 +74,13 @@ const CHORD_STEPS: Readonly<Record<ChordProgress, ChordStep | undefined>> = {
  * the press are closed first, as today's timers would have, then the press
  * goes through the gestures.
  */
-export function remoteButtonPressed(model: Model, remote: RemoteId, button: RemoteButton, now: Instant): Model {
+export function remoteButtonPressed(model: Model, remote: RemoteId, button: RemoteButton, anyOn: boolean, now: Instant): Model {
   const room = model.config.remotes[remote]?.room;
   if (room === undefined) return model;
   const caught = windowsClosed(model, remote, room, now);
   const state = remoteState(caught, remote);
   switch (button.kind) {
-    case 'power': return powerPressed(caught, remote, state, now);
+    case 'power': return powerPressed(caught, remote, state, anyOn, now);
     case 'preset': return presetButtonPressed(caught, remote, room, state, button.button, now);
     case 'arrow': case 'cancel': return chordOrCommand(caught, remote, room, state, button, now);
   }
@@ -95,7 +95,7 @@ function windowsClosed(model: Model, remote: RemoteId, room: RoomId | undefined,
   // One press or three end the chord; two leave it waiting for its next step.
   const closed = withRemoteState(model, remote, { ...state, power: { presses: 0 }, chord: power.presses === 2 ? chord : { active: false } });
   if (power.presses === 2 || room === undefined) return closed;
-  return roomCommand(closed, remote, room, power.presses === 1 ? 'toggle' : 'reset', now);
+  return power.presses === 1 ? setRoomPower(closed, room, toggledPower(closed, room, power.anyOn)) : clearRoom(closed, room);
 }
 
 /** A remote's gesture state; a remote the Model holds none for is idle. */
@@ -109,34 +109,86 @@ function withRemoteState(model: Model, remote: RemoteId, state: RemoteModel): Mo
 }
 
 /**
- * What each command does to its room: the mode press toggles the mode
- * overlay; the power toggle switches the room's power; the reset clears the
- * room's overlays; brighter and dimmer move one step; left and right turn the
- * presets.
+ * The power the toggle switches the room to: the opposite of its saved
+ * power, or, with none saved, of whether anything in it reports on (`anyOn`,
+ * what Home Assistant says its lamps and range-rule switches are, as today).
+ * Not the lighting state: a room switched off at the wall shows its schedule's
+ * light there, but reports off, and the toggle switches it on.
  */
-function roomCommand(model: Model, remote: RemoteId, room: RoomId, command: RemoteCommand, now: Instant): Model {
+function toggledPower(model: Model, room: RoomId, anyOn: boolean): Power {
+  const saved = model.overlays.roomPower[room];
+  if (saved !== undefined) return saved === 'on' ? 'off' : 'on';
+  return anyOn ? 'off' : 'on';
+}
+
+/**
+ * A power press: it forgets the preset dial's position and counts into the
+ * open burst (at most three), or opens one, keeping what the room reports at
+ * this press. The first press of a burst starts the chord; the second keeps it
+ * going only while the chord waits for it.
+ */
+function powerPressed(model: Model, remote: RemoteId, state: RemoteModel, anyOn: boolean, now: Instant): Model {
+  const burst = state.power;
+  const presses = burst.presses === 0 ? 1 : burst.presses === 1 ? 2 : 3;
+  const chord: RemoteModel['chord'] = presses === 1 ? { active: true, progress: 'power', until: after(now, CHORD_WINDOW) }
+    : presses === 2 && state.chord.active && state.chord.progress === 'power'
+      ? { active: true, progress: 'power power', until: after(now, CHORD_WINDOW) }
+      : { active: false };
+  return withRemoteState(model, remote, { chord, power: { presses, until: after(now, POWER_COMBO_WINDOW), anyOn }, presetButton: undefined });
+}
+
+function after(now: Instant, window: Seconds): Instant {
+  return instantOrThrow(now + window);
+}
+
+/**
+ * A preset button: one outside the table only ends a chord; the button the
+ * dial is already at does nothing; any other turns the dial, right for the
+ * next button and left for the one before. A jump further, or the first
+ * button after a power press other than the coolest (right) or the warmest
+ * (left), turns it nowhere and only ends a chord.
+ */
+function presetButtonPressed(model: Model, remote: RemoteId, room: RoomId, state: RemoteModel, button: PresetButton | undefined,
+  now: Instant): Model {
+  if (button === undefined) return chordOrCommand(model, remote, room, state, { kind: 'cancel' }, now);
+  const previous = state.presetButton;
+  if (previous === button) return model;
+  const turned = { ...state, presetButton: button };
+  return chordOrCommand(withRemoteState(model, remote, turned), remote, room, turned, dialTurn(previous, button), now);
+}
+
+/**
+ * A press the chord may be waiting for: the step it expects moves the chord
+ * on (its last step toggles the mode overlay); any other press ends the chord
+ * and is the command it names, the cancel button none.
+ */
+function chordOrCommand(model: Model, remote: RemoteId, room: RoomId, state: RemoteModel,
+  button: Extract<RemoteButton, { kind: 'arrow' | 'cancel' }>, now: Instant): Model {
+  const chord = state.chord;
+  const step = chord.active ? CHORD_STEPS[chord.progress] : undefined;
+  if (step !== undefined && button.kind === 'arrow' && button.direction === step.expects) {
+    if (step.then !== 'complete') {
+      return withRemoteState(model, remote, { ...state, chord: { active: true, progress: step.then, until: after(now, CHORD_WINDOW) } });
+    }
+    return roomCommand(withRemoteState(model, remote, { ...state, chord: { active: false } }), remote, room, 'mode', now);
+  }
+  const ended = chord.active ? withRemoteState(model, remote, { ...state, chord: { active: false } }) : model;
+  return button.kind === 'cancel' ? ended : roomCommand(ended, remote, room, button.direction, now);
+}
+
+/**
+ * What each command but the power toggle does to its room: the mode press
+ * toggles the mode overlay; the reset clears the room's overlays; brighter
+ * and dimmer move one step; left and right turn the presets. The toggle needs
+ * what the room reports, so its callers switch the power themselves.
+ */
+function roomCommand(model: Model, remote: RemoteId, room: RoomId, command: Exclude<RemoteCommand, 'toggle'>, now: Instant): Model {
   switch (command) {
     case 'mode': return setModeOverlay(model, !model.modeOverlay.active, now);
-    case 'toggle': return setRoomPower(model, room, toggledPower(model, room, now));
     case 'reset': return clearRoom(model, room);
     case 'up': case 'down': return stepped(model, remote, room, command, now);
     case 'left': case 'right': return presetTurned(model, remote, room, command, now);
   }
-}
-
-/**
- * The power the toggle switches the room to: the opposite of its saved
- * power, or, with none saved, of whether anything in it is lit: a lamp, or a
- * switch with a range rule. Today that reads what Home Assistant says the
- * lamps show; the lighting state is what they are made to show.
- */
-function toggledPower(model: Model, room: RoomId, now: Instant): Power {
-  const saved = model.overlays.roomPower[room];
-  if (saved !== undefined) return saved === 'on' ? 'off' : 'on';
-  const lighting = lightingState(model, now);
-  const lit = entriesOf(model.config.lamps).some(([lamp, placed]) => placed.room === room && lighting.lamps[lamp]?.power === 'on')
-    || entriesOf(model.switchRanges).some(([plug]) => model.config.switches[plug]?.room === room && lighting.switches[plug] === 'on');
-  return lit ? 'off' : 'on';
 }
 
 /**
@@ -262,60 +314,13 @@ function heldBlockOf(preset: RemotePreset): HeldBlock | undefined {
 }
 
 /**
- * A power press: it forgets the preset dial's position and counts into the
- * open burst (at most three), or opens one. The first press of a burst starts
- * the chord; the second keeps it going only while the chord waits for it.
+ * Where the dial turned, as the arrow it stands for; nowhere is the cancel
+ * button's press. No previous button is "after a power press" (today's cursor
+ * -1). A named difference from today: a cursor saved unreadable (today's
+ * fallback -2, or a fraction) also reads as no button, so it recovers to
+ * "after a power press", where today's `float(-2)` turned nowhere for every
+ * button.
  */
-function powerPressed(model: Model, remote: RemoteId, state: RemoteModel, now: Instant): Model {
-  const burst = state.power;
-  const presses = burst.presses === 0 ? 1 : burst.presses === 1 ? 2 : 3;
-  const chord: RemoteModel['chord'] = presses === 1 ? { active: true, progress: 'power', until: after(now, CHORD_WINDOW) }
-    : presses === 2 && state.chord.active && state.chord.progress === 'power'
-      ? { active: true, progress: 'power power', until: after(now, CHORD_WINDOW) }
-      : { active: false };
-  return withRemoteState(model, remote, { chord, power: { presses, until: after(now, POWER_COMBO_WINDOW) }, presetButton: undefined });
-}
-
-function after(now: Instant, window: Seconds): Instant {
-  return instantOrThrow(now + window);
-}
-
-/**
- * A preset button: one outside the table only ends a chord; the button the
- * dial is already at does nothing; any other turns the dial, right for the
- * next button and left for the one before. A jump further, or the first
- * button after a power press other than the coolest (right) or the warmest
- * (left), turns it nowhere and only ends a chord.
- */
-function presetButtonPressed(model: Model, remote: RemoteId, room: RoomId, state: RemoteModel, button: PresetButton | undefined,
-  now: Instant): Model {
-  if (button === undefined) return chordOrCommand(model, remote, room, state, { kind: 'cancel' }, now);
-  const previous = state.presetButton;
-  if (previous === button) return model;
-  const turned = { ...state, presetButton: button };
-  return chordOrCommand(withRemoteState(model, remote, turned), remote, room, turned, dialTurn(previous, button), now);
-}
-
-/**
- * A press the chord may be waiting for: the step it expects moves the chord
- * on (its last step toggles the mode overlay); any other press ends the chord
- * and is the command it names, the cancel button none.
- */
-function chordOrCommand(model: Model, remote: RemoteId, room: RoomId, state: RemoteModel,
-  button: Extract<RemoteButton, { kind: 'arrow' | 'cancel' }>, now: Instant): Model {
-  const chord = state.chord;
-  const step = chord.active ? CHORD_STEPS[chord.progress] : undefined;
-  if (step !== undefined && button.kind === 'arrow' && button.direction === step.expects) {
-    if (step.then !== 'complete') {
-      return withRemoteState(model, remote, { ...state, chord: { active: true, progress: step.then, until: after(now, CHORD_WINDOW) } });
-    }
-    return roomCommand(withRemoteState(model, remote, { ...state, chord: { active: false } }), remote, room, 'mode', now);
-  }
-  const ended = chord.active ? withRemoteState(model, remote, { ...state, chord: { active: false } }) : model;
-  return button.kind === 'cancel' ? ended : roomCommand(ended, remote, room, button.direction, now);
-}
-
-/** Where the dial turned, as the arrow it stands for; nowhere is the cancel button's press. */
 function dialTurn(previous: PresetButton | undefined, button: PresetButton): Extract<RemoteButton, { kind: 'arrow' | 'cancel' }> {
   const count = PRESET_BUTTONS.length;
   const turn = previous === undefined ? (button === 'coolest' ? 1 : button === 'warmest' ? count - 1 : 0)
@@ -323,10 +328,15 @@ function dialTurn(previous: PresetButton | undefined, button: PresetButton): Ext
   return turn === 1 ? { kind: 'arrow', direction: 'right' } : turn === count - 1 ? { kind: 'arrow', direction: 'left' } : { kind: 'cancel' };
 }
 
-/** A command a remote sends for its room (from its gestures, or another caller). A remote with no room does nothing. */
-export function remotePressed(model: Model, remote: RemoteId, command: RemoteCommand, now: Instant): Model {
+/**
+ * A command a remote sends for its room (from its gestures, or another
+ * caller); `anyOn` is what the room reports at the press. A remote with no
+ * room does nothing.
+ */
+export function remotePressed(model: Model, remote: RemoteId, command: RemoteCommand, anyOn: boolean, now: Instant): Model {
   const room = model.config.remotes[remote]?.room;
-  return room === undefined ? model : roomCommand(model, remote, room, command, now);
+  if (room === undefined) return model;
+  return command === 'toggle' ? setRoomPower(model, room, toggledPower(model, room, anyOn)) : roomCommand(model, remote, room, command, now);
 }
 
 /**

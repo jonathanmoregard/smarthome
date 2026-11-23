@@ -20,8 +20,8 @@ export function update(model: Model, msg: Msg): Model {
     case 'configChanged': return { ...model, config: msg.config };
     case 'overlayRequested': return overlayRequested(model, msg.request, msg.at);
     case 'lampChangedByPerson': return personChanged(model, msg.lamps, msg.rooms, msg.light, msg.at);
-    case 'remotePressed': return remotePressed(model, msg.remote, msg.command, msg.at);
-    case 'remoteButtonPressed': return remoteButtonPressed(model, msg.remote, msg.button, msg.at);
+    case 'remotePressed': return remotePressed(model, msg.remote, msg.command, msg.anyOn, msg.at);
+    case 'remoteButtonPressed': return remoteButtonPressed(model, msg.remote, msg.button, msg.anyOn, msg.at);
     case 'switchButtonPressed': return switchButtonPressed(model, msg.switch, msg.power, msg.at);
     case 'modeToggled': return setModeOverlay(model, msg.on, msg.at);
     case 'rangeSaved': return rangeSaved(model, msg.switch, msg.rule);

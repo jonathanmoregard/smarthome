@@ -62,8 +62,12 @@ export type SwitchProfile = { follows: 'room' | 'own'; power: Power };
 export type RemoteModel = {
   /** The chord that toggles the mode overlay: power, power, left, right, left, right. */
   chord: { active: false } | { active: true; progress: ChordProgress; until: Instant };
-  /** A burst of power presses: one is the power toggle, three the reset, when the burst's window closes. */
-  power: { presses: 0 } | { presses: 1 | 2 | 3; until: Instant };
+  /**
+   * A burst of power presses: one is the power toggle, three the reset, when
+   * the burst's window closes. `anyOn` is what the room reported at the
+   * burst's last press, which the toggle reads when the window closes.
+   */
+  power: { presses: 0 } | { presses: 1 | 2 | 3; until: Instant; anyOn: boolean };
   /** None pressed yet, or since the last power press. */
   presetButton: PresetButton | undefined;
 };
@@ -97,10 +101,16 @@ export type Msg =
    * area, or a group holding every lamp of the room: today's `roomScopes`).
    */
   | { kind: 'lampChangedByPerson'; lamps: readonly LampId[]; rooms: readonly RoomId[]; light: RequestedLight; at: Instant }
-  /** A command a remote's gestures (or another caller) send for its room. */
-  | { kind: 'remotePressed'; remote: RemoteId; command: RemoteCommand; at: Instant }
-  /** A raw button press; `at` starts the chord and power-burst windows. */
-  | { kind: 'remoteButtonPressed'; remote: RemoteId; button: RemoteButton; at: Instant }
+  /**
+   * A command a remote's gestures (or another caller) send for its room.
+   * `anyOn` is whether anything the room's power toggle switches (its lamps,
+   * and its switches with a range rule) reports on at the press: what Home
+   * Assistant says, read by the adapter, which the toggle goes against when the
+   * room has no saved power (today's `targets.some(id => view.get(id) === 'on')`).
+   */
+  | { kind: 'remotePressed'; remote: RemoteId; command: RemoteCommand; anyOn: boolean; at: Instant }
+  /** A raw button press; `at` starts the chord and power-burst windows. `anyOn` as for `remotePressed`. */
+  | { kind: 'remoteButtonPressed'; remote: RemoteId; button: RemoteButton; anyOn: boolean; at: Instant }
   | { kind: 'switchButtonPressed'; switch: SwitchId; power: Power; at: Instant }
   | { kind: 'modeToggled'; on: boolean; at: Instant }
   | { kind: 'rangeSaved'; switch: SwitchId; rule: RangeRule; at: Instant }

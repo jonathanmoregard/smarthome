@@ -99,8 +99,8 @@ function helperValues(model: RemoteModel): Record<RemoteHelper, HelperValue> {
   };
 }
 
-/** A remote's gesture state, read from its room's helpers. */
-export function decodeRemoteModel(source: ConfigSource, room: RoomId): RemoteModel {
+/** A remote's gesture state, read from its room's helpers; an open power burst keeps `anyOn`, what the room reports. */
+export function decodeRemoteModel(source: ConfigSource, room: RoomId, anyOn: boolean): RemoteModel {
   const state = (helper: RemoteHelper) => source.states[remoteHelperEntity(room, helper)];
   const readable = (helper: RemoteHelper) => {
     const text = state(helper)?.state;
@@ -109,7 +109,7 @@ export function decodeRemoteModel(source: ConfigSource, room: RoomId): RemoteMod
   return {
     chord: decodeChord(jinjaInt(readable('chord step'), 0), state('chord timer')?.state === 'active',
       state('chord timer')?.attributes['finishes_at']),
-    power: decodePower(jinjaInt(readable('power count'), 0), readable('power token')),
+    power: decodePower(jinjaInt(readable('power count'), 0), readable('power token'), anyOn),
     presetButton: decodePresetButton(jinjaFloat(readable('preset'), -2)),
   };
 }
@@ -127,14 +127,19 @@ function decodeChord(step: number, running: boolean, finishesAt: unknown): Remot
  * open until 600 ms after its token, read to the microsecond it was written
  * with. A count with no readable token has closed.
  */
-function decodePower(count: number, token: string | undefined): RemoteModel['power'] {
+function decodePower(count: number, token: string | undefined, anyOn: boolean): RemoteModel['power'] {
   if (count <= 0) return { presses: 0 };
   const stamp = token === undefined ? undefined : dateSeconds(token);
   const until = stamp === undefined ? EPOCH : toInstant(stamp + POWER_WINDOW_SECONDS);
-  return { presses: count >= 3 ? 3 : count === 2 ? 2 : 1, until };
+  return { presses: count >= 3 ? 3 : count === 2 ? 2 : 1, until, anyOn };
 }
 
-/** The cursor as a button; any cursor that is not one of the five (`-1` after a power press, `-2` unreadable) is none. */
+/**
+ * The cursor as a button; any cursor that is not one of the five (`-1` after
+ * a power press, `-2` unreadable) is none, which the dial reads as "after a
+ * power press". A named difference: today `-2` turned nowhere for every
+ * button (see `dialTurn` in `src/domain/remote.ts`).
+ */
 function decodePresetButton(cursor: number): PresetButton | undefined {
   return Number.isInteger(cursor) ? PRESET_BUTTONS[cursor] : undefined;
 }
