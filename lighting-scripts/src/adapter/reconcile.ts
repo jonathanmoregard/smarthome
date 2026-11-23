@@ -37,7 +37,7 @@ import { entriesOf } from '../domain/types/ids.ts';
 import type { LightingState } from '../domain/types/lighting-state.ts';
 import type { Colour, LampLight, Power, RGB } from '../domain/types/light.ts';
 import type { Instant, Seconds } from '../domain/types/time.ts';
-import { toInstant, toSeconds } from '../parse/ids.ts';
+import { toInstant, toSeconds } from './codecs/ids.ts';
 
 /**
  * One thing to send: a bulb's light (`stopFirst`: it is leaving the candle,

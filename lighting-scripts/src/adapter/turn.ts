@@ -8,11 +8,12 @@
  * before the next minute's tick, which wakes the loop anyway: a wake hours
  * away would otherwise be a task the harness runs at once.
  */
-import type { JsonObject, JsonValue, ScriptContext, ScriptHandler } from '../runtime/context.ts';
+import type { JsonObject, JsonValue } from './ha-client.ts';
+import type { ScriptContext, ScriptHandler } from '../runtime/context.ts';
 import { perform } from '../runtime/effects.ts';
 import type { Effect } from '../runtime/effects.ts';
-import { toInstant } from '../parse/ids.ts';
-import { timestamp } from '../parse/accessors.ts';
+import { toInstant } from './codecs/ids.ts';
+import { timestamp } from './codecs/accessors.ts';
 import { mqttPublishCall, publishCall, switchCall } from './encode.ts';
 import { haInput } from './inputs.ts';
 import { handleInput } from './loop.ts';

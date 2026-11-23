@@ -7,8 +7,8 @@
  */
 import type { RangeDefaults } from '../../domain/model.ts';
 import type { PercentRange } from '../../domain/types/light.ts';
-import { percentRangeOf } from '../../parse/ids.ts';
-import type { EntityState } from '../../runtime/context.ts';
+import { percentRangeOf } from './ids.ts';
+import type { EntityState } from '../ha-client.ts';
 
 /** The house's range defaults; none unless both ranges read. */
 export function decodeRangeDefaults(states: Readonly<Record<string, EntityState>>): RangeDefaults | undefined {

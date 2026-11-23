@@ -3,9 +3,9 @@ import test from 'node:test';
 import type { EntityState, ServiceCall, Snapshot } from '../../src/runtime/context.ts';
 import { drivenLamps, handedRooms, isPortSwitch, liveScope, newlyHanded, refuseUnknownRooms } from '../../src/runtime/live-rooms.ts';
 import type { Origin } from '../../src/runtime/host.ts';
-import type { LiveRooms } from '../../src/parse/live-rooms.ts';
-import type { JsonObject } from '../../src/runtime/context.ts';
-import { parseLiveRooms, readLiveRoomsFlag } from '../../src/parse/live-rooms.ts';
+import type { LiveRooms } from '../../src/adapter/live-rooms.ts';
+import type { JsonObject } from '../../src/adapter/ha-client.ts';
+import { parseLiveRooms, readLiveRoomsFlag } from '../../src/adapter/live-rooms.ts';
 import { controlTopic } from '../../src/parse/automations.ts';
 
 /**

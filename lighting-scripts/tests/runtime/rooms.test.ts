@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseRooms } from '../../src/parse/rooms.ts';
+import { parseRooms } from '../../src/adapter/codecs/rooms.ts';
 
 const areas = { 'light.lamp': 'studio', remote_device: 'kitchen', 'switch.plug': 'hall' };
 

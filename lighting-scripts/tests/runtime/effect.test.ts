@@ -3,7 +3,7 @@ import test from 'node:test';
 import { bulbAppearance, candle, effectNamed, normal } from '../../src/domain/effect.ts';
 import type { BulbInfo } from '../../src/domain/effect.ts';
 import type { LampLight, OnLight } from '../../src/domain/types/light.ts';
-import { toBulbId, toColourChannel, toKelvin, toLevel, toSeconds } from '../../src/parse/ids.ts';
+import { toBulbId, toColourChannel, toKelvin, toLevel, toSeconds } from '../../src/adapter/codecs/ids.ts';
 
 const stockBulb: BulbInfo = { bulb: toBulbId('bulb-a1'), firmware: 'stock' };
 const candleBulb: BulbInfo = { bulb: toBulbId('bulb-a2'), firmware: 'candle' };

@@ -9,7 +9,7 @@ import type { Colour, SceneLight } from '../../src/domain/types/light.ts';
 import type { Instant } from '../../src/domain/types/time.ts';
 import {
   toBrightness, toColourChannel, toInstant, toKelvin, toMinutes, toProgress, toRoomId, toTimeOfDay, toTimezone,
-} from '../../src/parse/ids.ts';
+} from '../../src/adapter/codecs/ids.ts';
 
 /**
  * The schedule on the new types: where a room is in its blocks, the wake

@@ -1,21 +1,9 @@
-import type { Catalog } from './catalog.ts';
+import type { Catalog } from '../adapter/codecs/catalog.ts';
 import type { Rooms } from '../adapter/codecs/rooms.ts';
 
-/** Explicit, serializable boundary between lighting decisions and HA I/O. */
-export type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject;
-export interface JsonObject { [key: string]: JsonValue }
-export interface EntityState {
-  state: string;
-  attributes: JsonObject;
-  context?: JsonObject;
-  entity_id?: string;
-  last_updated?: string;
-  last_changed?: string;
-}
-export interface ServiceCall {
-  service: string;
-  data: JsonObject;
-  target?: JsonObject;
+import type { EntityState, JsonObject, JsonValue, ServiceCall as HaServiceCall } from '../adapter/ha-client.ts';
+export type { EntityState, JsonObject, JsonValue };
+export interface ServiceCall extends HaServiceCall {
   time?: number;
   guard?: OutputGuard;
 }

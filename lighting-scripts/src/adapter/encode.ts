@@ -24,7 +24,7 @@ import type { BulbAppearance } from '../domain/effect.ts';
 import type { BulbId, Id, SwitchId } from '../domain/types/ids.ts';
 import type { Colour, Level, Power } from '../domain/types/light.ts';
 import type { Seconds } from '../domain/types/time.ts';
-import type { ServiceCall } from '../runtime/context.ts';
+import type { ServiceCall } from './ha-client.ts';
 
 /** A Zigbee2MQTT command topic: a bulb's (`zigbee2mqtt/<bulb>/set`) or a Zigbee group's. */
 export type MqttTopic = Id<'MqttTopic'>;

@@ -5,7 +5,7 @@ import type { Model } from '../../src/domain/model.ts';
 import type { SwitchId } from '../../src/domain/types/ids.ts';
 import type { Power } from '../../src/domain/types/light.ts';
 import type { Instant } from '../../src/domain/types/time.ts';
-import { toBrightness, toInstant, toMinutes, toPercentRange, toRoomId, toSwitchId } from '../../src/parse/ids.ts';
+import { toBrightness, toInstant, toMinutes, toPercentRange, toRoomId, toSwitchId } from '../../src/adapter/codecs/ids.ts';
 import { syntheticHouse } from './fixtures/synthetic-house.ts';
 
 /**

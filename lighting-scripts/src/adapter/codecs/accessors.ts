@@ -2,9 +2,9 @@
  * The lenient and semi-lenient accessors for raw JSON read at the edge. Each
  * takes a `JsonValue` and decides what it means.
  */
-import type { JsonObject, JsonValue } from '../runtime/context.ts';
-import type { HouseView } from '../runtime/effects.ts';
-import { isObject, jinjaList, ParseError, requireArray } from '../runtime/parse.ts';
+import type { JsonObject, JsonValue } from '../ha-client.ts';
+import type { HouseView } from './house.ts';
+import { isObject, jinjaList, ParseError, requireArray } from './parse.ts';
 
 export const list = (value: JsonValue | undefined): JsonValue[] =>
   value === undefined ? [] : requireArray({ value }, 'value', 'schedule list');

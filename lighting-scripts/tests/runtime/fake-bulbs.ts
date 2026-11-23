@@ -17,7 +17,7 @@ import type { BulbId, SwitchId } from '../../src/domain/types/ids.ts';
 import { entriesOf } from '../../src/domain/types/ids.ts';
 import type { Colour, Level, Power } from '../../src/domain/types/light.ts';
 import type { Instant } from '../../src/domain/types/time.ts';
-import { toKelvin, toColourChannel, toLevel } from '../../src/parse/ids.ts';
+import { toKelvin, toColourChannel, toLevel } from '../../src/adapter/codecs/ids.ts';
 
 export type FakeLight = { power: 'off' } | { power: 'on'; level: Level; colour: Colour | undefined; effect: 'none' | 'candle' };
 export type FakeBulb = { reach: 'unreachable' } | { reach: 'reachable'; light: FakeLight };

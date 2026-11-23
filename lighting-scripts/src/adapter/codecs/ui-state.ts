@@ -5,14 +5,14 @@
  * differently.
  */
 import { isDeepStrictEqual } from 'node:util';
-import type { JsonObject, JsonValue } from '../runtime/context.ts';
-import type { HouseView } from '../runtime/effects.ts';
-import { isObject, jinjaOr, jinjaTruthy, object, parseFinite } from '../runtime/parse.ts';
-import { carry, reveal } from '../runtime/verbatim.ts';
-import type { Verbatim } from '../runtime/verbatim.ts';
+import type { JsonObject, JsonValue } from '../ha-client.ts';
+import type { HouseView } from './house.ts';
+import { isObject, jinjaOr, jinjaTruthy, object, parseFinite } from './parse.ts';
+import { carry, reveal } from '../../runtime/verbatim.ts';
+import type { Verbatim } from '../../runtime/verbatim.ts';
 import { jinjaListOf, saved } from './accessors.ts';
 import { percentRangeOf } from './ids.ts';
-import type { PercentRange } from '../domain/types/light.ts';
+import type { PercentRange } from '../../domain/types/light.ts';
 
 /** A display colour as the mirror reads it: an rgb triple and its MQTT text. */
 export interface Rgb { text: string; value: Verbatim }

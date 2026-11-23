@@ -7,11 +7,11 @@
 import type { MqttTopic } from '../../../src/adapter/encode.ts';
 import type { BulbId } from '../../../src/domain/types/ids.ts';
 import { entriesOf } from '../../../src/domain/types/ids.ts';
-import { toMqttTopic } from '../../../src/parse/ids.ts';
-import { parseRooms } from '../../../src/parse/rooms.ts';
-import { parseCatalog } from '../../../src/runtime/catalog.ts';
-import type { EntityState, JsonObject } from '../../../src/runtime/context.ts';
-import type { HouseView } from '../../../src/runtime/effects.ts';
+import { toMqttTopic } from '../../../src/adapter/codecs/ids.ts';
+import { parseRooms } from '../../../src/adapter/codecs/rooms.ts';
+import { parseCatalog } from '../../../src/adapter/codecs/catalog.ts';
+import type { EntityState, JsonObject } from '../../../src/adapter/ha-client.ts';
+import type { HouseView } from '../../../src/adapter/codecs/house.ts';
 import { FakeBulbs } from '../fake-bulbs.ts';
 import { syntheticSource } from './synthetic-house.ts';
 

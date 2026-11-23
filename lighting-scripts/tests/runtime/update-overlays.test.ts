@@ -12,7 +12,7 @@ import type { Instant } from '../../src/domain/types/time.ts';
 import {
   toBrightness, toBulbId, toColourChannel, toDashboardControlId, toInstant, toKelvin, toLampId, toLevel, toPercentRange,
   toBrightnessStep, toRemoteId, toRoomId, toStep, toSwitchId, toTimeOfDay,
-} from '../../src/parse/ids.ts';
+} from '../../src/adapter/codecs/ids.ts';
 import { syntheticHouse } from './fixtures/synthetic-house.ts';
 
 /**

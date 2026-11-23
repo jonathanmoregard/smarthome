@@ -3,7 +3,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { parseCatalog } from '../../src/runtime/catalog.ts';
+import { parseCatalog } from '../../src/adapter/codecs/catalog.ts';
 import { readRuntimeCatalog } from '../../src/main.ts';
 
 /**

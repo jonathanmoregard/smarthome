@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { percentRangeOf, stepBoundsOf, stepOf } from '../../src/parse/ids.ts';
+import { percentRangeOf, stepBoundsOf, stepOf } from '../../src/adapter/codecs/ids.ts';
 
 /**
  * The lenient range readers: a saved value is its range type when it is in

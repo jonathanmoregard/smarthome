@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ParseError } from '../../src/runtime/parse.ts';
-import { toColourChannel, toInstant, toSeconds, toTimeOfDay, toTimezone } from '../../src/parse/ids.ts';
+import { ParseError } from '../../src/adapter/codecs/parse.ts';
+import { toColourChannel, toInstant, toSeconds, toTimeOfDay, toTimezone } from '../../src/adapter/codecs/ids.ts';
 
 test('a colour channel is 0..255 and may be fractional', () => {
   assert.equal(toColourChannel(0), 0);

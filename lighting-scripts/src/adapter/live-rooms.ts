@@ -8,7 +8,7 @@
  * or switch command.
  */
 import type { RoomId } from '../domain/types/ids.ts';
-import { roomOfText } from './rooms.ts';
+import { roomOfText } from './codecs/rooms.ts';
 
 export type LiveRooms = ReadonlySet<RoomId>;
 

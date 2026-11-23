@@ -4,7 +4,7 @@
  */
 import {
   toBulbId, toCatalogEffectName, toLampId, toRemoteId, toRoomId, toSwitchId, toUserId,
-} from '../../../src/parse/ids.ts';
+} from '../../../src/adapter/codecs/ids.ts';
 
 export const id = {
   room: toRoomId,

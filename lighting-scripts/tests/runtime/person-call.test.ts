@@ -5,11 +5,11 @@ import { haInput, messages } from '../../src/adapter/inputs.ts';
 import type { Msg } from '../../src/domain/model.ts';
 import type { Colour } from '../../src/domain/types/light.ts';
 import type { Instant } from '../../src/domain/types/time.ts';
-import { toBrightness, toColourChannel, toInstant, toKelvin, toLampId, toRoomId } from '../../src/parse/ids.ts';
-import { parseCatalog } from '../../src/runtime/catalog.ts';
-import type { EntityState, JsonObject } from '../../src/runtime/context.ts';
-import type { HouseView } from '../../src/runtime/effects.ts';
-import { ParseError } from '../../src/runtime/parse.ts';
+import { toBrightness, toColourChannel, toInstant, toKelvin, toLampId, toRoomId } from '../../src/adapter/codecs/ids.ts';
+import { parseCatalog } from '../../src/adapter/codecs/catalog.ts';
+import type { EntityState, JsonObject } from '../../src/adapter/ha-client.ts';
+import type { HouseView } from '../../src/adapter/codecs/house.ts';
+import { ParseError } from '../../src/adapter/codecs/parse.ts';
 import { CATALOG, houseView, syntheticStates, world, writeBack } from './fixtures/house-view.ts';
 
 /**

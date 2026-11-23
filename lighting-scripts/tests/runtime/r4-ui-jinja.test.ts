@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { JsonValue } from '../../src/runtime/context.ts';
-import { onOffOnly, proxyKelvin, proxyShowsRgb } from '../../src/parse/ui-state.ts';
+import type { JsonValue } from '../../src/adapter/ha-client.ts';
+import { onOffOnly, proxyKelvin, proxyShowsRgb } from '../../src/adapter/codecs/ui-state.ts';
 import { carry } from '../../src/runtime/verbatim.ts';
 import { house } from './house-view.ts';
 

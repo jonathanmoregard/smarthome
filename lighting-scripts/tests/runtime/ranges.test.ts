@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { toBrightness, toKelvin, toLevel, toMinutes, toPercent, toPercentRange, toProgress, toStep } from '../../src/parse/ids.ts';
+import { toBrightness, toKelvin, toLevel, toMinutes, toPercent, toPercentRange, toProgress, toStep } from '../../src/adapter/codecs/ids.ts';
 
 const bad = (build: () => unknown) => assert.throws(build, { name: 'ParseError' });
 

@@ -9,7 +9,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { optionalBoolean, optionalFinite, parseFinite, ParseError, parsePythonNumeric, requireBoolean, requireFinite } from '../../src/runtime/parse.ts';
+import { optionalBoolean, optionalFinite, parseFinite, ParseError, parsePythonNumeric, requireBoolean, requireFinite } from '../../src/adapter/codecs/parse.ts';
 import { blockOption, BLOCKS, DEFAULT_BLOCK } from '../../src/domain/blocks.ts';
 
 test('parseFinite uses Python float grammar, not JavaScript Number', () => {

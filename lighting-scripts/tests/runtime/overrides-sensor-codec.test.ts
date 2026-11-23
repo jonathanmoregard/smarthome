@@ -5,10 +5,10 @@ import { DEFAULT_STEP_RANGE } from '../../src/domain/remote.ts';
 import { remoteSources } from '../../src/adapter/codecs/overlay-key.ts';
 import type { OverridesState } from '../../src/adapter/codecs/overrides-sensor.ts';
 import type { LampOverlay, RemoteAdjustment, RemoteOverlay } from '../../src/domain/overlays.ts';
-import type { JsonObject, JsonValue } from '../../src/runtime/context.ts';
-import { isObject } from '../../src/runtime/parse.ts';
-import { parseCatalog } from '../../src/runtime/catalog.ts';
-import { toBrightness, toDashboardControlId, toInstant, toKelvin, toPercentRange, toStep, toStepCount } from '../../src/parse/ids.ts';
+import type { JsonObject, JsonValue } from '../../src/adapter/ha-client.ts';
+import { isObject } from '../../src/adapter/codecs/parse.ts';
+import { parseCatalog } from '../../src/adapter/codecs/catalog.ts';
+import { toBrightness, toDashboardControlId, toInstant, toKelvin, toPercentRange, toStep, toStepCount } from '../../src/adapter/codecs/ids.ts';
 import { syntheticCatalog, syntheticHouse } from './fixtures/synthetic-house.ts';
 import { id } from './support/ids.ts';
 

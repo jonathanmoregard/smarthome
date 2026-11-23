@@ -3,7 +3,7 @@ import test from 'node:test';
 import { FOLLOWS_ROOM_SWITCH, decodeSwitchProfile, encodeSwitchProfile } from '../../src/adapter/codecs/switch-profiles.ts';
 import type { SwitchProfile } from '../../src/domain/model.ts';
 import { decodeModel } from '../../src/adapter/codecs/model.ts';
-import { toSwitchId } from '../../src/parse/ids.ts';
+import { toSwitchId } from '../../src/adapter/codecs/ids.ts';
 import { syntheticCatalog, syntheticSource } from './fixtures/synthetic-house.ts';
 
 /**

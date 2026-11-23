@@ -16,8 +16,8 @@ import type { ChordProgress, PresetButton, RemoteModel } from '../../domain/mode
 import type { RoomId } from '../../domain/types/ids.ts';
 import { entriesOf } from '../../domain/types/ids.ts';
 import type { Instant } from '../../domain/types/time.ts';
-import { toInstant } from '../../parse/ids.ts';
-import { jinjaFloat, jinjaInt } from '../../runtime/parse.ts';
+import { toInstant } from './ids.ts';
+import { jinjaFloat, jinjaInt } from './parse.ts';
 import type { ConfigSource } from './config.ts';
 import { dateSeconds, nowText } from './time-text.ts';
 

@@ -26,12 +26,12 @@ import type { Colour } from '../../../src/domain/types/light.ts';
 import {
   toBrightness, toBulbId, toColourChannel, toDashboardControlId, toInstant, toKelvin, toLampId, toMinutes, toPercentRange,
   toRemoteId, toRemoteSource, toRoomId, toStep, toStepCount, toSwitchId, toTimeOfDay, toTimezone,
-} from '../../../src/parse/ids.ts';
+} from '../../../src/adapter/codecs/ids.ts';
 import type { ConfigSource } from '../../../src/adapter/codecs/config.ts';
-import { parseCatalog } from '../../../src/runtime/catalog.ts';
-import type { Catalog } from '../../../src/runtime/catalog.ts';
-import type { EntityState, JsonObject } from '../../../src/runtime/context.ts';
-import { parseRooms } from '../../../src/parse/rooms.ts';
+import { parseCatalog } from '../../../src/adapter/codecs/catalog.ts';
+import type { Catalog } from '../../../src/adapter/codecs/catalog.ts';
+import type { EntityState, JsonObject } from '../../../src/adapter/ha-client.ts';
+import { parseRooms } from '../../../src/adapter/codecs/rooms.ts';
 
 /** A fixed moment the house's times count from. */
 const T0 = 1_790_000_000;

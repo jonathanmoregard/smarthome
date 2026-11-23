@@ -1,4 +1,4 @@
-import type { LampId, RoomId } from '../domain/types/ids.ts';
+import type { LampId, RoomId } from '../../domain/types/ids.ts';
 
 export function toRoomId(raw: string): RoomId {
   // Cast: the one place a wire string becomes a RoomId.

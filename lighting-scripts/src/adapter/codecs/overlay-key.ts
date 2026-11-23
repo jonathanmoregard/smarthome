@@ -1,10 +1,11 @@
 import type { Id, RemoteId, RemoteSource } from '../../domain/types/ids.ts';
-import type { Catalog } from '../../runtime/catalog.ts';
-import { ParseError } from '../../runtime/parse.ts';
+import type { Catalog } from './catalog.ts';
+import { toRemoteSource, toSavedOverlayKey } from './ids.ts';
+import { ParseError } from './parse.ts';
 
 /**
  * The key an overlay is saved under in the overlay store, as the overlay it
- * names. Read from the store by `parseOverlayKey` (`src/parse/overlay-key.ts`);
+ * names. Read from the store by {@link parseOverlayKey};
  * turned back into the saved text only by {@link overlayKeyText}, where a key
  * is written or compared with another.
  */
@@ -26,6 +27,31 @@ export type OverlayKey =
   | { kind: 'empty' }
   /** Any other key a saved store holds, kept exactly as saved. */
   | { kind: 'saved'; key: SavedOverlayKey };
+
+/**
+ * Overlay keys as the overlay store saves them, read into what they name.
+ * Lenient, as every read of saved values is: a key of no known shape is kept
+ * as saved (`{ kind: 'saved' }`), never rejected and never dropped, so the
+ * store still round-trips it.
+ */
+export function parseOverlayKey(text: string): OverlayKey {
+  if (text === '') return { kind: 'empty' };
+  if (text === 'mode:sara') return { kind: 'sara mode' };
+  const scope = after(text, 'block:');
+  if (scope !== undefined) return { kind: 'block', scope };
+  const base = after(text, 'channels:native:');
+  if (base !== undefined) return { kind: 'native control', base };
+  const control = after(text, 'channels:ui:');
+  if (control !== undefined) return { kind: 'dashboard control', control };
+  const source = after(text, 'channels:');
+  // Neither constructor below can raise here: every prefix they refuse was read above.
+  if (source !== undefined) return { kind: 'remote input', source: toRemoteSource(source) };
+  return { kind: 'saved', key: toSavedOverlayKey(text) };
+}
+
+function after(text: string, prefix: string): string | undefined {
+  return text.startsWith(prefix) ? text.slice(prefix.length) : undefined;
+}
 
 /**
  * The key's saved text: the exact inverse of `parseOverlayKey`, both ways. A

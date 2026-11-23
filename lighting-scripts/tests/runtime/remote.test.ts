@@ -11,7 +11,7 @@ import type { RemoteCommand } from '../../src/domain/types/remote.ts';
 import type { Instant } from '../../src/domain/types/time.ts';
 import {
   toBrightness, toColourChannel, toDashboardControlId, toInstant, toKelvin, toLampId, toLevel, toRemoteId, toRoomId, toStep,
-} from '../../src/parse/ids.ts';
+} from '../../src/adapter/codecs/ids.ts';
 import { syntheticHouse } from './fixtures/synthetic-house.ts';
 
 /**

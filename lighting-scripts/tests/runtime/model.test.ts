@@ -6,7 +6,7 @@ import type { ControlLight, Model, Msg, OverlayRequest, RemoteModel, RequestedLi
 import type { BrightnessOverlay, ColourOverlay, LampOverlay, ModeOverlay, RemotePreset } from '../../src/domain/overlays.ts';
 import type { LampLight, SceneLight } from '../../src/domain/types/light.ts';
 import { entriesOf } from '../../src/domain/types/ids.ts';
-import { toBrightness, toDashboardControlId, toInstant, toKelvin, toLevel, toPercentRange } from '../../src/parse/ids.ts';
+import { toBrightness, toDashboardControlId, toInstant, toKelvin, toLevel, toPercentRange } from '../../src/adapter/codecs/ids.ts';
 import { syntheticHouse } from './fixtures/synthetic-house.ts';
 
 /**

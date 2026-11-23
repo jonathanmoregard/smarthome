@@ -28,14 +28,14 @@ import type { LampOrRoom } from '../domain/types/lighting-state.ts';
 import type { RemoteCommand } from '../domain/types/remote.ts';
 import type { RoomOrHouse } from '../domain/types/schedule.ts';
 import type { Instant } from '../domain/types/time.ts';
-import { onOffOnly, ownRange, storedRangeBounds } from '../parse/ui-state.ts';
-import type { RangeBound } from '../parse/ui-state.ts';
+import { onOffOnly, ownRange, storedRangeBounds } from './codecs/ui-state.ts';
+import type { RangeBound } from './codecs/ui-state.ts';
 import {
   percentRangeOf, toBrightness, toBrightnessStep, toColourChannel, toDashboardControlId, toKelvin, toLampId, toRemoteId, toRoomId, toSwitchId,
-} from '../parse/ids.ts';
-import type { JsonObject, JsonValue } from '../runtime/context.ts';
-import type { HouseView } from '../runtime/effects.ts';
-import { ParseError, isObject, jinjaString, object, requireBoolean, requireString } from '../runtime/parse.ts';
+} from './codecs/ids.ts';
+import type { JsonObject, JsonValue } from './ha-client.ts';
+import type { HouseView } from './codecs/house.ts';
+import { ParseError, isObject, jinjaString, object, requireBoolean, requireString } from './codecs/parse.ts';
 import { configSource, reportsOn } from './codecs/model.ts';
 import { callColour, callReach } from './native-call.ts';
 import type { Unexplained } from './reconcile.ts';

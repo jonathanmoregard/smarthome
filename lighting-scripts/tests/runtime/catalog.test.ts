@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseCatalog, emptyCatalog } from '../../src/runtime/catalog.ts';
-import type { JsonObject } from '../../src/runtime/context.ts';
+import { parseCatalog, emptyCatalog } from '../../src/adapter/codecs/catalog.ts';
+import type { JsonObject } from '../../src/adapter/ha-client.ts';
 
 /**
  * The runtime catalog is the lighting system's registry document: it maps

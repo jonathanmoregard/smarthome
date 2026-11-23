@@ -21,12 +21,12 @@ import type { Config } from '../domain/config.ts';
 import type { LampId, RoomId } from '../domain/types/ids.ts';
 import { entriesOf } from '../domain/types/ids.ts';
 import type { Colour } from '../domain/types/light.ts';
-import { COLOUR_NAMES } from '../parse/colour-names.ts';
-import { toColourChannel, toKelvin, toLampId, toRoomId } from '../parse/ids.ts';
-import { groupChildren, lampKelvinRange } from '../parse/native-controls.ts';
-import type { JsonObject, JsonValue } from '../runtime/context.ts';
-import type { HouseView } from '../runtime/effects.ts';
-import { ParseError, jinjaString, requireArray, requireNumber, requireString } from '../runtime/parse.ts';
+import { COLOUR_NAMES } from './codecs/colour-names.ts';
+import { toColourChannel, toKelvin, toLampId, toRoomId } from './codecs/ids.ts';
+import { groupChildren, lampKelvinRange } from './codecs/native-controls.ts';
+import type { JsonObject, JsonValue } from './ha-client.ts';
+import type { HouseView } from './codecs/house.ts';
+import { ParseError, jinjaString, requireArray, requireNumber, requireString } from './codecs/parse.ts';
 
 type Rgb = readonly [number, number, number];
 

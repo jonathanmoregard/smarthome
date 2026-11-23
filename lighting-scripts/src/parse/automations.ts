@@ -3,8 +3,8 @@
  * scope reads to tell which room a control's message belongs to.
  */
 import type { JsonValue } from '../runtime/context.ts';
-import { object } from '../runtime/parse.ts';
-import { list } from './accessors.ts';
+import { object } from '../adapter/codecs/parse.ts';
+import { list } from '../adapter/codecs/accessors.ts';
 
 /** A native-control MQTT topic's alias (fourth segment) and attribute (last), when the attribute is one this controls. */
 export function controlTopic(topic: string): { alias: string; attribute: string } | undefined {

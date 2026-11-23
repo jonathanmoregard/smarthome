@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { JsonValue } from '../../src/runtime/context.ts';
+import type { JsonValue } from '../../src/adapter/ha-client.ts';
 import {
   jinjaFloat, jinjaInt, jinjaString, jinjaTruthy, ParseError,
   requireArray, requireNumber, requireObject, requireRange, requireString,
-} from '../../src/runtime/parse.ts';
+} from '../../src/adapter/codecs/parse.ts';
 
 /**
  * Every row below was MEASURED against this repository's own Home Assistant

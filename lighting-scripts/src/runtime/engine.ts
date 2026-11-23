@@ -1,9 +1,9 @@
 import type { EntityState, EventRecord, JsonObject, JsonValue, OutputGuard, ScheduledTask, ScriptContext, ScriptHandlers, ServiceCall,
   Snapshot } from './context.ts';
-import type { Catalog } from './catalog.ts';
+import type { Catalog } from '../adapter/codecs/catalog.ts';
 import type { Rooms } from '../adapter/codecs/rooms.ts';
-import { emptyCatalog, parseCatalog } from './catalog.ts';
-import { parseRooms } from '../parse/rooms.ts';
+import { emptyCatalog, parseCatalog } from '../adapter/codecs/catalog.ts';
+import { parseRooms } from '../adapter/codecs/rooms.ts';
 
 export interface ExecutionRequest { script: string; args: JsonObject; snapshot: Snapshot }
 export interface ExecutionOutcome { result: JsonValue; snapshot: Snapshot; calls: ServiceCall[]; events: EventRecord[] }

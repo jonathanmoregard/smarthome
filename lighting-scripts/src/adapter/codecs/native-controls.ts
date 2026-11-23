@@ -2,8 +2,8 @@
  * Reads a person's native `light.turn_on` needs from Home Assistant's state:
  * a lamp's colour temperature range and a group's or zone's children.
  */
-import type { HouseView } from '../runtime/effects.ts';
-import { jinjaInt } from '../runtime/parse.ts';
+import type { HouseView } from './house.ts';
+import { jinjaInt } from './parse.ts';
 
 /** A lamp's Kelvin range, `| int(6500)` / `| int(2000)` as the captured adapter reads it. */
 export function lampKelvinRange(ctx: HouseView, lamp: string): { max: number; min: number } {

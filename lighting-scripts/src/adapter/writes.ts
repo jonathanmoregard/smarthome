@@ -17,12 +17,11 @@ import { savedLampProfile } from '../domain/profiles.ts';
 import type { RoomId } from '../domain/types/ids.ts';
 import { entriesOf } from '../domain/types/ids.ts';
 import type { Instant } from '../domain/types/time.ts';
-import type { JsonObject } from '../runtime/context.ts';
-import type { HouseView } from '../runtime/effects.ts';
+import type { JsonObject } from './ha-client.ts';
+import type { HouseView } from './codecs/house.ts';
 import { roundEven } from '../domain/blend.ts';
-import { lampReading, proxyKelvin, proxyShowsRgb, uiProfile } from '../parse/ui-state.ts';
-import { payloadNumber } from '../runtime/format.ts';
-import { object } from '../runtime/parse.ts';
+import { lampReading, proxyKelvin, proxyShowsRgb, uiProfile } from './codecs/ui-state.ts';
+import { object } from './codecs/parse.ts';
 import { uiRowsOf } from './inputs.ts';
 import type { StoreSave, UiRow } from './inputs.ts';
 import { decodeLampProfile, encodeLampProfile } from './codecs/lamp-profiles.ts';
@@ -103,12 +102,12 @@ function rowSync(house: HouseView, row: UiRow, proxy: string, force: boolean): D
   const reading = lampReading(house, source);
   if (reading.brightness !== undefined) {
     const level = roundEven(reading.brightness);
-    if (force || house.attr(proxy, 'brightness') !== level) send('brightness', payloadNumber(level));
+    if (force || house.attr(proxy, 'brightness') !== level) send('brightness', `${level}`);
   }
   if (reading.colourTemp && reading.kelvin !== undefined && reading.kelvin > 0) {
     const mired = roundEven(1e6 / reading.kelvin), proxyKelvinShown = proxyKelvin(house, proxy);
     const proxyMired = proxyKelvinShown > 0 ? roundEven(1e6 / proxyKelvinShown) : 0;
-    if (force || house.attr(proxy, 'color_mode') !== 'color_temp' || proxyMired !== mired) send('temperature', payloadNumber(mired));
+    if (force || house.attr(proxy, 'color_mode') !== 'color_temp' || proxyMired !== mired) send('temperature', `${mired}`);
   } else if (reading.rgb !== undefined) {
     if (force || house.attr(proxy, 'color_mode') !== 'rgb' || !proxyShowsRgb(house, proxy, reading.rgb)) send('rgb', reading.rgb.text);
   }

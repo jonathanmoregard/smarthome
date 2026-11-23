@@ -4,7 +4,7 @@ import { FOLLOWS_ROOM, decodeLampProfile, encodeLampProfile } from '../../src/ad
 import type { EffectName } from '../../src/domain/effect.ts';
 import type { LampProfile, LitLight } from '../../src/domain/model.ts';
 import type { Colour } from '../../src/domain/types/light.ts';
-import { toBrightness, toColourChannel, toKelvin } from '../../src/parse/ids.ts';
+import { toBrightness, toColourChannel, toKelvin } from '../../src/adapter/codecs/ids.ts';
 
 /**
  * A lamp's saved profile for a block: the `input_text.ls_lamp_<lamp>_<block>`

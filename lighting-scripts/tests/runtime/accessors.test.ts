@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { list, saved, timestamp } from '../../src/parse/accessors.ts';
+import { list, saved, timestamp } from '../../src/adapter/codecs/accessors.ts';
 import { context } from './gestures-context.ts';
 
 test('schedule list parsing defaults only absence and rejects present non-arrays', () => {

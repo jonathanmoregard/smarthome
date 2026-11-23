@@ -16,9 +16,9 @@ import type { BulbId, SwitchId } from '../domain/types/ids.ts';
 import { entriesOf } from '../domain/types/ids.ts';
 import type { Colour, Level, Power } from '../domain/types/light.ts';
 import type { Instant } from '../domain/types/time.ts';
-import type { EntityState } from '../runtime/context.ts';
-import { parseFinite } from '../runtime/parse.ts';
-import { toInstant, toLevel } from '../parse/ids.ts';
+import type { EntityState } from './ha-client.ts';
+import { parseFinite } from './codecs/parse.ts';
+import { toInstant, toLevel } from './codecs/ids.ts';
 
 export type ObservedLight = { power: 'off' } | { power: 'on'; level: Level; colour: Colour | undefined };
 export type ObservedBulb = { reach: 'unreachable' } | { reach: 'reachable'; light: ObservedLight };

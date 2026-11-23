@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseCatalog } from '../../src/runtime/catalog.ts';
-import type { JsonObject } from '../../src/runtime/context.ts';
+import { parseCatalog } from '../../src/adapter/codecs/catalog.ts';
+import type { JsonObject } from '../../src/adapter/ha-client.ts';
 
 /**
  * Breathe and Colour loop are gone (spec 1.1.1). The lamps run Candle and

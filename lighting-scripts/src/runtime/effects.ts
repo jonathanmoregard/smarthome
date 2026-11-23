@@ -52,11 +52,3 @@ export function run<R>(ctx: ScriptContext, plan: Plan<R>): R {
     perform(ctx, step.value);
   }
 }
-
-/**
- * The read-only house a decision may consult for dynamically keyed reads.
- * Never hand it to a generator: it is live, so a read after a `yield` would
- * look pure and not be. Generators take a snapshot instead.
- */
-export type HouseView = Pick<ScriptContext,
-  'state' | 'rooms' | 'members' | 'labels' | 'devices' | 'entitySources' | 'timezone' | 'now' | 'catalog' | 'get' | 'attr'>;

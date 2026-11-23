@@ -9,8 +9,8 @@
  * `on`, where they changed, over the stored fields, as `ls_store` does.
  */
 import type { SwitchProfile } from '../../domain/model.ts';
-import { haBooleanOr } from '../../runtime/parse.ts';
-import { jinjaTruthy } from '../../runtime/parse.ts';
+import { haBooleanOr } from './parse.ts';
+import { jinjaTruthy } from './parse.ts';
 import { storeOf } from './lamp-profiles.ts';
 import { isDeepStrictEqual } from 'node:util';
 

@@ -4,7 +4,7 @@ import { blend, mixColour } from '../../src/domain/blend.ts';
 import type { EffectName } from '../../src/domain/effect.ts';
 import type { Colour, RGB, SceneLight } from '../../src/domain/types/light.ts';
 import { blendPositionOrThrow } from '../../src/domain/types/range.ts';
-import { toBrightness, toColourChannel, toKelvin, toProgress } from '../../src/parse/ids.ts';
+import { toBrightness, toColourChannel, toKelvin, toProgress } from '../../src/adapter/codecs/ids.ts';
 
 /**
  * The cosy-day blend on the new types: 0 at cosy, 1 at day, beyond both

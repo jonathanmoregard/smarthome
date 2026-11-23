@@ -1,6 +1,6 @@
 import type { ScriptContext, ScriptHandler, ScriptHandlers } from '../../src/runtime/context.ts';
-import { parseRooms } from '../../src/parse/rooms.ts';
-import { emptyCatalog } from '../../src/runtime/catalog.ts';
+import { parseRooms } from '../../src/adapter/codecs/rooms.ts';
+import { emptyCatalog } from '../../src/adapter/codecs/catalog.ts';
 
 function handler(handlers: ScriptHandlers, name: string): ScriptHandler {
   const found = handlers[name.replace(/^script\./, '')];

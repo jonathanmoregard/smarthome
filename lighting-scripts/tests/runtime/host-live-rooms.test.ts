@@ -9,7 +9,7 @@ import { LightingHost } from '../../src/runtime/host.ts';
 import type { OutputScope } from '../../src/runtime/host.ts';
 import { handlers } from '../../src/runtime/registry.ts';
 import { liveScope } from '../../src/runtime/live-rooms.ts';
-import { parseLiveRooms } from '../../src/parse/live-rooms.ts';
+import { parseLiveRooms } from '../../src/adapter/live-rooms.ts';
 import { RoomHandover, ingestChange } from '../../src/main.ts';
 import { forgetAdapterState } from '../../src/adapter/turn.ts';
 

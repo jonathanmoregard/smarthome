@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseOverlayKey } from '../../src/parse/overlay-key.ts';
-import { toRemoteSource } from '../../src/parse/ids.ts';
+import { parseOverlayKey } from '../../src/adapter/codecs/overlay-key.ts';
+import { toRemoteSource } from '../../src/adapter/codecs/ids.ts';
 import { overlayKeyText } from '../../src/adapter/codecs/overlay-key.ts';
 
 /**

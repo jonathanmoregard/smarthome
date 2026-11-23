@@ -7,7 +7,7 @@ import type { Model, Msg } from '../../src/domain/model.ts';
 import { IDLE_REMOTE } from '../../src/domain/remote.ts';
 import { update } from '../../src/domain/update.ts';
 import type { Instant } from '../../src/domain/types/time.ts';
-import { toDashboardControlId, toInstant, toKelvin, toLampId, toLevel, toRemoteId, toRoomId } from '../../src/parse/ids.ts';
+import { toDashboardControlId, toInstant, toKelvin, toLampId, toLevel, toRemoteId, toRoomId } from '../../src/adapter/codecs/ids.ts';
 import { syntheticHouse } from './fixtures/synthetic-house.ts';
 
 /**

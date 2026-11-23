@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { decodeRangeDefaults } from '../../src/adapter/codecs/range-defaults.ts';
-import type { EntityState } from '../../src/runtime/context.ts';
+import type { EntityState } from '../../src/adapter/ha-client.ts';
 
 /**
  * The range defaults codec (Amendment 7.2): the house's bright and cosy

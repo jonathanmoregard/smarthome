@@ -9,12 +9,12 @@ import type { Model, Msg } from '../../src/domain/model.ts';
 import { update } from '../../src/domain/update.ts';
 import type { Instant } from '../../src/domain/types/time.ts';
 import { toBrightness, toBrightnessStep, toDashboardControlId, toInstant, toKelvin, toLampId, toPercentRange, toRemoteId, toRoomId, toSwitchId,
-} from '../../src/parse/ids.ts';
-import type { EntityState, JsonObject } from '../../src/runtime/context.ts';
-import { ParseError } from '../../src/runtime/parse.ts';
-import { parseRooms } from '../../src/parse/rooms.ts';
-import { parseCatalog } from '../../src/runtime/catalog.ts';
-import type { HouseView } from '../../src/runtime/effects.ts';
+} from '../../src/adapter/codecs/ids.ts';
+import type { EntityState, JsonObject } from '../../src/adapter/ha-client.ts';
+import { ParseError } from '../../src/adapter/codecs/parse.ts';
+import { parseRooms } from '../../src/adapter/codecs/rooms.ts';
+import { parseCatalog } from '../../src/adapter/codecs/catalog.ts';
+import type { HouseView } from '../../src/adapter/codecs/house.ts';
 import { CATALOG, houseView, syntheticStates, world, writeBack } from './fixtures/house-view.ts';
 
 /**

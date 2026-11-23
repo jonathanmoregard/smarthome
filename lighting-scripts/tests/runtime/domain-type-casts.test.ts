@@ -7,7 +7,7 @@ import ts from 'typescript';
 
 /**
  * A branded id or a range type is built only by its constructor. In code that
- * means one cast per id brand, inside its constructor in `src/parse/ids.ts`,
+ * means one cast per id brand, inside its constructor in `src/adapter/codecs/ids.ts`,
  * one per range type, inside its `...OrThrow` constructor in
  * `src/domain/types/range.ts`, plus the one in `entriesOf`
  * (`src/domain/types/ids.ts`), which gives a record's keys back their id type. Any other cast to a type declared under
@@ -65,7 +65,7 @@ function badCasts(root: string): string[] {
     while (fn !== undefined && !ts.isFunctionDeclaration(fn)) fn = fn.parent;
     if (fn === undefined || !ts.isFunctionDeclaration(fn) || fn.name === undefined) return false;
     const file = name(fn.getSourceFile().fileName), fnName = fn.name.text;
-    return file === 'src/parse/ids.ts' && /^to[A-Z]/.test(fnName)
+    return file === 'src/adapter/codecs/ids.ts' && /^to[A-Z]/.test(fnName)
       || file === 'src/domain/types/range.ts' && /OrThrow$/.test(fnName)
       || file === 'src/domain/types/ids.ts' && fnName === 'entriesOf';
   };
@@ -111,10 +111,10 @@ test('the cast check reports a forged cast and an allowed cast with no reason, a
   // comment excuse it, accepts an unexplained cast in a constructor, or counts
   // `as const` and casts to types outside src/domain/types.
   assert.deepEqual(badCasts(FIXTURE), [
+    'src/adapter/codecs/alias.ts:7 outside the constructors and entriesOf',
+    'src/adapter/codecs/ids.ts:10 no reason',
     'src/domain/lamp.ts:9 outside the constructors and entriesOf',
     'src/domain/types/range.ts:10 outside the constructors and entriesOf',
     'src/domain/types/range.ts:5 no reason',
-    'src/parse/alias.ts:7 outside the constructors and entriesOf',
-    'src/parse/ids.ts:10 no reason',
   ]);
 });

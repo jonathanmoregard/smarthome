@@ -8,8 +8,8 @@ import type { Send } from '../../src/adapter/reconcile.ts';
 import type { BulbAppearance } from '../../src/domain/effect.ts';
 import type { BulbId } from '../../src/domain/types/ids.ts';
 import type { Colour } from '../../src/domain/types/light.ts';
-import { parseCatalog } from '../../src/runtime/catalog.ts';
-import { toBulbId, toColourChannel, toKelvin, toLevel, toMqttTopic, toSeconds, toSwitchId } from '../../src/parse/ids.ts';
+import { parseCatalog } from '../../src/adapter/codecs/catalog.ts';
+import { toBulbId, toColourChannel, toKelvin, toLevel, toMqttTopic, toSeconds, toSwitchId } from '../../src/adapter/codecs/ids.ts';
 
 /** A send as Zigbee2MQTT publishes: what each payload carries, and in which order they go. */
 

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { uiSyncWrites } from '../../src/adapter/writes.ts';
-import { parseCatalog } from '../../src/runtime/catalog.ts';
-import type { EntityState, JsonObject } from '../../src/runtime/context.ts';
-import type { HouseView } from '../../src/runtime/effects.ts';
+import { parseCatalog } from '../../src/adapter/codecs/catalog.ts';
+import type { EntityState, JsonObject } from '../../src/adapter/ha-client.ts';
+import type { HouseView } from '../../src/adapter/codecs/house.ts';
 import { CATALOG, houseView, syntheticStates } from './fixtures/house-view.ts';
 
 /**

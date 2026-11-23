@@ -1,7 +1,7 @@
-import type { EntityState, JsonObject, JsonValue } from '../../src/runtime/context.ts';
-import type { HouseView } from '../../src/runtime/effects.ts';
-import { parseCatalog } from '../../src/runtime/catalog.ts';
-import { parseRooms } from '../../src/parse/rooms.ts';
+import type { EntityState, JsonObject, JsonValue } from '../../src/adapter/ha-client.ts';
+import type { HouseView } from '../../src/adapter/codecs/house.ts';
+import { parseCatalog } from '../../src/adapter/codecs/catalog.ts';
+import { parseRooms } from '../../src/adapter/codecs/rooms.ts';
 
 /**
  * A read-only house for pure decisions: entity states plus the topology a

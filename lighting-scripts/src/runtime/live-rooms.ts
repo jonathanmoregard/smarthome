@@ -13,13 +13,13 @@
  */
 import type { JsonObject, JsonValue, ServiceCall, Snapshot } from './context.ts';
 import type { Origin, OutputScope } from './host.ts';
-import type { Catalog } from './catalog.ts';
+import type { Catalog } from '../adapter/codecs/catalog.ts';
 import type { RoomId } from '../domain/types/ids.ts';
 import type { Rooms } from '../adapter/codecs/rooms.ts';
-import type { LiveRooms } from '../parse/live-rooms.ts';
-import { emptyCatalog, parseCatalog } from './catalog.ts';
-import { parseRooms } from '../parse/rooms.ts';
-import { toBulbId } from '../parse/ids.ts';
+import type { LiveRooms } from '../adapter/live-rooms.ts';
+import { emptyCatalog, parseCatalog } from '../adapter/codecs/catalog.ts';
+import { parseRooms } from '../adapter/codecs/rooms.ts';
+import { toBulbId } from '../adapter/codecs/ids.ts';
 import { controlTopic, nativeSourceFor } from '../parse/automations.ts';
 
 /** The render bookkeeping the old scripts keep in the same sensor. */

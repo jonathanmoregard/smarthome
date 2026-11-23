@@ -4,9 +4,9 @@ import { decodeRemoteModel, remoteHelperEntity, remoteHelperWrites } from '../..
 import { IDLE_REMOTE } from '../../src/domain/remote.ts';
 import type { ConfigSource } from '../../src/adapter/codecs/config.ts';
 import type { RemoteModel } from '../../src/domain/model.ts';
-import type { EntityState, JsonObject } from '../../src/runtime/context.ts';
-import { toInstant } from '../../src/parse/ids.ts';
-import { parseRooms } from '../../src/parse/rooms.ts';
+import type { EntityState, JsonObject } from '../../src/adapter/ha-client.ts';
+import { toInstant } from '../../src/adapter/codecs/ids.ts';
+import { parseRooms } from '../../src/adapter/codecs/rooms.ts';
 import { id } from './support/ids.ts';
 
 /**

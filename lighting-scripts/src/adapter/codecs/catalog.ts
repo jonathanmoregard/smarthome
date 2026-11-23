@@ -40,9 +40,9 @@
  * and failing on the file beats publishing to the topic `7`.
  */
 import { ParseError, describe, requireArray, requireBoolean, requireObject, requireString } from './parse.ts';
-import type { JsonObject, JsonValue, ScriptContext } from './context.ts';
-import type { BulbId, Id, LampId, RemoteId, RemoteSource } from '../domain/types/ids.ts';
-import { toBulbId, toLampId, toRemoteId, toRemoteSource } from '../parse/ids.ts';
+import type { JsonObject, JsonValue } from '../ha-client.ts';
+import type { BulbId, Id, LampId, RemoteId, RemoteSource } from '../../domain/types/ids.ts';
+import { toBulbId, toLampId, toRemoteId, toRemoteSource } from './ids.ts';
 
 /**
  * The channels an effect drives.
@@ -179,26 +179,6 @@ export function emptyCatalog(): Catalog {
     processors: {}, remotes: {}, ui_choices: undefined,
     multicast: [], ui_rows: undefined, ui_discovery: undefined,
   };
-}
-
-/**
- * The registry, for a script that the captured original had call
- * `script.effects_catalog` first.
- *
- * The call is kept and its result discarded, which looks redundant and is not:
- * the parity harness compares the sequence of script calls each run makes
- * (`adapters.py` extends `script_runs` from the backend's `scriptRuns`), so
- * dropping the call would diverge from the reference even though no value
- * changes. What the call used to provide -- a raw document to traverse -- now
- * comes from the parsed view instead.
- *
- * Sites that pass the document *onward* as JSON (into scheduled task arguments
- * or another script's arguments, both of which are persisted and compared) use
- * {@link ScriptContext.rawCatalog} and keep the raw bytes.
- */
-export function catalogOf(ctx: ScriptContext): Catalog {
-  ctx.run('effects_catalog');
-  return ctx.catalog;
 }
 
 /**

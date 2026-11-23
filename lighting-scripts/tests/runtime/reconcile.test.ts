@@ -17,7 +17,7 @@ import type { Colour, LampLight, OnLight } from '../../src/domain/types/light.ts
 import type { Instant } from '../../src/domain/types/time.ts';
 import {
   toBulbId, toColourChannel, toInstant, toKelvin, toLampId, toLevel, toMqttTopic, toSeconds, toSwitchId,
-} from '../../src/parse/ids.ts';
+} from '../../src/adapter/codecs/ids.ts';
 import { FakeBulbs, lit } from './fake-bulbs.ts';
 import { syntheticHouse } from './fixtures/synthetic-house.ts';
 

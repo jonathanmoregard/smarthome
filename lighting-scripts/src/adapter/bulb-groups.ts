@@ -11,9 +11,9 @@
  */
 import type { BulbPayload, MqttTopic, Publish } from './encode.ts';
 import type { BulbId } from '../domain/types/ids.ts';
-import type { Catalog } from '../runtime/catalog.ts';
-import type { JsonObject, JsonValue } from '../runtime/context.ts';
-import { toBulbId, toMqttTopic } from '../parse/ids.ts';
+import type { Catalog } from './codecs/catalog.ts';
+import type { JsonObject, JsonValue } from './ha-client.ts';
+import { toBulbId, toMqttTopic } from './codecs/ids.ts';
 
 export type BulbGroup = { readonly topic: MqttTopic; readonly members: readonly BulbId[] };
 /** A verified group on a `/set` topic with two or more members, none twice; anything else is none. */

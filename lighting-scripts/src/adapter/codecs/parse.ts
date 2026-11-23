@@ -15,7 +15,7 @@
  * coerce therefore produces results the oracle would never produce. Parse at
  * the boundary with these functions instead of asserting a type.
  */
-import type { JsonObject, JsonValue, ScriptContext, ScriptHandler } from './context.ts';
+import type { JsonObject, JsonValue } from '../ha-client.ts';
 
 /** Raised where Jinja would raise `UndefinedError` or `TypeError` rather than coerce. */
 export class ParseError extends Error {
@@ -295,39 +295,6 @@ export function requireNumber(container: JsonObject, key: string, context = 'val
     throw new ParseError(`${context}.${key} must be a finite number, got ${describe(value)}`);
   }
   return value;
-}
-
-/**
- * Register a script handler that receives already-parsed arguments.
- *
- * Handlers are reached from Home Assistant, from the parity bridge and from
- * other scripts, so their arguments are untrusted. Declaring them as
- * `JsonObject` pushes the same coercion into every use site — the reason
- * `transport.ts` carries 61 coercion calls across 178 lines. Parse once here
- * and the body works with a real type:
- *
- * ```ts
- * effects_scale: withParsedArgs({
- *   // One `parse` per script, naming the filter the captured source applies.
- *   parse: args => ({
- *     day: anchor(args.day),                                  // read raw -> must be well formed
- *     position: requireNumber(args, 'position', 'effects_scale'),
- *     retries: jinjaInt(args.retries, 3),                      // source has `| int(3)`
- *   }),
- *   run: (ctx, a) => scaleValue(a.day, a.cosy, a.position),
- * }),
- * ```
- *
- * Choose the primitive from the captured template, not from taste: a field the
- * source reads raw must use `require*` (the oracle raises), and a field the
- * source filters must use the matching `jinja*` coercion (the fallback is
- * observable behaviour and tightening it is a divergence).
- */
-export function withParsedArgs<A>(handler: {
-  parse: (args: JsonObject) => A;
-  run: (context: ScriptContext, args: A) => JsonValue;
-}): ScriptHandler {
-  return (context, args) => handler.run(context, handler.parse(args));
 }
 
 /**

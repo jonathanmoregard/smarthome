@@ -8,12 +8,12 @@ import {
   DEFAULT_FADE, DEFAULT_OVERLAY_AGE, DEFAULT_WAKE_FADE, blockLightSaved, bulbTopics, decodeConfig,
 } from '../../src/adapter/codecs/config.ts';
 import type { ConfigSource } from '../../src/adapter/codecs/config.ts';
-import { parseCatalog } from '../../src/runtime/catalog.ts';
-import type { JsonObject } from '../../src/runtime/context.ts';
-import type { EntityState } from '../../src/runtime/context.ts';
-import { ParseError } from '../../src/runtime/parse.ts';
-import { toBrightness, toBulbId, toInstant, toKelvin, toLampId, toMinutes, toRemoteId, toRoomId, toSwitchId, toTimeOfDay } from '../../src/parse/ids.ts';
-import { parseRooms } from '../../src/parse/rooms.ts';
+import { parseCatalog } from '../../src/adapter/codecs/catalog.ts';
+import type { JsonObject } from '../../src/adapter/ha-client.ts';
+import type { EntityState } from '../../src/adapter/ha-client.ts';
+import { ParseError } from '../../src/adapter/codecs/parse.ts';
+import { toBrightness, toBulbId, toInstant, toKelvin, toLampId, toMinutes, toRemoteId, toRoomId, toSwitchId, toTimeOfDay } from '../../src/adapter/codecs/ids.ts';
+import { parseRooms } from '../../src/adapter/codecs/rooms.ts';
 
 /**
  * The config codec reads the helpers the dashboard edits and the registry's

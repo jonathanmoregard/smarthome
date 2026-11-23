@@ -37,10 +37,10 @@ import type { Instant } from '../../domain/types/time.ts';
 import {
   percentRangeOf, stepBoundsOf, toBrightness, toColourChannel, toDashboardControlId, toInstant, toKelvin, toLampId, toPercentRange, toRoomId,
   toStep, toStepCount, toSwitchId,
-} from '../../parse/ids.ts';
-import { parseOverlayKey } from '../../parse/overlay-key.ts';
-import type { JsonObject, JsonValue } from '../../runtime/context.ts';
-import { isObject, jinjaTruthy } from '../../runtime/parse.ts';
+} from './ids.ts';
+import { parseOverlayKey } from './overlay-key.ts';
+import type { JsonObject, JsonValue } from '../ha-client.ts';
+import { isObject, jinjaTruthy } from './parse.ts';
 import { dateSeconds } from './time-text.ts';
 
 /** What the overrides sensor holds of the Model. */
