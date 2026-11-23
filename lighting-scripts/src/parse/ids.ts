@@ -8,8 +8,8 @@
  * parse step already checked about the string still holds, and nothing is
  * added. Whether an id names something the registry knows is a later, named unit.
  */
-import type { BulbId, DashboardControlId, LampId, PowerTarget, RemoteId, RemoteSource, RoomId, SavedOverlayKey, SwitchId, UserId }
-  from '../domain/types/ids.ts';
+import type { BulbId, DashboardControlId, LampId, RemoteId, RemoteSource, RoomId, SwitchId, UserId } from '../domain/types/ids.ts';
+import type { SavedOverlayKey } from '../adapter/codecs/overlay-key.ts';
 import type { CatalogEffectName } from '../runtime/catalog.ts';
 import type { MqttTopic } from '../adapter/encode.ts';
 import type { Brightness, ColourChannel, Kelvin, Level, Percent, PercentRange } from '../domain/types/light.ts';

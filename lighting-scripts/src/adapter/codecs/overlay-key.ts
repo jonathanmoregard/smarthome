@@ -1,4 +1,4 @@
-import type { RemoteId, RemoteSource, SavedOverlayKey } from '../../domain/types/ids.ts';
+import type { Id, RemoteId, RemoteSource } from '../../domain/types/ids.ts';
 import type { Catalog } from '../../runtime/catalog.ts';
 import { ParseError } from '../../runtime/parse.ts';
 
@@ -44,6 +44,13 @@ export function overlayKeyText(key: OverlayKey): string {
     case 'saved': return key.key;
   }
 }
+
+/**
+ * A saved overlay key of no known shape, kept as saved. Never text a known
+ * shape claims (empty, `mode:sara`, `block:...`, `channels:...`), so it reads
+ * back as itself; its constructor (`toSavedOverlayKey`) checks that.
+ */
+export type SavedOverlayKey = Id<'SavedOverlayKey'>;
 
 /**
  * The catalog's remotes by the source each one's overlay is saved under
