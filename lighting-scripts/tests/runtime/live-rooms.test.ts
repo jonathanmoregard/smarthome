@@ -15,6 +15,7 @@ import type { BulbId } from '../../src/domain/types/ids.ts';
 import type { FakeBulbs } from './fake-bulbs.ts';
 import { houseView, syntheticStates, world, writeBack } from './fixtures/house-view.ts';
 import { bridged } from './support/inputs.ts';
+import { id } from './support/ids.ts';
 
 /**
  * The rooms the live port drives (spec 5.4, plan M6 Task 1). A room is the port's when it is on the port's
@@ -274,4 +275,20 @@ for (const [row, what] of [[5, 'the record of what every lamp was sent'], [6, 't
 
 test("carried 9: a room cache's gradients are never written by the port", () => {
   assert.equal(touches(portWrites().outputs, CACHE_A), false);
+});
+
+test("a dropped input's turn still leaves a switch of a room that is not live to the old scripts", () => {
+  // Break: the turn's own messages (a plug's own button) are filtered only when the input reads, so an unreadable
+  // input lets the port take room-a's plug press as an override of its own.
+  const plug = id.switch('switch.plug_a');
+  const run = (input: HaInput) => {
+    const shared = new Shared(sharedStates({ [roomA]: 'on', [roomB]: 'on' }), listed(roomB));
+    shared.turn('12:00:00', { kind: 'started' });
+    shared.states['switch.plug_a'] = { state: 'on', attributes: {}, last_changed: '2026-09-21T12:00:30+00:00' };
+    return shared.turn('12:01:00', input);
+  };
+  const dropped = run(bridged('ls_commit', { data: { op: 'no such operation' } }));
+  assert.match(dropped.dropped ?? '', /no such operation/);
+  assert.equal(dropped.state.model.overlays.switches[plug], undefined);
+  assert.equal(run({ kind: 'wake' }).state.model.overlays.switches[plug], undefined);
 });

@@ -149,15 +149,16 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
   const clocked = update(before, { kind: 'clock', now });
   // What changed since the last turn that no send of ours explains: a plug's own button is pressed first, then the input.
   const changed = state === undefined ? [] : unexplained(state.observed, decodeObserved(house.state, clocked.config), state.beliefs);
-  let own: Msg[] = unexplainedMessages(changed, now), dropped: string | undefined, saved: StoreSave | undefined;
+  let inputMessages: Msg[] = [], dropped: string | undefined, saved: StoreSave | undefined;
   try {
-    own = [...own, ...messages(input, clocked, now, house), ...rangeDefaultsMessages(input, house, now)]
-      .filter(msg => ownsMessage(share, msg, clocked.config));
+    inputMessages = [...messages(input, clocked, now, house), ...rangeDefaultsMessages(input, house, now)];
     saved = storeSaveIn(input, house, clocked);
   } catch (error) {
     if (!(error instanceof ParseError)) throw error;
     dropped = `${input.kind}: ${error.message}`;
   }
+  // The turn's messages are the share's, the input's and the presses alike, whether the input read or was dropped.
+  const own = [...unexplainedMessages(changed, now), ...inputMessages].filter(msg => ownsMessage(share, msg, clocked.config));
   // A block light's save is written as it is, and goes through `update` as the config the helpers will hold once it
   // lands, so the lamps move in this turn and not on the echo.
   const light = saved?.target.kind === 'block light' && drives(share, saved.target.scope === 'house' ? undefined : saved.target.scope)
