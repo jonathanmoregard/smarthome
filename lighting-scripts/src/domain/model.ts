@@ -30,11 +30,28 @@ export type RangeRule = { kind: 'bright' } | { kind: 'cosy' } | { kind: 'custom'
 
 export type RangeDefaults = Record<'bright' | 'cosy', PercentRange>;
 
-/** A lamp's saved light for a block: the room's, or its own (whose effect its light names). */
-export type LampProfile = { follows: 'room' } | { follows: 'own'; light: SceneLight };
+/**
+ * A lamp's saved light for a block: whether it shows its room's light or its
+ * own, and the own light it keeps either way (today's store keeps every field
+ * under `own: false`, so owning the light again takes back what was saved).
+ */
+export type LampProfile = { follows: 'room' | 'own'; own: OwnLight };
 
-/** A plug's saved on/off for a block: its room's block setting, or its own power (on/off only, never a light). */
-export type SwitchProfile = { follows: 'room' } | { follows: 'own'; power: Power };
+/**
+ * A profile's own light: lit, or off remembering the lit light a switch-on
+ * takes back (today's store keeps `b`, the colour and the effect under `on:
+ * false`). Off shows no level or colour; the remembered light is not shown.
+ */
+export type OwnLight = { power: 'on'; light: LitLight } | { power: 'off'; remembered: LitLight };
+
+export type LitLight = Extract<SceneLight, { power: 'on' }>;
+
+/**
+ * A plug's saved on/off for a block: whether it follows its room's block
+ * setting or its own power (on/off only, never a light), which it keeps
+ * while it follows its room, as the store keeps `on`.
+ */
+export type SwitchProfile = { follows: 'room' | 'own'; power: Power };
 
 /**
  * A remote's gesture state, which `update` owns (the gesture reducer moves

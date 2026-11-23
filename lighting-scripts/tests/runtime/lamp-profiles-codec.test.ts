@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { FOLLOWS_ROOM, decodeLampProfile, encodeLampProfile } from '../../src/adapter/codecs/lamp-profiles.ts';
 import type { EffectName } from '../../src/domain/effect.ts';
-import type { LampProfile } from '../../src/domain/model.ts';
+import type { LampProfile, LitLight } from '../../src/domain/model.ts';
 import type { Colour } from '../../src/domain/types/light.ts';
 import { toBrightness, toColourChannel, toKelvin } from '../../src/parse/ids.ts';
 
@@ -14,8 +14,11 @@ import { toBrightness, toColourChannel, toKelvin } from '../../src/parse/ids.ts'
  * unless the store says otherwise.
  */
 const text = (fields: Record<string, unknown>) => JSON.stringify(fields);
+const light = (brightness: number, colour: Colour | undefined, effect: EffectName = 'Normal'): LitLight =>
+  ({ power: 'on', brightness: toBrightness(brightness), colour, effect });
 const lit = (brightness: number, colour: Colour | undefined, effect: EffectName = 'Normal'): LampProfile =>
-  ({ follows: 'own', light: { power: 'on', brightness: toBrightness(brightness), colour, effect } });
+  ({ follows: 'own', own: { power: 'on', light: light(brightness, colour, effect) } });
+const kelvin = (value: number): Colour => ({ kind: 'kelvin', kelvin: toKelvin(value) });
 
 test('a profile store that is not JSON or not a mapping follows the room', () => {
   // Break: a garbage store raises, or is read as the lamp's own light.
@@ -25,15 +28,18 @@ test('a profile store that is not JSON or not a mapping follows the room', () =>
   }
 });
 
-test('a profile that does not own its light follows the room, by Jinja truthiness', () => {
-  for (const own of [false, 0, '', [], {}, null]) assert.deepEqual(decodeLampProfile(text({ own, b: 90 })), FOLLOWS_ROOM, JSON.stringify(own));
-  assert.deepEqual(decodeLampProfile(text({ b: 90 })), FOLLOWS_ROOM);
+test('a profile that does not own its light follows the room, by Jinja truthiness, and keeps the light it saved', () => {
+  // Review item 1. Break: a profile that follows its room forgets its own light, so owning it again resets it.
+  const kept: LampProfile = { follows: 'room', own: { power: 'on', light: light(90, kelvin(3000)) } };
+  for (const own of [false, 0, '', [], {}, null]) assert.deepEqual(decodeLampProfile(text({ own, b: 90, m: 'ct', k: 3000 })), kept, JSON.stringify(own));
+  assert.deepEqual(decodeLampProfile(text({ b: 90, m: 'ct', k: 3000 })), kept);
   assert.equal(decodeLampProfile(text({ own: 'yes', b: 90 })).follows, 'own');
 });
 
-test('an off profile has no brightness and no colour', () => {
-  // Review Focus 2. Break: an off profile keeps its saved level or colour.
-  assert.deepEqual(decodeLampProfile(text({ own: true, on: false, b: 100, m: 'ct', k: 3000, effect: 'Candle' })), { follows: 'own', light: { power: 'off' } });
+test('an off profile shows no brightness and no colour, and remembers the lit light it saved', () => {
+  // Review Focus 2 and item 1. Break: an off profile shows its saved level or colour, or forgets them.
+  assert.deepEqual(decodeLampProfile(text({ own: true, on: false, b: 100, m: 'ct', k: 3000, effect: 'Candle' })),
+    { follows: 'own', own: { power: 'off', remembered: light(100, kelvin(3000), 'Candle') } });
 });
 
 test('a lit profile with no colour has none', () => {
@@ -45,7 +51,7 @@ test('a saved Breathe is Normal', () => {
   // Review Focus 1. Break: a removed effect is kept, or read as the candle.
   for (const effect of ['Breathe', 'Colour loop', 'Normal light', 7]) {
     const profile = decodeLampProfile(text({ own: true, b: 120, effect }));
-    assert.equal(profile.follows === 'own' && profile.light.power === 'on' ? profile.light.effect : 'none', 'Normal', JSON.stringify(effect));
+    assert.equal(profile.own.power === 'on' ? profile.own.light.effect : 'none', 'Normal', JSON.stringify(effect));
   }
   assert.deepEqual(decodeLampProfile(text({ own: true, b: 80, effect: 'Candle' })), lit(80, undefined, 'Candle'));
 });
@@ -81,8 +87,18 @@ test('a changed profile writes only the fields it changed, as ls_store does', ()
     { on: true, own: true, b: 120, m: 'ct', k: 2700, effect: 'Candle', effect_channels: ['brightness', 'color'], note: 'kept' });
   assert.deepEqual(JSON.parse(encodeLampProfile(lit(60, { kind: 'kelvin', kelvin: toKelvin(2700) }), found)),
     { on: true, own: true, b: 60, m: 'ct', k: 2700, effect: 'Normal light', effect_channels: [], note: 'kept' });
-  assert.deepEqual(JSON.parse(encodeLampProfile(FOLLOWS_ROOM, found)),
+  assert.deepEqual(JSON.parse(encodeLampProfile({ ...decodeLampProfile(found), follows: 'room' }, found)),
     { on: true, own: false, b: 120, m: 'ct', k: 2700, effect: 'Normal light', effect_channels: [], note: 'kept' });
+});
+
+test('a profile that follows its room or is off writes its own light under it, as ls_store keeps it', () => {
+  // Review item 1. Break: following the room or switching off clears or rewrites the saved light.
+  const found = text({ on: false, own: false, b: 120, m: 'ct', k: 2700, effect: 'Candle', effect_channels: ['brightness', 'color'] });
+  const owned: LampProfile = { follows: 'own', own: { power: 'off', remembered: light(120, kelvin(2700), 'Candle') } };
+  assert.deepEqual(JSON.parse(encodeLampProfile(owned, found)),
+    { on: false, own: true, b: 120, m: 'ct', k: 2700, effect: 'Candle', effect_channels: ['brightness', 'color'] });
+  assert.deepEqual(JSON.parse(encodeLampProfile({ follows: 'room', own: { power: 'off', remembered: light(60, kelvin(2700), 'Candle') } }, found)),
+    { on: false, own: false, b: 60, m: 'ct', k: 2700, effect: 'Candle', effect_channels: ['brightness', 'color'] });
 });
 
 test('a profile written over an empty store decodes back to itself', () => {
@@ -91,7 +107,9 @@ test('a profile written over an empty store decodes back to itself', () => {
     lit(100, undefined, 'Candle'),
     lit(200, { kind: 'kelvin', kelvin: toKelvin(3000) }),
     lit(200, { kind: 'rgb', rgb: { red: toColourChannel(255), green: toColourChannel(0), blue: toColourChannel(0) } }),
-    { follows: 'own', light: { power: 'off' } },
+    { follows: 'own', own: { power: 'off', remembered: light(255, undefined) } },
+    { follows: 'own', own: { power: 'off', remembered: light(80, kelvin(3000), 'Candle') } },
+    { follows: 'room', own: { power: 'on', light: light(200, kelvin(3000)) } },
   ];
   for (const profile of profiles) assert.deepEqual(decodeLampProfile(encodeLampProfile(profile, '')), profile, JSON.stringify(profile));
 });

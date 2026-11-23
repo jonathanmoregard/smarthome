@@ -3,11 +3,11 @@ import test from 'node:test';
 import { blend } from '../../src/domain/blend.ts';
 import { bulbAppearance, candle, normal } from '../../src/domain/effect.ts';
 import { lightingState, MODE_COLOUR, nextChange, overlaysOn } from '../../src/domain/lighting-state.ts';
-import type { Model } from '../../src/domain/model.ts';
+import type { LitLight, Model } from '../../src/domain/model.ts';
 import type { LampOverlay, RemoteAdjustment, RemoteOverlay } from '../../src/domain/overlays.ts';
 import { sceneBetween } from '../../src/domain/schedule.ts';
 import type { LampId } from '../../src/domain/types/ids.ts';
-import type { Colour, LampLight, OnLight, SceneLight } from '../../src/domain/types/light.ts';
+import type { Colour, LampLight, OnLight } from '../../src/domain/types/light.ts';
 import { blendPositionOrThrow } from '../../src/domain/types/range.ts';
 import type { Instant } from '../../src/domain/types/time.ts';
 import {
@@ -35,7 +35,7 @@ const at = (time: string, day = 21): Instant => toInstant(Date.parse(`2026-09-${
 const kelvin = (value: number): Colour => ({ kind: 'kelvin', kelvin: toKelvin(value) });
 const rgb = (red: number, green: number, blue: number): Colour =>
   ({ kind: 'rgb', rgb: { red: toColourChannel(red), green: toColourChannel(green), blue: toColourChannel(blue) } });
-const lit = (brightness: number, colour: Colour | undefined, effect: 'Candle' | 'Normal' = 'Normal'): SceneLight =>
+const lit = (brightness: number, colour: Colour | undefined, effect: 'Candle' | 'Normal' = 'Normal'): LitLight =>
   ({ power: 'on', brightness: toBrightness(brightness), colour, effect });
 
 const MANUAL = { kind: 'manual' } as const;
@@ -104,7 +104,7 @@ test('during a fade it is between the two', () => {
 
 test('a lamp with its own profile shows that', () => {
   // Break: the lamp's own profile is ignored for its room's light.
-  const model = house(m => { m.lampProfiles[lampA2] = { ...m.lampProfiles[lampA2]!, day: { follows: 'own', light: lit(60, kelvin(3000)) } }; });
+  const model = house(m => { m.lampProfiles[lampA2] = { ...m.lampProfiles[lampA2]!, day: { follows: 'own', own: { power: 'on', light: lit(60, kelvin(3000)) } } }; });
   assert.deepEqual(lamp(model, lampA2, at('12:00:00')), shows(60, kelvin(3000)));
   assert.deepEqual(lamp(model, lampA1, at('12:00:00')), shows(220, kelvin(4000)));
 });
@@ -113,7 +113,7 @@ test('a lamp with its own profile shows that', () => {
 
 test('a lit light with no colour takes the colour of the block it is in', () => {
   // Break: the colourless profile reaches the lamp with no colour while its block's light has one.
-  const model = house(m => { m.lampProfiles[lampA2] = { ...m.lampProfiles[lampA2]!, cosy: { follows: 'own', light: lit(70, undefined) } }; });
+  const model = house(m => { m.lampProfiles[lampA2] = { ...m.lampProfiles[lampA2]!, cosy: { follows: 'own', own: { power: 'on', light: lit(70, undefined) } } }; });
   assert.deepEqual(lamp(model, lampA2, at('20:00:00')), shows(70, ORANGE));
 });
 
@@ -256,7 +256,7 @@ test('brighter moves every lamp in the room up the blend, dimmer down', () => {
   // Break: the step moves the wrong way, misses a lamp of the room, or reaches another room.
   // `light.lamp_a1` follows its room in cosy here, so both lamps share the room's blend.
   const brighter = house(m => {
-    m.lampProfiles[lampA1] = { ...m.lampProfiles[lampA1]!, cosy: { follows: 'room' } };
+    m.lampProfiles[lampA1] = { ...m.lampProfiles[lampA1]!, cosy: { ...m.lampProfiles[lampA1]!.cosy, follows: 'room' } };
     m.overlays.remotes = [remote('remote-a', at('11:00:00'), { adjustment: steps(3, at('11:00:00'), -17, 20) })];
   });
   assert.deepEqual(lamp(brighter, lampA2, at('12:00:00')), shows(230, kelvin(4750)));
@@ -322,7 +322,7 @@ test('a remote step does nothing on a lamp running the candle', () => {
   // Today's catalog: the candle's remote_adjustment is `ignore`. Break: the step moves the candle lamp's level.
   // `light.lamp_a1` follows its room in cosy here, so its blend could move it.
   const model = house(m => {
-    m.lampProfiles[lampA1] = { ...m.lampProfiles[lampA1]!, cosy: { follows: 'room' } };
+    m.lampProfiles[lampA1] = { ...m.lampProfiles[lampA1]!, cosy: { ...m.lampProfiles[lampA1]!.cosy, follows: 'room' } };
     m.overlays.lamps = [dashboard(onLamp(lampA1), { effect: { kind: 'candle', at: at('11:00:00') } }, at('11:00:00'))];
     m.overlays.remotes = [remote('remote-a', at('11:30:00'), { adjustment: steps(3, at('11:30:00'), -17, 20) })];
   });
@@ -344,7 +344,7 @@ test('the mode overlay colours every lamp outside private rooms', () => {
 test('the mode overlay does nothing in the night block', () => {
   // A lamp lit at night by its own night profile, so there is a colour to keep. Break: the mode colours a lamp at night.
   const model = house(m => {
-    m.lampProfiles[lampA2] = { ...m.lampProfiles[lampA2]!, night: { follows: 'own', light: lit(30, kelvin(3000)) } };
+    m.lampProfiles[lampA2] = { ...m.lampProfiles[lampA2]!, night: { follows: 'own', own: { power: 'on', light: lit(30, kelvin(3000)) } } };
     m.modeOverlay = { active: true, since: at('23:00:00') };
   });
   assert.deepEqual(lamp(model, lampA2, at('23:30:00')), shows(30, kelvin(3000)));

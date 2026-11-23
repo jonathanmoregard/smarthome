@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { candle, normal } from '../../src/domain/effect.ts';
 import { lightingState, MODE_COLOUR } from '../../src/domain/lighting-state.ts';
-import type { Model, Msg, OverlayRequest, RequestedLight } from '../../src/domain/model.ts';
+import type { LitLight, Model, Msg, OverlayRequest, RequestedLight } from '../../src/domain/model.ts';
 import { clearRoom } from '../../src/domain/overlays.ts';
 import { update } from '../../src/domain/update.ts';
 import type { LampId, RoomId } from '../../src/domain/types/ids.ts';
@@ -357,14 +357,38 @@ test('a profile save with a field missing keeps the saved value', () => {
     change: { own: true, power: undefined, brightness: toBrightness(60), colour: kelvin(3000), effect: 'Candle' } });
   const dimmer = after(saved, { kind: 'lampProfileSaved', lamp: lampA2, block: 'day', at: at('12:10:00'),
     change: { own: undefined, power: undefined, brightness: toBrightness(40), colour: undefined, effect: undefined } });
-  assert.deepEqual(dimmer.lampProfiles[lampA2]!.day,
-    { follows: 'own', light: { power: 'on', brightness: toBrightness(40), colour: kelvin(3000), effect: 'Candle' } });
+  const kept: LitLight = { power: 'on', brightness: toBrightness(40), colour: kelvin(3000), effect: 'Candle' };
+  assert.deepEqual(dimmer.lampProfiles[lampA2]!.day, { follows: 'own', own: { power: 'on', light: kept } });
   const off = after(dimmer, { kind: 'lampProfileSaved', lamp: lampA2, block: 'day', at: at('12:20:00'),
     change: { own: undefined, power: 'off', brightness: undefined, colour: undefined, effect: undefined } });
   assert.deepEqual(lamp(off, lampA2, at('12:20:00')), OFF);
   const room = after(off, { kind: 'lampProfileSaved', lamp: lampA2, block: 'day', at: at('12:30:00'),
     change: { own: false, power: undefined, brightness: undefined, colour: undefined, effect: undefined } });
-  assert.deepEqual(room.lampProfiles[lampA2]!.day, { follows: 'room' });
+  assert.deepEqual(room.lampProfiles[lampA2]!.day, { follows: 'room', own: { power: 'off', remembered: kept } });
+});
+
+test('owning a profile again after it followed its room keeps the light it saved', () => {
+  // Review item 1: today's ls_store keeps b, the colour and the effect under own: false.
+  // Break: own -> follow room -> own with only a brightness resets the colour and the effect to the store's defaults.
+  const saved = after(house(), { kind: 'lampProfileSaved', lamp: lampA2, block: 'day', at: at('12:00:00'),
+    change: { own: true, power: undefined, brightness: toBrightness(60), colour: kelvin(3000), effect: 'Candle' } });
+  const room = after(saved, { kind: 'lampProfileSaved', lamp: lampA2, block: 'day', at: at('12:10:00'),
+    change: { own: false, power: undefined, brightness: undefined, colour: undefined, effect: undefined } });
+  assert.deepEqual(lamp(room, lampA2, at('12:10:00')), DAY);
+  const again = after(room, { kind: 'lampProfileSaved', lamp: lampA2, block: 'day', at: at('12:20:00'),
+    change: { own: true, power: undefined, brightness: toBrightness(40), colour: undefined, effect: undefined } });
+  assert.deepEqual(again.lampProfiles[lampA2]!.day,
+    { follows: 'own', own: { power: 'on', light: { power: 'on', brightness: toBrightness(40), colour: kelvin(3000), effect: 'Candle' } } });
+});
+
+test('switching an off profile back on takes back the light it saved', () => {
+  // Review item 1. Break: an off profile forgets its light, so a switch-on alone is full and colourless.
+  const saved = after(house(), { kind: 'lampProfileSaved', lamp: lampA2, block: 'day', at: at('12:00:00'),
+    change: { own: true, power: 'off', brightness: toBrightness(60), colour: kelvin(3000), effect: undefined } });
+  assert.deepEqual(lamp(saved, lampA2, at('12:00:00')), OFF);
+  const on = after(saved, { kind: 'lampProfileSaved', lamp: lampA2, block: 'day', at: at('12:10:00'),
+    change: { own: undefined, power: 'on', brightness: undefined, colour: undefined, effect: undefined } });
+  assert.deepEqual(lamp(on, lampA2, at('12:10:00')), shows(60, kelvin(3000)));
 });
 
 test("saving a plug's own on/off profile changes the plug in that block", () => {
@@ -376,6 +400,10 @@ test("saving a plug's own on/off profile changes the plug in that block", () => 
   assert.equal(plug(own, at('12:00:00')), 'off');
   const unsaid = after(noRule, { kind: 'switchProfileSaved', switch: plugA, block: 'day', change: { own: undefined, power: 'off' }, at: at('12:00:00') });
   assert.equal(plug(unsaid, at('12:00:00')), 'on');
+  // Review item 1: the power saved while the plug follows its room is the one owning it again takes.
+  const savedOn = after(noRule, { kind: 'switchProfileSaved', switch: plugA, block: 'day', change: { own: false, power: 'on' }, at: at('12:00:00') });
+  const owned = after(savedOn, { kind: 'switchProfileSaved', switch: plugA, block: 'day', change: { own: true, power: undefined }, at: at('12:10:00') });
+  assert.deepEqual(owned.switchProfiles[plugA]!.day, { follows: 'own', power: 'on' });
 });
 
 // A switch's own button (decision 8).

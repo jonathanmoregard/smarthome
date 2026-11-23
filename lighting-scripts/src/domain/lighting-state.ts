@@ -167,7 +167,8 @@ function lampSubject(model: Model, lamp: LampId, room: RoomId | undefined, now: 
   const config = model.config;
   const lightIn = (block: Block): SceneLight | undefined => {
     const profile = model.lampProfiles[lamp]?.[block];
-    return profile !== undefined && profile.follows === 'own' ? profile.light : blockLight(config, room, block);
+    if (profile === undefined || profile.follows === 'room') return blockLight(config, room, block);
+    return profile.own.power === 'on' ? profile.own.light : { power: 'off' };
   };
   const ends = { day: lightIn('day'), cosy: lightIn('cosy') };
   const bulbs = config.lamps[lamp]?.bulbs;

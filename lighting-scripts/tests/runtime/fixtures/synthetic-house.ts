@@ -18,11 +18,11 @@
  */
 import type { Block } from '../../../src/domain/blocks.ts';
 import type { BlockSchedule, Config, Room, RoomBlock } from '../../../src/domain/config.ts';
-import type { LampProfile, Model } from '../../../src/domain/model.ts';
+import type { LampProfile, LitLight, Model } from '../../../src/domain/model.ts';
 import type { RemoteAdjustment } from '../../../src/domain/overlays.ts';
 import type { RoomId } from '../../../src/domain/types/ids.ts';
 import type { EffectName } from '../../../src/domain/effect.ts';
-import type { Colour, SceneLight } from '../../../src/domain/types/light.ts';
+import type { Colour } from '../../../src/domain/types/light.ts';
 import {
   toBrightness, toBulbId, toColourChannel, toDashboardControlId, toInstant, toKelvin, toLampId, toMinutes, toPercentRange,
   toRemoteId, toRemoteSource, toRoomId, toStep, toStepCount, toSwitchId, toTimeOfDay, toTimezone,
@@ -44,7 +44,7 @@ const remoteA = toRemoteId('remote-a'), remoteB = toRemoteId('remote-b');
 const sourceA = toRemoteSource('remote-a'), sourceB = toRemoteSource('remote-b');
 
 const kelvin = (value: number): Colour => ({ kind: 'kelvin', kelvin: toKelvin(value) });
-const lit = (brightness: number, colour: Colour | undefined, effect: EffectName = 'Normal'): SceneLight =>
+const lit = (brightness: number, colour: Colour | undefined, effect: EffectName = 'Normal'): LitLight =>
   ({ power: 'on', brightness: toBrightness(brightness), colour, effect });
 
 const house: Record<Block, BlockSchedule> = {
@@ -97,7 +97,9 @@ const threeBrighter: RemoteAdjustment = {
   steps: toStepCount(3), lower: toStep(-17), upper: toStep(20), from: 'current', at: at(50), lastPress: 'up', everBrighter: true,
 };
 
-const followsRoom: Record<Block, LampProfile> = { day: { follows: 'room' }, cosy: { follows: 'room' }, night: { follows: 'room' } };
+/** A lamp with no stores: it follows its room, and owns the light a store with no fields reads as. */
+const roomLight: LampProfile = { follows: 'room', own: { power: 'on', light: lit(255, undefined) } };
+const followsRoom: Record<Block, LampProfile> = { day: roomLight, cosy: roomLight, night: roomLight };
 
 export function syntheticHouse(): Model {
   const daySince = at(40);
@@ -153,9 +155,9 @@ export function syntheticHouse(): Model {
     },
     switchRanges: { [plugA]: { kind: 'custom', range: toPercentRange(20, 60) } },
     rangeDefaults: { bright: toPercentRange(90, 100), cosy: toPercentRange(30, 60) },
-    switchProfiles: { [plugA]: { day: { follows: 'room' }, cosy: { follows: 'room' }, night: { follows: 'room' } } },
+    switchProfiles: { [plugA]: { day: { follows: 'room', power: 'off' }, cosy: { follows: 'room', power: 'off' }, night: { follows: 'room', power: 'off' } } },
     lampProfiles: {
-      [lampA1]: { ...followsRoom, cosy: { follows: 'own', light: lit(100, undefined, 'Candle') } },
+      [lampA1]: { ...followsRoom, cosy: { follows: 'own', own: { power: 'on', light: lit(100, undefined, 'Candle') } } },
       [lampA2]: followsRoom,
       [lampB1]: followsRoom,
     },

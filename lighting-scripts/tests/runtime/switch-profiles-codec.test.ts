@@ -20,9 +20,13 @@ test('a store that is not JSON or not a mapping follows the room', () => {
   }
 });
 
-test('a store that does not own its setting follows the room, by Jinja truthiness', () => {
-  for (const own of [false, 0, '', [], {}, null]) assert.deepEqual(decodeSwitchProfile(text({ own, on: true })), FOLLOWS_ROOM_SWITCH, JSON.stringify(own));
-  assert.deepEqual(decodeSwitchProfile(text({ on: true })), FOLLOWS_ROOM_SWITCH);
+test('a store that does not own its setting follows the room, by Jinja truthiness, and keeps its own power', () => {
+  // Review item 1. Break: a store that follows the room forgets its saved power, so owning it again resets it.
+  for (const own of [false, 0, '', [], {}, null]) {
+    assert.deepEqual(decodeSwitchProfile(text({ own, on: true })), { follows: 'room', power: 'on' }, JSON.stringify(own));
+  }
+  assert.deepEqual(decodeSwitchProfile(text({ on: true })), { follows: 'room', power: 'on' });
+  assert.deepEqual(decodeSwitchProfile(text({ own: false })), FOLLOWS_ROOM_SWITCH);
 });
 
 test('an owned store with no on is off, today\'s savedProfile default (a lamp\'s absent on is on)', () => {
