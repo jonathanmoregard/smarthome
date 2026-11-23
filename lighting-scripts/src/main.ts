@@ -18,7 +18,7 @@ import { parseRooms } from './adapter/codecs/rooms.ts';
 import { HomeAssistantClient } from './adapter/ha-client.ts';
 import type { JsonValue, ServiceCall } from './adapter/ha-client.ts';
 import { heartbeatCall, timingCall } from './adapter/encode.ts';
-import { readLiveRoomsFlag, refuseUnknownRooms } from './adapter/live-rooms.ts';
+import { lampRooms, refuseUnknownRooms, roomsGiven } from './adapter/live-rooms.ts';
 import type { LiveRooms } from './adapter/live-rooms.ts';
 import { Host } from './host.ts';
 import type { Journal, Timer } from './host.ts';
@@ -26,7 +26,7 @@ import type { Instant } from './domain/types/time.ts';
 
 export async function main(argv = process.argv.slice(2)): Promise<void> {
   // First: a port started without its rooms must not touch anything.
-  const liveRooms = readLiveRoomsFlag(argv);
+  const given = roomsGiven(argv);
   const option = (name: string): string | undefined => {
     const index = argv.indexOf(name);
     if (index < 0) return undefined;
@@ -47,10 +47,13 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   let stopHeartbeat = () => {}, watcher: FSWatcher | undefined;
   try {
     const mirror = await read();
-    refuseUnknownRooms(liveRooms, catalog, parseRooms(mirror.areas));
+    const areas = parseRooms(mirror.areas);
+    if (given.kind === 'listed') refuseUnknownRooms(given.rooms, catalog, areas);
+    // The heartbeat names every room the port may drive: with the whole house, each room of its lamps.
+    const liveRooms = given.kind === 'listed' ? given.rooms : lampRooms(catalog, areas);
     const clock = () => toInstant(Date.now() / 1000), warn = (message: string) => console.warn(message);
     const host = await Host.open({ ha, journal: fileJournal(journal), clock, log: console,
-      timer, rooms: { kind: 'listed', rooms: liveRooms }, took: seconds => void ha.call(timingCall(seconds)).catch(() => undefined) }, mirror, catalog);
+      timer, rooms: given, took: seconds => void ha.call(timingCall(seconds)).catch(() => undefined) }, mirror, catalog);
     const reread = rereading(read, (house, startedAt) => host.houseRead(house, startedAt), warn, clock, timer);
     const reconnect = rereading(read, (house, startedAt) => host.reconnected(house, startedAt), warn, clock, timer);
     ha.onConnection(connected => { if (connected) reconnect(); else host.disconnected(); });

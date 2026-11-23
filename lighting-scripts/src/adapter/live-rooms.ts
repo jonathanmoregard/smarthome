@@ -7,7 +7,9 @@
  *
  * The setting is required. A missing list must not mean every room: during a room-by-room rollout the old scripts
  * still drive the rest of the house, and a port that silently took the whole house would fight them in every room.
- * An empty value is a real answer: the port drives no room and sends no lamp or switch command.
+ * An empty value is a real answer: the port drives no room and sends no lamp or switch command. The whole house is
+ * the port's only by `--live-rooms all`, the full cutover; a list naming every room is still a list, so the old
+ * house-wide automations keep the dashboard, the mode and the house's overlays until then.
  */
 import type { Config } from '../domain/config.ts';
 import type { Msg, OverlayRequest } from '../domain/model.ts';
@@ -48,10 +50,7 @@ export function parseLiveRooms(raw: string | undefined): LiveRooms {
  * system's switch check and driven by neither.
  */
 export function refuseUnknownRooms(live: LiveRooms, catalog: Catalog, rooms: Rooms): void {
-  const house = new Set(Object.keys(catalog.members).flatMap(lamp => {
-    const room = rooms.ofId[lamp];
-    return room === undefined ? [] : [room];
-  }));
+  const house = lampRooms(catalog, rooms);
   const unknown = [...live].filter(room => !house.has(room));
   if (unknown.length > 0) {
     throw new Error(`${LIVE_ROOMS_FLAG} names ${unknown.join(', ')}, which ${unknown.length === 1 ? 'holds' : 'hold'} no lamp of the house; `
@@ -59,8 +58,22 @@ export function refuseUnknownRooms(live: LiveRooms, catalog: Catalog, rooms: Roo
   }
 }
 
+/** The rooms that hold a lamp of the catalog. */
+export function lampRooms(catalog: Catalog, rooms: Rooms): LiveRooms {
+  return new Set(Object.keys(catalog.members).flatMap(lamp => {
+    const room = rooms.ofId[lamp];
+    return room === undefined ? [] : [room];
+  }));
+}
+
 /** The rooms a process is given: the whole house (the harness), or those its command line lists (the live port). */
 export type RoomsGiven = { kind: 'house' } | { kind: 'listed'; rooms: LiveRooms };
+
+/** The rooms the command line gives: the whole house for `--live-rooms all`, else the list. */
+export function roomsGiven(argv: readonly string[]): RoomsGiven {
+  const index = argv.indexOf(LIVE_ROOMS_FLAG);
+  return index >= 0 && argv[index + 1] === ALL_ROOMS ? { kind: 'house' } : { kind: 'listed', rooms: readLiveRoomsFlag(argv) };
+}
 
 /** The listed rooms whose port switch is on, each with when the switch last changed. */
 export type Handed = ReadonlyMap<RoomId, Instant | undefined>;
@@ -72,14 +85,15 @@ export function newlyHanded(before: Handed, after: Handed): RoomId[] {
 
 export const LIVE_ROOMS_FLAG = '--live-rooms';
 
+/** The flag's value that gives the port the whole house: the full cutover. */
+const ALL_ROOMS = 'all';
+
 /**
- * The turn's share of the house: the whole house when given it, or when every room of the config's lamps is handed
- * over; otherwise the handed rooms.
+ * The turn's share of the house: the whole house only when given it (`--live-rooms all`); otherwise the handed rooms,
+ * even every one of them, so a lamp in no room and a plug in a room with no lamp stay the old scripts'.
  */
-export function shareOf(given: RoomsGiven, handed: Handed, config: Config): Share {
-  if (given.kind === 'house') return given;
-  const house = Object.values(config.lamps).flatMap(lamp => lamp.room === undefined ? [] : [lamp.room]);
-  return house.length > 0 && house.every(room => handed.has(room)) ? { kind: 'house' } : { kind: 'rooms', rooms: new Set(handed.keys()) };
+export function shareOf(given: RoomsGiven, handed: Handed): Share {
+  return given.kind === 'house' ? given : { kind: 'rooms', rooms: new Set(handed.keys()) };
 }
 
 /**

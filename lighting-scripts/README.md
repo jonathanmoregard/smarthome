@@ -184,9 +184,11 @@ missing `--live-rooms` is refused at start-up: it never means every room.
    off and on again), the port forgets what it sent that room's bulbs and sends
    them their light again, so their bulb effects (the firmware candle) start.
    At start, the journal holds what the port last sent.
-5. When every room of the house is the port's, none of the above applies: the
-   port drives the whole house. With the old house-wide automations still
-   running, do the full cutover for the last room instead.
+5. Only `--live-rooms all` gives the port the whole house, and none of the
+   above applies then: do that at the full cutover, once the old house-wide
+   automations are off. A list naming every room is still a list: the
+   house-wide inputs, the dashboard, lamps in no room and plugs in rooms with
+   no lamp stay with the old scripts.
 6. Live rooms that hold none of the catalog's lamps are refused at start-up.
    The port writes `input_text.ls_port_heartbeat`
    (`<unix seconds>|<live rooms>`) every 10 s, but not while Home Assistant is

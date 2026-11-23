@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { parseCatalog } from '../../src/adapter/codecs/catalog.ts';
-import { parseRooms } from '../../src/adapter/codecs/rooms.ts';
+import { drives, parseRooms } from '../../src/adapter/codecs/rooms.ts';
 import { toRoomId } from '../../src/adapter/codecs/ids.ts';
 import type { HaInput } from '../../src/adapter/codecs/inputs.ts';
 import type { EntityState, JsonObject } from '../../src/adapter/ha-client.ts';
 import type { Output } from '../../src/adapter/encode.ts';
-import { parseLiveRooms, readLiveRoomsFlag, refuseUnknownRooms } from '../../src/adapter/live-rooms.ts';
+import { lampRooms, parseLiveRooms, readLiveRoomsFlag, refuseUnknownRooms, roomsGiven, shareOf } from '../../src/adapter/live-rooms.ts';
 import type { RoomsGiven } from '../../src/adapter/live-rooms.ts';
 import { afterOutputs, handleInput } from '../../src/adapter/loop.ts';
 import type { AdapterState, Turn } from '../../src/adapter/loop.ts';
@@ -15,6 +15,7 @@ import type { BulbId } from '../../src/domain/types/ids.ts';
 import type { FakeBulbs } from './fake-bulbs.ts';
 import { houseView, syntheticStates, world, writeBack } from './fixtures/house-view.ts';
 import { bridged } from './support/inputs.ts';
+import { configSource, decodeModel } from '../../src/adapter/codecs/model.ts';
 import { id } from './support/ids.ts';
 
 /**
@@ -224,14 +225,30 @@ test("a remote's helpers and a block light's store of a room that is not live ar
   assert.deepEqual(helpers(shared.turn('12:02:00', bridged('ls_store', { store: `input_text.ls_${roomA}_day`, brightness: 100 }))), []);
 });
 
-test('with every room live nothing extra is written: the turn is the whole house\'s', () => {
-  // Break: a port given every room keeps leaving house-wide inputs to the old scripts, or writes something more.
+test('the whole house is the port\'s only by `--live-rooms all`, never by listing every room', () => {
+  // Review finding 4. Break: handing over the last lamp room flips the turn to the whole house while the old
+  // house-wide automations still run: two writers of the dashboard, the mode and the house's overlays.
+  assert.deepEqual(roomsGiven(['--live', '--live-rooms', 'all']), { kind: 'house' });
+  assert.deepEqual(roomsGiven(['--live-rooms', 'studio']), { kind: 'listed', rooms: new Set(['studio']) });
   const run = (given: RoomsGiven) => {
     const shared = new Shared(sharedStates({ [roomA]: 'on', [roomB]: 'on' }), given);
-    return [shared.turn('12:00:00', { kind: 'started' }), shared.turn('12:01:00', pressInRoomA),
-      shared.turn('12:02:00', { kind: 'dashboard script', script: { kind: 'toggle mode' } })].map(turn => turn.outputs);
+    shared.turn('12:00:00', { kind: 'started' });
+    return shared.turn('12:02:00', { kind: 'dashboard script', script: { kind: 'toggle mode' } }).outputs;
   };
-  assert.deepEqual(run(listed(roomA, roomB)), run({ kind: 'house' }));
+  assert.deepEqual(run(listed(roomA, roomB)), [], 'the mode is the old scripts\' while any room is listed');
+  assert.notDeepEqual(run({ kind: 'house' }), []);
+});
+
+test('with every lamp room listed, a lamp in no room and a plug in a room with no lamp stay the old scripts\'', () => {
+  // Review finding 4. Break: the share turns to the house, and things in no listed room get both drivers.
+  const house = houseView(sharedStates({ [roomA]: 'on', [roomB]: 'on' }), '2026-09-21T12:00:00Z');
+  const config = decodeModel(configSource(house), house.catalog).config;
+  const every = lampRooms(house.catalog, house.rooms);
+  assert.deepEqual([...every].sort(), [roomA, roomB]);
+  const share = shareOf({ kind: 'listed', rooms: every }, every, config);
+  assert.equal(share.kind, 'rooms');
+  assert.equal(drives(share, undefined), false, 'a lamp in no room');
+  assert.equal(drives(share, toRoomId('room-c')), false, 'a plug in a room with no lamp');
 });
 
 /**

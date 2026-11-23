@@ -144,7 +144,7 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
   const decoded = state === undefined || input.kind === 'started' ? decodeModel(configSource(house), house.catalog)
     : read === undefined ? state.model : update(state.model, read);
   const handed: Handed = given.kind === 'listed' ? portSwitchesOn(house.state, given.rooms) : new Map();
-  const share = shareOf(given, handed, decoded.config), before = followingSensor(decoded, house, share);
+  const share = shareOf(given, handed), before = followingSensor(decoded, house, share);
   // The clock runs first, and the input is read against what it leaves: a reset at this instant is already applied.
   const clocked = update(before, { kind: 'clock', now });
   // What changed since the last turn that no send of ours explains: a plug's own button is pressed first, then the input.
