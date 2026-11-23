@@ -161,3 +161,13 @@ test('an input that cannot be read is logged and dropped, and the turn goes on',
   assert.equal(held.dropped, undefined);
   assert.equal(held.state.model.overlays.blocks[roomA]?.block, 'night');
 });
+
+test('a helper change reaches the lighting state the same turn, through the configChanged message', () => {
+  // Break: the adapter swaps the config into the state itself (no `configChanged`), or keeps the old one for this turn.
+  const house = new House();
+  house.turn('12:00:00', { kind: 'started' });
+  house.states['input_datetime.ls_house_day_start'] = { state: '08:00:00', attributes: {} };
+  const turn = house.turn('12:01:00', { kind: 'helper changed' });
+  assert.deepEqual(turn.state.model.config.house.day.weekdayStart, { hour: 8, minute: 0 });
+  assert.equal(turn.outputs.some(output => output.kind === 'store'), false);
+});

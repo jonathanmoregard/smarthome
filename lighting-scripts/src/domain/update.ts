@@ -18,7 +18,7 @@ import type { Instant } from './types/time.ts';
 export function update(model: Model, msg: Msg): Model {
   switch (msg.kind) {
     case 'clock': return remoteTimeouts(releasedAtNextBlock(resetsDue(model, msg.now), msg.now), msg.now);
-    case 'configChanged': return { ...model, config: msg.config };
+    case 'configChanged': return { ...model, config: msg.config, lampProfiles: msg.lampProfiles, switchProfiles: msg.switchProfiles };
     case 'overlayRequested': return overlayRequested(model, msg.request, msg.at);
     case 'lampChangedByPerson': return personChanged(model, msg.lamps, msg.rooms, msg.light, msg.at);
     case 'remotePressed': return remotePressed(model, msg.remote, msg.command, msg.anyOn, msg.at);

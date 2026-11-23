@@ -94,7 +94,8 @@ export type RemoteButton =
  */
 export type Msg =
   | { kind: 'clock'; now: Instant }
-  | { kind: 'configChanged'; config: Config; at: Instant }
+  /** The config and the saved profiles read again from the helpers: they replace the Model's; the overlays and the remotes stay. */
+  | { kind: 'configChanged'; config: Config; lampProfiles: Model['lampProfiles']; switchProfiles: Model['switchProfiles']; at: Instant }
   | { kind: 'overlayRequested'; request: OverlayRequest; at: Instant }
   /**
    * A person's HA call: every lamp it reaches, and the rooms it named whole (an

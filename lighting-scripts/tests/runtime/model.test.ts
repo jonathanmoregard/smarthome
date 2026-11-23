@@ -56,7 +56,7 @@ const oneRequestOfEach = {
 /** One message of each kind, built against the house; a kind with no value here does not compile. */
 const oneOfEach = {
   clock: { kind: 'clock', now },
-  configChanged: { kind: 'configChanged', config: house.config, at: now },
+  configChanged: { kind: 'configChanged', config: house.config, lampProfiles: house.lampProfiles, switchProfiles: house.switchProfiles, at: now },
   overlayRequested: { kind: 'overlayRequested', request: oneRequestOfEach['hold block'], at: now },
   lampChangedByPerson: { kind: 'lampChangedByPerson', lamps: [lampA1], rooms: [],
     light: { power: 'on', brightness: toBrightness(80), colour: undefined, effect: undefined }, at: now },

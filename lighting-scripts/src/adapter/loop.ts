@@ -60,7 +60,7 @@ export type Turn = { state: AdapterState; outputs: Output[]; wakeAt: Instant | u
 export function handleInput(state: AdapterState | undefined, house: HouseView, input: HaInput): Turn {
   const now = toInstant(timestamp(house.now));
   const before = state === undefined || input.kind === 'started' ? decodeModel(configSource(house), house.catalog)
-    : input.kind === 'helper changed' ? withHelpersRead(state.model, house) : state.model;
+    : input.kind === 'helper changed' ? update(state.model, helpersRead(house, now)) : state.model;
   // The clock runs first, and the input is read against what it leaves: a reset at this instant is already applied.
   const clocked = update(before, { kind: 'clock', now });
   let own: Msg[] = [], dropped: string | undefined;
@@ -101,10 +101,10 @@ export function handleInput(state: AdapterState | undefined, house: HouseView, i
   return { state: { model, beliefs, view }, outputs, wakeAt: nextChange(model, now), dropped };
 }
 
-/** The Model with the config and the profiles read again from the helpers; the overlays and the remotes stay. */
-function withHelpersRead(model: Model, house: HouseView): Model {
+/** The config and the profiles read again from the helpers, as the message `update` takes them. */
+function helpersRead(house: HouseView, now: Instant): Msg {
   const read = decodeModel(configSource(house), house.catalog);
-  return { ...model, config: read.config, lampProfiles: read.lampProfiles, switchProfiles: read.switchProfiles };
+  return { kind: 'configChanged', config: read.config, lampProfiles: read.lampProfiles, switchProfiles: read.switchProfiles, at: now };
 }
 
 /**

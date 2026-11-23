@@ -478,9 +478,22 @@ test('a config change is taken whole', () => {
   // Break: the old config, or part of it, stays.
   const config = structuredClone(house().config);
   config.house.day.light = { power: 'on', brightness: toBrightness(100), colour: kelvin(5000), effect: 'Normal' };
-  const model = after(house(), { kind: 'configChanged', config, at: at('12:00:00') });
+  const model = after(house(), { kind: 'configChanged', config, lampProfiles: house().lampProfiles, switchProfiles: house().switchProfiles, at: at('12:00:00') });
   assert.equal(model.config, config);
   assert.deepEqual(lamp(model, lampA2, at('12:00:00')), shows(100, kelvin(5000)));
+});
+
+test('a config change takes the profiles read with it, and keeps the overlays', () => {
+  // Break: the profiles stay the old ones (the adapter swapped them in outside `update`), or the overlays go.
+  const held = after(house(), { kind: 'overlayRequested', request: { kind: 'room power', room: roomA, power: 'off' }, at: at('12:00:00') });
+  const lampProfiles = structuredClone(held.lampProfiles);
+  const was = lampProfiles[lampA1].cosy;
+  lampProfiles[lampA1].cosy = { ...was, follows: was.follows === 'room' ? 'own' : 'room' };
+  const switchProfiles = structuredClone(held.switchProfiles);
+  const model = after(held, { kind: 'configChanged', config: held.config, lampProfiles, switchProfiles, at: at('12:01:00') });
+  assert.deepEqual(model.lampProfiles, lampProfiles);
+  assert.deepEqual(model.switchProfiles, switchProfiles);
+  assert.deepEqual(model.overlays, held.overlays);
 });
 
 // M3 T3 carry-overs: a first range save, and overlays the next-block reset released.
