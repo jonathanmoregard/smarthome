@@ -5,7 +5,7 @@
  */
 import { watch } from 'node:fs';
 import type { FSWatcher } from 'node:fs';
-import { mkdir, open, readFile, rename, unlink } from 'node:fs/promises';
+import { mkdir, open, readFile, rename } from 'node:fs/promises';
 import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseDeployedCatalog } from './adapter/codecs/catalog.ts';
@@ -18,6 +18,7 @@ import { parseRooms } from './adapter/codecs/rooms.ts';
 import { HomeAssistantClient } from './adapter/ha-client.ts';
 import type { JsonValue, ServiceCall } from './adapter/ha-client.ts';
 import { heartbeatCall, timingCall } from './adapter/encode.ts';
+import { lockJournal } from './journal-lock.ts';
 import { lampRooms, refuseUnknownRooms, roomsGiven } from './adapter/live-rooms.ts';
 import type { LiveRooms } from './adapter/live-rooms.ts';
 import { Host } from './host.ts';
@@ -111,41 +112,6 @@ function fileJournal(path: string): Journal {
       await rename(temporary, path);
     },
   };
-}
-
-/**
- * Take the journal for this process: one port per journal, since two would each trust what the other sent. The lock
- * is `<journal>.lock`, holding the owner's process id. A lock whose process has ended is taken over; one whose
- * process runs stops this start. The answer gives the lock back.
- */
-export async function lockJournal(path: string): Promise<() => Promise<void>> {
-  const lock = `${path}.lock`;
-  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  for (let tries = 0; ; tries++) {
-    try {
-      const file = await open(lock, 'wx', 0o600);
-      try { await file.writeFile(`${process.pid}\n`); } finally { await file.close(); }
-      return async () => { await unlink(lock).catch(() => undefined); };
-    } catch (error) {
-      if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST') || tries > 0) throw error;
-    }
-    const owner = Number.parseInt(await readFile(lock, 'utf8').catch(() => ''), 10);
-    if (Number.isInteger(owner) && owner > 0 && running(owner)) {
-      throw new Error(`The journal ${path} is held by process ${owner}: another port runs on it. Stop that one first.`);
-    }
-    // The owner has ended (or the lock names none): its lock is left over, and this process takes it.
-    await unlink(lock).catch(() => undefined);
-  }
-}
-
-/** Whether a process runs: signal 0 checks without sending; one of another user still runs. */
-function running(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return error instanceof Error && 'code' in error && error.code === 'EPERM';
-  }
 }
 
 /** Node's timer as the host's. */

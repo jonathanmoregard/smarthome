@@ -83,9 +83,12 @@ last sent, and the rooms it drove, saved after each send and written whole,
 then renamed into place. A
 send is recorded only once every call carrying it has gone; a failed call is
 retried after its backoff. One host runs per journal: a start takes
-`<journal>.lock` (holding its process id), a second start that finds it held
-stops with an error naming the owner, and a lock whose process has ended is
-taken over. Keep runtime data and credentials out of Git.
+`<journal>.lock`, naming its owner by process id, boot and start time and
+linked into place whole. A second start that finds it held stops with an
+error naming the owner; a lock whose owner has ended (its process is gone, or
+the id now names another process, or the machine rebooted) is moved aside and
+taken over; a lock that does not read is read again for two seconds, then
+stops the start, naming it. Keep runtime data and credentials out of Git.
 
 ## Staged cutover
 
