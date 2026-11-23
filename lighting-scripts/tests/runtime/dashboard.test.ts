@@ -30,8 +30,13 @@ function house(): Model {
   return model;
 }
 
-function view(model: Model, now: Instant, controls: readonly DashboardControl[] = []) {
-  return dashboardView(model, lightingState(model, now), now, controls);
+function view(model: Model, now: Instant) {
+  return dashboardView(model, lightingState(model, now), now);
+}
+
+/** The house with these live controls in its config. */
+function withControls(model: Model, controls: readonly DashboardControl[]): Model {
+  return { ...model, config: { ...model.config, controls: Object.fromEntries(controls.map(({ control, over }) => [control, over])) } };
 }
 
 const send = (model: Model, ...msgs: Msg[]) => msgs.reduce(update, model);
@@ -54,12 +59,13 @@ test('the mode mirror follows the mode overlay', () => {
   assert.equal(view(send(on, { kind: 'modeToggled', on: false, at: NOON }), NOON).modeOn, false);
 });
 
-test('a control shows the light of what it is over', () => {
+test("a control shows the light of what it is over, the config's controls in their order", () => {
+  // Break: the view's controls come from anywhere but the config (the fourth argument it took before).
   const lamp = toDashboardControlId('control-lamp'), room = toDashboardControlId('control-room');
   const controls: DashboardControl[] = [{ control: lamp, over: { kind: 'lamp', lamp: lampA1 } }, { control: room, over: { kind: 'room', room: roomA } }];
-  const shown = view(house(), NOON, controls).controls;
+  const shown = view(withControls(house(), controls), NOON).controls;
   const day = { power: 'on', level: toLevel(220), colour: { kind: 'kelvin', kelvin: toKelvin(4000) }, effect: 'Normal' };
   assert.deepEqual(shown, [{ control: lamp, over: controls[0]!.over, light: day }, { control: room, over: controls[1]!.over, light: day }]);
   const off = send(house(), { kind: 'overlayRequested', request: { kind: 'room power', room: roomA, power: 'off' }, at: NOON });
-  assert.deepEqual(view(off, NOON, controls).controls.map(control => control.light), [{ power: 'off' }, { power: 'off' }]);
+  assert.deepEqual(view(withControls(off, controls), NOON).controls.map(control => control.light), [{ power: 'off' }, { power: 'off' }]);
 });

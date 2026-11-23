@@ -24,7 +24,6 @@ import type {
 import type { LampId, RemoteId, RoomId, SwitchId } from '../../domain/types/ids.ts';
 import { entriesOf } from '../../domain/types/ids.ts';
 import type { Colour, PercentRange, Power } from '../../domain/types/light.ts';
-import type { LampOrRoom } from '../../domain/types/lighting-state.ts';
 import type { RemoteCommand } from '../../domain/types/remote.ts';
 import type { RoomOrHouse } from '../../domain/types/schedule.ts';
 import type { Instant } from '../../domain/types/time.ts';
@@ -405,7 +404,7 @@ function controlSet(source: string, attribute: string, value: JsonValue | undefi
   const row = uiRowsOf(house).find(candidate => candidate.source === source);
   if (row === undefined) throw new ParseError(`effects_set: no dashboard control for ${source}`);
   if (row.store !== undefined) return profileSaved(storeSaveOf({ store: row.store, ...storeField(attribute, value) }, model), now);
-  const over = controlOver(row, model);
+  const over = model.config.controls[toDashboardControlId(source)];
   if (over === undefined) throw new ParseError(`effects_set: ${source} is over no lamp of the house`);
   const light = controlLight(attribute, value);
   if (attribute === 'power' && over.kind === 'room') {
@@ -478,20 +477,6 @@ export function uiRowsOf(house: Pick<HouseView, 'catalog'>): UiRow[] {
     const proxy = typeof row.proxy === 'string' ? row.proxy : undefined;
     return [{ source: row.source, proxy, store, members: Array.isArray(row.members) ? texts(row.members) : [], topics }];
   });
-}
-
-/** A live control is over the room whose every lamp it holds, else over its source lamp (or its first member lamp). */
-export function controlOver(row: Pick<UiRow, 'source' | 'members'>, model: Model): LampOrRoom | undefined {
-  const config = model.config;
-  const members = row.members.map(toLampId).filter(lamp => config.lamps[lamp] !== undefined);
-  for (const [room] of entriesOf(config.rooms)) {
-    const all = entriesOf(config.lamps).flatMap(([lamp, placed]) => placed.room === room ? [lamp] : []);
-    if (members.length > 1 && all.length > 0 && all.every(lamp => members.includes(lamp))) return { kind: 'room', room };
-  }
-  const source = toLampId(row.source);
-  if (config.lamps[source] !== undefined) return { kind: 'lamp', lamp: source };
-  const [first] = members;
-  return first === undefined ? undefined : { kind: 'lamp', lamp: first };
 }
 
 /** A store save (today's `ls_store`): the profile or block light the store is, and the fields it sets. */

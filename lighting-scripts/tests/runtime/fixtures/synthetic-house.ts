@@ -89,6 +89,7 @@ const config: Config = {
   switches: { [plugA]: { room: roomA, onOff: true } },
   remotes: { [remoteA]: { room: roomA }, [remoteB]: { room: undefined } },
   overlayReset: { atNextBlock: true, atSetTime: undefined, afterAge: toMinutes(180) },
+  controls: {},
   warmEnd: { red: toColourChannel(255), green: toColourChannel(126), blue: toColourChannel(0) },
 };
 

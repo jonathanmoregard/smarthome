@@ -51,7 +51,7 @@ function config(change: (house: Record<Block, BlockSchedule>) => void = () => {}
   };
   change(house);
   return {
-    timezone: toTimezone(zone), house, rooms, lamps: {}, switches: {}, remotes: {},
+    timezone: toTimezone(zone), house, rooms, lamps: {}, switches: {}, remotes: {}, controls: {},
     overlayReset: { atNextBlock: false, atSetTime: undefined, afterAge: undefined },
     warmEnd: { red: toColourChannel(255), green: toColourChannel(126), blue: toColourChannel(0) },
   };

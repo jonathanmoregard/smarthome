@@ -20,14 +20,15 @@ import type {
 } from '../../domain/config.ts';
 import type { BulbInfo } from '../../domain/effect.ts';
 import type { LampProfileChange } from '../../domain/model.ts';
-import type { BulbId, LampId, RemoteId, RoomId, SwitchId } from '../../domain/types/ids.ts';
+import type { BulbId, DashboardControlId, LampId, RemoteId, RoomId, SwitchId } from '../../domain/types/ids.ts';
+import type { LampOrRoom } from '../../domain/types/lighting-state.ts';
 import { entriesOf } from '../../domain/types/ids.ts';
 import type { Colour, RGB, SceneLight } from '../../domain/types/light.ts';
 import type { Minutes } from '../../domain/types/range.ts';
 import type { RoomOrHouse } from '../../domain/types/schedule.ts';
 import type { TimeOfDay, Timezone } from '../../domain/types/time.ts';
 import {
-  toBrightness, toBulbId, toColourChannel, toInstant, toKelvin, toLampId, toMinutes, toMqttTopic, toRoomId, toSwitchId, toTimeOfDay, toTimezone,
+  toBrightness, toBulbId, toColourChannel, toDashboardControlId, toInstant, toKelvin, toLampId, toMinutes, toMqttTopic, toRoomId, toSwitchId, toTimeOfDay, toTimezone,
 } from './ids.ts';
 import type { MqttTopic } from './ids.ts';
 import type { Catalog } from './catalog.ts';
@@ -35,6 +36,8 @@ import type { EntityState, JsonValue } from '../ha-client.ts';
 import { ParseError, isObject, parseFinite } from './parse.ts';
 import { decodeLampProfile } from './lamp-profiles.ts';
 import type { Rooms } from './rooms.ts';
+import { uiRowsOf } from './inputs.ts';
+import type { UiRow } from './inputs.ts';
 
 /** The HA state the config is read from: each helper's state and attributes, the registry's rooms, the labels. */
 export type ConfigSource = {
@@ -57,16 +60,40 @@ const DEFAULT_WARM_END: RGB = { red: toColourChannel(255), green: toColourChanne
 
 export function decodeConfig(source: ConfigSource, catalog: Catalog): Config {
   const lamps = decodeLamps(source, catalog), switches = decodeSwitches(source), remotes = decodeRemotes(source, catalog);
+  const rooms = decodeRooms(source, [...Object.values(lamps), ...Object.values(switches)].map(thing => thing.room));
   return {
     timezone: source.timezone === undefined ? DEFAULT_TIMEZONE : toTimezone(source.timezone),
     house: decodeHouse(source),
-    rooms: decodeRooms(source, [...Object.values(lamps), ...Object.values(switches)].map(thing => thing.room)),
+    rooms,
     lamps,
     switches,
     remotes,
     overlayReset: decodeOverlayReset(source),
+    controls: decodeControls(catalog, lamps, rooms),
     warmEnd: decodeWarmEnd(source),
   };
+}
+
+/** The catalog's live controls (the UI rows with no profile store) that are over a lamp or a room of the house. */
+function decodeControls(catalog: Catalog, lamps: Record<LampId, Lamp>, rooms: Record<RoomId, Room>): Record<DashboardControlId, LampOrRoom> {
+  return Object.fromEntries(uiRowsOf({ catalog }).flatMap(row => {
+    if (row.store !== undefined) return [];
+    const over = controlOver(row, lamps, rooms);
+    return over === undefined ? [] : [[toDashboardControlId(row.source), over]];
+  }));
+}
+
+/** A live control is over the room whose every lamp it holds, else over its source lamp (or its first member lamp). */
+function controlOver(row: Pick<UiRow, 'source' | 'members'>, lamps: Record<LampId, Lamp>, rooms: Record<RoomId, Room>): LampOrRoom | undefined {
+  const members = row.members.map(toLampId).filter(lamp => lamps[lamp] !== undefined);
+  for (const [room] of entriesOf(rooms)) {
+    const all = entriesOf(lamps).flatMap(([lamp, placed]) => placed.room === room ? [lamp] : []);
+    if (members.length > 1 && all.length > 0 && all.every(lamp => members.includes(lamp))) return { kind: 'room', room };
+  }
+  const source = toLampId(row.source);
+  if (lamps[source] !== undefined) return { kind: 'lamp', lamp: source };
+  const [first] = members;
+  return first === undefined ? undefined : { kind: 'lamp', lamp: first };
 }
 
 /**

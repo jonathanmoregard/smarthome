@@ -22,6 +22,21 @@ import type { Instant } from './types/time.ts';
  */
 export type DashboardView = { blockShown: Record<RoomOrHouse, Block>; modeOn: boolean; controls: readonly DashboardControlView[] };
 
+export function dashboardView(model: Model, lighting: LightingState, now: Instant): DashboardView {
+  const { config, overlays, modeOverlay } = model;
+  const shown = (scope: RoomOrHouse): Block => {
+    const held = overlays.blocks[scope];
+    return held === undefined ? blockPosition(config, scope === 'house' ? undefined : scope, now).current : held.block;
+  };
+  const blockShown: Record<RoomOrHouse, Block> = { house: shown('house') };
+  for (const [room] of entriesOf(config.rooms)) blockShown[room] = shown(room);
+  return {
+    blockShown,
+    modeOn: modeOverlay.active,
+    controls: entriesOf(config.controls).map(([control, over]) => ({ control, over, light: controlShown(model, lighting, over) })),
+  };
+}
+
 /** A live control on the dashboard and the lamp or room it is over (the catalog's UI rows say which, at the edge). */
 export type DashboardControl = { control: DashboardControlId; over: LampOrRoom };
 
@@ -54,19 +69,4 @@ function sameColour(a: Colour | undefined, b: Colour | undefined): boolean {
   if (a === undefined || b === undefined) return a === b;
   if (a.kind === 'kelvin') return b.kind === 'kelvin' && a.kelvin === b.kelvin;
   return b.kind === 'rgb' && a.rgb.red === b.rgb.red && a.rgb.green === b.rgb.green && a.rgb.blue === b.rgb.blue;
-}
-
-export function dashboardView(model: Model, lighting: LightingState, now: Instant, controls: readonly DashboardControl[]): DashboardView {
-  const { config, overlays, modeOverlay } = model;
-  const shown = (scope: RoomOrHouse): Block => {
-    const held = overlays.blocks[scope];
-    return held === undefined ? blockPosition(config, scope === 'house' ? undefined : scope, now).current : held.block;
-  };
-  const blockShown: Record<RoomOrHouse, Block> = { house: shown('house') };
-  for (const [room] of entriesOf(config.rooms)) blockShown[room] = shown(room);
-  return {
-    blockShown,
-    modeOn: modeOverlay.active,
-    controls: controls.map(control => ({ ...control, light: controlShown(model, lighting, control.over) })),
-  };
 }

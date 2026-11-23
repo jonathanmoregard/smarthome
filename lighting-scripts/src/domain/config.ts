@@ -1,6 +1,7 @@
 import type { Block } from './blocks.ts';
 import type { BulbInfo } from './effect.ts';
-import type { LampId, RemoteId, RoomId, SwitchId } from './types/ids.ts';
+import type { DashboardControlId, LampId, RemoteId, RoomId, SwitchId } from './types/ids.ts';
+import type { LampOrRoom } from './types/lighting-state.ts';
 import type { RGB, SceneLight } from './types/light.ts';
 import type { Minutes } from './types/range.ts';
 import type { Instant, TimeOfDay, Timezone } from './types/time.ts';
@@ -18,6 +19,8 @@ export type Config = {
   switches: Record<SwitchId, Switch>;
   remotes: Record<RemoteId, Remote>;
   overlayReset: OverlayReset;
+  /** The dashboard's live controls, in the catalog's order, each over the room whose every lamp it holds, else a lamp. */
+  controls: Record<DashboardControlId, LampOrRoom>;
   /** The warm end of the cosy-day blend, and the colour a candle holds. */
   warmEnd: RGB;
 };

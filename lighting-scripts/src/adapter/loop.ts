@@ -6,7 +6,7 @@
  * A helper change reads the config and the profiles again.
  */
 import { dashboardView } from '../domain/dashboard.ts';
-import type { DashboardControl, DashboardView } from '../domain/dashboard.ts';
+import type { DashboardView } from '../domain/dashboard.ts';
 import { lightingState, nextChange } from '../domain/lighting-state.ts';
 import type { LampProfileChange, Model, Msg } from '../domain/model.ts';
 import { update } from '../domain/update.ts';
@@ -23,7 +23,7 @@ import { configSource, decodeModel } from './codecs/model.ts';
 import { decodeRangeDefaults } from './codecs/range-defaults.ts';
 import { carries, outcomeOf, publishes } from './encode.ts';
 import type { Output } from './encode.ts';
-import { controlOver, messages, storeSaveIn, uiRowsOf, unexplainedMessages } from './codecs/inputs.ts';
+import { messages, storeSaveIn, uiRowsOf, unexplainedMessages } from './codecs/inputs.ts';
 import type { HaInput, StoreSave } from './codecs/inputs.ts';
 import { decodeObserved } from './codecs/observed.ts';
 import type { Observed } from './codecs/observed.ts';
@@ -131,10 +131,9 @@ export function handleInput(kept: Kept, house: HouseView, input: HaInput): Turn 
   if (configWrite !== undefined) outputs.push({ kind: 'store', write: configWrite });
 
   const lighting = lightingState(model, now);
-  const rows = controlRows(model, house);
-  const view = dashboardView(model, lighting, now, rows.map(row => row.control));
+  const view = dashboardView(model, lighting, now);
   const previous = state === undefined || input.kind === 'started' ? undefined : state.view;
-  const sync: ControlRow[] = rows.map(row => ({ control: row.control.control, topics: row.topics }));
+  const sync = controlRows(model, house);
   for (const write of dashboardWrites(previous, view, sync, house)) outputs.push({ kind: 'dashboard', write });
   for (const write of uiSyncWrites(house, previous === undefined)) outputs.push({ kind: 'dashboard', write });
 
@@ -185,11 +184,10 @@ function blockLightRead(light: BlockLight, change: LampProfileChange, write: Sto
   return { kind: 'configChanged', config, lampProfiles: model.lampProfiles, switchProfiles: model.switchProfiles, at: now };
 }
 
-/** The catalog's live controls (the UI rows with no profile store) the Model has a lamp or room for, with their proxy topics. */
-function controlRows(model: Model, house: HouseView): Array<{ control: DashboardControl; topics: ControlRow['topics'] }> {
+/** The config's live controls with their proxy topics, from the catalog's UI rows. */
+function controlRows(model: Model, house: HouseView): ControlRow[] {
   return uiRowsOf(house).flatMap(row => {
-    if (row.store !== undefined) return [];
-    const over = controlOver(row, model);
-    return over === undefined ? [] : [{ control: { control: toDashboardControlId(row.source), over }, topics: row.topics }];
+    const control = toDashboardControlId(row.source);
+    return row.store !== undefined || model.config.controls[control] === undefined ? [] : [{ control, topics: row.topics }];
   });
 }
