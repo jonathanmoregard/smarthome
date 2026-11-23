@@ -556,6 +556,25 @@ test('a send that never landed is dropped when the target moves off it, and a la
     'held on by the press: not sent back');
 });
 
+test('a plug that drops out and comes back while our send is open is a return, not a press, and gets its target', () => {
+  // Amendment 8.1. A plug back from unavailable has a fresh last_changed. Break: it is read as changed after our send
+  // and held as a press, so the reconciler never sends it its target.
+  const bulbs = new FakeBulbs(topics);
+  plugShows(bulbs, 'off', at(-3600));
+  const { beliefs } = pass(bulbs, EVENING, NO_BELIEFS, at(0), { lost: () => true });
+  bulbs.switches.set(plugA, 'unreachable');
+  bulbs.switchChanged.set(plugA, at(10));
+  const away = bulbs.observed();
+  const back = plugShows(bulbs, 'off', at(30));
+  assert.deepEqual(unexplained(away, back, beliefs), [], 'a return');
+  assert.deepEqual(nextSends(EVENING, config, back, beliefs, at(30)).sends.filter(send => send.kind === 'switch'),
+    [{ kind: 'switch', switch: plugA, power: 'on' }], 'it is sent its target');
+  const pressed = plugShows(bulbs, 'off', at(40));
+  const reachable = plugShows(bulbs, 'off', at(30));
+  assert.deepEqual(unexplained(reachable, pressed, beliefs), [{ kind: 'switch pressed', switch: plugA, power: 'off' }],
+    'reachable before and after: still a press');
+});
+
 test('with no last_changed, a switch is read as before: against the last look and our send', () => {
   // The harness reports no last_changed, so the golden replay keeps today's reading. Break: an absent time is taken
   // as "changed after our send" (every unlanded send a press) or as "before it" (every press ours).

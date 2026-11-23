@@ -195,7 +195,8 @@ export function litByUs(before: Observed, after: Observed, beliefs: Beliefs): Bu
 export type SwitchSent = { power: Power; sentAt: Instant };
 
 /**
- * Is a switch showing `power` its own button pressed?
+ * Is a switch showing `power` its own button pressed? Only one that could be reached at the last look: a switch back
+ * from out of reach has a fresh `last_changed`, and is a return, sent its target as usual (Amendment 8.1).
  * 1. With a send of ours still open and HA's `last_changed`: when it shows another power than we sent, changed after
  *    the send. A switch showing what we sent is ours, whenever it changed. This catches a press made between our
  *    send and the next look, which the last look alone cannot (it may show the same power as before the send).
@@ -206,9 +207,9 @@ export type SwitchSent = { power: Power; sentAt: Instant };
  */
 function switchPressed(was: Power | 'unreachable' | undefined, power: Power, sent: SwitchSent | undefined,
   changed: Instant | undefined): boolean {
+  if (was === undefined || was === 'unreachable') return false;
   if (sent !== undefined && changed !== undefined) return power !== sent.power && changed > sent.sentAt;
-  if (was === undefined || was === 'unreachable' || was === power) return false;
-  return sent === undefined || sent.power !== power;
+  return was !== power && (sent === undefined || sent.power !== power);
 }
 
 /** What an observation that nothing we sent explains means. */
