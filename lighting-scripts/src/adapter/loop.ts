@@ -14,13 +14,14 @@ import type { BulbId, SwitchId } from '../domain/types/ids.ts';
 import { entriesOf } from '../domain/types/ids.ts';
 import type { Power } from '../domain/types/light.ts';
 import type { Instant } from '../domain/types/time.ts';
-import { percentRangeOf, toDashboardControlId, toInstant } from '../parse/ids.ts';
+import { toDashboardControlId, toInstant } from '../parse/ids.ts';
 import { timestamp } from '../parse/accessors.ts';
 import type { HouseView } from '../runtime/effects.ts';
 import { ParseError } from '../runtime/parse.ts';
 import { bulbGroups } from './bulb-groups.ts';
 import { blockLightSaved, bulbTopics, decodeConfig } from './codecs/config.ts';
 import { configSource, decodeModel } from './codecs/model.ts';
+import { decodeRangeDefaults } from './codecs/range-defaults.ts';
 import { publishes } from './encode.ts';
 import type { Publish } from './encode.ts';
 import { controlOver, messages, profileStoreOf, storeSaveIn, uiRowsOf, unexplainedMessages } from './inputs.ts';
@@ -141,15 +142,8 @@ function helpersRead(house: HouseView, now: Instant): Msg {
  */
 function rangeDefaultsMessages(input: HaInput, house: HouseView, now: Instant): Msg[] {
   if (input.kind !== 'started' && input.kind !== 'helper changed') return [];
-  const range = (profile: 'bright' | 'cosy') => {
-    const end = (bound: 'min' | 'max') => {
-      const helper = house.state[`input_number.ls_range_${profile}_${bound}`];
-      return helper === undefined ? undefined : Number(helper.state);
-    };
-    return percentRangeOf(end('min'), end('max'));
-  };
-  const bright = range('bright'), cosy = range('cosy');
-  return bright === undefined || cosy === undefined ? [] : [{ kind: 'rangeDefaultsSaved', defaults: { bright, cosy }, at: now }];
+  const defaults = decodeRangeDefaults(house.state);
+  return defaults === undefined ? [] : [{ kind: 'rangeDefaultsSaved', defaults, at: now }];
 }
 
 /** The catalog's live controls (the UI rows with no profile store) the Model has a lamp or room for, with their proxy topics. */
