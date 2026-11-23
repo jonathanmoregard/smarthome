@@ -9,49 +9,63 @@ This is a staged migration in the `smarthome` repository's `lighting-scripts/`
 directory. No live scripts, automations or lamps have been changed. See
 `docs/migration-status.md` for remaining deployment and installation checks.
 
+## Layout
+
+Every input goes Home Assistant → `HaInput` → `Msg` → `update` →
+`lightingState` → `reconcile` → outputs, in one turn of the adapter.
+
+1. `src/domain/`: the Model, its messages and `update`, the schedule, the
+   lighting state and the dashboard view. Pure: it imports only itself and
+   never sees Home Assistant's JSON.
+2. `src/adapter/`: one turn (`loop.ts`: `handleInput`, `afterOutputs`), the
+   reconciler (`reconcile.ts`), the outputs and their Home Assistant calls
+   (`encode.ts`) and the client's types (`ha-client.ts`).
+3. `src/adapter/codecs/`: every read and write of Home Assistant's JSON: the
+   house mirror, the inputs, the config and Model, the helper and store
+   writes, the catalog and the journal.
+4. The host: `src/host.ts` keeps the Home Assistant mirror and the journal,
+   runs turns one at a time, makes each output's call in order and sets one
+   timer for the next wake. `src/main.ts` runs it live; `src/live.ts` is the
+   websocket client; `src/rpc.ts` is the JSON-lines host the e2e harness drives.
+
+`npm run check` holds these layers: `scripts/domain-imports.mjs` (the domain
+imports only itself, the adapter never the host), `scripts/json-edges.mjs` (no
+JSON outside the codecs, `encode.ts` and `ha-client.ts`) and
+`scripts/domain-words.mjs`.
+
 ## Development
 
-Requires Linux with `flock`, Node 22.18+ and Python 3. Install the pinned `package.json` dependencies
-with `npm install --ignore-scripts` on a machine with registry access. The current
-workspace has locally available TypeScript and an unmodified build of the official
-HA client. It does not yet have a verified lockfile or clean-install result.
+Requires Node 22.18+ and Python 3. Install the pinned `package.json` dependencies
+with `npm install --ignore-scripts` on a machine with registry access.
 
 ```sh
 python3 scripts/bootstrap-runtime.py
-npm run dev -- --config .runtime/catalog.json --live-rooms ''
+HA_URL=https://YOUR_HOME_ASSISTANT HA_TOKEN_FILE=/path/to/existing/token \
+  npm run dev -- --live --config .runtime/catalog.json --live-rooms <every room>
 ```
 
-`--live-rooms` is required, live or offline: see [Rooms on the port](#rooms-on-the-port).
-Bootstrap runs once and refuses to overwrite resident configuration. It has already
-been run in this workspace. The development process accepts JSON lines on stdin:
+The host runs live only; the offline JSON-lines mode is `src/rpc.ts`, which the
+e2e harness drives. `--live-rooms` is required: see
+[Rooms on the port](#rooms-on-the-port). Bootstrap runs once and refuses to
+overwrite resident configuration.
 
-```json
-{"script":"effects_catalog","args":{}}
-```
+`npm run dev` compiles a candidate on every save under `src/` and restarts the
+host only after a successful compile; a failed compile leaves the running host
+as it was. The journal (`.runtime/journal.json`, or `--state <file>`) keeps
+what each bulb was last sent, so a restart sends nothing a bulb already shows.
 
-Saving TypeScript compiles a candidate and replaces the running domain only after
-successful compilation. A failed compile leaves the previous program active. No
-commit, PR or CI run is required. Host/connection implementation changes require
-restarting the process; ordinary domain scripts reload in place.
+1. `npm run check` checks strict TypeScript and the layer guards.
+2. `npm test` exercises the domain, the adapter and the host without sending
+   real outputs.
+3. `npm run e2e` replays the recorded golden scenarios against the port and
+   compares the flow with the original scripts (`tests/e2e/`).
+4. `npm run verify` runs all three gates.
 
-1. `npm run check` checks strict TypeScript.
-2. `npm test` exercises the runtime and domain without sending real outputs.
-3. `npm run parity` runs the curated original-test comparison and native HA
-   differential checks. Reports distinguish passing tests, identical baseline
-   defects, uncovered execution seams and omitted historical versions.
-4. `npm run parity:inventory` lists every preserved test module.
-5. `npm run verify` runs all three gates.
-
-The public repository contains the program, runtime tests and parity harness.
-The captured household configuration, original private reference archive, frozen
-replay state and detailed reports stay local and are ignored by Git. `npm test`
-runs without that private archive; parity and bootstrap/export commands require
-it. The current workspace retains it under `reference/` and
-`tests/parity/migration-fixtures.json`.
-
-`tests/parity/README.md` describes how to run an individual original suite against
-the reference, TypeScript, or both. Existing test assertions remain unchanged.
-The native HA oracle needs the local HA Python environment described there.
+The public repository contains the program, its tests and the e2e harness. The
+captured household configuration, the original private reference archive and
+the golden recordings stay local and are ignored by Git. `npm test` runs without
+them; `npm run e2e` and the bootstrap/export commands need them, under
+`reference/` and `.runtime/`.
 
 ## Runtime configuration
 
@@ -63,11 +77,11 @@ HA entity/device/area/label changes and resident helper settings feed the live
 snapshot. A new physical device must still be assigned to the correct logical lamp;
 registry membership alone cannot infer that relationship.
 
-`.runtime/state.json` is the durable journal; its adjacent lock enforces one owner
-for that journal. Keep runtime data and credentials out of Git. A restart does not
-blindly replay outputs whose delivery was uncertain. Physical output is guarded
-against stale revisions, generations, topology and ownership. Completed work is
-recorded only after the transport acknowledges success.
+`.runtime/journal.json` is the durable journal: what each bulb and switch was
+last sent, saved after each send and written whole, then renamed into place. A
+send is recorded only once every call carrying it has gone; a failed call is
+retried after its backoff. Run one host per journal: nothing enforces a single
+owner yet. Keep runtime data and credentials out of Git.
 
 ## Staged cutover
 
@@ -122,13 +136,17 @@ HA_URL=https://YOUR_HOME_ASSISTANT HA_TOKEN_FILE=/path/to/existing/token \
   npm run dev -- --live --config .runtime/catalog.json --live-rooms <room>[,<room>...]
 ```
 
-Do not run that as a smoke test. Complete the parity/runtime checks, review the
+Do not run that as a smoke test. Run `npm run verify`, review the
 bridge configurations and switch output ownership before a supervised daytime
 cutover. Restore the captured original automation actions to roll back. This
 repository deliberately does not embed credentials or perform a live cutover on
 startup in its default offline mode.
 
 ## Rooms on the port
+
+For now the host drives the whole house: `--live-rooms` must name every room
+that holds a catalog lamp, and a partial list is refused at start-up. Sharing
+rooms with the old scripts, as described below, comes back in a later step.
 
 The cutover can go one room at a time while the old scripts keep the rest of the
 house. A room is the port's when it is in `--live-rooms` (comma-separated Home

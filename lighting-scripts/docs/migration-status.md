@@ -91,10 +91,11 @@ Five shimmed originals return a response: `effects_set`, `effects_ui_sync`,
 `ls_apply`, `ls_range_save` and `ls_remote_command`. Only `ls_apply` has captured
 response-bearing callers. Both now execute wholly inside TypeScript:
 
-1. `lighting_schedule_lamp_change_detector` calls it directly in
-   [`src/handlers/automations.ts`](../src/handlers/automations.ts).
-2. `ls_override_block` calls it directly in
-   [`src/domain/state-store.ts`](../src/domain/state-store.ts).
+1. `lighting_schedule_lamp_change_detector` is read as an input in
+   [`src/adapter/codecs/inputs.ts`](../src/adapter/codecs/inputs.ts), and its
+   lamps are sent in the same turn ([`src/adapter/loop.ts`](../src/adapter/loop.ts)).
+2. `ls_override_block` is read there as a held block, which the domain's
+   [`update`](../src/domain/update.ts) applies; the turn sends the lamps.
 
 Reproduce the audit with `npm run audit:responses`. The check derives the shim set
 from `scripts/export-bridge.py` and the captured remote wrappers, structurally scans
