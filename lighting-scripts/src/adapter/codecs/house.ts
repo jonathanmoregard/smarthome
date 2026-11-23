@@ -148,6 +148,24 @@ export function afterCall(states: Readonly<Record<string, EntityState>>, call: S
   return next;
 }
 
+/** Home Assistant's events the host subscribes to, by the names Home Assistant gives them. */
+export const HA_EVENTS = {
+  /** Home Assistant itself started again: the house is read afresh and reconciled. */
+  started: 'homeassistant_started',
+  stateChanged: 'state_changed',
+  /** A script or automation run the bridge forwards ({@link bridgeRunOf} in inputs.ts). */
+  bridgeRun: 'smarthome_script',
+  /** A registry changed: the house is read again whole. */
+  registries: ['entity_registry_updated', 'device_registry_updated', 'area_registry_updated', 'label_registry_updated'],
+} as const;
+
+/** The states with `entity` set to `state`, or removed when it has none. */
+export function withState(states: Readonly<Record<string, EntityState>>, entity: string, state: EntityState | undefined): Record<string, EntityState> {
+  const next = { ...states };
+  if (state === undefined) delete next[entity]; else next[entity] = state;
+  return next;
+}
+
 /** A `state_changed` event: the entity, and its new state, none when it was removed. */
 export function stateChangedOf(data: JsonObject): { entity: string; state: EntityState | undefined } {
   const entity = String(data.entity_id), raw = data.new_state;

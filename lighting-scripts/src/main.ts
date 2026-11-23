@@ -10,7 +10,7 @@ import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseDeployedCatalog } from './adapter/codecs/catalog.ts';
 import type { Catalog } from './adapter/codecs/catalog.ts';
-import { houseMirrorOf, stateChangedOf } from './adapter/codecs/house.ts';
+import { HA_EVENTS, houseMirrorOf, stateChangedOf } from './adapter/codecs/house.ts';
 import type { HouseMirror } from './adapter/codecs/house.ts';
 import { bridgeRunOf } from './adapter/codecs/inputs.ts';
 import { toInstant } from './adapter/codecs/ids.ts';
@@ -46,23 +46,20 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   try {
     const mirror = await read();
     refuseUnlessWholeHouse(liveRooms, catalog, parseRooms(mirror.areas));
-    const host = await Host.open({ ha, journal: fileJournal(resolve(option('--state') ?? '.runtime/journal.json')),
-      clock: () => toInstant(Date.now() / 1000), log: console, timer,
-      took: seconds => void ha.call(timingCall(seconds)).catch(() => undefined) }, mirror, catalog);
     const clock = () => toInstant(Date.now() / 1000), warn = (message: string) => console.warn(message);
+    const host = await Host.open({ ha, journal: fileJournal(resolve(option('--state') ?? '.runtime/journal.json')), clock, log: console,
+      timer, took: seconds => void ha.call(timingCall(seconds)).catch(() => undefined) }, mirror, catalog);
     const reread = rereading(read, (house, startedAt) => host.houseRead(house, startedAt), warn, clock, timer);
     const reconnect = rereading(read, (house, startedAt) => host.reconnected(house, startedAt), warn, clock, timer);
     ha.onConnection(connected => { if (connected) reconnect(); else host.disconnected(); });
-    await ha.subscribe('homeassistant_started', reconnect);
-    await ha.subscribe('state_changed', event => {
+    await ha.subscribe(HA_EVENTS.started, reconnect);
+    await ha.subscribe(HA_EVENTS.stateChanged, event => {
       const changed = stateChangedOf(event.data);
       host.stateChanged(changed.entity, changed.state);
     });
     // Home Assistant keeps the triggers only; every decision runs in this process.
-    await ha.subscribe('smarthome_script', event => { const run = bridgeRunOf(event.data); host.script(run.script, run.args); });
-    for (const event of ['entity_registry_updated', 'device_registry_updated', 'area_registry_updated', 'label_registry_updated']) {
-      await ha.subscribe(event, reread);
-    }
+    await ha.subscribe(HA_EVENTS.bridgeRun, event => { const run = bridgeRunOf(event.data); host.script(run.script, run.args); });
+    for (const event of HA_EVENTS.registries) await ha.subscribe(event, reread);
     stopHeartbeat = startHeartbeat(liveRooms, call => ha.call(call), message => console.error(message), HEARTBEAT_MS, () => host.paused());
     watcher = watchRuntimeCatalog(configuration, async read => {
       catalog = read;

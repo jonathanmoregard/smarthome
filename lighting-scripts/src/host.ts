@@ -5,7 +5,7 @@
  */
 import type { Catalog } from './adapter/codecs/catalog.ts';
 import type { HouseMirror } from './adapter/codecs/house.ts';
-import { afterCall, houseView, mergedRead } from './adapter/codecs/house.ts';
+import { afterCall, houseView, mergedRead, withState } from './adapter/codecs/house.ts';
 import { loadBeliefs, saveBeliefs } from './adapter/codecs/journal.ts';
 import { outputCall } from './adapter/encode.ts';
 import { Unreachable } from './adapter/ha-client.ts';
@@ -150,11 +150,7 @@ export class Host {
 
   /** A state Home Assistant reports changed, or removed; it lands in order with the inputs. */
   stateChanged(entity: string, state: EntityState | undefined): void {
-    this.enqueue(async () => {
-      const next = { ...this.mirror.state };
-      if (state === undefined) delete next[entity]; else next[entity] = state;
-      this.mirror = { ...this.mirror, state: next };
-    });
+    this.enqueue(async () => { this.mirror = { ...this.mirror, state: withState(this.mirror.state, entity, state) }; });
   }
 
   /**
