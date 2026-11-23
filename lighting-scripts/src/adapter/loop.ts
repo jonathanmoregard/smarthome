@@ -114,7 +114,8 @@ export function handleInput(state: AdapterState | undefined, house: HouseView, i
     beliefs = forgotten(beliefs, entriesOf(model.config.lamps).flatMap(([lamp, { bulbs }]) => bulbs.flatMap(({ bulb }) =>
       (input.entities.includes(lamp) || input.entities.includes(bulb)) && !ours.includes(bulb) ? [bulb] : [])));
   }
-  beliefs = switchesSeen(backOn(beliefs, changed.flatMap(change => change.kind === 'bulb back on' ? [change.bulb] : [])), observed);
+  beliefs = switchesSeen(backOn(beliefs, changed.flatMap(change => change.kind === 'bulb back on' ? [change.bulb] : [])), observed,
+    lighting.switches);
   const reconciled = nextSends(lighting, model.config, observed, beliefs, now);
   for (const publish of publishes(reconciled.sends, bulbTopics(house.catalog), bulbGroups(house.catalog))) outputs.push({ kind: 'publish', publish });
   const sending = beliefs;

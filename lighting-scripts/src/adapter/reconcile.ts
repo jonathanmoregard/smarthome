@@ -130,9 +130,7 @@ export type Belief =
 export type Attempts = 1 | 2 | 3 | 4;
 
 /** Each bulb's belief, and each switch sent its power that has not yet been seen to show it. */
-export type Beliefs = { bulbs: Record<BulbId, Belief>; switches: Record<SwitchId, { power: Power; sentAt: Instant }> };
-
-export const NO_BELIEFS: Beliefs = { bulbs: {}, switches: {} };
+export type Beliefs = { bulbs: Record<BulbId, Belief>; switches: Record<SwitchId, SwitchSent> };
 
 /**
  * The beliefs without those of `bulbs`, so the next pass sends them what they do not show, the candle's start
@@ -143,6 +141,8 @@ export function forgotten(beliefs: Beliefs, bulbs: readonly BulbId[]): Beliefs {
   return { ...beliefs, bulbs: Object.fromEntries(entriesOf(beliefs.bulbs).filter(([bulb]) => !forget.has(bulb))) };
 }
 
+export const NO_BELIEFS: Beliefs = { bulbs: {}, switches: {} };
+
 /** The beliefs with `bulbs` back on: each is owed its light with the short fade, and is no longer parked. */
 export function backOn(beliefs: Beliefs, bulbs: readonly BulbId[]): Beliefs {
   const back: Record<BulbId, Belief> = { ...beliefs.bulbs };
@@ -150,9 +150,18 @@ export function backOn(beliefs: Beliefs, bulbs: readonly BulbId[]): Beliefs {
   return { ...beliefs, bulbs: back };
 }
 
-/** The beliefs without the switch sends `observed` shows have landed: past that, a change of the switch is not ours. */
-export function switchesSeen(beliefs: Beliefs, observed: Observed): Beliefs {
-  return { ...beliefs, switches: Object.fromEntries(entriesOf(beliefs.switches).filter(([plug, sent]) => observed.switches[plug] !== sent.power)) };
+/**
+ * The beliefs without the switch sends that are over: one `observed` shows landed (the switch shows what we sent,
+ * changed at or after the send, or with no `last_changed` to say when), and one whose power the target has moved off
+ * (it may never have landed, and a later change to its power must not be taken for ours). Past either, a change of
+ * the switch is not ours.
+ */
+export function switchesSeen(beliefs: Beliefs, observed: Observed, target: Readonly<Record<SwitchId, Power>>): Beliefs {
+  return { ...beliefs, switches: Object.fromEntries(entriesOf(beliefs.switches).filter(([plug, sent]) => {
+    const changed = observed.switchChanged[plug];
+    const landed = observed.switches[plug] === sent.power && (changed === undefined || changed >= sent.sentAt);
+    return !landed && target[plug] === sent.power;
+  })) };
 }
 
 /** The bulbs parked in `after` that were not in `before`: each is logged once, when it is given up on. */
@@ -180,6 +189,26 @@ export function litByUs(before: Observed, after: Observed, beliefs: Beliefs): Bu
       : belief.kind === 'parked' && belief.lastSent.power === 'on');
     return lit && sentLit ? [bulb] : [];
   });
+}
+
+/** A switch we sent `power` at `sentAt`, not yet seen to land. */
+export type SwitchSent = { power: Power; sentAt: Instant };
+
+/**
+ * Is a switch showing `power` its own button pressed?
+ * 1. With a send of ours still open and HA's `last_changed`: when it shows another power than we sent, changed after
+ *    the send. A switch showing what we sent is ours, whenever it changed. This catches a press made between our
+ *    send and the next look, which the last look alone cannot (it may show the same power as before the send).
+ * 2. Otherwise, as before `last_changed` was read (the harness sends none): when it changed since the last look to a
+ *    power no open send of ours asked for.
+ * M5 may replace the first rule with a switch change as a live input of its own (option A of the M4 review), once
+ * the host owns HA's event stream.
+ */
+function switchPressed(was: Power | 'unreachable' | undefined, power: Power, sent: SwitchSent | undefined,
+  changed: Instant | undefined): boolean {
+  if (sent !== undefined && changed !== undefined) return power !== sent.power && changed > sent.sentAt;
+  if (was === undefined || was === 'unreachable' || was === power) return false;
+  return sent === undefined || sent.power !== power;
 }
 
 /** What an observation that nothing we sent explains means. */
@@ -348,15 +377,15 @@ function settlesAt(now: Instant, over: Seconds): Instant {
 
 /**
  * What changed between two observations that nothing we sent explains. A switch that changed to a power no send of
- * ours still waiting to be seen asked for is the plug's own button. A bulb that came on from out of reach, or from
+ * ours still waiting to be seen asked for is the plug's own button (see {@link switchPressed}). A bulb that came on from out of reach, or from
  * off where no send of ours lit it, came back on.
  */
 export function unexplained(before: Observed, after: Observed, beliefs: Beliefs): Unexplained[] {
   const found: Unexplained[] = [];
   for (const [plug, power] of entriesOf(after.switches)) {
-    const was = before.switches[plug];
-    if (power === 'unreachable' || was === undefined || was === 'unreachable' || was === power) continue;
-    if (beliefs.switches[plug]?.power !== power) found.push({ kind: 'switch pressed', switch: plug, power });
+    if (power !== 'unreachable' && switchPressed(before.switches[plug], power, beliefs.switches[plug], after.switchChanged[plug])) {
+      found.push({ kind: 'switch pressed', switch: plug, power });
+    }
   }
   const ours = new Set(litByUs(before, after, beliefs));
   for (const [bulb, now] of entriesOf(after.bulbs)) {

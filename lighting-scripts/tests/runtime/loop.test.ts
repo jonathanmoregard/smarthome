@@ -221,6 +221,20 @@ test('a switch we just switched is not a button press', () => {
   assert.equal(house.turn('12:02:00', { kind: 'tick' }).state.model.overlays.switches[plugA], undefined);
 });
 
+test("a plug pressed seconds after we switched it is held, though the next tick sees what the last one did", () => {
+  // Review fix 1, read from HA's last_changed (option B). We switch the plug off at 12:00; it lands at 12:00:01 and a
+  // person presses it on at 12:00:20, so the 12:01 tick sees on, as at 12:00. Break: the press is read against the
+  // last look only, our off is sent again, and the press is lost.
+  const house = new House();
+  house.states['switch.plug_a'] = { state: 'on', attributes: {}, last_changed: '2026-09-21T11:00:00Z' };
+  assert.deepEqual(switchesSent(house.turn('12:00:00', { kind: 'started' })), [[plugA, 'off']]);
+  house.states['switch.plug_a'] = { state: 'on', attributes: {}, last_changed: '2026-09-21T12:00:20Z' };
+  const tick = house.turn('12:01:00', { kind: 'tick' });
+  assert.deepEqual(tick.state.model.overlays.switches[plugA], { power: 'on', since: Date.parse('2026-09-21T12:01:00Z') / 1000 });
+  assert.deepEqual(switchesSent(tick), []);
+  assert.deepEqual(switchesSent(house.turn('12:02:00', { kind: 'tick' })), []);
+});
+
 test('a bulb changed behind our back is put back', () => {
   // Break: an observed difference that is not a press or a power-on is left as it is.
   const house = new House();
