@@ -10,7 +10,7 @@
  *
  * The helpers are values a person's presses change at run time, so a helper in
  * `unknown` or `unavailable`, or holding garbage, reads as today's fallback
- * (`gestureState`, `src/parse/gestures.ts`) and never raises.
+ * (the old `gestureState`) and never raises.
  */
 import type { ChordProgress, PresetButton, RemoteModel } from '../../domain/model.ts';
 import type { RoomId } from '../../domain/types/ids.ts';

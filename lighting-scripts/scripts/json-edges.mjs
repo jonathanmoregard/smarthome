@@ -6,8 +6,9 @@
 // index signature, so every field stays JsonValue-assignable, arbitrary keys
 // stay legal, and invalid states stay representable.
 //
-// The legitimate JSON edges are the HA transport, the parity harness RPC and
-// on-disk state -- under src/runtime, src/parse, src/adapter or src/live.ts.
+// The legitimate JSON edges are the HA transport, the harness RPC and on-disk
+// state -- src/adapter/codecs, src/adapter/encode.ts, src/adapter/ha-client.ts
+// and the host files outside src/adapter.
 // src/domain is not an edge, and inter-handler calls are not an edge either.
 //
 // Read this honestly: these counts cover src/domain ONLY, so moving a parser

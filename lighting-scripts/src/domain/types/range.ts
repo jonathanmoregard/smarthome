@@ -1,7 +1,7 @@
 /**
  * A number held to a range. Each range type is built only by its constructor
  * in this file (or, for a value read off the wire, by the `to...` wrapper in
- * `src/parse/ids.ts`, which calls it), so a value of the type is in range by
+ * `src/adapter/codecs/ids.ts`, which calls it), so a value of the type is in range by
  * construction and nothing re-checks it.
  *
  * Every constructor throws a `RangeError` for a value outside its range, which

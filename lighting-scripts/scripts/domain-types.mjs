@@ -14,7 +14,7 @@
 // - and, transitively, every type alias, interface, class or enum declared
 //   under `src/` that one of those names. A plain field one type away is as
 //   much part of the signature as a plain parameter, wherever the type is
-//   declared (a parse result in `src/parse`, a runtime type in `src/runtime`).
+//   declared (a codec result in `src/adapter/codecs`, a host type in `src/host.ts`).
 //   Following is by name: an interface is read whole even when it is reached
 //   through `Pick<...>`.
 // - the inferred return type of any of those functions written without one:
@@ -255,7 +255,7 @@ if (over.length > 0) {
     console.error(`  ${file}: ${uncovered.get(file)?.length ?? 0} exceeds the ceiling of ${ceilings.get(file) ?? 0}`);
     for (const site of uncovered.get(file) ?? []) console.error(describeSite(site));
   }
-  console.error('Give the value its domain type (a branded id, a range or a sum type), built in src/parse.');
+  console.error('Give the value its domain type (a branded id, a range or a sum type), built in src/adapter/codecs.');
   console.error('Only a value that really is open gets an allow entry, with its reason. Do not raise a ceiling.');
   process.exit(1);
 }

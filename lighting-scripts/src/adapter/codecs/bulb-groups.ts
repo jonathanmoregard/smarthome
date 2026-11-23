@@ -3,7 +3,7 @@
  * group go as one publish to the group's topic.
  *
  * Moved from `planGroups` (the deleted `src/legacy/domain/grouping.ts`, today's
- * `effects_group_plan`) and the group filter in `src/parse/grouping.ts`: only
+ * `effects_group_plan`) and the old group filter (`grouping.ts`): only
  * a verified group on a `/set` topic with two or more distinct members is
  * used; larger groups are tried first, then by topic; a topic two groups claim
  * with different members is not used; a bulb goes in at most one group; the

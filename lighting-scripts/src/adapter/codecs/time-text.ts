@@ -12,7 +12,7 @@ export function dateSeconds(text: string): number | undefined {
   return Number.isNaN(parsed) ? undefined : parsed / 1000 + (fraction === undefined ? 0 : Number(`0.${fraction.slice(0, 6)}`));
 }
 
-/** An instant as the scripts' `now` reads: UTC, six fractional digits, `Z` (`src/runtime/host.ts`). */
+/** An instant as the scripts' `now` reads: UTC, six fractional digits, `Z`, as the old host's clock wrote it. */
 export function nowText(instant: Instant): string {
   let whole = Math.floor(instant), micros = Math.round((instant - whole) * 1e6);
   if (micros === 1e6) { whole += 1; micros = 0; }

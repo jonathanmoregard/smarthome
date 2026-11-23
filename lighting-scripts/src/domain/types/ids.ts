@@ -3,8 +3,8 @@
  * id for a UUID would change nothing the domain does, so each gets its own
  * type, and one kind of id cannot be passed where another is expected.
  *
- * The constructors live only in `src/parse/ids.ts`, and only the parse steps
- * call them. They check nothing: an id is branded where the edge reads it.
+ * The constructors live only in `src/adapter/codecs/ids.ts`, and only the
+ * codecs call them. They check nothing: an id is branded where the edge reads it.
  */
 declare const brand: unique symbol;
 export type Id<Name extends string> = string & { readonly [brand]: Name };

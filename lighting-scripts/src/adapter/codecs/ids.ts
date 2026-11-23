@@ -3,7 +3,7 @@
  * wire string becomes a domain id. A number becomes a range type in
  * `src/domain/types/range.ts`; the wrappers here call it.
  *
- * Only the parse steps call them (`src/parse/*.ts` and `parseCatalog`). The id
+ * Only the codecs call them (`src/adapter/codecs/*.ts`). The id
  * constructors check nothing and return their input unchanged: whatever the
  * parse step already checked about the string still holds, and nothing is
  * added. Whether an id names something the registry knows is a later, named unit.
@@ -42,7 +42,7 @@ export type RemoteSource = Id<'RemoteSource'>;
 /*
  * The overlay key ids. These two check: each refuses the text another overlay
  * key's shape claims, so `overlayKeyText` and `parseOverlayKey` stay exact
- * inverses (`src/domain/types/overlay.ts`).
+ * inverses (`./overlay-key.ts`).
  */
 
 export function toRemoteSource(raw: string): RemoteSource {

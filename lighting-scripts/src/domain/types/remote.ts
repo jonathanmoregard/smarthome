@@ -10,8 +10,8 @@ export type Step = Ranged<'Step'>;
 
 /**
  * A remote's net presses, brighter less dimmer: -40..40, positive is brighter.
- * Like {@link Step}, not necessarily whole: today's reader admits any finite
- * number in that range (`inputFacts` in `src/parse/resolution.ts`).
+ * Like {@link Step}, not necessarily whole: the scripts' reader admits any
+ * finite number in that range, and so does the input codec.
  */
 export type StepCount = Ranged<'StepCount'>;
 
