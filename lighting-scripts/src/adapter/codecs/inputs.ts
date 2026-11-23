@@ -482,12 +482,12 @@ export function uiRowsOf(house: Pick<HouseView, 'catalog'>): UiRow[] {
 /** A store save (today's `ls_store`): the profile or block light the store is, and the fields it sets. */
 export type StoreSave = { target: StoreTarget; change: LampProfileChange };
 
-/** A store save, its store read against the config. Raises a `ParseError` for a store the config names nothing for. */
+/** A store save, its store read against the config and its name. Raises a `ParseError` for a store that is neither. */
 function storeSaveOf(data: JsonObject, model: Model): StoreSave {
   const store = requireString(data, 'store', 'ls_store');
-  const profile = profileStoreOf(store, model), light = profile === undefined ? blockLightOf(store, model.config) : undefined;
+  const profile = profileStoreOf(store, model), light = profile === undefined ? blockLightOf(store) : undefined;
   const target: StoreTarget | undefined = profile ?? (light === undefined ? undefined : { kind: 'block light', ...light });
-  if (target === undefined) throw new ParseError(`ls_store: ${store} is no lamp's or plug's profile and no block's light`);
+  if (target === undefined) throw new ParseError(`ls_store: ${store} is no lamp's or plug's profile and names no block's light`);
   const kelvin = typeof data.kelvin === 'number' ? data.kelvin : typeof data.mireds === 'number' && data.mireds > 0 ? 1_000_000 / data.mireds
     : undefined;
   return {

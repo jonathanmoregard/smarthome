@@ -211,11 +211,12 @@ test("a save to a plug's store is the plug's profile saved, and a lamp's store t
   }]);
 });
 
-test("a save to a block's light is no message, and a store the config does not name raises", () => {
+test("a save to a block's light is no message, and a store whose name is no block light's raises", () => {
   // Amendment 8.2. Break: a store that is no profile is taken as a block light whatever its name.
   assert.deepEqual(read('ls_store', { store: 'input_text.ls_house_day', on: false }), []);
   assert.deepEqual(read('ls_store', { store: `input_text.ls_${roomA}_night`, on: false }), []);
-  assert.throws(() => read('ls_store', { store: 'input_text.ls_nowhere_day', on: false }), ParseError);
+  assert.deepEqual(read('ls_store', { store: 'input_text.ls_nowhere_day', on: false }), []);
+  assert.throws(() => read('ls_store', { store: 'input_text.ls_nowhere', on: false }), ParseError);
   assert.throws(() => read('ls_store', { store: 'input_text.ls_house_teatime', on: false }), ParseError);
 });
 

@@ -272,10 +272,16 @@ function perBlock<T>(make: (block: Block) => T): Record<Block, T> {
 /** A block's light of the house or a room: the store its saved profile is kept in, and the template light over it. */
 export type BlockLight = { scope: RoomOrHouse; block: Block };
 
-/** The block light of the config a store is: the house's or a configured room's, for a block. */
-export function blockLightOf(store: string, config: Config): BlockLight | undefined {
-  const scopes: RoomOrHouse[] = ['house', ...entriesOf(config.rooms).map(([room]) => room)];
-  return scopes.flatMap(scope => BLOCKS.map(block => ({ scope, block }))).find(light => blockLightStore(light) === store);
+/**
+ * The block light a store is, by its name (the inverse of {@link blockLightStore}): the house's, or any room's,
+ * whether or not the config has a lamp in it, so a room's dashboard save is written as the scripts wrote it.
+ */
+export function blockLightOf(store: string): BlockLight | undefined {
+  const match = /^input_text\.ls_(.+)_(day|cosy|night)$/.exec(store);
+  const scope = match?.[1], block = BLOCKS.find(known => known === match?.[2]);
+  if (scope === undefined || block === undefined) return undefined;
+  const light: BlockLight = { scope: scope === 'house' ? 'house' : toRoomId(scope), block };
+  return blockLightStore(light) === store ? light : undefined;
 }
 
 /** The store a block's light is saved in: `input_text.ls_<scope>_<block>`. */
