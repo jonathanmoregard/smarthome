@@ -129,7 +129,7 @@ export const EFFECT_START_FADE: Seconds = secondsOrThrow(0.4);
 export const RETRY_FIRST: Seconds = secondsOrThrow(1);
 /** The longest wait between two sends of a failing bulb. */
 export const RETRY_CAP: Seconds = secondsOrThrow(60);
-/** The failed sends in a row that park a bulb. */
+/** The failures in a row that park a bulb's send, or a write to Home Assistant. */
 export const MAX_ATTEMPTS = 5;
 /** The put-backs within {@link REAPPLY_WINDOW} that park a bulb. */
 export const REAPPLY_LIMIT = 6;
@@ -393,7 +393,12 @@ function bulbAfter(before: Belief | undefined, send: Extract<Send, { kind: 'bulb
   if (attempts === undefined) return { kind: 'parked', lastSent: send.appearance };
   const known = outcome === 'start failed' || send.kind === 'start';
   return { kind: 'retrying', shows: known && send.appearance.power === 'on' ? { ...send.appearance, firmwareEffect: 'none' } : undefined,
-    attempts, retryAt: instantOrThrow(now + Math.min(RETRY_CAP, RETRY_FIRST * 2 ** (attempts - 1))) };
+    attempts, retryAt: retryAt(now, attempts) };
+}
+
+/** When what failed `failures` times in a row (a bulb's send, a write) is tried again: {@link RETRY_FIRST} after the first, doubling up to {@link RETRY_CAP}. */
+export function retryAt(now: Instant, failures: number): Instant {
+  return instantOrThrow(now + Math.min(RETRY_CAP, RETRY_FIRST * 2 ** (failures - 1)));
 }
 
 function settlesAt(now: Instant, over: Seconds): Instant {

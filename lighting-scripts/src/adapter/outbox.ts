@@ -6,18 +6,17 @@
  * the value) or when a newer change by someone else, made after the write was queued, supersedes it. Nothing else
  * drops it: a helper read, a reconnect or a helper change only update what Home Assistant is read to hold, and the
  * writes still waiting are laid over that read, so the Model keeps them. A refused write is tried again on the bulbs'
- * backoff, {@link WRITE_TRIES} times, then parked and said once; a call not made (Home Assistant out of reach) counts
+ * backoff, {@link MAX_ATTEMPTS} times, then parked and said once; a call not made (Home Assistant out of reach) counts
  * no try. Only the writes due are sent: a write a turn makes again unchanged is the one already waiting.
  */
 import { isDeepStrictEqual } from 'node:util';
 import type { Instant } from '../domain/types/time.ts';
-import { instantOrThrow } from '../domain/types/range.ts';
 import { storeLanded } from './codecs/config.ts';
 import { afterCall, callSettled, withStates } from './codecs/house.ts';
 import type { HouseView } from './codecs/house.ts';
 import { outputCall } from './encode.ts';
 import type { Output } from './encode.ts';
-import { RETRY_CAP, RETRY_FIRST } from './reconcile.ts';
+import { MAX_ATTEMPTS, retryAt } from './reconcile.ts';
 
 /** A write to Home Assistant other than a bulb's publish or a switch's power. */
 export type Write = Exclude<Output, { kind: 'publish' } | { kind: 'switch' }>;
@@ -37,9 +36,6 @@ function same(a: Write, b: Write): boolean {
 
 /** A write waiting: when it was queued, how often Home Assistant refused it, and when it is next due, or parked. */
 export type Entry = { write: Write; queuedAt: Instant; refusals: number; status: { kind: 'due'; at: Instant } | { kind: 'parked' } };
-
-/** How often Home Assistant may refuse a write before it is parked. */
-export const WRITE_TRIES = 5;
 
 export type Outbox = readonly Entry[];
 
@@ -97,13 +93,12 @@ export function afterTries(outbox: Outbox, tried: ReadonlyMap<Entry, Tried>, now
     if (outcome === 'taken') return [];
     if (outcome !== 'refused') return [entry];
     const refusals = entry.refusals + 1;
-    if (refusals >= WRITE_TRIES) {
+    if (refusals >= MAX_ATTEMPTS) {
       const stopped: Entry = { ...entry, refusals, status: { kind: 'parked' } };
       parked.push(stopped);
       return [stopped];
     }
-    const at = instantOrThrow(now + Math.min(RETRY_CAP, RETRY_FIRST * 2 ** (refusals - 1)));
-    return [{ ...entry, refusals, status: { kind: 'due', at } }];
+    return [{ ...entry, refusals, status: { kind: 'due', at: retryAt(now, refusals) } }];
   });
   return { outbox: next, parked };
 }

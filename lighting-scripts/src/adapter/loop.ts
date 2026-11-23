@@ -29,10 +29,10 @@ import type { HaInput, StoreSave } from './codecs/inputs.ts';
 import { decodeObserved } from './codecs/observed.ts';
 import type { Observed } from './reconcile.ts';
 import {
-  afterSend, backOn, forgotten, NO_BELIEFS, newlyParked, nextRetry, nextSends, reportedChanged, switchesSeen, unexplained, unparked,
+  afterSend, backOn, forgotten, MAX_ATTEMPTS, NO_BELIEFS, newlyParked, nextRetry, nextSends, reportedChanged, switchesSeen, unexplained, unparked,
 } from './reconcile.ts';
 import type { Beliefs, Outcome, Send } from './reconcile.ts';
-import { afterTries, dueAt, nextTry, queued, settled, targetOf, unparkedWrites, withWaiting, WRITE_TRIES } from './outbox.ts';
+import { afterTries, dueAt, nextTry, queued, settled, targetOf, unparkedWrites, withWaiting } from './outbox.ts';
 import type { Entry, Outbox, Tried, Write } from './outbox.ts';
 import { configStoreWrite, dashboardWrites, modelWrites, uiSyncWrites } from './codecs/writes.ts';
 import type { ControlRow, StoreWrite } from './codecs/writes.ts';
@@ -106,7 +106,7 @@ export function afterOutputs(turn: Turn, failed: readonly boolean[]): Settled {
   // A bulb given up on is most often switched off at the wall: said once, for the host's info log (owner, 2026-11-20).
   const notes = parked.map(bulb => `lighting: ${bulb} is parked: it does not take what it is sent; left until it comes back on or its light changes`);
   const warnings = stopped.map(entry =>
-    `lighting: ${targetOf(entry.write)} is parked: Home Assistant refused it ${WRITE_TRIES} times; the lighting follows what Home Assistant holds until it is written anew, changes, or Home Assistant is back`);
+    `lighting: ${targetOf(entry.write)} is parked: Home Assistant refused it ${MAX_ATTEMPTS} times; the lighting follows what Home Assistant holds until it is written anew, changes, or Home Assistant is back`);
   return { state: { ...turn.state, beliefs, outbox, reread: turn.state.reread || stopped.length > 0 }, wakeAt, parked, notes, warnings };
 }
 
