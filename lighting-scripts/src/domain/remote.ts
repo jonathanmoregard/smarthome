@@ -18,9 +18,8 @@
  * `src/legacy/domain/controller.ts` (the toggle is the room's power; the
  * commit is the Model returned).
  */
-import type { Block } from './blocks.ts';
 import { roomOverlays } from './lighting-state.ts';
-import type { ChordProgress, Model, PresetButton, RemoteButton, RemoteModel } from './model.ts';
+import type { ChordProgress, Model, PresetButton, RemoteButton, RemoteCommand, RemoteModel } from './model.ts';
 import { clearRoom, setModeOverlay, setRoomPower } from './overlays.ts';
 import type { HeldBlock, PresetChoice, RememberedPreset, RemoteAdjustment, RemoteOverlay, RemotePreset, StepRange } from './overlays.ts';
 import { blockPosition } from './schedule.ts';
@@ -28,8 +27,9 @@ import type { RemoteId, RoomId } from './types/ids.ts';
 import { entriesOf } from './types/ids.ts';
 import type { Power } from './types/light.ts';
 import { instantOrThrow, secondsOrThrow, STEP_BOUNDS, stepCountOrThrow, stepOrThrow } from './types/range.ts';
-import type { RemoteCommand, Step, StepCount } from './types/remote.ts';
 import type { Instant, Seconds } from './types/time.ts';
+import type { Block } from './types/schedule.ts';
+import type { Step, StepCount } from './types/range.ts';
 
 /** A chord step's window: today's chord timer, `00:00:03`. */
 export const CHORD_WINDOW: Seconds = secondsOrThrow(3);

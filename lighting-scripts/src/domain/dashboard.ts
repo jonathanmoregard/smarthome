@@ -4,18 +4,17 @@
  * (`ls_room_plan`'s `mirror` and its mode mirror) and the UI sync (`uiMessages`
  * in `src/legacy/domain/ui-state.ts`). The adapter writes what changed.
  */
-import type { Block } from './blocks.ts';
 import type { EffectName } from './effect.ts';
 import type { Model } from './model.ts';
 import { blockPosition } from './schedule.ts';
-import type { DashboardControlId, LampId } from './types/ids.ts';
+import type { DashboardControlId, LampId, LampOrRoom } from './types/ids.ts';
 import { entriesOf } from './types/ids.ts';
 import type { Colour, Level, OnLight } from './types/light.ts';
 import { sameColour } from './types/light.ts';
-import type { LampOrRoom, LightingState } from './types/lighting-state.ts';
 import { levelOrThrow } from './types/range.ts';
-import type { RoomOrHouse } from './types/schedule.ts';
+import type { Block, RoomOrHouse } from './types/schedule.ts';
 import type { Instant } from './types/time.ts';
+import type { LightingState } from './lighting-state.ts';
 
 /**
  * The dashboard's view: the block each scope's selector shows (the held block,

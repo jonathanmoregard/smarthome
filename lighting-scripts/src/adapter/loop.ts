@@ -13,7 +13,6 @@ import { update } from '../domain/update.ts';
 import type { Config } from '../domain/config.ts';
 import type { BulbId, RoomId, SwitchId } from '../domain/types/ids.ts';
 import { entriesOf } from '../domain/types/ids.ts';
-import type { LightingState } from '../domain/types/lighting-state.ts';
 import type { Instant } from '../domain/types/time.ts';
 import { toDashboardControlId, toInstant } from './codecs/ids.ts';
 import { timestamp } from './codecs/accessors.ts';
@@ -45,6 +44,7 @@ import { afterTries, dueAt, nextTry, queued, settled, targetOf, unparkedWrites, 
 import type { Entry, Outbox, Tried, Write } from './outbox.ts';
 import { configStoreWrite, dashboardWrites, modelWrites, uiSyncWrites } from './codecs/writes.ts';
 import type { ControlRow, StoreWrite } from './codecs/writes.ts';
+import type { LightingState } from '../domain/lighting-state.ts';
 
 /**
  * What the adapter keeps between turns: the Model, what each bulb and switch was sent, the dashboard last shown, what

@@ -7,12 +7,12 @@ import { CHORD_WINDOW, IDLE_REMOTE, POWER_COMBO_WINDOW } from '../../src/domain/
 import { update } from '../../src/domain/update.ts';
 import type { LampId, RemoteId } from '../../src/domain/types/ids.ts';
 import type { Colour, LampLight, OnLight } from '../../src/domain/types/light.ts';
-import type { RemoteCommand } from '../../src/domain/types/remote.ts';
 import type { Instant } from '../../src/domain/types/time.ts';
 import {
   toBrightness, toColourChannel, toDashboardControlId, toInstant, toKelvin, toLampId, toLevel, toRemoteId, toRoomId, toStep,
 } from '../../src/adapter/codecs/ids.ts';
 import { syntheticHouse } from './fixtures/synthetic-house.ts';
+import type { RemoteCommand } from '../../src/domain/model.ts';
 
 /**
  * The remote as `update` cases (M3 Task 2): each test sends a remote's presses

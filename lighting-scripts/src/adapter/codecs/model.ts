@@ -5,8 +5,6 @@
  * profile for each block from its store, and each plug's own on/off for
  * each block from the same kind of store.
  */
-import { BLOCKS } from '../../domain/blocks.ts';
-import type { Block } from '../../domain/blocks.ts';
 import type { Config } from '../../domain/config.ts';
 import type { LampProfile, Model, RemoteModel, SwitchProfile } from '../../domain/model.ts';
 import type { LampId, RemoteId, RoomId, SwitchId } from '../../domain/types/ids.ts';
@@ -22,6 +20,8 @@ import type { Share } from './rooms.ts';
 import { IDLE_REMOTE } from '../../domain/remote.ts';
 import { decodeRemoteModel } from './remote-helpers.ts';
 import { FOLLOWS_ROOM_SWITCH, decodeSwitchProfile } from './switch-profiles.ts';
+import { BLOCKS } from '../../domain/types/schedule.ts';
+import type { Block } from '../../domain/types/schedule.ts';
 
 /** The house as the config is read from it: the states, the rooms, the labels and the timezone. */
 export function configSource(house: Pick<HouseView, 'state' | 'rooms' | 'labels' | 'timezone'>): ConfigSource {

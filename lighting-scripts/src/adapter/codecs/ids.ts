@@ -11,8 +11,7 @@
 import type { BulbId, DashboardControlId, Id, LampId, RemoteId, RoomId, SwitchId } from '../../domain/types/ids.ts';
 import type { Brightness, BrightnessStep, ColourChannel, Kelvin, Level, Percent, PercentRange } from '../../domain/types/light.ts';
 import type { Instant, Seconds, TimeOfDay, Timezone } from '../../domain/types/time.ts';
-import type { Step, StepCount } from '../../domain/types/remote.ts';
-import type { Minutes } from '../../domain/types/range.ts';
+import type { Minutes, Step, StepCount } from '../../domain/types/range.ts';
 import type { Progress } from '../../domain/types/schedule.ts';
 import {
   brightnessOrThrow, brightnessStepOrThrow, colourChannelOrThrow, instantOrThrow, isWithin, kelvinOrThrow, levelOrThrow,

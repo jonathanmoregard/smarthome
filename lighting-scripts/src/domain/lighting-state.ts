@@ -12,8 +12,6 @@
  * overlay; and room power. The candle shows the warm end, as today's candle
  * does when it starts (`transport.ts`), unless a newer colour says otherwise.
  */
-import { BLOCKS } from './blocks.ts';
-import type { Block } from './blocks.ts';
 import { blend, OFF_END_LEVEL, roundEven } from './blend.ts';
 import type { BlendPosition } from './types/range.ts';
 import type { Config } from './config.ts';
@@ -27,20 +25,57 @@ import { blockLight, blockPosition, nextTimeOfDay, sceneBetween, scheduledStage,
 import type { BlockPosition, Stage, StageEnd } from './schedule.ts';
 import { switchPower } from './switches.ts';
 import type { RoomLight } from './switches.ts';
-import type { LampId, RoomId } from './types/ids.ts';
+import type { LampId, LampOrRoom, RoomId, SwitchId } from './types/ids.ts';
 import { entriesOf } from './types/ids.ts';
-import type { LampOrRoom, LightingState } from './types/lighting-state.ts';
-import type { Brightness, Colour, LampLight, Level, RGB, SceneLight, Transition } from './types/light.ts';
+import type { Brightness, Colour, LampLight, Level, Power, RGB, SceneLight, Transition } from './types/light.ts';
 import {
   blendPositionOrThrow, brightnessOrThrow, colourChannelOrThrow, instantOrThrow, levelOrThrow, progressOrThrow, secondsOrThrow,
 } from './types/range.ts';
-import type { RoomOrHouse } from './types/schedule.ts';
+import type { Block, RoomOrHouse } from './types/schedule.ts';
 import type { Instant } from './types/time.ts';
+import { BLOCKS } from './types/schedule.ts';
+
+/** What every lamp and switch should show: derived from the Model, and what the adapter makes the house match. */
+export type LightingState = { lamps: Record<LampId, LampLight>; switches: Record<SwitchId, Power> };
 
 /** The mode overlay's colour: today's 255, 105, 180. */
 export const MODE_COLOUR: Colour = {
   kind: 'rgb', rgb: { red: colourChannelOrThrow(255), green: colourChannelOrThrow(105), blue: colourChannelOrThrow(180) },
 };
+
+/**
+ * The lighting state at `now`.
+ *
+ * The schedule's light for each lamp, at the block a hold chose, through a
+ * fade, the wake light or a fade out of a hold. Each overlay part that reaches
+ * the lamp applies in the order it was set. Then the mode overlay's colour,
+ * and room power over whether a lit lamp is on.
+ *
+ * Rules that replace the old plumbing:
+ * 1. A lamp's transition is a scheduled fade over 60 s while its stage is
+ *    moving, and manual otherwise.
+ * 2. A lit light with no colour takes its room's colour for the block it is
+ *    in. With none there, it takes the colour of the newest earlier block that
+ *    has one for the lamp. With none in any block it has no colour, and each
+ *    bulb keeps its own.
+ * 3. The candle shows on a lamp where some bulb can run it. A bulb that cannot
+ *    run it shows the lamp's light as normal light (`bulbAppearance`). Today a
+ *    lamp needs every bulb to run it: a named change.
+ * 4. The remote's place on the blend is worked out each time from its room,
+ *    and never cached.
+ * 5. Old stored shapes take no part: the Model does not hold them.
+ */
+export function lightingState(model: Model, now: Instant): LightingState {
+  const lamps: Record<LampId, LampLight> = {};
+  for (const [lamp] of entriesOf(model.config.lamps)) lamps[lamp] = lampLight(model, lamp, now);
+  const rooms: Record<RoomOrHouse, RoomLight> = { house: roomShown(model, 'house', now).light };
+  for (const [room] of entriesOf(model.config.rooms)) rooms[room] = roomShown(model, room, now).light;
+  return { lamps, switches: switchPower(model, rooms, now) };
+}
+
+function lampLight(model: Model, lamp: LampId, now: Instant): LampLight {
+  return lampShown(model, lamp, now, shownLight);
+}
 
 /** The overlays that apply to a lamp at an instant, after the next-block reset. */
 export type AppliedOverlays = {
@@ -68,15 +103,6 @@ export type AppliedOverlays = {
 export function overlaysOn(model: Model, lamp: LampId, now: Instant): AppliedOverlays {
   const room = roomOfLamp(model.config, lamp);
   return applied(model, room, lamp, blockPosition(model.config, room, now), true);
-}
-
-/**
- * The overlays that apply to a room's own light at `now`, after the
- * next-block reset: the remote reads its room's newest remote overlay and its
- * held block here.
- */
-export function roomOverlays(model: Model, room: RoomId, now: Instant): AppliedOverlays {
-  return applied(model, room, undefined, blockPosition(model.config, room, now), true);
 }
 
 /**
@@ -110,6 +136,15 @@ function applied(model: Model, room: RoomId | undefined, lamp: LampId | undefine
     mode: mode.active && outsidePrivate && !released(mode.since),
     fadingOut: lamp !== undefined && fading && (releasedNow || (block !== undefined && released(block.setAt))),
   };
+}
+
+/**
+ * The overlays that apply to a room's own light at `now`, after the
+ * next-block reset: the remote reads its room's newest remote overlay and its
+ * held block here.
+ */
+export function roomOverlays(model: Model, room: RoomId, now: Instant): AppliedOverlays {
+  return applied(model, room, undefined, blockPosition(model.config, room, now), true);
 }
 
 /**
@@ -330,96 +365,132 @@ function pinnedOf(...args: Parameters<typeof foldedLight>): Pinned | undefined {
 }
 
 /**
- * The lighting state at `now`.
- *
- * The schedule's light for each lamp, at the block a hold chose, through a
- * fade, the wake light or a fade out of a hold. Each overlay part that reaches
- * the lamp applies in the order it was set. Then the mode overlay's colour,
- * and room power over whether a lit lamp is on.
- *
- * Rules that replace the old plumbing:
- * 1. A lamp's transition is a scheduled fade over 60 s while its stage is
- *    moving, and manual otherwise.
- * 2. A lit light with no colour takes its room's colour for the block it is
- *    in. With none there, it takes the colour of the newest earlier block that
- *    has one for the lamp. With none in any block it has no colour, and each
- *    bulb keeps its own.
- * 3. The candle shows on a lamp where some bulb can run it. A bulb that cannot
- *    run it shows the lamp's light as normal light (`bulbAppearance`). Today a
- *    lamp needs every bulb to run it: a named change.
- * 4. The remote's place on the blend is worked out each time from its room,
- *    and never cached.
- * 5. Old stored shapes take no part: the Model does not hold them.
+ * The next instant the lighting state changes by itself: inside a fade or a
+ * wake fade, the next whole minute (which makes a fade a series of one-minute
+ * moves, as today); else the next fade start, block start, wake time or wake
+ * end, the next overlay reset falling due (an overlay's age limit, the daily
+ * reset time), or a remote's chord or power burst closing its window (a
+ * burst of one press then toggles its room). Undefined when nothing is coming.
  */
-export function lightingState(model: Model, now: Instant): LightingState {
-  const lamps: Record<LampId, LampLight> = {};
-  for (const [lamp] of entriesOf(model.config.lamps)) lamps[lamp] = lampLight(model, lamp, now);
-  const rooms: Record<RoomOrHouse, RoomLight> = { house: roomShown(model, 'house', now).light };
-  for (const [room] of entriesOf(model.config.rooms)) rooms[room] = roomShown(model, room, now).light;
-  return { lamps, switches: switchPower(model, rooms, now) };
-}
-
-function lampLight(model: Model, lamp: LampId, now: Instant): LampLight {
-  return lampShown(model, lamp, now, shownLight);
-}
-
-/** A lamp through its stage and overlays, as `show` gives it; a fade out of a hold starts from its held light. */
-function lampShown<T>(model: Model, lamp: LampId, now: Instant, show: (...args: Parameters<typeof foldedLight>) => T): T {
+export function nextChange(model: Model, now: Instant): Instant | undefined {
   const config = model.config;
-  const room = roomOfLamp(config, lamp);
-  const position = blockPosition(config, room, now);
-  const on = applied(model, room, lamp, position, true);
-  const subject = lampSubject(model, lamp, room, now);
-  if (on.fadingOut && position.fade !== undefined) {
-    const before = applied(model, room, lamp, position, false);
-    const heldAt = before.block === undefined ? position.current : before.block;
-    const held = sceneOf(shownLight(model, subject, still(heldAt), heldAt, before, room, now, undefined));
-    const into = position.fade.into;
-    const fade: Stage = { from: { kind: 'held light' }, into: { kind: 'block', block: into }, progress: position.fade.progress, moving: true };
-    return show(model, subject, fade, into, on, room, now, held);
+  const minute = Math.floor(now / 60) * 60 + 60;
+  const times: number[] = [];
+  for (const room of [undefined, ...entriesOf(config.rooms).map(([id]) => id)]) {
+    const position = blockPosition(config, room, now);
+    if (position.fade !== undefined) times.push(minute);
+    if (position.nextFadeStart !== undefined) times.push(position.nextFadeStart);
+    if (position.nextStart !== undefined) times.push(position.nextStart);
   }
+  for (const [id, room] of entriesOf(config.rooms)) {
+    const wake = room.wakeLight;
+    if (wake === undefined) continue;
+    if (wakeStage(room, blockPosition(config, id, now), now, config.timezone)?.moving === true) times.push(minute);
+    times.push(wake.at, wake.at + wake.fade * 60);
+  }
+  const age = config.overlayReset.afterAge;
+  if (age !== undefined) for (const since of overlaySinces(model)) times.push(since + age * 60);
+  const daily = config.overlayReset.atSetTime;
+  if (daily !== undefined) times.push(nextTimeOfDay(now, daily, config.timezone));
+  for (const remote of Object.values(model.remotes)) {
+    if (remote.chord.active) times.push(remote.chord.until);
+    if (remote.power.presses !== 0) times.push(remote.power.until);
+  }
+  const coming = times.filter(time => time > now);
+  return coming.length === 0 ? undefined : instantOrThrow(Math.min(...coming));
+}
+
+/** When each overlay was set: what the age limit measures. */
+function overlaySinces(model: Model): Instant[] {
+  const { overlays, modeOverlay } = model;
+  return [
+    ...Object.values(overlays.blocks).flatMap(overlay => overlay === undefined ? [] : [overlay.since]),
+    ...overlays.remotes.map(remote => remote.since),
+    ...overlays.lamps.map(overlay => overlay.since),
+    ...Object.values(overlays.switches).flatMap(overlay => overlay === undefined ? [] : [overlay.since]),
+    ...(modeOverlay.active ? [modeOverlay.since] : []),
+  ];
+}
+
+/** A room's own light (the house's, for `house`), and where it places each of its remote's steps on its blend. */
+function roomShown(model: Model, scope: RoomOrHouse, now: Instant): {
+  light: RoomLight; placed: ReadonlyMap<RemoteAdjustment, Placed>; pinned: Pinned | undefined;
+} {
+  const config = model.config;
+  const room = scope === 'house' ? undefined : scope;
+  const position = blockPosition(config, room, now);
+  const on = applied(model, room, undefined, position, true);
   const stage = on.block === undefined ? roomStage(config, room, position, now) : still(on.block);
-  return show(model, subject, stage, blockAt(stage.from, position.current), on, room, now, undefined);
+  const lightIn = (block: Block) => blockLight(config, room, block);
+  const ends = { day: lightIn('day'), cosy: lightIn('cosy') };
+  const placed = new Map<RemoteAdjustment, Placed>();
+  const subject: Subject = {
+    lightIn, ends, canRun: () => false, warmEnd: config.warmEnd,
+    place: (step, range, level) => {
+      const place = placeOnBlend(step, range, ends, level);
+      if (place !== undefined) placed.set(step, place);
+      return place;
+    },
+  };
+  const base = stageLight(stage, lightIn, undefined);
+  const shown = fold(base, changesOf(on.lamps, on.remote), subject);
+  const lit = shown.lit === undefined ? base.power === 'on' : shown.lit;
+  // A person's or a control's off holds the lamps, not the room's light a range rule reads: today an off is not in it.
+  const off = !lit || (room !== undefined && model.overlays.roomPower[room] === 'off') || shown.brightness === undefined;
+  const switchStage: RoomLight['stage'] = stage.moving ? { moving: true } : { moving: false, block: blockAt(stage.into, position.current) };
+  const light: RoomLight['light'] = off || shown.brightness === undefined ? OFF : { power: 'on', brightness: shown.brightness };
+  const pinned = off || shown.off || shown.brightness === undefined ? undefined : { brightness: shown.brightness, colour: shown.colour };
+  return { light: { stage: switchStage, light }, placed, pinned };
 }
 
-/** The room a lamp is in, where the config holds that room; a lamp in no room, or one the config does not hold, follows the house. */
-function roomOfLamp(config: Config, lamp: LampId): RoomId | undefined {
-  const room = config.lamps[lamp]?.room;
-  return room !== undefined && config.rooms[room] !== undefined ? room : undefined;
+/** A room's stage with no hold: its wake light where it applies, else its blocks. */
+function roomStage(config: Config, room: RoomId | undefined, position: BlockPosition, now: Instant): Stage {
+  const placed = room === undefined ? undefined : config.rooms[room];
+  const wake = placed === undefined ? undefined : wakeStage(placed, position, now, config.timezone);
+  return wake === undefined ? scheduledStage(position) : wake;
 }
 
-/** A lit lamp's light as a scene, for a fade that starts from it. */
-function sceneOf(light: LampLight): SceneLight {
-  return light.power === 'off' ? OFF : { power: 'on', brightness: brightnessOrThrow(light.level), colour: light.colour, effect: light.effect.name };
+/** A held block: no fade, from and into the same block. */
+function still(block: Block): Stage {
+  const end: StageEnd = { kind: 'block', block };
+  return { from: end, into: end, progress: progressOrThrow(0), moving: false };
 }
 
 /**
- * A lamp's light: the stage's light (rule 2 filling a missing colour), each
- * overlay part over it in the order it was set, then the mode overlay and room
- * power. `block` is the block the lamp is in (the mode overlay does nothing at
- * night); `held` is the held light a fade out of a hold starts from.
+ * Where a remote step starts on the cosy (0) to day (1) blend, moved from
+ * today's `normalPosition`. An off end reads as {@link OFF_END_LEVEL}. Not
+ * placed: a missing end, two off ends, a lit end with no colour, or bounds
+ * that run backwards.
  */
-function shownLight(...args: Parameters<typeof foldedLight>): LampLight {
-  const [, subject, stage, block, overlays] = args;
-  const [model, , , , , room] = args;
-  const { shown, off } = foldedLight(...args);
-  if (room !== undefined && model.overlays.roomPower[room] === 'off') return SWITCHED_OFF;
-  if (off || shown.brightness === undefined) return FADED_OFF;
-  const warmColour: Colour = { kind: 'rgb', rgb: subject.warmEnd };
-  const colour = overlays.mode && block !== 'night' ? MODE_COLOUR : shown.warmColour ? warmColour : shown.colour;
-  const transition = stage.moving ? FADE_STEP : MANUAL;
-  return { power: 'on', level: levelOf(shown.brightness), colour, effect: shown.effect, transition };
+function placeOnBlend(step: RemoteAdjustment, range: StepRange, ends: BlendEnds, level: Brightness | undefined): Placed | undefined {
+  const { day, cosy } = ends;
+  if (day === undefined || cosy === undefined || (day.power === 'off' && cosy.power === 'off')) return undefined;
+  if ((day.power === 'on' && day.colour === undefined) || (cosy.power === 'on' && cosy.colour === undefined)) return undefined;
+  if (step.lower > step.upper) return undefined;
+  const at = levelOrOffEnd(level), dayLevel = endLevel(day), cosyLevel = endLevel(cosy);
+  const span = dayLevel - cosyLevel, floor = Math.min(76.5, cosyLevel), slope = Math.max(0, span, (cosyLevel - floor) / 2);
+  const seed = step.from === 'day' ? 1
+    : step.from === 'cosy' ? 0
+      : day.power === 'off' ? (at < cosyLevel && cosyLevel > OFF_END_LEVEL ? (cosyLevel - at) / (cosyLevel - OFF_END_LEVEL) : 0)
+        : at > dayLevel && dayLevel < 255 ? 1 + (at - dayLevel) / (255 - dayLevel)
+          : at < cosyLevel && slope > 0 ? Math.max(-2, (at - cosyLevel) / slope)
+            : span > 0 ? (at - cosyLevel) / span : 1;
+  const lower = clamp(step.lower, range.min, range.max), upper = clamp(step.upper, range.min, range.max);
+  return { position: blendPositionOrThrow(clamp(clamp(seed * 10 + step.steps, lower, upper) / 10, -2, 2)), from: at };
 }
 
-/** The stage's light with every overlay part folded over it, and whether the lamp is off: held off, unlit, or its room switched off. */
-function foldedLight(model: Model, subject: Subject, stage: Stage, block: Block, overlays: AppliedOverlays, room: RoomId | undefined,
-  now: Instant, held: SceneLight | undefined): { shown: Shown; off: boolean } {
-  const staged = stageLight(stage, subject.lightIn, held);
-  const base = staged.power === 'on' && staged.colour === undefined
-    ? { ...staged, colour: fallbackColour(model.config, subject, room, block, now) } : staged;
-  const shown = fold(base, changesOf(overlays.lamps, overlays.remote), subject);
-  const lit = shown.lit === undefined ? base.power === 'on' : shown.lit;
-  return { shown, off: shown.off || !lit || (room !== undefined && model.overlays.roomPower[room] === 'off') };
+/** A level for placing a position: a light that shows none (an off lamp) reads as {@link OFF_END_LEVEL}. */
+function levelOrOffEnd(level: Brightness | undefined): Brightness {
+  return level === undefined ? OFF_END_LEVEL : level;
+}
+
+/** An end's level for placing a position: an off end reads as {@link OFF_END_LEVEL}. */
+function endLevel(end: SceneLight): Brightness {
+  return end.power === 'on' ? end.brightness : OFF_END_LEVEL;
+}
+
+function clamp(value: number, low: number, high: number): number {
+  return Math.max(low, Math.min(high, value));
 }
 
 /** The light a stage shows: held, the destination; moving, part way between its ends. A missing light is off. */
@@ -494,143 +565,73 @@ function stepped(shown: Shown, step: RemoteAdjustment, range: StepRange, subject
   return { ...shown, brightness, colour: sample.colour, warmColour: false, lit: bothLit ? undefined : true };
 }
 
-/** An end's level for placing a position: an off end reads as {@link OFF_END_LEVEL}. */
-function endLevel(end: SceneLight): Brightness {
-  return end.power === 'on' ? end.brightness : OFF_END_LEVEL;
-}
-
-/** A level for placing a position: a light that shows none (an off lamp) reads as {@link OFF_END_LEVEL}. */
-function levelOrOffEnd(level: Brightness | undefined): Brightness {
-  return level === undefined ? OFF_END_LEVEL : level;
-}
-
-/** A brightness as a Zigbee level: held to 1..254 and rounded half to even, as today's frames send it. */
-function levelOf(brightness: Brightness): Level {
-  return levelOrThrow(roundEven(clamp(brightness, 1, 254)));
-}
-
-function clamp(value: number, low: number, high: number): number {
-  return Math.max(low, Math.min(high, value));
-}
-
-/** A held block: no fade, from and into the same block. */
-function still(block: Block): Stage {
-  const end: StageEnd = { kind: 'block', block };
-  return { from: end, into: end, progress: progressOrThrow(0), moving: false };
-}
-
-/** A room's stage with no hold: its wake light where it applies, else its blocks. */
-function roomStage(config: Config, room: RoomId | undefined, position: BlockPosition, now: Instant): Stage {
-  const placed = room === undefined ? undefined : config.rooms[room];
-  const wake = placed === undefined ? undefined : wakeStage(placed, position, now, config.timezone);
-  return wake === undefined ? scheduledStage(position) : wake;
-}
-
 /** A stage end's block; the light a hold kept is in `otherwise`. */
 function blockAt(end: StageEnd, otherwise: Block): Block {
   return end.kind === 'block' ? end.block : otherwise;
 }
 
-/** A room's own light (the house's, for `house`), and where it places each of its remote's steps on its blend. */
-function roomShown(model: Model, scope: RoomOrHouse, now: Instant): {
-  light: RoomLight; placed: ReadonlyMap<RemoteAdjustment, Placed>; pinned: Pinned | undefined;
-} {
+/** A lamp through its stage and overlays, as `show` gives it; a fade out of a hold starts from its held light. */
+function lampShown<T>(model: Model, lamp: LampId, now: Instant, show: (...args: Parameters<typeof foldedLight>) => T): T {
   const config = model.config;
-  const room = scope === 'house' ? undefined : scope;
+  const room = roomOfLamp(config, lamp);
   const position = blockPosition(config, room, now);
-  const on = applied(model, room, undefined, position, true);
+  const on = applied(model, room, lamp, position, true);
+  const subject = lampSubject(model, lamp, room, now);
+  if (on.fadingOut && position.fade !== undefined) {
+    const before = applied(model, room, lamp, position, false);
+    const heldAt = before.block === undefined ? position.current : before.block;
+    const held = sceneOf(shownLight(model, subject, still(heldAt), heldAt, before, room, now, undefined));
+    const into = position.fade.into;
+    const fade: Stage = { from: { kind: 'held light' }, into: { kind: 'block', block: into }, progress: position.fade.progress, moving: true };
+    return show(model, subject, fade, into, on, room, now, held);
+  }
   const stage = on.block === undefined ? roomStage(config, room, position, now) : still(on.block);
-  const lightIn = (block: Block) => blockLight(config, room, block);
-  const ends = { day: lightIn('day'), cosy: lightIn('cosy') };
-  const placed = new Map<RemoteAdjustment, Placed>();
-  const subject: Subject = {
-    lightIn, ends, canRun: () => false, warmEnd: config.warmEnd,
-    place: (step, range, level) => {
-      const place = placeOnBlend(step, range, ends, level);
-      if (place !== undefined) placed.set(step, place);
-      return place;
-    },
-  };
-  const base = stageLight(stage, lightIn, undefined);
-  const shown = fold(base, changesOf(on.lamps, on.remote), subject);
+  return show(model, subject, stage, blockAt(stage.from, position.current), on, room, now, undefined);
+}
+
+/** The room a lamp is in, where the config holds that room; a lamp in no room, or one the config does not hold, follows the house. */
+function roomOfLamp(config: Config, lamp: LampId): RoomId | undefined {
+  const room = config.lamps[lamp]?.room;
+  return room !== undefined && config.rooms[room] !== undefined ? room : undefined;
+}
+
+/** A lit lamp's light as a scene, for a fade that starts from it. */
+function sceneOf(light: LampLight): SceneLight {
+  return light.power === 'off' ? OFF : { power: 'on', brightness: brightnessOrThrow(light.level), colour: light.colour, effect: light.effect.name };
+}
+
+/**
+ * A lamp's light: the stage's light (rule 2 filling a missing colour), each
+ * overlay part over it in the order it was set, then the mode overlay and room
+ * power. `block` is the block the lamp is in (the mode overlay does nothing at
+ * night); `held` is the held light a fade out of a hold starts from.
+ */
+function shownLight(...args: Parameters<typeof foldedLight>): LampLight {
+  const [, subject, stage, block, overlays] = args;
+  const [model, , , , , room] = args;
+  const { shown, off } = foldedLight(...args);
+  if (room !== undefined && model.overlays.roomPower[room] === 'off') return SWITCHED_OFF;
+  if (off || shown.brightness === undefined) return FADED_OFF;
+  const warmColour: Colour = { kind: 'rgb', rgb: subject.warmEnd };
+  const colour = overlays.mode && block !== 'night' ? MODE_COLOUR : shown.warmColour ? warmColour : shown.colour;
+  const transition = stage.moving ? FADE_STEP : MANUAL;
+  return { power: 'on', level: levelOf(shown.brightness), colour, effect: shown.effect, transition };
+}
+
+/** The stage's light with every overlay part folded over it, and whether the lamp is off: held off, unlit, or its room switched off. */
+function foldedLight(model: Model, subject: Subject, stage: Stage, block: Block, overlays: AppliedOverlays, room: RoomId | undefined,
+  now: Instant, held: SceneLight | undefined): { shown: Shown; off: boolean } {
+  const staged = stageLight(stage, subject.lightIn, held);
+  const base = staged.power === 'on' && staged.colour === undefined
+    ? { ...staged, colour: fallbackColour(model.config, subject, room, block, now) } : staged;
+  const shown = fold(base, changesOf(overlays.lamps, overlays.remote), subject);
   const lit = shown.lit === undefined ? base.power === 'on' : shown.lit;
-  // A person's or a control's off holds the lamps, not the room's light a range rule reads: today an off is not in it.
-  const off = !lit || (room !== undefined && model.overlays.roomPower[room] === 'off') || shown.brightness === undefined;
-  const switchStage: RoomLight['stage'] = stage.moving ? { moving: true } : { moving: false, block: blockAt(stage.into, position.current) };
-  const light: RoomLight['light'] = off || shown.brightness === undefined ? OFF : { power: 'on', brightness: shown.brightness };
-  const pinned = off || shown.off || shown.brightness === undefined ? undefined : { brightness: shown.brightness, colour: shown.colour };
-  return { light: { stage: switchStage, light }, placed, pinned };
+  return { shown, off: shown.off || !lit || (room !== undefined && model.overlays.roomPower[room] === 'off') };
 }
 
-/**
- * Where a remote step starts on the cosy (0) to day (1) blend, moved from
- * today's `normalPosition`. An off end reads as {@link OFF_END_LEVEL}. Not
- * placed: a missing end, two off ends, a lit end with no colour, or bounds
- * that run backwards.
- */
-function placeOnBlend(step: RemoteAdjustment, range: StepRange, ends: BlendEnds, level: Brightness | undefined): Placed | undefined {
-  const { day, cosy } = ends;
-  if (day === undefined || cosy === undefined || (day.power === 'off' && cosy.power === 'off')) return undefined;
-  if ((day.power === 'on' && day.colour === undefined) || (cosy.power === 'on' && cosy.colour === undefined)) return undefined;
-  if (step.lower > step.upper) return undefined;
-  const at = levelOrOffEnd(level), dayLevel = endLevel(day), cosyLevel = endLevel(cosy);
-  const span = dayLevel - cosyLevel, floor = Math.min(76.5, cosyLevel), slope = Math.max(0, span, (cosyLevel - floor) / 2);
-  const seed = step.from === 'day' ? 1
-    : step.from === 'cosy' ? 0
-      : day.power === 'off' ? (at < cosyLevel && cosyLevel > OFF_END_LEVEL ? (cosyLevel - at) / (cosyLevel - OFF_END_LEVEL) : 0)
-        : at > dayLevel && dayLevel < 255 ? 1 + (at - dayLevel) / (255 - dayLevel)
-          : at < cosyLevel && slope > 0 ? Math.max(-2, (at - cosyLevel) / slope)
-            : span > 0 ? (at - cosyLevel) / span : 1;
-  const lower = clamp(step.lower, range.min, range.max), upper = clamp(step.upper, range.min, range.max);
-  return { position: blendPositionOrThrow(clamp(clamp(seed * 10 + step.steps, lower, upper) / 10, -2, 2)), from: at };
-}
-
-/**
- * The next instant the lighting state changes by itself: inside a fade or a
- * wake fade, the next whole minute (which makes a fade a series of one-minute
- * moves, as today); else the next fade start, block start, wake time or wake
- * end, the next overlay reset falling due (an overlay's age limit, the daily
- * reset time), or a remote's chord or power burst closing its window (a
- * burst of one press then toggles its room). Undefined when nothing is coming.
- */
-export function nextChange(model: Model, now: Instant): Instant | undefined {
-  const config = model.config;
-  const minute = Math.floor(now / 60) * 60 + 60;
-  const times: number[] = [];
-  for (const room of [undefined, ...entriesOf(config.rooms).map(([id]) => id)]) {
-    const position = blockPosition(config, room, now);
-    if (position.fade !== undefined) times.push(minute);
-    if (position.nextFadeStart !== undefined) times.push(position.nextFadeStart);
-    if (position.nextStart !== undefined) times.push(position.nextStart);
-  }
-  for (const [id, room] of entriesOf(config.rooms)) {
-    const wake = room.wakeLight;
-    if (wake === undefined) continue;
-    if (wakeStage(room, blockPosition(config, id, now), now, config.timezone)?.moving === true) times.push(minute);
-    times.push(wake.at, wake.at + wake.fade * 60);
-  }
-  const age = config.overlayReset.afterAge;
-  if (age !== undefined) for (const since of overlaySinces(model)) times.push(since + age * 60);
-  const daily = config.overlayReset.atSetTime;
-  if (daily !== undefined) times.push(nextTimeOfDay(now, daily, config.timezone));
-  for (const remote of Object.values(model.remotes)) {
-    if (remote.chord.active) times.push(remote.chord.until);
-    if (remote.power.presses !== 0) times.push(remote.power.until);
-  }
-  const coming = times.filter(time => time > now);
-  return coming.length === 0 ? undefined : instantOrThrow(Math.min(...coming));
-}
-
-/** When each overlay was set: what the age limit measures. */
-function overlaySinces(model: Model): Instant[] {
-  const { overlays, modeOverlay } = model;
-  return [
-    ...Object.values(overlays.blocks).flatMap(overlay => overlay === undefined ? [] : [overlay.since]),
-    ...overlays.remotes.map(remote => remote.since),
-    ...overlays.lamps.map(overlay => overlay.since),
-    ...Object.values(overlays.switches).flatMap(overlay => overlay === undefined ? [] : [overlay.since]),
-    ...(modeOverlay.active ? [modeOverlay.since] : []),
-  ];
+/** A brightness as a Zigbee level: held to 1..254 and rounded half to even, as today's frames send it. */
+function levelOf(brightness: Brightness): Level {
+  return levelOrThrow(roundEven(clamp(brightness, 1, 254)));
 }
 
 const OFF = { power: 'off' } as const;

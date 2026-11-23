@@ -15,8 +15,6 @@
  * refuses (a store no lamp has, a room with no remote) raises a `ParseError`
  * in `messages`; either way the loop logs it and drops the input.
  */
-import type { Block } from '../../domain/blocks.ts';
-import { BLOCKS } from '../../domain/blocks.ts';
 import type { EffectName } from '../../domain/effect.ts';
 import type {
   ControlLight, LampProfileChange, Model, Msg, OverlayRequest, PresetButton, RangeDefaults, RangeRule, RemoteButton, RequestedBrightness,
@@ -25,8 +23,7 @@ import type {
 import type { DashboardControlId, LampId, RemoteId, RoomId, SwitchId } from '../../domain/types/ids.ts';
 import { entriesOf } from '../../domain/types/ids.ts';
 import type { Brightness, Colour, PercentRange, Power } from '../../domain/types/light.ts';
-import type { RemoteCommand } from '../../domain/types/remote.ts';
-import type { RoomOrHouse } from '../../domain/types/schedule.ts';
+import type { Block, RoomOrHouse } from '../../domain/types/schedule.ts';
 import type { Instant } from '../../domain/types/time.ts';
 import { onOffOnly, ownRange, storedRangeBounds } from './ui-state.ts';
 import type { RangeBound } from './ui-state.ts';
@@ -48,6 +45,8 @@ import type { Catalog, HouseMode } from './catalog.ts';
 import { uiRowsOf } from './catalog.ts';
 import type { UiRow } from './catalog.ts';
 import { overlayKeyText } from './overlay-key.ts';
+import { BLOCKS } from '../../domain/types/schedule.ts';
+import type { RemoteCommand } from '../../domain/model.ts';
 
 /** What happened in Home Assistant, as a script or automation run names it. Fields are read by `messages`. */
 export type HaInput =

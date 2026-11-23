@@ -1,12 +1,10 @@
-import type { Block } from './blocks.ts';
 import type { Config } from './config.ts';
 import type { EffectName } from './effect.ts';
-import type { DashboardControlId, LampId, RemoteId, RoomId, SwitchId } from './types/ids.ts';
+import type { DashboardControlId, LampId, LampOrRoom, RemoteId, RoomId, SwitchId } from './types/ids.ts';
 import type { Brightness, BrightnessStep, Colour, PercentRange, Power, SceneLight } from './types/light.ts';
-import type { LampOrRoom } from './types/lighting-state.ts';
-import type { RemoteCommand, Step, StepCount } from './types/remote.ts';
-import type { RoomOrHouse } from './types/schedule.ts';
+import type { Block, RoomOrHouse } from './types/schedule.ts';
 import type { Instant } from './types/time.ts';
+import type { Step, StepCount } from './types/range.ts';
 
 /**
  * Everything the lighting state is derived from: the config, the overlays and
@@ -214,6 +212,14 @@ export type RemoteButton =
   | { kind: 'power' }
   /** A preset button; undefined when the press named a temperature not in the table, which only ends a chord. */
   | { kind: 'preset'; button: PresetButton | undefined };
+
+/**
+ * A command a remote's presses send for its room: brighter (`up`) or dimmer
+ * (`down`), the presets to the left or right, the power toggle, the room's
+ * reset, and the mode overlay's toggle (the old scripts' mode toggle). A press that
+ * is no command never reaches the domain: the adapter drops it.
+ */
+export type RemoteCommand = 'up' | 'down' | 'left' | 'right' | 'toggle' | 'reset' | 'mode';
 
 /**
  * Everything that can happen to the Model (Elm's Msg). `at` is when the input

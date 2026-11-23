@@ -33,11 +33,11 @@ import { bulbAppearance } from '../domain/effect.ts';
 import type { BulbAppearance, BulbInfo } from '../domain/effect.ts';
 import type { BulbId, SwitchId } from '../domain/types/ids.ts';
 import { entriesOf } from '../domain/types/ids.ts';
-import type { LightingState } from '../domain/types/lighting-state.ts';
 import type { Colour, LampLight, Level, Power, RGB } from '../domain/types/light.ts';
 import { sameColour } from '../domain/types/light.ts';
 import type { Instant, Seconds } from '../domain/types/time.ts';
 import { instantOrThrow, secondsOrThrow } from '../domain/types/range.ts';
+import type { LightingState } from '../domain/lighting-state.ts';
 
 /** What a bulb reports: off, or on at a level and maybe a colour. The candle is not reported. */
 export type ObservedLight = { power: 'off' } | { power: 'on'; level: Level; colour: Colour | undefined };

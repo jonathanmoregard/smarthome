@@ -9,7 +9,6 @@
  * instead of calling one with a value that may be out of range.
  */
 import type { Brightness, BrightnessStep, ColourChannel, Kelvin, Level, Percent, PercentRange } from './light.ts';
-import type { Step, StepCount } from './remote.ts';
 import type { Progress } from './schedule.ts';
 import type { Instant, Seconds, TimeOfDay } from './time.ts';
 import type { Ranged } from './ranged.ts';
@@ -33,6 +32,33 @@ export function blendPositionOrThrow(raw: number): BlendPosition {
   mustBeWithin(raw, -2, 2, 'A blend position');
   // Cast: checked just above; this is the one place a number becomes a blend position.
   return raw as BlendPosition;
+}
+
+/**
+ * A bound of a remote's step range: -20..20, the captured default
+ * `{'min':-20,'max':20}`, which is also the widest range the scripts accept
+ * (`-20 <= min <= max <= 20`). Not necessarily whole: the check admits any
+ * finite number between the ends.
+ */
+export type Step = Ranged<'Step'>;
+
+export function stepOrThrow(raw: number): Step {
+  mustBeWithin(raw, STEP_BOUNDS.low, STEP_BOUNDS.high, 'A remote step bound');
+  // Cast: checked just above; this is the one place a number becomes a step bound.
+  return raw as Step;
+}
+
+/**
+ * A remote's net presses, brighter less dimmer: -40..40, positive is brighter.
+ * Like {@link Step}, not necessarily whole: the scripts' reader admits any
+ * finite number in that range, and so does the input codec.
+ */
+export type StepCount = Ranged<'StepCount'>;
+
+export function stepCountOrThrow(raw: number): StepCount {
+  mustBeWithin(raw, -40, 40, 'A count of remote steps');
+  // Cast: checked just above; this is the one place a number becomes a step count.
+  return raw as StepCount;
 }
 
 export function levelOrThrow(raw: number): Level {
@@ -78,18 +104,6 @@ export function progressOrThrow(raw: number): Progress {
   mustBeWithin(raw, 0, 1, 'A transition progress');
   // Cast: checked just above; this is the one place a number becomes a progress.
   return raw as Progress;
-}
-
-export function stepOrThrow(raw: number): Step {
-  mustBeWithin(raw, STEP_BOUNDS.low, STEP_BOUNDS.high, 'A remote step bound');
-  // Cast: checked just above; this is the one place a number becomes a step bound.
-  return raw as Step;
-}
-
-export function stepCountOrThrow(raw: number): StepCount {
-  mustBeWithin(raw, -40, 40, 'A count of remote steps');
-  // Cast: checked just above; this is the one place a number becomes a step count.
-  return raw as StepCount;
 }
 
 export function percentRangeOrThrow(low: number, high: number): PercentRange {

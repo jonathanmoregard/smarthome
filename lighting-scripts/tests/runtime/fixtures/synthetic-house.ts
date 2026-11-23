@@ -16,7 +16,6 @@
  * `room-a` (both parts handed back to the schedule), whose cosy block runs the candle; `room-b` switched off; the mode
  * overlay active.
  */
-import type { Block } from '../../../src/domain/blocks.ts';
 import type { BlockSchedule, Config, Room, RoomBlock } from '../../../src/domain/config.ts';
 import type { LampProfile, LitLight, Model } from '../../../src/domain/model.ts';
 import type { RemoteAdjustment } from '../../../src/domain/overlays.ts';
@@ -32,6 +31,7 @@ import { parseCatalog } from '../../../src/adapter/codecs/catalog.ts';
 import type { Catalog } from '../../../src/adapter/codecs/catalog.ts';
 import type { EntityState, JsonObject } from '../../../src/adapter/ha-client.ts';
 import { parseRooms } from '../../../src/adapter/codecs/rooms.ts';
+import type { Block } from '../../../src/domain/types/schedule.ts';
 
 /** A fixed moment the house's times count from. */
 const T0 = 1_790_000_000;

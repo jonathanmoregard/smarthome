@@ -19,7 +19,6 @@
  * Model does not own are copied as found.
  */
 import { isDeepStrictEqual } from 'node:util';
-import { BLOCKS } from '../../domain/blocks.ts';
 import type { Config } from '../../domain/config.ts';
 import type { Model, RangeDefaults, RangeRule } from '../../domain/model.ts';
 import { DEFAULT_STEP_RANGE } from '../../domain/remote.ts';
@@ -45,6 +44,7 @@ import { isObject, jinjaTruthy } from './parse.ts';
 import { drives } from './rooms.ts';
 import type { Share } from './rooms.ts';
 import { dateSeconds } from './time-text.ts';
+import { BLOCKS } from '../../domain/types/schedule.ts';
 
 /** What the overrides sensor holds of the Model. */
 export type OverridesState = Pick<Model, 'overlays' | 'modeOverlay' | 'switchRanges' | 'rangeDefaults'>;

@@ -1,12 +1,10 @@
-import type { Block } from './blocks.ts';
 import type { Config } from './config.ts';
 import type { Model, Overlays } from './model.ts';
 import { blockPosition, lastTimeOfDay } from './schedule.ts';
-import type { RoomId } from './types/ids.ts';
+import type { LampOrRoom, RoomId } from './types/ids.ts';
 import { entriesOf } from './types/ids.ts';
-import type { LampOrRoom } from './types/lighting-state.ts';
 import type { Power } from './types/light.ts';
-import type { RoomOrHouse } from './types/schedule.ts';
+import type { Block, RoomOrHouse } from './types/schedule.ts';
 import type { Instant } from './types/time.ts';
 
 export type {

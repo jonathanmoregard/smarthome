@@ -1,7 +1,5 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { BLOCKS } from '../../src/domain/blocks.ts';
-import type { Block } from '../../src/domain/blocks.ts';
 import type { Config } from '../../src/domain/config.ts';
 import type { LampProfileChange } from '../../src/domain/model.ts';
 import {
@@ -14,6 +12,8 @@ import type { EntityState } from '../../src/adapter/ha-client.ts';
 import { ParseError } from '../../src/adapter/codecs/parse.ts';
 import { toBrightness, toBulbId, toInstant, toKelvin, toLampId, toMinutes, toRemoteId, toRoomId, toSwitchId, toTimeOfDay } from '../../src/adapter/codecs/ids.ts';
 import { parseRooms } from '../../src/adapter/codecs/rooms.ts';
+import { BLOCKS } from '../../src/domain/types/schedule.ts';
+import type { Block } from '../../src/domain/types/schedule.ts';
 
 /**
  * The config codec reads the helpers the dashboard edits and the registry's

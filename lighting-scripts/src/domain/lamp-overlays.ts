@@ -17,9 +17,8 @@ import { lightingState, pinnedLight } from './lighting-state.ts';
 import type { Pinned } from './lighting-state.ts';
 import type { ControlLight, Model, RequestedBrightness, RequestedLight } from './model.ts';
 import type { BrightnessOverlay, ColourOverlay, EffectOverlay, LampOverlay, LampOverlayFrom } from './overlays.ts';
-import type { DashboardControlId, LampId, RoomId } from './types/ids.ts';
+import type { DashboardControlId, LampId, LampOrRoom, RoomId } from './types/ids.ts';
 import type { Brightness } from './types/light.ts';
-import type { LampOrRoom } from './types/lighting-state.ts';
 import { brightnessOrThrow } from './types/range.ts';
 import type { Instant } from './types/time.ts';
 

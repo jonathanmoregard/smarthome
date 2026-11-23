@@ -13,7 +13,6 @@ import type { Beliefs, Send } from '../../src/adapter/reconcile.ts';
 import type { Config } from '../../src/domain/config.ts';
 import { candle, normal } from '../../src/domain/effect.ts';
 import type { BulbId } from '../../src/domain/types/ids.ts';
-import type { LightingState } from '../../src/domain/types/lighting-state.ts';
 import type { Colour, LampLight, OnLight } from '../../src/domain/types/light.ts';
 import type { Instant } from '../../src/domain/types/time.ts';
 import {
@@ -21,6 +20,7 @@ import {
 } from '../../src/adapter/codecs/ids.ts';
 import { FakeBulbs, lit } from './fake-bulbs.ts';
 import { syntheticHouse } from './fixtures/synthetic-house.ts';
+import type { LightingState } from '../../src/domain/lighting-state.ts';
 
 /**
  * The reconciler's core rule, on the synthetic house's bulbs (`light.lamp_a1`:

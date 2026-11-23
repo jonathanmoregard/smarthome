@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { Block } from '../../src/domain/blocks.ts';
 import type { BlockSchedule, Config, Room, RoomBlock } from '../../src/domain/config.ts';
 import type { EffectName } from '../../src/domain/effect.ts';
 import { blockLight, blockPosition, sceneBetween, scheduledStage, wakeStage } from '../../src/domain/schedule.ts';
@@ -10,6 +9,7 @@ import type { Instant } from '../../src/domain/types/time.ts';
 import {
   toBrightness, toColourChannel, toInstant, toKelvin, toMinutes, toProgress, toRoomId, toTimeOfDay, toTimezone,
 } from '../../src/adapter/codecs/ids.ts';
+import type { Block } from '../../src/domain/types/schedule.ts';
 
 /**
  * The schedule on the new types: where a room is in its blocks, the wake

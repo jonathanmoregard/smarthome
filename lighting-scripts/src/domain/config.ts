@@ -1,10 +1,9 @@
-import type { Block } from './blocks.ts';
 import type { BulbInfo } from './effect.ts';
-import type { DashboardControlId, LampId, RemoteId, RoomId, SwitchId } from './types/ids.ts';
-import type { LampOrRoom } from './types/lighting-state.ts';
+import type { DashboardControlId, LampId, LampOrRoom, RemoteId, RoomId, SwitchId } from './types/ids.ts';
 import type { RGB, SceneLight } from './types/light.ts';
 import type { Minutes } from './types/range.ts';
 import type { Instant, TimeOfDay, Timezone } from './types/time.ts';
+import type { Block } from './types/schedule.ts';
 
 /**
  * The config: what the house is and how its schedule runs, as the helpers and

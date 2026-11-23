@@ -8,9 +8,9 @@
  * Not moved: the effect's stored channel list (`effect_channels`), which the
  * Model does not hold; the codec writes it with the effect.
  */
-import type { Block } from './blocks.ts';
 import type { LampProfile, LampProfileChange, LitLight, Model, SwitchProfile, SwitchProfileChange } from './model.ts';
 import type { LampId, SwitchId } from './types/ids.ts';
+import type { Block } from './types/schedule.ts';
 
 /** A lamp's profile for a block, saved. */
 export function lampProfileSaved(model: Model, lamp: LampId, block: Block, change: LampProfileChange): Model {

@@ -7,14 +7,13 @@
  * the stage is still). `isRangeDefault` is not moved: a `PercentRange` is in order inside
  * 0..100 by its type.
  */
-import type { Block } from './blocks.ts';
 import type { Config } from './config.ts';
 import type { Model, RangeDefaults, RangeRule } from './model.ts';
 import { blockPosition } from './schedule.ts';
 import type { RoomId, SwitchId } from './types/ids.ts';
 import { entriesOf } from './types/ids.ts';
 import type { Brightness, Power } from './types/light.ts';
-import type { RoomOrHouse } from './types/schedule.ts';
+import type { Block, RoomOrHouse } from './types/schedule.ts';
 import type { Instant } from './types/time.ts';
 
 /**

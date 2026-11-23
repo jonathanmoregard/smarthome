@@ -8,15 +8,14 @@
  * `localTime`, `nextMidnight`). Block starts are wall-clock times in the
  * config's zone, so they stay at their local time across clock changes.
  */
-import { BLOCKS, DEFAULT_BLOCK } from './blocks.ts';
-import type { Block } from './blocks.ts';
 import { mixColour, OFF_END_LEVEL, rampUp, roundEven } from './blend.ts';
 import type { BlockTiming, Config, Room, RoomBlock } from './config.ts';
 import type { RoomId } from './types/ids.ts';
 import type { Colour, SceneLight } from './types/light.ts';
 import { brightnessOrThrow, instantOrThrow, kelvinOrThrow, progressOrThrow, secondsOrThrow } from './types/range.ts';
-import type { Progress } from './types/schedule.ts';
+import type { Block, Progress } from './types/schedule.ts';
 import type { Instant, Seconds, TimeOfDay, Timezone } from './types/time.ts';
+import { BLOCKS, DEFAULT_BLOCK } from './types/schedule.ts';
 
 /**
  * Where a room (or the house) is in its blocks at an instant (today's

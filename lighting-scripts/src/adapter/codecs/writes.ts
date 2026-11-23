@@ -9,8 +9,6 @@
  * nothing changed.
  */
 import { isDeepStrictEqual } from 'node:util';
-import { BLOCKS } from '../../domain/blocks.ts';
-import type { Block } from '../../domain/blocks.ts';
 import type { ControlShown, DashboardView } from '../../domain/dashboard.ts';
 import type { LampProfileChange, Model } from '../../domain/model.ts';
 import { savedLampProfile } from '../../domain/profiles.ts';
@@ -35,6 +33,8 @@ import { encodeSwitchProfile } from './switch-profiles.ts';
 import { remoteHelperEntity, remoteHelperWrites } from './remote-helpers.ts';
 import type { HelperValue } from './remote-helpers.ts';
 import { nowText } from './time-text.ts';
+import { BLOCKS } from '../../domain/types/schedule.ts';
+import type { Block } from '../../domain/types/schedule.ts';
 
 /**
  * The overrides sensor's revision and the attributes written over its stored ones. While the old scripts write the

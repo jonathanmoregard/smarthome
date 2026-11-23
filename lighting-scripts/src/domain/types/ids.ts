@@ -22,6 +22,12 @@ export type RemoteId = Id<'RemoteId'>;
 /** A dashboard control: one control whose lamp overlay it sets, one overlay per control. */
 export type DashboardControlId = Id<'DashboardControlId'>;
 
+/**
+ * What one entry of the lighting state is about: a lamp, or a whole room.
+ * Built by the adapter's codecs: the config's live controls and the inputs that name a lamp or a room.
+ */
+export type LampOrRoom = { kind: 'lamp'; lamp: LampId } | { kind: 'room'; room: RoomId };
+
 
 /**
  * `Object.entries` with the record's own key type. `Object.entries` widens

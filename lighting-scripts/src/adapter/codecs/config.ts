@@ -13,19 +13,16 @@
  * the helpers will show it, so the lamps move in the turn of the save
  * (`blockLightSaved`, Amendment 7.2).
  */
-import { BLOCKS } from '../../domain/blocks.ts';
-import type { Block } from '../../domain/blocks.ts';
 import type {
   BlockSchedule, BlockTiming, Config, Lamp, OverlayReset, OwnOrHouse, Remote, Room, RoomBlock, Schedule, Switch, WakeLight,
 } from '../../domain/config.ts';
 import type { BulbInfo } from '../../domain/effect.ts';
 import type { LampProfileChange } from '../../domain/model.ts';
-import type { BulbId, DashboardControlId, LampId, RemoteId, RoomId, SwitchId } from '../../domain/types/ids.ts';
-import type { LampOrRoom } from '../../domain/types/lighting-state.ts';
+import type { BulbId, DashboardControlId, LampId, LampOrRoom, RemoteId, RoomId, SwitchId } from '../../domain/types/ids.ts';
 import { entriesOf } from '../../domain/types/ids.ts';
 import type { Colour, RGB, SceneLight } from '../../domain/types/light.ts';
 import type { Minutes } from '../../domain/types/range.ts';
-import type { RoomOrHouse } from '../../domain/types/schedule.ts';
+import type { Block, RoomOrHouse } from '../../domain/types/schedule.ts';
 import type { TimeOfDay, Timezone } from '../../domain/types/time.ts';
 import {
   toBrightness, toBulbId, toColourChannel, toDashboardControlId, toInstant, toKelvin, toLampId, toMinutes, toMqttTopic, toRoomId, toSwitchId, toTimeOfDay, toTimezone,
@@ -38,6 +35,7 @@ import { decodeLampProfile } from './lamp-profiles.ts';
 import type { Rooms } from './rooms.ts';
 import { uiRowsOf } from './catalog.ts';
 import type { UiRow } from './catalog.ts';
+import { BLOCKS } from '../../domain/types/schedule.ts';
 
 /** The HA state the config is read from: each helper's state and attributes, the registry's rooms, the labels. */
 export type ConfigSource = {
