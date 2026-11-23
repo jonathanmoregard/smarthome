@@ -42,7 +42,7 @@ function withParts(earlier: LampOverlay | undefined, over: LampOrRoom, from: Lam
  * normal light, which pins what the call leaves at what the lamp or room shows.
  * A step moves from `shown`, the level there.
  */
-function requestedParts(light: Extract<RequestedLight, { power: 'on' }>, shown: number, pinned: Pinned | undefined, now: Instant): Parts {
+function requestedParts(light: Extract<RequestedLight, { power: 'on' }>, shown: Brightness, pinned: Pinned | undefined, now: Instant): Parts {
   const normal = light.effect !== undefined && light.effect.kind === 'normal';
   const brightness = light.brightness === undefined ? undefined : resolved(light.brightness, shown);
   return {
@@ -53,7 +53,7 @@ function requestedParts(light: Extract<RequestedLight, { power: 'on' }>, shown: 
 }
 
 /** A fixed level as it is; a step from the level shown, held to 0 to 255 as Home Assistant holds it. */
-function resolved(brightness: RequestedBrightness, shown: number): Brightness {
+function resolved(brightness: RequestedBrightness, shown: Brightness): Brightness {
   return brightness.kind === 'fixed' ? brightness.brightness : brightnessOrThrow(Math.round(Math.min(255, Math.max(0, shown + brightness.by))));
 }
 
@@ -111,7 +111,7 @@ export function personChanged(model: Model, lamps: readonly LampId[], rooms: rea
     const mine = (overlay: LampOverlay) => overlay.from.kind === 'person' && sameOver(overlay.over, over);
     const first = firstLampOf(config, known, over);
     const shown = first === undefined ? undefined : levels[first];
-    const level = shown === undefined || shown.power === 'off' ? 0 : shown.level;
+    const level = brightnessOrThrow(shown === undefined || shown.power === 'off' ? 0 : shown.level);
     overlays = replaced(overlays, mine, earlier => light.power === 'off' ? { kind: 'off', over, from, since: now }
       : withParts(earlier, over, from, requestedParts(light, level, pinnedLight(model, over, now), now), now));
   }
