@@ -515,7 +515,8 @@ function roomShown(model: Model, scope: RoomOrHouse, now: Instant): { light: Roo
   const base = stageLight(stage, lightIn, undefined);
   const shown = fold(base, changesOf(on.lamps, on.remote), subject);
   const lit = shown.lit === undefined ? base.power === 'on' : shown.lit;
-  const off = shown.off || !lit || (room !== undefined && model.overlays.roomPower[room] === 'off') || shown.brightness === undefined;
+  // A person's or a control's off holds the lamps, not the room's light a range rule reads: today an off is not in it.
+  const off = !lit || (room !== undefined && model.overlays.roomPower[room] === 'off') || shown.brightness === undefined;
   const switchStage: RoomLight['stage'] = stage.moving ? { moving: true } : { moving: false, block: blockAt(stage.into, position.current) };
   const light: RoomLight['light'] = off || shown.brightness === undefined ? OFF : { power: 'on', brightness: shown.brightness };
   return { light: { stage: switchStage, light }, placed };

@@ -415,11 +415,13 @@ test("the next block's fade start releases the off hold", () => {
   assert.deepEqual(lamp(model, lampA2, at('20:00:00')), shows(90, ORANGE));
 });
 
-test("a room's off hold switches off its range switch", () => {
-  // The plug's range rule (20..60 %) reads its room's own light, cosy's 90 at 20:00. Break: the room's light ignores the off hold.
+test("a room's off hold leaves its range switch as the room's light has it", () => {
+  // Keep today (review ruling): the plug's range rule (20..60 %) reads its room's own light, cosy's 90 at 20:00, and
+  // a person's off is not part of that light. Break: the off turns the room's light off and the plug with it.
   const model = house(m => { m.overlays.lamps = [switchedOff({ kind: 'room', room: roomA }, at('19:00:00'))]; });
   assert.equal(lightingState(house(), at('20:00:00')).switches[toSwitchId('switch.plug_a')], 'on');
-  assert.equal(lightingState(model, at('20:00:00')).switches[toSwitchId('switch.plug_a')], 'off');
+  assert.equal(lightingState(model, at('20:00:00')).switches[toSwitchId('switch.plug_a')], 'on');
+  assert.deepEqual(lamp(model, lampA2, at('20:00:00')), OFF);
 });
 
 // 7. Overlay resets.
