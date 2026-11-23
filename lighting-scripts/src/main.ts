@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { parseDeployedCatalog } from './adapter/codecs/catalog.ts';
 import type { Catalog } from './adapter/codecs/catalog.ts';
 import { houseMirrorOf, stateChangedOf } from './adapter/codecs/house.ts';
+import type { HouseMirror } from './adapter/codecs/house.ts';
 import { bridgeRunOf } from './adapter/codecs/inputs.ts';
 import { toInstant } from './adapter/codecs/ids.ts';
 import { parseRooms } from './adapter/codecs/rooms.ts';
@@ -20,7 +21,8 @@ import { heartbeatCall, timingCall } from './adapter/encode.ts';
 import { readLiveRoomsFlag, refuseUnlessWholeHouse } from './adapter/live-rooms.ts';
 import type { LiveRooms } from './adapter/live-rooms.ts';
 import { Host } from './host.ts';
-import type { Journal } from './host.ts';
+import type { Journal, Timer } from './host.ts';
+import type { Instant } from './domain/types/time.ts';
 
 export async function main(argv = process.argv.slice(2)): Promise<void> {
   // First: a port started without its rooms must not touch anything.
@@ -45,15 +47,11 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     const mirror = await read();
     refuseUnlessWholeHouse(liveRooms, catalog, parseRooms(mirror.areas));
     const host = await Host.open({ ha, journal: fileJournal(resolve(option('--state') ?? '.runtime/journal.json')),
-      clock: () => toInstant(Date.now() / 1000), log: console,
-      timer: (delayMs, wake) => { const timer = setTimeout(wake, delayMs); return () => clearTimeout(timer); },
+      clock: () => toInstant(Date.now() / 1000), log: console, timer,
       took: seconds => void ha.call(timingCall(seconds)).catch(() => undefined) }, mirror, catalog);
-    const report = (error: unknown) => console.error(error instanceof Error ? error.message : String(error));
-    const reread = () => { const startedAt = toInstant(Date.now() / 1000); return read().then(house => host.houseRead(house, startedAt)); };
-    const reconnect = () => {
-      const startedAt = toInstant(Date.now() / 1000);
-      void read().then(house => host.reconnected(house, startedAt)).catch(report);
-    };
+    const clock = () => toInstant(Date.now() / 1000), warn = (message: string) => console.warn(message);
+    const reread = rereading(read, (house, startedAt) => host.houseRead(house, startedAt), warn, clock, timer);
+    const reconnect = rereading(read, (house, startedAt) => host.reconnected(house, startedAt), warn, clock, timer);
     ha.onConnection(connected => { if (connected) reconnect(); else host.disconnected(); });
     await ha.subscribe('homeassistant_started', reconnect);
     await ha.subscribe('state_changed', event => {
@@ -63,9 +61,9 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     // Home Assistant keeps the triggers only; every decision runs in this process.
     await ha.subscribe('smarthome_script', event => { const run = bridgeRunOf(event.data); host.script(run.script, run.args); });
     for (const event of ['entity_registry_updated', 'device_registry_updated', 'area_registry_updated', 'label_registry_updated']) {
-      await ha.subscribe(event, () => { void reread().catch(report); });
+      await ha.subscribe(event, reread);
     }
-    stopHeartbeat = startHeartbeat(liveRooms, call => ha.call(call), report);
+    stopHeartbeat = startHeartbeat(liveRooms, call => ha.call(call), message => console.error(message), HEARTBEAT_MS, () => host.paused());
     watcher = watchRuntimeCatalog(configuration, async read => {
       catalog = read;
       host.catalogChanged(catalog);
@@ -113,12 +111,42 @@ function fileJournal(path: string): Journal {
   };
 }
 
+/** Node's timer as the host's. */
+const timer: Timer = (delayMs, wake) => { const handle = setTimeout(wake, delayMs); return () => clearTimeout(handle); };
+
+/** The longest wait between two reads of the house that failed. */
+const READ_RETRY_CAP_SECONDS = 60;
+
+/**
+ * A whole read of the house, handed to `land` with the instant it started. A read that fails (or a house that cannot
+ * be mirrored) is reported and tried again on a backoff, 1 s doubling up to a minute, until one lands, so a host paused
+ * for the read does not stay paused. Starting again drops a retry still waiting.
+ */
+export function rereading(read: () => Promise<HouseMirror>, land: (house: HouseMirror, startedAt: Instant) => void,
+  report: (message: string) => void, clock: () => Instant, after: Timer): () => void {
+  let round = 0, cancel = () => {};
+  const attempt = (current: number, tries: number): void => {
+    const startedAt = clock();
+    read().then(house => { if (current === round) land(house, startedAt); }, (error: unknown) => {
+      if (current !== round) return;
+      const seconds = Math.min(READ_RETRY_CAP_SECONDS, 2 ** tries);
+      report(`lighting: the house was not read (${error instanceof Error ? error.message : String(error)}); read again in ${seconds} s`);
+      cancel = after(seconds * 1000, () => attempt(current, tries + 1));
+    });
+  };
+  return () => { cancel(); round++; attempt(round, 0); };
+}
+
 /** How often the port beats; Home Assistant's watchdog treats 30 s without a beat as the port gone. */
 export const HEARTBEAT_MS = 10_000;
-/** Beat now and every `intervalMs` until the answer is called. A failed beat is reported and the next one still goes. */
+/**
+ * Beat now and every `intervalMs` until the answer is called, but not while `paused` (the host waits for Home
+ * Assistant), so the watchdog sees the port stall. A failed beat is reported and the next one still goes.
+ */
 export function startHeartbeat(live: LiveRooms, send: (call: ServiceCall) => Promise<unknown>, report: (message: string) => void,
-  intervalMs = HEARTBEAT_MS): () => void {
+  intervalMs = HEARTBEAT_MS, paused: () => boolean = () => false): () => void {
   const beat = () => {
+    if (paused()) return;
     const call = heartbeatCall(live, Date.now());
     if (call !== undefined) void send(call).catch(error => report(`Heartbeat not sent: ${error instanceof Error ? error.message : String(error)}`));
   };
