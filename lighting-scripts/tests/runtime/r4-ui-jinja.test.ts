@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { JsonValue } from '../../src/adapter/ha-client.ts';
 import { onOffOnly, proxyKelvin, proxyShowsRgb } from '../../src/adapter/codecs/ui-state.ts';
-import { carry } from '../../src/runtime/verbatim.ts';
 import { house } from './house-view.ts';
 
 /**
@@ -12,7 +11,7 @@ import { house } from './house-view.ts';
  * - `(state_attr(e,'supported_color_modes') or []) != ['onoff']` (a non-list
  *   simply compares unequal; nothing raises)
  */
-const rgb = { text: '1,2,3', value: carry([1, 2, 3]) };
+const rgb = { text: '1,2,3', value: [1, 2, 3] };
 const proxy = (rgb_color: JsonValue) => house({ 'light.proxy': ['on', { color_mode: 'rgb', rgb_color }] });
 
 test("a proxy whose rgb_color is Jinja-falsy does not show the colour, and nothing raises", () => {
@@ -39,6 +38,6 @@ test("a dashboard proxy's colour temperature that is not a number reads as 0, it
 test("a dashboard proxy's rgb that cannot be listed shows no triple", () => {
   for (const rgb_color of [5, true] as JsonValue[]) {
     const view = house({ 'light.proxy': ['on', { rgb_color }] });
-    assert.equal(proxyShowsRgb(view, 'light.proxy', { text: '1,2,3', value: carry([1, 2, 3]) }), false, JSON.stringify(rgb_color));
+    assert.equal(proxyShowsRgb(view, 'light.proxy', { text: '1,2,3', value: [1, 2, 3] }), false, JSON.stringify(rgb_color));
   }
 });

@@ -7,15 +7,13 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { JsonObject, JsonValue } from '../ha-client.ts';
 import type { HouseView } from './house.ts';
-import { isObject, jinjaOr, jinjaTruthy, object, parseFinite } from './parse.ts';
-import { carry, reveal } from '../../runtime/verbatim.ts';
-import type { Verbatim } from '../../runtime/verbatim.ts';
+import { jinjaOr, jinjaTruthy, object, parseFinite } from './parse.ts';
 import { jinjaListOf, saved } from './accessors.ts';
 import { percentRangeOf } from './ids.ts';
 import type { PercentRange } from '../../domain/types/light.ts';
 
-/** A display colour as the mirror reads it: an rgb triple and its MQTT text. */
-export interface Rgb { text: string; value: Verbatim }
+/** A display colour as the mirror reads it: an rgb triple as reported, and its MQTT text. */
+export interface Rgb { text: string; value: JsonValue[] }
 
 /**
  * Does the proxy show this triple? Captured `(state_attr(proxy,'rgb_color') or []) | list == rgb | list`:
@@ -23,11 +21,11 @@ export interface Rgb { text: string; value: Verbatim }
  */
 export function proxyShowsRgb(ctx: HouseView, proxy: string, rgb: Rgb): boolean {
   const shown = proxyRgb(ctx, proxy);
-  return shown !== undefined && isDeepStrictEqual(shown, reveal(rgb.value));
+  return shown !== undefined && isDeepStrictEqual(shown, rgb.value);
 }
 
 function rgbOf(value: JsonValue | undefined): Rgb | undefined {
-  return Array.isArray(value) && value.length === 3 ? { text: value.join(','), value: carry(value) } : undefined;
+  return Array.isArray(value) && value.length === 3 ? { text: value.join(','), value } : undefined;
 }
 
 /**
@@ -111,7 +109,7 @@ function savedEffect(profile: JsonObject): string {
 const DEFAULT_PROFILE_EFFECT_CHANNELS: JsonValue = ['brightness', 'color'];
 
 /** A range bound as given: absent, or the stored value (only a number is a bound). */
-export type RangeBound = string | number | boolean | null | Verbatim | undefined;
+export type RangeBound = JsonValue | undefined;
 
 /**
  * Own Range's ends, as a percent range: both numbers (a boolean is not one
@@ -125,12 +123,9 @@ export function ownRange(low: RangeBound, high: RangeBound): PercentRange | unde
 /** A switch's stored range bounds, read leniently from `sensor.ls_overrides`. */
 export function storedRangeBounds(ctx: HouseView, entity: string): { min: RangeBound; max: RangeBound } {
   const previous = object(object(ctx.attr('sensor.ls_overrides', 'switch_ranges'))[entity]);
-  return { min: bound(previous.min), max: bound(previous.max) };
+  return { min: previous.min, max: previous.max };
 }
 
-function bound(value: JsonValue | undefined): RangeBound {
-  return Array.isArray(value) || isObject(value) ? carry(value) : value;
-}
 
 /**
  * The proxy's `color_temp_kelvin`: a number (or numeric text) is itself, and
