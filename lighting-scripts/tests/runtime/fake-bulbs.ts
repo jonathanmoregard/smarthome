@@ -13,7 +13,7 @@
 import type { BulbGroups } from '../../src/adapter/codecs/bulb-groups.ts';
 import type { Publish } from '../../src/adapter/encode.ts';
 import type { MqttTopic } from '../../src/adapter/codecs/ids.ts';
-import type { Observed, ObservedBulb } from '../../src/adapter/codecs/observed.ts';
+import type { Observed, ObservedBulb } from '../../src/adapter/reconcile.ts';
 import type { BulbId, SwitchId } from '../../src/domain/types/ids.ts';
 import { entriesOf } from '../../src/domain/types/ids.ts';
 import type { Colour, Level, Power } from '../../src/domain/types/light.ts';

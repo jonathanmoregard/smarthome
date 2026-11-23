@@ -28,17 +28,73 @@
  * back on (from off or out of reach, and nothing we sent explains it) is sent
  * its light with the short fade, then the candle's start.
  */
-import type { Observed, ObservedBulb, ObservedLight } from './codecs/observed.ts';
 import type { Config } from '../domain/config.ts';
 import { bulbAppearance } from '../domain/effect.ts';
 import type { BulbAppearance, BulbInfo } from '../domain/effect.ts';
 import type { BulbId, SwitchId } from '../domain/types/ids.ts';
 import { entriesOf } from '../domain/types/ids.ts';
 import type { LightingState } from '../domain/types/lighting-state.ts';
-import type { Colour, LampLight, Power, RGB } from '../domain/types/light.ts';
+import type { Colour, LampLight, Level, Power, RGB } from '../domain/types/light.ts';
 import { sameColour } from '../domain/types/light.ts';
 import type { Instant, Seconds } from '../domain/types/time.ts';
-import { toInstant, toSeconds } from './codecs/ids.ts';
+import { instantOrThrow, secondsOrThrow } from '../domain/types/range.ts';
+
+/** What a bulb reports: off, or on at a level and maybe a colour. The candle is not reported. */
+export type ObservedLight = { power: 'off' } | { power: 'on'; level: Level; colour: Colour | undefined };
+/**
+ * Does a settled bulb's report show the appearance? A bulb running the candle is checked for its power only: the
+ * candle is known from the belief, and its flicker moves the reported level and colour.
+ */
+function reportsSettled(reported: ObservedLight, appearance: BulbAppearance): boolean {
+  return runsCandle(appearance) ? reported.power === 'on' : reportsShowing(reported, appearance);
+}
+
+/** Does the report show the appearance's light, within the tolerances? A lamp with no colour leaves the bulb's colour out of it. */
+function reportsShowing(reported: ObservedLight, appearance: BulbAppearance): boolean {
+  if (appearance.power === 'off' || reported.power === 'off') return appearance.power === reported.power;
+  if (Math.abs(reported.level - appearance.level) > LEVEL_TOLERANCE) return false;
+  return appearance.colour === undefined || closeColour(reported.colour, appearance.colour);
+}
+
+function closeColour(reported: Colour | undefined, wanted: Colour): boolean {
+  if (reported === undefined) return false;
+  if (wanted.kind === 'kelvin') return reported.kind === 'kelvin' && Math.abs(reported.kelvin - wanted.kelvin) <= KELVIN_TOLERANCE;
+  if (reported.kind === 'kelvin') return false;
+  const [x1, y1] = chromaticity(reported.rgb), [x2, y2] = chromaticity(wanted.rgb);
+  return Math.hypot(x1 - x2, y1 - y2) <= XY_TOLERANCE;
+}
+
+/**
+ * sRGB to CIE 1931 xy (IEC 61966-2-1): undo the transfer curve, to XYZ with
+ * the D65 matrix, then x = X/(X+Y+Z), y = Y/(X+Y+Z). Black has no
+ * chromaticity and takes the D65 white point.
+ */
+function chromaticity(rgb: RGB): readonly [number, number] {
+  const linear = (channel: number) => {
+    const c = channel / 255;
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  const r = linear(rgb.red), g = linear(rgb.green), b = linear(rgb.blue);
+  const x = 0.4124564 * r + 0.3575761 * g + 0.1804375 * b;
+  const y = 0.2126729 * r + 0.7151522 * g + 0.0721750 * b;
+  const z = 0.0193339 * r + 0.1191920 * g + 0.9503041 * b;
+  const total = x + y + z;
+  return total === 0 ? [0.3127, 0.3290] : [x / total, y / total];
+}
+
+/** A bulb in reach, with what it reports, or out of reach (switched off at the wall, or unknown). */
+export type ObservedBulb = { reach: 'unreachable' } | { reach: 'reachable'; light: ObservedLight };
+
+/**
+ * What the bulbs and switches report, and when each switch last changed; a switch with no `last_changed` is not in
+ * `switchChanged`. Read from Home Assistant's states by `decodeObserved` (`./codecs/observed.ts`).
+ */
+export type Observed = {
+  bulbs: Record<BulbId, ObservedBulb>;
+  switches: Record<SwitchId, Power | 'unreachable'>;
+  switchChanged: Record<SwitchId, Instant>;
+  bridgeConnected: boolean;
+};
 
 /**
  * One thing to send: a bulb's light (`stopFirst`: it is leaving the candle,
@@ -50,25 +106,34 @@ export type Send =
   | { kind: 'start'; bulb: BulbId; appearance: LitAppearance }
   | { kind: 'switch'; switch: SwitchId; power: Power };
 
-/**
- * The send a bulb nothing is held about needs: nothing when it shows its target; the candle's start alone when it
- * shows the candle's light; the stop and its light for a candle-firmware bulb under a normal lit target, whose report
- * cannot tell a leftover candle; its light otherwise, with the stop first when it may run a candle.
- */
-function unknownSend(appearance: BulbAppearance, bulb: BulbInfo, reported: ObservedLight, full: (stopFirst: boolean) => Send,
-  start: Send | undefined): Send | undefined {
-  if (start !== undefined && runsCandle(appearance)) return reportsShowing(reported, appearance) ? start : full(false);
-  // The one exception to "a restart sends nothing a bulb already shows": a candle-firmware bulb under a normal lit
-  // target is sent the stop and its light even when its report shows that light, since a candle left running from
-  // before cannot be told from its report (its flicker hides in the level and colour).
-  if (bulb.firmware === 'candle' && appearance.power === 'on') return full(true);
-  return reportsShowing(reported, appearance) ? undefined : full(bulb.firmware === 'candle');
-}
-
 /** A send's transition: a start alone has none. */
 function overOf(send: Extract<Send, { kind: 'bulb' | 'start' }>): Seconds {
   return send.kind === 'bulb' ? send.over : SWITCHED;
 }
+
+/** A reported level this many steps from the target is the target: HA's 0..255 against the Zigbee 1..254 round trip. */
+export const LEVEL_TOLERANCE = 2;
+/** A reported colour temperature this many kelvin from the target is the target: kelvin is sent as whole mireds. */
+export const KELVIN_TOLERANCE = 50;
+/** A reported RGB colour within this CIE 1931 xy distance of the target is the target. */
+export const XY_TOLERANCE = 0.01;
+/** How long after a send's transition a report still may not show it. To be measured against a real bulb (M4). */
+export const SETTLE_MARGIN: Seconds = secondsOrThrow(2);
+/** The fade of a change made at once, and of a bulb coming back on. */
+export const MANUAL_FADE: Seconds = secondsOrThrow(0.2);
+/** The fade of an off by a room's power switch: none, as today's `homeassistant.turn_off`. */
+export const SWITCHED: Seconds = secondsOrThrow(0);
+/** The fade of a light the candle's start follows. */
+export const EFFECT_START_FADE: Seconds = secondsOrThrow(0.4);
+/** The wait after a first failed send; it doubles with each failure after it. */
+export const RETRY_FIRST: Seconds = secondsOrThrow(1);
+/** The longest wait between two sends of a failing bulb. */
+export const RETRY_CAP: Seconds = secondsOrThrow(60);
+/** The failed sends in a row that park a bulb. */
+export const MAX_ATTEMPTS = 5;
+/** The put-backs within {@link REAPPLY_WINDOW} that park a bulb. */
+export const REAPPLY_LIMIT = 6;
+export const REAPPLY_WINDOW: Seconds = secondsOrThrow(600);
 
 export type LitAppearance = Extract<BulbAppearance, { power: 'on' }>;
 
@@ -78,30 +143,6 @@ function sameLight(a: LitAppearance, b: LitAppearance): boolean {
 
 /** How a send went: every publish went out; its light (or off) failed; or its light went out and the candle's start failed. */
 export type Outcome = 'sent' | 'failed' | 'start failed';
-
-/** A reported level this many steps from the target is the target: HA's 0..255 against the Zigbee 1..254 round trip. */
-export const LEVEL_TOLERANCE = 2;
-/** A reported colour temperature this many kelvin from the target is the target: kelvin is sent as whole mireds. */
-export const KELVIN_TOLERANCE = 50;
-/** A reported RGB colour within this CIE 1931 xy distance of the target is the target. */
-export const XY_TOLERANCE = 0.01;
-/** How long after a send's transition a report still may not show it. To be measured against a real bulb (M4). */
-export const SETTLE_MARGIN: Seconds = toSeconds(2);
-/** The fade of a change made at once, and of a bulb coming back on. */
-export const MANUAL_FADE: Seconds = toSeconds(0.2);
-/** The fade of an off by a room's power switch: none, as today's `homeassistant.turn_off`. */
-export const SWITCHED: Seconds = toSeconds(0);
-/** The fade of a light the candle's start follows. */
-export const EFFECT_START_FADE: Seconds = toSeconds(0.4);
-/** The wait after a first failed send; it doubles with each failure after it. */
-export const RETRY_FIRST: Seconds = toSeconds(1);
-/** The longest wait between two sends of a failing bulb. */
-export const RETRY_CAP: Seconds = toSeconds(60);
-/** The failed sends in a row that park a bulb. */
-export const MAX_ATTEMPTS = 5;
-/** The put-backs within {@link REAPPLY_WINDOW} that park a bulb. */
-export const REAPPLY_LIMIT = 6;
-export const REAPPLY_WINDOW: Seconds = toSeconds(600);
 
 /**
  * What the reconciler holds about one bulb.
@@ -125,6 +166,59 @@ export type Attempts = 1 | 2 | 3 | 4;
 
 /** Each bulb's belief, and each switch sent its power that has not yet been seen to show it. */
 export type Beliefs = { bulbs: Record<BulbId, Belief>; switches: Record<SwitchId, SwitchSent> };
+
+export const NO_BELIEFS: Beliefs = { bulbs: {}, switches: {} };
+
+/**
+ * The beliefs without those of `bulbs`, so the next pass sends them what they do not show, the candle's start
+ * included. Today's dispatch sends a lamp it was asked for (switched back on, or handed to the port).
+ */
+export function forgotten(beliefs: Beliefs, bulbs: readonly BulbId[]): Beliefs {
+  const forget = new Set(bulbs);
+  return { ...beliefs, bulbs: Object.fromEntries(entriesOf(beliefs.bulbs).filter(([bulb]) => !forget.has(bulb))) };
+}
+
+/** The beliefs with `bulbs` back on: each is owed its light with the short fade, and is no longer parked. */
+export function backOn(beliefs: Beliefs, bulbs: readonly BulbId[]): Beliefs {
+  const back: Record<BulbId, Belief> = { ...beliefs.bulbs };
+  for (const bulb of bulbs) back[bulb] = { kind: 'back on' };
+  return { ...beliefs, bulbs: back };
+}
+
+/** The bulbs parked in `after` that were not in `before`: each is logged once, when it is given up on. */
+export function newlyParked(before: Beliefs, after: Beliefs): BulbId[] {
+  return entriesOf(after.bulbs).flatMap(([bulb, belief]) => belief.kind === 'parked' && before.bulbs[bulb]?.kind !== 'parked' ? [bulb] : []);
+}
+
+/** The first retry due after `now`, if any bulb is being retried. */
+export function nextRetry(beliefs: Beliefs, now: Instant): Instant | undefined {
+  const due = entriesOf(beliefs.bulbs).flatMap(([, belief]) => belief.kind === 'retrying' && belief.retryAt > now ? [belief.retryAt] : []);
+  return due.length === 0 ? undefined : instantOrThrow(Math.min(...due));
+}
+
+/** A switch we sent `power` at `sentAt`, not yet seen to land. */
+export type SwitchSent = { power: Power; sentAt: Instant };
+
+/**
+ * Is a switch showing `power` its own button pressed? Only one that could be reached at the last look: a switch back
+ * from out of reach has a fresh `last_changed`, and is a return, sent its target as usual (Amendment 8.1).
+ * 1. With a send of ours still open and HA's `last_changed`: when it shows another power than we sent, changed after
+ *    the send. A switch showing what we sent is ours, whenever it changed. This catches a press made between our
+ *    send and the next look, which the last look alone cannot (it may show the same power as before the send).
+ * 2. Otherwise, as before `last_changed` was read (the harness sends none): when it changed since the last look to a
+ *    power no open send of ours asked for.
+ * M5 may replace the first rule with a switch change as a live input of its own (option A of the M4 review), once
+ * the host owns HA's event stream.
+ */
+function switchPressed(was: Power | 'unreachable' | undefined, power: Power, sent: SwitchSent | undefined,
+  changed: Instant | undefined): boolean {
+  if (was === undefined || was === 'unreachable') return false;
+  if (sent !== undefined && changed !== undefined) return power !== sent.power && changed > sent.sentAt;
+  return was !== power && (sent === undefined || sent.power !== power);
+}
+
+/** What an observation that nothing we sent explains means. */
+export type Unexplained = { kind: 'switch pressed'; switch: SwitchId; power: Power } | { kind: 'bulb back on'; bulb: BulbId };
 
 /**
  * The beliefs once Home Assistant reported `bulbs` changed (a lamp switched on names its bulbs): each is sent its
@@ -152,24 +246,6 @@ export function litByUs(before: Observed, after: Observed, beliefs: Beliefs): Bu
   });
 }
 
-export const NO_BELIEFS: Beliefs = { bulbs: {}, switches: {} };
-
-/**
- * The beliefs without those of `bulbs`, so the next pass sends them what they do not show, the candle's start
- * included. Today's dispatch sends a lamp it was asked for (switched back on, or handed to the port).
- */
-export function forgotten(beliefs: Beliefs, bulbs: readonly BulbId[]): Beliefs {
-  const forget = new Set(bulbs);
-  return { ...beliefs, bulbs: Object.fromEntries(entriesOf(beliefs.bulbs).filter(([bulb]) => !forget.has(bulb))) };
-}
-
-/** The beliefs with `bulbs` back on: each is owed its light with the short fade, and is no longer parked. */
-export function backOn(beliefs: Beliefs, bulbs: readonly BulbId[]): Beliefs {
-  const back: Record<BulbId, Belief> = { ...beliefs.bulbs };
-  for (const bulb of bulbs) back[bulb] = { kind: 'back on' };
-  return { ...beliefs, bulbs: back };
-}
-
 /**
  * The beliefs without the switch sends that are over: one `observed` shows landed (the switch shows what we sent,
  * changed at or after the send, or with no `last_changed` to say when), and one whose power the target has moved off
@@ -183,41 +259,6 @@ export function switchesSeen(beliefs: Beliefs, observed: Observed, target: Reado
     return !landed && target[plug] === sent.power;
   })) };
 }
-
-/** The bulbs parked in `after` that were not in `before`: each is logged once, when it is given up on. */
-export function newlyParked(before: Beliefs, after: Beliefs): BulbId[] {
-  return entriesOf(after.bulbs).flatMap(([bulb, belief]) => belief.kind === 'parked' && before.bulbs[bulb]?.kind !== 'parked' ? [bulb] : []);
-}
-
-/** The first retry due after `now`, if any bulb is being retried. */
-export function nextRetry(beliefs: Beliefs, now: Instant): Instant | undefined {
-  const due = entriesOf(beliefs.bulbs).flatMap(([, belief]) => belief.kind === 'retrying' && belief.retryAt > now ? [belief.retryAt] : []);
-  return due.length === 0 ? undefined : toInstant(Math.min(...due));
-}
-
-/** A switch we sent `power` at `sentAt`, not yet seen to land. */
-export type SwitchSent = { power: Power; sentAt: Instant };
-
-/**
- * Is a switch showing `power` its own button pressed? Only one that could be reached at the last look: a switch back
- * from out of reach has a fresh `last_changed`, and is a return, sent its target as usual (Amendment 8.1).
- * 1. With a send of ours still open and HA's `last_changed`: when it shows another power than we sent, changed after
- *    the send. A switch showing what we sent is ours, whenever it changed. This catches a press made between our
- *    send and the next look, which the last look alone cannot (it may show the same power as before the send).
- * 2. Otherwise, as before `last_changed` was read (the harness sends none): when it changed since the last look to a
- *    power no open send of ours asked for.
- * M5 may replace the first rule with a switch change as a live input of its own (option A of the M4 review), once
- * the host owns HA's event stream.
- */
-function switchPressed(was: Power | 'unreachable' | undefined, power: Power, sent: SwitchSent | undefined,
-  changed: Instant | undefined): boolean {
-  if (was === undefined || was === 'unreachable') return false;
-  if (sent !== undefined && changed !== undefined) return power !== sent.power && changed > sent.sentAt;
-  return was !== power && (sent === undefined || sent.power !== power);
-}
-
-/** What an observation that nothing we sent explains means. */
-export type Unexplained = { kind: 'switch pressed'; switch: SwitchId; power: Power } | { kind: 'bulb back on'; bulb: BulbId };
 
 /** What to send now to make the house show `target`, and when to look again: the first retry due, if any. */
 export function nextSends(target: LightingState, config: Config, observed: Observed, beliefs: Beliefs, now: Instant):
@@ -280,6 +321,21 @@ function runsCandle(appearance: BulbAppearance): boolean {
   return appearance.power === 'on' && appearance.firmwareEffect === 'candle';
 }
 
+/**
+ * The send a bulb nothing is held about needs: nothing when it shows its target; the candle's start alone when it
+ * shows the candle's light; the stop and its light for a candle-firmware bulb under a normal lit target, whose report
+ * cannot tell a leftover candle; its light otherwise, with the stop first when it may run a candle.
+ */
+function unknownSend(appearance: BulbAppearance, bulb: BulbInfo, reported: ObservedLight, full: (stopFirst: boolean) => Send,
+  start: Send | undefined): Send | undefined {
+  if (start !== undefined && runsCandle(appearance)) return reportsShowing(reported, appearance) ? start : full(false);
+  // The one exception to "a restart sends nothing a bulb already shows": a candle-firmware bulb under a normal lit
+  // target is sent the stop and its light even when its report shows that light, since a candle left running from
+  // before cannot be told from its report (its flicker hides in the level and colour).
+  if (bulb.firmware === 'candle' && appearance.power === 'on') return full(true);
+  return reportsShowing(reported, appearance) ? undefined : full(bulb.firmware === 'candle');
+}
+
 /** Exactly what was sent: the belief is a send, so it is compared as one. */
 function sameAppearance(a: BulbAppearance, b: BulbAppearance): boolean {
   if (a.power === 'off' || b.power === 'off') return a.power === b.power;
@@ -290,47 +346,6 @@ function sameAppearance(a: BulbAppearance, b: BulbAppearance): boolean {
 function startsOnly(shows: BulbAppearance, appearance: BulbAppearance): boolean {
   return runsCandle(appearance) && shows.power === 'on' && appearance.power === 'on' && shows.firmwareEffect === 'none'
     && sameLight(shows, appearance);
-}
-
-/**
- * Does a settled bulb's report show the appearance? A bulb running the candle is checked for its power only: the
- * candle is known from the belief, and its flicker moves the reported level and colour.
- */
-function reportsSettled(reported: ObservedLight, appearance: BulbAppearance): boolean {
-  return runsCandle(appearance) ? reported.power === 'on' : reportsShowing(reported, appearance);
-}
-
-/** Does the report show the appearance's light, within the tolerances? A lamp with no colour leaves the bulb's colour out of it. */
-function reportsShowing(reported: ObservedLight, appearance: BulbAppearance): boolean {
-  if (appearance.power === 'off' || reported.power === 'off') return appearance.power === reported.power;
-  if (Math.abs(reported.level - appearance.level) > LEVEL_TOLERANCE) return false;
-  return appearance.colour === undefined || closeColour(reported.colour, appearance.colour);
-}
-
-function closeColour(reported: Colour | undefined, wanted: Colour): boolean {
-  if (reported === undefined) return false;
-  if (wanted.kind === 'kelvin') return reported.kind === 'kelvin' && Math.abs(reported.kelvin - wanted.kelvin) <= KELVIN_TOLERANCE;
-  if (reported.kind === 'kelvin') return false;
-  const [x1, y1] = chromaticity(reported.rgb), [x2, y2] = chromaticity(wanted.rgb);
-  return Math.hypot(x1 - x2, y1 - y2) <= XY_TOLERANCE;
-}
-
-/**
- * sRGB to CIE 1931 xy (IEC 61966-2-1): undo the transfer curve, to XYZ with
- * the D65 matrix, then x = X/(X+Y+Z), y = Y/(X+Y+Z). Black has no
- * chromaticity and takes the D65 white point.
- */
-function chromaticity(rgb: RGB): readonly [number, number] {
-  const linear = (channel: number) => {
-    const c = channel / 255;
-    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  };
-  const r = linear(rgb.red), g = linear(rgb.green), b = linear(rgb.blue);
-  const x = 0.4124564 * r + 0.3575761 * g + 0.1804375 * b;
-  const y = 0.2126729 * r + 0.7151522 * g + 0.0721750 * b;
-  const z = 0.0193339 * r + 0.1191920 * g + 0.9503041 * b;
-  const total = x + y + z;
-  return total === 0 ? [0.3127, 0.3290] : [x / total, y / total];
 }
 
 /** The attempts after one more failure, by the failures before it; past the table, the bulb is parked. */
@@ -373,11 +388,11 @@ function bulbAfter(before: Belief | undefined, send: Extract<Send, { kind: 'bulb
   if (attempts === undefined) return { kind: 'parked', lastSent: send.appearance };
   const known = outcome === 'start failed' || send.kind === 'start';
   return { kind: 'retrying', shows: known && send.appearance.power === 'on' ? { ...send.appearance, firmwareEffect: 'none' } : undefined,
-    attempts, retryAt: toInstant(now + Math.min(RETRY_CAP, RETRY_FIRST * 2 ** (attempts - 1))) };
+    attempts, retryAt: instantOrThrow(now + Math.min(RETRY_CAP, RETRY_FIRST * 2 ** (attempts - 1))) };
 }
 
 function settlesAt(now: Instant, over: Seconds): Instant {
-  return toInstant(now + over + SETTLE_MARGIN);
+  return instantOrThrow(now + over + SETTLE_MARGIN);
 }
 
 /**

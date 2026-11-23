@@ -4,7 +4,7 @@ import type { BulbGroups } from '../../src/adapter/codecs/bulb-groups.ts';
 import { carries, outcomeOf, publishes } from '../../src/adapter/encode.ts';
 import type { Publish } from '../../src/adapter/encode.ts';
 import type { MqttTopic } from '../../src/adapter/codecs/ids.ts';
-import type { Observed } from '../../src/adapter/codecs/observed.ts';
+import type { Observed } from '../../src/adapter/reconcile.ts';
 import {
   afterSend, backOn, EFFECT_START_FADE, forgotten, MANUAL_FADE, NO_BELIEFS, newlyParked, nextSends, REAPPLY_LIMIT, REAPPLY_WINDOW, reportedChanged, RETRY_FIRST,
   switchesSeen, unexplained,

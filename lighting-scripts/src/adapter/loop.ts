@@ -26,7 +26,7 @@ import type { Output } from './encode.ts';
 import { messages, storeSaveIn, uiRowsOf, unexplainedMessages } from './codecs/inputs.ts';
 import type { HaInput, StoreSave } from './codecs/inputs.ts';
 import { decodeObserved } from './codecs/observed.ts';
-import type { Observed } from './codecs/observed.ts';
+import type { Observed } from './reconcile.ts';
 import {
   afterSend, backOn, forgotten, NO_BELIEFS, newlyParked, nextRetry, nextSends, reportedChanged, switchesSeen, unexplained,
 } from './reconcile.ts';
