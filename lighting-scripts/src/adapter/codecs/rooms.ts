@@ -1,8 +1,6 @@
 import type { RemoteId, RoomId } from '../../domain/types/ids.ts';
-import type { Instant } from '../../domain/types/time.ts';
 import type { EntityState } from '../ha-client.ts';
-import { toInstant, toRemoteId, toRoomId } from './ids.ts';
-import { dateSeconds } from './time-text.ts';
+import { toRemoteId, toRoomId } from './ids.ts';
 
 /**
  * The rooms one turn drives: the whole house, or some rooms while the old scripts drive the rest (the room-by-room
@@ -51,18 +49,11 @@ export function parseRooms(areas: Readonly<Record<string, string>>): Rooms {
 }
 
 /**
- * The rooms of `listed` whose port switch `input_boolean.ls_<room>_on_port` is on, each with when the switch last
- * changed: a person, or Home Assistant's watchdog, hands a room to the port or back there.
+ * The rooms of `listed` whose port switch `input_boolean.ls_<room>_on_port` is on: a person, or Home Assistant's
+ * watchdog, hands a room to the port or back there.
  */
-export function portSwitchesOn(state: Readonly<Record<string, EntityState>>, listed: ReadonlySet<RoomId>): ReadonlyMap<RoomId, Instant | undefined> {
-  const on = new Map<RoomId, Instant | undefined>();
-  for (const room of listed) {
-    const shown = state[`input_boolean.ls_${room}_on_port`];
-    if (shown?.state !== 'on') continue;
-    const changed = shown.last_changed === undefined ? undefined : dateSeconds(shown.last_changed);
-    on.set(room, changed === undefined ? undefined : toInstant(changed));
-  }
-  return on;
+export function portSwitchesOn(state: Readonly<Record<string, EntityState>>, listed: ReadonlySet<RoomId>): ReadonlySet<RoomId> {
+  return new Set([...listed].filter(room => state[`input_boolean.ls_${room}_on_port`]?.state === 'on'));
 }
 
 /** A room argument's text read back: `''` is no room, as the captured `default('')` and its falsy test read it. */

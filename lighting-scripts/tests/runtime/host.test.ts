@@ -5,7 +5,7 @@ import type { HostIo, Journal } from '../../src/host.ts';
 import { parseCatalog } from '../../src/adapter/codecs/catalog.ts';
 import type { HouseMirror } from '../../src/adapter/codecs/house.ts';
 import { afterCall } from '../../src/adapter/codecs/house.ts';
-import { loadBeliefs } from '../../src/adapter/codecs/journal.ts';
+import { loadJournal } from '../../src/adapter/codecs/journal.ts';
 import { toInstant, toMqttTopic } from '../../src/adapter/codecs/ids.ts';
 import type { Publish } from '../../src/adapter/encode.ts';
 import { Unreachable } from '../../src/adapter/ha-client.ts';
@@ -15,6 +15,8 @@ import type { Instant } from '../../src/domain/types/time.ts';
 import type { FakeBulbs } from './fake-bulbs.ts';
 import { CATALOG, syntheticStates, world, writeBack } from './fixtures/house-view.ts';
 import { bridged } from './support/inputs.ts';
+
+const loadBeliefs = (text: string | undefined) => loadJournal(text).beliefs;
 
 /**
  * The host on the synthetic house, with a fake Home Assistant whose bulbs the publishes move, an in-memory journal,

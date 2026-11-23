@@ -183,6 +183,12 @@ export function forgotten(beliefs: Beliefs, bulbs: readonly BulbId[]): Beliefs {
   return { ...beliefs, bulbs: Object.fromEntries(entriesOf(beliefs.bulbs).filter(([bulb]) => !forget.has(bulb))) };
 }
 
+/** The beliefs with what was sent to `switches` forgotten: each is taken as it shows. */
+export function switchesForgotten(beliefs: Beliefs, switches: readonly SwitchId[]): Beliefs {
+  const forget = new Set(switches);
+  return { ...beliefs, switches: Object.fromEntries(entriesOf(beliefs.switches).filter(([plug]) => !forget.has(plug))) };
+}
+
 /** The beliefs with `bulbs` back on: each is owed its light with the short fade, and is no longer parked. */
 export function backOn(beliefs: Beliefs, bulbs: readonly BulbId[]): Beliefs {
   const back: Record<BulbId, Belief> = { ...beliefs.bulbs };

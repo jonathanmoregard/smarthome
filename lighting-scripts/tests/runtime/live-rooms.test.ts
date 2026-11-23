@@ -9,13 +9,13 @@ import type { Output } from '../../src/adapter/encode.ts';
 import { lampRooms, parseLiveRooms, readLiveRoomsFlag, refuseUnknownRooms, roomsGiven, shareOf } from '../../src/adapter/live-rooms.ts';
 import type { RoomsGiven } from '../../src/adapter/live-rooms.ts';
 import { afterOutputs, handleInput } from '../../src/adapter/loop.ts';
-import type { AdapterState, Turn } from '../../src/adapter/loop.ts';
+import type { AdapterState, Kept, Turn } from '../../src/adapter/loop.ts';
+import type { JournalRecord } from '../../src/adapter/codecs/journal.ts';
 import { NO_BELIEFS } from '../../src/adapter/reconcile.ts';
 import type { BulbId } from '../../src/domain/types/ids.ts';
 import type { FakeBulbs } from './fake-bulbs.ts';
 import { houseView, syntheticStates, world, writeBack } from './fixtures/house-view.ts';
 import { bridged } from './support/inputs.ts';
-import { configSource, decodeModel } from '../../src/adapter/codecs/model.ts';
 import { id } from './support/ids.ts';
 
 /**
@@ -94,13 +94,15 @@ class Shared {
   state: AdapterState | undefined;
   readonly states: Record<string, EntityState>;
   readonly given: RoomsGiven;
+  /** What the journal held at the start: no beliefs, saved by a process that drove no room. */
+  journal: JournalRecord = { beliefs: NO_BELIEFS, share: { kind: 'rooms', rooms: new Set() } };
   constructor(states: Record<string, EntityState>, given: RoomsGiven) {
     this.states = states; this.given = given;
     writeBack(this.bulbs, this.states);
   }
 
   turn(time: string, input: HaInput): Turn {
-    const kept = this.state === undefined ? { kind: 'starting' as const, beliefs: NO_BELIEFS } : { kind: 'running' as const, state: this.state };
+    const kept: Kept = this.state === undefined ? { kind: 'starting', ...this.journal } : { kind: 'running', state: this.state };
     const turn = handleInput(kept, houseView(this.states, `2026-09-21T${time}Z`), input, this.given);
     for (const output of turn.outputs) {
       if (output.kind === 'sensor') {
@@ -206,6 +208,56 @@ test("a room handed to the port is sent its lamps again: the old scripts may hav
   assert.ok(bulbsSent(shared.turn('12:00:40', { kind: 'wake' })).includes('zigbee2mqtt/bulb-a1'));
 });
 
+/** A person's candle on lamp_a1, sent by the port. */
+const candleOnA1: HaInput = bridged('automation.lighting_schedule_lamp_change_detector', { trigger: { event: {
+  context: { user_id: 'someone', id: 'person' },
+  data: { domain: 'light', service: 'turn_on', service_data: { entity_id: 'light.lamp_a1', effect: 'candle' } } } } });
+
+test("a room's plug is taken as found when the room is handed over: the old scripts' change before is no press", () => {
+  // Review finding 1. Break: the old scripts' block-time switch of plug_a, made while room-a was theirs, reads as a
+  // press once the room is the port's, and the port holds the plug against the schedule.
+  const shared = new Shared(sharedStates({ [roomA]: 'off', [roomB]: 'on' }), listed(roomA));
+  shared.turn('12:00:00', { kind: 'started' });
+  const overlays = structuredClone(shared.state!.model.overlays);
+  shared.states['switch.plug_a'] = { state: 'on', attributes: {}, last_changed: '2026-09-21T12:00:10+00:00' };
+  shared.states[portSwitch(roomA)] = { state: 'on', attributes: {}, last_changed: '2026-09-21T12:00:20+00:00' };
+  const turn = shared.turn('12:00:30', { kind: 'wake' });
+  assert.deepEqual(turn.state.model.overlays, overlays);
+  // Once the room is the port's, a change is a press again.
+  const pressed = shared.states['switch.plug_a']!.state === 'on' ? 'off' : 'on';
+  shared.states['switch.plug_a'] = { state: pressed, attributes: {}, last_changed: '2026-09-21T12:00:40+00:00' };
+  assert.notDeepEqual(shared.turn('12:00:50', { kind: 'wake' }).state.model.overlays, overlays);
+});
+
+test("a port switch whose last change moves while it stays on hands nothing over: Home Assistant only started again", () => {
+  // Review finding 7. Break: a restart of Home Assistant moves every switch's `last_changed`, the port takes each
+  // live room for newly handed over, forgets what it sent, and starts the room's candles again.
+  const states = sharedStates({ [roomA]: 'on', [roomB]: 'on' });
+  delete (states['sensor.ls_overrides']!.attributes.overrides as JsonObject)[`block:${roomA}`];
+  const shared = new Shared(states, listed(roomA));
+  shared.turn('12:00:00', { kind: 'started' });
+  assert.ok(bulbsSent(shared.turn('12:00:05', candleOnA1)).includes('zigbee2mqtt/bulb-a1'), 'the candle starts');
+  states[portSwitch(roomA)] = { state: 'on', attributes: {}, last_changed: '2026-09-21T12:00:30+00:00' };
+  assert.deepEqual(bulbsSent(shared.turn('12:00:40', { kind: 'wake' })), []);
+});
+
+test("at a start, a room the journal's process did not drive is taken as found: what it sent there says nothing", () => {
+  // Review finding 8. Break: room-a was handed over while the port was down, the journal still says the candle runs,
+  // and the port leaves the candle the old scripts stopped meanwhile.
+  const states = sharedStates({ [roomA]: 'on', [roomB]: 'on' });
+  delete (states['sensor.ls_overrides']!.attributes.overrides as JsonObject)[`block:${roomA}`];
+  const first = new Shared(states, listed(roomA));
+  first.turn('12:00:00', { kind: 'started' });
+  first.turn('12:00:05', candleOnA1);
+  const restart = (share: JournalRecord['share']) => {
+    const again = new Shared(structuredClone(first.states), listed(roomA));
+    again.journal = { beliefs: first.state!.beliefs, share };
+    return bulbsSent(again.turn('12:01:00', { kind: 'started' }));
+  };
+  assert.ok(!restart({ kind: 'rooms', rooms: new Set([roomA]) }).includes('zigbee2mqtt/bulb-a1'), 'the journal\'s room: its candle is believed');
+  assert.ok(restart({ kind: 'rooms', rooms: new Set() }).includes('zigbee2mqtt/bulb-a1'));
+});
+
 test('the dashboard is left to the old scripts while a room is still theirs', () => {
   // README "Rooms on the port": the block selects, the mode mirror and the controls' proxies have one publisher.
   // Break: the port and the old scripts both publish the dashboard, each from its own view.
@@ -242,10 +294,9 @@ test('the whole house is the port\'s only by `--live-rooms all`, never by listin
 test('with every lamp room listed, a lamp in no room and a plug in a room with no lamp stay the old scripts\'', () => {
   // Review finding 4. Break: the share turns to the house, and things in no listed room get both drivers.
   const house = houseView(sharedStates({ [roomA]: 'on', [roomB]: 'on' }), '2026-09-21T12:00:00Z');
-  const config = decodeModel(configSource(house), house.catalog).config;
   const every = lampRooms(house.catalog, house.rooms);
   assert.deepEqual([...every].sort(), [roomA, roomB]);
-  const share = shareOf({ kind: 'listed', rooms: every }, every, config);
+  const share = shareOf({ kind: 'listed', rooms: every }, every);
   assert.equal(share.kind, 'rooms');
   assert.equal(drives(share, undefined), false, 'a lamp in no room');
   assert.equal(drives(share, toRoomId('room-c')), false, 'a plug in a room with no lamp');

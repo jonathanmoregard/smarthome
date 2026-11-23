@@ -79,7 +79,8 @@ snapshot. A new physical device must still be assigned to the correct logical la
 registry membership alone cannot infer that relationship.
 
 `.runtime/journal.json` is the durable journal: what each bulb and switch was
-last sent, saved after each send and written whole, then renamed into place. A
+last sent, and the rooms it drove, saved after each send and written whole,
+then renamed into place. A
 send is recorded only once every call carrying it has gone; a failed call is
 retried after its backoff. One host runs per journal: a start takes
 `<journal>.lock` (holding its process id), a second start that finds it held
@@ -180,10 +181,14 @@ missing `--live-rooms` is refused at start-up: it never means every room.
    `sensor.ls_effects_runtime`, the room caches) are never written by the
    port; each write of the port moves the store's revision, so an old render
    planned before it is not marked handled and runs again.
-4. Whenever a room is handed to the port while it runs (its switch turns on, or
-   off and on again), the port forgets what it sent that room's bulbs and sends
-   them their light again, so their bulb effects (the firmware candle) start.
-   At start, the journal holds what the port last sent.
+4. Whenever a room is handed to the port (its switch goes from off to on, as
+   the port sees it), the port takes the room as found: it forgets what it
+   sent the room's bulbs and plugs, sends them their light again, so their
+   bulb effects (the firmware candle) start, and a plug the old scripts
+   switched before the handover is no press. A switch that stays on while its
+   last change moves (Home Assistant started again) hands nothing over. The
+   journal keeps the rooms the port drove; at start, a room it did not drive
+   then is taken as found.
 5. Only `--live-rooms all` gives the port the whole house, and none of the
    above applies then: do that at the full cutover, once the old house-wide
    automations are off. A list naming every room is still a list: the

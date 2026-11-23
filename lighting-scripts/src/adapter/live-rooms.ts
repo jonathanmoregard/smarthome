@@ -14,7 +14,6 @@
 import type { Config } from '../domain/config.ts';
 import type { Msg, OverlayRequest } from '../domain/model.ts';
 import type { RoomId } from '../domain/types/ids.ts';
-import type { Instant } from '../domain/types/time.ts';
 import { drives, roomOfText } from './codecs/rooms.ts';
 import type { Rooms, Share } from './codecs/rooms.ts';
 import type { Catalog } from './codecs/catalog.ts';
@@ -75,14 +74,6 @@ export function roomsGiven(argv: readonly string[]): RoomsGiven {
   return index >= 0 && argv[index + 1] === ALL_ROOMS ? { kind: 'house' } : { kind: 'listed', rooms: readLiveRoomsFlag(argv) };
 }
 
-/** The listed rooms whose port switch is on, each with when the switch last changed. */
-export type Handed = ReadonlyMap<RoomId, Instant | undefined>;
-
-/** The rooms handed over since the last look: newly on, or switched off and on again in between. */
-export function newlyHanded(before: Handed, after: Handed): RoomId[] {
-  return [...after].filter(([room, since]) => !before.has(room) || before.get(room) !== since).map(([room]) => room);
-}
-
 export const LIVE_ROOMS_FLAG = '--live-rooms';
 
 /** The flag's value that gives the port the whole house: the full cutover. */
@@ -92,8 +83,8 @@ const ALL_ROOMS = 'all';
  * The turn's share of the house: the whole house only when given it (`--live-rooms all`); otherwise the handed rooms,
  * even every one of them, so a lamp in no room and a plug in a room with no lamp stay the old scripts'.
  */
-export function shareOf(given: RoomsGiven, handed: Handed): Share {
-  return given.kind === 'house' ? given : { kind: 'rooms', rooms: new Set(handed.keys()) };
+export function shareOf(given: RoomsGiven, handed: ReadonlySet<RoomId>): Share {
+  return given.kind === 'house' ? given : { kind: 'rooms', rooms: handed };
 }
 
 /**

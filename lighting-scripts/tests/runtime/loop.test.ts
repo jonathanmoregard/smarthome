@@ -25,7 +25,7 @@ import { bridged } from './support/inputs.ts';
  */
 
 /** A fresh process with an empty journal. */
-const STARTING: Kept = { kind: 'starting', beliefs: NO_BELIEFS };
+const STARTING: Kept = { kind: 'starting', beliefs: NO_BELIEFS, share: { kind: 'house' } };
 /** The whole house, as the harness runs it. */
 const HOUSE: RoomsGiven = { kind: 'house' };
 

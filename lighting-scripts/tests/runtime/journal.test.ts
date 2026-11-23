@@ -1,14 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { loadBeliefs, saveBeliefs } from '../../src/adapter/codecs/journal.ts';
+import { loadJournal, saveJournal } from '../../src/adapter/codecs/journal.ts';
 import { NO_BELIEFS } from '../../src/adapter/reconcile.ts';
 import type { Beliefs } from '../../src/adapter/reconcile.ts';
-import { toBulbId, toColourChannel, toInstant, toKelvin, toLevel, toSwitchId } from '../../src/adapter/codecs/ids.ts';
+import { toBulbId, toColourChannel, toInstant, toKelvin, toLevel, toRoomId, toSwitchId } from '../../src/adapter/codecs/ids.ts';
 
 /**
  * The journal is what the reconciler holds about each bulb and switch, kept
  * across a restart of the process. Every kind of belief goes in.
  */
+const saveBeliefs = (beliefs: Beliefs) => saveJournal({ beliefs, share: { kind: 'house' } });
+const loadBeliefs = (text: string | undefined) => loadJournal(text).beliefs;
 const at = (seconds: number) => toInstant(1_800_000_000 + seconds);
 const red = toColourChannel(255), half = toColourChannel(127.5), none = toColourChannel(0);
 
@@ -42,6 +44,20 @@ test('an unreadable journal is no beliefs', () => {
     '{"version":1,"bulbs":[],"switches":{}}']) {
     assert.deepEqual(loadBeliefs(text), NO_BELIEFS, String(text));
   }
+});
+
+test('the share the beliefs were sent under comes back; a journal without one drove no room', () => {
+  // Review finding 8. Break: the share is lost, so a restart cannot tell a room handed over while the process was down;
+  // or a journal saved before the share was kept reads as the whole house, and its beliefs are trusted everywhere.
+  const rooms = { kind: 'rooms' as const, rooms: new Set([toRoomId('den'), toRoomId('studio')]) };
+  assert.deepEqual(loadJournal(saveJournal({ beliefs: EVERY_KIND, share: rooms })), { beliefs: EVERY_KIND, share: rooms });
+  assert.deepEqual(loadJournal(saveJournal({ beliefs: NO_BELIEFS, share: { kind: 'house' } })).share, { kind: 'house' });
+  const none = { kind: 'rooms', rooms: new Set() };
+  for (const share of [undefined, 'house', { kind: 'rooms' }, { kind: 'rooms', rooms: [''] }, { kind: 'garden' }]) {
+    const text = JSON.stringify({ ...(JSON.parse(saveBeliefs(EVERY_KIND)) as object), share });
+    assert.deepEqual(loadJournal(text), { beliefs: EVERY_KIND, share: none }, JSON.stringify(share));
+  }
+  assert.deepEqual(loadJournal(undefined).share, none);
 });
 
 test('an unreadable entry is no belief for that bulb or switch; the rest are kept', () => {

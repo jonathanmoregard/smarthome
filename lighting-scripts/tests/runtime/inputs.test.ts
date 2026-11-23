@@ -173,7 +173,7 @@ test('a dashboard power message whose on is not a boolean is dropped, not read a
 
 test('a helper change re-reads the config', () => {
   const before = states();
-  const first = handleInput({ kind: 'starting', beliefs: NO_BELIEFS }, houseView(before, NOW_TEXT), { kind: 'started' }, { kind: 'house' });
+  const first = handleInput({ kind: 'starting', beliefs: NO_BELIEFS, share: { kind: 'house' } }, houseView(before, NOW_TEXT), { kind: 'started' }, { kind: 'house' });
   const after = structuredClone(before);
   after['input_datetime.ls_house_day_start'] = { state: '08:00:00', attributes: {} };
   const changed = handleInput({ kind: 'running', state: first.state }, houseView(after, NOW_TEXT), { kind: 'helper changed' }, { kind: 'house' });

@@ -1,6 +1,8 @@
 /**
  * The journal: the reconciler's beliefs as text, so a restart of the process
- * knows what each bulb was sent and sends nothing a bulb already shows.
+ * knows what each bulb was sent and sends nothing a bulb already shows, and the
+ * share of the house the process drove, so a room handed over while it was down
+ * is taken as found.
  *
  * Reading recovers, never raises: the journal is a saved file the process
  * writes, and a missing or garbled one is no beliefs, which costs one send to
@@ -14,34 +16,33 @@ import type { BulbId, SwitchId } from '../../domain/types/ids.ts';
 import type { Colour, Power } from '../../domain/types/light.ts';
 import type { Instant } from '../../domain/types/time.ts';
 import type { JsonObject, JsonValue } from '../ha-client.ts';
-import { toBulbId, toColourChannel, toInstant, toKelvin, toLevel, toSwitchId } from './ids.ts';
+import { toBulbId, toColourChannel, toInstant, toKelvin, toLevel, toRoomId, toSwitchId } from './ids.ts';
+import type { Share } from './rooms.ts';
 import { isObject, ParseError } from './parse.ts';
 
 /** The journal's format; a journal of another version is no beliefs. */
 const VERSION = 1;
 
-/** The beliefs as journal text. */
-export function saveBeliefs(beliefs: Beliefs): string {
-  return JSON.stringify({ version: VERSION, bulbs: beliefs.bulbs, switches: beliefs.switches });
+/** What the journal keeps: the beliefs, and the share of the house the process drove when it saved them. */
+export type JournalRecord = { beliefs: Beliefs; share: Share };
+
+/** The record as journal text. */
+export function saveJournal(record: JournalRecord): string {
+  const share = record.share.kind === 'house' ? record.share : { kind: 'rooms', rooms: [...record.share.rooms].sort() };
+  return JSON.stringify({ version: VERSION, bulbs: record.beliefs.bulbs, switches: record.beliefs.switches, share });
 }
 
-/** Journal text read back: no text, text that is not a journal, or a journal of another version is no beliefs. */
-export function loadBeliefs(text: string | undefined): Beliefs {
+/**
+ * Journal text read back. No text, text that is not a journal, or a journal of another version is no beliefs; a share
+ * that is missing or does not read is no room, so every room is taken as found.
+ */
+export function loadJournal(text: string | undefined): JournalRecord {
   const document = text === undefined ? undefined : jsonOf(text);
-  if (!isObject(document) || document.version !== VERSION || !isObject(document.bulbs) || !isObject(document.switches)) {
-    return NO_BELIEFS;
-  }
-  const bulbs: Record<BulbId, Belief> = {}, switches: Record<SwitchId, SwitchSent> = {};
-  for (const [id, entry] of Object.entries(document.bulbs)) {
-    const belief = readable(() => beliefOf(entry));
-    if (belief !== undefined) bulbs[toBulbId(id)] = belief;
-  }
-  for (const [id, entry] of Object.entries(document.switches)) {
-    const sent = readable(() => switchSentOf(entry));
-    if (sent !== undefined) switches[toSwitchId(id)] = sent;
-  }
-  return { bulbs, switches };
+  const share = isObject(document) ? readable(() => shareOf(document.share)) ?? NO_ROOMS : NO_ROOMS;
+  return { beliefs: beliefsOf(document), share };
 }
+
+const NO_ROOMS: Share = { kind: 'rooms', rooms: new Set() };
 
 function jsonOf(text: string): JsonValue | undefined {
   try {
@@ -59,6 +60,33 @@ function readable<T>(read: () => T): T | undefined {
     if (error instanceof ParseError) return undefined;
     throw error;
   }
+}
+
+function shareOf(value: JsonValue | undefined): Share {
+  if (!isObject(value)) throw new ParseError('the share is not an object');
+  if (value.kind === 'house') return { kind: 'house' };
+  const rooms = value.rooms;
+  if (value.kind !== 'rooms' || !Array.isArray(rooms)) throw new ParseError('the share is neither the house nor a list of rooms');
+  return { kind: 'rooms', rooms: new Set(rooms.map(room => {
+    if (typeof room !== 'string' || room === '') throw new ParseError('a room of the share is not a room id');
+    return toRoomId(room);
+  })) };
+}
+
+function beliefsOf(document: JsonValue | undefined): Beliefs {
+  if (!isObject(document) || document.version !== VERSION || !isObject(document.bulbs) || !isObject(document.switches)) {
+    return NO_BELIEFS;
+  }
+  const bulbs: Record<BulbId, Belief> = {}, switches: Record<SwitchId, SwitchSent> = {};
+  for (const [id, entry] of Object.entries(document.bulbs)) {
+    const belief = readable(() => beliefOf(entry));
+    if (belief !== undefined) bulbs[toBulbId(id)] = belief;
+  }
+  for (const [id, entry] of Object.entries(document.switches)) {
+    const sent = readable(() => switchSentOf(entry));
+    if (sent !== undefined) switches[toSwitchId(id)] = sent;
+  }
+  return { bulbs, switches };
 }
 
 function beliefOf(entry: JsonValue): Belief {

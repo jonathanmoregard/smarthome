@@ -6,7 +6,8 @@
 import type { Catalog } from './adapter/codecs/catalog.ts';
 import type { HouseMirror } from './adapter/codecs/house.ts';
 import { afterCall, houseView, mergedRead, withState } from './adapter/codecs/house.ts';
-import { loadBeliefs, saveBeliefs } from './adapter/codecs/journal.ts';
+import { loadJournal, saveJournal } from './adapter/codecs/journal.ts';
+import type { JournalRecord } from './adapter/codecs/journal.ts';
 import { outputCall } from './adapter/encode.ts';
 import { Unreachable } from './adapter/ha-client.ts';
 import type { EntityState, HaClient, JsonObject } from './adapter/ha-client.ts';
@@ -58,7 +59,7 @@ export class Host {
 
   /** A host over the house as Home Assistant shows it, holding the beliefs its journal kept. */
   static async open(io: HostIo, mirror: HouseMirror, catalog: Catalog): Promise<Host> {
-    return new Host(io, structuredClone(mirror), catalog, { kind: 'starting', beliefs: loadBeliefs(await io.journal.load()) });
+    return new Host(io, structuredClone(mirror), catalog, { kind: 'starting', ...loadJournal(await io.journal.load()) });
   }
 
   /**
@@ -118,7 +119,7 @@ export class Host {
         this.io.log.error(`lighting: ${call.service} failed: ${error instanceof Error ? error.message : String(error)}`);
         failed.push(true); this.failedTurn = this.turns;
       }
-      if (turn.journalled.includes(index)) await this.save(afterOutputs(turn, failed).state.beliefs);
+      if (turn.journalled.includes(index)) await this.save(afterOutputs(turn, failed).state);
     }
     this.calling = false;
     const settled = afterOutputs(turn, failed);
@@ -136,8 +137,8 @@ export class Host {
     this.io.log.warn('lighting: Home Assistant is out of reach; sends and wakes are paused until it is back');
   }
 
-  private async save(beliefs: Parameters<typeof saveBeliefs>[0]): Promise<void> {
-    await this.io.journal.save(saveBeliefs(beliefs)).catch(error =>
+  private async save(record: JournalRecord): Promise<void> {
+    await this.io.journal.save(saveJournal(record)).catch(error =>
       this.io.log.error(`lighting: journal not saved: ${error instanceof Error ? error.message : String(error)}`));
   }
 
