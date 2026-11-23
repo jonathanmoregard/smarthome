@@ -3,7 +3,7 @@
  * entity's state, a service call, the shapes a whole read and an event come
  * in, and the websocket client that carries them.
  */
-import { callService, createConnection, createLongLivedTokenAuth, getConfig, getStates } from 'home-assistant-js-websocket';
+import { callService, createConnection, createLongLivedTokenAuth, getConfig, getStates, isConnectionLost } from 'home-assistant-js-websocket';
 import type { Connection } from 'home-assistant-js-websocket';
 
 /** A JSON value as Home Assistant and the harness send it: the input to parsing, never its result. */
@@ -26,6 +26,12 @@ export interface ServiceCall {
   data: JsonObject;
   target?: JsonObject;
 }
+
+/**
+ * A call that did not reach Home Assistant, or whose answer was lost with the connection: Home Assistant is out of
+ * reach, which says nothing about the bulb or helper the call was for.
+ */
+export class Unreachable extends Error {}
 
 /**
  * What the host needs of Home Assistant: a service call, which rejects when Home Assistant did not take it, and
@@ -72,10 +78,12 @@ export class HomeAssistantClient implements HaClient {
   /** A service call; rejects when Home Assistant is out of reach or refuses it. The answer is the call's context id. */
   async call(call: ServiceCall): Promise<string | undefined> {
     // Do not enter the client's suspended-connection queue with stale output.
-    if (!this.connection.connected) throw new Error('Home Assistant is disconnected');
+    if (!this.connection.connected) throw new Unreachable('Home Assistant is disconnected');
     const [domain, service, extra] = call.service.split('.');
     if (domain === undefined || service === undefined || extra !== undefined) throw new Error('Invalid Home Assistant service name');
-    const response: unknown = await callService(this.connection, domain, service, call.data, call.target);
+    const response: unknown = await callService(this.connection, domain, service, call.data, call.target).catch((error: unknown) => {
+      throw isConnectionLost(error) ? new Unreachable('Home Assistant connection lost') : error;
+    });
     const context = object(object(response).context).id;
     return typeof context === 'string' ? context : undefined;
   }

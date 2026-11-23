@@ -1,16 +1,14 @@
 /**
- * The host: a minimal wrapper that holds no lighting rule. It keeps Home
- * Assistant's states and registry as a mirror, runs one turn of the adapter
- * at a time for each input, makes the turn's calls one at a time (reporting
- * each one's failure back to the adapter and saving the journal after each
- * bulb send), shows how long the sends took, and keeps one timer for the
- * turn's wake time. What to send, and when, is the adapter's.
+ * The host, a minimal wrapper with no lighting rule: it mirrors Home Assistant's states and registry, runs one turn
+ * at a time, makes each turn's calls in order (each one's outcome back to the adapter, the journal saved where the
+ * turn says), pauses while Home Assistant is out of reach, and keeps one timer for the wake. The rest is the adapter's.
  */
 import type { Catalog } from './adapter/codecs/catalog.ts';
 import type { HouseMirror } from './adapter/codecs/house.ts';
 import { afterCall, houseView, mergedRead } from './adapter/codecs/house.ts';
 import { loadBeliefs, saveBeliefs } from './adapter/codecs/journal.ts';
 import { outputCall, timingCall } from './adapter/encode.ts';
+import { Unreachable } from './adapter/ha-client.ts';
 import type { EntityState, HaClient, JsonObject } from './adapter/ha-client.ts';
 import { echoContext, mayBeEcho, scriptInput } from './adapter/codecs/inputs.ts';
 import type { HaInput } from './adapter/codecs/inputs.ts';
@@ -25,7 +23,7 @@ export interface Journal {
   save(text: string): Promise<void>;
 }
 
-export type Log = { info(message: string): void; error(message: string): void };
+export type Log = { info(message: string): void; warn(message: string): void; error(message: string): void };
 
 /** A timer: `wake` runs after `delayMs`, unless the answer is called first. */
 export type Timer = (delayMs: number, wake: () => void) => () => void;
@@ -52,6 +50,8 @@ export class Host {
   private turns = 0;
   private failedTurn = -1;
   private calling = false;
+  /** Whether Home Assistant is in reach: while it is not, nothing is sent and no wake runs. */
+  private connected = true;
 
   private constructor(io: HostIo, mirror: HouseMirror, catalog: Catalog, kept: Kept) {
     this.io = io; this.mirror = mirror; this.catalog = catalog; this.kept = kept;
@@ -87,7 +87,7 @@ export class Host {
   }
 
   private async turn(input: HaInput): Promise<void> {
-    if (this.closed) return;
+    if (this.closed || !this.connected) return;
     const now = this.io.clock();
     // A turn that throws still sets a wake, a little later, so the timer that started it is not the last one.
     let wakeAt: Instant | undefined = toInstant(now + AFTER_A_FAILED_TURN_SECONDS);
@@ -95,7 +95,7 @@ export class Host {
       wakeAt = await this.run(input, now);
     } finally {
       this.cancelWake?.();
-      this.cancelWake = wakeAt === undefined || this.closed ? undefined
+      this.cancelWake = wakeAt === undefined || this.closed || !this.connected ? undefined
         : this.io.timer(Math.min(LONGEST_WAIT_MS, Math.max(0, Math.round((wakeAt - now) * 1000))), () => this.accept({ kind: 'wake' }));
     }
   }
@@ -109,12 +109,15 @@ export class Host {
     this.turns++; this.calling = true;
     for (const [index, output] of turn.outputs.entries()) {
       const call = outputCall(output, turn.now);
+      if (!this.connected) break;
       try {
         const context = await this.io.ha.call(call);
         if (context !== undefined) this.ownContexts = [...this.ownContexts, context].slice(-OWN_CONTEXTS);
         this.mirror = { ...this.mirror, state: afterCall(this.mirror.state, call, now) };
         failed.push(false);
       } catch (error) {
+        // Out of reach is no failure of the bulb or helper: the call, and the turn's later ones, count as not made.
+        if (error instanceof Unreachable) { this.disconnected(); break; }
         this.io.log.error(`lighting: ${call.service} failed: ${error instanceof Error ? error.message : String(error)}`);
         failed.push(true); this.failedTurn = this.turns;
       }
@@ -124,8 +127,15 @@ export class Host {
     const settled = afterOutputs(turn, failed);
     this.kept = { kind: 'running', state: settled.state };
     for (const note of settled.notes) this.io.log.info(note);
-    if (turn.outputs.length > 0) await this.io.ha.call(timingCall((performance.now() - started) / 1000)).catch(() => undefined);
+    if (turn.outputs.length > 0 && this.connected) await this.io.ha.call(timingCall((performance.now() - started) / 1000)).catch(() => undefined);
     return settled.wakeAt;
+  }
+
+  /** Home Assistant went out of reach: sends and wakes pause until {@link reconnected}. */
+  disconnected(): void {
+    if (!this.connected) return;
+    this.connected = false; this.cancelWake?.(); this.cancelWake = undefined;
+    this.io.log.warn('lighting: Home Assistant is out of reach; sends and wakes are paused until it is back');
   }
 
   private async save(beliefs: Parameters<typeof saveBeliefs>[0]): Promise<void> {
@@ -155,10 +165,18 @@ export class Host {
     this.enqueue(async () => { this.mirror = mergedRead(this.mirror, structuredClone(mirror), startedAt); });
   }
 
-  /** The house as the host holds it now. */
-  house(): HouseMirror {
-    return this.mirror;
+  /** Home Assistant is back, or started again, with its house read afresh from `startedAt`: reconciled anew. */
+  reconnected(mirror: HouseMirror, startedAt: Instant): void {
+    this.enqueue(async () => {
+      this.mirror = mergedRead(this.mirror, structuredClone(mirror), startedAt);
+      if (!this.connected) this.io.log.warn('lighting: Home Assistant is back; every bulb is reconciled again');
+      this.connected = true;
+      await this.turn({ kind: 'reconnected' });
+    });
   }
+
+  /** The house as the host holds it now. */
+  house(): HouseMirror { return this.mirror; }
 
   /** A new catalog; the next turn reads it. */
   catalogChanged(catalog: Catalog): void {
@@ -174,8 +192,7 @@ export class Host {
   }
 
   async close(): Promise<void> {
-    this.closed = true;
-    this.cancelWake?.();
+    this.closed = true; this.cancelWake?.();
     await this.queue;
   }
 }

@@ -169,6 +169,11 @@ export type Beliefs = { bulbs: Record<BulbId, Belief>; switches: Record<SwitchId
 
 export const NO_BELIEFS: Beliefs = { bulbs: {}, switches: {} };
 
+/** The beliefs with every parked bulb's forgotten, so the next pass sends each what its report does not show. */
+export function unparked(beliefs: Beliefs): Beliefs {
+  return forgotten(beliefs, entriesOf(beliefs.bulbs).flatMap(([bulb, belief]) => belief.kind === 'parked' ? [bulb] : []));
+}
+
 /**
  * The beliefs without those of `bulbs`, so the next pass sends them what they do not show, the candle's start
  * included. Today's dispatch sends a lamp it was asked for (switched back on, or handed to the port).

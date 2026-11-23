@@ -8,6 +8,7 @@ import { afterCall } from '../../src/adapter/codecs/house.ts';
 import { loadBeliefs } from '../../src/adapter/codecs/journal.ts';
 import { toInstant, toMqttTopic } from '../../src/adapter/codecs/ids.ts';
 import type { Publish } from '../../src/adapter/encode.ts';
+import { Unreachable } from '../../src/adapter/ha-client.ts';
 import type { EntityState, ServiceCall } from '../../src/adapter/ha-client.ts';
 import type { BulbId } from '../../src/domain/types/ids.ts';
 import type { Instant } from '../../src/domain/types/time.ts';
@@ -30,6 +31,8 @@ class FakeHa {
   states: Record<string, EntityState> = syntheticStates();
   /** Calls that fail, and the moment each call is made, to hold it there. */
   failing: (call: ServiceCall) => boolean = () => false;
+  /** Out of reach: every call rejects as the client does when the connection is down. */
+  unreachable = false;
   during: (call: ServiceCall) => Promise<void> = async () => {};
 
   constructor() {
@@ -41,6 +44,7 @@ class FakeHa {
     this.calls.push(call);
     const context = `context-${this.calls.length}`;
     await this.during(call);
+    if (this.unreachable) throw new Unreachable('Home Assistant is disconnected');
     if (this.failing(call)) throw new Error('Home Assistant did not take it');
     this.states = afterCall(this.states, call, toInstant(Date.now() / 1000));
     if (call.service === 'mqtt.publish' && typeof call.data.topic === 'string' && typeof call.data.payload === 'string'
@@ -84,7 +88,8 @@ class FakeTimers {
 
 function open(ha: FakeHa, journal: MemoryJournal, now: { time: Instant }, timers = new FakeTimers()) {
   const logged: string[] = [];
-  const io: HostIo = { ha, journal, clock: () => now.time, log: { info: m => logged.push(m), error: m => logged.push(m) },
+  const io: HostIo = { ha, journal, clock: () => now.time,
+    log: { info: m => logged.push(m), warn: m => logged.push(`warn: ${m}`), error: m => logged.push(m) },
     timer: (delayMs, wake) => timers.start(delayMs, wake) };
   return { host: Host.open(io, ha.mirror(), catalog), logged, timers };
 }
@@ -249,5 +254,65 @@ test("our own call's echo is dropped, though it arrives before the call is answe
   host.script('automation.lighting_schedule_sara_mode_switch', modeSwitch(true, 'a-person-context'));
   await host.idle();
   assert.equal(sensorWrites().length, before + 2, "the person's change reached the lighting");
+  await host.close();
+});
+
+const kinds = (journal: MemoryJournal) => Object.values(loadBeliefs(journal.saved.at(-1)).bulbs).map(belief => belief.kind);
+
+test('a disconnect mid-fade counts no failure and pauses; the reconnect sends the fade where it is now', async () => {
+  // Review 1. Break: while Home Assistant is down every publish counts as a bulb's failure, so the fading bulbs are
+  // retried and parked, stay at their last step, and the reconnect sends them nothing; or the wakes run on regardless.
+  const ha = new FakeHa(), now = { time: at('16:50:00') }, journal = new MemoryJournal();
+  const { host: opening, timers, logged } = open(ha, journal, now);
+  const host = await opening;
+  host.accept({ kind: 'started' });
+  await host.idle();
+  const level = () => ha.states['bulb-a3']?.attributes['brightness'];
+  const fading = level();
+  ha.unreachable = true;
+  now.time = at('16:50:30');
+  timers.live()[0]!.wake();
+  await host.idle();
+  const made = ha.calls.length;
+  for (const time of ['16:51:00', '16:52:00', '16:53:00']) {
+    now.time = at(time);
+    host.accept({ kind: 'tick' });
+    await host.idle();
+  }
+  assert.equal(ha.calls.length, made, 'nothing more is sent while Home Assistant is out of reach');
+  assert.deepEqual(timers.live(), [], 'no wake runs while it is out of reach');
+  assert.ok(logged.some(line => line.startsWith('warn: ') && /out of reach/.test(line)));
+  assert.ok(!kinds(journal).some(kind => kind === 'retrying' || kind === 'parked'), 'no bulb counts a failure');
+  ha.unreachable = false;
+  now.time = at('17:10:00');
+  host.reconnected(ha.mirror(), at('17:10:00'));
+  await host.idle();
+  assert.notEqual(level(), fading, 'the fade went on to where it is now');
+  assert.ok(logged.some(line => line.startsWith('warn: ') && /back/.test(line)));
+  assert.equal(timers.live().length, 1);
+  await host.close();
+});
+
+test('a reconnect unparks every parked bulb and sends it its light', async () => {
+  // Review 2. Break: a bulb parked while Home Assistant or its bulbs misbehaved stays parked through the reconnect,
+  // until its light changes, hours later perhaps.
+  const ha = new FakeHa(), now = { time: at('12:00:00') }, journal = new MemoryJournal();
+  const { host: opening, timers } = open(ha, journal, now);
+  const host = await opening;
+  ha.failing = call => call.data.topic === 'zigbee2mqtt/bulb-a3';
+  host.accept({ kind: 'started' });
+  await host.idle();
+  for (let tries = 0; tries < 6 && loadBeliefs(journal.saved.at(-1)).bulbs['bulb-a3' as BulbId]?.kind !== 'parked'; tries++) {
+    now.time = toInstant(now.time + 61);
+    timers.live()[0]!.wake();
+    await host.idle();
+  }
+  assert.equal(loadBeliefs(journal.saved.at(-1)).bulbs['bulb-a3' as BulbId]?.kind, 'parked');
+  ha.failing = () => false;
+  const before = ha.publishesTo('bulb-a3' as BulbId).length;
+  host.reconnected(ha.mirror(), now.time);
+  await host.idle();
+  assert.ok(ha.publishesTo('bulb-a3' as BulbId).length > before, 'the bulb is sent its light again');
+  assert.equal(loadBeliefs(journal.saved.at(-1)).bulbs['bulb-a3' as BulbId]?.kind, 'sent');
   await host.close();
 });

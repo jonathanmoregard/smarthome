@@ -29,7 +29,7 @@ import { decodeObserved } from './codecs/observed.ts';
 import type { Observed } from './reconcile.ts';
 import {
   afterSend, backOn, forgotten, NO_BELIEFS, newlyParked, nextRetry, nextSends, reportedChanged, RETRY_CAP, RETRY_FIRST, switchesSeen,
-  unexplained,
+  unexplained, unparked,
 } from './reconcile.ts';
 import type { Beliefs, Outcome, Send } from './reconcile.ts';
 import { configStoreWrite, dashboardWrites, modelWrites, uiSyncWrites } from './codecs/writes.ts';
@@ -93,10 +93,12 @@ export type Settled = { state: AdapterState; wakeAt: Instant | undefined; parked
  */
 export function afterOutputs(turn: Turn, failed: readonly boolean[]): Settled {
   let beliefs = turn.state.beliefs;
+  // Failed, or not made (Home Assistant went out of reach first): either way still to do.
   const lost = turn.outputs.filter((_, index) => failed[index] === true);
-  const modelLost = lost.some(output => output.kind === 'sensor' || output.kind === 'helper' || output.kind === 'store');
-  const controlLost = lost.some(output => output.kind === 'dashboard' && output.write.kind === 'control sync');
-  const writeLost = modelLost || lost.some(output => output.kind === 'dashboard');
+  const pending = turn.outputs.filter((_, index) => index >= failed.length || failed[index] === true);
+  const modelLost = pending.some(output => output.kind === 'sensor' || output.kind === 'helper' || output.kind === 'store');
+  const controlLost = pending.some(output => output.kind === 'dashboard' && output.write.kind === 'control sync');
+  const writeLost = lost.some(output => output.kind !== 'publish' && output.kind !== 'switch');
   const previous = turn.state.writes, view = turn.state.view;
   const writes = writeLost ? retryOf(previous, turn.now) : failed.length < turn.outputs.length ? previous : undefined;
   for (const { send, carriedBy } of turn.sends) {
@@ -134,7 +136,8 @@ function outcomeIn(send: Send, lost: readonly Output[]): Outcome {
 export function handleInput(kept: Kept, house: HouseView, input: HaInput): Turn {
   const state = kept.kind === 'running' ? kept.state : undefined;
   const now = toInstant(timestamp(house.now));
-  const fresh = state === undefined || input.kind === 'started', read = input.kind === 'helper changed' ? helpersRead(house, now) : undefined;
+  const fresh = state === undefined || input.kind === 'started';
+  const read = input.kind === 'helper changed' || input.kind === 'reconnected' ? helpersRead(house, now) : undefined;
   const before = fresh ? decodeModel(configSource(house), house.catalog) : read === undefined ? state.model : update(state.model, read);
   // What Home Assistant holds of the Model: the writes are read against it, so one that failed is made again.
   const writtenFrom = fresh ? before : read === undefined ? state.confirmed : update(state.confirmed, read);
@@ -172,6 +175,7 @@ export function handleInput(kept: Kept, house: HouseView, input: HaInput): Turn 
   for (const write of uiSyncWrites(house, previous === undefined)) outputs.push({ kind: 'dashboard', write });
 
   let beliefs = kept.kind === 'running' ? kept.state.beliefs : kept.beliefs;
+  if (input.kind === 'reconnected') beliefs = unparked(beliefs);
   const observed = decodeObserved(house.state, model.config);
   if (input.kind === 'state changed') {
     const reported = reportedBulbs(input.entities, model.config);

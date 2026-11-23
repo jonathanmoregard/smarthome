@@ -50,6 +50,11 @@ export type HaInput =
   | { kind: 'tick' }
   /** A wake the loop asked for, or a render request: the clock at the instant. */
   | { kind: 'wake' }
+  /**
+   * Home Assistant is back (the connection, or Home Assistant itself started again), its house read afresh: the
+   * config and the profiles are read again, every parked bulb is unparked, and the house is reconciled anew.
+   */
+  | { kind: 'reconnected' }
   /** A helper the config or a profile is read from changed: the config and the profiles are read again. */
   | { kind: 'helper changed' }
   /** Lamps switched back on from outside (wall power, or a named apply): their bulbs are sent their light again. */
@@ -172,7 +177,7 @@ const REMOTE_AUTOMATION = /^automation\.(?:.*_)?remote_(center|directions|preset
  */
 export function messages(input: HaInput, model: Model, now: Instant, house: HouseView): Msg[] {
   switch (input.kind) {
-    case 'started': case 'tick': case 'wake': case 'helper changed': case 'state changed': return [];
+    case 'started': case 'tick': case 'wake': case 'reconnected': case 'helper changed': case 'state changed': return [];
     case 'overlay event': return overlayEvent(input.data, model, now, house);
     case 'dashboard script': return dashboardScript(input.script, input.data, model, now, house);
     case 'service called': return personCall(input.event, model, now, house);
