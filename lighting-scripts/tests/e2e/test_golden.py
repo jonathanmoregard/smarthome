@@ -506,16 +506,86 @@ class Expected(unittest.TestCase):
         with self.assertRaises(ValueError):
             windows((replace(entry, scenario='range_save'),), 'range_save', scenarios(self.house)['range_save'], self.house)
 
+    def test_the_lamps_lit_again_in_a_step_are_those_off_in_the_block_before_the_one_whose_fade_starts_in_it(self):
+        # ha_restart_mid_fade: 16:50, step 1 to 17:30, a restart, step 3 to 18:30. The house's cosy fade starts at
+        # 17:00 (18:00 less 60 min), room_b's own cosy fade at 18:20 (18:40 less 20). lamp_a1 is off by its own day
+        # light and lit by its own cosy light: step 1. lamp_b1 follows room_b's day light, which is off, and lamp_b2
+        # is off by its own; both are lit in cosy on room_b's timing: step 3. A lamp lit in both blocks is not named.
+        room_b = {'input_boolean.ls_room_b_cosy_own_timing': 'on', 'input_datetime.ls_room_b_cosy_start': '18:40:00',
+                  'input_number.ls_room_b_cosy_fade': '20', 'input_boolean.ls_room_b_day_own_light': 'on',
+                  'input_text.ls_room_b_day': json.dumps({'on': False, 'b': 150})}
+        scenario = self.pinned('ha_restart_mid_fade', room_b | {self.house_helper('cosy', 'fade'): '60'},
+                               lamp_a1={'day': (False, True), 'cosy': (True, True)},
+                               lamp_b1={'day': (True, False), 'cosy': (True, True)},
+                               lamp_b2={'day': (False, True), 'cosy': (True, True)})
+        entry = ExpectedDifference('x', 'ha_restart_mid_fade', 'lamp lit again by the block whose fade starts in the step',
+                                   'power', 1, 'scenario end', True)
+        self.assertEqual([w.subject for w in windows((entry,), 'ha_restart_mid_fade', scenario, self.house)], ['bulb_a1'])
+        self.assertEqual([w.subject for w in windows((replace(entry, after_step=3),), 'ha_restart_mid_fade', scenario,
+                                                     self.house)], ['bulb_b1', 'bulb_b2', 'bulb_b3'])
+        lit_before = self.pinned('ha_restart_mid_fade', {self.house_helper('cosy', 'fade'): '60'},
+                                 lamp_a1={'day': (True, True), 'cosy': (True, True)},
+                                 lamp_b1={'day': (True, True), 'cosy': (True, True)},
+                                 lamp_b2={'day': (True, True), 'cosy': (True, True)})
+        self.assertEqual(windows((entry,), 'ha_restart_mid_fade', lit_before, self.house), ())
+
+    def test_a_fade_that_starts_at_a_checkpoint_lights_the_lamp_in_the_step_after_it(self):
+        # The house's cosy fade from 17:30 (18:30 less 60 min), step 1's checkpoint: the lamp is lit in step 3.
+        scenario = self.pinned('ha_restart_mid_fade', {self.house_helper('cosy', 'start'): '18:30:00',
+                                                      self.house_helper('cosy', 'fade'): '60'},
+                               lamp_a1={'day': (False, True), 'cosy': (True, True)})
+        entry = ExpectedDifference('x', 'ha_restart_mid_fade', 'lamp lit again by the block whose fade starts in the step',
+                                   'power', 1, 'scenario end', True)
+        self.assertEqual(windows((entry,), 'ha_restart_mid_fade', scenario, self.house), ())
+        self.assertEqual([w.subject for w in windows((replace(entry, after_step=3),), 'ha_restart_mid_fade', scenario,
+                                                     self.house)], ['bulb_a1'])
+
+    def test_the_lamps_lit_again_when_the_hold_is_cleared_are_those_off_in_the_held_block_and_lit_in_their_own(self):
+        # dashboard_block_then_clear: at 12:00 the house is held in night, and the hold is cleared at step 3. lamp_a1
+        # is off in night and lit in day: named. lamp_b1 is lit in both. room_b's own day starts at 13:00, so at the
+        # clear lamp_b2 is in night still, which lights it too: not named.
+        scenario = self.pinned('dashboard_block_then_clear',
+                               {'input_boolean.ls_room_b_day_own_timing': 'on', 'input_datetime.ls_room_b_day_start': '13:00:00',
+                                'input_datetime.ls_room_b_day_weekend': '13:00:00'},
+                               lamp_a1={'night': (False, True), 'day': (True, True)},
+                               lamp_b1={'night': (True, True), 'day': (True, True)},
+                               lamp_b2={'night': (False, True), 'day': (True, True), 'cosy': (True, True)})
+        self.assertEqual(scenario.steps[1].script, 'ls_override_block')
+        self.assertEqual(scenario.steps[3].script, 'ls_clear_overrides')
+        entry = ExpectedDifference('x', 'dashboard_block_then_clear', 'lamp lit again when the block hold is cleared',
+                                   'power', 3, 'scenario end', True)
+        self.assertEqual([w.subject for w in windows((entry,), 'dashboard_block_then_clear', scenario, self.house)],
+                         ['bulb_a1'])
+
+    def test_the_scenario_end_closes_after_the_last_checkpoint(self):
+        scenario = scenarios(self.house)['ha_restart_mid_fade']
+        entry = ExpectedDifference('x', 'ha_restart_mid_fade', 'subject plug', 'power', 1, 'scenario end', True)
+        [window] = windows((entry,), 'ha_restart_mid_fade', scenario, self.house)
+        last = sum(step.seconds for step in scenario.steps if isinstance(step, Advance))
+        self.assertTrue(window.covers(Checkpoint(len(scenario.steps) - 1, last, {}, {}, {}, frozenset(), ())))
+
     def starting(self, **lights):
         """remote_presses with the house's blocks at 07:00, 18:00 and 23:00 and each named lamp's `(on, own)` light."""
-        scenario = scenarios(self.house)['remote_presses']
+        return self.pinned('remote_presses', {}, **lights)
+
+    def house_helper(self, block, setting):
+        return house_entity(self.house, None, None, block, setting)
+
+    def pinned(self, name, states, **lights):
+        """Scenario `name` with the house's blocks at 07:00, 18:00 and 23:00, `states` pinned, and each named lamp's
+        `(on, own)` light."""
+        scenario = scenarios(self.house)[name]
         pinned = {f'input_datetime.ls_house_{block}_{kind}': f'{clock}:00' for block, clock in
                   (('day', '07:00'), ('cosy', '18:00'), ('night', '23:00')) for kind in ('start', 'weekend')}
         for lamp, blocks in lights.items():
             for block, (on, own) in blocks.items():
                 pinned[f'input_text.ls_lamp_{lamp}_{block}'] = json.dumps({'on': on, 'b': 150, 'own': own})
+        pinned |= states
+        missing = set(pinned) - {seed.entity for seed in scenario.seeds}
         seeds = tuple(replace(seed, state=pinned[seed.entity]) if seed.entity in pinned else seed for seed in scenario.seeds)
-        return replace(scenario, seeds=seeds)
+        helpers = {helper.entity: helper for helper in self.house.helpers}
+        return replace(scenario, seeds=seeds + tuple(Seed(entity, pinned[entity], helpers[entity].attributes)
+                                                     for entity in sorted(missing)))
 
 
 # --- recordings ------------------------------------------------------------------------------------------

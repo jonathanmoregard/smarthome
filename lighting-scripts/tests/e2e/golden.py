@@ -24,13 +24,14 @@ from datetime import datetime, time, timedelta
 from functools import cache
 import hashlib
 import json
+import math
 from pathlib import Path
 import sys
 
-from tests.e2e.codec import Advance, Checkpoint, HouseInfo, decode, encode
+from tests.e2e.codec import Advance, Checkpoint, HouseInfo, LampInfo, decode, encode
 from tests.e2e.compare import (Comparison, ExpectedWindow, FadeOffToOnGradual, FlowComparison, compare,
                                compare_flow)
-from tests.e2e.router import LOCAL, Mqtt
+from tests.e2e.router import LOCAL, Mqtt, ScriptCall
 from tests.e2e.runner import ROOT, BackendRun, describe_house, run_backend
 from tests.e2e.scenarios import (BLOCKS, NAMES, Proof, Scenario, Scenarios, house_entity, plug_of, scenarios,
                                  subject_room)
@@ -52,7 +53,8 @@ class ExpectedDifference:
     """
     name: str                 # e.g. 'plug-press-held'
     scenario: str             # exactly one scenario
-    role: str                 # the bulbs or switches its `ROLES` name picks in the scenario (a window each), never by entity
+    role: str                 # the bulbs or switches its `ROLES` name picks in the scenario at `after_step` (a window
+                              # each), never by entity
     rule: str                 # exactly one flow rule, from `EXPECTED_RULES`
     after_step: int           # the window opens at the first checkpoint after this step's input ...
     until: str                # ... and closes at a named event, from `UNTIL`
@@ -66,6 +68,21 @@ EXPECTED: tuple[ExpectedDifference, ...] = (
     # off only at the first press's render: off by the end of that press's gap.
     ExpectedDifference('reconciler-restores-at-start', 'remote_presses', 'lamp off by its own light at the start',
                        'power', after_step=1, until='first press settled', port_holds=True),
+    # Owner rule 2026-11-23 ("a"): a person's off is a hold; anything else that leaves a reachable bulb off under a lit
+    # target is switched back on, and only an unreachable bulb or a disconnected bridge is left alone. A lamp whose
+    # scheduled light is off in one block (both backends switch it off) and lit in the next: from that block's fade
+    # the port lights it and keeps it lit; today's scripts send only to bulbs HA shows on, so they leave it off.
+    *(ExpectedDifference('reconciler-lights-the-next-block', scenario, 'lamp lit again by the block whose fade starts '
+                         'in the step', 'power', after_step=step, until='scenario end', port_holds=True)
+      for scenario, step in (('schedule_day', 19), ('schedule_day', 22), ('ha_restart_mid_fade', 1),
+                             ('midnight_weekend', 1), ('midnight_weekend', 6), ('next_block_reset', 3),
+                             ('person_change_then_expiry', 2), ('person_change_then_expiry', 3), ('range_save', 3),
+                             ('plug_button', 6))),
+    # The same rule: a lamp the dashboard's house block hold has off and its own block lights is lit again when the
+    # hold is cleared; today's scripts leave it off.
+    ExpectedDifference('reconciler-lights-after-the-hold', 'dashboard_block_then_clear',
+                       'lamp lit again when the block hold is cleared', 'power', after_step=3, until='scenario end',
+                       port_holds=True),
 )
 EXPECTED_RULES = ('power',)
 
@@ -90,11 +107,13 @@ def _next_fade_start(scenario: Scenario, house: HouseInfo, after_step: int) -> f
     return _first_after(scenario, after_step, fades, 'fade start')
 
 
-def _block_starts(scenario: Scenario, house: HouseInfo, after_step: int) -> list[tuple[str, float]]:
+def _block_starts(scenario: Scenario, house: HouseInfo, after_step: int, room: str | None = None
+                  ) -> list[tuple[str, float]]:
     """The house's block starts (block, timestamp) from the day before step `after_step`'s checkpoint to two days
     after, placed as the scenarios module describes `ls_base` placing them: a day start on its morning, cosy and
     night on their evening (a night start before noon in the small hours after it); the `_weekend` start on Friday
-    and Saturday evenings and on Saturday and Sunday mornings."""
+    and Saturday evenings and on Saturday and Sunday mornings. With `room`, a block the room has its own timing for
+    starts on the room's helpers."""
     seeds = {seed.entity: seed.state for seed in scenario.seeds}
     after = _checkpoint_time(scenario, after_step)
     starts = []
@@ -102,7 +121,8 @@ def _block_starts(scenario: Scenario, house: HouseInfo, after_step: int) -> list
         day = (datetime.fromtimestamp(after, LOCAL) + timedelta(days=offset)).date()
         for block in BLOCKS:
             weekend = day.weekday() in ((5, 6) if block == 'day' else (4, 5))
-            entity = house_entity(house, None, None, block, 'weekend' if weekend else 'start')
+            entity = house_entity(house, _timing_scope(scenario, house, room, block), None, block,
+                                  'weekend' if weekend else 'start')
             if entity is None or entity not in seeds:
                 continue
             clock = time.fromisoformat(seeds[entity])
@@ -154,13 +174,99 @@ def _off_by_own_light(scenario: Scenario, house: HouseInfo) -> tuple[str, ...]:
     return tuple(sorted(bulbs))
 
 
-ROLES: Mapping[str, Callable[[Scenario, HouseInfo], tuple[str, ...]]] = {
-    'subject plug': lambda _scenario, house: (plug_of(house, subject_room(house)),),
-    'lamp off by its own light at the start': _off_by_own_light,
+def _lit_again_by_the_next_block(scenario: Scenario, house: HouseInfo, after_step: int) -> tuple[str, ...]:
+    """The bulbs of each lamp whose scheduled light is off in one block and lit in the next, where that next block's
+    fade (its start less its fade minutes, on the lamp's room's timing) starts inside step `after_step`: at or after
+    the checkpoint before it, before its own."""
+    begin, end = _checkpoint_time(scenario, after_step - 1), _checkpoint_time(scenario, after_step)
+    bulbs: set[str] = set()
+    for lamp in house.lamps:
+        for block, start in _block_starts(scenario, house, after_step, lamp.room):
+            fade_start = start - _fade_minutes(scenario, house, _timing_scope(scenario, house, lamp.room, block), block) * 60
+            if (begin <= fade_start < end and _lamp_lit(scenario, house, lamp, block)
+                    and not _lamp_lit(scenario, house, lamp, BLOCKS[BLOCKS.index(block) - 1])):
+                bulbs.update(lamp.bulbs)
+    return tuple(sorted(bulbs))
+
+
+def _lit_again_when_the_hold_is_cleared(scenario: Scenario, house: HouseInfo, after_step: int) -> tuple[str, ...]:
+    """The bulbs of each lamp the scenario's house block hold (`ls_override_block`) has off and the block it is
+    scheduled to at step `after_step`'s checkpoint (on its room's timing) lights."""
+    held = next((step.data['block'] for step in scenario.steps if isinstance(step, ScriptCall)
+                 and step.script == 'ls_override_block' and step.data.get('scope') == 'house'), None)
+    if held is None:
+        raise ValueError(f'{scenario.name}: no house block hold')
+    at = _checkpoint_time(scenario, after_step)
+    bulbs: set[str] = set()
+    for lamp in house.lamps:
+        _, block = max((start, block) for block, start in _block_starts(scenario, house, after_step, lamp.room)
+                       if start <= at)
+        if not _lamp_lit(scenario, house, lamp, held) and _lamp_lit(scenario, house, lamp, block):
+            bulbs.update(lamp.bulbs)
+    return tuple(sorted(bulbs))
+
+
+def _lamp_lit(scenario: Scenario, house: HouseInfo, lamp: LampInfo, block: str) -> bool:
+    """Whether the lamp's scheduled light in `block` is lit: its own light where its store says `own`, else its
+    room's where the room has its own light for the block and a light helper, else the house's."""
+    own = _store(scenario, house, house_entity(house, lamp.room, lamp.lamp, block, 'light'))
+    if own is not None and own.get('own') is True:
+        return own.get('on') is True
+    if lamp.room is not None and _helper_state(scenario, house, house_entity(house, lamp.room, None, block, 'own_light')) == 'on':
+        room = _store(scenario, house, house_entity(house, lamp.room, None, block, 'light'))
+        if room is not None:
+            return room.get('on') is True
+    shared = _store(scenario, house, house_entity(house, None, None, block, 'light'))
+    return shared is not None and shared.get('on') is True
+
+
+def _timing_scope(scenario: Scenario, house: HouseInfo, room: str | None, block: str) -> str | None:
+    """`room` where it has its own timing for `block`, else None: the house's."""
+    if room is None:
+        return None
+    return room if _helper_state(scenario, house, house_entity(house, room, None, block, 'own_timing')) == 'on' else None
+
+
+def _fade_minutes(scenario: Scenario, house: HouseInfo, scope: str | None, block: str) -> float:
+    state = _helper_state(scenario, house, house_entity(house, scope, None, block, 'fade'))
+    if state is None:
+        raise ValueError(f'{scenario.name}: the {scope or "house"} {block} block has no fade')
+    return float(state)
+
+
+def _store(scenario: Scenario, house: HouseInfo, entity: str | None) -> dict | None:
+    """A light helper's JSON store, None where there is none or it is not an object."""
+    text = _helper_state(scenario, house, entity)
+    try:
+        store = None if text is None else json.loads(text)
+    except ValueError:
+        return None
+    return store if isinstance(store, dict) else None
+
+
+def _helper_state(scenario: Scenario, house: HouseInfo, entity: str | None) -> str | None:
+    """The state the scenario seeds for `entity`, else the house's own; None for no such helper."""
+    if entity is None:
+        return None
+    seeded = next((seed.state for seed in scenario.seeds if seed.entity == entity), None)
+    return seeded if seeded is not None else next((h.state for h in house.helpers if h.entity == entity), None)
+
+
+def _scenario_end(_scenario: Scenario, _house: HouseInfo, _after_step: int) -> float:
+    """Never inside the scenario: the window runs through its last checkpoint."""
+    return math.inf
+
+
+ROLES: Mapping[str, Callable[[Scenario, HouseInfo, int], tuple[str, ...]]] = {
+    'subject plug': lambda _scenario, house, _after_step: (plug_of(house, subject_room(house)),),
+    'lamp off by its own light at the start': lambda scenario, house, _after_step: _off_by_own_light(scenario, house),
+    'lamp lit again by the block whose fade starts in the step': _lit_again_by_the_next_block,
+    'lamp lit again when the block hold is cleared': _lit_again_when_the_hold_is_cleared,
 }
 UNTIL: Mapping[str, Callable[[Scenario, HouseInfo, int], float]] = {'next block start': _next_block_start,
                                                                      'next fade start': _next_fade_start,
-                                                                     'first press settled': _first_press_settled}
+                                                                     'first press settled': _first_press_settled,
+                                                                     'scenario end': _scenario_end}
 
 
 def check_expected(entries: Sequence[ExpectedDifference], built: Scenarios) -> None:
@@ -181,7 +287,8 @@ def windows(entries: Sequence[ExpectedDifference], name: str, scenario: Scenario
     """The entries for scenario `name`, each resolved to its window in `scenario`, one per subject its role picks."""
     return tuple(ExpectedWindow(entry.name, subject, entry.rule, entry.after_step,
                                 UNTIL[entry.until](scenario, house, entry.after_step), entry.port_holds)
-                 for entry in entries if entry.scenario == name for subject in ROLES[entry.role](scenario, house))
+                 for entry in entries if entry.scenario == name
+                 for subject in ROLES[entry.role](scenario, house, entry.after_step))
 
 
 @dataclass(frozen=True)
