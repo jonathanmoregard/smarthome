@@ -524,49 +524,37 @@ class RealBackends(unittest.TestCase):
                 final = run_backend(backend, steps, START).checkpoints[-1]
                 self.assertEqual(final.dashboard['switch_ranges'][plug]['profile'], 'bright')
 
-    def test_remote_press_runs_on_both_backends(self):
-        # Each press reaches its remote's own gesture script. A remote whose device has an area goes on to
-        # the remote command for that room, and one whose device has none stops there, on both backends.
-        from tests.e2e.test_env import isolated
-        presses = [(remote.topic, press) for remote in self.house.remotes for press in remote.presses]
-        placed = {remote.topic: remote.room is not None for remote in self.house.remotes}
-        runs = {}
+    def test_remote_press_switches_its_room_on_both_backends(self):
+        # Judged by what the bulbs show, not by which scripts ran: the port reads a press in one turn and starts
+        # no gesture or command script. Every press of every remote, each followed by a settled gap. A remote
+        # whose device has an area switches the power of its room's lamps, and of no other, with some press; one
+        # whose device has none switches nothing; and both backends switch the same bulbs the same way each press.
+        from tests.e2e.runner import run_backend
+        presses = [(remote, press) for remote in self.house.remotes for press in remote.presses]
+        steps = [HaStart()]
+        for remote, press in presses:
+            steps += [Mqtt(remote.topic, press), Advance(120)]
+        switched = {}
         for backend in ('reference', 'port'):
-            runs[backend] = isolated(f'''
-                import json
-                from datetime import datetime
-                from zoneinfo import ZoneInfo
-                from tests.e2e.backend import Session
-                from tests.e2e.codec import Advance
-                from tests.e2e.env import open_sim
-                from tests.e2e.router import HaStart, Mqtt
-                with open_sim({backend!r}) as sim:
-                    session = Session.open(sim, {backend!r}, datetime(2026, 10, 23, 12, tzinfo=ZoneInfo('Europe/Stockholm')))
-                    session.run([HaStart()])
-                    ran, run = [], sim.run
-                    def recording(name, **args):
-                        ran.append(name)
-                        return run(name, **args)
-                    sim.run = recording
-                    sim.script_runs = ran   # the port's own script starts inside one RPC
-                    gestures = []
-                    for topic, press in {presses!r}:
-                        ran.clear()
-                        session.run([Mqtt(topic, press), Advance(120)])
-                        gestures.append([sorted({{name for name in ran if name.startswith('ls_remote_gesture_')}}),
-                                         'ls_remote_command' in ran])
-                    print(json.dumps(gestures))
-            ''')
-        for backend, gestures in runs.items():
-            with self.subTest(backend=backend):
-                by_topic = {}
-                for (topic, press), (names, commanded) in zip(presses, gestures, strict=True):
-                    self.assertEqual(len(names), 1, (backend, press, names))
-                    self.assertEqual(commanded, placed[topic], (backend, press))
-                    by_topic.setdefault(topic, set()).update(names)
-                self.assertTrue(all(len(names) == 1 for names in by_topic.values()), by_topic)
-                self.assertEqual(len({name for names in by_topic.values() for name in names}), len(by_topic))
-        self.assertEqual(runs['reference'], runs['port'])
+            settled = {}
+            for checkpoint in run_backend(backend, steps, START).checkpoints:
+                settled[checkpoint.step] = {bulb: 'off' if isinstance(state, Off) else 'on'
+                                            for bulb, state in checkpoint.bulbs.items()}
+            # Press k is step 2k + 1; the house before it is step 2k's last checkpoint, after it step 2k + 2's.
+            switched[backend] = [{bulb: power for bulb, power in settled[2 * index + 2].items()
+                                  if settled[2 * index][bulb] != power} for index in range(len(presses))]
+        for backend, changes in switched.items():
+            for remote in self.house.remotes:
+                with self.subTest(backend=backend, remote=remote.topic):
+                    own = [change for (pressed, _), change in zip(presses, changes, strict=True) if pressed is remote]
+                    reached = {bulb for change in own for bulb in change}
+                    if remote.room is None:
+                        self.assertEqual(reached, set())
+                    else:
+                        room_bulbs = {bulb for lamp in self.house.lamps if lamp.room == remote.room for bulb in lamp.bulbs}
+                        self.assertTrue(reached)
+                        self.assertLessEqual(reached, room_bulbs)
+        self.assertEqual(switched['reference'], switched['port'])
 
 
 if __name__ == '__main__':

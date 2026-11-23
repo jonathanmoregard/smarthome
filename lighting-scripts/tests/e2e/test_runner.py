@@ -400,44 +400,49 @@ class ScriptStarts(unittest.TestCase):
 @unittest.skipUnless(env.reference_available(), 'private reference or HA wrapper missing')
 class RealBackends(unittest.TestCase):
     def test_continuation_runs_at_its_instant(self):
-        # No routed input reaches the port's one delayed continuation: the captured remote automations fail
-        # in the parity adapter (it passes them no room), before they start the gesture script. So the
-        # press is recorded as that automation's own action would be, a start of the room's gesture
-        # script, and everything after it is the real port: the gesture starts its quiet script, which
-        # queues power_done 600 ms later.
+        # The port's one delayed continuation is its wake: a press reads into the turn at once, and the turn asks
+        # to run again when the power burst's window closes, 600 ms later (the old gesture script's power_done).
+        # Each press of the placed remote, as the house's mqtt triggers send it, until one opens a burst; its wake
+        # is drained within the step at its own instant. Only the first wake's writes are checked.
+        from tests.e2e.runner import describe_house
+        from tests.e2e.scenarios import placed_remote
+        remote = placed_remote(describe_house())
         from tests.e2e.test_env import isolated
-        result = isolated('''
+        result = isolated(f'''
             import json
             from datetime import datetime, timezone
             from tests.e2e.backend import Session
             from tests.e2e.env import open_sim
-            from tests.e2e.router import Context, HaStart, StateChanged
+            from tests.e2e.router import HaStart, Mqtt
             start = datetime(2026, 10, 23, 10, tzinfo=timezone.utc)
             with open_sim('port') as sim:
                 session = Session.open(sim, 'port', start)
                 session.run([HaStart()])
-                room = sorted(sim._parity_catalog['remotes'])[0]
-                sim.calls.append({'time': sim.elapsed, 'action': 'script.turn_on', 'data': {'variables': {'command': 'power'}},
-                                  'target': {'entity_id': 'script.ls_remote_gesture_' + room}})
-                ran, wrote, run = [], {}, sim.run
+                ran, wrote, run = [], {{}}, sim.run
                 def recording(name, **args):
-                    if args.get('command') != 'power_done':
+                    if name != 'ls_wake':
                         return run(name, **args)
-                    ran.append(sim.now.timestamp() - start.timestamp())
-                    before = {entity: value['state'] for entity, value in sim.state.items()}
+                    ran.append(round(sim.now.timestamp() - pressed, 3))
+                    before = {{entity: value['state'] for entity, value in sim.state.items()}}
                     result = run(name, **args)
-                    wrote.update({entity: value['state'] for entity, value in sim.state.items()
-                                  if before.get(entity) != value['state']})
+                    if len(ran) == 1:
+                        wrote.update({{entity: value['state'] for entity, value in sim.state.items()
+                                       if before.get(entity) != value['state']}})
                     return result
                 sim.run = recording
-                marker = StateChanged('input_text.e2e_marker', None, {'state': 'x', 'attributes': {}}, Context('m', None))
-                session.run([marker])
-                print(json.dumps({'ran': ran, 'wrote': len(wrote), 'left': len(sim._parity_extra.get('scheduled', [])),
-                                  'kept': all(sim.state[entity]['state'] == state for entity, state in wrote.items())}))
+                for press in {list(remote.presses)!r}:
+                    pressed = sim.now.timestamp()
+                    session.run([Mqtt({remote.topic!r}, press)])
+                    if ran:
+                        break
+                print(json.dumps({{'ran': ran, 'wrote': len(wrote), 'left': len(sim._parity_extra.get('scheduled', [])),
+                                   'kept': all(sim.state[entity]['state'] == state for entity, state in wrote.items())}}))
         ''')
-        # Drained within the step, at its own instant, as the reference's inline 600 ms wait runs it.
-        self.assertEqual(len(result['ran']), 1)
+        # Drained within the step, at its own instant, as the reference's inline 600 ms wait runs it. A later wake,
+        # when the chord's 3 s window closes, is the port's reading of the reference's chord timer.
+        self.assertGreaterEqual(len(result['ran']), 1)
         self.assertAlmostEqual(result['ran'][0], 0.6, delta=0.01)
+        self.assertTrue(all(0.6 <= wake <= 3.01 for wake in result['ran']), result['ran'])
         self.assertEqual(result['left'], 0)
         self.assertGreater(result['wrote'], 0)
         self.assertTrue(result['kept'])   # what it wrote is the state the step's checkpoint is taken in
