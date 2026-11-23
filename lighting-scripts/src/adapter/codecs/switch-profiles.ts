@@ -6,7 +6,7 @@
  * A store that is not a mapping follows the room. Garbage recovers, never raises.
  */
 import type { SwitchProfile } from '../../domain/model.ts';
-import { haBooleanOr } from '../../parse/state-store.ts';
+import { haBooleanOr } from '../../runtime/parse.ts';
 import { jinjaTruthy } from '../../runtime/parse.ts';
 import { storeOf } from './lamp-profiles.ts';
 

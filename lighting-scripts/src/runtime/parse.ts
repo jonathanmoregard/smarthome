@@ -349,3 +349,32 @@ export function lazy<T>(parse: () => T): () => T {
     return value;
   };
 }
+
+/** Home Assistant's custom `| bool` filter: what it rejects raises, as the filter does. */
+export function haBoolean(value: JsonValue | undefined, context: string): boolean {
+  const parsed = haBooleanOf(value);
+  if (parsed === undefined) throw new ParseError(`${context} is not accepted by Home Assistant's bool filter`);
+  return parsed;
+}
+
+/**
+ * Home Assistant's custom `| bool` filter, measured from the pinned oracle,
+ * as a lenient read: what the filter accepts is its boolean, and what it
+ * rejects (where the filter raises) is none. Never raises.
+ */
+export function haBooleanOf(value: JsonValue | undefined): boolean | undefined {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return Number.isNaN(value) ? true : value !== 0;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['1', 'true', 'yes', 'on', 'enable'].includes(normalized)) return true;
+    if (['0', 'false', 'no', 'off', 'disable'].includes(normalized)) return false;
+  }
+  return undefined;
+}
+
+/** {@link haBooleanOf} for a saved value: what the filter rejects is `fallback` instead of a raise. */
+export function haBooleanOr(value: JsonValue | undefined, fallback: boolean): boolean {
+  const parsed = haBooleanOf(value);
+  return parsed === undefined ? fallback : parsed;
+}
