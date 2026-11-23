@@ -28,7 +28,7 @@ import type { TimeOfDay, Timezone } from '../../domain/types/time.ts';
 import {
   toBrightness, toBulbId, toColourChannel, toInstant, toKelvin, toLampId, toMinutes, toMqttTopic, toRoomId, toSwitchId, toTimeOfDay, toTimezone,
 } from './ids.ts';
-import type { MqttTopic } from '../encode.ts';
+import type { MqttTopic } from './ids.ts';
 import type { Catalog } from './catalog.ts';
 import type { EntityState, JsonValue } from '../ha-client.ts';
 import { ParseError, isObject, parseFinite } from './parse.ts';

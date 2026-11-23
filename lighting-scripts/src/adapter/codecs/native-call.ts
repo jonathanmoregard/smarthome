@@ -16,17 +16,17 @@
  * whose value cannot be read raises. `color_temp` (mireds) is read after
  * `kelvin`, which today's plan left to Home Assistant.
  */
-import { roundEven } from '../domain/blend.ts';
-import type { Config } from '../domain/config.ts';
-import type { LampId, RoomId } from '../domain/types/ids.ts';
-import { entriesOf } from '../domain/types/ids.ts';
-import type { Colour } from '../domain/types/light.ts';
-import { COLOUR_NAMES } from './codecs/colour-names.ts';
-import { toColourChannel, toKelvin, toLampId, toRoomId } from './codecs/ids.ts';
-import { groupChildren, lampKelvinRange } from './codecs/native-controls.ts';
-import type { JsonObject, JsonValue } from './ha-client.ts';
-import type { HouseView } from './codecs/house.ts';
-import { ParseError, jinjaString, requireArray, requireNumber, requireString } from './codecs/parse.ts';
+import { roundEven } from '../../domain/blend.ts';
+import type { Config } from '../../domain/config.ts';
+import type { LampId, RoomId } from '../../domain/types/ids.ts';
+import { entriesOf } from '../../domain/types/ids.ts';
+import type { Colour } from '../../domain/types/light.ts';
+import { COLOUR_NAMES } from './colour-names.ts';
+import { toColourChannel, toKelvin, toLampId, toRoomId } from './ids.ts';
+import { groupChildren, lampKelvinRange } from './native-controls.ts';
+import type { JsonObject, JsonValue } from '../ha-client.ts';
+import type { HouseView } from './house.ts';
+import { ParseError, jinjaString, requireArray, requireNumber, requireString } from './parse.ts';
 
 type Rgb = readonly [number, number, number];
 

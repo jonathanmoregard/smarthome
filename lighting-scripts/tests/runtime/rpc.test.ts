@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { scriptInput } from '../../src/adapter/inputs.ts';
+import { scriptInput } from '../../src/adapter/codecs/inputs.ts';
 import { answer, forgetState } from '../../src/rpc.ts';
 import type { Snapshot } from '../../src/rpc.ts';
 import { CATALOG, syntheticStates } from './fixtures/house-view.ts';

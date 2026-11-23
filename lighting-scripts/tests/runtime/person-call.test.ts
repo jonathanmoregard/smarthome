@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { configSource, decodeModel } from '../../src/adapter/codecs/model.ts';
-import { haInput, messages } from '../../src/adapter/inputs.ts';
+import { haInput, messages } from '../../src/adapter/codecs/inputs.ts';
 import type { Msg } from '../../src/domain/model.ts';
 import type { Colour } from '../../src/domain/types/light.ts';
 import type { Instant } from '../../src/domain/types/time.ts';

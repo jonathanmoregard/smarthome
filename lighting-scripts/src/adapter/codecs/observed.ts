@@ -10,15 +10,15 @@
  * house does; the harness does not), so the reconciler can tell a press made
  * after its own send from that send.
  */
-import { decodeColour } from './codecs/config.ts';
-import type { Config } from '../domain/config.ts';
-import type { BulbId, SwitchId } from '../domain/types/ids.ts';
-import { entriesOf } from '../domain/types/ids.ts';
-import type { Colour, Level, Power } from '../domain/types/light.ts';
-import type { Instant } from '../domain/types/time.ts';
-import type { EntityState } from './ha-client.ts';
-import { parseFinite } from './codecs/parse.ts';
-import { toInstant, toLevel } from './codecs/ids.ts';
+import { decodeColour } from './config.ts';
+import type { Config } from '../../domain/config.ts';
+import type { BulbId, SwitchId } from '../../domain/types/ids.ts';
+import { entriesOf } from '../../domain/types/ids.ts';
+import type { Colour, Level, Power } from '../../domain/types/light.ts';
+import type { Instant } from '../../domain/types/time.ts';
+import type { EntityState } from '../ha-client.ts';
+import { parseFinite } from './parse.ts';
+import { toInstant, toLevel } from './ids.ts';
 
 export type ObservedLight = { power: 'off' } | { power: 'on'; level: Level; colour: Colour | undefined };
 export type ObservedBulb = { reach: 'unreachable' } | { reach: 'reachable'; light: ObservedLight };

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { bulbGroups } from '../../src/adapter/bulb-groups.ts';
-import type { BulbGroups } from '../../src/adapter/bulb-groups.ts';
+import { bulbGroups } from '../../src/adapter/codecs/bulb-groups.ts';
+import type { BulbGroups } from '../../src/adapter/codecs/bulb-groups.ts';
 import { mqttPublishCall, publishCall, publishes, switchCall } from '../../src/adapter/encode.ts';
-import type { MqttTopic } from '../../src/adapter/encode.ts';
+import type { MqttTopic } from '../../src/adapter/codecs/ids.ts';
 import type { Send } from '../../src/adapter/reconcile.ts';
 import type { BulbAppearance } from '../../src/domain/effect.ts';
 import type { BulbId } from '../../src/domain/types/ids.ts';

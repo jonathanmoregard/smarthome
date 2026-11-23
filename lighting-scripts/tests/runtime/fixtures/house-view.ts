@@ -4,7 +4,7 @@
  * bridge connected, and the clock. Each bulb is an entity of its own, kept by
  * a `FakeBulbs` world that the publishes move.
  */
-import type { MqttTopic } from '../../../src/adapter/encode.ts';
+import type { MqttTopic } from '../../../src/adapter/codecs/ids.ts';
 import type { BulbId } from '../../../src/domain/types/ids.ts';
 import { entriesOf } from '../../../src/domain/types/ids.ts';
 import { toMqttTopic } from '../../../src/adapter/codecs/ids.ts';

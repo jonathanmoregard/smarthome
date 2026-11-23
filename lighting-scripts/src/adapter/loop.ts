@@ -16,22 +16,22 @@ import { toDashboardControlId, toInstant } from './codecs/ids.ts';
 import { timestamp } from './codecs/accessors.ts';
 import type { HouseView } from './codecs/house.ts';
 import { ParseError } from './codecs/parse.ts';
-import { bulbGroups } from './bulb-groups.ts';
+import { bulbGroups } from './codecs/bulb-groups.ts';
 import { blockLightSaved, bulbTopics, decodeConfig, reportedBulbs } from './codecs/config.ts';
 import { configSource, decodeModel } from './codecs/model.ts';
 import { decodeRangeDefaults } from './codecs/range-defaults.ts';
 import { carries, outcomeOf, publishes } from './encode.ts';
 import type { Output } from './encode.ts';
-import { controlOver, messages, profileStoreOf, storeSaveIn, uiRowsOf, unexplainedMessages } from './inputs.ts';
-import type { HaInput, StoreSave } from './inputs.ts';
-import { decodeObserved } from './observed.ts';
-import type { Observed } from './observed.ts';
+import { controlOver, messages, profileStoreOf, storeSaveIn, uiRowsOf, unexplainedMessages } from './codecs/inputs.ts';
+import type { HaInput, StoreSave } from './codecs/inputs.ts';
+import { decodeObserved } from './codecs/observed.ts';
+import type { Observed } from './codecs/observed.ts';
 import {
   afterSend, backOn, forgotten, NO_BELIEFS, newlyParked, nextRetry, nextSends, reportedChanged, switchesSeen, unexplained,
 } from './reconcile.ts';
 import type { Beliefs, Outcome, Send } from './reconcile.ts';
-import { configStoreWrite, dashboardWrites, modelWrites, uiSyncWrites } from './writes.ts';
-import type { ControlRow, StoreWrite } from './writes.ts';
+import { configStoreWrite, dashboardWrites, modelWrites, uiSyncWrites } from './codecs/writes.ts';
+import type { ControlRow, StoreWrite } from './codecs/writes.ts';
 
 /**
  * What the adapter keeps between turns: the Model, what each bulb and switch was sent, the dashboard last shown, and

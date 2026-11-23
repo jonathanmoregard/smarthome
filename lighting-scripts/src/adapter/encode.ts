@@ -17,20 +17,18 @@
  * (`homeassistant.turn_on`/`turn_off`), and the helper, sensor, store and
  * dashboard writes.
  */
-import { groupedPublishes } from './bulb-groups.ts';
-import type { BulbGroups } from './bulb-groups.ts';
+import { groupedPublishes } from './codecs/bulb-groups.ts';
+import type { BulbGroups } from './codecs/bulb-groups.ts';
 import type { Outcome, Send } from './reconcile.ts';
 import { roundEven } from '../domain/blend.ts';
 import type { BulbAppearance } from '../domain/effect.ts';
-import type { BulbId, Id, SwitchId } from '../domain/types/ids.ts';
+import type { BulbId, SwitchId } from '../domain/types/ids.ts';
+import type { MqttTopic } from './codecs/ids.ts';
 import type { Colour, Level, Power } from '../domain/types/light.ts';
 import type { Instant, Seconds } from '../domain/types/time.ts';
 import type { ServiceCall } from './ha-client.ts';
 import type { HelperValue } from './codecs/remote-helpers.ts';
-import type { DashboardWrite, HelperWrite, SensorWrite, StoreWrite } from './writes.ts';
-
-/** A Zigbee2MQTT command topic: a bulb's (`zigbee2mqtt/<bulb>/set`) or a Zigbee group's. */
-export type MqttTopic = Id<'MqttTopic'>;
+import type { DashboardWrite, HelperWrite, SensorWrite, StoreWrite } from './codecs/writes.ts';
 
 /**
  * The Zigbee2MQTT keys a bulb is sent, closed: an effect command, Off, or a
@@ -68,6 +66,25 @@ export function publishCall(publish: Publish): ServiceCall {
   return mqttPublishCall(publish.topic, JSON.stringify(publish.payload), false);
 }
 
+/**
+ * The sends as publishes, in three rounds: stop_effect for each bulb leaving the candle; each light (level and colour,
+ * or OFF) with its transition; then each candle's start, a start sent alone included. Nothing after a start carries
+ * On or a brightness. A bulb with no topic is sent nothing.
+ */
+export function publishes(sends: readonly Send[], topics: Readonly<Record<BulbId, MqttTopic>>, groups: BulbGroups): Publish[] {
+  const round = (payloadOf: (send: Extract<Send, { kind: 'bulb' | 'start' }>) => BulbPayload | undefined): Publish[] =>
+    groupedPublishes(sends.flatMap(send => {
+      if (send.kind === 'switch') return [];
+      const topic = topics[send.bulb], payload = payloadOf(send);
+      return topic === undefined || payload === undefined ? [] : [{ bulb: send.bulb, topic, payload }];
+    }), groups);
+  return [
+    ...round(send => send.kind === 'bulb' && send.stopFirst ? STOP : undefined),
+    ...round(send => send.kind === 'bulb' ? lightPayload(send.appearance, send.over) : undefined),
+    ...round(send => send.appearance.power === 'on' && send.appearance.firmwareEffect === 'candle' ? START : undefined),
+  ];
+}
+
 /** A send to a bulb: its light, or its candle's start alone. */
 export type BulbSend = Exclude<Send, { kind: 'switch' }>;
 
@@ -98,6 +115,11 @@ export function switchCall(target: SwitchId, power: Power): ServiceCall {
   return { service: `homeassistant.turn_${power}`, data: {}, target: { entity_id: target } };
 }
 
+/** Leaving the candle: the Innr firmware's stop. */
+const STOP: BulbPayload = { effect: 'stop_effect' };
+/** The candle's start: Identify TriggerEffect 0x0b on the candle firmware. */
+const START = { effect: 'channel_change' } as const satisfies BulbPayload;
+
 /** A remote helper's write, as the gesture script made it: a value set, or the chord timer started or cancelled. */
 function helperCall(entity: string, value: HelperValue, now: Instant): ServiceCall {
   const target = { entity_id: entity };
@@ -109,11 +131,6 @@ function helperCall(entity: string, value: HelperValue, now: Instant): ServiceCa
       : { service: 'timer.cancel', data: {}, target };
   }
 }
-
-/** Leaving the candle: the Innr firmware's stop. */
-const STOP: BulbPayload = { effect: 'stop_effect' };
-/** The candle's start: Identify TriggerEffect 0x0b on the candle firmware. */
-const START = { effect: 'channel_change' } as const satisfies BulbPayload;
 
 /** A timer's duration in whole seconds, as `HH:MM:SS`: the chord's three seconds are `00:00:03`. */
 function duration(seconds: number): string {
@@ -128,25 +145,6 @@ function dashboardCall(write: DashboardWrite): ServiceCall {
     case 'mode mirror': return { service: `input_boolean.turn_${write.on ? 'on' : 'off'}`, data: {}, target: { entity_id: write.entity } };
     case 'control sync': case 'discovery': return mqttPublishCall(write.topic, write.payload, true);
   }
-}
-
-/**
- * The sends as publishes, in three rounds: stop_effect for each bulb leaving the candle; each light (level and colour,
- * or OFF) with its transition; then each candle's start, a start sent alone included. Nothing after a start carries
- * On or a brightness. A bulb with no topic is sent nothing.
- */
-export function publishes(sends: readonly Send[], topics: Readonly<Record<BulbId, MqttTopic>>, groups: BulbGroups): Publish[] {
-  const round = (payloadOf: (send: Extract<Send, { kind: 'bulb' | 'start' }>) => BulbPayload | undefined): Publish[] =>
-    groupedPublishes(sends.flatMap(send => {
-      if (send.kind === 'switch') return [];
-      const topic = topics[send.bulb], payload = payloadOf(send);
-      return topic === undefined || payload === undefined ? [] : [{ bulb: send.bulb, topic, payload }];
-    }), groups);
-  return [
-    ...round(send => send.kind === 'bulb' && send.stopFirst ? STOP : undefined),
-    ...round(send => send.kind === 'bulb' ? lightPayload(send.appearance, send.over) : undefined),
-    ...round(send => send.appearance.power === 'on' && send.appearance.firmwareEffect === 'candle' ? START : undefined),
-  ];
 }
 
 /** Does `publish` carry part of `send`: is it to the bulb's own topic, or to a Zigbee group the bulb is in? */

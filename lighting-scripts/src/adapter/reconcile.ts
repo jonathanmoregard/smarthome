@@ -28,7 +28,7 @@
  * back on (from off or out of reach, and nothing we sent explains it) is sent
  * its light with the short fade, then the candle's start.
  */
-import type { Observed, ObservedBulb, ObservedLight } from './observed.ts';
+import type { Observed, ObservedBulb, ObservedLight } from './codecs/observed.ts';
 import type { Config } from '../domain/config.ts';
 import { bulbAppearance } from '../domain/effect.ts';
 import type { BulbAppearance, BulbInfo } from '../domain/effect.ts';

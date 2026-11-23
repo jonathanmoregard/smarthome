@@ -9,29 +9,29 @@
  * nothing changed.
  */
 import { isDeepStrictEqual } from 'node:util';
-import { BLOCKS } from '../domain/blocks.ts';
-import { blockOption } from '../domain/blocks.ts';
-import type { ControlShown, DashboardView } from '../domain/dashboard.ts';
-import type { Model } from '../domain/model.ts';
-import { savedLampProfile } from '../domain/profiles.ts';
-import type { RoomId } from '../domain/types/ids.ts';
-import { entriesOf } from '../domain/types/ids.ts';
-import type { Instant } from '../domain/types/time.ts';
-import type { JsonObject } from './ha-client.ts';
-import type { HouseView } from './codecs/house.ts';
-import { roundEven } from '../domain/blend.ts';
-import { lampReading, proxyKelvin, proxyShowsRgb, uiProfile } from './codecs/ui-state.ts';
-import { object } from './codecs/parse.ts';
+import { BLOCKS } from '../../domain/blocks.ts';
+import { blockOption } from '../../domain/blocks.ts';
+import type { ControlShown, DashboardView } from '../../domain/dashboard.ts';
+import type { Model } from '../../domain/model.ts';
+import { savedLampProfile } from '../../domain/profiles.ts';
+import type { RoomId } from '../../domain/types/ids.ts';
+import { entriesOf } from '../../domain/types/ids.ts';
+import type { Instant } from '../../domain/types/time.ts';
+import type { JsonObject } from '../ha-client.ts';
+import type { HouseView } from './house.ts';
+import { roundEven } from '../../domain/blend.ts';
+import { lampReading, proxyKelvin, proxyShowsRgb, uiProfile } from './ui-state.ts';
+import { object } from './parse.ts';
 import { uiRowsOf } from './inputs.ts';
 import type { StoreSave, UiRow } from './inputs.ts';
-import { decodeLampProfile, encodeLampProfile } from './codecs/lamp-profiles.ts';
-import { profileStore } from './codecs/model.ts';
-import { remoteSources } from './codecs/overlay-key.ts';
-import { encodeOverrides } from './codecs/overrides-sensor.ts';
-import { encodeSwitchProfile } from './codecs/switch-profiles.ts';
-import { remoteHelperEntity, remoteHelperWrites } from './codecs/remote-helpers.ts';
-import type { HelperValue } from './codecs/remote-helpers.ts';
-import { nowText } from './codecs/time-text.ts';
+import { decodeLampProfile, encodeLampProfile } from './lamp-profiles.ts';
+import { profileStore } from './model.ts';
+import { remoteSources } from './overlay-key.ts';
+import { encodeOverrides } from './overrides-sensor.ts';
+import { encodeSwitchProfile } from './switch-profiles.ts';
+import { remoteHelperEntity, remoteHelperWrites } from './remote-helpers.ts';
+import type { HelperValue } from './remote-helpers.ts';
+import { nowText } from './time-text.ts';
 
 /** The overrides sensor's revision and the attributes written over its stored ones. */
 export type SensorWrite = { entity: string; revision: string; attributes: JsonObject };

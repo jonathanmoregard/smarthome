@@ -22,7 +22,7 @@ import type { HouseMirror } from './adapter/codecs/house.ts';
 import { outputCall } from './adapter/encode.ts';
 import { afterCall } from './adapter/ha-client.ts';
 import type { EntityState, JsonObject, JsonValue, ServiceCall } from './adapter/ha-client.ts';
-import { scriptInput } from './adapter/inputs.ts';
+import { scriptInput } from './adapter/codecs/inputs.ts';
 import { afterOutputs, handleInput } from './adapter/loop.ts';
 import type { Kept } from './adapter/loop.ts';
 import { NO_BELIEFS } from './adapter/reconcile.ts';

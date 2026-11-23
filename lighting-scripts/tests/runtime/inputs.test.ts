@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { configSource, decodeModel } from '../../src/adapter/codecs/model.ts';
-import { haInput, messages } from '../../src/adapter/inputs.ts';
-import type { HaInput } from '../../src/adapter/inputs.ts';
+import { haInput, messages } from '../../src/adapter/codecs/inputs.ts';
+import type { HaInput } from '../../src/adapter/codecs/inputs.ts';
 import { handleInput } from '../../src/adapter/loop.ts';
 import { NO_BELIEFS } from '../../src/adapter/reconcile.ts';
 import { lightingState } from '../../src/domain/lighting-state.ts';

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { uiSyncWrites } from '../../src/adapter/writes.ts';
+import { uiSyncWrites } from '../../src/adapter/codecs/writes.ts';
 import { parseCatalog } from '../../src/adapter/codecs/catalog.ts';
 import type { EntityState, JsonObject } from '../../src/adapter/ha-client.ts';
 import type { HouseView } from '../../src/adapter/codecs/house.ts';

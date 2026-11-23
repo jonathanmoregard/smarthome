@@ -14,32 +14,32 @@
  * A field that cannot be read raises a `ParseError`; the loop logs it and
  * drops the input.
  */
-import type { Block } from '../domain/blocks.ts';
-import { BLOCKS } from '../domain/blocks.ts';
-import type { EffectName } from '../domain/effect.ts';
+import type { Block } from '../../domain/blocks.ts';
+import { BLOCKS } from '../../domain/blocks.ts';
+import type { EffectName } from '../../domain/effect.ts';
 import type {
   ControlLight, LampProfileChange, Model, Msg, PresetButton, RangeDefaults, RangeRule, RemoteButton, RequestedBrightness, RequestedEffect,
   RequestedLight,
-} from '../domain/model.ts';
-import type { LampId, RemoteId, RoomId, SwitchId } from '../domain/types/ids.ts';
-import { entriesOf } from '../domain/types/ids.ts';
-import type { Colour, PercentRange, Power } from '../domain/types/light.ts';
-import type { LampOrRoom } from '../domain/types/lighting-state.ts';
-import type { RemoteCommand } from '../domain/types/remote.ts';
-import type { RoomOrHouse } from '../domain/types/schedule.ts';
-import type { Instant } from '../domain/types/time.ts';
-import { onOffOnly, ownRange, storedRangeBounds } from './codecs/ui-state.ts';
-import type { RangeBound } from './codecs/ui-state.ts';
+} from '../../domain/model.ts';
+import type { LampId, RemoteId, RoomId, SwitchId } from '../../domain/types/ids.ts';
+import { entriesOf } from '../../domain/types/ids.ts';
+import type { Colour, PercentRange, Power } from '../../domain/types/light.ts';
+import type { LampOrRoom } from '../../domain/types/lighting-state.ts';
+import type { RemoteCommand } from '../../domain/types/remote.ts';
+import type { RoomOrHouse } from '../../domain/types/schedule.ts';
+import type { Instant } from '../../domain/types/time.ts';
+import { onOffOnly, ownRange, storedRangeBounds } from './ui-state.ts';
+import type { RangeBound } from './ui-state.ts';
 import {
   percentRangeOf, toBrightness, toBrightnessStep, toColourChannel, toDashboardControlId, toKelvin, toLampId, toRemoteId, toRoomId, toSwitchId,
-} from './codecs/ids.ts';
-import type { JsonObject, JsonValue } from './ha-client.ts';
-import type { HouseView } from './codecs/house.ts';
-import { ParseError, isObject, jinjaString, object, requireBoolean, requireString } from './codecs/parse.ts';
-import { configSource, reportsOn } from './codecs/model.ts';
+} from './ids.ts';
+import type { JsonObject, JsonValue } from '../ha-client.ts';
+import type { HouseView } from './house.ts';
+import { ParseError, isObject, jinjaString, object, requireBoolean, requireString } from './parse.ts';
+import { configSource, reportsOn } from './model.ts';
 import { callColour, callReach } from './native-call.ts';
-import type { Unexplained } from './reconcile.ts';
-import type { CatalogRemote } from './codecs/catalog.ts';
+import type { Unexplained } from '../reconcile.ts';
+import type { CatalogRemote } from './catalog.ts';
 
 /** What happened in Home Assistant, as a script or automation run names it. Fields are read by `messages`. */
 export type HaInput =

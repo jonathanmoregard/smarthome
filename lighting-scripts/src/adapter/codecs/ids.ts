@@ -8,10 +8,9 @@
  * parse step already checked about the string still holds, and nothing is
  * added. Whether an id names something the registry knows is a later, named unit.
  */
-import type { BulbId, DashboardControlId, LampId, RemoteId, RemoteSource, RoomId, SwitchId, UserId } from '../../domain/types/ids.ts';
+import type { BulbId, DashboardControlId, Id, LampId, RemoteId, RemoteSource, RoomId, SwitchId, UserId } from '../../domain/types/ids.ts';
 import type { SavedOverlayKey } from './overlay-key.ts';
 import type { CatalogEffectName } from './catalog.ts';
-import type { MqttTopic } from '../encode.ts';
 import type { Brightness, BrightnessStep, ColourChannel, Kelvin, Level, Percent, PercentRange } from '../../domain/types/light.ts';
 import type { Instant, Seconds, TimeOfDay, Timezone } from '../../domain/types/time.ts';
 import type { Step, StepCount } from '../../domain/types/remote.ts';
@@ -23,6 +22,14 @@ import {
   percentRangeOrThrow, PERCENT_BOUNDS, progressOrThrow, secondsOrThrow, stepCountOrThrow, stepOrThrow, STEP_BOUNDS, timeOfDayOrThrow,
 } from '../../domain/types/range.ts';
 import { ParseError } from './parse.ts';
+
+/** A Zigbee2MQTT command topic: a bulb's (`zigbee2mqtt/<bulb>/set`) or a Zigbee group's. */
+export type MqttTopic = Id<'MqttTopic'>;
+
+export function toMqttTopic(raw: string): MqttTopic {
+  // Cast: the edge read this string as a Zigbee2MQTT command topic; this is the one place that says so.
+  return raw as MqttTopic;
+}
 
 export function toRoomId(raw: string): RoomId {
   // Cast: the edge read this string as a room; this is the one place that says so.
@@ -52,11 +59,6 @@ export function toRemoteId(raw: string): RemoteId {
 export function toUserId(raw: string): UserId {
   // Cast: the edge read this string as a user; this is the one place that says so.
   return raw as UserId;
-}
-
-export function toMqttTopic(raw: string): MqttTopic {
-  // Cast: the edge read this string as a Zigbee2MQTT command topic; this is the one place that says so.
-  return raw as MqttTopic;
 }
 
 export function toCatalogEffectName(raw: string): CatalogEffectName {
@@ -101,6 +103,16 @@ export function toSavedOverlayKey(raw: string): SavedOverlayKey {
 
 export function toLevel(raw: number): Level {
   return asParseError(() => levelOrThrow(raw));
+}
+
+/** Run a domain range constructor; its RangeError becomes the ParseError a parse step raises. */
+function asParseError<T>(build: () => T): T {
+  try {
+    return build();
+  } catch (error) {
+    if (error instanceof RangeError) throw new ParseError(error.message);
+    throw error;
+  }
 }
 
 export function toBrightness(raw: number): Brightness {
@@ -186,14 +198,4 @@ export function toTimezone(raw: string): Timezone {
   }
   // Cast: checked just above; this is the one place a string becomes a timezone.
   return raw as Timezone;
-}
-
-/** Run a domain range constructor; its RangeError becomes the ParseError a parse step raises. */
-function asParseError<T>(build: () => T): T {
-  try {
-    return build();
-  } catch (error) {
-    if (error instanceof RangeError) throw new ParseError(error.message);
-    throw error;
-  }
 }

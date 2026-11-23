@@ -9,11 +9,12 @@
  * with different members is not used; a bulb goes in at most one group; the
  * rest go one by one, in bulb order.
  */
-import type { BulbPayload, MqttTopic, Publish } from './encode.ts';
-import type { BulbId } from '../domain/types/ids.ts';
-import type { Catalog } from './codecs/catalog.ts';
-import type { JsonObject, JsonValue } from './ha-client.ts';
-import { toBulbId, toMqttTopic } from './codecs/ids.ts';
+import type { BulbPayload, Publish } from '../encode.ts';
+import type { MqttTopic } from './ids.ts';
+import type { BulbId } from '../../domain/types/ids.ts';
+import type { Catalog } from './catalog.ts';
+import type { JsonObject, JsonValue } from '../ha-client.ts';
+import { toBulbId, toMqttTopic } from './ids.ts';
 
 export type BulbGroup = { readonly topic: MqttTopic; readonly members: readonly BulbId[] };
 /** A verified group on a `/set` topic with two or more members, none twice; anything else is none. */

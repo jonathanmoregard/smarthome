@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Publish } from '../../src/adapter/encode.ts';
 import { configSource, decodeModel } from '../../src/adapter/codecs/model.ts';
-import type { HaInput } from '../../src/adapter/inputs.ts';
+import type { HaInput } from '../../src/adapter/codecs/inputs.ts';
 import { afterOutputs, handleInput } from '../../src/adapter/loop.ts';
 import type { Output } from '../../src/adapter/encode.ts';
 import type { AdapterState, Kept, Settled, Turn } from '../../src/adapter/loop.ts';
