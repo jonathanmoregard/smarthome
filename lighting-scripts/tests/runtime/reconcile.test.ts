@@ -119,6 +119,42 @@ test('leaving the candle sends the stop first', () => {
   assert.deepEqual(bulbs.shows(bulbA1), { reach: 'reachable', light: lit(100, WARM) });
 });
 
+test('a candle bulb with no belief is sent the stop before normal light; a stock bulb is not', () => {
+  // Break: the stop needs a belief, so a candle left running from before a restart, or under a forgotten belief, runs on.
+  const plain: LightingState = { ...EVENING, lamps: { ...EVENING.lamps, [lampA1]: on(100, WARM) } };
+  const bulbs = new FakeBulbs(topics);
+  bulbs.set(bulbA1, { reach: 'reachable', light: lit(100, WARM, 'candle') });
+  const { sends, sent } = pass(bulbs, plain, NO_BELIEFS, at(0));
+  assert.deepEqual(sentTo(sent, bulbA1).map(payload => 'effect' in payload ? payload.effect : 'light'), ['stop_effect', 'light']);
+  assert.deepEqual(sentTo(sent, bulbA2).map(payload => 'effect' in payload ? payload.effect : 'light'), ['light']);
+  assert.deepEqual(sends.flatMap(send => send.kind === 'bulb' && send.stopFirst ? [send.bulb] : []), [bulbA1]);
+  const { beliefs } = steady();
+  const forgottenPass = pass(bulbs, plain, forgotten(beliefs, [bulbA1]), at(60));
+  assert.deepEqual(sentTo(forgottenPass.sent, bulbA1).map(payload => 'effect' in payload ? payload.effect : 'light'), ['stop_effect', 'light']);
+});
+
+test('a colour change under a candle sends the light, then the start again', () => {
+  // Break: the colour is sent alone (the firmware ends the candle on it), or the start is not sent again.
+  const { bulbs, beliefs } = steady();
+  const deeper: LightingState = { ...EVENING, lamps: { ...EVENING.lamps, [lampA1]: on(100, kelvin(2200), candle) } };
+  const { sent } = pass(bulbs, deeper, beliefs, at(60));
+  assert.deepEqual(sentTo(sent, bulbA1).map(payload => 'effect' in payload ? payload.effect : 'light'), ['light', 'channel_change']);
+  assert.deepEqual(bulbs.shows(bulbA1), { reach: 'reachable', light: lit(100, kelvin(2198), 'candle') });
+});
+
+test('a running candle whose reported level and colour flicker is left running', () => {
+  // Break: a settled candle bulb is checked against its report, so the firmware's flicker restarts the candle every pass.
+  let { bulbs, beliefs } = steady();
+  for (const [n, level, green] of [[1, 80, 110], [2, 112, 140], [3, 60, 90]] as const) {
+    bulbs.set(bulbA1, { reach: 'reachable', light: lit(level, { kind: 'rgb', rgb: { red: toColourChannel(255),
+      green: toColourChannel(green), blue: toColourChannel(0) } }, 'candle') });
+    const next = pass(bulbs, EVENING, beliefs, at(n * 60));
+    assert.deepEqual(next.sends, [], `pass ${n}`);
+    beliefs = next.beliefs;
+  }
+  assert.equal(bulbs.received.filter(({ publish }) => 'effect' in publish.payload).length, 1);
+});
+
 test('a bulb that reports something else after settling is sent its target again', () => {
   // Break: the observation is never compared, so a bulb changed behind our back stays wrong.
   const { bulbs, beliefs } = steady();

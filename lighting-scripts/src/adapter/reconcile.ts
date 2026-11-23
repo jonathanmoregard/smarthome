@@ -8,10 +8,13 @@
  * A bulb is sent its target when the target differs from what it is believed
  * to show (what it was last sent), or, once that send has settled, from what
  * it is observed to show, within the tolerances. The candle is not reported,
- * so it is known from the belief only. A bulb that cannot be reached, one that
- * reports off, and every bulb while Zigbee2MQTT is disconnected are sent
- * nothing: today's dispatch sends only to bulbs Home Assistant shows on. A
- * switch is sent its target when it reports otherwise.
+ * so it is known from the belief only, and a bulb believed to run it is not
+ * checked against its report, which its flicker moves. A candle-firmware bulb
+ * with no belief may still run a candle from before, so it is sent the stop
+ * first when its target is anything but the candle. A bulb that cannot be
+ * reached, one that reports off, and every bulb while Zigbee2MQTT is
+ * disconnected are sent nothing: today's dispatch sends only to bulbs Home
+ * Assistant shows on. A switch is sent its target when it reports otherwise.
  *
  * Retries, parking, the flap limit, the fade for a bulb coming back on and a
  * plug's own button come in M4.
@@ -86,10 +89,13 @@ function bulbSend(light: LampLight, bulb: BulbInfo, observed: ObservedBulb | und
   Send | undefined {
   if (observed === undefined || observed.reach === 'unreachable' || observed.light.power === 'off') return undefined;
   const appearance = bulbAppearance(light, bulb);
-  const settled = belief !== undefined && now >= belief.settlesAt;
-  const differs = belief === undefined || !sameAppearance(belief.shows, appearance) || (settled && !reportsShowing(observed.light, appearance));
+  // A bulb believed to run the candle is trusted to: the candle is known from the belief only, and its flicker moves the report.
+  const checked = belief !== undefined && now >= belief.settlesAt && !runsCandle(belief.shows);
+  const differs = belief === undefined || !sameAppearance(belief.shows, appearance) || (checked && !reportsShowing(observed.light, appearance));
   if (!differs) return undefined;
-  const stopFirst = belief !== undefined && runsCandle(belief.shows) && !runsCandle(appearance);
+  // With no belief (a restart, or a belief forgotten) a candle bulb may still be running the candle.
+  const mayRunCandle = belief === undefined ? bulb.firmware === 'candle' : runsCandle(belief.shows);
+  const stopFirst = mayRunCandle && !runsCandle(appearance);
   return { kind: 'bulb', bulb: bulb.bulb, appearance, over: fadeOf(light, appearance), stopFirst };
 }
 
