@@ -81,8 +81,10 @@ registry membership alone cannot infer that relationship.
 `.runtime/journal.json` is the durable journal: what each bulb and switch was
 last sent, saved after each send and written whole, then renamed into place. A
 send is recorded only once every call carrying it has gone; a failed call is
-retried after its backoff. Run one host per journal: nothing enforces a single
-owner yet. Keep runtime data and credentials out of Git.
+retried after its backoff. One host runs per journal: a start takes
+`<journal>.lock` (holding its process id), a second start that finds it held
+stops with an error naming the owner, and a lock whose process has ended is
+taken over. Keep runtime data and credentials out of Git.
 
 ## Staged cutover
 
