@@ -26,6 +26,7 @@ import type { MqttTopic } from './codecs/ids.ts';
 import type { Colour, Level, Power } from '../domain/types/light.ts';
 import type { Instant, Seconds } from '../domain/types/time.ts';
 import type { ServiceCall } from './ha-client.ts';
+import type { LiveRooms } from './live-rooms.ts';
 import type { HelperValue } from './codecs/remote-helpers.ts';
 import type { DashboardWrite, HelperWrite, SensorWrite, StoreWrite } from './codecs/writes.ts';
 
@@ -207,3 +208,20 @@ export function mqttPublishCall(topic: string, payload: string, retain: boolean)
 
 /** The sensor that shows how the lighting runs. */
 const RUNTIME_SENSOR = 'sensor.ls_effects_runtime';
+
+/** The text helper the port's heartbeat writes. */
+const HEARTBEAT = 'input_text.ls_port_heartbeat';
+
+/**
+ * The port's heartbeat: `<unix seconds>|<live rooms>`. Home Assistant's
+ * watchdog turns off every port switch on for a room this does not name, or
+ * every one once it stops changing, so a port that stopped, crashed or was
+ * started without a room hands those rooms back to the old scripts. The time
+ * makes every beat a change; staleness is judged by Home Assistant's own
+ * clock. A port with no live room beats nothing, so it sends nothing at all.
+ */
+export function heartbeatCall(live: LiveRooms, nowMs: number): ServiceCall | undefined {
+  if (live.size === 0) return undefined;
+  return { service: 'input_text.set_value', data: { value: `${Math.floor(nowMs / 1000)}|${[...live].sort().join(',')}` },
+    target: { entity_id: HEARTBEAT } };
+}

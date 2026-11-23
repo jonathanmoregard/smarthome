@@ -8,10 +8,9 @@
  */
 import type { Catalog } from './adapter/codecs/catalog.ts';
 import type { HouseMirror } from './adapter/codecs/house.ts';
-import { houseView } from './adapter/codecs/house.ts';
+import { afterCall, houseView } from './adapter/codecs/house.ts';
 import { loadBeliefs, saveBeliefs } from './adapter/codecs/journal.ts';
 import { outputCall, timingCall } from './adapter/encode.ts';
-import { afterCall } from './adapter/ha-client.ts';
 import type { EntityState, HaClient, JsonObject } from './adapter/ha-client.ts';
 import { scriptInput } from './adapter/codecs/inputs.ts';
 import type { HaInput } from './adapter/codecs/inputs.ts';

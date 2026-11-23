@@ -11,7 +11,6 @@ import type { RoomId } from '../domain/types/ids.ts';
 import { roomOfText } from './codecs/rooms.ts';
 import type { Rooms } from './codecs/rooms.ts';
 import type { Catalog } from './codecs/catalog.ts';
-import type { ServiceCall } from './ha-client.ts';
 
 export type LiveRooms = ReadonlySet<RoomId>;
 
@@ -61,21 +60,4 @@ export function refuseUnlessWholeHouse(live: LiveRooms, catalog: Catalog, rooms:
     throw new Error(`${LIVE_ROOMS_FLAG} leaves out ${missing.sort().join(', ')}: the port drives the whole house (${list}) until rooms `
       + 'can be shared with the old scripts again');
   }
-}
-
-/** The text helper the port's heartbeat writes. */
-const HEARTBEAT = 'input_text.ls_port_heartbeat';
-
-/**
- * The port's heartbeat: `<unix seconds>|<live rooms>`. Home Assistant's
- * watchdog turns off every port switch on for a room this does not name, or
- * every one once it stops changing, so a port that stopped, crashed or was
- * started without a room hands those rooms back to the old scripts. The time
- * makes every beat a change; staleness is judged by Home Assistant's own
- * clock. A port with no live room beats nothing, so it sends nothing at all.
- */
-export function heartbeatCall(live: LiveRooms, nowMs: number): ServiceCall | undefined {
-  if (live.size === 0) return undefined;
-  return { service: 'input_text.set_value', data: { value: `${Math.floor(nowMs / 1000)}|${[...live].sort().join(',')}` },
-    target: { entity_id: HEARTBEAT } };
 }

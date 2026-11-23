@@ -27,7 +27,7 @@ from tests.e2e.world import BulbInfo, Kelvin, Off, On, World
 STOCKHOLM = ZoneInfo('Europe/Stockholm')
 START = datetime(2026, 10, 23, 12, 0, tzinfo=STOCKHOLM)
 ROOT = Path(__file__).resolve().parents[2]
-HA_CLIENT = ROOT / 'src' / 'adapter' / 'ha-client.ts'
+HA_CLIENT = ROOT / 'src' / 'adapter' / 'codecs' / 'house.ts'   # afterCall: the states once HA took a call
 BLOCKS = ('day', 'cosy', 'night')
 HELPER_SETTINGS = {'light', 'start', 'weekend', 'fade', 'own_light', 'own_timing'}
 
