@@ -29,9 +29,13 @@ export function targetOf(write: Write): string {
   }
 }
 
-/** Whether two writes to one target set the same: the sensor's by its attributes, its revision aside. */
+/**
+ * Whether two writes to one target set the same: the sensor's by its attributes and the read it is made over, its
+ * revision aside.
+ */
 function same(a: Write, b: Write): boolean {
-  return a.kind === 'sensor' && b.kind === 'sensor' ? isDeepStrictEqual(a.write.attributes, b.write.attributes) : isDeepStrictEqual(a, b);
+  return a.kind === 'sensor' && b.kind === 'sensor'
+    ? isDeepStrictEqual(a.write.attributes, b.write.attributes) && a.write.basis === b.write.basis : isDeepStrictEqual(a, b);
 }
 
 /** A write waiting: when it was queued, how often Home Assistant refused it, and when it is next due, or parked. */
@@ -39,9 +43,19 @@ export type Entry = { write: Write; queuedAt: Instant; refusals: number; status:
 
 export type Outbox = readonly Entry[];
 
-/** The outbox without the writes Home Assistant's states show it has, or that a newer change superseded. */
+/**
+ * The outbox without the writes Home Assistant's states show it has, or that a newer change superseded. A sensor
+ * write made over a read is not superseded by a newer commit: the turn makes it again over the newer read.
+ */
 export function settled(outbox: Outbox, house: HouseView): Outbox {
-  return outbox.filter(entry => !callSettled(house.state, outputCall(entry.write, entry.queuedAt), entry.queuedAt));
+  return outbox.filter(entry => {
+    const write = entry.write;
+    if (write.kind === 'sensor' && write.write.basis !== undefined) {
+      const shown = house.state[write.write.entity]?.attributes;
+      return shown === undefined || !Object.entries(write.write.attributes).every(([key, value]) => isDeepStrictEqual(shown[key], value));
+    }
+    return !callSettled(house.state, outputCall(write, entry.queuedAt), entry.queuedAt);
+  });
 }
 
 /**

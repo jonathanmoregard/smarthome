@@ -177,7 +177,12 @@ missing `--live-rooms` is refused at start-up: it never means every room.
    `sensor.ls_overrides` at every turn, so its rooms follow what the old
    scripts commit (a hold over the house holds each room), and it writes back
    only its own rooms' overlays and remote helpers; everything else in the
-   sensor, house-wide overlays included, is left exactly as found. The
+   sensor, house-wide overlays included, is left exactly as found. Each such
+   write is made only over the read it was made from, the check the old
+   scripts make of `expected_revision`: it runs as a script
+   (`execute_script`, so the port's token must be an administrator's) that
+   stops with an error when `sensor.ls_overrides` was updated since. A write
+   refused that way is made again over the newer read on the next turn. The
    dashboard mirror, the block selects and the mode mirror stay with the old
    scripts. The fields the old scripts read across rooms
    (`docs/sensor-fields.md`, "Carried": the render queue and its requests,

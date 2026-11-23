@@ -36,8 +36,11 @@ import { remoteHelperEntity, remoteHelperWrites } from './remote-helpers.ts';
 import type { HelperValue } from './remote-helpers.ts';
 import { nowText } from './time-text.ts';
 
-/** The overrides sensor's revision and the attributes written over its stored ones. */
-export type SensorWrite = { entity: string; revision: string; attributes: JsonObject };
+/**
+ * The overrides sensor's revision and the attributes written over its stored ones. While the old scripts write the
+ * sensor too, `basis` is its `last_updated` as read, and the write is made only over that read.
+ */
+export type SensorWrite = { entity: string; revision: string; attributes: JsonObject; basis: string | undefined };
 
 /** One remote helper of a room set to a value. */
 export type HelperWrite = { entity: string; value: HelperValue };
@@ -139,7 +142,9 @@ export function modelWrites(before: Model, after: Model, house: HouseView, repor
   const found: JsonObject = stored === undefined ? {} : stored.attributes;
   const written = encodeOverrides(after, found, share, after.config, storeKeys(house.catalog));
   const changed = Object.fromEntries(Object.entries(written).filter(([key, value]) => !isDeepStrictEqual(found[key], value)));
-  const sensor = Object.keys(changed).length === 0 ? undefined : { entity: OVERRIDES_SENSOR, revision: nowText(now), attributes: changed };
+  // While some room is the old scripts', they commit to the sensor too: the write is made only over the read it was made from.
+  const basis = share.kind === 'house' ? undefined : stored?.last_updated;
+  const sensor = Object.keys(changed).length === 0 ? undefined : { entity: OVERRIDES_SENSOR, revision: nowText(now), attributes: changed, basis };
   const helpers = entriesOf(after.remotes).flatMap(([remote, state]): HelperWrite[] => {
     const was = before.remotes[remote], room = after.config.remotes[remote]?.room;
     if (was === undefined || room === undefined || !drives(share, room) || isDeepStrictEqual(was, state)) return [];

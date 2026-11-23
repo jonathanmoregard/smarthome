@@ -135,8 +135,11 @@ export function outputCall(output: Output, now: Instant): ServiceCall {
   switch (output.kind) {
     case 'publish': return publishCall(output.publish);
     case 'switch': return switchCall(output.switch, output.power);
-    case 'sensor': return { service: 'variable.update_sensor', target: { entity_id: output.write.entity },
-      data: { value: output.write.revision, attributes: output.write.attributes, replace_attributes: false } };
+    case 'sensor': {
+      const { entity, revision, attributes, basis } = output.write;
+      return { service: 'variable.update_sensor', target: { entity_id: entity }, data: { value: revision, attributes, replace_attributes: false },
+        ...basis === undefined ? {} : { guard: { entity, lastUpdated: basis } } };
+    }
     case 'helper': return helperCall(output.write.entity, output.write.value, now);
     case 'store': return { service: 'input_text.set_value', data: { value: output.write.text }, target: { entity_id: output.write.entity } };
     case 'dashboard': return dashboardCall(output.write);

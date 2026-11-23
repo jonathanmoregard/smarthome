@@ -20,12 +20,19 @@ export interface EntityState {
   last_changed?: string;
 }
 
-/** A Home Assistant service call: `domain.service`, its data and its target. */
+/**
+ * A Home Assistant service call: `domain.service`, its data and its target; with a guard, made only while the
+ * guard's entity was last updated when the guard says, and refused otherwise.
+ */
 export interface ServiceCall {
   service: string;
   data: JsonObject;
   target?: JsonObject;
+  guard?: Guard;
 }
+
+/** An entity's `last_updated` as read, as Home Assistant's `isoformat()` gives it: the call needs it unchanged. */
+export type Guard = { entity: string; lastUpdated: string };
 
 /**
  * A call that did not reach Home Assistant, or whose answer was lost with the connection: Home Assistant is out of
@@ -75,13 +82,24 @@ export class HomeAssistantClient implements HaClient {
     return new HomeAssistantClient(connection);
   }
 
-  /** A service call; rejects when Home Assistant is out of reach or refuses it. The answer is the call's context id. */
+  /**
+   * A service call; rejects when Home Assistant is out of reach or refuses it. The answer is the call's context id.
+   * A guarded call is run as a script whose first step stops it with an error when the guard's entity has changed,
+   * the check the old scripts make of a commit's `expected_revision`.
+   */
   async call(call: ServiceCall): Promise<string | undefined> {
     // Do not enter the client's suspended-connection queue with stale output.
     if (!this.connection.connected) throw new Unreachable('Home Assistant is disconnected');
     const [domain, service, extra] = call.service.split('.');
     if (domain === undefined || service === undefined || extra !== undefined) throw new Error('Invalid Home Assistant service name');
-    const response: unknown = await callService(this.connection, domain, service, call.data, call.target).catch((error: unknown) => {
+    const guard = call.guard;
+    const sent = guard === undefined ? callService(this.connection, domain, service, call.data, call.target)
+      : this.connection.sendMessagePromise({ type: 'execute_script', sequence: [
+        { if: [{ condition: 'template', value_template: `{{ states.${guard.entity}.last_updated.isoformat() != ${JSON.stringify(guard.lastUpdated)} }}` }],
+          then: [{ stop: `${guard.entity} changed since it was read`, error: true }] },
+        { action: call.service, ...call.target === undefined ? {} : { target: call.target }, data: call.data },
+      ] });
+    const response: unknown = await sent.catch((error: unknown) => {
       throw isConnectionLost(error) ? new Unreachable('Home Assistant connection lost') : error;
     });
     const context = object(object(response).context).id;

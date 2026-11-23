@@ -33,6 +33,26 @@ test('official HA client sends service frames and releases event subscriptions o
   assert.equal(events, 1);
 });
 
+test('a guarded call is made as a script that stops with an error when its entity changed since it was read', async () => {
+  // Review finding 2. Break: the port's write of the overrides sensor lands over an old scripts' commit made since
+  // the port read it, and the commit is lost; or a call with no guard is sent as anything but the plain service call.
+  const socket = new SocketPort();
+  const connection = await createConnection({ createSocket: async () => socket as unknown as HaWebSocket });
+  const transport = new HomeAssistantClient(connection);
+  const write = { service: 'variable.update_sensor', target: { entity_id: 'sensor.ls_overrides' },
+    data: { value: 'r2', attributes: { overrides: {} }, replace_attributes: false } };
+  await transport.call({ ...write, guard: { entity: 'sensor.ls_overrides', lastUpdated: '2026-09-21T11:59:00.123456+00:00' } });
+  assert.deepEqual(socket.frames[0], { id: socket.frames[0]?.id, type: 'execute_script', sequence: [
+    { if: [{ condition: 'template',
+      value_template: '{{ states.sensor.ls_overrides.last_updated.isoformat() != "2026-09-21T11:59:00.123456+00:00" }}' }],
+    then: [{ stop: 'sensor.ls_overrides changed since it was read', error: true }] },
+    { action: 'variable.update_sensor', target: { entity_id: 'sensor.ls_overrides' }, data: write.data },
+  ] });
+  await transport.call(write);
+  assert.equal(socket.frames[1]?.type, 'call_service');
+  await transport.close();
+});
+
 test('entity context survives a full read', async () => {
   class SnapshotPort extends SocketPort {
     override send(data: string) {

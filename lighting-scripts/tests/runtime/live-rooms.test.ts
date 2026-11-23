@@ -5,6 +5,7 @@ import { drives, parseRooms } from '../../src/adapter/codecs/rooms.ts';
 import { toRoomId } from '../../src/adapter/codecs/ids.ts';
 import type { HaInput } from '../../src/adapter/codecs/inputs.ts';
 import type { EntityState, JsonObject } from '../../src/adapter/ha-client.ts';
+import { outputCall } from '../../src/adapter/encode.ts';
 import type { Output } from '../../src/adapter/encode.ts';
 import { lampRooms, parseLiveRooms, readLiveRoomsFlag, refuseUnknownRooms, roomsGiven, shareOf } from '../../src/adapter/live-rooms.ts';
 import type { RoomsGiven } from '../../src/adapter/live-rooms.ts';
@@ -282,6 +283,58 @@ test("a newer write to the overrides sensor keeps what the one still waiting hel
   const write = sensorWrite(ranged);
   assert.ok(write !== undefined && 'switch_ranges' in write.attributes, 'the range is written');
   assert.equal(((write.attributes.overrides as JsonObject)[`block:${roomB}`] as JsonObject | undefined)?.value, 'night');
+});
+
+test("the port's write of the overrides sensor is made only over the store it read, while the old scripts write it too", () => {
+  // Review finding 2. Break: the write lands over an old scripts' commit made since the read, and the commit is lost;
+  // or the port's harness, the whole house's, guards its writes and its flow moves.
+  const write = (given: RoomsGiven) => {
+    const shared = new Shared(sharedStates({ [roomA]: 'on', [roomB]: 'on' }), given);
+    shared.turn('12:00:00', { kind: 'started' });
+    const turn = shared.turn('12:01:00', holdRoomB);
+    return turn.outputs.flatMap(output => output.kind === 'sensor' ? [{ write: output.write, call: outputCall(output, turn.now) }] : [])[0];
+  };
+  const shared = write(listed(roomB));
+  assert.equal(shared?.write.basis, '2026-09-21T11:59:00+00:00');
+  assert.deepEqual(shared?.call.guard, { entity: 'sensor.ls_overrides', lastUpdated: '2026-09-21T11:59:00+00:00' });
+  const whole = write({ kind: 'house' });
+  assert.equal(whole?.write.basis, undefined);
+  assert.equal(whole !== undefined && 'guard' in whole.call, false);
+});
+
+/** The old scripts commit to the overrides sensor at `time`: `change` laid over its attributes. */
+function oldCommit(shared: Shared, time: string, change: (attributes: JsonObject) => void): void {
+  const sensor = shared.states['sensor.ls_overrides']!, attributes = structuredClone(sensor.attributes);
+  change(attributes);
+  shared.states['sensor.ls_overrides'] = { state: `2026-09-21T${time}+00:00`, attributes,
+    last_updated: `2026-09-21T${time}+00:00`, last_changed: `2026-09-21T${time}+00:00` };
+}
+
+test("a write refused because the old scripts committed since is made again over their commit, not dropped", () => {
+  // Review finding 2. Break: the refused write counts as superseded by the newer commit and the port's hold is lost;
+  // or it is sent again as it was, over the old read, and refused until it is parked.
+  const shared = new Shared(sharedStates({ [roomA]: 'on', [roomB]: 'on' }), listed(roomB));
+  shared.turn('12:00:00', { kind: 'started' });
+  shared.turn('12:01:00', holdRoomB, ['sensor']);
+  oldCommit(shared, '12:01:05', attributes => {
+    (attributes.overrides as JsonObject)[`block:${roomA}`] = { kind: 'block', target: roomA, value: 'day', when: '2026-09-21T12:01:05+00:00',
+      created: '2026-09-21T12:01:05+00:00', who: null, via: 'app' };
+  });
+  const again = sensorWrite(shared.turn('12:01:10', { kind: 'wake' }));
+  assert.equal(again?.basis, '2026-09-21T12:01:05+00:00');
+  const overrides = again?.attributes.overrides as JsonObject;
+  assert.equal((overrides[`block:${roomA}`] as JsonObject).value, 'day', 'the commit is kept');
+  assert.equal((overrides[`block:${roomB}`] as JsonObject).value, 'night', "the port's hold is written");
+});
+
+test('a refused write is made again over a newer read even when what it writes is the same', () => {
+  // Review finding 2. Break: writes are told apart by their attributes alone, so the write waiting keeps its old
+  // read and is refused at every try.
+  const shared = new Shared(sharedStates({ [roomA]: 'on', [roomB]: 'on' }), listed(roomB));
+  shared.turn('12:00:00', { kind: 'started' });
+  shared.turn('12:01:00', holdRoomB, ['sensor']);
+  oldCommit(shared, '12:01:05', attributes => { attributes.last_request = '2026-09-21T12:01:05+00:00'; });
+  assert.equal(sensorWrite(shared.turn('12:01:10', { kind: 'wake' }))?.basis, '2026-09-21T12:01:05+00:00');
 });
 
 test('the dashboard is left to the old scripts while a room is still theirs', () => {
