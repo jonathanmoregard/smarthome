@@ -147,6 +147,16 @@ test('a dashboard control over a whole room switches the room, and sets a light 
     light: { power: 'on', brightness: { kind: 'fixed', brightness: toBrightness(100) }, colour: undefined, effect: undefined } } }]);
 });
 
+test("a save to a plug's store is the plug's profile saved, and a lamp's store the lamp's", () => {
+  // Break: a plug's store save reads as no message (the plug's profile is not saved), or as a lamp's.
+  assert.deepEqual(read('ls_store', { store: 'input_text.ls_lamp_plug_a_cosy', own: true, on: true }),
+    [{ kind: 'switchProfileSaved', switch: toSwitchId('switch.plug_a'), block: 'cosy', change: { own: true, power: 'on' }, at: NOW }]);
+  assert.deepEqual(read('ls_store', { store: 'input_text.ls_lamp_lamp_a2_day', on: false }), [{
+    kind: 'lampProfileSaved', lamp: lampA2, block: 'day', at: NOW,
+    change: { own: undefined, power: 'off', brightness: undefined, colour: undefined, effect: undefined },
+  }]);
+});
+
 test('a name that is not an input is not ours, and a field that cannot be read raises', () => {
   const notOurs: HaInput | undefined = haInput('effects_catalog', {});
   assert.equal(notOurs, undefined);

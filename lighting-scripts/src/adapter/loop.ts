@@ -23,7 +23,7 @@ import { bulbTopics } from './codecs/config.ts';
 import { configSource, decodeModel } from './codecs/model.ts';
 import { publishes } from './encode.ts';
 import type { Publish } from './encode.ts';
-import { controlOver, lampStore, messages, storeSaveIn, uiRowsOf } from './inputs.ts';
+import { controlOver, messages, profileStoreOf, storeSaveIn, uiRowsOf } from './inputs.ts';
 import type { HaInput } from './inputs.ts';
 import { decodeObserved } from './observed.ts';
 import { afterSend, forgotten, NO_BELIEFS, nextSends } from './reconcile.ts';
@@ -75,7 +75,7 @@ export function handleInput(state: AdapterState | undefined, house: HouseView, i
   for (const write of written.helpers) outputs.push({ kind: 'helper', write });
   for (const write of written.stores) outputs.push({ kind: 'store', write });
   const save = dropped === undefined ? storeSaveIn(input, house) : undefined;
-  if (save !== undefined && lampStore(save.store, model) === undefined) outputs.push({ kind: 'store', write: configStoreWrite(save, house) });
+  if (save !== undefined && profileStoreOf(save.store, model) === undefined) outputs.push({ kind: 'store', write: configStoreWrite(save, house) });
 
   const lighting = lightingState(model, now);
   const rows = controlRows(model, house);

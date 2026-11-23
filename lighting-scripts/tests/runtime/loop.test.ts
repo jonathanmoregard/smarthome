@@ -8,7 +8,7 @@ import type { AdapterState, Turn } from '../../src/adapter/loop.ts';
 import { nextChange } from '../../src/domain/lighting-state.ts';
 import type { BulbId } from '../../src/domain/types/ids.ts';
 import type { EntityState } from '../../src/runtime/context.ts';
-import { toRoomId } from '../../src/parse/ids.ts';
+import { toRoomId, toSwitchId } from '../../src/parse/ids.ts';
 import type { FakeBulbs } from './fake-bulbs.ts';
 import { houseView, syntheticStates, world, writeBack } from './fixtures/house-view.ts';
 
@@ -104,6 +104,18 @@ test('nothing is written when nothing changed', () => {
   house.turn('12:01:00', { kind: 'tick' });
   const quiet = house.turn('12:02:00', { kind: 'tick' });
   assert.deepEqual(quiet.outputs, []);
+});
+
+test("a save to a plug's store writes the plug's store, once, with the plug's fields", () => {
+  // Break: the plug's save is written through the lamp's encoder (a lamp's fields land in a plug's store), not at
+  // all, or twice (once as a config store and once as the plug's profile).
+  const house = new House();
+  house.turn('12:00:00', { kind: 'started' });
+  const store = 'input_text.ls_lamp_plug_a_cosy';
+  const turn = house.turn('12:01:00', { kind: 'store saved', data: { store, own: true, on: true } });
+  const writes = turn.outputs.flatMap(output => output.kind === 'store' && output.write.entity === store ? [output.write.text] : []);
+  assert.deepEqual(writes.map(text => JSON.parse(text)), [{ own: true, on: true }]);
+  assert.deepEqual(turn.state.model.switchProfiles[toSwitchId('switch.plug_a')]?.cosy, { follows: 'own', power: 'on' });
 });
 
 test('the turn asks to be woken at nextChange', () => {

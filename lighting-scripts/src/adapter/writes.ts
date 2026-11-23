@@ -1,7 +1,7 @@
 /**
  * What a turn writes back to Home Assistant: the Model's changes through the
  * M1 codecs (the overrides sensor, each changed remote's helpers, each changed
- * lamp profile's store, a block light's store saved from the dashboard), and
+ * lamp's and plug's profile store, a block light's store saved from the dashboard), and
  * the dashboard view's changes (each scope's block selector, the mode mirror,
  * and the live controls' sync messages, moved from `uiMessages`). Nothing is
  * written when nothing changed.
@@ -22,6 +22,7 @@ import { decodeLampProfile, encodeLampProfile } from './codecs/lamp-profiles.ts'
 import { profileStore } from './codecs/model.ts';
 import { remoteSources } from './codecs/overlay-key.ts';
 import { encodeOverrides } from './codecs/overrides-sensor.ts';
+import { encodeSwitchProfile } from './codecs/switch-profiles.ts';
 import { remoteHelperEntity, remoteHelperWrites } from './codecs/remote-helpers.ts';
 import type { HelperValue } from './codecs/remote-helpers.ts';
 import { nowText } from './codecs/time-text.ts';
@@ -49,15 +50,15 @@ export type DashboardWrite =
 
 export const OVERRIDES_SENSOR = 'sensor.ls_overrides';
 
-/** The Model's writes: the overrides sensor, each changed remote's helpers and each changed profile store. */
+/** The Model's writes: the overrides sensor, each changed remote's helpers and each changed lamp or plug profile store. */
 export type ModelWrites = { sensor: SensorWrite | undefined; helpers: HelperWrite[]; stores: StoreWrite[] };
 
 /**
  * The writes that take Home Assistant from what it holds to `after`. The
  * sensor is written when its attributes, read with the Model written in,
  * differ from the stored ones (the codec keeps every untouched entry's bytes);
- * a remote's helpers when its state changed this turn; a lamp's store when its
- * profile did. Every room is the port's: the host keeps to its own share.
+ * a remote's helpers when its state changed this turn; a lamp's or a plug's
+ * store when its profile did. Every room is the port's: the host keeps to its own share.
  */
 export function modelWrites(before: Model, after: Model, house: HouseView, now: Instant): ModelWrites {
   const stored = house.state[OVERRIDES_SENSOR];
@@ -77,7 +78,13 @@ export function modelWrites(before: Model, after: Model, house: HouseView, now: 
     const entity = profileStore(lamp, block);
     return [{ entity, text: encodeLampProfile(profile, storeText(house, entity)) }];
   }));
-  return { sensor, helpers, stores };
+  const switchStores = entriesOf(after.switchProfiles).flatMap(([plug, profiles]) => BLOCKS.flatMap((block): StoreWrite[] => {
+    const was = before.switchProfiles[plug]?.[block], profile = profiles[block];
+    if (was === undefined || isDeepStrictEqual(was, profile)) return [];
+    const entity = profileStore(plug, block);
+    return [{ entity, text: encodeSwitchProfile(profile, storeText(house, entity)) }];
+  }));
+  return { sensor, helpers, stores: [...stores, ...switchStores] };
 }
 
 /** A live control's row: its control and the proxy topic of each channel. */

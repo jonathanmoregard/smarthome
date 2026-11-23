@@ -517,13 +517,17 @@ function storeSaveOf(data: JsonObject): StoreSave {
 }
 
 /**
- * A lamp's store save is its profile for the block, saved through the Model.
- * Any other store is a config helper (a block's light), which the loop writes
- * as it is and the config reads back: no message.
+ * A lamp's or a plug's store save is its profile for the block, saved through
+ * the Model; a plug's save keeps only `own` and `on`. Any other store is a
+ * config helper (a block's light), which the loop writes as it is and the
+ * config reads back: no message.
  */
 function profileSaved(save: StoreSave, model: Model, now: Instant): Msg[] {
-  const found = lampStore(save.store, model);
-  return found === undefined ? [] : [{ kind: 'lampProfileSaved', lamp: found.lamp, block: found.block, change: save.change, at: now }];
+  const found = profileStoreOf(save.store, model);
+  if (found === undefined) return [];
+  if (found.kind === 'lamp') return [{ kind: 'lampProfileSaved', lamp: found.lamp, block: found.block, change: save.change, at: now }];
+  const change = { own: save.change.own, power: save.change.power };
+  return [{ kind: 'switchProfileSaved', switch: found.switch, block: found.block, change, at: now }];
 }
 
 function powerOf(on: boolean): Power {
@@ -534,13 +538,17 @@ function effectName(text: string): EffectName {
   return text.toLowerCase() === 'candle' ? 'Candle' : 'Normal';
 }
 
-/** The lamp of the config and the block a store is the profile of: `input_text.ls_lamp_<object>_<block>`. */
-export function lampStore(store: string, model: Model): { lamp: LampId; block: Block } | undefined {
+/** A store that is a profile: a lamp's or a plug's, for a block. */
+export type ProfileStore = { kind: 'lamp'; lamp: LampId; block: Block } | { kind: 'switch'; switch: SwitchId; block: Block };
+
+/** The lamp or plug of the config and the block a store is the profile of: `input_text.ls_lamp_<object>_<block>`. */
+export function profileStoreOf(store: string, model: Model): ProfileStore | undefined {
   const match = /^input_text\.ls_lamp_(.+)_(day|cosy|night)$/.exec(store);
   const object = match?.[1], block = BLOCKS.find(known => known === match?.[2]);
   if (object === undefined || block === undefined) return undefined;
-  const lamp = toLampId(`light.${object}`);
-  return model.config.lamps[lamp] === undefined ? undefined : { lamp, block };
+  const lamp = toLampId(`light.${object}`), plug = toSwitchId(`switch.${object}`);
+  if (model.config.lamps[lamp] !== undefined) return { kind: 'lamp', lamp, block };
+  return model.config.switches[plug] === undefined ? undefined : { kind: 'switch', switch: plug, block };
 }
 
 /**

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { FOLLOWS_ROOM_SWITCH, decodeSwitchProfile } from '../../src/adapter/codecs/switch-profiles.ts';
+import { FOLLOWS_ROOM_SWITCH, decodeSwitchProfile, encodeSwitchProfile } from '../../src/adapter/codecs/switch-profiles.ts';
+import type { SwitchProfile } from '../../src/domain/model.ts';
 import { decodeModel } from '../../src/adapter/codecs/model.ts';
 import { toSwitchId } from '../../src/parse/ids.ts';
 import { syntheticCatalog, syntheticSource } from './fixtures/synthetic-house.ts';
@@ -48,4 +49,26 @@ test('decodeModel reads a plug\'s profile for each block from its own store, and
   source.states['input_text.ls_lamp_plug_a_night'] = { state: text({ own: true, on: false }), attributes: {} };
   const profiles = decodeModel(source, syntheticCatalog()).switchProfiles[toSwitchId('switch.plug_a')];
   assert.deepEqual(profiles, { day: FOLLOWS_ROOM_SWITCH, cosy: { follows: 'own', power: 'on' }, night: { follows: 'own', power: 'off' } });
+});
+
+test('an unchanged switch profile encodes back to the stored text exactly', () => {
+  // Break: an unchanged plug's store is rewritten (reformatted, or its other fields dropped).
+  for (const stored of ['{"own": true, "on": "yes", "b": 40}', 'unknown', '', '{"own": 0}']) {
+    assert.equal(encodeSwitchProfile(decodeSwitchProfile(stored), stored), stored, stored);
+  }
+});
+
+test('a changed switch profile sets only own and on over the stored fields, as ls_store does', () => {
+  // Break: a save drops the store's other fields, or writes a field it did not change.
+  const stored = text({ own: false, on: true, b: 40 });
+  assert.deepEqual(JSON.parse(encodeSwitchProfile({ follows: 'own', power: 'on' }, stored)), { own: true, on: true, b: 40 });
+  assert.deepEqual(JSON.parse(encodeSwitchProfile({ follows: 'room', power: 'off' }, stored)), { own: false, on: false, b: 40 });
+});
+
+test('a switch profile written over an empty store decodes back to itself', () => {
+  // Break: the written fields do not read back as the profile (an own plug off read as following its room).
+  const profiles: SwitchProfile[] = [
+    { follows: 'own', power: 'on' }, { follows: 'own', power: 'off' }, { follows: 'room', power: 'on' }, { follows: 'room', power: 'off' },
+  ];
+  for (const profile of profiles) assert.deepEqual(decodeSwitchProfile(encodeSwitchProfile(profile, '')), profile, JSON.stringify(profile));
 });
