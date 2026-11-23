@@ -64,3 +64,9 @@ type Part = { kind: 'schedule'; at: number } | { kind: 'fixed'; at: number };
 export function handedBack(at: number): Part | undefined {
   return { kind: 'schedule', at };
 }
+
+// Only 'schedule' is exempt: a domain type that names another effect kind still counts.
+type Call = { kind: 'service'; at: number };
+export function called(at: number): Call {
+  return { kind: 'service', at };
+}

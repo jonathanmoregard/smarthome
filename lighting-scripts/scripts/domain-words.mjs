@@ -17,9 +17,9 @@
 // - yields: `yield` and `yield*`.
 // - planTypes: a `Plan<...>` type reference.
 // - effectKinds: an object literal's `kind:` set to an effect kind
-//   ('service', 'event', 'script', 'state', 'schedule'), unless the literal is
-//   typed by a domain type whose own `kind` holds that word (a part handed back
-//   to the schedule).
+//   ('service', 'event', 'script', 'state', 'schedule'), except a `kind:
+//   'schedule'` literal typed by a domain type that declares that `kind` (a
+//   part handed back to the schedule).
 // - haNames: a literal holding a Home Assistant name: `<ha domain>.<object>`
 //   (or the bare `<ha domain>.` a template builds on), a helper domain on its
 //   own (`input_number`), or a script or event name (`ls_...`, `effects_...`).
@@ -115,7 +115,8 @@ function measure(source) {
       if (typeName === 'Plan') row.planTypes++;
       if (namesCarriedType(node)) row.carriedTypes++;
     } else if (ts.isPropertyAssignment(node) && ts.isIdentifier(node.name) && node.name.text === 'kind'
-      && ts.isStringLiteralLike(node.initializer) && EFFECT_KINDS.has(node.initializer.text) && !kindOfDomainType(node)) row.effectKinds++;
+      && ts.isStringLiteralLike(node.initializer) && EFFECT_KINDS.has(node.initializer.text)
+      && !(node.initializer.text === 'schedule' && kindOfDomainType(node))) row.effectKinds++;
     else if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
       && node.moduleSpecifier !== undefined && ts.isStringLiteral(node.moduleSpecifier)
       && inParseOrRuntime(resolve(dirname(source.fileName), node.moduleSpecifier.text))) row.parseRuntimeImports++;
@@ -185,9 +186,9 @@ const namesDomainType = typeNode => holdsDomainType(checker.getTypeFromTypeNode(
 /**
  * Is this `kind:` the kind of a domain value? It is when the object literal's
  * contextual type gives `kind` a declaration and every declaration is in
- * src/domain: a brightness part handed back to the schedule (`kind:
- * 'schedule'`) is not an effect. An untyped literal, or one typed by an effect
- * declared outside the domain, still counts.
+ * src/domain. Asked only of `kind: 'schedule'`: a brightness part handed back
+ * to the schedule is not an effect. An untyped literal, or one typed by an
+ * effect declared outside the domain, still counts.
  */
 function kindOfDomainType(kind) {
   const contextual = checker.getContextualType(kind.parent);

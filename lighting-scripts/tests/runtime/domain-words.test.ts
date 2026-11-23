@@ -34,7 +34,7 @@ const COLUMNS: [column: string, count: number, counted: string][] = [
   ['generators', 1, '`function* turnOn`; the `function*` in the comment is not code'],
   ['yields', 2, 'the two `yield`s in `turnOn`'],
   ['planTypes', 1, 'the `Plan<null>` return type; the import specifier is not a use'],
-  ['effectKinds', 2, "`kind: 'service'` and `kind: 'script'` object literals; `handedBack`'s `kind: 'schedule'` is a domain `Part`"],
+  ['effectKinds', 3, "`kind: 'service'` and `kind: 'script'` object literals and `called`'s domain-typed `kind: 'service'`; `handedBack`'s `kind: 'schedule'` is a domain `Part`"],
   ['haNames', 4, "'light.example' twice, 'light.turn_on' and 'ls_commit'; import paths and plain words are not names"],
   ['parseRuntimeImports', 3, 'two `../runtime` imports and one `../parse` import; `./types/ids.ts` is the domain'],
   ['viewReads', 6, "`view.get` and `view.attr` on the HouseView, `get` and `now` destructured from a HouseView parameter, `attr` destructured from `view`, and `view['state']`"],
