@@ -1,20 +1,23 @@
 /**
- * The rooms this process drives, read from its command line.
+ * The rooms this process drives (spec 5.4).
  *
- * The setting is required. A missing list must not mean every room: during a
- * room-by-room rollout the old scripts still drive the rest of the house, and
- * a port that silently took the whole house would fight them in every room.
- * An empty value is a real answer: the port drives no room and sends no lamp
- * or switch command.
+ * The harness runs the whole house. The live port drives the rooms named by `--live-rooms` whose port switch is on;
+ * the old scripts drive the rest, and skip a room whose switch is on. The switch is where a person, or Home
+ * Assistant's watchdog over the port's heartbeat, hands a room over or back.
+ *
+ * The setting is required. A missing list must not mean every room: during a room-by-room rollout the old scripts
+ * still drive the rest of the house, and a port that silently took the whole house would fight them in every room.
+ * An empty value is a real answer: the port drives no room and sends no lamp or switch command.
  */
+import type { Config } from '../domain/config.ts';
+import type { Msg, OverlayRequest } from '../domain/model.ts';
 import type { RoomId } from '../domain/types/ids.ts';
-import { roomOfText } from './codecs/rooms.ts';
-import type { Rooms } from './codecs/rooms.ts';
+import type { Instant } from '../domain/types/time.ts';
+import { drives, roomOfText } from './codecs/rooms.ts';
+import type { Rooms, Share } from './codecs/rooms.ts';
 import type { Catalog } from './codecs/catalog.ts';
 
 export type LiveRooms = ReadonlySet<RoomId>;
-
-export const LIVE_ROOMS_FLAG = '--live-rooms';
 
 /** `--live-rooms <list>` from the arguments; the flag is required and its value may be `''`. */
 export function readLiveRoomsFlag(argv: readonly string[]): LiveRooms {
@@ -41,23 +44,71 @@ export function parseLiveRooms(raw: string | undefined): LiveRooms {
 }
 
 /**
- * Refuse a live-room list that is not the whole house: every room a catalog lamp is in, and no other. A misspelt room
- * would be driven by neither system; and until rooms can be shared with the old scripts again (M6), the port drives
- * every room or none, so a partial list is refused rather than half-honoured.
+ * Refuse a live room that holds none of the house's lamps: a misspelt room (`bedrom`) would be skipped by neither
+ * system's switch check and driven by neither.
  */
-export function refuseUnlessWholeHouse(live: LiveRooms, catalog: Catalog, rooms: Rooms): void {
+export function refuseUnknownRooms(live: LiveRooms, catalog: Catalog, rooms: Rooms): void {
   const house = new Set(Object.keys(catalog.members).flatMap(lamp => {
     const room = rooms.ofId[lamp];
     return room === undefined ? [] : [room];
   }));
-  const unknown = [...live].filter(room => !house.has(room)), missing = [...house].filter(room => !live.has(room));
-  const list = [...house].sort().join(', ');
+  const unknown = [...live].filter(room => !house.has(room));
   if (unknown.length > 0) {
     throw new Error(`${LIVE_ROOMS_FLAG} names ${unknown.join(', ')}, which ${unknown.length === 1 ? 'holds' : 'hold'} no lamp of the house; `
-      + `its rooms are ${list}`);
+      + `its rooms are ${[...house].sort().join(', ')}`);
   }
-  if (missing.length > 0) {
-    throw new Error(`${LIVE_ROOMS_FLAG} leaves out ${missing.sort().join(', ')}: the port drives the whole house (${list}) until rooms `
-      + 'can be shared with the old scripts again');
+}
+
+/** The rooms a process is given: the whole house (the harness), or those its command line lists (the live port). */
+export type RoomsGiven = { kind: 'house' } | { kind: 'listed'; rooms: LiveRooms };
+
+/** The listed rooms whose port switch is on, each with when the switch last changed. */
+export type Handed = ReadonlyMap<RoomId, Instant | undefined>;
+
+/** The rooms handed over since the last look: newly on, or switched off and on again in between. */
+export function newlyHanded(before: Handed, after: Handed): RoomId[] {
+  return [...after].filter(([room, since]) => !before.has(room) || before.get(room) !== since).map(([room]) => room);
+}
+
+export const LIVE_ROOMS_FLAG = '--live-rooms';
+
+/**
+ * The turn's share of the house: the whole house when given it, or when every room of the config's lamps is handed
+ * over; otherwise the handed rooms.
+ */
+export function shareOf(given: RoomsGiven, handed: Handed, config: Config): Share {
+  if (given.kind === 'house') return given;
+  const house = Object.values(config.lamps).flatMap(lamp => lamp.room === undefined ? [] : [lamp.room]);
+  return house.length > 0 && house.every(room => handed.has(room)) ? { kind: 'house' } : { kind: 'rooms', rooms: new Set(handed.keys()) };
+}
+
+/**
+ * Whether a message is the turn's to act on. The clock and the config read again always are. A message about rooms
+ * is when the turn drives every room it is about; one about the house (the mode, the house's block, clearing every
+ * overlay, the range defaults) only when the turn drives the whole house: the old scripts commit it, and the port
+ * follows it from the store.
+ */
+export function ownsMessage(share: Share, msg: Msg, config: Config): boolean {
+  const all = (rooms: readonly (RoomId | undefined)[]) => rooms.length > 0 && rooms.every(room => drives(share, room));
+  switch (msg.kind) {
+    case 'clock': case 'configChanged': return true;
+    case 'overlayRequested': return ownsRequest(share, msg.request, config);
+    case 'lampChangedByPerson': return all([...msg.lamps.map(lamp => config.lamps[lamp]?.room), ...msg.rooms]);
+    case 'remotePressed': case 'remoteButtonPressed': return all([config.remotes[msg.remote]?.room]);
+    case 'switchButtonPressed': return all([config.switches[msg.switch]?.room]);
+    case 'rangeSaved': return all([msg.room]);
+    case 'lampProfileSaved': return all([config.lamps[msg.lamp]?.room]);
+    case 'switchProfileSaved': return all([config.switches[msg.switch]?.room]);
+    case 'modeToggled': case 'rangeDefaultsSaved': return share.kind === 'house';
+  }
+}
+
+function ownsRequest(share: Share, request: OverlayRequest, config: Config): boolean {
+  switch (request.kind) {
+    case 'clear all': return share.kind === 'house';
+    case 'hold block': return request.over === 'house' ? share.kind === 'house' : drives(share, request.over);
+    case 'room power': return drives(share, request.room);
+    case 'dashboard control':
+      return drives(share, request.over.kind === 'room' ? request.over.room : config.lamps[request.over.lamp]?.room);
   }
 }

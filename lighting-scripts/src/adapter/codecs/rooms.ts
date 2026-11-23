@@ -1,5 +1,19 @@
 import type { RemoteId, RoomId } from '../../domain/types/ids.ts';
-import { toRemoteId, toRoomId } from './ids.ts';
+import type { Instant } from '../../domain/types/time.ts';
+import type { EntityState } from '../ha-client.ts';
+import { toInstant, toRemoteId, toRoomId } from './ids.ts';
+import { dateSeconds } from './time-text.ts';
+
+/**
+ * The rooms one turn drives: the whole house, or some rooms while the old scripts drive the rest (the room-by-room
+ * rollout, spec 5.4). Each room is driven by exactly one system.
+ */
+export type Share = { kind: 'house' } | { kind: 'rooms'; rooms: ReadonlySet<RoomId> };
+
+/** Whether the turn drives a room; a thing in no room is driven only with the whole house. */
+export function drives(share: Share, room: RoomId | undefined): boolean {
+  return share.kind === 'house' || (room !== undefined && share.rooms.has(room));
+}
 
 /**
  * Which room the Home Assistant registry puts each thing in, parsed once from
@@ -34,6 +48,21 @@ export function parseRooms(areas: Readonly<Record<string, string>>): Rooms {
     if (!id.includes('.')) ofRemote[toRemoteId(id)] = room;
   }
   return { ofId, ofRemote };
+}
+
+/**
+ * The rooms of `listed` whose port switch `input_boolean.ls_<room>_on_port` is on, each with when the switch last
+ * changed: a person, or Home Assistant's watchdog, hands a room to the port or back there.
+ */
+export function portSwitchesOn(state: Readonly<Record<string, EntityState>>, listed: ReadonlySet<RoomId>): ReadonlyMap<RoomId, Instant | undefined> {
+  const on = new Map<RoomId, Instant | undefined>();
+  for (const room of listed) {
+    const shown = state[`input_boolean.ls_${room}_on_port`];
+    if (shown?.state !== 'on') continue;
+    const changed = shown.last_changed === undefined ? undefined : dateSeconds(shown.last_changed);
+    on.set(room, changed === undefined ? undefined : toInstant(changed));
+  }
+  return on;
 }
 
 /** A room argument's text read back: `''` is no room, as the captured `default('')` and its falsy test read it. */

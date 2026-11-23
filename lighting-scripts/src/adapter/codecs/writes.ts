@@ -14,7 +14,6 @@ import type { Block } from '../../domain/blocks.ts';
 import type { ControlShown, DashboardView } from '../../domain/dashboard.ts';
 import type { LampProfileChange, Model } from '../../domain/model.ts';
 import { savedLampProfile } from '../../domain/profiles.ts';
-import type { RoomId } from '../../domain/types/ids.ts';
 import { entriesOf } from '../../domain/types/ids.ts';
 import type { Instant } from '../../domain/types/time.ts';
 import type { JsonObject } from '../ha-client.ts';
@@ -30,6 +29,8 @@ import { decodeLampProfile, encodeLampProfile } from './lamp-profiles.ts';
 import { profileStore } from './model.ts';
 import { remoteSources } from './overlay-key.ts';
 import { encodeOverrides } from './overrides-sensor.ts';
+import { drives } from './rooms.ts';
+import type { Share } from './rooms.ts';
 import { encodeSwitchProfile } from './switch-profiles.ts';
 import { remoteHelperEntity, remoteHelperWrites } from './remote-helpers.ts';
 import type { HelperValue } from './remote-helpers.ts';
@@ -132,18 +133,18 @@ export type ModelWrites = { sensor: SensorWrite | undefined; helpers: HelperWrit
  * sensor is written when its attributes, read with the Model written in,
  * differ from the stored ones (the codec keeps every untouched entry's bytes);
  * a remote's helpers when its state changed this turn; a lamp's or a plug's
- * store when its profile did. Every room is the port's: the host keeps to its own share.
+ * store when its profile did. The overrides sensor and the remotes' helpers are written only for what `share`
+ * drives: the old scripts write the rest.
  */
-export function modelWrites(before: Model, after: Model, house: HouseView, now: Instant): ModelWrites {
+export function modelWrites(before: Model, after: Model, house: HouseView, now: Instant, share: Share): ModelWrites {
   const stored = house.state[OVERRIDES_SENSOR];
   const found: JsonObject = stored === undefined ? {} : stored.attributes;
-  const live = new Set<RoomId>(entriesOf(after.config.rooms).map(([room]) => room));
-  const written = encodeOverrides(after, found, live, after.config, remoteSources(house.catalog));
+  const written = encodeOverrides(after, found, share, after.config, remoteSources(house.catalog));
   const changed = Object.fromEntries(Object.entries(written).filter(([key, value]) => !isDeepStrictEqual(found[key], value)));
   const sensor = Object.keys(changed).length === 0 ? undefined : { entity: OVERRIDES_SENSOR, revision: nowText(now), attributes: changed };
   const helpers = entriesOf(after.remotes).flatMap(([remote, state]): HelperWrite[] => {
     const was = before.remotes[remote], room = after.config.remotes[remote]?.room;
-    if (was === undefined || room === undefined || isDeepStrictEqual(was, state)) return [];
+    if (was === undefined || room === undefined || !drives(share, room) || isDeepStrictEqual(was, state)) return [];
     return remoteHelperWrites(was, state).map(({ helper, value }) => ({ entity: remoteHelperEntity(room, helper), value }));
   });
   const stores = entriesOf(after.lampProfiles).flatMap(([lamp, profiles]) => BLOCKS.flatMap((block): StoreWrite[] => {

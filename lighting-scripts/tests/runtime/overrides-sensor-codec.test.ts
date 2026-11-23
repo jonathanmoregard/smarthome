@@ -10,6 +10,7 @@ import { isObject } from '../../src/adapter/codecs/parse.ts';
 import { parseCatalog } from '../../src/adapter/codecs/catalog.ts';
 import { toBrightness, toDashboardControlId, toInstant, toKelvin, toPercentRange, toStep, toStepCount } from '../../src/adapter/codecs/ids.ts';
 import { syntheticCatalog, syntheticHouse } from './fixtures/synthetic-house.ts';
+import type { Share } from '../../src/adapter/codecs/rooms.ts';
 import { id } from './support/ids.ts';
 
 /**
@@ -25,7 +26,8 @@ const sources = remoteSources(syntheticCatalog());
 const roomA = id.room('room-a'), roomB = id.room('room-b');
 const lampA1 = id.lamp('light.lamp_a1'), plugA = id.switch('switch.plug_a');
 const remoteA = id.remote('remote-a');
-const allRooms = new Set([roomA, roomB]);
+/** Every room the port's: the whole house. */
+const allRooms: Share = { kind: 'house' };
 
 const T0 = 1_790_000_000;
 const sec = (minute: number) => T0 + minute * 60;
@@ -292,18 +294,18 @@ test('after one change to one overlay, only that overlay\'s stored fields differ
   for (const key of Object.keys(found)) if (key !== 'overrides') assert.equal(JSON.stringify(written[key]), JSON.stringify(found[key]), key);
 });
 
-test('a stored overlay of a room that is not live is left exactly as found', () => {
-  // Review Focus 4. Break: the encoder drops or rewrites an overlay of a room the old scripts still drive.
+test('a stored overlay of a room that is not live, and one over the house, are left exactly as found', () => {
+  // Review Focus 4, M6 T1. Break: the encoder drops or rewrites an overlay of a room the old scripts still drive, or a
+  // house-wide one they commit while any room is theirs (the rollout's one writer per part).
   const found = fullStore();
   const state = decodeOverrides(found, sources);
   const cleared: OverridesState = { ...state, overlays: { blocks: {}, remotes: [], lamps: [], roomPower: {}, switches: {} }, modeOverlay: { active: false } };
-  const written = encodeOverrides(cleared, found, new Set([roomB]), config, sources);
+  const written = encodeOverrides(cleared, found, { kind: 'rooms', rooms: new Set([roomB]) }, config, sources);
   const before = found.overrides as JsonObject, after = written.overrides as JsonObject;
   for (const key of [`block:${roomA}`, 'channels:remote-a', `channels:native:${lampA1}`, 'channels:ui:control-a']) {
     assert.equal(JSON.stringify(after[key]), JSON.stringify(before[key]), key);
   }
-  assert.equal(after['block:house'], undefined, 'the house-wide block is the Model\'s to clear');
-  assert.equal(after['mode:sara'], undefined, 'the mode overlay is the Model\'s to clear');
+  for (const key of ['block:house', 'mode:sara']) assert.equal(JSON.stringify(after[key]), JSON.stringify(before[key]), key);
   assert.equal(JSON.stringify(written.power), JSON.stringify({ [roomA]: false }), 'a live room\'s power is the Model\'s');
   assert.equal(JSON.stringify(written.switch_ranges), JSON.stringify(found.switch_ranges), 'the switch is in a room that is not live');
 });

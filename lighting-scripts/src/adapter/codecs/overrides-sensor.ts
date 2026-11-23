@@ -42,6 +42,8 @@ import {
 import { parseOverlayKey } from './overlay-key.ts';
 import type { JsonObject, JsonValue } from '../ha-client.ts';
 import { isObject, jinjaTruthy } from './parse.ts';
+import { drives } from './rooms.ts';
+import type { Share } from './rooms.ts';
 import { dateSeconds } from './time-text.ts';
 
 /** What the overrides sensor holds of the Model. */
@@ -94,14 +96,16 @@ export function decodeOverrides(attributes: JsonObject | undefined, sources: Rem
 
 /**
  * The sensor's attributes with this state written in. Stored overlays of rooms
- * outside `live`, those of no known shape and every attribute the Model does
- * not own come from `found` unchanged; the config says which room each lamp
- * and switch is in. A house-wide overlay (a block over the house, the mode
- * overlay, a lamp in no room) is the Model's to write.
+ * the share does not drive, those of no known shape and every attribute the
+ * Model does not own come from `found` unchanged; the config says which room
+ * each lamp and switch is in. A house-wide overlay (a block over the house,
+ * the mode overlay, a lamp in no room) is the Model's to write only with the
+ * whole house: while some room is the old scripts', they commit those (the
+ * rollout's one writer per part).
  */
-export function encodeOverrides(state: OverridesState, found: JsonObject, live: ReadonlySet<RoomId>, config: Config,
+export function encodeOverrides(state: OverridesState, found: JsonObject, share: Share, config: Config,
   sources: RemoteSources): JsonObject {
-  const liveRoom = (room: RoomId | undefined) => room === undefined || live.has(room);
+  const liveRoom = (room: RoomId | undefined) => drives(share, room);
   const switchLive = (entity: SwitchId) => config.switches[entity] !== undefined && liveRoom(config.switches[entity].room);
   const owned = (entry: StoredOverlay) => entryIsLive(entry, liveRoom, config);
   const written: JsonObject = { ...found };
@@ -399,11 +403,11 @@ function decodeLamp(keyed: LampOverlay['over'] | undefined, from: LampOverlay['f
   };
 }
 
-/** Whether the Model writes this entry: its room is live, or it covers the house; a lamp the config does not know is not the Model's. */
+/** Whether the Model writes this entry: its room is driven, or it covers the house and the whole house is; a lamp the config does not know is not the Model's. */
 function entryIsLive(entry: StoredOverlay, liveRoom: (room: RoomId | undefined) => boolean, config: Config): boolean {
   switch (entry.kind) {
-    case 'mode': return true;
-    case 'block': return entry.scope === 'house' || liveRoom(entry.scope);
+    case 'mode': return liveRoom(undefined);
+    case 'block': return liveRoom(entry.scope === 'house' ? undefined : entry.scope);
     case 'remote': return liveRoom(entry.overlay.room);
     case 'lamp': {
       const over = entry.overlay.over;

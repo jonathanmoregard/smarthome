@@ -14,6 +14,7 @@ import { bridgeVerdict } from './adapter/codecs/inputs.ts';
 import type { HaInput } from './adapter/codecs/inputs.ts';
 import { afterOutputs, handleInput } from './adapter/loop.ts';
 import type { Kept } from './adapter/loop.ts';
+import type { RoomsGiven } from './adapter/live-rooms.ts';
 import type { Instant } from './domain/types/time.ts';
 import { toInstant } from './adapter/codecs/ids.ts';
 
@@ -25,8 +26,10 @@ export type Log = { info(message: string): void; warn(message: string): void; er
 /** A timer: `wake` runs after `delayMs`, unless the answer is called first. */
 export type Timer = (delayMs: number, wake: () => void) => () => void;
 
-/** `took`, if given, hears how long each turn with outputs took to make them, in seconds. */
-export type HostIo = { ha: HaClient; journal: Journal; clock: () => Instant; log: Log; timer: Timer; took?: (seconds: number) => void };
+/** `rooms` are those the host may drive; `took`, if given, hears how long each turn with outputs took to make them, in seconds. */
+export type HostIo = {
+  ha: HaClient; journal: Journal; clock: () => Instant; log: Log; timer: Timer; rooms: RoomsGiven; took?: (seconds: number) => void;
+};
 
 /** The longest a timer waits: Node's limit, about 24 days. A wake further away is set again when this one runs. */
 const LONGEST_WAIT_MS = 2_147_483_647;
@@ -96,7 +99,7 @@ export class Host {
 
   /** One turn: its outputs made one at a time; the answer is when to be woken. */
   private async run(input: HaInput, now: Instant): Promise<Instant | undefined> {
-    const turn = handleInput(this.kept, houseView(this.mirror, now, this.catalog), input);
+    const turn = handleInput(this.kept, houseView(this.mirror, now, this.catalog), input, this.io.rooms);
     if (turn.dropped !== undefined) this.io.log.error(`lighting: ${input.kind}: ${turn.dropped}; dropped`);
     const failed: boolean[] = [];
     const started = performance.now();

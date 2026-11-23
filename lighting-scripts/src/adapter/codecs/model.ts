@@ -18,6 +18,7 @@ import type { ConfigSource } from './config.ts';
 import { FOLLOWS_ROOM, decodeLampProfile } from './lamp-profiles.ts';
 import { remoteSources } from './overlay-key.ts';
 import { decodeOverrides } from './overrides-sensor.ts';
+import type { Share } from './rooms.ts';
 import { IDLE_REMOTE } from '../../domain/remote.ts';
 import { decodeRemoteModel } from './remote-helpers.ts';
 import { FOLLOWS_ROOM_SWITCH, decodeSwitchProfile } from './switch-profiles.ts';
@@ -65,6 +66,12 @@ function lampProfilesOf(source: ConfigSource, lamp: LampId): Record<Block, LampP
   return { day: profile(day), cosy: profile(cosy), night: profile(night) };
 }
 
+/** The store's entity: the object is the entity id after its domain (`ls_base`'s `L.split('.')[1]`). */
+export function profileStore(entity: LampId | SwitchId, block: Block): string {
+  const object = entity.includes('.') ? entity.slice(entity.indexOf('.') + 1) : entity;
+  return `input_text.ls_lamp_${object}_${block}`;
+}
+
 /** A plug's own on/off for each block, from the store a lamp's profile lives in (`ls_lamp_<object>_<block>`). */
 function switchProfilesOf(source: ConfigSource, plug: SwitchId): Record<Block, SwitchProfile> {
   const profile = (block: Block) => {
@@ -75,8 +82,12 @@ function switchProfilesOf(source: ConfigSource, plug: SwitchId): Record<Block, S
   return { day: profile(day), cosy: profile(cosy), night: profile(night) };
 }
 
-/** The store's entity: the object is the entity id after its domain (`ls_base`'s `L.split('.')[1]`). */
-export function profileStore(entity: LampId | SwitchId, block: Block): string {
-  const object = entity.includes('.') ? entity.slice(entity.indexOf('.') + 1) : entity;
-  return `input_text.ls_lamp_${object}_${block}`;
+/**
+ * The Model with its overlays as the overrides sensor holds them, while some room is the old scripts': they commit the
+ * house's events, which reach the port's rooms too (a hold over the house holds each room), so the store is the truth.
+ * The port's own writes still on their way are in the house it reads. The whole house keeps the Model it holds.
+ */
+export function followingSensor(model: Model, house: Pick<HouseView, 'state' | 'catalog'>, share: Share): Model {
+  if (share.kind === 'house') return model;
+  return { ...model, ...decodeOverrides(house.state['sensor.ls_overrides']?.attributes, remoteSources(house.catalog)) };
 }

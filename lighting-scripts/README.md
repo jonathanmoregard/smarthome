@@ -42,7 +42,7 @@ with `npm install --ignore-scripts` on a machine with registry access.
 ```sh
 python3 scripts/bootstrap-runtime.py
 HA_URL=https://YOUR_HOME_ASSISTANT HA_TOKEN_FILE=/path/to/existing/token \
-  npm run dev -- --live --config .runtime/catalog.json --live-rooms <every room>
+  npm run dev -- --live --config .runtime/catalog.json --live-rooms <room>[,<room>...]
 ```
 
 The host runs live only; the offline JSON-lines mode is `src/rpc.ts`, which the
@@ -145,42 +145,45 @@ startup in its default offline mode.
 
 ## Rooms on the port
 
-For now the host drives the whole house: `--live-rooms` must name every room
-that holds a catalog lamp, and a partial list is refused at start-up. Sharing
-rooms with the old scripts, as described below, comes back in a later step.
-
 The cutover can go one room at a time while the old scripts keep the rest of the
-house. A room is the port's when it is in `--live-rooms` (comma-separated Home
-Assistant area ids; `''` is none) and its port switch
-`input_boolean.ls_<room>_on_port` is on. The list is what the process may take;
-the switch is where a person hands the room over or back. A missing
-`--live-rooms` is refused at start-up: it never means every room.
+house (`src/adapter/live-rooms.ts`). A room is the port's when it is in
+`--live-rooms` (comma-separated Home Assistant area ids; `''` is none) and its
+port switch `input_boolean.ls_<room>_on_port` is on. The list is what the
+process may take; the switch is where a person hands the room over or back. A
+missing `--live-rooms` is refused at start-up: it never means every room.
 
 1. The port computes the whole house, and sends lamp, bulb and switch commands
-   and room cache writes only for its rooms. A command that reaches its rooms
-   and others is narrowed to its own share: a switching call to its own
-   entities, a group publish to each of its bulbs' own topics.
-2. A remote press, a dashboard control, a lamp switched from the app or a lamp
-   switched on in another room does nothing in the port. That is decided as
-   the run starts, and every output is checked again as it goes out.
-   House-wide inputs (the schedule, house modes, recovery) are computed for the
-   whole house and reach only the port's rooms.
-3. Until every room is the port's, house-wide state has one writer per part.
-   The records an input leaves (the overlay store, a remote's helpers, a saved
-   profile) are written by the port only for an input from its own rooms; house
-   events are committed by the old scripts. The dashboard mirror, the block
-   selects and the Sara mirror stay with the old scripts. The render
-   bookkeeping (`sensor.ls_effects_runtime`) is the port's own: it is read once
-   at start and is then neither sent nor read back. An empty list sends nothing.
-4. Whenever a room changes hands to the port (its switch turns on, on start, or
-   as found by the refresh after Home Assistant was out of reach), the port
-   re-sends that room's lamps, so their bulb effects (the firmware candle)
-   start.
-5. Live rooms that hold none of the catalog's lamps are refused once the
-   registry is read. The port writes `input_text.ls_port_heartbeat`
-   (`<unix seconds>|<live rooms>`) every 10 s; a Home Assistant watchdog,
-   built with the old-side patch, turns off every port switch a fresh heartbeat
-   does not name, and all of them after 30 s without one.
+   only for its rooms: the reconciler is given only their lamps and switches,
+   so a Zigbee group with a lamp of another room is never used.
+2. A remote press, a dashboard control, a lamp switched from the app or a plug
+   pressed in another room does nothing in the port: an input's messages are
+   dropped unless every room they are about is the port's. House-wide inputs
+   (the mode, a hold over the house, clearing every overlay, the range
+   defaults) are the old scripts' to commit. The clock runs for every room.
+3. Until every room is the port's, the port reads the overlays from
+   `sensor.ls_overrides` at every turn, so its rooms follow what the old
+   scripts commit (a hold over the house holds each room), and it writes back
+   only its own rooms' overlays and remote helpers; everything else in the
+   sensor, house-wide overlays included, is left exactly as found. The
+   dashboard mirror, the block selects and the Sara mirror stay with the old
+   scripts. The fields the old scripts read across rooms
+   (`docs/sensor-fields.md`, "Carried": the render queue and its requests,
+   `sensor.ls_effects_runtime`, the room caches) are never written by the
+   port; each write of the port moves the store's revision, so an old render
+   planned before it is not marked handled and runs again.
+4. Whenever a room is handed to the port while it runs (its switch turns on, or
+   off and on again), the port forgets what it sent that room's bulbs and sends
+   them their light again, so their bulb effects (the firmware candle) start.
+   At start, the journal holds what the port last sent.
+5. When every room of the house is the port's, none of the above applies: the
+   port drives the whole house. With the old house-wide automations still
+   running, do the full cutover for the last room instead.
+6. Live rooms that hold none of the catalog's lamps are refused at start-up.
+   The port writes `input_text.ls_port_heartbeat`
+   (`<unix seconds>|<live rooms>`) every 10 s, but not while Home Assistant is
+   out of reach; a Home Assistant watchdog, built with the old-side patch,
+   turns off every port switch a fresh heartbeat does not name, and all of them
+   after 30 s without one. An empty list sends nothing, not even a heartbeat.
 
 `python3 scripts/export-bridge.py --rollout` prepares the matching Home Assistant
 side in `.runtime/bridge-rollout`: one new automation per room-scoped bridge (id

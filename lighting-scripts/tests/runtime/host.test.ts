@@ -90,7 +90,7 @@ function open(ha: FakeHa, journal: MemoryJournal, now: { time: Instant }, timers
   const logged: string[] = [];
   const io: HostIo = { ha, journal, clock: () => now.time,
     log: { info: m => logged.push(m), warn: m => logged.push(`warn: ${m}`), error: m => logged.push(m) },
-    timer: (delayMs, wake) => timers.start(delayMs, wake) };
+    timer: (delayMs, wake) => timers.start(delayMs, wake), rooms: { kind: 'house' } };
   return { host: Host.open(io, ha.mirror(), catalog), logged, timers };
 }
 
@@ -389,7 +389,7 @@ test('a held input that throws is logged, and the press held after it is still a
   let broken = false;
   ha.during = async call => { if (call.data.topic === 'zigbee2mqtt/bulb-b1') broken = true; };
   const host = await Host.open({ ha, journal: new MemoryJournal(), clock: () => now.time,
-    log: { info: () => {}, warn: () => {}, error: message => logged.push(message) }, timer: () => () => {},
+    log: { info: () => {}, warn: () => {}, error: message => logged.push(message) }, timer: () => () => {}, rooms: { kind: 'house' },
     took: () => { if (broken) { broken = false; throw new Error('the hold broke'); } } }, ha.mirror(), catalog);
   host.accept({ kind: 'started' });
   await host.idle();

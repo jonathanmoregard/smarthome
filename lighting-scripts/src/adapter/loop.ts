@@ -10,7 +10,10 @@ import type { DashboardView } from '../domain/dashboard.ts';
 import { lightingState, nextChange } from '../domain/lighting-state.ts';
 import type { LampProfileChange, Model, Msg } from '../domain/model.ts';
 import { update } from '../domain/update.ts';
+import type { Config } from '../domain/config.ts';
 import type { BulbId, SwitchId } from '../domain/types/ids.ts';
+import { entriesOf } from '../domain/types/ids.ts';
+import type { LightingState } from '../domain/types/lighting-state.ts';
 import type { Instant } from '../domain/types/time.ts';
 import { toDashboardControlId, toInstant } from './codecs/ids.ts';
 import { timestamp } from './codecs/accessors.ts';
@@ -19,7 +22,11 @@ import { ParseError } from './codecs/parse.ts';
 import { bulbGroups } from './codecs/bulb-groups.ts';
 import { blockLightSaved, bulbTopics, decodeConfig, reportedBulbs } from './codecs/config.ts';
 import type { BlockLight } from './codecs/config.ts';
-import { configSource, decodeModel } from './codecs/model.ts';
+import { configSource, decodeModel, followingSensor } from './codecs/model.ts';
+import { drives, portSwitchesOn } from './codecs/rooms.ts';
+import type { Share } from './codecs/rooms.ts';
+import { newlyHanded, ownsMessage, shareOf } from './live-rooms.ts';
+import type { Handed, RoomsGiven } from './live-rooms.ts';
 import { decodeRangeDefaults } from './codecs/range-defaults.ts';
 import { carries, outcomeOf, publishes } from './encode.ts';
 import type { Output } from './encode.ts';
@@ -44,6 +51,8 @@ import type { ControlRow, StoreWrite } from './codecs/writes.ts';
  */
 export type AdapterState = {
   model: Model; beliefs: Beliefs; view: DashboardView | undefined; observed: Observed; outbox: Outbox;
+  /** The listed rooms handed to the port at the last turn, so a room handed over since is sent its lamps again. */
+  handed: Handed;
   /** The helpers are read again next turn: a write was parked, and the Model follows what Home Assistant holds. */
   reread: boolean;
 };
@@ -121,8 +130,10 @@ function outcomeIn(send: Send, lost: readonly Output[]): Outcome {
  * reconcile. Pure but for the house it is handed, whose `now` is the clock.
  * Every input applies the clock first, then its own messages, in order. An
  * input that cannot be read is dropped, and the turn goes on with the clock.
+ * The turn acts on, writes and sends only its share of the house (`given`,
+ * spec 5.4); the rest of the house follows the store the old scripts write.
  */
-export function handleInput(kept: Kept, reported: HouseView, input: HaInput): Turn {
+export function handleInput(kept: Kept, reported: HouseView, input: HaInput, given: RoomsGiven): Turn {
   const state = kept.kind === 'running' ? kept.state : undefined;
   const now = toInstant(timestamp(reported.now));
   // The house as it will be once the writes still waiting land, so a read of the helpers keeps them.
@@ -130,15 +141,18 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput): Tu
   const landed = settled(state?.outbox ?? [], reported), waiting = input.kind === 'reconnected' ? unparkedWrites(landed, now) : landed;
   const house = withWaiting(reported, waiting);
   const read = input.kind === 'helper changed' || input.kind === 'reconnected' || state?.reread === true ? helpersRead(house, now) : undefined;
-  const before = state === undefined || input.kind === 'started' ? decodeModel(configSource(house), house.catalog)
+  const decoded = state === undefined || input.kind === 'started' ? decodeModel(configSource(house), house.catalog)
     : read === undefined ? state.model : update(state.model, read);
+  const handed: Handed = given.kind === 'listed' ? portSwitchesOn(house.state, given.rooms) : new Map();
+  const share = shareOf(given, handed, decoded.config), before = followingSensor(decoded, house, share);
   // The clock runs first, and the input is read against what it leaves: a reset at this instant is already applied.
   const clocked = update(before, { kind: 'clock', now });
   // What changed since the last turn that no send of ours explains: a plug's own button is pressed first, then the input.
   const changed = state === undefined ? [] : unexplained(state.observed, decodeObserved(house.state, clocked.config), state.beliefs);
   let own: Msg[] = unexplainedMessages(changed, now), dropped: string | undefined, saved: StoreSave | undefined;
   try {
-    own = [...own, ...messages(input, clocked, now, house), ...rangeDefaultsMessages(input, house, now)];
+    own = [...own, ...messages(input, clocked, now, house), ...rangeDefaultsMessages(input, house, now)]
+      .filter(msg => ownsMessage(share, msg, clocked.config));
     saved = storeSaveIn(input, house, clocked);
   } catch (error) {
     if (!(error instanceof ParseError)) throw error;
@@ -146,13 +160,14 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput): Tu
   }
   // A block light's save is written as it is, and goes through `update` as the config the helpers will hold once it
   // lands, so the lamps move in this turn and not on the echo.
-  const light = saved?.target.kind === 'block light' ? saved.target : undefined;
+  const light = saved?.target.kind === 'block light' && drives(share, saved.target.scope === 'house' ? undefined : saved.target.scope)
+    ? saved.target : undefined;
   const configWrite = saved === undefined || light === undefined ? undefined : configStoreWrite(light, saved.change, house);
   const messaged = own.reduce(update, clocked);
   const model = saved === undefined || light === undefined || configWrite === undefined ? messaged
     : update(messaged, blockLightRead(light, saved.change, configWrite, messaged, house, now));
   const writes: Write[] = [];
-  const written = modelWrites(before, model, house, now);
+  const written = modelWrites(before, model, house, now, share);
   if (written.sensor !== undefined) writes.push({ kind: 'sensor', write: written.sensor });
   for (const write of written.helpers) writes.push({ kind: 'helper', write });
   for (const write of written.stores) writes.push({ kind: 'store', write });
@@ -162,14 +177,21 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput): Tu
   const view = dashboardView(model, lighting, now);
   const previous = state === undefined || input.kind === 'started' ? undefined : state.view;
   const sync = controlRows(model, house);
-  for (const write of dashboardWrites(previous, view, sync, house)) writes.push({ kind: 'dashboard', write });
-  for (const write of uiSyncWrites(house, previous === undefined)) writes.push({ kind: 'dashboard', write });
+  // The dashboard is the old scripts' to show while some room is still theirs.
+  if (share.kind === 'house') {
+    for (const write of dashboardWrites(previous, view, sync, house)) writes.push({ kind: 'dashboard', write });
+    for (const write of uiSyncWrites(house, previous === undefined)) writes.push({ kind: 'dashboard', write });
+  }
   const outbox = queued(waiting, writes, now), due = dueAt(outbox, now);
   const outputs: Output[] = due.map(entry => entry.write);
   const writing = due.map((entry, output) => ({ entry, output }));
 
   let beliefs = kept.kind === 'running' ? kept.state.beliefs : kept.beliefs;
   if (input.kind === 'reconnected') beliefs = unparked(beliefs);
+  // A room handed over since the last turn was the old scripts' meanwhile: what the port sent it before says nothing.
+  const handedOver = state === undefined ? [] : newlyHanded(state.handed, handed);
+  beliefs = forgotten(beliefs, entriesOf(model.config.lamps).flatMap(([, lamp]) =>
+    lamp.room !== undefined && handedOver.includes(lamp.room) ? lamp.bulbs.map(bulb => bulb.bulb) : []));
   const observed = decodeObserved(house.state, model.config);
   if (input.kind === 'state changed') {
     const reported = reportedBulbs(input.entities, model.config);
@@ -177,7 +199,7 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput): Tu
   }
   beliefs = switchesSeen(backOn(beliefs, changed.flatMap(change => change.kind === 'bulb back on' ? [change.bulb] : [])), observed,
     lighting.switches);
-  const { sends } = nextSends(lighting, model.config, observed, beliefs, now);
+  const { sends } = nextSends(sharedLighting(lighting, model.config, share), model.config, observed, beliefs, now);
   const topics = bulbTopics(house.catalog), groups = bulbGroups(house.catalog);
   const sent = publishes(sends, topics, groups), first = outputs.length, sending: Sending[] = [];
   for (const publish of sent) outputs.push({ kind: 'publish', publish });
@@ -190,8 +212,16 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput): Tu
     }
   }
   const journalled = outputs.flatMap((output, index) => output.kind === 'publish' ? [index] : []);
-  const next: AdapterState = { model, beliefs, view, observed, outbox, reread: false };
+  const next: AdapterState = { model, beliefs, view, observed, outbox, reread: false, handed };
   return { state: next, outputs, sends: sending, now, nextChange: nextChange(model, now), dropped, journalled, writing };
+}
+
+/** The lighting state of the lamps and switches the share drives: the reconciler sends nothing to the rest. */
+function sharedLighting(lighting: LightingState, config: Config, share: Share): LightingState {
+  return {
+    lamps: Object.fromEntries(entriesOf(lighting.lamps).filter(([lamp]) => drives(share, config.lamps[lamp]?.room))),
+    switches: Object.fromEntries(entriesOf(lighting.switches).filter(([plug]) => drives(share, config.switches[plug]?.room))),
+  };
 }
 
 /** The config and the profiles read again from the helpers, as the message `update` takes them. */

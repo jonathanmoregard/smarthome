@@ -26,7 +26,9 @@ Entities are written with `<room>` for a room id.
 
 ## Carried: what the M6 compatibility writer keeps valid
 
-The Model owns none of these, and each is read across rooms. The codecs never write them: `encodeOverrides` copies them from the sensor as found. While any room is still driven by the old scripts, the compatibility writer keeps each one in the shape the old scripts expect.
+The Model owns none of these, and each is read across rooms. The codecs never write them: `encodeOverrides` copies them from the sensor as found. While any room is still driven by the old scripts, each one has to stay in the shape the old scripts expect.
+
+M6 Task 1 found that no compatibility writer is needed for that. With the old-side patch (the old scripts skip a room whose port switch is on), the old scripts keep every row valid themselves as long as the port never writes it, and every write of the port moves the store's revision (row 1): an old render planned before a port write is not marked handled (`ls_render` checks the revision before it records `handled_rooms` and `handled_full`), so the old recovery runs it again. `tests/runtime/live-rooms.test.ts` holds one test per row.
 
 | # | Entity | Field | Why it matters while rooms are shared |
 |---|---|---|---|

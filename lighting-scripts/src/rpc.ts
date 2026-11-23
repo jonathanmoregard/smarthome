@@ -98,7 +98,7 @@ export async function answer(request: Request, adjust: (catalog: Catalog) => voi
     host = await Host.open({
       ha: { call: async call => { current.calls.push({ ...call, time: current.elapsed }); return undefined; } },
       journal: { load: async () => journal, save: async text => { journal = text; } },
-      clock: () => current.now, log: console,
+      clock: () => current.now, log: console, rooms: { kind: 'house' },
       timer: delayMs => { current.wakeMs = delayMs; return () => { current.wakeMs = undefined; }; },
     }, mirror, catalog);
   } else {
