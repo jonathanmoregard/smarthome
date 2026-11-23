@@ -66,6 +66,11 @@ export function nextTry(outbox: Outbox): Instant | undefined {
     entry.status.kind !== 'due' || (first !== undefined && first <= entry.status.at) ? first : entry.status.at, undefined);
 }
 
+/** Every parked write due again at `now`, its refusals forgotten: Home Assistant is back, or started again, as bulbs are unparked. */
+export function unparkedWrites(outbox: Outbox, now: Instant): Outbox {
+  return outbox.map(entry => entry.status.kind === 'parked' ? { ...entry, refusals: 0, status: { kind: 'due', at: now } } : entry);
+}
+
 /** How a write's call went: Home Assistant took it, refused it, or the call was not made (it was out of reach first). */
 export type Tried = 'taken' | 'refused' | 'not made';
 

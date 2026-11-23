@@ -31,7 +31,7 @@ import {
   afterSend, backOn, forgotten, NO_BELIEFS, newlyParked, nextRetry, nextSends, reportedChanged, switchesSeen, unexplained, unparked,
 } from './reconcile.ts';
 import type { Beliefs, Outcome, Send } from './reconcile.ts';
-import { afterTries, dueAt, nextTry, queued, settled, targetOf, withWaiting, WRITE_TRIES } from './outbox.ts';
+import { afterTries, dueAt, nextTry, queued, settled, targetOf, unparkedWrites, withWaiting, WRITE_TRIES } from './outbox.ts';
 import type { Entry, Outbox, Tried, Write } from './outbox.ts';
 import { configStoreWrite, dashboardWrites, modelWrites, uiSyncWrites } from './codecs/writes.ts';
 import type { ControlRow, StoreWrite } from './codecs/writes.ts';
@@ -105,7 +105,7 @@ export function afterOutputs(turn: Turn, failed: readonly boolean[]): Settled {
   // A bulb given up on is most often switched off at the wall: said once, for the host's info log (owner, 2026-11-20).
   const notes = parked.map(bulb => `lighting: ${bulb} is parked: it does not take what it is sent; left until it comes back on or its light changes`);
   const warnings = stopped.map(entry =>
-    `lighting: ${targetOf(entry.write)} is parked: Home Assistant refused it ${WRITE_TRIES} times; the lighting follows what Home Assistant holds until it is written anew or changes`);
+    `lighting: ${targetOf(entry.write)} is parked: Home Assistant refused it ${WRITE_TRIES} times; the lighting follows what Home Assistant holds until it is written anew, changes, or Home Assistant is back`);
   return { state: { ...turn.state, beliefs, outbox, reread: turn.state.reread || stopped.length > 0 }, wakeAt, parked, notes, warnings };
 }
 
@@ -125,7 +125,9 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput): Tu
   const state = kept.kind === 'running' ? kept.state : undefined;
   const now = toInstant(timestamp(reported.now));
   // The house as it will be once the writes still waiting land, so a read of the helpers keeps them.
-  const waiting = settled(state?.outbox ?? [], reported), house = withWaiting(reported, waiting);
+  // A reconnect unparks every parked write, as it does every bulb.
+  const landed = settled(state?.outbox ?? [], reported), waiting = input.kind === 'reconnected' ? unparkedWrites(landed, now) : landed;
+  const house = withWaiting(reported, waiting);
   const read = input.kind === 'helper changed' || input.kind === 'reconnected' || state?.reread === true ? helpersRead(house, now) : undefined;
   const before = state === undefined || input.kind === 'started' ? decodeModel(configSource(house), house.catalog)
     : read === undefined ? state.model : update(state.model, read);

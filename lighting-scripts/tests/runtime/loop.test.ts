@@ -293,6 +293,22 @@ test('a write Home Assistant always refuses is tried five times on the backoff, 
   assert.deepEqual(shows(house, 'bulb-b1' as BulbId), before, 'the lamps went back to what Home Assistant holds');
 });
 
+test('a reconnect unparks every parked write, a publish included, and sends it again', () => {
+  // Final review 2. Break: a write parked while Home Assistant misbehaved stays parked through the reconnect, as bulbs
+  // are not, so the control's proxy shows the wrong availability until something else changes it.
+  const house = new House(), topic = 'house/v1/effect_preview/room_a_all/set/availability';
+  const published = (turn: Turn) => turn.outputs.filter(output => output.kind === 'dashboard' && output.write.kind === 'control sync'
+    && output.write.topic === topic).length;
+  const refused = (output: Output) => output.kind === 'dashboard' && output.write.kind === 'control sync' && output.write.topic === topic;
+  const started = house.turn('12:00:00', { kind: 'started' }, refused);
+  const { tries, warnings } = wakesUntil(house, started, '12:10:00', refused, published);
+  assert.equal(tries, 5);
+  assert.equal(warnings.length, 1);
+  assert.equal(published(house.turn('12:10:00', { kind: 'tick' })), 0, 'parked');
+  assert.equal(published(house.turn('12:11:00', { kind: 'reconnected' })), 1, 'sent again on the reconnect');
+  assert.equal(published(house.turn('12:12:00', { kind: 'tick' })), 0, 'and, taken, not again');
+});
+
 // --- M4: the plug's own button, power-on, put-backs, retries ------------------------------------------------------
 
 const plugA = toSwitchId('switch.plug_a');
