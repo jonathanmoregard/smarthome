@@ -8,7 +8,8 @@ import type { AdapterState, Turn } from '../../src/adapter/loop.ts';
 import { nextChange } from '../../src/domain/lighting-state.ts';
 import type { BulbId } from '../../src/domain/types/ids.ts';
 import type { EntityState } from '../../src/runtime/context.ts';
-import { toRoomId, toSwitchId } from '../../src/parse/ids.ts';
+import { toInstant, toKelvin, toRoomId, toSwitchId } from '../../src/parse/ids.ts';
+import { lit } from './fake-bulbs.ts';
 import type { FakeBulbs } from './fake-bulbs.ts';
 import { houseView, syntheticStates, world, writeBack } from './fixtures/house-view.ts';
 
@@ -43,6 +44,7 @@ class House {
         const sensor = this.states[output.write.entity]!;
         this.states[output.write.entity] = { state: output.write.revision, attributes: { ...sensor.attributes, ...output.write.attributes } };
       }
+      if (output.kind === 'switch') this.states[output.switch] = { state: output.power, attributes: {} };
     }
     this.bulbs.apply(publishesOf(turn));
     writeBack(this.bulbs, this.states);
@@ -170,4 +172,89 @@ test('a helper change reaches the lighting state the same turn, through the conf
   const turn = house.turn('12:01:00', { kind: 'helper changed' });
   assert.deepEqual(turn.state.model.config.house.day.weekdayStart, { hour: 8, minute: 0 });
   assert.equal(turn.outputs.some(output => output.kind === 'store'), false);
+});
+
+// --- M4: the plug's own button, power-on, put-backs, retries ------------------------------------------------------
+
+const plugA = toSwitchId('switch.plug_a');
+const bulbA3 = 'bulb-a3' as BulbId;
+const switchesSent = (turn: Turn) => turn.outputs.flatMap(output => output.kind === 'switch' ? [[output.switch, output.power]] : []);
+const publishedTo = (turn: Turn, bulb: BulbId) => publishesOf(turn).filter(publish => publish.topic === `zigbee2mqtt/${bulb}`);
+
+test("a plug's own button becomes a switch overlay and is not sent back", () => {
+  // Owner, 2026-11-22: a press on a plug's own button is an override. Break: the reconciler takes the press back at the
+  // next tick (today's scripts), or the press never reaches the Model.
+  const house = new House();
+  house.turn('12:00:00', { kind: 'started' });
+  assert.equal(house.states['switch.plug_a']?.state, 'off');
+  house.states['switch.plug_a'] = { state: 'on', attributes: {} };
+  const pressed = house.turn('12:01:00', { kind: 'tick' });
+  assert.deepEqual(pressed.state.model.overlays.switches[plugA], { power: 'on', since: Date.parse('2026-09-21T12:01:00Z') / 1000 });
+  assert.deepEqual(switchesSent(pressed), []);
+  assert.deepEqual(switchesSent(house.turn('12:02:00', { kind: 'tick' })), []);
+  assert.equal(house.states['switch.plug_a']?.state, 'on');
+});
+
+test('a switch we just switched is not a button press', () => {
+  // Break: the reconciler's own switching, seen at the next turn, is taken for a press and held as an overlay.
+  const house = new House();
+  house.states['switch.plug_a'] = { state: 'on', attributes: {} };
+  assert.deepEqual(switchesSent(house.turn('12:00:00', { kind: 'started' })), [[plugA, 'off']]);
+  assert.equal(house.turn('12:01:00', { kind: 'tick' }).state.model.overlays.switches[plugA], undefined);
+  assert.equal(house.turn('12:02:00', { kind: 'tick' }).state.model.overlays.switches[plugA], undefined);
+});
+
+test('a bulb changed behind our back is put back', () => {
+  // Break: an observed difference that is not a press or a power-on is left as it is.
+  const house = new House();
+  house.turn('12:00:00', { kind: 'started' });
+  house.turn('12:01:00', { kind: 'tick' });
+  house.bulbs.set(bulbA3, { reach: 'reachable', light: lit(40, { kind: 'kelvin', kelvin: toKelvin(4000) }) });
+  writeBack(house.bulbs, house.states);
+  const turn = house.turn('12:02:00', { kind: 'tick' });
+  assert.equal(publishedTo(turn, bulbA3).length, 1);
+  assert.deepEqual(shows(house, bulbA3), { power: 'on', level: 220, colour: { kind: 'kelvin', kelvin: 4000 }, effect: 'none' });
+});
+
+test('a bulb back on from the wall gets its light with the short fade, though it shows it', () => {
+  // Review Focus 2. Break: a power-on is not seen, so a bulb whose report matches its light gets nothing (its candle,
+  // which no report shows, would stay off), or it comes back over another fade.
+  const house = new House();
+  house.turn('12:00:00', { kind: 'started' });
+  house.bulbs.cut(bulbA3);
+  writeBack(house.bulbs, house.states);
+  house.turn('12:01:00', { kind: 'tick' });
+  house.bulbs.restore(bulbA3);
+  writeBack(house.bulbs, house.states);
+  const back = house.turn('12:01:30', { kind: 'state changed', entities: ['light.lamp_a2'] });
+  assert.deepEqual(publishedTo(back, bulbA3).map(publish => publish.payload),
+    [{ brightness: 220, color_temp: 250, transition: 0.2 }]);
+});
+
+test('a bulb put back six times in ten minutes is parked, and the turn says so once', () => {
+  // Break: the loop puts a bulb back forever, or reports it parked on every turn.
+  const house = new House();
+  house.turn('12:00:00', { kind: 'started' });
+  let putBack = 0;
+  const parked: BulbId[] = [];
+  for (let minute = 1; minute <= 9; minute++) {
+    house.bulbs.set(bulbA3, { reach: 'reachable', light: lit(40, { kind: 'kelvin', kelvin: toKelvin(4000) }) });
+    writeBack(house.bulbs, house.states);
+    const turn = house.turn(`12:0${minute}:00`, { kind: 'tick' });
+    if (publishedTo(turn, bulbA3).length > 0) putBack++;
+    parked.push(...turn.parked);
+  }
+  assert.equal(putBack, 6);
+  assert.deepEqual(parked, [bulbA3]);
+});
+
+test('the turn asks to be woken for a retry due before the next change', () => {
+  // Break: a failed send waits for the next change, which may be hours away, instead of its backoff.
+  const house = new House();
+  house.turn('12:00:00', { kind: 'started' });
+  const retryAt = toInstant(Date.parse('2026-09-21T12:01:05Z') / 1000);
+  const state = house.state!;
+  house.state = { ...state, beliefs: { ...state.beliefs, bulbs: { ...state.beliefs.bulbs,
+    [bulbA3]: { kind: 'retrying', shows: undefined, attempts: 1, retryAt } } } };
+  assert.equal(house.turn('12:01:00', { kind: 'tick' }).wakeAt, retryAt);
 });

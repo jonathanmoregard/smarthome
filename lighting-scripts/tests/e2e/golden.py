@@ -90,6 +90,11 @@ EXPECTED: tuple[ExpectedDifference, ...] = (
     ExpectedDifference('reconciler-lights-after-the-hold', 'dashboard_block_then_clear',
                        'lamp lit again when the block hold is cleared', 'power', after_step=3, until='scenario end',
                        port_holds=True),
+    # Owner 2026-11-22: a press on a plug's own button is an override. The port holds the pressed power as a switch
+    # overlay until the next-block reset releases it at the night fade's start; today's scripts take the press back at
+    # the next tick.
+    ExpectedDifference('plug-press-held', 'plug_button', 'subject plug', 'power', after_step=3, until='next fade start',
+                       port_holds=True),
 )
 EXPECTED_RULES = ('power',)
 

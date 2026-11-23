@@ -54,6 +54,10 @@ export function turnHandler(name: string): ScriptHandler {
     const turn = handleInput(state, ctx, input);
     state = turn.state;
     if (turn.dropped !== undefined) console.error(`lighting: ${name}: ${turn.dropped}; dropped`);
+    // A bulb given up on is most often switched off at the wall: logged once, at info level (owner, 2026-11-20).
+    for (const bulb of turn.parked) {
+      console.info(`lighting: ${bulb} is parked: it does not take what it is sent; left until it comes back on or its light changes`);
+    }
     const now = toInstant(timestamp(ctx.now));
     for (const output of turn.outputs) perform(ctx, effectOf(output, now));
     const tick = Math.floor(now / TICK_SECONDS) * TICK_SECONDS + TICK_SECONDS;

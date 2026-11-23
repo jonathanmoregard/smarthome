@@ -79,3 +79,28 @@ test('a dry run changes nothing: it is logged once and dropped', () => {
     assert.deepEqual(lines, [`lighting: ${script} is a dry run; dropped`], script);
   }
 });
+
+test('a bulb given up on is logged once, at info level', () => {
+  // Owner, 2026-11-20: a bulb given up on is logged once per episode at info level, never per retry. Here the house
+  // never shows what it is sent, so each bulb is put back each minute until it is parked. Break: a parked bulb is
+  // logged every turn, as an error, or not at all.
+  forgetAdapterState();
+  const lines: string[] = [], errors: string[] = [], info = console.info, error = console.error;
+  console.info = (...parts: unknown[]) => { lines.push(parts.join(' ')); };
+  console.error = (...parts: unknown[]) => { errors.push(parts.join(' ')); };
+  try {
+    execute({ script: 'automation.lighting_schedule_engine', args: { trigger: { id: 'start' } }, snapshot: snapshot() }, handlers);
+    for (let minute = 1; minute <= 9; minute++) {
+      execute({ script: 'automation.lighting_schedule_engine', args: { trigger: { id: 'tick' } },
+        snapshot: { ...snapshot(), now: `2026-09-21T12:0${minute}:00Z` } }, handlers);
+    }
+  } finally {
+    console.info = info;
+    console.error = error;
+    forgetAdapterState();
+  }
+  assert.deepEqual(errors, []);
+  const bulbs = lines.map(line => /lighting: (\S+) is parked/.exec(line)?.[1]);
+  assert.ok(bulbs.length > 0 && bulbs.every(bulb => bulb !== undefined), lines.join('\n'));
+  assert.equal(new Set(bulbs).size, bulbs.length, lines.join('\n'));
+});

@@ -10,7 +10,7 @@ import type { DashboardControl, DashboardView } from '../domain/dashboard.ts';
 import { lightingState, nextChange } from '../domain/lighting-state.ts';
 import type { Model, Msg } from '../domain/model.ts';
 import { update } from '../domain/update.ts';
-import type { SwitchId } from '../domain/types/ids.ts';
+import type { BulbId, SwitchId } from '../domain/types/ids.ts';
 import { entriesOf } from '../domain/types/ids.ts';
 import type { Power } from '../domain/types/light.ts';
 import type { Instant } from '../domain/types/time.ts';
@@ -23,16 +23,20 @@ import { bulbTopics } from './codecs/config.ts';
 import { configSource, decodeModel } from './codecs/model.ts';
 import { publishes } from './encode.ts';
 import type { Publish } from './encode.ts';
-import { controlOver, messages, profileStoreOf, storeSaveIn, uiRowsOf } from './inputs.ts';
+import { controlOver, messages, profileStoreOf, storeSaveIn, uiRowsOf, unexplainedMessages } from './inputs.ts';
 import type { HaInput } from './inputs.ts';
 import { decodeObserved } from './observed.ts';
-import { afterSend, forgotten, NO_BELIEFS, nextSends } from './reconcile.ts';
+import type { Observed } from './observed.ts';
+import { afterSend, backOn, forgotten, NO_BELIEFS, newlyParked, nextRetry, nextSends, switchesSeen, unexplained } from './reconcile.ts';
 import type { Beliefs } from './reconcile.ts';
 import { configStoreWrite, dashboardWrites, modelWrites, uiSyncWrites } from './writes.ts';
 import type { ControlRow, DashboardWrite, HelperWrite, SensorWrite, StoreWrite } from './writes.ts';
 
-/** What the adapter keeps between turns: the Model, what each bulb and switch was sent, and the dashboard last shown. */
-export type AdapterState = { model: Model; beliefs: Beliefs; view: DashboardView | undefined };
+/**
+ * What the adapter keeps between turns: the Model, what each bulb and switch was sent, the dashboard last shown, and
+ * what the bulbs and switches reported at the last turn, which the next one reads changes against.
+ */
+export type AdapterState = { model: Model; beliefs: Beliefs; view: DashboardView | undefined; observed: Observed };
 
 export type Output =
   | { kind: 'publish'; publish: Publish }
@@ -44,12 +48,16 @@ export type Output =
 
 /**
  * A turn's result: the state to keep, the outputs in order, when to be woken
- * (the lighting's next change), and why the input was dropped, when it was. A
- * send settling asks for no wake of its own: the next minute's tick looks
- * again, as today's scripts did, and a wake seconds after every send would
- * move the house's clock under the harness's checkpoints.
+ * (the lighting's next change, or a failed send's retry when that comes
+ * first), why the input was dropped, when it was, and the bulbs given up on
+ * this turn, each reported once. A send settling asks for no wake of its own:
+ * the next minute's tick looks again, as today's scripts did, and a wake
+ * seconds after every send would move the house's clock under the harness's
+ * checkpoints.
  */
-export type Turn = { state: AdapterState; outputs: Output[]; wakeAt: Instant | undefined; dropped: string | undefined };
+export type Turn = {
+  state: AdapterState; outputs: Output[]; wakeAt: Instant | undefined; dropped: string | undefined; parked: readonly BulbId[];
+};
 
 /**
  * One turn: read, update, write back what changed, compute the lighting state,
@@ -63,9 +71,11 @@ export function handleInput(state: AdapterState | undefined, house: HouseView, i
     : input.kind === 'helper changed' ? update(state.model, helpersRead(house, now)) : state.model;
   // The clock runs first, and the input is read against what it leaves: a reset at this instant is already applied.
   const clocked = update(before, { kind: 'clock', now });
-  let own: Msg[] = [], dropped: string | undefined;
+  // What changed since the last turn that no send of ours explains: a plug's own button is pressed first, then the input.
+  const changed = state === undefined ? [] : unexplained(state.observed, decodeObserved(house.state, clocked.config), state.beliefs);
+  let own: Msg[] = unexplainedMessages(changed, now), dropped: string | undefined;
   try {
-    own = [...messages(input, clocked, now, house), ...rangeDefaultsMessages(input, house, now)];
+    own = [...own, ...messages(input, clocked, now, house), ...rangeDefaultsMessages(input, house, now)];
   } catch (error) {
     if (!(error instanceof ParseError)) throw error;
     dropped = `${input.kind}: ${error.message}`;
@@ -92,13 +102,18 @@ export function handleInput(state: AdapterState | undefined, house: HouseView, i
     beliefs = forgotten(beliefs, entriesOf(model.config.lamps).flatMap(([lamp, { bulbs }]) =>
       bulbs.flatMap(({ bulb }) => input.entities.includes(lamp) || input.entities.includes(bulb) ? [bulb] : [])));
   }
-  const reconciled = nextSends(lighting, model.config, decodeObserved(house.state, model.config), beliefs, now);
+  const observed = decodeObserved(house.state, model.config);
+  beliefs = switchesSeen(backOn(beliefs, changed.flatMap(change => change.kind === 'bulb back on' ? [change.bulb] : [])), observed);
+  const reconciled = nextSends(lighting, model.config, observed, beliefs, now);
   for (const publish of publishes(reconciled.sends, bulbTopics(house.catalog), bulbGroups(house.catalog))) outputs.push({ kind: 'publish', publish });
+  const sending = beliefs;
   for (const send of reconciled.sends) {
     if (send.kind === 'switch') outputs.push({ kind: 'switch', switch: send.switch, power: send.power });
     beliefs = afterSend(beliefs, send, 'sent', now);
   }
-  return { state: { model, beliefs, view }, outputs, wakeAt: nextChange(model, now), dropped };
+  const wakeAt = [nextChange(model, now), nextRetry(beliefs, now)].reduce<Instant | undefined>((first, at) =>
+    at === undefined || (first !== undefined && first <= at) ? first : at, undefined);
+  return { state: { model, beliefs, view, observed }, outputs, wakeAt, dropped, parked: newlyParked(sending, beliefs) };
 }
 
 /** The config and the profiles read again from the helpers, as the message `update` takes them. */

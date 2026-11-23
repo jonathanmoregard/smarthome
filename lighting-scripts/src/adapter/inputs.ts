@@ -38,6 +38,7 @@ import type { HouseView } from '../runtime/effects.ts';
 import { ParseError, isObject, jinjaString, object, requireBoolean, requireString } from '../runtime/parse.ts';
 import { configSource, reportsOn } from './codecs/model.ts';
 import { callColour, callReach } from './native-call.ts';
+import type { Unexplained } from './reconcile.ts';
 
 /** What happened in Home Assistant, as a script or automation run names it. Fields are read by `messages`. */
 export type HaInput =
@@ -523,6 +524,15 @@ export function profileStoreOf(store: string, model: Model): ProfileStore | unde
   const lamp = toLampId(`light.${object}`), plug = toSwitchId(`switch.${object}`);
   if (model.config.lamps[lamp] !== undefined) return { kind: 'lamp', lamp, block };
   return model.config.switches[plug] === undefined ? undefined : { kind: 'switch', switch: plug, block };
+}
+
+/**
+ * What the reconciler saw change with no send of ours to explain it, as messages: a switch that changed is its own
+ * button pressed (owner, 2026-11-22: an override). A bulb back on is the reconciler's own business, no message.
+ */
+export function unexplainedMessages(found: readonly Unexplained[], now: Instant): Msg[] {
+  return found.flatMap((change): Msg[] => change.kind === 'switch pressed'
+    ? [{ kind: 'switchButtonPressed', switch: change.switch, power: change.power, at: now }] : []);
 }
 
 /**
