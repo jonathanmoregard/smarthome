@@ -81,15 +81,20 @@ test('a remote with no catalog entry is refused', async () => {
   assert.match(run.stderr, /studio/);
 });
 
-test('the dashboard controls and the app lamp change keep their own conditions and add the room check', async () => {
+test('the dashboard controls keep their own conditions and add the room check', async () => {
   const { read } = await exportRollout();
   const native: Bridge = await read('effects_native_light_controls.json');
   assert.match(templates(native), /in sources/);
   assert.match(templates(native), /_on_port/);
+});
+
+test("the app lamp change keeps its person check and adds no room check: a call's reach is the port's to decide", async () => {
+  // Close-out r3 B2 ruling: the bridge passes every person's light call, whatever it targets; the port resolves the
+  // reach and drops the rooms not live (src/adapter/live-rooms.ts ownPart). Break: a second copy of the reach in Jinja.
+  const { read } = await exportRollout();
   const change: Bridge = await read('lighting_schedule_lamp_change_detector.json');
   assert.match(templates(change), /user_id is not none/);
-  assert.match(templates(change), /service_data/);
-  assert.match(templates(change), /_on_port/);
+  assert.doesNotMatch(templates(change), /service_data|area_id|_on_port/);
 });
 
 test('the schedule engine\'s rollout bridge keeps only the lamp-on trigger, checked by the lamp\'s room', async () => {

@@ -279,10 +279,10 @@ function rolloutDetector(config?: JsonObject): { status: number | null; stderr: 
  * Jinja. Home Assistant fires call_service with the call's target merged into `service_data` (core.py:2860-2861).
  * light.lamp_a2 and device-a are in room-a, label-a's entities are in room-a, and room-a is on the port.
  */
-function passes(conditions: JsonObject[], service: string, serviceData: JsonObject): boolean {
+function passes(conditions: JsonObject[], service: string, serviceData: JsonObject, user: string | null = 'person-1'): boolean {
   const given = { conditions, areas: { 'light.lamp_a2': 'room-a', 'light.lamp_b1': 'room-b', 'device-a': 'room-a' },
     on: ['input_boolean.ls_room-a_on_port'],
-    trigger: { event: { context: { user_id: 'person-1', id: 'person-call' }, data: { domain: 'light', service, service_data: serviceData } } } };
+    trigger: { event: { context: { user_id: user, id: 'person-call' }, data: { domain: 'light', service, service_data: serviceData } } } };
   const run = spawnSync('python3', [RENDER], { input: JSON.stringify(given), encoding: 'utf8' });
   assert.equal(run.status, 0, run.stderr);
   const verdicts = JSON.parse(run.stdout) as boolean[];
@@ -290,19 +290,23 @@ function passes(conditions: JsonObject[], service: string, serviceData: JsonObje
   return verdicts.every(Boolean);
 }
 
-test("closeout r3 B2: the rollout's lamp change bridge passes a person's call that names a port room by area, device or label", { todo: 'closeout r3 B2' }, () => {
+test("closeout r3 B2: the rollout's lamp change bridge passes a person's call that names a port room by area, device or label", () => {
   // Break: LAMP_CHANGE_ON_PORT reads only service_data.entity_id (scripts/export-bridge.py:120-124); a call with no
   // entity_id is not the port's, though callReach reads area_id, device_id and label_id (src/adapter/codecs/native-call.ts:66-71).
   const { status, stderr, conditions } = rolloutDetector();
   assert.equal(status, 0, stderr);
   assert.equal(passes(conditions, 'turn_off', { entity_id: 'light.lamp_a2' }), true, 'control: by entity_id it passes');
-  assert.equal(passes(conditions, 'turn_off', { entity_id: 'light.lamp_b1' }), false, 'control: a room not on the port is not passed');
+  // Reach is the port's alone (close-out r3 ruling, B2): the bridge passes a person's call into a room not on the port
+  // too, and the port drops that room ("closeout r3 B2 (ruling)" below). What the bridge still decides is a person's light call.
+  assert.equal(passes(conditions, 'turn_off', { entity_id: 'light.lamp_b1' }), true, 'control: reach is the port\'s, so a room not on the port is passed');
+  assert.equal(passes(conditions, 'turn_off', { entity_id: 'light.lamp_a2' }, null), false, 'control: a call no person made is not passed');
+  assert.equal(passes(conditions, 'toggle', { entity_id: 'light.lamp_a2' }), false, 'control: a light call other than turn_on or turn_off is not passed');
   const by = Object.fromEntries((['area_id', 'device_id', 'label_id'] as const).map(key =>
     [key, passes(conditions, 'turn_off', { [key]: { area_id: 'room-a', device_id: 'device-a', label_id: 'label-a' }[key] })]));
   assert.deepEqual(by, { area_id: true, device_id: true, label_id: true });
 });
 
-test("closeout r3 B5: the rendered rollout lamp change conditions pass a person's turn_off for a port room", { todo: 'closeout r3 B5' }, () => {
+test("closeout r3 B5: the rendered rollout lamp change conditions pass a person's turn_off for a port room", () => {
   // Pin for B5: export-bridge-rollout.test.ts:126 checks only that the text `service == 'turn_on'` is gone; a widened
   // filter that still drops turn_off passes it. This renders the conditions, and passes today. With TURN_ON_OR_OFF
   // (export-bridge.py:67) as "trigger.event.data.service in ('turn_on', 'turn_off')[:1]" it fails on its last
@@ -311,11 +315,11 @@ test("closeout r3 B5: the rendered rollout lamp change conditions pass a person'
   const { status, stderr, conditions } = rolloutDetector();
   assert.equal(status, 0, stderr);
   assert.equal(passes(conditions, 'turn_on', { entity_id: 'light.lamp_a2' }), true, 'control: turn_on passes');
-  assert.equal(passes(conditions, 'turn_off', { entity_id: 'light.lamp_b1' }), false, 'control: a room not on the port is not passed');
+  assert.equal(passes(conditions, 'turn_off', { entity_id: 'light.lamp_a2' }, null), false, 'control: a call no person made is not passed');
   assert.equal(passes(conditions, 'turn_off', { entity_id: 'light.lamp_a2' }), true);
 });
 
-test("closeout r3 B9: a detector whose turn_on filter is worded otherwise is widened, or the export fails", { todo: 'closeout r3 B9' }, () => {
+test("closeout r3 B9: a detector whose turn_on filter is worded otherwise is widened, or the export fails", () => {
   // Break: passing_turn_off is a str.replace of one exact text (scripts/export-bridge.py:66-73); the same filter with
   // double quotes is left as it is, and the export still exits 0.
   const captured = JSON.parse(readFileSync(CAPTURED, 'utf8')) as { config: JsonObject };
@@ -325,4 +329,46 @@ test("closeout r3 B9: a detector whose turn_on filter is worded otherwise is wid
   const { status, stderr, conditions } = rolloutDetector(reworded);
   assert.ok(status !== 0 || passes(conditions, 'turn_off', { entity_id: 'light.lamp_a2' }),
     `the export exited ${status} (${stderr.trim()}) and its bridge drops a person's turn_off`);
+});
+
+test('closeout r3 B9 (ruling): a detector condition of a shape the export does not know fails the export, naming what it found', () => {
+  // Break: the export widens what it can find and passes the rest through, so a filter it did not read stays, and the
+  // bridge drops a person's call with the export's exit 0.
+  const captured = JSON.parse(readFileSync(CAPTURED, 'utf8')) as { config: JsonObject };
+  const condition = (captured.config.conditions as { value_template: string }[])[0]!.value_template;
+  for (const unknown of [
+    condition.replace("trigger.event.data.service == 'turn_on'", "trigger.event.data.service in ['turn_on']"),
+    condition.replace('{{ ', '{% if true %}{{ ').replace(' }}', ' }}{% endif %}'),
+    condition.replace('trigger.event.context.user_id is not none and ', ''),
+  ]) {
+    const { status, stderr } = rolloutDetector({ ...captured.config, conditions: [{ condition: 'template', value_template: unknown }] });
+    assert.notEqual(status, 0, unknown);
+    assert.match(stderr, /lighting_schedule_lamp_change_detector/, unknown);
+    assert.doesNotMatch(stderr, /Traceback/, `a clear message, not a stack: ${stderr}`);
+  }
+});
+
+test("closeout r3 B2 (ruling): the port takes a person's call into its live rooms and drops the rooms that are not", () => {
+  // Break: the port drops a call whose reach is not all live (src/adapter/live-rooms.ts ownsMessage), so a call over
+  // room-a and room-b holds nothing in room-a; or it acts on room-b, the old scripts' room.
+  const states = syntheticStates(change => {
+    change['input_boolean.ls_room-a_on_port'] = { state: 'on', attributes: {}, last_changed: '2026-09-21T10:00:00+00:00' };
+  });
+  writeBack(world(), states);
+  const given: RoomsGiven = { kind: 'listed', rooms: new Set([roomA]) };
+  let kept: Kept = { kind: 'starting', beliefs: NO_BELIEFS, share: { kind: 'rooms', rooms: new Set() } };
+  const turn = (time: string, input: HaInput): Turn => {
+    const result = handleInput(kept, houseView(states, `2026-09-21T${time}Z`), input, given);
+    kept = { kind: 'running', state: afterOutputs(result, result.outputs.map(() => false)).state };
+    return result;
+  };
+  const personOff = (serviceData: JsonObject) => bridged('automation.lighting_schedule_lamp_change_detector', { trigger: { event: {
+    context: { user_id: 'person-1', id: 'person-call' }, data: { domain: 'light', service: 'turn_off', service_data: serviceData } } } });
+  const held = (result: Turn) => JSON.stringify(result.state.model.overlays.lamps);
+  turn('12:00:00', { kind: 'started' });
+  const roomBOnly = turn('12:00:10', personOff({ entity_id: 'light.lamp_b1' }));
+  assert.doesNotMatch(held(roomBOnly), /lamp_b1/, 'a call into room-b alone is dropped');
+  const both = turn('12:00:20', personOff({ entity_id: ['light.lamp_a2', 'light.lamp_b1'] }));
+  assert.match(held(both), /lamp_a2/, "the call's room-a part holds lamp_a2 off");
+  assert.doesNotMatch(held(both), /lamp_b1/, "the call's room-b part is the old scripts'");
 });

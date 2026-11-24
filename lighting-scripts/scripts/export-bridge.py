@@ -5,6 +5,7 @@ import copy
 import json
 import os
 import re
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -59,26 +60,71 @@ def script_bridge(name, original):
     return result
 
 
+class ExportError(Exception):
+    """An automation the export cannot bridge as it stands; the export stops, naming it, and writes nothing."""
+
+
 # The lamp change detector's own condition passes only a person's turn_on: the old scripts made no override of a
 # power-only call. The port reads a person's turn_off as a lamp switched off (src/adapter/codecs/inputs.ts), so the
-# detector's bridges pass turn_off too; nothing else about its condition changes.
+# detector's bridges pass every person's light call, turn_on or turn_off, whatever it targets: which lamps it reaches,
+# and whether their rooms are the port's, the port alone decides (src/adapter/live-rooms.ts, ownPart). The condition is
+# parsed into its top-level `and` terms and built again as a person's call, turn_on or turn_off, and the rest of its
+# terms as they were (the running-script check). A shape the export does not know stops it.
 DETECTOR = 'lighting_schedule_lamp_change_detector'
-TURN_ON_ONLY = "trigger.event.data.service == 'turn_on'"
+PERSON = 'trigger.event.context.user_id is not none'
+SERVICE = 'trigger.event.data.service'
+TURN_ON_ONLY = re.compile(r"""trigger\.event\.data\.service\s*==\s*(['"])turn_on\1""")
 TURN_ON_OR_OFF = "trigger.event.data.service in ('turn_on', 'turn_off')"
+TOKEN = re.compile(r"""'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|[()\[\]{}]|\s+|[^\s()\[\]{}'"]+""")
+
+
+def and_terms(expression):
+    """A Jinja expression's top-level `and` terms: outside every bracket and string, in order."""
+    terms, current, depth = [], '', 0
+    for token in TOKEN.findall(expression):
+        if token in ('(', '[', '{'):
+            depth += 1
+        elif token in (')', ']', '}'):
+            depth -= 1
+        if depth == 0 and token == 'and':
+            terms.append(current.strip())
+            current = ''
+        else:
+            current += token
+    if ''.join(TOKEN.findall(expression)) != expression or depth != 0:
+        raise ExportError(f'{DETECTOR}: its condition {expression!r} does not read as one Jinja expression')
+    return terms + [current.strip()]
 
 
 def passing_turn_off(conditions):
-    """The detector's conditions with its turn_on filter widened to turn_off."""
-    return [dict(c, value_template=c['value_template'].replace(TURN_ON_ONLY, TURN_ON_OR_OFF))
-            if isinstance(c, dict) and isinstance(c.get('value_template'), str) else c for c in conditions]
+    """The detector's conditions with its one template condition built again to pass a person's turn_on or turn_off."""
+    templates = [c for c in conditions if isinstance(c, dict) and c.get('condition') == 'template']
+    if len(templates) != 1 or not isinstance(templates[0].get('value_template'), str):
+        raise ExportError(f'{DETECTOR}: expected one template condition, found {len(templates)}')
+    text = templates[0]['value_template']
+    whole = re.fullmatch(r'\s*\{\{(.*)\}\}\s*', text, re.DOTALL)
+    if whole is None or any(mark in whole.group(1) for mark in ('{{', '}}', '{%', '%}', '{#')):
+        raise ExportError(f'{DETECTOR}: expected its condition to be one {{{{ ... }}}} expression, found {text!r}')
+    terms = [' '.join(term.split()) for term in and_terms(whole.group(1))]
+    if terms.count(PERSON) != 1:
+        raise ExportError(f'{DETECTOR}: expected its condition to hold `{PERSON}` once, found {text!r}')
+    rest = [term for term in terms if term != PERSON]
+    unknown = [term for term in rest if 'trigger.event.data' in term and not TURN_ON_ONLY.fullmatch(term)]
+    if unknown:
+        raise ExportError(f'{DETECTOR}: a filter of the call other than `{SERVICE} == \'turn_on\'`, {unknown[0]!r}: '
+                          'the bridge passes a person\'s turn_on or turn_off, and the rest of the call is the port\'s to read')
+    built = '{{ ' + ' and '.join([PERSON, TURN_ON_OR_OFF] + [t for t in rest if not TURN_ON_ONLY.fullmatch(t)]) + ' }}'
+    return [dict(c, value_template=built) if c is templates[0] else c for c in conditions]
 
 
 def bridge(slug, original):
     result = copy.deepcopy(original)
     if slug == DETECTOR:
-        for key in ('conditions', 'condition'):
-            if isinstance(result.get(key), list):
-                result[key] = passing_turn_off(result[key])
+        keys = [key for key in ('conditions', 'condition') if isinstance(result.get(key), list)]
+        if not keys:
+            raise ExportError(f'{DETECTOR}: expected a list of conditions, which hold its check of a person\'s call')
+        for key in keys:
+            result[key] = passing_turn_off(result[key])
     action = original.get('actions', original.get('action', []))
     rooms = set(re.findall(r'script\.ls_remote_gesture_([a-z0-9_]+)', json.dumps(action)))
     args = {'trigger': TRIGGER_DATA}
@@ -116,12 +162,6 @@ ROLLOUT_OLD_ONLY = {
     'effects_refresh_native_light_controls': 'The dashboard mirror; the old scripts keep publishing it.',
 }
 ON_PORT = "is_state('input_boolean.ls_' ~ {area} ~ '_on_port', 'on')"
-# A room's lamps switched from the app: the port's only when every lamp named is in a room on the port.
-LAMP_CHANGE_ON_PORT = """{% set data = trigger.event.data.service_data | default({}) %}
-{% set ids = data.entity_id | default([]) %}{% set ids = [ids] if ids is string else ids | list %}
-{% set n = namespace(ok=ids | count > 0) %}
-{% for e in ids %}{% if not """ + ON_PORT.format(area='area_id(e)') + """ %}{% set n.ok = false %}{% endif %}{% endfor %}
-{{ n.ok }}"""
 NATIVE_ON_PORT = ("{% set s = sources.get(trigger.topic.split('/')[3]) %}{{ s is not none and "
                   + ON_PORT.format(area='area_id(s)') + " }}")
 ANY_ON_PORT = ("{{ states.input_boolean | selectattr('entity_id', 'search', '^input_boolean\\.ls_.+_on_port$')"
@@ -149,8 +189,9 @@ def rollout_bridge(slug, original, remotes):
         conditions.append(template('{{ ' + ON_PORT.format(area="area_id('" + remote['device_id'] + "')") + ' }}'))
     elif slug == 'effects_native_light_controls':
         conditions.append(template(NATIVE_ON_PORT))
-    elif slug == 'lighting_schedule_lamp_change_detector':
-        conditions.append(template(LAMP_CHANGE_ON_PORT))
+    elif slug == DETECTOR:
+        # A person's light call: which lamps it reaches, and which of their rooms are on the port, the port decides.
+        pass
     elif slug == 'lighting_schedule_engine':
         # The tick and the lamp state triggers apply the whole house: the old
         # scripts commit those and the port renders them through recovery.
@@ -240,4 +281,7 @@ def rollout(args):
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except (ExportError, ValueError) as error:
+        sys.exit(f'export-bridge: {error}; nothing written')

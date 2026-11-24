@@ -27,7 +27,7 @@ import { configMoved, configSource, decodeModelFrom, followingSensor, overridesR
 import type { ConfigFrom, OverridesRead } from './codecs/model.ts';
 import { drives, portSwitchesOn } from './codecs/rooms.ts';
 import type { Share } from './codecs/rooms.ts';
-import { ownsMessage, shareOf } from './live-rooms.ts';
+import { ownPart, shareOf } from './live-rooms.ts';
 import type { RoomsGiven } from './live-rooms.ts';
 import type { JournalRecord } from './codecs/journal.ts';
 import { decodeRangeDefaults } from './codecs/range-defaults.ts';
@@ -218,8 +218,11 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
     if (!(error instanceof ParseError)) throw error;
     dropped = `${input.kind}: ${error.message}`;
   }
-  // The turn's messages are the share's, the input's and the presses alike, whether the input read or was dropped.
-  const own = [...unexplainedMessages(changed, now), ...inputMessages].filter(msg => ownsMessage(share, msg, clocked.config));
+  // The turn's messages are its share's parts of the input's and the presses alike, whether the input read or was dropped.
+  const own = [...unexplainedMessages(changed, now), ...inputMessages].flatMap(msg => {
+    const part = ownPart(share, msg, clocked.config);
+    return part === undefined ? [] : [part];
+  });
   // A block light's save is written as it is, and goes through `update` as the config the helpers will hold once it
   // lands, so the lamps move in this turn and not on the echo.
   const light = saved?.target.kind === 'block light' && drives(share, saved.target.scope === 'house' ? undefined : saved.target.scope)

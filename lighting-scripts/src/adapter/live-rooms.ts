@@ -90,23 +90,28 @@ export function beatRooms(given: RoomsGiven, config: Config): LiveRooms {
 }
 
 /**
- * Whether a message is the turn's to act on. The clock and the config read again always are. A message about rooms
- * is when the turn drives every room it is about; one about the house (the mode, the house's block, clearing every
- * overlay, the range defaults) only when the turn drives the whole house: the old scripts commit it, and the port
- * follows it from the store.
+ * The part of a message the turn acts on, or none. The clock and the config read again always are the turn's. A
+ * person's light call is the one owner of its reach: the bridge passes every one, and the turn takes the lamps and the
+ * rooms it drives, leaving the rest to the old scripts. Another message about rooms is the turn's when it drives every
+ * room the message is about; one about the house (the mode, the house's block, clearing every overlay, the range
+ * defaults) only when the turn drives the whole house: the old scripts commit it, and the port follows it from the store.
  */
-export function ownsMessage(share: Share, msg: Msg, config: Config): boolean {
+export function ownPart(share: Share, msg: Msg, config: Config): Msg | undefined {
   const all = (rooms: readonly (RoomId | undefined)[]) => rooms.length > 0 && rooms.every(room => drives(share, room));
+  const owned = (whole: boolean) => whole ? msg : undefined;
   switch (msg.kind) {
-    case 'clock': case 'configChanged': return true;
-    case 'overlayRequested': return ownsRequest(share, msg.request, config);
-    case 'lampChangedByPerson': return all([...msg.lamps.map(lamp => config.lamps[lamp]?.room), ...msg.rooms]);
-    case 'remotePressed': case 'remoteButtonPressed': return all([config.remotes[msg.remote]?.room]);
-    case 'switchButtonPressed': return all([config.switches[msg.switch]?.room]);
-    case 'rangeSaved': return all([msg.room]);
-    case 'lampProfileSaved': return all([config.lamps[msg.lamp]?.room]);
-    case 'switchProfileSaved': return all([config.switches[msg.switch]?.room]);
-    case 'modeToggled': case 'rangeDefaultsSaved': return share.kind === 'house';
+    case 'clock': case 'configChanged': return msg;
+    case 'overlayRequested': return owned(ownsRequest(share, msg.request, config));
+    case 'lampChangedByPerson': {
+      const lamps = msg.lamps.filter(lamp => drives(share, config.lamps[lamp]?.room));
+      return lamps.length === 0 ? undefined : { ...msg, lamps, rooms: msg.rooms.filter(room => drives(share, room)) };
+    }
+    case 'remotePressed': case 'remoteButtonPressed': return owned(all([config.remotes[msg.remote]?.room]));
+    case 'switchButtonPressed': return owned(all([config.switches[msg.switch]?.room]));
+    case 'rangeSaved': return owned(all([msg.room]));
+    case 'lampProfileSaved': return owned(all([config.lamps[msg.lamp]?.room]));
+    case 'switchProfileSaved': return owned(all([config.switches[msg.switch]?.room]));
+    case 'modeToggled': case 'rangeDefaultsSaved': return owned(share.kind === 'house');
   }
 }
 
