@@ -49,7 +49,6 @@ export function houseView(states: Record<string, EntityState>, now: string): Hou
     state: states,
     rooms: parseRooms({ 'light.lamp_a1': 'room-a', 'light.lamp_a2': 'room-a', 'light.lamp_b1': 'room-b', 'switch.plug_a': 'room-a',
       'remote-a': 'room-a' }),
-    members: [],
     labels: { on_off: ['switch.plug_a'], private_room: ['room-b'] },
     devices: { 'device-plug-a': ['switch.plug_a'] },
     entitySources: {},

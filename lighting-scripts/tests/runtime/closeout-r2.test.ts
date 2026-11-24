@@ -86,7 +86,7 @@ class FakeHa {
   }
 
   mirror(): HouseMirror {
-    return { state: structuredClone(this.states), areas: AREAS, members: [], labels: { on_off: ['switch.plug_a'], private_room: ['room-b'] },
+    return { state: structuredClone(this.states), areas: AREAS, labels: { on_off: ['switch.plug_a'], private_room: ['room-b'] },
       devices: { 'device-plug-a': ['switch.plug_a'] }, timezone: 'UTC' };
   }
 
