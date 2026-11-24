@@ -6,7 +6,6 @@
  * each block from the same kind of store.
  */
 import type { Config } from '../../domain/config.ts';
-import type { LampProfile, Model, RemoteModel, SwitchProfile } from '../../domain/model.ts';
 import type { LampId, RemoteId, RoomId, SwitchId } from '../../domain/types/ids.ts';
 import { entriesOf } from '../../domain/types/ids.ts';
 import type { Catalog } from './catalog.ts';
@@ -22,6 +21,9 @@ import { decodeRemoteModel } from './remote-helpers.ts';
 import { FOLLOWS_ROOM_SWITCH, decodeSwitchProfile } from './switch-profiles.ts';
 import { BLOCKS } from '../../domain/types/schedule.ts';
 import type { Block } from '../../domain/types/schedule.ts';
+import type { LampProfile, SwitchProfile } from '../../domain/profiles.ts';
+import type { Model } from '../../domain/update.ts';
+import type { RemoteModel } from '../../domain/remote.ts';
 
 /** The house as the config is read from it: the states, the rooms, the labels and the timezone. */
 export function configSource(house: Pick<HouseView, 'state' | 'rooms' | 'labels' | 'timezone'>): ConfigSource {

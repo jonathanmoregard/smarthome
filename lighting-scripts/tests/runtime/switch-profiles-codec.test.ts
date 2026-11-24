@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { FOLLOWS_ROOM_SWITCH, decodeSwitchProfile, encodeSwitchProfile } from '../../src/adapter/codecs/switch-profiles.ts';
-import type { SwitchProfile } from '../../src/domain/model.ts';
 import { decodeModel } from '../../src/adapter/codecs/model.ts';
 import { toSwitchId } from '../../src/adapter/codecs/ids.ts';
 import { syntheticCatalog, syntheticSource } from './fixtures/synthetic-house.ts';
+import type { SwitchProfile } from '../../src/domain/profiles.ts';
 
 /**
  * A plug's own on/off profile for a block: the same `input_text.ls_lamp_<object>_<block>`

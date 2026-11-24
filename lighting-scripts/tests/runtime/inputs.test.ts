@@ -7,7 +7,6 @@ import type { HaInput } from '../../src/adapter/codecs/inputs.ts';
 import { handleInput } from '../../src/adapter/loop.ts';
 import { NO_BELIEFS } from '../../src/adapter/reconcile.ts';
 import { lightingState } from '../../src/domain/lighting-state.ts';
-import type { Model, Msg } from '../../src/domain/model.ts';
 import { update } from '../../src/domain/update.ts';
 import type { Instant } from '../../src/domain/types/time.ts';
 import { toBrightness, toBrightnessStep, toDashboardControlId, toInstant, toKelvin, toLampId, toPercentRange, toRemoteId, toRoomId, toSwitchId,
@@ -18,6 +17,7 @@ import { parseRooms } from '../../src/adapter/codecs/rooms.ts';
 import { parseCatalog } from '../../src/adapter/codecs/catalog.ts';
 import type { HouseView } from '../../src/adapter/codecs/house.ts';
 import { CATALOG, houseView, syntheticStates, world, writeBack } from './fixtures/house-view.ts';
+import type { Model, Msg } from '../../src/domain/update.ts';
 
 /**
  * Home Assistant's inputs read into messages (M3 Task 3, spec 5.1): one test

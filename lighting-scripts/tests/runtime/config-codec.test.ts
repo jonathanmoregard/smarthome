@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Config } from '../../src/domain/config.ts';
-import type { LampProfileChange } from '../../src/domain/model.ts';
 import {
   DEFAULT_FADE, DEFAULT_OVERLAY_AGE, DEFAULT_WAKE_FADE, blockLightSaved, bulbTopics, decodeConfig,
 } from '../../src/adapter/codecs/config.ts';
@@ -14,6 +13,7 @@ import { toBrightness, toBulbId, toInstant, toKelvin, toLampId, toMinutes, toRem
 import { parseRooms } from '../../src/adapter/codecs/rooms.ts';
 import { BLOCKS } from '../../src/domain/types/schedule.ts';
 import type { Block } from '../../src/domain/types/schedule.ts';
+import type { LampProfileChange } from '../../src/domain/profiles.ts';
 
 /**
  * The config codec reads the helpers the dashboard edits and the registry's

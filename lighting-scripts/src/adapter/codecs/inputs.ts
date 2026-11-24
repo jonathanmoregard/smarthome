@@ -16,10 +16,6 @@
  * in `messages`; either way the loop logs it and drops the input.
  */
 import type { EffectName } from '../../domain/effect.ts';
-import type {
-  ControlLight, LampProfileChange, Model, Msg, OverlayRequest, PresetButton, RangeDefaults, RangeRule, RemoteButton, RequestedBrightness,
-  RequestedEffect, RequestedLight,
-} from '../../domain/model.ts';
 import type { DashboardControlId, LampId, RemoteId, RoomId, SwitchId } from '../../domain/types/ids.ts';
 import { entriesOf } from '../../domain/types/ids.ts';
 import type { Brightness, Colour, PercentRange, Power } from '../../domain/types/light.ts';
@@ -46,7 +42,11 @@ import { uiRowsOf } from './catalog.ts';
 import type { UiRow } from './catalog.ts';
 import { overlayKeyText } from './overlay-key.ts';
 import { BLOCKS } from '../../domain/types/schedule.ts';
-import type { RemoteCommand } from '../../domain/model.ts';
+import type { ControlLight, RequestedBrightness, RequestedEffect, RequestedLight } from '../../domain/lamp-overlays.ts';
+import type { LampProfileChange } from '../../domain/profiles.ts';
+import type { Model, Msg, OverlayRequest } from '../../domain/update.ts';
+import type { PresetButton, RemoteButton, RemoteCommand } from '../../domain/remote.ts';
+import type { RangeDefaults, RangeRule } from '../../domain/switches.ts';
 
 /** What happened in Home Assistant, as a script or automation run names it. Fields are read by `messages`. */
 export type HaInput =

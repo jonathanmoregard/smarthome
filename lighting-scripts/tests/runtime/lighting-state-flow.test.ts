@@ -2,9 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { blend } from '../../src/domain/blend.ts';
 import { bulbAppearance, candle, normal } from '../../src/domain/effect.ts';
-import { lightingState, MODE_COLOUR, nextChange, overlaysOn } from '../../src/domain/lighting-state.ts';
-import type { LitLight, Model } from '../../src/domain/model.ts';
-import type { LampOverlay, RemoteAdjustment, RemoteOverlay } from '../../src/domain/overlays.ts';
+import { lightingState, overlaysOn } from '../../src/domain/lighting-state.ts';
 import { IDLE_REMOTE } from '../../src/domain/remote.ts';
 import { sceneBetween } from '../../src/domain/schedule.ts';
 import type { LampId } from '../../src/domain/types/ids.ts';
@@ -16,6 +14,12 @@ import {
   toRemoteId, toRoomId, toSeconds, toStep, toStepCount, toSwitchId, toTimeOfDay,
 } from '../../src/adapter/codecs/ids.ts';
 import { syntheticHouse } from './fixtures/synthetic-house.ts';
+import { MODE_COLOUR } from '../../src/domain/mode.ts';
+import { nextChange } from '../../src/domain/update.ts';
+import type { LitLight } from '../../src/domain/profiles.ts';
+import type { Model } from '../../src/domain/update.ts';
+import type { LampOverlay } from '../../src/domain/lamp-overlays.ts';
+import type { RemoteAdjustment, RemoteOverlay } from '../../src/domain/remote.ts';
 
 /**
  * The lighting state: the schedule with every overlay over it (M1 plan, "The

@@ -4,7 +4,6 @@ import { BUILT_IN_RANGE_DEFAULTS, EPOCH, decodeOverrides, encodeOverrides } from
 import { DEFAULT_STEP_RANGE } from '../../src/domain/remote.ts';
 import { storeKeys } from '../../src/adapter/codecs/overlay-key.ts';
 import type { OverridesState } from '../../src/adapter/codecs/overrides-sensor.ts';
-import type { LampOverlay, RemoteAdjustment, RemoteOverlay } from '../../src/domain/overlays.ts';
 import type { JsonObject, JsonValue } from '../../src/adapter/ha-client.ts';
 import { isObject } from '../../src/adapter/codecs/parse.ts';
 import { parseCatalog } from '../../src/adapter/codecs/catalog.ts';
@@ -12,6 +11,8 @@ import { toBrightness, toDashboardControlId, toInstant, toKelvin, toPercentRange
 import { syntheticCatalog, syntheticHouse } from './fixtures/synthetic-house.ts';
 import type { Share } from '../../src/adapter/codecs/rooms.ts';
 import { id } from './support/ids.ts';
+import type { LampOverlay } from '../../src/domain/lamp-overlays.ts';
+import type { RemoteAdjustment, RemoteOverlay } from '../../src/domain/remote.ts';
 
 /**
  * The overrides sensor's codec. The stored shapes are the ones today's writers

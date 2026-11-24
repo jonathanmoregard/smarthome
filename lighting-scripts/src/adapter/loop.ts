@@ -7,9 +7,8 @@
  */
 import { dashboardView } from '../domain/dashboard.ts';
 import type { DashboardView } from '../domain/dashboard.ts';
-import { lightingState, nextChange } from '../domain/lighting-state.ts';
-import type { LampProfileChange, Model, Msg } from '../domain/model.ts';
-import { update } from '../domain/update.ts';
+import { lightingState } from '../domain/lighting-state.ts';
+import { update, nextChange } from '../domain/update.ts';
 import type { Config } from '../domain/config.ts';
 import type { BulbId, RoomId, SwitchId } from '../domain/types/ids.ts';
 import { entriesOf } from '../domain/types/ids.ts';
@@ -45,6 +44,8 @@ import type { Entry, Outbox, Tried, Write } from './outbox.ts';
 import { configStoreWrite, dashboardWrites, modelWrites, uiSyncWrites } from './codecs/writes.ts';
 import type { ControlRow, StoreWrite } from './codecs/writes.ts';
 import type { LightingState } from '../domain/lighting-state.ts';
+import type { LampProfileChange } from '../domain/profiles.ts';
+import type { Model, Msg } from '../domain/update.ts';
 
 /**
  * What the adapter keeps between turns: the Model, what each bulb and switch was sent, the dashboard last shown, what

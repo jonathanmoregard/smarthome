@@ -1,5 +1,8 @@
 /**
- * Whether each switch is on.
+ * Switches: whether each switch is on, from a press on its own button (a
+ * switch overlay), its range rule against its room's level, the plug's own
+ * profile for the block, or the block's on/off setting. The range rules and
+ * their bright and cosy defaults are saved from the dashboard.
  *
  * Moved from `switchPlan` in `src/legacy/domain/controller.ts` (a range rule
  * against the room's level) and the switch half of `scheduledBase` in
@@ -8,13 +11,29 @@
  * 0..100 by its type.
  */
 import type { Config } from './config.ts';
-import type { Model, RangeDefaults, RangeRule } from './model.ts';
+import { ownSwitchSetting } from './profiles.ts';
+import type { SwitchProfiles } from './profiles.ts';
 import { blockPosition } from './schedule.ts';
 import type { RoomId, SwitchId } from './types/ids.ts';
 import { entriesOf } from './types/ids.ts';
-import type { Brightness, Power } from './types/light.ts';
+import type { Brightness, PercentRange, Power } from './types/light.ts';
 import type { Block, RoomOrHouse } from './types/schedule.ts';
 import type { Instant } from './types/time.ts';
+
+/** Holds the switch over its range rule and its block until a reset removes it. New: no stored field today. */
+export type SwitchOverlay = { power: Power; since: Instant };
+
+/** A switch held on or off by a press on its own button: at most one each (decision 8). */
+export type SwitchOverlays = Partial<Record<SwitchId, SwitchOverlay>>;
+
+/** Which levels of its room a switch is on for: the bright or cosy default range, or its own. */
+export type RangeRule = { kind: 'bright' } | { kind: 'cosy' } | { kind: 'custom'; range: PercentRange };
+
+/** Each switch's range rule, saved from the dashboard. */
+export type RangeRules = Record<SwitchId, RangeRule>;
+
+/** The bright and cosy default ranges. Saved from the dashboard's range helpers at run time, so Model, not Config. */
+export type RangeDefaults = Record<'bright' | 'cosy', PercentRange>;
 
 /**
  * What a room's switches read: the room's stage, still in a block or moving (a
@@ -26,6 +45,44 @@ export type RoomLight = {
   stage: { moving: false; block: Block } | { moving: true };
   light: { power: 'off' } | { power: 'on'; brightness: Brightness };
 };
+
+/** A press on a switch's own button, switching it on or off. */
+export type SwitchButtonPressed = { kind: 'switchButtonPressed'; switch: SwitchId; power: Power; at: Instant };
+
+/**
+ * A switch's range rule saved from the dashboard. `room` is the room Home
+ * Assistant has the switch in: a plug with no on/off label is a switch of the
+ * house from its first range save on, in that room.
+ */
+export type RangeSaved = { kind: 'rangeSaved'; switch: SwitchId; rule: RangeRule; room: RoomId | undefined; at: Instant };
+
+/** The bright and cosy default ranges saved (today's `range_defaults`, sent only when both are valid, which their type is). */
+export type RangeDefaultsSaved = { kind: 'rangeDefaultsSaved'; defaults: RangeDefaults; at: Instant };
+
+/**
+ * A press on a plug's own button: an overlay on that switch, replacing any it
+ * had (M1 plan, decision 8; owner, 2026-11-22). It holds the switch over its
+ * range rule and its block until a reset releases it; today's scripts take
+ * the press back at the next tick, a named behaviour change. A switch the
+ * config does not hold is left alone.
+ */
+export function switchButtonPressed(overlays: SwitchOverlays, config: Config, press: SwitchButtonPressed): SwitchOverlays {
+  if (config.switches[press.switch] === undefined) return overlays;
+  return { ...overlays, [press.switch]: { power: press.power, since: press.at } };
+}
+
+/**
+ * A switch's range rule saved from the dashboard (today's `range_set`, after
+ * `decideRangeSave`'s checks, which read Home Assistant's devices and stay at
+ * the edge). A switch overlay on it stays. A plug the config does not hold yet
+ * (no on/off label, no rule before) becomes one of the house's switches, in
+ * the room the save names, as reading the config again would make it.
+ */
+export function rangeSaved(config: Config, rules: RangeRules, saved: RangeSaved): { config: Config; switchRanges: RangeRules } {
+  const switches = config.switches[saved.switch] === undefined
+    ? { ...config.switches, [saved.switch]: { room: saved.room, onOff: false } } : config.switches;
+  return { config: { ...config, switches }, switchRanges: { ...rules, [saved.switch]: saved.rule } };
+}
 
 /**
  * A switch overlay that still applies wins over the range rule, the plug's own
@@ -41,7 +98,12 @@ export type RoomLight = {
  * or before the room's last fade start. `rooms` are the room lights
  * `lightingState` works out, the house's for a switch in no room.
  */
-export function switchPower(model: Model, rooms: Readonly<Record<RoomOrHouse, RoomLight>>, now: Instant): Record<SwitchId, Power> {
+export function switchPower(
+  model: {
+    config: Config; overlays: { switches: SwitchOverlays }; switchRanges: RangeRules; rangeDefaults: RangeDefaults; switchProfiles: SwitchProfiles;
+  },
+  rooms: Readonly<Record<RoomOrHouse, RoomLight>>, now: Instant,
+): Record<SwitchId, Power> {
   const config = model.config;
   const power: Record<SwitchId, Power> = {};
   for (const [id, placed] of entriesOf(config.switches)) {
@@ -58,8 +120,8 @@ export function switchPower(model: Model, rooms: Readonly<Record<RoomOrHouse, Ro
       const share = light.light.power === 'on' ? light.light.brightness * 100 / 255 : undefined;
       power[id] = share !== undefined && range.low <= share && share <= range.high ? 'on' : 'off';
     } else if (placed.onOff && !light.stage.moving) {
-      const own = model.switchProfiles[id]?.[light.stage.block];
-      const setting = own !== undefined && own.follows === 'own' ? own.power === 'on' : switchesOn(config, room, light.stage.block);
+      const own = ownSwitchSetting(model.switchProfiles[id]?.[light.stage.block]);
+      const setting = own !== undefined ? own : switchesOn(config, room, light.stage.block);
       if (setting !== undefined) power[id] = setting ? 'on' : 'off';
     }
   }
@@ -70,34 +132,4 @@ export function switchPower(model: Model, rooms: Readonly<Record<RoomOrHouse, Ro
 function switchesOn(config: Config, room: RoomId | undefined, block: Block): boolean | undefined {
   const own = room === undefined ? undefined : config.rooms[room]?.blocks[block].switchesOn;
   return own !== undefined && own.follows === 'own' ? own.own : config.house[block].switchesOn;
-}
-
-/**
- * A press on a plug's own button: an overlay on that switch, replacing any it
- * had (M1 plan, decision 8; owner, 2026-11-22). It holds the switch over its
- * range rule and its block until a reset releases it; today's scripts take
- * the press back at the next tick, a named behaviour change. A switch the
- * config does not hold is left alone.
- */
-export function switchButtonPressed(model: Model, pressed: SwitchId, power: Power, now: Instant): Model {
-  if (model.config.switches[pressed] === undefined) return model;
-  return { ...model, overlays: { ...model.overlays, switches: { ...model.overlays.switches, [pressed]: { power, since: now } } } };
-}
-
-/**
- * A switch's range rule saved from the dashboard (today's `range_set`, after
- * `decideRangeSave`'s checks, which read Home Assistant's devices and stay at
- * the edge). A switch overlay on it stays. A plug the config does not hold yet
- * (no on/off label, no rule before) becomes one of the house's switches, in
- * the room the save names, as reading the config again would make it.
- */
-export function rangeSaved(model: Model, saved: SwitchId, rule: RangeRule, room: RoomId | undefined): Model {
-  const switches = model.config.switches[saved] === undefined
-    ? { ...model.config.switches, [saved]: { room, onOff: false } } : model.config.switches;
-  return { ...model, config: { ...model.config, switches }, switchRanges: { ...model.switchRanges, [saved]: rule } };
-}
-
-/** The bright and cosy default ranges saved (today's `range_defaults`, sent only when both are valid, which their type is). */
-export function rangeDefaultsSaved(model: Model, defaults: RangeDefaults): Model {
-  return { ...model, rangeDefaults: defaults };
 }

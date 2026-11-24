@@ -8,7 +8,6 @@ import type { Output } from '../../src/adapter/encode.ts';
 import type { AdapterState, Kept, Settled, Turn } from '../../src/adapter/loop.ts';
 import type { RoomsGiven } from '../../src/adapter/live-rooms.ts';
 import { NO_BELIEFS } from '../../src/adapter/reconcile.ts';
-import { nextChange } from '../../src/domain/lighting-state.ts';
 import type { BulbId } from '../../src/domain/types/ids.ts';
 import type { EntityState } from '../../src/adapter/ha-client.ts';
 import { toInstant, toKelvin, toRoomId, toSwitchId } from '../../src/adapter/codecs/ids.ts';
@@ -16,6 +15,7 @@ import { lit } from './fake-bulbs.ts';
 import type { FakeBulbs } from './fake-bulbs.ts';
 import { houseView, syntheticStates, world, writeBack } from './fixtures/house-view.ts';
 import { bridged } from './support/inputs.ts';
+import { nextChange } from '../../src/domain/update.ts';
 
 /**
  * The adapter's loop (M3 Task 3) on the synthetic house: each turn's outputs

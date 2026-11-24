@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { candle, normal } from '../../src/domain/effect.ts';
-import { lightingState, MODE_COLOUR, nextChange } from '../../src/domain/lighting-state.ts';
-import type { Model, Msg, PresetButton, RemoteButton } from '../../src/domain/model.ts';
+import { lightingState } from '../../src/domain/lighting-state.ts';
 import { CHORD_WINDOW, IDLE_REMOTE, POWER_COMBO_WINDOW } from '../../src/domain/remote.ts';
-import { update } from '../../src/domain/update.ts';
+import { update, nextChange } from '../../src/domain/update.ts';
 import type { LampId, RemoteId } from '../../src/domain/types/ids.ts';
 import type { Colour, LampLight, OnLight } from '../../src/domain/types/light.ts';
 import type { Instant } from '../../src/domain/types/time.ts';
@@ -12,7 +11,9 @@ import {
   toBrightness, toColourChannel, toDashboardControlId, toInstant, toKelvin, toLampId, toLevel, toRemoteId, toRoomId, toStep,
 } from '../../src/adapter/codecs/ids.ts';
 import { syntheticHouse } from './fixtures/synthetic-house.ts';
-import type { RemoteCommand } from '../../src/domain/model.ts';
+import { MODE_COLOUR } from '../../src/domain/mode.ts';
+import type { Model, Msg } from '../../src/domain/update.ts';
+import type { PresetButton, RemoteButton, RemoteCommand } from '../../src/domain/remote.ts';
 
 /**
  * The remote as `update` cases (M3 Task 2): each test sends a remote's presses

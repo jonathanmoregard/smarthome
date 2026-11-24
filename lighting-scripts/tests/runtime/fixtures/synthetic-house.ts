@@ -17,8 +17,6 @@
  * overlay active.
  */
 import type { BlockSchedule, Config, Room, RoomBlock } from '../../../src/domain/config.ts';
-import type { LampProfile, LitLight, Model } from '../../../src/domain/model.ts';
-import type { RemoteAdjustment } from '../../../src/domain/overlays.ts';
 import type { RoomId } from '../../../src/domain/types/ids.ts';
 import type { EffectName } from '../../../src/domain/effect.ts';
 import type { Colour } from '../../../src/domain/types/light.ts';
@@ -32,6 +30,9 @@ import type { Catalog } from '../../../src/adapter/codecs/catalog.ts';
 import type { EntityState, JsonObject } from '../../../src/adapter/ha-client.ts';
 import { parseRooms } from '../../../src/adapter/codecs/rooms.ts';
 import type { Block } from '../../../src/domain/types/schedule.ts';
+import type { LampProfile, LitLight } from '../../../src/domain/profiles.ts';
+import type { Model } from '../../../src/domain/update.ts';
+import type { RemoteAdjustment } from '../../../src/domain/remote.ts';
 
 /** A fixed moment the house's times count from. */
 const T0 = 1_790_000_000;

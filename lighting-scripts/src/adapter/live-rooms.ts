@@ -12,11 +12,11 @@
  * house-wide automations keep the dashboard, the mode and the house's overlays until then.
  */
 import type { Config } from '../domain/config.ts';
-import type { Msg, OverlayRequest } from '../domain/model.ts';
 import type { RoomId } from '../domain/types/ids.ts';
 import { drives, roomOfText } from './codecs/rooms.ts';
 import type { Rooms, Share } from './codecs/rooms.ts';
 import type { Catalog } from './codecs/catalog.ts';
+import type { Msg, OverlayRequest } from '../domain/update.ts';
 
 export type LiveRooms = ReadonlySet<RoomId>;
 

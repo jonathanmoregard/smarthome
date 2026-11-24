@@ -8,11 +8,11 @@
  * exactly when the profile did not change, and otherwise sets only `own` and
  * `on`, where they changed, over the stored fields, as `ls_store` does.
  */
-import type { SwitchProfile } from '../../domain/model.ts';
 import { haBooleanOr } from './parse.ts';
 import { jinjaTruthy } from './parse.ts';
 import { storeOf } from './lamp-profiles.ts';
 import { isDeepStrictEqual } from 'node:util';
+import type { SwitchProfile } from '../../domain/profiles.ts';
 
 /** A plug's saved power the store leaves out or the bool filter rejects: off, today's `savedProfile` default. */
 const UNSAID_POWER = false;

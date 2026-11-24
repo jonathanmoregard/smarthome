@@ -3,11 +3,11 @@ import test from 'node:test';
 import { decodeRemoteModel, remoteHelperEntity, remoteHelperWrites } from '../../src/adapter/codecs/remote-helpers.ts';
 import { IDLE_REMOTE } from '../../src/domain/remote.ts';
 import type { ConfigSource } from '../../src/adapter/codecs/config.ts';
-import type { RemoteModel } from '../../src/domain/model.ts';
 import type { EntityState, JsonObject } from '../../src/adapter/ha-client.ts';
 import { toInstant } from '../../src/adapter/codecs/ids.ts';
 import { parseRooms } from '../../src/adapter/codecs/rooms.ts';
 import { id } from './support/ids.ts';
+import type { RemoteModel } from '../../src/domain/remote.ts';
 
 /**
  * A remote's gesture state, read from the room's remote helpers the gesture

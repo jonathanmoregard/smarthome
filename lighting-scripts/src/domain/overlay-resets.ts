@@ -1,53 +1,51 @@
+/**
+ * Overlay resets: what ends the overlays. The config's three rules (the next
+ * block, an age limit, a set time each day), the dashboard's clear-all and a
+ * room's reset from its remote. They act on every kind of overlay at once, so
+ * the overlays are listed here as one record, and each reset takes and gives
+ * back whatever holds them (the Model does).
+ */
+import type { BlockOverlays } from './block-overlays.ts';
 import type { Config } from './config.ts';
-import type { Model, Overlays } from './model.ts';
-import { blockPosition, lastTimeOfDay } from './schedule.ts';
+import type { LampOverlay } from './lamp-overlays.ts';
+import type { ModeOverlay } from './mode.ts';
+import type { RemoteOverlay } from './remote.ts';
+import type { RoomPower } from './room-power.ts';
+import { blockPosition, lastTimeOfDay, nextTimeOfDay } from './schedule.ts';
+import type { BlockPosition } from './schedule.ts';
+import type { SwitchOverlays } from './switches.ts';
 import type { LampOrRoom, RoomId } from './types/ids.ts';
 import { entriesOf } from './types/ids.ts';
-import type { Power } from './types/light.ts';
-import type { Block, RoomOrHouse } from './types/schedule.ts';
+import { instantOrThrow } from './types/range.ts';
 import type { Instant } from './types/time.ts';
 
-export type {
-  Overlays, SwitchOverlay, BlockOverlay, RemoteOverlay, StepRange, RemoteAdjustment, PresetChoice, RemotePreset, HeldBlock, RememberedPreset,
-  LampOverlay, LampOverlayFrom, BrightnessOverlay, ColourOverlay, EffectOverlay, BrightnessPart, ColourPart, EffectPart, ModeOverlay,
-} from './model.ts';
+/**
+ * The overlays: what people, remotes and the dashboard hold over the schedule,
+ * until an overlay reset removes them. Every field is one today's overlay flow
+ * reads; the comments name the stored field it comes from.
+ */
+export type Overlays = {
+  /** A block held over a room or the house: at most one each. */
+  blocks: BlockOverlays;
+  /** Each remote's input for its room. Only the newest one per room applies. */
+  remotes: readonly RemoteOverlay[];
+  /** A light or the candle set on a lamp or a room by a person or from the dashboard. */
+  lamps: readonly LampOverlay[];
+  /** A room switched off or on. A room not listed is on. Not an overlay: no reset ends it, but it is stored with them. */
+  roomPower: RoomPower;
+  /** A switch held on or off by a press on its own button: at most one each (decision 8). */
+  switches: SwitchOverlays;
+};
 
-/**
- * A block held over a room or the house, moved from `planOverrideBlock` and
- * `houseRooms` in `src/legacy/domain/state-store.ts`. Over the house it is
- * also held over each room a lamp or an on/off switch is in, the private rooms
- * left out. Each target already scheduled to the block has its hold cleared
- * instead.
- */
-export function holdBlock(model: Model, over: RoomOrHouse, block: Block, now: Instant): Model {
-  const config = model.config;
-  const targets: RoomOrHouse[] = over === 'house' ? ['house', ...houseRooms(config)] : [over];
-  const blocks = { ...model.overlays.blocks };
-  for (const target of targets) {
-    if (blockPosition(config, target === 'house' ? undefined : target, now).current === block) delete blocks[target];
-    else blocks[target] = { block, since: now };
-  }
-  return { ...model, overlays: { ...model.overlays, blocks } };
-}
-/**
- * The rooms a hold over the house reaches: each room a lamp or an on/off
- * switch is in, once, leaving out the private ones and the ones the config does not hold.
- */
-function houseRooms(config: Config): RoomId[] {
-  const placed = [
-    ...Object.values(config.lamps).map(lamp => lamp.room),
-    ...Object.values(config.switches).flatMap(placedSwitch => placedSwitch.onOff ? [placedSwitch.room] : []),
-  ];
-  const rooms = placed.flatMap(room => room !== undefined && config.rooms[room] !== undefined && !config.rooms[room].private ? [room] : []);
-  return [...new Set(rooms)];
-}
+/** What the resets read and end: the config's rules, every overlay and the mode overlay. The Model is one. */
+export type Overlaid = { config: Config; overlays: Overlays; modeOverlay: ModeOverlay };
 
 /**
  * The dashboard's clear: every overlay goes, the mode overlay and the switch
  * overlays included (today's `clear_all` empties the stored overlays). A
  * room's saved power is not an overlay, and stays.
  */
-export function clearAll(model: Model): Model {
+export function clearAll<M extends Overlaid>(model: M): M {
   return {
     ...model,
     overlays: { blocks: {}, remotes: [], lamps: [], roomPower: model.overlays.roomPower, switches: {} },
@@ -60,7 +58,7 @@ export function clearAll(model: Model): Model {
  * overlays over it and over its lamps, and the switch overlays of its
  * switches. Another room's overlays, house-wide ones and its saved power stay.
  */
-export function clearRoom(model: Model, room: RoomId): Model {
+export function clearRoom<M extends Overlaid>(model: M, room: RoomId): M {
   const { config, overlays } = model;
   const blocks = { ...overlays.blocks };
   delete blocks[room];
@@ -90,7 +88,7 @@ export function clearRoom(model: Model, room: RoomId): Model {
  * finds them; today a reset time missed while Home Assistant was down never
  * fires. With both rules off nothing is removed.
  */
-export function resetsDue(model: Model, now: Instant): Model {
+export function resetsDue<M extends Overlaid>(model: M, now: Instant): M {
   const { overlayReset, timezone } = model.config;
   const age = overlayReset.afterAge;
   const dailyAt = overlayReset.atSetTime === undefined ? undefined : lastTimeOfDay(now, overlayReset.atSetTime, timezone);
@@ -126,7 +124,7 @@ export function resetsDue(model: Model, now: Instant): Model {
  * reads it, and the mode overlay on every room outside the private ones. With
  * the next-block rule off nothing is removed.
  */
-export function releasedAtNextBlock(model: Model, now: Instant): Model {
+export function releasedAtNextBlock<M extends Overlaid>(model: M, now: Instant): M {
   const { config, overlays, modeOverlay } = model;
   if (!config.overlayReset.atNextBlock) return model;
   const placed = (room: RoomId | undefined) => room !== undefined && config.rooms[room] !== undefined ? room : undefined;
@@ -159,13 +157,38 @@ export function releasedAtNextBlock(model: Model, now: Instant): Model {
   };
 }
 
-/** The mode overlay switched on or off (today's mode switch); switching it on again keeps when it started. */
-export function setModeOverlay(model: Model, on: boolean, now: Instant): Model {
-  if (on === model.modeOverlay.active) return model;
-  return { ...model, modeOverlay: on ? { active: true, since: now } : { active: false } };
+/** When an overlay reset next falls due: each overlay's age limit, and the daily reset time. */
+export function resetTimes(model: Overlaid, now: Instant): Instant[] {
+  const { config } = model;
+  const times: Instant[] = [];
+  const age = config.overlayReset.afterAge;
+  if (age !== undefined) for (const since of overlaySinces(model)) times.push(instantOrThrow(since + age * 60));
+  const daily = config.overlayReset.atSetTime;
+  if (daily !== undefined) times.push(nextTimeOfDay(now, daily, config.timezone));
+  return times;
 }
 
-/** A room switched off or on from the dashboard (today's `power` op). */
-export function setRoomPower(model: Model, room: RoomId, power: Power): Model {
-  return { ...model, overlays: { ...model.overlays, roomPower: { ...model.overlays.roomPower, [room]: power } } };
+/** When each overlay was set: what the age limit measures. */
+function overlaySinces(model: Overlaid): Instant[] {
+  const { overlays, modeOverlay } = model;
+  return [
+    ...Object.values(overlays.blocks).flatMap(overlay => overlay === undefined ? [] : [overlay.since]),
+    ...overlays.remotes.map(remote => remote.since),
+    ...overlays.lamps.map(overlay => overlay.since),
+    ...Object.values(overlays.switches).flatMap(overlay => overlay === undefined ? [] : [overlay.since]),
+    ...(modeOverlay.active ? [modeOverlay.since] : []),
+  ];
+}
+
+/** The dashboard's clear. */
+export type ClearAll = { kind: 'clear all' };
+
+/**
+ * Inside a room's blocks at `position`: whether the next-block reset, when its
+ * rule is on, has released an overlay set at `since`, which it does to what
+ * was set at or before the last fade start (none in reach: nothing is released).
+ */
+export function nextBlockReleases(config: Config, position: BlockPosition): (since: Instant) => boolean {
+  const lastFadeStart = position.lastFadeStart;
+  return since => config.overlayReset.atNextBlock && lastFadeStart !== undefined && since <= lastFadeStart;
 }

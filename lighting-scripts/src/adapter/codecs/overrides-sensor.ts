@@ -20,12 +20,7 @@
  */
 import { isDeepStrictEqual } from 'node:util';
 import type { Config } from '../../domain/config.ts';
-import type { Model, RangeDefaults, RangeRule } from '../../domain/model.ts';
 import { DEFAULT_STEP_RANGE } from '../../domain/remote.ts';
-import type {
-  BlockOverlay, BrightnessOverlay, ColourOverlay, EffectOverlay, HeldBlock, LampOverlay, ModeOverlay, Overlays, PresetChoice, RememberedPreset,
-  RemoteAdjustment, RemoteOverlay, RemotePreset, StepRange, SwitchOverlay,
-} from '../../domain/overlays.ts';
 import type { RemoteId, RoomId, SwitchId } from '../../domain/types/ids.ts';
 import type { ModeName, RemoteSource } from './ids.ts';
 import { entriesOf } from '../../domain/types/ids.ts';
@@ -45,6 +40,15 @@ import { drives } from './rooms.ts';
 import type { Share } from './rooms.ts';
 import { dateSeconds } from './time-text.ts';
 import { BLOCKS } from '../../domain/types/schedule.ts';
+import type { Model } from '../../domain/update.ts';
+import type { RangeDefaults, RangeRule, SwitchOverlay } from '../../domain/switches.ts';
+import type { BlockOverlay } from '../../domain/block-overlays.ts';
+import type { BrightnessOverlay, ColourOverlay, EffectOverlay, LampOverlay } from '../../domain/lamp-overlays.ts';
+import type {
+  HeldBlock, PresetChoice, RememberedPreset, RemoteAdjustment, RemoteOverlay, RemotePreset, StepRange,
+} from '../../domain/remote.ts';
+import type { ModeOverlay } from '../../domain/mode.ts';
+import type { Overlays } from '../../domain/overlay-resets.ts';
 
 /** What the overrides sensor holds of the Model. */
 export type OverridesState = Pick<Model, 'overlays' | 'modeOverlay' | 'switchRanges' | 'rangeDefaults'>;

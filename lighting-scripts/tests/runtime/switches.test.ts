@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { lightingState } from '../../src/domain/lighting-state.ts';
-import type { Model } from '../../src/domain/model.ts';
 import type { SwitchId } from '../../src/domain/types/ids.ts';
 import type { Power } from '../../src/domain/types/light.ts';
 import type { Instant } from '../../src/domain/types/time.ts';
 import { toBrightness, toInstant, toMinutes, toPercentRange, toRoomId, toSwitchId } from '../../src/adapter/codecs/ids.ts';
 import { syntheticHouse } from './fixtures/synthetic-house.ts';
+import type { Model } from '../../src/domain/update.ts';
 
 /**
  * Whether each switch is on (`switchPower`, through the lighting state): a

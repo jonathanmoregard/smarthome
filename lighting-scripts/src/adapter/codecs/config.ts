@@ -17,7 +17,6 @@ import type {
   BlockSchedule, BlockTiming, Config, Lamp, OverlayReset, OwnOrHouse, Remote, Room, RoomBlock, Schedule, Switch, WakeLight,
 } from '../../domain/config.ts';
 import type { BulbInfo } from '../../domain/effect.ts';
-import type { LampProfileChange } from '../../domain/model.ts';
 import type { BulbId, DashboardControlId, LampId, LampOrRoom, RemoteId, RoomId, SwitchId } from '../../domain/types/ids.ts';
 import { entriesOf } from '../../domain/types/ids.ts';
 import type { Colour, RGB, SceneLight } from '../../domain/types/light.ts';
@@ -36,6 +35,7 @@ import type { Rooms } from './rooms.ts';
 import { uiRowsOf } from './catalog.ts';
 import type { UiRow } from './catalog.ts';
 import { BLOCKS } from '../../domain/types/schedule.ts';
+import type { LampProfileChange } from '../../domain/profiles.ts';
 
 /** The HA state the config is read from: each helper's state and attributes, the registry's rooms, the labels. */
 export type ConfigSource = {

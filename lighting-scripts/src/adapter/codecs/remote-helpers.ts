@@ -12,7 +12,6 @@
  * `unknown` or `unavailable`, or holding garbage, reads as today's fallback
  * (the old `gestureState`) and never raises.
  */
-import type { ChordProgress, PresetButton, RemoteModel } from '../../domain/model.ts';
 import type { RoomId } from '../../domain/types/ids.ts';
 import { entriesOf } from '../../domain/types/ids.ts';
 import type { Instant } from '../../domain/types/time.ts';
@@ -20,6 +19,7 @@ import { toInstant } from './ids.ts';
 import { jinjaFloat, jinjaInt } from './parse.ts';
 import type { ConfigSource } from './config.ts';
 import { dateSeconds, nowText } from './time-text.ts';
+import type { ChordProgress, PresetButton, RemoteModel } from '../../domain/remote.ts';
 
 /** The helpers one room's remotes keep their gesture state in. */
 export type RemoteHelper = 'preset' | 'power count' | 'chord step' | 'chord timer' | 'power token';

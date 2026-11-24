@@ -2,12 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
-import type { ControlLight, Model, Msg, OverlayRequest, RemoteModel, RequestedLight } from '../../src/domain/model.ts';
-import type { BrightnessOverlay, ColourOverlay, LampOverlay, ModeOverlay, RemotePreset } from '../../src/domain/overlays.ts';
 import type { LampLight, SceneLight } from '../../src/domain/types/light.ts';
 import { entriesOf } from '../../src/domain/types/ids.ts';
 import { toBrightness, toDashboardControlId, toInstant, toKelvin, toLevel, toPercentRange } from '../../src/adapter/codecs/ids.ts';
 import { syntheticHouse } from './fixtures/synthetic-house.ts';
+import type { ControlLight, RequestedLight, BrightnessOverlay, ColourOverlay, LampOverlay } from '../../src/domain/lamp-overlays.ts';
+import type { Model, Msg, OverlayRequest } from '../../src/domain/update.ts';
+import type { RemoteModel, RemotePreset } from '../../src/domain/remote.ts';
+import type { ModeOverlay } from '../../src/domain/mode.ts';
 
 /**
  * The Model and Msg types, and the synthetic house every later test builds on.

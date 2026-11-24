@@ -1,9 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { candle, normal } from '../../src/domain/effect.ts';
-import { lightingState, MODE_COLOUR } from '../../src/domain/lighting-state.ts';
-import type { LitLight, Model, Msg, OverlayRequest, RequestedLight } from '../../src/domain/model.ts';
-import { clearRoom } from '../../src/domain/overlays.ts';
+import { lightingState } from '../../src/domain/lighting-state.ts';
 import { IDLE_REMOTE } from '../../src/domain/remote.ts';
 import { update } from '../../src/domain/update.ts';
 import type { LampId, RoomId } from '../../src/domain/types/ids.ts';
@@ -14,6 +12,11 @@ import {
   toBrightnessStep, toRemoteId, toRoomId, toStep, toSwitchId, toTimeOfDay,
 } from '../../src/adapter/codecs/ids.ts';
 import { syntheticHouse } from './fixtures/synthetic-house.ts';
+import { MODE_COLOUR } from '../../src/domain/mode.ts';
+import type { LitLight } from '../../src/domain/profiles.ts';
+import type { Model, Msg, OverlayRequest } from '../../src/domain/update.ts';
+import type { RequestedLight } from '../../src/domain/lamp-overlays.ts';
+import { clearRoom } from '../../src/domain/overlay-resets.ts';
 
 /**
  * `update` for overlays, resets, ranges and profiles (M3 Task 1): each test

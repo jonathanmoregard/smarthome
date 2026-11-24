@@ -12,12 +12,12 @@
  * old scripts still read these stores for the rooms they drive.
  */
 import type { EffectName } from '../../domain/effect.ts';
-import type { LampProfile, LitLight, OwnLight } from '../../domain/model.ts';
 import type { Colour, RGB } from '../../domain/types/light.ts';
 import type { JsonObject, JsonValue } from '../ha-client.ts';
 import { isObject, jinjaInt, jinjaTruthy } from './parse.ts';
 import { toBrightness, toColourChannel, toKelvin } from './ids.ts';
 import { isDeepStrictEqual } from 'node:util';
+import type { LampProfile, LitLight, OwnLight } from '../../domain/profiles.ts';
 
 /** A lit store with no `b`: today's `pr.get('b', 255)`. */
 const FULL = 255;

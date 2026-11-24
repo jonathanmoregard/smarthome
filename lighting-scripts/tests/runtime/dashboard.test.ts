@@ -3,12 +3,12 @@ import test from 'node:test';
 import { dashboardView } from '../../src/domain/dashboard.ts';
 import type { DashboardControl } from '../../src/domain/dashboard.ts';
 import { lightingState } from '../../src/domain/lighting-state.ts';
-import type { Model, Msg } from '../../src/domain/model.ts';
 import { IDLE_REMOTE } from '../../src/domain/remote.ts';
 import { update } from '../../src/domain/update.ts';
 import type { Instant } from '../../src/domain/types/time.ts';
 import { toDashboardControlId, toInstant, toKelvin, toLampId, toLevel, toRemoteId, toRoomId } from '../../src/adapter/codecs/ids.ts';
 import { syntheticHouse } from './fixtures/synthetic-house.ts';
+import type { Model, Msg } from '../../src/domain/update.ts';
 
 /**
  * The dashboard view (M3 Task 3): what the dashboard shows of the Model, the

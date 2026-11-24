@@ -10,7 +10,6 @@
  */
 import { isDeepStrictEqual } from 'node:util';
 import type { ControlShown, DashboardView } from '../../domain/dashboard.ts';
-import type { LampProfileChange, Model } from '../../domain/model.ts';
 import { savedLampProfile } from '../../domain/profiles.ts';
 import { entriesOf } from '../../domain/types/ids.ts';
 import type { Instant } from '../../domain/types/time.ts';
@@ -35,6 +34,8 @@ import type { HelperValue } from './remote-helpers.ts';
 import { nowText } from './time-text.ts';
 import { BLOCKS } from '../../domain/types/schedule.ts';
 import type { Block } from '../../domain/types/schedule.ts';
+import type { LampProfileChange } from '../../domain/profiles.ts';
+import type { Model } from '../../domain/update.ts';
 
 /**
  * The overrides sensor's revision and the attributes written over its stored ones. While the old scripts write the

@@ -5,10 +5,10 @@
  * helper's state as a number (`Number`, so an empty state is 0); a range is
  * read only when both ends are percents and the low end is not above the high.
  */
-import type { RangeDefaults } from '../../domain/model.ts';
 import type { PercentRange } from '../../domain/types/light.ts';
 import { percentRangeOf } from './ids.ts';
 import type { EntityState } from '../ha-client.ts';
+import type { RangeDefaults } from '../../domain/switches.ts';
 
 /** The house's range defaults; none unless both ranges read. */
 export function decodeRangeDefaults(states: Readonly<Record<string, EntityState>>): RangeDefaults | undefined {
