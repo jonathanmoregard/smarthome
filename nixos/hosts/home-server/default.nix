@@ -18,7 +18,7 @@
   # over plain HTTP, so the house stays usable when Tailscale is not.
   homeServer.homeAssistantLanInterface = "enp1s0";
 
-  # The lighting port runs here from its own mutable checkout; see
+  # The lighting port runs here from a checkout that follows its branch; see
   # docs/home-server/lighting-port.md. Not a health unit below, by design.
   services.lighting-port = {
     enable = true;

@@ -1,18 +1,22 @@
 { config, lib, pkgs, ... }:
 
 # The lighting port (lighting-scripts/, the TypeScript Home Assistant lighting
-# controller) runs here from a mutable git checkout, by its own dev watcher:
-# it recompiles on save and restarts the host, keeping the last good build on
-# a compile error. This module provides Node, the user and the unit, never the
-# code: the checkout is cloned once and then belongs to the operator, who
-# edits it in place and reconciles it into the repository by hand. Nothing
-# here ever fetches, pulls or resets it.
+# controller) runs here from a git checkout, by its own dev watcher: it
+# recompiles when a file under src/ changes and restarts the host, keeping the
+# last good build on a compile error. This module provides Node, the user and
+# the units, never the code: the checkout is cloned once, and from then on
+# lighting-port-follow keeps it at the branch on origin, within about a
+# minute of a push. The checkout is not edited on the server: the follower
+# forces it to the branch and discards local edits to tracked files. It never
+# cleans, so .runtime (catalog, journal) and node_modules stay. What the
+# watcher does not see (lighting-scripts outside src/, a package-lock.json
+# that is not what is installed) restarts the unit.
 #
 # The port is deliberately not part of a deploy. Its code changes without one,
 # so it is not a system-auto-deploy health unit. That alone is not enough:
 # switch-to-configuration fails (exit 4) when, after a switch, any unit is
 # `failed`, or is in auto-restart after a non-zero exit, and the deployer then
-# rolls the whole system back. A port that is crashing while someone edits it,
+# rolls the whole system back. A port that is crashing on a pushed change,
 # a first deploy before the env file exists, or a clone that cannot reach
 # GitHub would each block every unrelated deploy. So the unit is built never
 # to be in either state, and never to make a switch wait:
@@ -27,6 +31,9 @@
 #   - a stop reaches the host once, through the watcher, and is clean even
 #     when the port's own shutdown hangs; a watcher that dies alone has its
 #     host stopped the same way before the unit backs off.
+# The follower holds to the same rule: it runs from its timer alone, a switch
+# never restarts it, and every run exits 0, whatever fails (an unreachable
+# origin is tried again next minute).
 
 let
   inherit (lib) mkEnableOption mkIf mkOption types;
@@ -262,19 +269,158 @@ let
         "watcher exited with status $status after $(($(date +%s) - started))s"
     '';
   };
+
+  # The follower asks for a restart of the unit by touching this file, and
+  # its root part restarts the unit when the file is newer than the unit's
+  # current start. A run cut off between the two is caught up by the next.
+  restartRequest = "${stateDir}/.follow-restart";
+  # The package-lock.json hash a restart was last asked for, so a lock that
+  # npm ci fails on (and leaves the old stamp) is not restarted every minute
+  # past the unit's own backoff.
+  lockRequested = "${stateDir}/.follow-lock-requested";
+  # Bounds the whole fetch, well below the follower's TimeoutStartSec, which
+  # would leave it failed.
+  fetchTimeoutSeconds = 120;
+
+  # As lighting-port: brings the checkout to origin's branch and decides
+  # whether the unit needs a restart. Git runs as the user that owns the
+  # checkout and can write its .git/config, never as root.
+  follow = pkgs.writeShellApplication {
+    name = "lighting-port-follow";
+    runtimeInputs = [ pkgs.coreutils pkgs.git ];
+    text = ''
+      branch=${lib.escapeShellArg cfg.branch}
+      checkout=${checkout}
+      lock=${scriptsDir}/package-lock.json
+      stamp=${scriptsDir}/node_modules/.lighting-port-lock.sha256
+      restart_request=${restartRequest}
+      lock_requested=${lockRequested}
+
+      say() { printf 'lighting-port-follow: %s\n' "$*" >&2; }
+      request_restart() {
+        say "$1; asking for a restart of lighting-port.service"
+        touch -- "$restart_request"
+      }
+
+      # Never failed, so the timer tries again next minute and no switch
+      # counts it: a stop exits 0, and so does anything that fails.
+      trap 'exit 0' TERM INT
+      interruptible() { "$@" & wait "$!"; }
+      # shellcheck disable=SC2329 # invoked by the EXIT trap
+      catch_all() {
+        status=$?
+        trap - EXIT
+        if [ "$status" -ne 0 ]; then
+          say "failed unexpectedly (status $status); trying again next minute"
+        fi
+        exit 0
+      }
+      trap catch_all EXIT
+
+      # lighting-port.service clones the checkout, and moves it into place
+      # whole.
+      if [ ! -d "$checkout/.git" ]; then
+        say "no checkout at $checkout yet; lighting-port.service clones it"
+        exit 0
+      fi
+      cd "$checkout"
+
+      if ! interruptible timeout ${toString fetchTimeoutSeconds} \
+        git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60 \
+          fetch --quiet --no-tags origin "+refs/heads/$branch:refs/remotes/origin/$branch"; then
+        say "fetching $branch from origin failed; trying again next minute"
+        exit 0
+      fi
+      target=$(git rev-parse --verify --quiet "refs/remotes/origin/$branch^{commit}")
+      head=$(git rev-parse --verify --quiet 'HEAD^{commit}') || head=
+      on=$(git symbolic-ref --quiet --short HEAD) || on=
+      edited=
+      if [ -n "$head" ]; then
+        edited=$(git diff --name-only HEAD --)
+      fi
+
+      if [ "$head" != "$target" ] || [ "$on" != "$branch" ] || [ -n "$edited" ]; then
+        if [ -n "$edited" ]; then
+          say "discarding local edits to: $(printf '%s\n' "$edited" | paste -sd ' ')"
+        fi
+        # The watcher sees only src/. Without a stamp an install is running
+        # (npm ci empties node_modules first), and the unit starts the
+        # watcher from what is here once it is done. Asked before the
+        # checkout, so a run cut off after it still restarts.
+        if [ -f "$stamp" ] \
+          && ! git diff --quiet "$target" -- lighting-scripts ':(exclude)lighting-scripts/src'; then
+          request_restart "the update changes lighting-scripts outside src/"
+        fi
+        say "updating $checkout to $target ($branch); it was at ''${head:-no commit} (''${on:-no branch})"
+        git checkout --quiet --force -B "$branch" "refs/remotes/origin/$branch"
+      fi
+
+      # The unit installs a package-lock.json at its start, and stamps it.
+      if [ -f "$stamp" ] && [ -f "$lock" ]; then
+        lock_hash=$(sha256sum -- "$lock" | cut -d' ' -f1)
+        requested=$(cat -- "$lock_requested" 2>/dev/null) || requested=
+        if [ "$(cat -- "$stamp")" != "$lock_hash" ] && [ "$requested" != "$lock_hash" ]; then
+          request_restart "package-lock.json differs from what is installed"
+          printf '%s\n' "$lock_hash" > "$lock_requested"
+        fi
+      fi
+    '';
+  };
+
+  # As root, after the follow: restarts the unit if a restart was asked for
+  # since it started. It reads only the request's age, never the checkout.
+  restartForUpdate = pkgs.writeShellApplication {
+    name = "lighting-port-follow-restart";
+    runtimeInputs = [ pkgs.coreutils config.systemd.package ];
+    text = ''
+      say() { printf 'lighting-port-follow: %s\n' "$*" >&2; }
+      trap 'exit 0' TERM INT
+      # shellcheck disable=SC2329 # invoked by the EXIT trap
+      catch_all() {
+        status=$?
+        trap - EXIT
+        if [ "$status" -ne 0 ]; then
+          say "restart check failed unexpectedly (status $status)"
+        fi
+        exit 0
+      }
+      trap catch_all EXIT
+
+      if [ ! -f ${restartRequest} ]; then exit 0; fi
+      # A unit that is not running starts from the checkout as it is.
+      if ! systemctl is-active --quiet lighting-port.service; then exit 0; fi
+      # Both in microseconds: a restart lands within the second it was asked
+      # for, so seconds could not tell the request from the start it caused.
+      requested=$(stat -c %.6Y -- ${restartRequest})
+      requested=''${requested/./}
+      # `t <microseconds>`, the time the unit's current process started.
+      property=$(busctl get-property org.freedesktop.systemd1 \
+        /org/freedesktop/systemd1/unit/lighting_2dport_2eservice \
+        org.freedesktop.systemd1.Service ExecMainStartTimestamp)
+      read -r kind started <<< "$property"
+      if [ "$kind" != t ] || ! [[ "$started" =~ ^[0-9]+$ ]] || ! [[ "$requested" =~ ^[0-9]+$ ]]; then
+        say "cannot tell whether lighting-port.service started after the update ($property); not restarting it"
+        exit 0
+      fi
+      if [ "$requested" -gt "$started" ]; then
+        say "restarting lighting-port.service for the update"
+        systemctl --no-block try-restart lighting-port.service
+      fi
+    '';
+  };
 in
 {
   options.services.lighting-port = {
-    enable = mkEnableOption "the lighting port, run from a mutable checkout by its dev watcher";
+    enable = mkEnableOption "the lighting port, run by its dev watcher from a checkout that follows its branch";
     repository = mkOption {
       type = types.str;
       default = "https://github.com/jonathanmoregard/smarthome.git";
-      description = "Repository cloned into ${checkout} when that directory is absent. Never fetched afterwards.";
+      description = "Repository cloned into ${checkout} when that directory is absent. The clone's origin is the one followed afterwards; changing this option does not re-point an existing checkout.";
     };
     branch = mkOption {
       type = types.str;
       default = "feature/typescript-lighting-scripts";
-      description = "Branch checked out by that one clone. Changing it later does not touch an existing checkout.";
+      description = "Branch the checkout follows: lighting-port-follow fetches it from origin every minute and forces the checkout to it, discarding local edits to tracked files. Changing it switches the checkout to the new branch on the next run.";
     };
     homeAssistantUrl = mkOption {
       type = types.strMatching "https?://[^[:space:]]+";
@@ -288,7 +434,7 @@ in
     operators = mkOption {
       type = types.listOf types.str;
       default = [ ];
-      description = "Users added to the lighting-port group, so they can edit the checkout and ${envFile} without sudo.";
+      description = "Users added to the lighting-port group, so they can write ${envFile} and the catalog in ${scriptsDir}/.runtime, and read the checkout, without sudo. The checkout itself is not edited on the server: the follower discards such edits.";
     };
   };
 
@@ -307,19 +453,12 @@ in
     };
     users.groups.lighting-port.members = cfg.operators;
 
-    # Git for the operator, who runs it in the checkout as lighting-port.
-    # Deliberately no safe.directory for the checkout: lighting-port can write
-    # its .git/config, and a config there (core.fsmonitor, hooks) runs
-    # commands as whoever runs git in it, so no other user may trust it.
+    # Git to look at the checkout with, as lighting-port. Deliberately no
+    # safe.directory for it: lighting-port can write its .git/config, and a
+    # config there (core.fsmonitor, hooks) runs commands as whoever runs git
+    # in it, so no other user may trust it. The follower's root part runs no
+    # git for the same reason.
     programs.git.enable = true;
-
-    # The operator runs git and npm in the checkout with
-    # `sudo -u lighting-port`. Under sudo's own umask (022) a file they
-    # rewrite would be closed to the group, so the operator could no longer
-    # edit it in place; they get the unit's umask instead.
-    security.sudo.extraConfig = ''
-      Defaults>lighting-port umask=0007, umask_override
-    '';
 
     systemd.services.lighting-port = {
       description = "Lighting port, run by its dev watcher from ${scriptsDir}";
@@ -375,6 +514,48 @@ in
         ProtectControlGroups = true;
         RestrictAddressFamilies = [ "AF_UNIX" "AF_INET" "AF_INET6" ];
         CapabilityBoundingSet = "";
+      };
+    };
+
+    # Keeps the checkout at the branch on origin. Wanted by nothing but its
+    # timer, and never restarted by a switch, so a switch never waits on a
+    # fetch; every run exits 0, so none is ever counted as failed.
+    systemd.services.lighting-port-follow = {
+      description = "Keep ${checkout} at ${cfg.branch} on origin";
+      restartIfChanged = false;
+      environment.HOME = stateDir;
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStart = lib.getExe follow;
+        # `+`: as root, outside the sandbox, for the restart alone.
+        ExecStartPost = "+${lib.getExe restartForUpdate}";
+        User = "lighting-port";
+        Group = "lighting-port";
+        TimeoutStartSec = "${toString (fetchTimeoutSeconds + 60)}s";
+        UMask = "0007";
+        ProtectSystem = "strict";
+        # Optional: before the main unit's first start it does not exist,
+        # and the run has nothing to do.
+        ReadWritePaths = [ "-${stateDir}" ];
+        ProtectHome = true;
+        PrivateTmp = true;
+        PrivateDevices = true;
+        NoNewPrivileges = true;
+        ProtectKernelTunables = true;
+        ProtectKernelModules = true;
+        ProtectControlGroups = true;
+        RestrictAddressFamilies = [ "AF_UNIX" "AF_INET" "AF_INET6" ];
+        CapabilityBoundingSet = "";
+      };
+    };
+
+    systemd.timers.lighting-port-follow = {
+      description = "Keep the lighting port's checkout at its branch, every minute";
+      wantedBy = [ "timers.target" ];
+      timerConfig = {
+        OnCalendar = "minutely";
+        AccuracySec = "1s";
+        RandomizedDelaySec = "10s";
       };
     };
   };
