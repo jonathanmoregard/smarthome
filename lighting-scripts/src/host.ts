@@ -5,7 +5,7 @@
  */
 import type { Catalog } from './adapter/codecs/catalog.ts';
 import type { HouseMirror } from './adapter/codecs/house.ts';
-import { afterCall, houseView, mergedRead, withState } from './adapter/codecs/house.ts';
+import { afterOutput, houseView, mergedRead, withState } from './adapter/codecs/house.ts';
 import { loadJournal, saveJournal } from './adapter/codecs/journal.ts';
 import type { JournalRecord } from './adapter/codecs/journal.ts';
 import { outputCall } from './adapter/encode.ts';
@@ -119,7 +119,7 @@ export class Host {
       try {
         const context = await this.io.ha.call(call);
         if (context !== undefined) this.ownContexts = [...this.ownContexts, context].slice(-OWN_CONTEXTS);
-        this.mirror = { ...this.mirror, state: afterCall(this.mirror.state, call, this.io.clock()) };
+        this.mirror = { ...this.mirror, state: afterOutput(this.mirror.state, output, this.io.clock()) };
         failed.push(false);
       } catch (error) {
         // Out of reach is no failure of the bulb or helper: the call, and the turn's later ones, count as not made.

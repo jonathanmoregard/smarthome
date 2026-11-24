@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { Host } from '../../src/host.ts';
 import type { HostIo, Journal } from '../../src/host.ts';
 import { parseCatalog } from '../../src/adapter/codecs/catalog.ts';
 import type { HouseMirror } from '../../src/adapter/codecs/house.ts';
-import { afterCall } from '../../src/adapter/codecs/house.ts';
 import { loadJournal } from '../../src/adapter/codecs/journal.ts';
 import { toInstant, toMqttTopic, toRoomId } from '../../src/adapter/codecs/ids.ts';
 import { parseLiveRooms } from '../../src/adapter/live-rooms.ts';
@@ -17,6 +17,7 @@ import type { Instant } from '../../src/domain/types/time.ts';
 import type { FakeBulbs } from './fake-bulbs.ts';
 import { CATALOG, syntheticStates, world, writeBack } from './fixtures/house-view.ts';
 import { bridged } from './support/inputs.ts';
+import { servicesTook } from './support/fake-ha-services.ts';
 
 const loadBeliefs = (text: string | undefined) => loadJournal(text).beliefs;
 
@@ -51,10 +52,7 @@ class FakeHa {
     await this.during(call);
     if (this.unreachable) throw new Unreachable('Home Assistant is disconnected');
     if (this.failing(call)) throw new Error('Home Assistant did not take it');
-    this.states = afterCall(this.states, call, toInstant(Date.now() / 1000));
-    // A plug that works switches; afterCall leaves a switch to its own report, which this Home Assistant makes here.
-    const power = /^homeassistant\.turn_(on|off)$/.exec(call.service)?.[1], plug = call.target?.entity_id;
-    if (power !== undefined && typeof plug === 'string') this.states[plug] = { ...this.states[plug] ?? { attributes: {} }, state: power };
+    this.states = servicesTook(this.states, call, toInstant(Date.now() / 1000));
     if (call.service === 'mqtt.publish' && typeof call.data.topic === 'string' && typeof call.data.payload === 'string'
       && call.data.topic.startsWith('zigbee2mqtt/')) {
       this.bulbs.apply([{ topic: toMqttTopic(call.data.topic), payload: JSON.parse(call.data.payload) as Publish['payload'] }]);
@@ -439,7 +437,7 @@ function deafPlug(): FakeHa {
 }
 
 test('closeout r1 A1/B1: a switch call Home Assistant took but the plug missed is sent again', async () => {
-  // Break: afterCall puts the switch's sent power into the mirror the moment Home Assistant answers, so the plug reads
+  // Break: the host puts the switch's sent power into the mirror the moment Home Assistant answers, so the plug reads
   // as on target and is never sent again. The day block at 12:00 lights room-a at 220 (86%), outside plug_a's 20..60.
   const ha = deafPlug(), now = { time: at('12:00:00') };
   const host = await open(ha, new MemoryJournal(), now).host;
@@ -586,4 +584,14 @@ test('closeout r1 B4: a turn that hands a room back saves the journal, so a rest
   assert.ok(ha.publishesTo(bulbA1).length > 0,
     `room-a handed back and over again is taken as found; the journal's share after the hand-back: ${JSON.stringify([...(handedBack.kind === 'rooms' ? handedBack.rooms : ['house'])])}`);
   await second.close();
+});
+
+test("what the port's writes leave in Home Assistant is read from the typed write, never from a call's service name", () => {
+  // Closeout r1 B5. Break: the mirror, the outbox's laying or its settling flattens a write to a service call again
+  // and re-reads its meaning from the service's name. Only the wire (ha-client.ts, encode.ts) and the house's own
+  // events (inputs.ts) name services; a fake Home Assistant's handling lives in tests/runtime/support.
+  for (const file of ['adapter/codecs/house.ts', 'adapter/codecs/writes.ts', 'adapter/outbox.ts', 'adapter/loop.ts', 'host.ts']) {
+    const source = readFileSync(new URL(`../../src/${file}`, import.meta.url), 'utf8');
+    assert.deepEqual(source.split('\n').filter(line => /\.service\s*(===|!==|\))|\.test\([^)]*\.service/.test(line)), [], file);
+  }
 });

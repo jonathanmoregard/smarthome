@@ -4,7 +4,9 @@
  * inside.
  */
 import { isDeepStrictEqual } from 'node:util';
-import type { EntityState, HouseRead, JsonObject, JsonValue, ServiceCall, WireState } from '../ha-client.ts';
+import type { EntityState, HouseRead, JsonObject, JsonValue, WireState } from '../ha-client.ts';
+import type { Output } from '../encode.ts';
+import { leftBy } from './writes.ts';
 import { isObject } from './parse.ts';
 import type { Catalog } from './catalog.ts';
 import type { Rooms } from './rooms.ts';
@@ -104,49 +106,32 @@ function isoText(at: Instant): string {
 }
 
 /**
- * Whether Home Assistant is done with a call of ours made at `since`: the state of the entity it targets shows it
- * taken (a sensor update's attributes, any other call's value, a number by its value), or changed after `since`, by
- * someone else, which supersedes it. A call that targets no entity (an MQTT publish) shows nothing, so is never done here.
+ * Whether Home Assistant is done with an output of ours queued at `since`: the entity it writes shows what it leaves
+ * ({@link leftBy}: a sensor's attributes, anything else its value, a number by its value), or changed after `since`,
+ * by someone else, which supersedes it. An output that leaves nothing here (an MQTT message) is never done here.
  */
-export function callSettled(states: Readonly<Record<string, EntityState>>, call: ServiceCall, since: Instant): boolean {
-  const entity = call.target?.entity_id ?? call.data.entity_id, shown = typeof entity === 'string' ? states[entity] : undefined;
-  const expected = typeof entity === 'string' ? afterCall({}, call, since)[entity] : undefined;
-  if (shown === undefined || expected === undefined) return false;
+export function writeSettled(states: Readonly<Record<string, EntityState>>, output: Output, since: Instant): boolean {
+  const left = leftBy(output), shown = left === undefined ? undefined : states[left.entity];
+  if (left === undefined || shown === undefined) return false;
   const changed = Date.parse(shown.last_changed ?? '') / 1000;
   if (Number.isFinite(changed) && changed > since) return true;
-  if (call.service === 'variable.update_sensor') {
-    return Object.entries(expected.attributes).every(([key, value]) => isDeepStrictEqual(shown.attributes[key], value));
-  }
+  if (left.attributes !== undefined) return Object.entries(left.attributes).every(([key, value]) => isDeepStrictEqual(shown.attributes[key], value));
   const number = (text: string) => text.trim() === '' ? NaN : Number(text);
-  return shown.state === expected.state || number(shown.state) === number(expected.state);
+  return shown.state === left.state || number(shown.state) === number(left.state);
 }
 
 /**
- * The states once Home Assistant has taken a call of ours, as it reports them: a sensor update sets its value and its
- * attributes (merged, unless `replace_attributes`), a text or number helper its value as text (`String(value)`), a
- * select its option, a boolean its power, a timer its run. Any other call changes no state here: what it reaches
- * reports back. A switch's power is one of those: Home Assistant taking the call is not the plug switching, so only
- * its report moves it. Applied at once, so the next turn reads what was written before the echo arrives.
+ * The states once Home Assistant has taken an output of ours, as it reports them: what the output leaves
+ * ({@link leftBy}) laid over its entity, a sensor's attributes merged over the stored ones. Applied at once, so the
+ * next turn reads what was written before the echo arrives.
  */
-export function afterCall(states: Readonly<Record<string, EntityState>>, call: ServiceCall, at: Instant): Record<string, EntityState> {
-  const next = { ...states }, now = isoText(at);
-  const ids = call.target?.entity_id ?? call.data.entity_id;
-  for (const entity of (Array.isArray(ids) ? ids : [ids]).filter((id): id is string => typeof id === 'string')) {
-    const previous = next[entity];
-    const put = (state: string, attributes: JsonObject | undefined): void => {
-      next[entity] = { entity_id: entity, state, attributes: structuredClone(attributes ?? previous?.attributes ?? {}), last_updated: now,
-        last_changed: previous?.state === state ? previous.last_changed ?? now : now };
-    };
-    const data = call.data;
-    if (call.service === 'variable.update_sensor') {
-      const attributes = data.attributes !== null && typeof data.attributes === 'object' && !Array.isArray(data.attributes) ? data.attributes : {};
-      put(String(data.value ?? previous?.state ?? 'unknown'), { ...(data.replace_attributes === true ? {} : previous?.attributes), ...attributes });
-    } else if (call.service === 'input_text.set_value' || call.service === 'input_number.set_value') put(String(data.value), undefined);
-    else if (call.service === 'input_select.select_option') put(String(data.option), undefined);
-    else if (/^input_boolean\.turn_(on|off)$/.test(call.service)) put(call.service.endsWith('_on') ? 'on' : 'off', undefined);
-    else if (call.service === 'timer.start' || call.service === 'timer.cancel') put(call.service === 'timer.start' ? 'active' : 'idle', undefined);
-  }
-  return next;
+export function afterOutput(states: Readonly<Record<string, EntityState>>, output: Output, at: Instant): Record<string, EntityState> {
+  const left = leftBy(output), now = isoText(at);
+  if (left === undefined) return { ...states };
+  const previous = states[left.entity], kept = previous === undefined ? {} : previous.attributes;
+  return { ...states, [left.entity]: { entity_id: left.entity, state: left.state,
+    attributes: structuredClone(left.attributes === undefined ? kept : { ...kept, ...left.attributes }), last_updated: now,
+    last_changed: previous?.state === left.state ? previous.last_changed ?? now : now } };
 }
 
 /** Home Assistant's events the host subscribes to, by the names Home Assistant gives them. */

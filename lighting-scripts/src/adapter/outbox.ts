@@ -13,12 +13,11 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { Instant } from '../domain/types/time.ts';
 import { storeLanded } from './codecs/config.ts';
-import { afterCall, callSettled, withStates } from './codecs/house.ts';
+import { afterOutput, withStates, writeSettled } from './codecs/house.ts';
 import type { HouseView } from './codecs/house.ts';
 import type { Share } from './codecs/rooms.ts';
 import { sensorSettled, sensorWriteOver } from './codecs/writes.ts';
 import type { SensorChanges } from './codecs/writes.ts';
-import { outputCall } from './encode.ts';
 import type { Output } from './encode.ts';
 import { MAX_ATTEMPTS, retryAt } from './reconcile.ts';
 
@@ -60,7 +59,7 @@ export type Outbox = readonly Entry[];
  */
 export function settled(outbox: Outbox, house: HouseView): Outbox {
   return outbox.filter(({ write, queuedAt }) => write.kind === 'sensor' ? !sensorSettled(write.write, house.state[write.write.entity], queuedAt)
-    : !callSettled(house.state, outputCall(write, queuedAt), queuedAt));
+    : !writeSettled(house.state, write, queuedAt));
 }
 
 /**
@@ -72,7 +71,7 @@ export function withWaiting(house: HouseView, outbox: Outbox): HouseView {
   const laid = outbox.filter(entry => entry.status.kind !== 'parked');
   return laid.length === 0 ? house : withStates(house, laid.reduce((states, entry) => entry.write.kind === 'store'
     ? storeLanded(states, entry.write.write.entity, entry.write.write.text)
-    : afterCall(states, outputCall(outputOf(entry, withStates(house, states), HOUSE), entry.queuedAt), entry.queuedAt), house.state));
+    : afterOutput(states, outputOf(entry, withStates(house, states), HOUSE), entry.queuedAt), house.state));
 }
 
 /** The share a write laid over the house is resolved for: the read it is laid on is the one it is made over. */

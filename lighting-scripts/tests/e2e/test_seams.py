@@ -27,7 +27,7 @@ from tests.e2e.world import BulbInfo, Kelvin, Off, On, World
 STOCKHOLM = ZoneInfo('Europe/Stockholm')
 START = datetime(2026, 10, 23, 12, 0, tzinfo=STOCKHOLM)
 ROOT = Path(__file__).resolve().parents[2]
-HA_CLIENT = ROOT / 'src' / 'adapter' / 'codecs' / 'house.ts'   # afterCall: the states once HA took a call
+HA_CLIENT = ROOT / 'src' / 'adapter' / 'codecs' / 'house.ts'   # afterOutput: the states once HA took a write of the port's
 BLOCKS = ('day', 'cosy', 'night')
 HELPER_SETTINGS = {'light', 'start', 'weekend', 'fade', 'own_light', 'own_timing'}
 
@@ -352,16 +352,33 @@ SERVICE_STATE = {entity: {'entity_id': entity, 'state': state, 'attributes': {'k
                                        ('input_datetime.d', '06:00:00'))}
 
 PORT_PROBE = '''
-import {{ afterCall }} from {client};
-const cases = {cases};
+import {{ afterOutput }} from {client};
+const outputs = {outputs};
 const out = [];
-for (const [service, target, data] of cases) {{
-  const call = Object.keys(target).length === 0 ? {{ service, data }} : {{ service, data, target }};
-  const state = afterCall(structuredClone({state}), call, Date.parse('2026-10-23T12:00:00+02:00') / 1000);
+for (const output of outputs) {{
+  const before = structuredClone({state});
+  const state = output === null ? before : afterOutput(before, output, Date.parse('2026-10-23T12:00:00+02:00') / 1000);
   out.push(Object.fromEntries(Object.entries(state).map(([entity, value]) => [entity, [value.state, value.attributes]])));
 }}
 console.log(JSON.stringify(out));
 '''
+
+
+def port_output(service, target, data):
+    """The port's typed write that makes the call, as `afterOutput` takes it; none for a call the port never makes."""
+    entity = target.get('entity_id', data.get('entity_id'))
+    entity = entity[0] if isinstance(entity, list) else entity
+    helper = lambda value: {'kind': 'helper', 'write': {'entity': entity, 'value': value}}
+    dashboard = lambda write: {'kind': 'dashboard', 'write': {**write, 'entity': entity}}
+    match service:
+        case 'input_number.set_value': return helper({'kind': 'number', 'value': data['value']})
+        case 'input_text.set_value': return helper({'kind': 'text', 'value': str(data['value'])})
+        case 'input_select.select_option': return dashboard({'kind': 'block selector', 'option': data['option']})
+        case 'input_boolean.turn_on' | 'input_boolean.turn_off':
+            return dashboard({'kind': 'mode mirror', 'on': service.endswith('_on')})
+        case 'timer.start': return helper({'kind': 'timer', 'running': True, 'until': 0})
+        case 'timer.cancel': return helper({'kind': 'timer', 'running': False})
+    return None
 
 
 class ServiceSim:
@@ -382,7 +399,8 @@ class HelperServices(unittest.TestCase):
     def port_states(self):
         with tempfile.TemporaryDirectory(prefix='e2e-probe-') as directory:
             probe = Path(directory) / 'probe.ts'
-            probe.write_text(PORT_PROBE.format(client=json.dumps(HA_CLIENT.as_uri()), cases=json.dumps(SERVICE_CASES),
+            probe.write_text(PORT_PROBE.format(client=json.dumps(HA_CLIENT.as_uri()),
+                                               outputs=json.dumps([port_output(*case) for case in SERVICE_CASES]),
                                                state=json.dumps(SERVICE_STATE)))
             completed = subprocess.run(['node', '--experimental-strip-types', '--no-warnings', str(probe)], cwd=ROOT,
                                        capture_output=True, text=True, timeout=60)

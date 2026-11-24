@@ -35,6 +35,7 @@ import { nowText } from './time-text.ts';
 import { BLOCKS } from '../../domain/types/schedule.ts';
 import type { Block } from '../../domain/types/schedule.ts';
 import type { LampProfileChange } from '../../domain/profiles.ts';
+import type { Output } from '../encode.ts';
 import type { Model } from '../../domain/update.ts';
 
 /**
@@ -63,6 +64,32 @@ export type SensorKeyChange = { attribute: string; key: string; from: JsonValue 
 function superseded(change: SensorKeyChange, shown: EntityState | undefined, queuedAt: Instant): boolean {
   const updated = shown?.last_updated === undefined ? NaN : Date.parse(shown.last_updated) / 1000, value = mapOf(shown, change.attribute)[change.key];
   return Number.isFinite(updated) && updated > queuedAt && !isDeepStrictEqual(value, change.from) && !isDeepStrictEqual(value, change.to);
+}
+
+/**
+ * What an output leaves in Home Assistant once taken, as the entity it writes reports it: the sensor its revision and
+ * its attributes merged over the stored ones, a remote helper its value as text or its timer's run, a store its text,
+ * a block selector its option, the mode mirror its power. A bulb's publish, a switch's power (only the switch's own
+ * report moves it) and an MQTT message to the dashboard leave nothing: what they reach reports back.
+ */
+export type Left = { entity: string; state: string; attributes: JsonObject | undefined };
+
+export function leftBy(output: Output): Left | undefined {
+  const text = (entity: string, state: string): Left => ({ entity, state, attributes: undefined });
+  switch (output.kind) {
+    case 'publish': case 'switch': return undefined;
+    case 'sensor': return { entity: output.write.entity, state: output.write.revision, attributes: output.write.attributes };
+    case 'helper': {
+      const value = output.write.value;
+      return text(output.write.entity, value.kind === 'timer' ? (value.running ? 'active' : 'idle') : String(value.value));
+    }
+    case 'store': return text(output.write.entity, output.write.text);
+    case 'dashboard': {
+      const write = output.write;
+      if (write.kind === 'block selector') return text(write.entity, write.option);
+      return write.kind === 'mode mirror' ? text(write.entity, write.on ? 'on' : 'off') : undefined;
+    }
+  }
 }
 
 /** One remote helper of a room set to a value. */
