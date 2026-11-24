@@ -54,6 +54,7 @@ M6 Task 1 found that no compatibility writer is needed for that. With the old-si
 | 6 | `switch_overlays` (new: switch to `{power, when}`) | none (written by the port only) | no | `Model.overlays.switches` |
 | 6a | `plant_hand_switches` (new: plant light to `{power, when}`) | none (written by the port only) | no | `Model.plantOverrides.handSwitches` |
 | 6b | `plant_all_off` (new: the one key `held`, to `{when}`) | none (written by the port only) | no | `Model.plantOverrides.allOff` |
+| 6c | `plant_switch_off` (new: plant light to ISO time of its timer's switch-off today) | none (written by the port only) | no | derived from the dashboard view, not read back |
 | 7 | `remote_ack` (source to request id) | ls_commit | no (one key per remote) | left out: 5 |
 | 8 | `last_via` | none (ls_commit writes it) | no | left out: 5 |
 | 9 | `pending_rooms` | ls_commit, ls_render, lighting_recover_pending_output | yes | carried |

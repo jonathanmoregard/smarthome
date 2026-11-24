@@ -574,6 +574,15 @@ test('all off from the dashboard switches the plant lights off, and is stored', 
   assert.equal(allOffOut(turn), undefined);
 });
 
+test('the plant lights\' switch-off times are written to the overrides sensor, with the other attributes left as they were', () => {
+  // Break: the view's times are not published, or the write replaces the sensor's other attributes.
+  const house = plantHouse(states => { states['sensor.ls_overrides'] = { state: 'x', attributes: { power: { 'room-a': true } } }; });
+  house.turn('12:00:00', { kind: 'started' });
+  const attributes = house.states['sensor.ls_overrides']!.attributes;
+  assert.deepEqual(attributes['plant_switch_off'], { [PLANT_A]: '2026-09-21T19:00:00.000Z' });
+  assert.deepEqual(attributes['power'], { 'room-a': true });
+});
+
 test('at the next day start the plant lights go on and the control is switched off', () => {
   // Break: the control is not mirrored back, so it shows on after the hold is gone; or the control's on, read against
   // the clocked Model, sets all off again at the day start.

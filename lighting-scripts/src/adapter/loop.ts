@@ -259,15 +259,15 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
   const model = saved === undefined || light === undefined || configWrite === undefined ? messaged
     : update(messaged, blockLightRead(light, saved.change, configWrite, messaged, house, now));
   const writes: Write[] = [];
-  const written = modelWrites(before, model, house, reported, now, share);
+  const lighting = lightingState(model, now);
+  const view = dashboardView(model, lighting, now);
+  const written = modelWrites(before, model, house, reported, now, share, view.plantSwitchOff);
   // An unread sensor is not an empty one: no write of it, which would delete what Home Assistant has yet to load.
   if (written.sensor !== undefined && overrides.kind === 'read') writes.push({ kind: 'sensor', write: written.sensor });
   for (const write of written.helpers) writes.push({ kind: 'helper', write });
   for (const write of written.stores) writes.push({ kind: 'store', write });
   if (configWrite !== undefined) writes.push({ kind: 'store', write: configWrite });
 
-  const lighting = lightingState(model, now);
-  const view = dashboardView(model, lighting, now);
   const previous = state === undefined || input.kind === 'started' ? undefined : state.view;
   const sync = controlRows(model, house);
   // The dashboard is the old scripts' to show while some room is still theirs.

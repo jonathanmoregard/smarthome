@@ -5,8 +5,9 @@
  * in `src/legacy/domain/ui-state.ts`). The adapter writes what changed.
  */
 import type { EffectName } from './effect.ts';
+import { plantSwitchOffTimes } from './plant-lights.ts';
 import { blockPosition } from './schedule.ts';
-import type { DashboardControlId, LampId, LampOrRoom } from './types/ids.ts';
+import type { DashboardControlId, LampId, LampOrRoom, SwitchId } from './types/ids.ts';
 import { entriesOf } from './types/ids.ts';
 import type { Colour, Level, OnLight } from './types/light.ts';
 import { sameColour } from './types/light.ts';
@@ -18,9 +19,11 @@ import type { Model } from './update.ts';
 
 /**
  * The dashboard's view: the block each scope's selector shows (the held block,
- * or the scheduled one), whether the mode switch is on, whether all plant lights are held off, and each control's light.
+ * or the scheduled one), whether the mode switch is on, whether all plant lights are held off, when each plant light's timer
+ * switches it off, and each control's light.
  */
-export type DashboardView = { blockShown: Record<RoomOrHouse, Block>; modeOn: boolean; plantsAllOff: boolean; controls: readonly DashboardControlView[] };
+export type DashboardView = { blockShown: Record<RoomOrHouse, Block>; modeOn: boolean; plantsAllOff: boolean;
+  plantSwitchOff: Partial<Record<SwitchId, Instant>>; controls: readonly DashboardControlView[] };
 
 export function dashboardView(model: Model, lighting: LightingState, now: Instant): DashboardView {
   const { config, overlays, modeOverlay } = model;
@@ -34,6 +37,7 @@ export function dashboardView(model: Model, lighting: LightingState, now: Instan
     blockShown,
     modeOn: modeOverlay.active,
     plantsAllOff: model.plantOverrides.allOff !== undefined,
+    plantSwitchOff: plantSwitchOffTimes(config, now),
     controls: entriesOf(config.controls).map(([control, over]) => ({ control, over, light: controlShown(model, lighting, over) })),
   };
 }

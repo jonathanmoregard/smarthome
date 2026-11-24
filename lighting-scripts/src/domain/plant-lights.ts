@@ -113,6 +113,20 @@ export function plantChanges(config: Config, now: Instant): Instant[] {
   return times;
 }
 
+/**
+ * When each plant light's timer switches it off in the current day period, kept shown after it has passed until the
+ * next day start. A light with no switch-off has no entry: no day start in reach, 24 hours (never off) or 0 hours (never on).
+ */
+export function plantSwitchOffTimes(config: Config, now: Instant): Partial<Record<SwitchId, Instant>> {
+  const times: Partial<Record<SwitchId, Instant>> = {};
+  for (const [id, placed] of plantLightsOf(config)) {
+    if (hoursOf(config, placed) === 0) continue;
+    const off = switchOffAt(config, placed, dayStarts(config, roomOf(config, placed), now).last);
+    if (off !== undefined) times[id] = off;
+  }
+  return times;
+}
+
 /** The plant lights of the config, each with its id. */
 function plantLightsOf(config: Config): [SwitchId, PlantLight][] {
   const lights: [SwitchId, PlantLight][] = [];

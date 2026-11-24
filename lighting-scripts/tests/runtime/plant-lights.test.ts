@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Config } from '../../src/domain/config.ts';
 import {
-  NO_PLANT_OVERRIDES, plantChanges, plantLightSwitched, plantOverridesReleased, plantPower, plantsAllOffSet,
+  NO_PLANT_OVERRIDES, plantChanges, plantLightSwitched, plantOverridesReleased, plantPower, plantSwitchOffTimes, plantsAllOffSet,
 } from '../../src/domain/plant-lights.ts';
 import type { PlantOverrides } from '../../src/domain/plant-lights.ts';
 import type { SwitchId } from '../../src/domain/types/ids.ts';
@@ -170,4 +170,39 @@ test('with no day start in reach a plant light is off unless its hours are 24, a
   assert.equal(power(s, at('12:00:00')), 'on');
   s.plantOverrides.handSwitches[plantA] = { power: 'off', since: at('10:00:00', 19) };
   assert.equal(power(s, at('12:00:00')), 'off');
+});
+
+// The switch-off time each plant light shows: its timer's, whatever holds it.
+
+test('a plant light switches off at the day start plus its hours', () => {
+  // Break: the hours are added to the fade start or to now, or the house's default is read for a light with its own hours.
+  const s = sources(s => { s.config.switches[plantHouse] = { kind: 'plant light', room: undefined, hours: { follows: 'own', own: toPlantHours(4) } }; });
+  assert.deepEqual(plantSwitchOffTimes(s.config, at('12:00:00')), { [plantA]: at('19:00:00'), [plantHouse]: at('11:00:00') });
+});
+test('at the weekend it counts from the weekend day start', () => {
+  // Break: the weekday start is read at the weekend.
+  assert.equal(plantSwitchOffTimes(config, at('12:00:00', 26))[plantA], at('21:00:00', 26));
+});
+test('a room with its own day start switches off from that', () => {
+  // Break: the house's day start is read for a room that has its own.
+  const s = sources(ownDayAt0830);
+  assert.deepEqual(plantSwitchOffTimes(s.config, at('12:00:00')), { [plantA]: at('20:30:00'), [plantHouse]: at('19:00:00') });
+});
+test('a plant light with 24 hours, 0 hours or no day start has no switch-off', () => {
+  // Break: 24 hours gives a time, or 0 hours gives the day start, or no day start gives the epoch plus hours.
+  const s = sources();
+  s.config.switches[plantA] = { kind: 'plant light', room: roomA, hours: { follows: 'own', own: toPlantHours(24) } };
+  s.config.switches[plantHouse] = { kind: 'plant light', room: undefined, hours: { follows: 'own', own: toPlantHours(0) } };
+  assert.deepEqual(plantSwitchOffTimes(s.config, at('12:00:00')), {});
+  const none = sources(noDayStarts);
+  assert.deepEqual(plantSwitchOffTimes(none.config, at('12:00:00')), {});
+});
+test('a switch-off that has passed stays shown until the next day start', () => {
+  // Break: the time is dropped once it has passed, or moves to tomorrow's. (Before Monday's start it is still Sunday's, from 09:00.)
+  assert.equal(plantSwitchOffTimes(config, at('20:00:00'))[plantA], at('19:00:00'));
+  assert.equal(plantSwitchOffTimes(config, at('06:59:59'))[plantA], at('21:00:00', 20));
+  assert.equal(plantSwitchOffTimes(config, at('07:00:00', 22))[plantA], at('19:00:00', 22));
+});
+test('no plant lights give no times', () => {
+  assert.deepEqual(plantSwitchOffTimes(noPlants, at('12:00:00')), {});
 });

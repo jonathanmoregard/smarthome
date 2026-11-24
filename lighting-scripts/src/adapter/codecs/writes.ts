@@ -25,7 +25,7 @@ import type { BlockLight } from './config.ts';
 import { decodeLampProfile, encodeLampProfile } from './lamp-profiles.ts';
 import { profileStore } from './model.ts';
 import { storeKeys } from './overlay-key.ts';
-import { encodeOverrides } from './overrides-sensor.ts';
+import { encodeOverrides, encodePlantSwitchOff } from './overrides-sensor.ts';
 import { PLANTS_ALL_OFF, plantsAllOffShown } from './inputs.ts';
 import { drives } from './rooms.ts';
 import type { Share } from './rooms.ts';
@@ -202,10 +202,14 @@ export type ModelWrites = { sensor: SensorChanges | undefined; helpers: HelperWr
  * store when its profile did. The overrides sensor and the remotes' helpers are written only for what `share`
  * drives: the old scripts write the rest.
  */
-export function modelWrites(before: Model, after: Model, house: HouseView, reported: HouseView, now: Instant, share: Share): ModelWrites {
+export function modelWrites(before: Model, after: Model, house: HouseView, reported: HouseView, now: Instant, share: Share,
+  plantSwitchOff: DashboardView['plantSwitchOff']): ModelWrites {
   const stored = reported.state[OVERRIDES_SENSOR];
   const found: JsonObject = stored === undefined ? {} : stored.attributes;
   const written = encodeOverrides(after, found, share, after.config, storeKeys(house.catalog));
+  // Derived from the dashboard view, so no key of its own in the Model: written when it differs, and not made up when empty and absent.
+  const switchOff = encodePlantSwitchOff(plantSwitchOff);
+  if (Object.keys(switchOff).length > 0 || found['plant_switch_off'] !== undefined) written['plant_switch_off'] = switchOff;
   // Every attribute the codec writes is a mapping, the stored one or one it made: its keys are the changes.
   const changes = Object.entries(written).flatMap(([attribute, value]): SensorKeyChange[] => {
     const was = isObject(found[attribute]) ? found[attribute] : {}, now = isObject(value) ? value : {};

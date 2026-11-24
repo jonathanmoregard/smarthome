@@ -107,3 +107,11 @@ test('the lighting switch beside it is as before', () => {
   assert.equal(lightingState(house(), noon).switches[plugA], 'off');
   assert.equal(lightingState(house(), at('20:00:00')).switches[plugA], 'on');
 });
+
+test('the dashboard view carries each plant light\'s timer switch-off, whatever holds it', () => {
+  // Break: the view leaves the times out, or an override moves them.
+  const view = (model: Model) => dashboardView(model, lightingState(model, noon), noon).plantSwitchOff;
+  assert.deepEqual(view(house()), { [plantA]: at('19:00:00') });
+  const held = update(update(house(), { kind: 'switchButtonPressed', switch: plantA, power: 'off', at: noon }), { kind: 'plantsAllOffSet', on: true, at: noon });
+  assert.deepEqual(view(held), { [plantA]: at('19:00:00') });
+});

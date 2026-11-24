@@ -142,24 +142,13 @@ function decodeKeyed<K extends string, V>(raw: JsonValue | undefined, key: (text
   }) : [];
 }
 
-/** The one key of `plant_all_off`: the all-off hold. No such key is no hold. */
-const ALL_OFF_KEY = 'held';
-
-/** The all-off hold of `plant_all_off`, written by this port only; no `held` key, or one without a date `when`, is none. */
-function decodeAllOff(raw: JsonValue | undefined): AllOff | undefined {
-  return isObject(raw) && raw[ALL_OFF_KEY] !== undefined ? decodeHeld(raw[ALL_OFF_KEY]) : undefined;
-}
-
-function decodeHeld(raw: JsonValue): AllOff | undefined {
-  const when = isObject(raw) ? raw['when'] : undefined;
-  const stamp = typeof when === 'string' ? dateSeconds(when) : undefined;
-  return stamp === undefined ? undefined : { since: toInstant(stamp) };
-}
-
 /** A room's saved power: a boolean; anything else leaves the room on. */
 function decodePower(raw: JsonValue): Power | undefined {
   return typeof raw === 'boolean' ? (raw ? 'on' : 'off') : undefined;
 }
+
+/** The one key of `plant_all_off`: the all-off hold. No such key is no hold. */
+const ALL_OFF_KEY = 'held';
 
 /** A switch held by its own button: `{power, when}`, written by this port only; a bad power or when drops it. */
 function decodeSwitchOverlay(raw: JsonValue): SwitchOverlay | undefined {
@@ -198,6 +187,17 @@ function decodeRangeDefaults(raw: JsonValue | undefined): RangeDefaults {
     return range === undefined ? BUILT_IN_RANGE_DEFAULTS[profile] : range;
   };
   return { bright: pair('bright'), cosy: pair('cosy') };
+}
+
+/** The all-off hold of `plant_all_off`, written by this port only; no `held` key, or one without a date `when`, is none. */
+function decodeAllOff(raw: JsonValue | undefined): AllOff | undefined {
+  return isObject(raw) && raw[ALL_OFF_KEY] !== undefined ? decodeHeld(raw[ALL_OFF_KEY]) : undefined;
+}
+
+function decodeHeld(raw: JsonValue): AllOff | undefined {
+  const when = isObject(raw) ? raw['when'] : undefined;
+  const stamp = typeof when === 'string' ? dateSeconds(when) : undefined;
+  return stamp === undefined ? undefined : { since: toInstant(stamp) };
 }
 
 /**
@@ -304,6 +304,15 @@ function underlyingPart<P>(underlying: JsonValue | undefined, reader: ClaimReade
   return reader.fixed(carried['value'], toInstant(carried['updated']));
 }
 
+/** A stored overlay entry of a known shape, read into the overlay it is. */
+type StoredOverlay =
+  | { kind: 'block'; scope: RoomOrHouse; overlay: BlockOverlay }
+  /** `name`: the catalog's mode, which the key and the record's target name. */
+  | { kind: 'mode'; name: ModeName; overlay: Extract<ModeOverlay, { active: true }> }
+  /** `source`: what the overlay's key names. */
+  | { kind: 'remote'; overlay: RemoteOverlay; source: RemoteSource }
+  | { kind: 'lamp'; overlay: LampOverlay };
+
 /** The brightness channel: a level 0..255 (rounded), or an effect's `intensity`. */
 const BRIGHTNESS: ClaimReader<BrightnessOverlay> = {
   fixed: (value, at) => typeof value === 'number' && value >= 0 && value <= 255
@@ -323,15 +332,6 @@ const COLOUR: ClaimReader<ColourOverlay> = {
   },
   intensity: () => undefined,
 };
-
-/** A stored overlay entry of a known shape, read into the overlay it is. */
-type StoredOverlay =
-  | { kind: 'block'; scope: RoomOrHouse; overlay: BlockOverlay }
-  /** `name`: the catalog's mode, which the key and the record's target name. */
-  | { kind: 'mode'; name: ModeName; overlay: Extract<ModeOverlay, { active: true }> }
-  /** `source`: what the overlay's key names. */
-  | { kind: 'remote'; overlay: RemoteOverlay; source: RemoteSource }
-  | { kind: 'lamp'; overlay: LampOverlay };
 
 /** The stored entries of a known shape, in stored order; an `overrides` that is not a mapping holds none. */
 function decodeEntries(overrides: JsonValue | undefined, keys: StoreKeys): StoredOverlay[] {
@@ -790,6 +790,22 @@ type PartsOverlay = Extract<LampOverlay, { kind: 'parts' }>;
 /** What one stored channel claim says: the part it sets, and the effect it runs, if any. */
 type ChannelPart<P> = { part: P | undefined; effect: EffectOverlay | undefined };
 
+/**
+ * The `plant_switch_off` attribute: each plant light's switch-off as ISO text. It is derived from the dashboard view,
+ * not part of `OverridesState`, and never read back; a light with no switch-off has no key.
+ */
+export function encodePlantSwitchOff(times: Partial<Record<SwitchId, Instant>>): JsonObject {
+  return Object.fromEntries(entriesOf(times).flatMap(([light, time]) => time === undefined ? [] : [[light, isoText(time)]]));
+}
+
+/** An instant as the ISO text `when` is stored as, in UTC; microseconds where the instant has them. */
+function isoText(instant: Instant): string {
+  if (Number.isInteger(instant * 1000)) return new Date(instant * 1000).toISOString();
+  let whole = Math.floor(instant), micros = Math.round((instant - whole) * 1e6);
+  if (micros === 1e6) { whole += 1; micros = 0; }
+  return `${new Date(whole * 1000).toISOString().slice(0, 19)}.${String(micros).padStart(6, '0')}Z`;
+}
+
 /** A stored colour, `{kelvin}` in 1000..10000 or `{rgb: [r, g, b]}` each 0..255; none otherwise. */
 function storedColour(value: JsonValue | undefined): Colour | undefined {
   if (!isObject(value)) return undefined;
@@ -803,14 +819,6 @@ function storedColour(value: JsonValue | undefined): Colour | undefined {
   const channelOf = (raw: JsonValue | undefined) => typeof raw === 'number' && raw >= 0 && raw <= 255 ? toColourChannel(raw) : undefined;
   const r = channelOf(red), g = channelOf(green), b = channelOf(blue);
   return r === undefined || g === undefined || b === undefined ? undefined : { kind: 'rgb', rgb: { red: r, green: g, blue: b } };
-}
-
-/** An instant as the ISO text `when` is stored as, in UTC; microseconds where the instant has them. */
-function isoText(instant: Instant): string {
-  if (Number.isInteger(instant * 1000)) return new Date(instant * 1000).toISOString();
-  let whole = Math.floor(instant), micros = Math.round((instant - whole) * 1e6);
-  if (micros === 1e6) { whole += 1; micros = 0; }
-  return `${new Date(whole * 1000).toISOString().slice(0, 19)}.${String(micros).padStart(6, '0')}Z`;
 }
 
 /** A number the resolver accepts as a stamp: finite, within ±1e20. */

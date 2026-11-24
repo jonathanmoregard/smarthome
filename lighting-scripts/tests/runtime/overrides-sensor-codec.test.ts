@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { BUILT_IN_RANGE_DEFAULTS, EPOCH, decodeOverrides, encodeOverrides } from '../../src/adapter/codecs/overrides-sensor.ts';
+import { BUILT_IN_RANGE_DEFAULTS, EPOCH, decodeOverrides, encodeOverrides, encodePlantSwitchOff } from '../../src/adapter/codecs/overrides-sensor.ts';
 import { DEFAULT_STEP_RANGE } from '../../src/domain/remote.ts';
 import { NO_PLANT_OVERRIDES } from '../../src/domain/plant-lights.ts';
 import { storeKeys } from '../../src/adapter/codecs/overlay-key.ts';
@@ -678,4 +678,19 @@ test('unchanged plant overrides keep the stored bytes', () => {
   const stored = { ...found, plant_all_off: { held: { when: iso(40), note: 'kept' } } };
   const state = { ...decodeOverrides(found, sources), plantOverrides: { handSwitches: {}, allOff: { since: at(40) } } };
   assert.deepEqual(encodeOverrides(state, stored, allRooms, configWithPlantA, sources)['plant_all_off'], stored.plant_all_off);
+});
+
+// `plant_switch_off`: derived from the dashboard view, written by the port, never read back.
+
+test('each plant light\'s switch-off is written as ISO text, and a light with none is left out', () => {
+  // Break: an instant is written as a number, or a light with no switch-off is written with a stand-in.
+  const plantB = id.switch('switch.plant_b');
+  assert.deepEqual(encodePlantSwitchOff({ [plantA]: at(10), [plantB]: undefined }), { [plantA]: iso(10) });
+  assert.deepEqual(encodePlantSwitchOff({}), {});
+});
+
+test('the stored switch-off times are no part of the state read', () => {
+  // Break: the derived attribute is read back as stored state, so a stale time outlives the Model.
+  const found = { ...fullStore(), plant_switch_off: { [plantA]: iso(10) } };
+  assert.deepEqual(decodeOverrides(found, sources), decodeOverrides(fullStore(), sources));
 });
