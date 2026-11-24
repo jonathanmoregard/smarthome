@@ -686,3 +686,23 @@ test('closeout r1 A2: a wall power cycle no look saw as out of reach gets the ca
   assert.deepEqual(bulbs.shows(bulbA1), { reach: 'reachable', light: lit(100, WARM, 'candle') },
     `sends to bulb-a1 over ten passes: ${sent.filter(send => to(send) === bulbA1).length}`);
 });
+
+/* Close-out round 2 reproducers: `todo` with the finding's id while the defect stands; the fixer drops the mark. */
+
+test('closeout r2 A3: a bulb parked by put-backs whose wall power returns before Home Assistant saw it unavailable gets its light back', { todo: 'closeout r2 A3' }, () => {
+  // Break: the power-on light comes in as an on-to-on report, which `unexplained` does not read as back on, and a
+  // parked bulb whose target equals `lastSent` is sent nothing (src/adapter/reconcile.ts:330), so it keeps the
+  // power-on light. The pass follows the loop: unexplained, backOn, nextSends (src/adapter/loop.ts:166, 215-217).
+  let { bulbs, beliefs } = steady();
+  for (let n = 1; n <= REAPPLY_LIMIT; n++) {
+    bulbs.set(bulbA3, { reach: 'reachable', light: lit(40, kelvin(3003)) });
+    beliefs = pass(bulbs, EVENING, beliefs, at(n * 60)).beliefs;
+  }
+  assert.equal(beliefs.bulbs[bulbA3]?.kind, 'parked', 'control: six put-backs park it');
+  const before = bulbs.observed();
+  bulbs.set(bulbA3, { reach: 'reachable', light: lit(254, undefined) });
+  const back = unexplained(before, bulbs.observed(), beliefs).flatMap(change => change.kind === 'bulb back on' ? [change.bulb] : []);
+  const { sends } = pass(bulbs, EVENING, backOn(beliefs, back), at(REAPPLY_LIMIT * 60 + 60));
+  assert.deepEqual(sends.map(to).filter(bulb => bulb === bulbA3), [bulbA3]);
+  assert.deepEqual(bulbs.shows(bulbA3), { reach: 'reachable', light: lit(150, kelvin(3003)) });
+});

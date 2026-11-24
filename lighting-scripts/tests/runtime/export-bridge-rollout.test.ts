@@ -123,6 +123,19 @@ test('an automation the rollout does not know is refused rather than guessed', a
   assert.match(run.stderr, /lighting_mystery/);
 });
 
+test('closeout r2 A1: the app lamp change bridge forwards a person\'s turn_off, which the port reads as a lamp switched off', { todo: 'closeout r2 A1' }, async () => {
+  // The captured detector's own condition (reference/live/automations/lighting_schedule_lamp_change_detector.json:21)
+  // passes only `turn_on`: the old scripts made no override of a power-only call. The port reads `turn_off` as a
+  // person's off (src/adapter/codecs/inputs.ts:498), so its bridge must not keep that filter.
+  const detector = { id: 'c1', alias: 'Lamp change', mode: 'queued',
+    triggers: [{ trigger: 'event', event_type: 'call_service', event_data: { domain: 'light' } }],
+    conditions: [{ condition: 'template', value_template: "{{ trigger.event.context.user_id is not none and trigger.event.data.service == 'turn_on' }}" }],
+    actions: [{ event: 'ls_override', event_data: {} }] };
+  const { run, read } = await exportRollout({ lighting_schedule_lamp_change_detector: detector });
+  assert.equal(run.status, 0, run.stderr);
+  assert.doesNotMatch(templates(await read('lighting_schedule_lamp_change_detector.json')), /service == 'turn_on'/);
+});
+
 test('a bridge forwards the automation\'s own variables, so the port reads the dashboard sources Home Assistant routed by', async () => {
   const { run, read } = await exportRollout();
   assert.equal(run.status, 0, run.stderr);
