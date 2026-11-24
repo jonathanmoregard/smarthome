@@ -527,7 +527,7 @@ test('a host that stopped its heartbeat after turns that threw resumes it at the
   await host.close();
 });
 
-test('closeout r1 A4: a catalog reload with a new bulb sends that bulb its light at the wake', { todo: 'closeout r1 A4' }, async () => {
+test('closeout r1 A4: a catalog reload with a new bulb sends that bulb its light at the wake', async () => {
   // Break: the wake main.ts sends after a reload keeps the Model's Config, decoded from the old catalog, so the new
   // bulb is not in any lamp until a helper changes or the process restarts.
   const ha = new FakeHa(), now = { time: at('12:00:00') };

@@ -56,7 +56,10 @@ export type AdapterState = {
   model: Model; beliefs: Beliefs; view: DashboardView | undefined; observed: Observed; outbox: Outbox;
   /** The share of the house the last turn drove, so a room handed over since is taken as found. */
   share: Share;
-  /** The helpers are read again next turn: a write was parked, and the Model follows what Home Assistant holds. */
+  /**
+   * The config is read again next turn, as on a helper change: a write was parked, and the Model follows what Home
+   * Assistant holds; or the catalog changed, and the config is decoded from the new one.
+   */
   reread: boolean;
 };
 
@@ -65,6 +68,11 @@ export type AdapterState = {
  * journal held: the beliefs, so a restart sends nothing a bulb already shows, and the share they were sent under.
  */
 export type Kept = { kind: 'running'; state: AdapterState } | ({ kind: 'starting' } & JournalRecord);
+
+/** What is kept once the catalog changed: the next turn reads the config again, through `configChanged`, as a helper change does. A start reads it anyway. */
+export function catalogChanged(kept: Kept): Kept {
+  return kept.kind === 'running' ? { kind: 'running', state: { ...kept.state, reread: true } } : kept;
+}
 
 /**
  * A turn's result, before its outputs are made: the state to keep, whose beliefs are those before any send; the

@@ -13,7 +13,7 @@ import { Unreachable } from './adapter/ha-client.ts';
 import type { EntityState, HaClient, JsonObject } from './adapter/ha-client.ts';
 import { bridgeVerdict } from './adapter/codecs/inputs.ts';
 import type { HaInput } from './adapter/codecs/inputs.ts';
-import { afterOutputs, handleInput } from './adapter/loop.ts';
+import { afterOutputs, catalogChanged, handleInput } from './adapter/loop.ts';
 import type { Kept } from './adapter/loop.ts';
 import type { RoomsGiven } from './adapter/live-rooms.ts';
 import type { Instant } from './domain/types/time.ts';
@@ -184,9 +184,9 @@ export class Host {
   /** The house as the host holds it now. */
   house(): HouseMirror { return this.mirror; }
 
-  /** A new catalog; the next turn reads it. */
+  /** A new catalog; the next turn reads it, and the config decoded from it. */
   catalogChanged(catalog: Catalog): void {
-    this.enqueue(async () => { this.catalog = catalog; });
+    this.enqueue(async () => { this.catalog = catalog; this.kept = catalogChanged(this.kept); });
   }
 
   /** Settles once every input has run, those accepted while waiting included. */
