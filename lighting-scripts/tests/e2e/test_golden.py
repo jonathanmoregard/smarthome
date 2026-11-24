@@ -27,6 +27,7 @@ from tests.e2e.router import LOCAL, HaStart, Mqtt, ScriptCall, StateChanged
 from tests.e2e.runner import BackendRun
 from tests.e2e.scenarios import (AFTER_MINUTES, AFTER_RULE, NAMES, NEXT_BLOCK_RULE, OVERLAY_MINUTES, MissingRole, Proof,
                                  Scenario, house_entity, scenarios, seeds_for)
+from tests.e2e.test_compare import into_candle
 from tests.e2e.world import Kelvin, Off, On
 
 BLOCKS = ('day', 'cosy', 'night')
@@ -638,6 +639,19 @@ class Recordings(unittest.TestCase):
         self.assertEqual(result.exact.differences, ())
         self.assertEqual(dict(result.exact.adjustments), {'fade-off-to-on-gradual': 1})
         self.assertEqual((result.flow.flow, dict(result.flow.noted)), ((), {'fade-sampling': 1}))
+
+    def test_replay_counts_the_approved_fade_into_the_candle_colour_on_the_houses_candle_bulbs(self):
+        # bulb_a fades into the candle's warm colour. The reference ran a Candle on its lamp (`candle_lamps`), but
+        # only a lamp whose bulbs can run the firmware candle (`candle_capable`) is explained.
+        reference, port = into_candle()
+        save('golden_x', self.scenario, BackendRun(reference, {}), directory=self.directory)
+        for capable, flow, explained in ((True, [], {'fade-into-candle-colour': 4}), (False, ['timing'] * 2, {})):
+            with self.subTest(capable=capable):
+                house = replace(synthetic_house(), lamps=(LampInfo('light.lamp_a1', 'room_a', ('bulb_a',), capable),))
+                with mock.patch('tests.e2e.golden.run_backend', return_value=BackendRun(port, {})):
+                    result = replay('golden_x', directory=self.directory, current=lambda: scenarios(house))
+                self.assertEqual(([d.rule for d in result.flow.flow], dict(result.flow.expected)), (flow, explained))
+                self.assertEqual(dict(result.exact.adjustments), explained)
 
     def test_an_expected_entry_needs_the_house_to_resolve(self):
         # A plain mapping of scenarios has no house to find the entry's subject in: said so, not an AttributeError.

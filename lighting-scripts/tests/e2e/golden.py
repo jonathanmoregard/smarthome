@@ -29,8 +29,8 @@ from pathlib import Path
 import sys
 
 from tests.e2e.codec import Advance, Checkpoint, HouseInfo, LampInfo, decode, encode
-from tests.e2e.compare import (Comparison, ExpectedWindow, FadeOffToOnGradual, FlowComparison, compare,
-                               compare_flow)
+from tests.e2e.compare import (Adjustment, Comparison, ExpectedWindow, FadeIntoCandleColour, FadeOffToOnGradual,
+                               FlowComparison, compare, compare_flow)
 from tests.e2e.router import LOCAL, Mqtt, ScriptCall
 from tests.e2e.runner import ROOT, BackendRun, describe_house, run_backend
 from tests.e2e.scenarios import (BLOCKS, NAMES, Proof, Scenario, Scenarios, house_entity, plug_of, scenarios,
@@ -42,7 +42,15 @@ GOLDEN = ROOT / '.runtime' / 'e2e' / 'golden'
 HASHED_MODULES = ('env', 'world', 'router', 'codec', 'backend', 'runner', 'services')
 CAPTURES = 'reference'
 CANDIDATE = 'tests/parity/portability.py'   # `live_candidate`: the captures as the reference runs them
-ADJUSTMENTS = (FadeOffToOnGradual(),)   # the owner-approved divergences the exact comparison explains, each counted
+
+
+def adjustments_for(house: HouseInfo | None) -> tuple[Adjustment, ...]:
+    """The owner-approved divergences both comparisons explain, each counted. The candle fade is explained on the
+    bulbs of the house's lamps that can run the firmware candle; with no house (a plain mapping of scenarios), on none.
+    """
+    candle_bulbs = frozenset() if house is None else frozenset(
+        bulb for lamp in house.lamps if lamp.candle_capable for bulb in lamp.bulbs)
+    return FadeOffToOnGradual(), FadeIntoCandleColour(candle_bulbs)
 
 
 @dataclass(frozen=True)
@@ -356,8 +364,9 @@ def replay(name: str, *, directory: Path = GOLDEN,
         raise ValueError(f'{name}: an expected difference names its subject by role, which needs the house '
                          '(golden scenarios built by `scenarios`, not a plain mapping)')
     resolved = windows(entries, name, scenario, golden.house) if isinstance(golden, Scenarios) else ()
-    judged = compare_flow(recording.reference.checkpoints, port.checkpoints, scenario, resolved)
-    exact = compare(recording.reference.checkpoints, port.checkpoints, ADJUSTMENTS)
+    approved = adjustments_for(golden.house if isinstance(golden, Scenarios) else None)
+    judged = compare_flow(recording.reference.checkpoints, port.checkpoints, scenario, resolved, approved)
+    exact = compare(recording.reference.checkpoints, port.checkpoints, approved)
     # The backends' own rules (the reference's software candle) are adjustments as much as compare's are.
     adjustments = Counter(exact.adjustments) + Counter(recording.reference.adjustments) + Counter(port.adjustments)
     return Replayed(judged, replace(exact, adjustments=dict(adjustments)))

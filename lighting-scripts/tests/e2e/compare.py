@@ -28,6 +28,7 @@ XY_DISTANCE = 0.01     # CIE 1931 xy distance for RGB colours
 MID_FADE_LEVEL_PCT = 1  # percent of 254, when either side's bulb is mid-fade
 FULL_LEVEL = 254
 D65_WHITE_XY = (0.3127, 0.3290)
+PLANCKIAN_KELVIN = (1667, 25000)   # the range the Planckian locus spline is fitted for (`planckian_xy`)
 
 LEVEL_BAND = 51          # a fifth of the 1..254 range: bright against dim is flow, the exact level is not
 KELVIN_FAMILY = 0.15     # two colour temperatures within 15 % are the same family
@@ -58,7 +59,8 @@ class FlowComparison:
     flow: tuple[Difference, ...]        # these fail the gate
     noted: Mapping[str, int]            # counted, reported, never fail
     not_ported: Mapping[str, int]
-    expected: Mapping[str, int] = dataclass_field(default_factory=dict)   # differences an `ExpectedWindow` excused, by name
+    # differences an owner-approved divergence excused, by name: an `ExpectedWindow` or an `Adjustment`
+    expected: Mapping[str, int] = dataclass_field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -144,6 +146,62 @@ class FadeOffToOnGradual:
         ref, port = here.ref, here.port
         assert isinstance(ref, On) and isinstance(port, On)
         return _same_colour(ref.colour, port.colour) and 1 <= port.level <= ref.level
+
+
+class FadeIntoCandleColour:
+    """The owner's approved divergence (2026-11-24, "would like lit to candle to fade into candle color over
+    transition and then start effect").
+
+    When a scheduled fade leads a lit lamp into a block whose light is the candle, today's scripts fade towards the
+    block's own colour and the candle then shows the warm end; the port, on a bulb that can run the firmware candle,
+    fades towards the warm end itself, so the candle starts with no colour jump. A colour difference is this, and
+    nothing else, when:
+    1. the house's catalog says the bulb can run the firmware candle (`candle_bulbs`);
+    2. the port shows the bulb in a fade (its `in_fade`), and the window is that unbroken run of the port's fade;
+    3. the fade's starting colour is what both sides show, lit and the same within the tolerances, at the checkpoint
+       just before the window (at its first, where the window opens the history);
+    4. at the window's last checkpoint both sides run the candle, and the port shows the colour the reference's candle
+       shows: the warm end, as today's scripts take it from the scenario's config;
+    5. the port shows the bulb lit throughout the window, each colour between the starting colour and the warm end (in
+       CIE xy, the way from the start through it to the warm end no longer than the straight way plus `XY_DISTANCE`),
+       and never further from the warm end than it has already come, beyond `XY_DISTANCE`.
+    After the window, colours must agree with no adjustment.
+    """
+    name = 'fade-into-candle-colour'
+    fields = frozenset({'colour'})
+
+    def __init__(self, candle_bulbs: frozenset[str]) -> None:
+        self.candle_bulbs = candle_bulbs
+
+    def applies(self, history: Sequence[BulbAt], at: int, subject: str) -> bool:
+        if subject not in self.candle_bulbs or not history[at].port_fading:
+            return False
+        first, last = at, at
+        while first > 0 and history[first - 1].port_fading:
+            first -= 1
+        while last + 1 < len(history) and history[last + 1].port_fading:
+            last += 1
+        opening, end = history[max(first - 1, 0)], history[last]
+        if not (isinstance(opening.ref, On) and isinstance(opening.port, On) and opening.port.colour is not None
+                and _same_colour(opening.ref.colour, opening.port.colour)):
+            return False
+        if not (isinstance(end.ref, On) and isinstance(end.port, On) and end.ref.effect == 'candle'
+                and end.port.effect == 'candle' and end.ref.colour is not None
+                and _same_colour(end.ref.colour, end.port.colour)):
+            return False
+        start, warm = _chromaticity(opening.port.colour), _chromaticity(end.ref.colour)
+        straight = _distance(start, warm)
+        nearest = straight
+        for moment in history[first:last + 1]:
+            if not (isinstance(moment.ref, On) and isinstance(moment.port, On) and moment.port.colour is not None):
+                return False
+            point = _chromaticity(moment.port.colour)
+            if _distance(start, point) + _distance(point, warm) > straight + XY_DISTANCE:
+                return False
+            if _distance(point, warm) > nearest + XY_DISTANCE:
+                return False
+            nearest = min(nearest, _distance(point, warm))
+        return True
 
 
 def compare(reference: Sequence[Checkpoint], port: Sequence[Checkpoint],
@@ -282,6 +340,36 @@ def _xy(colour: Rgb) -> tuple[float, float]:
     return D65_WHITE_XY if total == 0 else (x / total, y / total)
 
 
+def planckian_xy(kelvin: float) -> tuple[float, float]:
+    """A colour temperature's CIE 1931 xy on the Planckian locus, by the cubic spline of Kim et al., "Design of
+    advanced color temperature control system for HDTV applications", J. Korean Phys. Soc. 41 (2002) 865-871.
+
+    Raises ValueError outside the 1667 to 25000 K the spline is fitted for.
+    """
+    if not PLANCKIAN_KELVIN[0] <= kelvin <= PLANCKIAN_KELVIN[1]:
+        raise ValueError(f'{kelvin} K is outside the Planckian spline range {PLANCKIAN_KELVIN}')
+    t = kelvin
+    if t <= 4000:
+        x = -0.2661239e9 / t ** 3 - 0.2343589e6 / t ** 2 + 0.8776956e3 / t + 0.179910
+    else:
+        x = -3.0258469e9 / t ** 3 + 2.1070379e6 / t ** 2 + 0.2226347e3 / t + 0.240390
+    if t <= 2222:
+        y = -1.1063814 * x ** 3 - 1.34811020 * x ** 2 + 2.18555832 * x - 0.20219683
+    elif t <= 4000:
+        y = -0.9549476 * x ** 3 - 1.37418593 * x ** 2 + 2.09137015 * x - 0.16748867
+    else:
+        y = 3.0817580 * x ** 3 - 5.87338670 * x ** 2 + 3.75112997 * x - 0.37001483
+    return x, y
+
+
+def _chromaticity(colour: Kelvin | Rgb) -> tuple[float, float]:
+    return planckian_xy(colour.kelvin) if isinstance(colour, Kelvin) else _xy(colour)
+
+
+def _distance(a: tuple[float, float], b: tuple[float, float]) -> float:
+    return ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5
+
+
 # --- the flow gate ---------------------------------------------------------------------------------------
 
 FLOW = 'flow'   # a bulb or switch difference's kind when it fails the gate at a settled checkpoint
@@ -289,11 +377,22 @@ _INSIDE_FLOW_FIELDS = frozenset({'power', 'colour', 'effect', 'bulb'})   # rules
 
 
 def compare_flow(reference: Sequence[Checkpoint], port: Sequence[Checkpoint], scenario: Scenario,
-                 expected: Sequence[ExpectedWindow] = ()) -> FlowComparison:
-    """The gate's judgement: flow differences fail, the rest is noted (the rules are in the M1 plan, Task 1)."""
+                 expected: Sequence[ExpectedWindow] = (), adjustments: Sequence[Adjustment] = ()) -> FlowComparison:
+    """The gate's judgement: flow differences fail, the rest is noted (the rules are in the M1 plan, Task 1).
+
+    A bulb's flow difference an adjustment explains (the owner-approved divergences the exact comparison explains
+    too) is counted under its name in `expected`, once per bulb per checkpoint, and never judged further.
+    """
     ref_steps, port_steps = _by_step(reference), _by_step(port)
     found: list[tuple[Difference, Checkpoint | None]] = []   # each flow difference, with the port checkpoint
     noted: Counter[str] = Counter()
+    explained: Counter[str] = Counter()
+
+    aligned = _aligned(reference, port, ref_steps, port_steps, noted)
+    histories = _histories(aligned)
+    judged = [(ref, new, _unexplained(_judge(ref, new), histories, index, adjustments, explained))
+              for index, (ref, new) in enumerate(aligned)]
+    judged_at = {(ref.step, ref.t): differences for ref, _, differences in judged}
 
     settled: dict[int, tuple[Checkpoint, Checkpoint]] = {}
     for step in sorted(ref_steps.keys() | port_steps.keys()):
@@ -306,14 +405,12 @@ def compare_flow(reference: Sequence[Checkpoint], port: Sequence[Checkpoint], sc
                                      None if new is None else new.t, rule='checkpoint'), None))
             continue
         settled[step] = (ref, new)
-        for subject, name, value, other, kind in _judge(ref, new):
+        for subject, name, value, other, kind in judged_at[(step, ref.t)]:
             if kind == FLOW:
                 found.append((Difference(step, ref.t, subject, name, value, other, rule=_rule_of(subject, name)), new))
             else:
                 noted[kind] += 1
 
-    aligned = _aligned(reference, port, ref_steps, port_steps, noted)
-    judged = [(ref, new, _judge(ref, new)) for ref, new in aligned]
     for index, (ref, new, differences) in enumerate(judged):
         if ref is not ref_steps[ref.step][-1]:   # inside a step: rule 6, and fade sampling
             for subject, name, value, other, kind in differences:
@@ -337,7 +434,7 @@ def compare_flow(reference: Sequence[Checkpoint], port: Sequence[Checkpoint], sc
 
     flow, excused = _apply_expected(found, port, expected)
     return FlowComparison(flow=tuple(flow), noted=dict(noted), not_ported=_count_not_ported(port),
-                          expected=dict(excused))
+                          expected=dict(excused + explained))
 
 
 def _by_step(checkpoints: Sequence[Checkpoint]) -> dict[int, list[Checkpoint]]:
@@ -382,6 +479,24 @@ def _judge(ref: Checkpoint, port: Checkpoint) -> list[tuple[str, str, object, ob
         if ref.dashboard.get(key) != port.dashboard.get(key):
             found.append(('dashboard', key, ref.dashboard.get(key), port.dashboard.get(key), FLOW))
     return found
+
+
+def _unexplained(differences: list[tuple[str, str, object, object, str]], histories: _History, aligned: int,
+                 adjustments: Sequence[Adjustment], counted: Counter[str]) -> list[tuple[str, str, object, object, str]]:
+    """`differences` at aligned checkpoint `aligned` less each bulb's flow differences an adjustment explains, each
+    adjustment counted once per bulb it explains something for, as `compare` counts it."""
+    claimed: set[tuple[str, str]] = set()
+    for subject in sorted({subject for subject, _, _, _, kind in differences
+                           if kind == FLOW and subject in histories and aligned in histories[subject][1]}):
+        moments, positions = histories[subject]
+        flowing = {name for s, name, _, _, kind in differences if s == subject and kind == FLOW}
+        for adjustment in adjustments:
+            explained = flowing & adjustment.fields
+            if explained and adjustment.applies(moments, positions[aligned], subject):
+                counted[adjustment.name] += 1
+                claimed |= {(subject, name) for name in explained}
+    return [difference for difference in differences
+            if difference[4] != FLOW or (difference[0], difference[1]) not in claimed]
 
 
 def _bulb_flow(ref: BulbState, port: BulbState, fading: bool) -> list[tuple[str, object, object, str]]:

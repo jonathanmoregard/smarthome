@@ -6,7 +6,8 @@ import unittest
 
 from tests.e2e.codec import Checkpoint
 from tests.e2e.compare import (KELVIN_FAMILY, KELVIN_K, LEVEL_BAND, LEVEL_STEPS, MID_FADE_LEVEL_PCT, TICK, XY_DISTANCE,
-                               XY_FAMILY, Difference, ExpectedWindow, FadeOffToOnGradual, compare, compare_flow)
+                               XY_FAMILY, Difference, ExpectedWindow, FadeIntoCandleColour, FadeOffToOnGradual, compare,
+                               compare_flow, planckian_xy)
 from tests.e2e.router import LOCAL
 from tests.e2e.scenarios import Proof, Scenario
 from tests.e2e.world import Kelvin, Off, On, Rgb
@@ -287,6 +288,103 @@ class FadeOffToOn(unittest.TestCase):
         self.assertEqual(fields(result), [('bulb_a', 'level')] * 3)
 
 
+# --- fade-into-candle-colour -----------------------------------------------------------------------------
+
+WARM = Rgb(255, 126, 0)   # the colour the reference's candle shows
+DAY = Kelvin(4505)
+PORT_PATH = (Rgb(255, 215, 181), Rgb(255, 200, 150), Rgb(255, 172, 94), Rgb(255, 147, 44))   # the port's own samples
+REF_PATH = (Kelvin(4425), Kelvin(4032), Kelvin(3344), Kelvin(2740))   # the reference, towards the block's 2200 K
+
+
+def into_candle(port_path=PORT_PATH, *, port_end=WARM, ref_end_effect='candle', port_fading=True, port_levels=None,
+                port_effect='none', after=WARM):
+    """Step 0 both settled in DAY; step 1 the fade into the candle block, a sample a minute: the reference along
+    REF_PATH, the port along `port_path` (fading where `port_fading`), at each of `port_levels` (default: the
+    reference's 200) with `port_effect`; the last sample is the block start, the reference's candle in WARM
+    (`ref_end_effect`) and the port's in `port_end`, both still in their fade; step 2 both settled half an hour on,
+    the port in `after`."""
+    levels = (200,) * len(port_path) if port_levels is None else port_levels
+    fading = {'bulb_a'} if port_fading else set()
+    ref, port = [bulb(on(colour=DAY))], [bulb(on(colour=DAY))]
+    for n, (ref_colour, port_colour, level) in enumerate(zip(REF_PATH, port_path, levels)):
+        t = 60.0 * (n + 1)
+        ref.append(checkpoint(step=1, t=t, bulbs={'bulb_a': on(colour=ref_colour)}, in_fade={'bulb_a'}))
+        port.append(checkpoint(step=1, t=t, bulbs={'bulb_a': on(level=level, colour=port_colour, effect=port_effect)},
+                               in_fade=fading))
+    end = 60.0 * (len(port_path) + 1)
+    ref.append(checkpoint(step=1, t=end, bulbs={'bulb_a': on(colour=WARM, effect=ref_end_effect)}, in_fade={'bulb_a'}))
+    port.append(checkpoint(step=1, t=end, bulbs={'bulb_a': on(colour=port_end, effect='candle')}, in_fade=fading))
+    ref.append(checkpoint(step=2, t=end + 1800, bulbs={'bulb_a': on(colour=WARM, effect=ref_end_effect)}))
+    port.append(checkpoint(step=2, t=end + 1800, bulbs={'bulb_a': on(colour=after, effect='candle')}))
+    return ref, port
+
+
+CANDLE_BULBS = frozenset({'bulb_a'})
+
+
+class FadeIntoCandle(unittest.TestCase):
+    def explained(self, ref, port, candle_bulbs=CANDLE_BULBS):
+        return compare(ref, port, [FadeIntoCandleColour(candle_bulbs)])
+
+    def test_explains_the_fade_into_the_candles_colour(self):
+        result = self.explained(*into_candle())
+        self.assertEqual(result.differences, ())
+        self.assertEqual(dict(result.adjustments), {'fade-into-candle-colour': 4})
+        self.assertEqual(fields(compare(*into_candle())), [('bulb_a', 'colour')] * 4)
+
+    def test_explains_a_fade_whose_window_opens_the_history(self):
+        # The port's fade run reaches back to the first checkpoint: the fade starts from the colour both show there.
+        ref, port = into_candle()
+        port[0] = replace(port[0], in_fade=frozenset({'bulb_a'}))
+        self.assertEqual(dict(self.explained(ref, port).adjustments), {'fade-into-candle-colour': 4})
+
+    def test_explains_colour_only(self):
+        self.assertEqual(FadeIntoCandleColour.fields, frozenset({'colour'}))
+        self.assertEqual(FadeIntoCandleColour.name, 'fade-into-candle-colour')
+
+    def test_not_a_level_difference(self):
+        result = self.explained(*into_candle(port_levels=(200, 120, 200, 200)))
+        self.assertEqual(fields(result), [('bulb_a', 'level')])
+        self.assertEqual(dict(result.adjustments), {'fade-into-candle-colour': 4})
+
+    def test_not_a_colour_moving_away_from_the_warm_end(self):
+        # The port goes colder than the day before it turns warm: not between the day colour and the warm end.
+        away = (Rgb(255, 215, 181), Rgb(225, 230, 255), Rgb(255, 172, 94), Rgb(255, 147, 44))
+        self.assertEqual(fields(self.explained(*into_candle(away))), [('bulb_a', 'colour')] * 4)
+
+    def test_not_a_colour_turning_back(self):
+        # Between the ends at every sample, but back towards the day colour at the third.
+        back = (Rgb(255, 200, 150), Rgb(255, 172, 94), Rgb(255, 215, 181), Rgb(255, 147, 44))
+        self.assertEqual(fields(self.explained(*into_candle(back))), [('bulb_a', 'colour')] * 4)
+
+    def test_not_outside_a_port_fade(self):
+        self.assertEqual(fields(self.explained(*into_candle(port_fading=False))), [('bulb_a', 'colour')] * 4)
+
+    def test_not_a_bulb_that_cannot_run_the_candle(self):
+        result = self.explained(*into_candle(), candle_bulbs=frozenset({'bulb_b'}))
+        self.assertEqual(fields(result), [('bulb_a', 'colour')] * 4)
+
+    def test_not_a_fade_that_misses_the_warm_end(self):
+        result = self.explained(*into_candle(port_end=Rgb(255, 172, 94)))
+        self.assertEqual(fields(result), [('bulb_a', 'colour')] * 5)
+
+    def test_not_a_block_without_the_candle(self):
+        result = self.explained(*into_candle(ref_end_effect='none'))
+        self.assertEqual(fields(result), [('bulb_a', 'colour')] * 4 + [('bulb_a', 'effect')] * 2)
+
+    def test_not_after_the_fade_ends(self):
+        result = self.explained(*into_candle(after=Rgb(255, 172, 94)))
+        self.assertEqual([(d.step, d.field) for d in result.differences], [(2, 'colour')])
+        self.assertEqual(dict(result.adjustments), {'fade-into-candle-colour': 4})
+
+    def test_a_colour_temperature_sits_on_the_planckian_locus(self):
+        # CIE standard illuminant A is a 2856 K black body at (0.44757, 0.40745).
+        x, y = planckian_xy(2856)
+        self.assertLessEqual(((x - 0.44757) ** 2 + (y - 0.40745) ** 2) ** 0.5, XY_DISTANCE / 10)
+        with self.assertRaises(ValueError):
+            planckian_xy(1000)
+
+
 # --- the flow gate ---------------------------------------------------------------------------------------
 
 FLOW_START = datetime(2026, 11, 18, 12, tzinfo=LOCAL)
@@ -296,8 +394,8 @@ def scenario(proves=(), holds=()):
     return Scenario('flow_x', FLOW_START, (), (), tuple(proves), tuple(holds))
 
 
-def flow(reference, port, proves=(), holds=(), expected=()):
-    return compare_flow(reference, port, scenario(proves, holds), expected)
+def flow(reference, port, proves=(), holds=(), expected=(), adjustments=()):
+    return compare_flow(reference, port, scenario(proves, holds), expected, adjustments)
 
 
 def rules(result):
@@ -480,6 +578,24 @@ class ExpectedDifferences(unittest.TestCase):
         self.assertEqual((held.flow, dict(held.expected)), ((), {'press-held': 2}))
         loose = flow(ref, port, expected=[replace(window, port_holds=False)])
         self.assertEqual(loose.flow, ())
+
+
+class FlowAdjustments(unittest.TestCase):
+    def test_a_fade_into_the_candles_colour_is_counted_under_its_name(self):
+        # Without the adjustment the port's warm fade is a colour difference that outlasts a tick: flow.
+        self.assertEqual(rules(flow(*into_candle())), [('bulb_a', 'colour', 'timing')] * 2)
+        result = flow(*into_candle(), adjustments=[FadeIntoCandleColour(CANDLE_BULBS)])
+        self.assertEqual((result.flow, dict(result.expected)), ((), {'fade-into-candle-colour': 4}))
+
+    def test_an_adjustment_explains_only_its_own_fields(self):
+        # The port starts the candle at the fade's start, not at the block's: an effect difference it does not explain.
+        result = flow(*into_candle(port_effect='candle'), adjustments=[FadeIntoCandleColour(CANDLE_BULBS)])
+        self.assertEqual((rules(result), dict(result.expected)),
+                         ([('bulb_a', 'effect', 'timing')] * 2, {'fade-into-candle-colour': 4}))
+
+    def test_an_adjustment_that_does_not_apply_leaves_the_flow(self):
+        result = flow(*into_candle(port_fading=False), adjustments=[FadeIntoCandleColour(CANDLE_BULBS)])
+        self.assertEqual((rules(result), dict(result.expected)), ([('bulb_a', 'colour', 'timing')] * 2, {}))
 
 
 if __name__ == '__main__':
