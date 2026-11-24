@@ -5,6 +5,7 @@ import { Host } from '../../src/host.ts';
 import type { HostIo, Journal } from '../../src/host.ts';
 import { parseCatalog } from '../../src/adapter/codecs/catalog.ts';
 import type { HouseMirror } from '../../src/adapter/codecs/house.ts';
+import type { HaInput } from '../../src/adapter/codecs/inputs.ts';
 import { loadJournal } from '../../src/adapter/codecs/journal.ts';
 import { toInstant, toMqttTopic, toRoomId } from '../../src/adapter/codecs/ids.ts';
 import { parseLiveRooms } from '../../src/adapter/live-rooms.ts';
@@ -501,6 +502,36 @@ test('closeout r1 A3: a host whose every turn throws stops its heartbeat, so the
     stop();
   }
   assert.deepEqual(beats, [], `no beat from a host that drives nothing; host.paused() is ${host.paused()}`);
+  await host.close();
+});
+
+test('three turns in a row whose every call Home Assistant refuses stop the heartbeat, until a call is taken', async () => {
+  // Closeout r2 B2's residual case. Break: only thrown turns count, so a Home Assistant that refuses every call of the
+  // turns (not out of reach) but takes the beat keeps the rooms on a port that does nothing; or a turn with nothing
+  // to make resumes it; or the stop is not said, or is said at every refused turn after the third.
+  const ha = new FakeHa(), now = { time: at('12:00:00') }, logged: string[] = [];
+  const host = await Host.open({ ha, journal: new MemoryJournal(), clock: () => now.time,
+    log: { info: () => {}, warn: () => {}, error: message => logged.push(message) }, timer: () => () => {}, rooms: { kind: 'house' } },
+  ha.mirror(), catalog);
+  ha.failing = () => true;
+  const turn = async (time: string, input: HaInput) => {
+    now.time = at(time);
+    const made = ha.calls.length;
+    host.accept(input);
+    await host.idle();
+    return ha.calls.length - made;
+  };
+  assert.ok(await turn('12:00:00', { kind: 'started' }) > 0);
+  assert.ok(await turn('12:00:30', { kind: 'tick' }) > 0);
+  assert.equal(host.paused(), false, 'two refused turns are not yet unhealthy');
+  assert.ok(await turn('12:01:30', { kind: 'tick' }) > 0);
+  assert.equal(host.paused(), true);
+  assert.equal(logged.filter(line => /refused/.test(line) && /heartbeat stops/.test(line)).length, 1, 'the stop is said once');
+  assert.ok(await turn('12:03:30', { kind: 'tick' }) > 0);
+  assert.equal(logged.filter(line => /refused/.test(line) && /heartbeat stops/.test(line)).length, 1, 'and only once');
+  ha.failing = () => false;
+  assert.ok(await turn('12:06:00', { kind: 'tick' }) > 0);
+  assert.equal(host.paused(), false, 'the first turn with a call taken resumes the heartbeat');
   await host.close();
 });
 

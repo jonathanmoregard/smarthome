@@ -39,7 +39,10 @@ const LONGEST_WAIT_MS = 2_147_483_647;
 const OWN_CONTEXTS = 1024;
 /** How soon a turn that threw is followed by a wake. */
 const AFTER_A_FAILED_TURN_SECONDS = 5;
-/** The turns in a row that throw before the host counts as unhealthy and its heartbeat stops, so the watchdog hands the rooms back. */
+/**
+ * The turns in a row that throw, or whose every call Home Assistant refuses, before the host counts as unhealthy and its
+ * heartbeat stops, so the watchdog hands the rooms back.
+ */
 const UNHEALTHY_AFTER = 3;
 
 export class Host {
@@ -51,7 +54,7 @@ export class Host {
   private cancelWake: (() => void) | undefined; private closed = false;
   /** The context ids of our recent calls, the turns run so far, the last one with a failed call, and whether one is calling. */
   private ownContexts: string[] = [];
-  private turns = 0; private failedTurn = -1; private calling = false; private thrownInARow = 0;
+  private turns = 0; private failedTurn = -1; private calling = false; private thrownInARow = 0; private refusedInARow = 0;
   /** Whether Home Assistant is in reach: while it is not, nothing is sent, no wake runs, and inputs are held. */
   private connected = true; private held: HaInput[] = [];
   /** The journal's text as last loaded or saved, so a turn that leaves it as it is saves nothing. */
@@ -130,6 +133,10 @@ export class Host {
       if (turn.journalled.includes(index)) await this.save(afterOutputs(turn, failed).state);
     }
     this.calling = false;
+    if (failed.includes(false)) this.refusedInARow = 0;
+    else if (failed.length > 0 && failed.length === turn.outputs.length && ++this.refusedInARow === UNHEALTHY_AFTER) {
+      this.io.log.error(`lighting: Home Assistant refused every call of ${UNHEALTHY_AFTER} turns in a row; the heartbeat stops until it takes one`);
+    }
     const settled = afterOutputs(turn, failed);
     this.kept = { kind: 'running', state: settled.state };
     // Each publish saved the journal; any other change of the beliefs or the share is saved once the turn is done.
@@ -183,8 +190,8 @@ export class Host {
     });
   }
 
-  /** Whether the heartbeat is paused: Home Assistant is out of reach or not yet read again, or the last turns all threw. */
-  paused(): boolean { return !this.connected || this.thrownInARow >= UNHEALTHY_AFTER; }
+  /** Whether the heartbeat is paused: Home Assistant is out of reach or not yet read again, or the last turns all threw or were refused. */
+  paused(): boolean { return !this.connected || this.thrownInARow >= UNHEALTHY_AFTER || this.refusedInARow >= UNHEALTHY_AFTER; }
 
   /** The rooms the heartbeat names now: those given, or the rooms of the current config's lamps. */
   liveRooms(): LiveRooms { return beatRooms(this.io.rooms, keptConfig(this.kept, houseView(this.mirror, this.io.clock(), this.catalog))); }
