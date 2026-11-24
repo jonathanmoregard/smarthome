@@ -7,7 +7,7 @@ import { parseCatalog } from '../../src/adapter/codecs/catalog.ts';
 import type { HouseMirror } from '../../src/adapter/codecs/house.ts';
 import type { HaInput } from '../../src/adapter/codecs/inputs.ts';
 import { loadJournal } from '../../src/adapter/codecs/journal.ts';
-import { toInstant, toMqttTopic, toRoomId } from '../../src/adapter/codecs/ids.ts';
+import { toInstant, toMqttTopic, toRoomId, toSwitchId } from '../../src/adapter/codecs/ids.ts';
 import { parseLiveRooms } from '../../src/adapter/live-rooms.ts';
 import { startHeartbeat } from '../../src/main.ts';
 import type { Publish } from '../../src/adapter/encode.ts';
@@ -210,28 +210,110 @@ test('a turn that throws still leaves a wake set', async () => {
   await host.close();
 });
 
-test("a house read does not undo a newer state: a plug falling back off is not read as a press", async () => {
-  // Review 4. Break: the read, started before the plug fell back off, is put back whole over the newer event, so the
-  // next turn sees the plug on, takes it for its own button, and holds it on.
+/* A plug's state change is a live input (owner Q6): a changed power runs a turn at once, read against the last look. */
+
+const PLUG_A = 'switch.plug_a';
+/** The plug's power as Home Assistant reports it, with an attribute that may move on its own. */
+const plugState = (power: 'on' | 'off', linkQuality = 100): EntityState =>
+  ({ entity_id: PLUG_A, state: power, attributes: { linkquality: linkQuality } });
+/** The power of each hold on the plug the turns wrote to the overrides sensor, in order. */
+const plugHolds = (ha: FakeHa) => ha.calls.flatMap(call => {
+  const attributes = call.service === 'variable.update_sensor' ? call.data.attributes as JsonObject | undefined : undefined;
+  const hold = (attributes?.switch_overlays as JsonObject | undefined)?.[PLUG_A];
+  return hold !== null && typeof hold === 'object' && !Array.isArray(hold) ? [hold.power] : [];
+});
+const plugSwitched = (ha: FakeHa) => ha.calls.filter(call => /^homeassistant\.turn_/.test(call.service) && call.target?.entity_id === PLUG_A);
+
+test("a house read does not undo a newer state: a plug back off is not read as on again", async () => {
+  // Review 4. Break: the read, started before the plug went back off, is put back whole over the newer event, so the
+  // next turn sees the plug on against the off its last look saw, takes it for its own button, and holds it on.
   const ha = new FakeHa(), now = { time: at('12:00:00') };
   const host = await open(ha, new MemoryJournal(), now).host;
   host.accept({ kind: 'started' });
   await host.idle();
   const plug = (state: string, time: string): EntityState =>
-    ({ entity_id: 'switch.plug_a', state, attributes: {}, last_changed: `2026-09-21T${time}Z`, last_updated: `2026-09-21T${time}Z` });
+    ({ entity_id: PLUG_A, state, attributes: {}, last_changed: `2026-09-21T${time}Z`, last_updated: `2026-09-21T${time}Z` });
   const stale = ha.mirror();
-  stale.state['switch.plug_a'] = plug('on', '12:00:05');
-  host.stateChanged('switch.plug_a', plug('on', '12:00:05'));
-  host.stateChanged('switch.plug_a', plug('off', '12:00:20'));
-  host.houseRead(stale, at('12:00:10'));
+  stale.state[PLUG_A] = plug('on', '12:00:05');
+  // Each change is the plug's own button, a turn of its own (owner Q6): held on, then off.
+  host.stateChanged(PLUG_A, plug('on', '12:00:05'));
+  host.stateChanged(PLUG_A, plug('off', '12:00:20'));
   await host.idle();
-  const before = ha.calls.length;
+  const pressed = plugHolds(ha).length;
+  host.houseRead(stale, at('12:00:10'));
   now.time = at('12:01:00');
   host.accept({ kind: 'tick' });
   await host.idle();
-  assert.equal(host.house().state['switch.plug_a']?.state, 'off');
-  const overlays = ha.calls.slice(before).filter(call => call.target?.entity_id === 'sensor.ls_overrides' || call.data.entity_id === 'sensor.ls_overrides');
-  assert.deepEqual(overlays, [], 'no hold is written for the plug');
+  assert.equal(host.house().state[PLUG_A]?.state, 'off');
+  assert.deepEqual(plugHolds(ha).slice(pressed).filter(power => power === 'on'), [], 'the read brings back no hold on');
+  assert.equal(plugHolds(ha).at(-1), 'off', 'the last press, off, is the hold');
+  await host.close();
+});
+
+/** A host started at `time`, Home Assistant's plug at `power`. */
+async function plugHost(time: string, power: 'on' | 'off') {
+  const ha = new FakeHa(), now = { time: at(time) }, journal = new MemoryJournal();
+  ha.states[PLUG_A] = plugState(power);
+  const { host: opening, timers } = open(ha, journal, now);
+  const host = await opening;
+  host.accept({ kind: 'started' });
+  await host.idle();
+  /** Home Assistant reports the plug at `power`: its state and the event. */
+  const reports = async (state: EntityState) => {
+    ha.states[PLUG_A] = state;
+    host.stateChanged(PLUG_A, state);
+    await host.idle();
+  };
+  return { ha, host, journal, timers, reports };
+}
+
+test("a plug's own button runs a turn at once: the press is held and not sent back", async () => {
+  // Owner Q6. Break: a plug's event only updates the mirror, so the press waits for the next tick, which may be a
+  // minute away; or it is read as a difference to undo and the plug is sent back off.
+  const { ha, host, timers, reports } = await plugHost('12:00:00', 'off');
+  assert.deepEqual(plugSwitched(ha), [], 'control: the day block wants the plug off, and it shows off');
+  const turns = timers.set.length;
+  await reports(plugState('on'));
+  assert.equal(timers.set.length, turns + 1, 'the event ran a turn');
+  assert.equal(plugHolds(ha).at(-1), 'on', 'the press is held');
+  assert.deepEqual(plugSwitched(ha), [], 'and the plug is not sent back off');
+  await host.close();
+});
+
+test("a plug event with the power the last look saw runs no turn", async () => {
+  // Owner Q6. Break: every plug event runs a turn, its attribute reports (link quality, power draw) included.
+  const { ha, host, timers, reports } = await plugHost('12:00:00', 'off');
+  const turns = timers.set.length, calls = ha.calls.length;
+  await reports(plugState('off', 42));
+  assert.equal(timers.set.length, turns, 'no turn');
+  assert.equal(ha.calls.length, calls, 'nothing sent');
+  await host.close();
+});
+
+test("our own switching's landing closes the send and sends nothing", async () => {
+  // Owner Q6. Break: our landing, seen against the last look (off), is taken for the plug's own button and held; or
+  // the send stays open after the plug shows it.
+  const { ha, host, journal, timers, reports } = await plugHost('22:13:00', 'off');
+  assert.deepEqual(plugSwitched(ha).map(call => call.service), ['homeassistant.turn_on'], "control: the cosy fade's range wants the plug on");
+  assert.equal(loadBeliefs(journal.saved.at(-1)).switches[toSwitchId(PLUG_A)]?.kind, 'open', 'control: our send is open');
+  const turns = timers.set.length, calls = ha.calls.length;
+  await reports(plugState('on'));
+  assert.equal(timers.set.length, turns + 1, 'the landing ran a turn');
+  assert.deepEqual(ha.calls.slice(calls), [], 'with no outputs: no hold, nothing sent');
+  assert.deepEqual(loadBeliefs(journal.saved.at(-1)).switches, {}, 'the send is closed');
+  await host.close();
+});
+
+test("a plug sent on, seen on, then seen off: the off is its own button", async () => {
+  // Owner Q6; replaces the press read from Home Assistant's `last_changed` between our send and the next look. Break:
+  // the off is read against our send (still open, or the look before it), taken for the plug not yet switched, and
+  // the on is sent again.
+  const { ha, host, reports } = await plugHost('22:13:00', 'off');
+  await reports(plugState('on'));
+  assert.deepEqual(plugHolds(ha), [], 'control: our landing is no press');
+  await reports(plugState('off'));
+  assert.equal(plugHolds(ha).at(-1), 'off', 'the off is held');
+  assert.deepEqual(plugSwitched(ha).map(call => call.service), ['homeassistant.turn_on'], 'and the on is not sent again');
   await host.close();
 });
 

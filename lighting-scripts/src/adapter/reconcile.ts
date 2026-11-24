@@ -91,14 +91,10 @@ function chromaticity(rgb: RGB): readonly [number, number] {
 /** A bulb in reach, with what it reports, or out of reach (switched off at the wall, or unknown). */
 export type ObservedBulb = { reach: 'unreachable' } | { reach: 'reachable'; light: ObservedLight };
 
-/**
- * What the bulbs and switches report, and when each switch last changed; a switch with no `last_changed` is not in
- * `switchChanged`. Read from Home Assistant's states by `decodeObserved` (`./codecs/observed.ts`).
- */
+/** What the bulbs and switches report. Read from Home Assistant's states by `decodeObserved` (`./codecs/observed.ts`). */
 export type Observed = {
   bulbs: Record<BulbId, ObservedBulb>;
   switches: Record<SwitchId, Power | 'unreachable'>;
-  switchChanged: Record<SwitchId, Instant>;
   bridge: BridgeState;
 };
 
@@ -238,20 +234,23 @@ export type SwitchSent =
   | { kind: 'parked'; power: Power; sentAt: Instant };
 
 /**
- * Is a switch showing `power` its own button pressed? Only one that could be reached at the last look: a switch back
- * from out of reach has a fresh `last_changed`, and is a return, sent its target as usual (Amendment 8.1).
- * 1. With a send of ours still open and HA's `last_changed`: when it shows another power than we sent, changed after
- *    the send. A switch showing what we sent is ours, whenever it changed. This catches a press made between our
- *    send and the next look, which the last look alone cannot (it may show the same power as before the send).
- * 2. Otherwise, as before `last_changed` was read (the harness sends none): when it changed since the last look and no
- *    send of ours is open. A switch differing from our open send has not switched yet, and is sent it again.
- * M5 may replace the first rule with a switch change as a live input of its own (option A of the M4 review), once
- * the host owns HA's event stream.
+ * Is a switch showing `power` its own button pressed? When it could be reached at the last look (one back from out of
+ * reach is a return, sent its target as usual: Amendment 8.1), shows another power than that look, and no send of
+ * ours is open. A switch differing from our open send has not switched yet, and is sent it again.
+ *
+ * A switch's change is a live input: the host runs a turn on each of its events that shows another power than the
+ * last look (`wantsTurn`, loop.ts), in the order Home Assistant sends them, so the last look is the one just before
+ * the change. A switch is sent only a power it does not show, and power has two values, so a change under an open
+ * send is to the power we sent: ours landing, which {@link switchesSeen} closes. No clock is compared: Home
+ * Assistant's `last_changed` runs on its clock, not ours (closeout r3 B8). Accepted edge cases:
+ * 1. Looks run together (Home Assistant out of reach, a turn that threw): our send, its landing and a press back all
+ *    between two looks read as the switch not yet switched, and the press is sent back once.
+ * 2. A press to the power of our open send, before ours lands, reads as ours landing: no hold is made.
+ * 3. A press to the power of a superseded send, within its window ({@link landedLate}), is that send landing late, and
+ *    is undone once, as today.
  */
-function switchPressed(was: Power | 'unreachable' | undefined, power: Power, sent: SwitchSent | undefined,
-  changed: Instant | undefined): boolean {
+function switchPressed(was: Power | 'unreachable' | undefined, power: Power, sent: SwitchSent | undefined): boolean {
   if (was === undefined || was === 'unreachable') return false;
-  if (sent !== undefined && changed !== undefined) return power !== sent.power && changed > sent.sentAt;
   return sent === undefined && was !== power;
 }
 
@@ -269,16 +268,14 @@ export type Unexplained = { kind: 'switch pressed'; switch: SwitchId; power: Pow
  * A switch send superseded: its target moved off its power before Home Assistant reported it. It may still land, so
  * until `until` the switch showing its power is that send landing late, not the plug's own button (close-out r4 A1).
  */
-export type Superseded = { power: Power; sentAt: Instant; until: Instant };
+export type Superseded = { power: Power; until: Instant };
 
 /**
- * Whether a switch that changed to `power` (at `changed`, Home Assistant's `last_changed`, or seen at `now` without
- * one) is the superseded send `sent` landing late: its power, changed after the send and within its window.
+ * Whether a switch seen at `now` to have changed to `power` is the superseded send `sent` landing late: its power,
+ * within its window by our clock (Home Assistant's `last_changed` runs on its own).
  */
-export function landedLate(sent: Superseded | undefined, power: Power, changed: Instant | undefined, now: Instant): boolean {
-  if (sent === undefined || sent.power !== power) return false;
-  const at = changed === undefined ? now : changed;
-  return at >= sent.sentAt && at <= sent.until;
+export function landedLate(sent: Superseded | undefined, power: Power, now: Instant): boolean {
+  return sent !== undefined && sent.power === power && now <= sent.until;
 }
 
 /**
@@ -308,10 +305,9 @@ export function litByUs(before: Observed, after: Observed, beliefs: Beliefs): Bu
 }
 
 /**
- * The beliefs without the switch sends that are over: one `observed` shows landed (the switch shows what we sent,
- * changed at or after the send, or with no `last_changed` to say when), and one whose power the target has moved off
- * (it may never have landed: {@link supersededAfter} keeps it on its way for a while, and past that a change to its
- * power is not ours).
+ * The beliefs without the switch sends that are over: one `observed` shows landed (the switch shows what we sent),
+ * and one whose power the target has moved off (it may never have landed: {@link supersededAfter} keeps it on its way
+ * for a while, and past that a change to its power is not ours).
  */
 export function switchesSeen(beliefs: Beliefs, observed: Observed, target: Readonly<Record<SwitchId, Power>>): Beliefs {
   return { ...beliefs, switches: Object.fromEntries(entriesOf(beliefs.switches).filter(([plug, sent]) =>
@@ -324,10 +320,12 @@ export function switchesSeen(beliefs: Beliefs, observed: Observed, target: Reado
  */
 const LATE_LANDING: Seconds = RETRY_CAP;
 
-/** Whether `observed` shows a switch's send landed: the switch shows what we sent, changed at or after the send, or with no `last_changed` to say when. */
-function landed(plug: SwitchId, sent: Pick<SwitchSent, 'power' | 'sentAt'>, observed: Observed): boolean {
-  const changed = observed.switchChanged[plug];
-  return observed.switches[plug] === sent.power && (changed === undefined || changed >= sent.sentAt);
+/**
+ * Whether `observed` shows a switch's send landed: the switch shows what we sent. A switch is sent only a power it does
+ * not show, so showing it is the send's landing (or, before it, a press to that power: see {@link switchPressed}).
+ */
+function landed(plug: SwitchId, sent: Pick<SwitchSent, 'power'>, observed: Observed): boolean {
+  return observed.switches[plug] === sent.power;
 }
 
 /**
@@ -339,7 +337,7 @@ export function supersededAfter(kept: Readonly<Record<SwitchId, Superseded>>, be
   const going = entriesOf(kept).filter(([plug, sent]) => now <= sent.until && observed.switches[plug] !== sent.power);
   const moved = entriesOf(beliefs.switches).flatMap(([plug, sent]): [SwitchId, Superseded][] =>
     sent.kind === 'open' && target[plug] !== sent.power && !landed(plug, sent, observed)
-      ? [[plug, { power: sent.power, sentAt: sent.sentAt, until: instantOrThrow(now + LATE_LANDING) }]] : []);
+      ? [[plug, { power: sent.power, until: instantOrThrow(now + LATE_LANDING) }]] : []);
   return Object.fromEntries([...going, ...moved]);
 }
 
@@ -484,7 +482,7 @@ export function retryAt(now: Instant, failures: number): Instant {
 export function unexplained(before: Observed, after: Observed, beliefs: Beliefs): Unexplained[] {
   const found: Unexplained[] = [];
   for (const [plug, power] of entriesOf(after.switches)) {
-    if (power !== 'unreachable' && switchPressed(before.switches[plug], power, beliefs.switches[plug], after.switchChanged[plug])) {
+    if (power !== 'unreachable' && switchPressed(before.switches[plug], power, beliefs.switches[plug])) {
       found.push({ kind: 'switch pressed', switch: plug, power });
     }
   }

@@ -521,52 +521,39 @@ test('a restart re-sends nothing a bulb already shows', () => {
   assert.deepEqual(kinds(pass(bulbs, plain, NO_BELIEFS, at(120)).sent, bulbA1), ['stop_effect', 'light']);
 });
 
-// --- Review fixes 1 and 2: a press read from the switch's last_changed (option B) -------------------------------
+// --- Review fixes 1 and 2: a switch read against the last look and our send -------------------------------------
+// A press between our send and the next look is caught by the switch's change being a turn of its own (host.test.ts,
+// "a plug sent on, seen on, then seen off"), not by Home Assistant's `last_changed`, which runs on its own clock.
 
-/** The plug at `power`, as HA last changed it at `changed` (or with no last_changed, as the harness reports it). */
-function plugShows(bulbs: FakeBulbs, power: 'on' | 'off', changed: Instant | undefined): Observed {
+/** The plug at `power`. */
+function plugShows(bulbs: FakeBulbs, power: 'on' | 'off'): Observed {
   bulbs.switches.set(plugA, power);
-  if (changed === undefined) bulbs.switchChanged.delete(plugA); else bulbs.switchChanged.set(plugA, changed);
   return bulbs.observed();
 }
-
-test('a press seconds after our own switching, before the next look, is a press', () => {
-  // The review's timeline: the block switches the plug on at 18:00, a person presses it off at 18:00:20, and the next
-  // look (the minute's tick) sees off, as before our send. Break: the press is read against the last look (off ==
-  // off), our on is sent again, and the press is lost.
-  const bulbs = new FakeBulbs(topics);
-  const before = plugShows(bulbs, 'off', at(-3600));
-  const { beliefs, sends } = pass(bulbs, EVENING, NO_BELIEFS, at(0));
-  assert.deepEqual(sends.filter(send => send.kind === 'switch'), [{ kind: 'switch', switch: plugA, power: 'on' }]);
-  const pressed = plugShows(bulbs, 'off', at(20));
-  assert.deepEqual(unexplained(before, pressed, beliefs), [{ kind: 'switch pressed', switch: plugA, power: 'off' }]);
-  const held: LightingState = { ...EVENING, switches: { [plugA]: 'off' } };
-  assert.deepEqual(switchesSeen(beliefs, pressed, held.switches).switches, {}, 'the press ends our send');
-});
 
 test('a send that landed is ours, and a later press is a press', () => {
   // Break: our own landing is taken for a press, or the record of it outlives the landing and hides the next press.
   const bulbs = new FakeBulbs(topics);
-  const before = plugShows(bulbs, 'off', at(-3600));
+  const before = plugShows(bulbs, 'off');
   const { beliefs } = pass(bulbs, EVENING, NO_BELIEFS, at(0));
-  const landed = plugShows(bulbs, 'on', at(1));
+  const landed = plugShows(bulbs, 'on');
   assert.deepEqual(unexplained(before, landed, beliefs), []);
   const kept = switchesSeen(beliefs, landed, EVENING.switches);
   assert.deepEqual(kept.switches, {}, 'landed: the record is dropped');
-  const pressed = plugShows(bulbs, 'off', at(300));
+  const pressed = plugShows(bulbs, 'off');
   assert.deepEqual(unexplained(landed, pressed, kept), [{ kind: 'switch pressed', switch: plugA, power: 'off' }]);
 });
 
 test('a send that never landed is dropped when the target moves off it, and a later press to that power is a press', () => {
   // Review fix 2. Break: the record of the lost on stays, so a person's press to on is read as ours and sent back off.
   const bulbs = new FakeBulbs(topics);
-  const before = plugShows(bulbs, 'off', at(-3600));
+  const before = plugShows(bulbs, 'off');
   const { beliefs } = pass(bulbs, EVENING, NO_BELIEFS, at(0), { lost: () => true });
   assert.deepEqual(beliefs.switches[plugA]?.power, 'on');
   const offTarget: LightingState = { ...EVENING, switches: { [plugA]: 'off' } };
   const dropped = switchesSeen(beliefs, before, offTarget.switches);
   assert.deepEqual(dropped.switches, {});
-  const pressed = plugShows(bulbs, 'on', at(600));
+  const pressed = plugShows(bulbs, 'on');
   assert.deepEqual(unexplained(before, pressed, dropped), [{ kind: 'switch pressed', switch: plugA, power: 'on' }]);
   const held: LightingState = { ...EVENING, switches: { [plugA]: 'on' } };
   assert.deepEqual(nextSends(held, config, pressed, dropped, at(600)).filter(send => send.kind === 'switch'), [],
@@ -574,32 +561,29 @@ test('a send that never landed is dropped when the target moves off it, and a la
 });
 
 test('a plug that drops out and comes back while our send is open is a return, not a press, and gets its target', () => {
-  // Amendment 8.1. A plug back from unavailable has a fresh last_changed. Break: it is read as changed after our send
-  // and held as a press, so the reconciler never sends it its target.
+  // Amendment 8.1. Break: a plug back from unavailable is read as changed since the last look and held as a press,
+  // so the reconciler never sends it its target.
   const bulbs = new FakeBulbs(topics);
-  plugShows(bulbs, 'off', at(-3600));
+  plugShows(bulbs, 'off');
   const { beliefs } = pass(bulbs, EVENING, NO_BELIEFS, at(0), { lost: () => true });
   bulbs.switches.set(plugA, 'unreachable');
-  bulbs.switchChanged.set(plugA, at(10));
   const away = bulbs.observed();
-  const back = plugShows(bulbs, 'off', at(30));
+  const back = plugShows(bulbs, 'off');
   assert.deepEqual(unexplained(away, back, beliefs), [], 'a return');
   assert.deepEqual(nextSends(EVENING, config, back, beliefs, at(30)).filter(send => send.kind === 'switch'),
     [{ kind: 'switch', switch: plugA, power: 'on' }], 'it is sent its target');
-  const pressed = plugShows(bulbs, 'off', at(40));
-  const reachable = plugShows(bulbs, 'off', at(30));
-  assert.deepEqual(unexplained(reachable, pressed, beliefs), [{ kind: 'switch pressed', switch: plugA, power: 'off' }],
-    'reachable before and after: still a press');
+  assert.deepEqual(unexplained(back, plugShows(bulbs, 'on'), NO_BELIEFS), [{ kind: 'switch pressed', switch: plugA, power: 'on' }],
+    'control: reachable before and after, with no send of ours, a change is a press');
 });
 
-test('with no last_changed, a switch is read as before: against the last look and our send', () => {
-  // The harness reports no last_changed, so the golden replay keeps today's reading. Break: an absent time is taken
-  // as "changed after our send" (every unlanded send a press) or as "before it" (every press ours).
+test('a switch is read against the last look and our send', () => {
+  // Break: a switch not yet showing our open send is taken for a press, or our landing is, or a landing leaves the
+  // send open.
   const bulbs = new FakeBulbs(topics);
-  const before = plugShows(bulbs, 'off', undefined);
+  const before = plugShows(bulbs, 'off');
   const { beliefs } = pass(bulbs, EVENING, NO_BELIEFS, at(0));
-  assert.deepEqual(unexplained(before, plugShows(bulbs, 'off', undefined), beliefs), [], 'off == off: not seen as a press');
-  const landed = plugShows(bulbs, 'on', undefined);
+  assert.deepEqual(unexplained(before, plugShows(bulbs, 'off'), beliefs), [], 'off == off: not seen as a press');
+  const landed = plugShows(bulbs, 'on');
   assert.deepEqual(unexplained(before, landed, beliefs), [], 'ours');
   assert.deepEqual(switchesSeen(beliefs, landed, EVENING.switches).switches, {}, 'seen: dropped');
   assert.deepEqual(switchesSeen(beliefs, before, EVENING.switches).switches, beliefs.switches, 'not seen: kept');
@@ -624,7 +608,7 @@ test('a switch send stays open until the switch shows it: sent again on the back
   // Closeout r1 A1/B1. Break: a send Home Assistant took is taken as landed, so a plug that missed it is never sent
   // again; or it is sent at every pass with no backoff; or a plug that never switches is sent forever.
   const bulbs = new FakeBulbs(topics);
-  plugShows(bulbs, 'off', at(-3600));
+  plugShows(bulbs, 'off');
   let beliefs = NO_BELIEFS;
   const sentAt: number[] = [];
   for (const time of [0, 0.5, 1, 2, 3, 6, 7, 15, 60, 600]) {
@@ -639,7 +623,7 @@ test('a switch send stays open until the switch shows it: sent again on the back
   assert.deepEqual(unparked(beliefs).switches, {}, 'Home Assistant back: sent again');
   const off: LightingState = { ...EVENING, switches: { [plugA]: 'off' } };
   assert.deepEqual(switchesSeen(beliefs, bulbs.observed(), off.switches).switches, {}, 'its target moved: sent anew when it moves back');
-  plugShows(bulbs, 'on', undefined);
+  plugShows(bulbs, 'on');
   assert.deepEqual(switchesSeen(beliefs, bulbs.observed(), EVENING.switches).switches, {}, 'it shows the target at last: over');
 });
 
@@ -647,10 +631,10 @@ test('a look that shows a switch differing from our open send is no press: the s
   // Closeout r1 A1/B1, the read. Break: a switch not yet showing our send, against a last look that showed otherwise,
   // is taken for its own button and held there.
   const bulbs = new FakeBulbs(topics);
-  const before = plugShows(bulbs, 'on', undefined);
+  const before = plugShows(bulbs, 'on');
   const open: Beliefs = { ...NO_BELIEFS, switches: { [plugA]: { kind: 'open', power: 'on', sentAt: at(0), attempts: 1, retryAt: at(1) } } };
-  assert.deepEqual(unexplained(before, plugShows(bulbs, 'off', undefined), open), []);
-  assert.deepEqual(unexplained(before, plugShows(bulbs, 'off', undefined), NO_BELIEFS), [{ kind: 'switch pressed', switch: plugA, power: 'off' }],
+  assert.deepEqual(unexplained(before, plugShows(bulbs, 'off'), open), []);
+  assert.deepEqual(unexplained(before, plugShows(bulbs, 'off'), NO_BELIEFS), [{ kind: 'switch pressed', switch: plugA, power: 'off' }],
     'control: with no send of ours it is a press');
 });
 
@@ -711,16 +695,16 @@ test('closeout r2 A3: a bulb parked by put-backs whose wall power returns before
   assert.deepEqual(bulbs.shows(bulbA3), { reach: 'reachable', light: lit(150, kelvin(3003)) });
 });
 
-test("closeout r3 B8: a plug that changed just before our send, stamped by Home Assistant's clock 3 s ahead, is no press", { todo: 'advisory: clock skew' }, () => {
-  // Break: switchPressed compares Home Assistant's `last_changed` with our clock's `sentAt` (src/adapter/reconcile.ts:250).
-  // The plug went off at our clock's -1 s; Home Assistant, 3 s ahead, stamps it +2 s. Our turn at 0 sees it off and sends
-  // on; the next look shows it the same, not yet switched, and the stamp reads as a change after our send.
+test("closeout r3 B8: a plug that changed just before our send, stamped by Home Assistant's clock 3 s ahead, is no press", () => {
+  // Break: switchPressed compares Home Assistant's `last_changed` with our clock's `sentAt`. The plug went off at our
+  // clock's -1 s; Home Assistant, 3 s ahead, stamps it +2 s. Our turn at 0 sees it off and sends on; the next look
+  // shows it the same, not yet switched, and the stamp reads as a change after our send. The stamp is no longer read:
+  // a switch's change is a turn of its own, read against the look before it.
   const bulbs = new FakeBulbs(topics);
-  const before = plugShows(bulbs, 'off', at(2));
+  const before = plugShows(bulbs, 'off');
   const { beliefs, sends } = pass(bulbs, EVENING, NO_BELIEFS, at(0));
   assert.deepEqual(sends.filter(send => send.kind === 'switch'), [{ kind: 'switch', switch: plugA, power: 'on' }], 'control: our on is sent');
-  const unswitched = plugShows(bulbs, 'off', at(2));
-  const plug = (look: Observed) => ({ power: look.switches[plugA], changed: look.switchChanged[plugA] });
-  assert.deepEqual(plug(unswitched), plug(before), 'control: the next look shows the plug as the last one did');
+  const unswitched = plugShows(bulbs, 'off');
+  assert.deepEqual(unswitched.switches[plugA], before.switches[plugA], 'control: the next look shows the plug as the last one did');
   assert.deepEqual(unexplained(before, unswitched, beliefs), []);
 });

@@ -5,10 +5,9 @@
  * knows it only from what it sent.
  *
  * Read leniently: a state Home Assistant does not have, or one it holds as
- * `unavailable` or `unknown`, is a bulb or switch that cannot be reached. A
- * switch's `last_changed` is read when Home Assistant sends one (the live
- * house does; the harness does not), so the reconciler can tell a press made
- * after its own send from that send.
+ * `unavailable` or `unknown`, is a bulb or switch that cannot be reached.
+ * Home Assistant's `last_changed` is not read: it runs on Home Assistant's
+ * clock, not the port's, and a switch's change is a turn of its own.
  */
 import { decodeColour } from './config.ts';
 import type { Config } from '../../domain/config.ts';
@@ -16,22 +15,17 @@ import type { BulbId, SwitchId } from '../../domain/types/ids.ts';
 import { entriesOf } from '../../domain/types/ids.ts';
 import type { Level, Power } from '../../domain/types/light.ts';
 import type { BridgeState, Observed, ObservedBulb } from '../reconcile.ts';
-import type { Instant } from '../../domain/types/time.ts';
 import type { EntityState } from '../ha-client.ts';
 import { parseFinite } from './parse.ts';
-import { toInstant, toLevel } from './ids.ts';
+import { toLevel } from './ids.ts';
 
 /** Every bulb of every lamp, every switch, and Zigbee2MQTT's connection ({@link BRIDGE_SENSOR}). */
 export function decodeObserved(states: Readonly<Record<string, EntityState>>, config: Config): Observed {
   const bulbs: Record<BulbId, ObservedBulb> = {};
   for (const [, lamp] of entriesOf(config.lamps)) for (const { bulb } of lamp.bulbs) bulbs[bulb] = observedBulb(states[bulb]);
-  const switches: Record<SwitchId, Power | 'unreachable'> = {}, switchChanged: Record<SwitchId, Instant> = {};
-  for (const [plug] of entriesOf(config.switches)) {
-    switches[plug] = observedSwitch(states[plug]);
-    const changed = changedAt(states[plug]);
-    if (changed !== undefined) switchChanged[plug] = changed;
-  }
-  return { bulbs, switches, switchChanged, bridge: bridgeOf(states[BRIDGE_SENSOR]) };
+  const switches: Record<SwitchId, Power | 'unreachable'> = {};
+  for (const [plug] of entriesOf(config.switches)) switches[plug] = observedSwitch(states[plug]);
+  return { bulbs, switches, bridge: bridgeOf(states[BRIDGE_SENSOR]) };
 }
 
 /** The sensor Zigbee2MQTT reports its connection on. */
@@ -59,16 +53,9 @@ function levelOf(state: EntityState): Level {
   return toLevel(brightness === undefined ? FULL : Math.min(FULL, Math.max(1, Math.round(brightness))));
 }
 
-function observedSwitch(state: EntityState | undefined): Power | 'unreachable' {
+/** A switch `on` or `off`; anything else cannot be reached. */
+export function observedSwitch(state: EntityState | undefined): Power | 'unreachable' {
   return state?.state === 'on' || state?.state === 'off' ? state.state : 'unreachable';
-}
-
-/** A state's `last_changed` as an instant; none when it is missing or not a date. */
-function changedAt(state: EntityState | undefined): Instant | undefined {
-  const text = state?.last_changed;
-  if (text === undefined) return undefined;
-  const seconds = Date.parse(text) / 1000;
-  return Number.isFinite(seconds) ? toInstant(seconds) : undefined;
 }
 
 /** The top of the Zigbee level scale. */

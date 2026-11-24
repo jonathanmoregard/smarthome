@@ -255,7 +255,9 @@ test("a room's plug is taken as found when the room is handed over: the old scri
   shared.states[portSwitch(roomA)] = { state: 'on', attributes: {}, last_changed: '2026-09-21T12:00:20+00:00' };
   const turn = shared.turn('12:00:30', { kind: 'wake' });
   assert.deepEqual(turn.state.model.overlays, overlays);
-  // Once the room is the port's, a change is a press again.
+  // Once the room is the port's, a change is a press again. The handover sent the plug its target; each change of the
+  // plug is a turn of its own, as the host runs one, so that send's landing is seen before the press.
+  shared.turn('12:00:35', { kind: 'wake' });
   const pressed = shared.states['switch.plug_a']!.state === 'on' ? 'off' : 'on';
   shared.states['switch.plug_a'] = { state: pressed, attributes: {}, last_changed: '2026-09-21T12:00:40+00:00' };
   assert.notDeepEqual(shared.turn('12:00:50', { kind: 'wake' }).state.model.overlays, overlays);

@@ -161,10 +161,10 @@ export class Host {
   /** Queue an input; inputs run one at a time, in order. */
   accept(input: HaInput): void { this.enqueue(() => this.turn(input)); }
 
-  /** A state Home Assistant reports changed, or removed, in order with the inputs; one a turn waits on runs a turn. */
+  /** A state Home Assistant reports changed, or removed, in order with the inputs; one the adapter wants a turn for runs a turn. */
   stateChanged(entity: string, state: EntityState | undefined): void {
     this.enqueue(async () => { this.mirror = { ...this.mirror, state: withState(this.mirror.state, entity, state) }; });
-    this.enqueue(async () => { if (wantsTurn(this.kept, entity)) await this.turn({ kind: 'wake' }); });
+    this.enqueue(async () => { if (wantsTurn(this.kept, entity, state)) await this.turn({ kind: 'wake' }); });
   }
 
   /**

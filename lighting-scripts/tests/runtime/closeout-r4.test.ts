@@ -78,6 +78,21 @@ test('closeout r4 A1: our switch-on that lands after the target moved off is not
     'our own late on is no press: the plug is not held, and is sent the off its range wants');
 });
 
+test("closeout r4 A1: a superseded send's late landing is judged by our clock, whatever Home Assistant stamps it", () => {
+  // Owner Q3/Q6. Break: the window is judged by Home Assistant's `last_changed`, which runs on another clock: stamped
+  // before our send (its clock behind ours), the landing reads as no landing of ours, and the plug is held on.
+  const states = syntheticStates(change => {
+    change['switch.plug_a'] = { state: 'off', attributes: {}, last_changed: '2026-09-21T20:00:00+00:00' };
+  });
+  const turn = loop(states);
+  assert.deepEqual(switchSends(turn('22:13:00', { kind: 'started' })), ['switch.plug_a on'], 'control: the on is sent');
+  assert.deepEqual(switchSends(turn('22:14:05', { kind: 'wake' })), [], 'control: the target moved off; the plug still shows off');
+  states['switch.plug_a'] = { state: 'on', attributes: {}, last_changed: '2026-09-21T22:12:58+00:00' };
+  const landed = turn('22:14:10', { kind: 'state changed', entities: [toEntityId('switch.plug_a')] });
+  assert.deepEqual({ held: landed.state.model.overlays.switches[plugA], sent: switchSends(landed) }, { held: undefined, sent: ['switch.plug_a off'] },
+    'inside the window by our clock: our own late on, not held, and sent the off');
+});
+
 test('closeout r4 A1 (ruling): past its window, a change to a superseded send\'s power is a press', () => {
   // Ruling A1: a superseded switch send stays on its way only for a while after its target moved; after that a
   // change to its power is the plug's own button, as before (reconcile.test.ts, 'a send that never landed is dropped

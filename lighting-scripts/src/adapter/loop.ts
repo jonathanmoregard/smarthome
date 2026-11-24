@@ -15,7 +15,7 @@ import type { Config } from '../domain/config.ts';
 import type { BulbId, RoomId, SwitchId } from '../domain/types/ids.ts';
 import { entriesOf } from '../domain/types/ids.ts';
 import type { Instant } from '../domain/types/time.ts';
-import { toDashboardControlId, toInstant } from './codecs/ids.ts';
+import { toDashboardControlId, toInstant, toSwitchId } from './codecs/ids.ts';
 import { timestamp } from './codecs/accessors.ts';
 import type { HouseView } from './codecs/house.ts';
 import { ParseError } from './codecs/parse.ts';
@@ -36,7 +36,8 @@ import type { Output } from './encode.ts';
 import { messages, storeSaveIn, unexplainedMessages } from './codecs/inputs.ts';
 import { uiRowsOf } from './codecs/catalog.ts';
 import type { HaInput, StoreSave } from './codecs/inputs.ts';
-import { BRIDGE_SENSOR, decodeObserved } from './codecs/observed.ts';
+import { BRIDGE_SENSOR, decodeObserved, observedSwitch } from './codecs/observed.ts';
+import type { EntityState } from './ha-client.ts';
 import type { Observed } from './reconcile.ts';
 import {
   afterSend, backOn, forgotten, landedLate, MAX_ATTEMPTS, NO_BELIEFS, newlyParked, newlyParkedSwitches, nextRetry, nextSends, reportedChanged,
@@ -114,10 +115,19 @@ export function keptConfig(kept: Kept, house: HouseView): Config {
   return kept.kind === 'running' ? kept.state.model.config : decodeConfig(configSource(house), house.catalog);
 }
 
-/** Whether a state change of `entity` is a reason for a turn: the config is read from it, or a sensor write waits on it. */
-export function wantsTurn(kept: Kept, entity: string): boolean {
-  return kept.kind === 'running' && (readsConfig(kept.state.configFrom, entity)
-    || kept.state.outbox.some(({ write }) => write.kind === 'sensor' && write.write.entity === entity));
+/**
+ * Whether `entity` changing to `state` is a reason for a turn: the config is read from it, a sensor write waits on it,
+ * or it is a switch of the config that now shows another power than the last turn saw (its own button, our send
+ * landing, or its reach). A switch's change is a live input: its turn reads it against the look just before, so a
+ * press is told from our send without a clock (`switchPressed`, reconcile.ts). The same power again (an attribute's
+ * report, a bounce) runs no turn. Bulbs run none: their reports come at every step of a fade and the candle's flicker.
+ */
+export function wantsTurn(kept: Kept, entity: string, state: EntityState | undefined): boolean {
+  if (kept.kind !== 'running') return false;
+  const { configFrom, outbox, model, observed } = kept.state, plug = toSwitchId(entity);
+  return readsConfig(configFrom, entity)
+    || outbox.some(({ write }) => write.kind === 'sensor' && write.write.entity === entity)
+    || (model.config.switches[plug] !== undefined && observedSwitch(state) !== observed.switches[plug]);
 }
 
 /**
@@ -210,11 +220,11 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
   const taken = takenOver(kept.kind === 'running' ? kept.state.share : kept.share, share, clocked.config);
   // What changed since the last turn that no send of ours explains: a plug's own button is pressed first, then the input.
   // A room handed over since was the old scripts' meanwhile, and is taken as found: a change there is theirs.
-  // A switch send of ours whose target moved before it landed may land late: its landing is no press.
+  // A switch send of ours whose target moved before it landed may land late, within its window by our clock: no press.
   const seen = decodeObserved(house.state, clocked.config);
   const changed = state === undefined ? [] : unexplained(state.observed, seen, state.beliefs)
     .filter(change => change.kind === 'switch pressed'
-      ? !taken.switches.includes(change.switch) && !landedLate(state.superseded[change.switch], change.power, seen.switchChanged[change.switch], now)
+      ? !taken.switches.includes(change.switch) && !landedLate(state.superseded[change.switch], change.power, now)
       : !taken.bulbs.includes(change.bulb));
   let inputMessages: Msg[] = [], dropped: string | undefined, saved: StoreSave | undefined;
   try {

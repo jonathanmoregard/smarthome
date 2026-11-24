@@ -17,7 +17,6 @@ import type { BridgeState, Observed, ObservedBulb } from '../../src/adapter/reco
 import type { BulbId, SwitchId } from '../../src/domain/types/ids.ts';
 import { entriesOf } from '../../src/domain/types/ids.ts';
 import type { Colour, Level, Power } from '../../src/domain/types/light.ts';
-import type { Instant } from '../../src/domain/types/time.ts';
 import { toKelvin, toColourChannel, toLevel } from '../../src/adapter/codecs/ids.ts';
 
 export type FakeLight = { power: 'off' } | { power: 'on'; level: Level; colour: Colour | undefined; effect: 'none' | 'candle' };
@@ -34,8 +33,6 @@ export class FakeBulbs {
   private readonly unpowered = new Map<BulbId, FakeLight>();
   private readonly byTopic = new Map<MqttTopic, readonly BulbId[]>();
   readonly switches = new Map<SwitchId, Power | 'unreachable'>();
-  /** When each switch last changed, as HA's `last_changed` reports it; a switch not in it reports none (the harness). */
-  readonly switchChanged = new Map<SwitchId, Instant>();
   /** Every publish that reached a bulb, in order, with the bulbs it reached. */
   readonly received: { publish: Publish; bulbs: readonly BulbId[] }[] = [];
 
@@ -98,7 +95,7 @@ export class FakeBulbs {
   observed(bridge: BridgeState = 'connected'): Observed {
     const bulbs: Record<BulbId, ObservedBulb> = {};
     for (const [bulb, shown] of this.bulbs) bulbs[bulb] = reported(shown);
-    return { bulbs, switches: Object.fromEntries(this.switches), switchChanged: Object.fromEntries(this.switchChanged), bridge };
+    return { bulbs, switches: Object.fromEntries(this.switches), bridge };
   }
 }
 
