@@ -3,10 +3,13 @@
  * (tests/runtime/closeout-r2.test.ts). Node's `setInterval` is caught so the heartbeat beats only when this script
  * says, and the process exits when done, which ends the catalog watcher and the journal lock with it.
  *
- * Usage: main-child.ts <dir> reload|refuse. Prints one JSON line: every heartbeat call made, those Home Assistant
- * took, and what the process logged.
+ * Usage: main-child.ts <dir> reload|refuse|gap|gap-control. Prints one JSON line: every heartbeat call made, those
+ * Home Assistant took, what the process logged, and how many publishes reached bulb-a.
  *   reload: the catalog gains `light.lamp_c`, which the registry has in `room-c`, under `--live-rooms all`.
  *   refuse: Home Assistant refuses every call with an error (not out of reach).
+ *   gap: under `--live-rooms room-a`, `input_boolean.ls_room-a_on_port` turns on after the read and before the
+ *     state_changed subscription, so no subscriber hears it (close-out round 3, B7); then a bridged recovery tick.
+ *   gap-control: the same change, made once the subscription is live, so it is heard; then the same tick.
  */
 import { readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -14,7 +17,10 @@ import { HomeAssistantClient } from '../../../src/adapter/ha-client.ts';
 import type { HouseRead, ServiceCall } from '../../../src/adapter/ha-client.ts';
 
 const [dir, mode] = process.argv.slice(2);
-if (dir === undefined || (mode !== 'reload' && mode !== 'refuse')) throw new Error('usage: main-child.ts <dir> reload|refuse');
+if (dir === undefined || (mode !== 'reload' && mode !== 'refuse' && mode !== 'gap' && mode !== 'gap-control')) {
+  throw new Error('usage: main-child.ts <dir> reload|refuse|gap|gap-control');
+}
+const gap = mode === 'gap' || mode === 'gap-control';
 
 const beats: (() => void)[] = [];
 globalThis.setInterval = ((beat: () => void) => { beats.push(beat); return 0; }) as unknown as typeof setInterval;
@@ -26,7 +32,7 @@ const wire = (entity_id: string, state: string, attributes: object = {}) => ({ e
 const READ: HouseRead = {
   states: [wire('light.lamp_a', 'on', { entity_id: ['bulb-a'] }), wire('bulb-a', 'on', { brightness: 10 }),
     wire('light.lamp_c', 'on', { entity_id: ['bulb-c'] }), wire('bulb-c', 'on', { brightness: 10 }),
-    wire('binary_sensor.zigbee2mqtt_bridge_connection_state', 'on')],
+    wire('binary_sensor.zigbee2mqtt_bridge_connection_state', 'on'), wire('input_boolean.ls_room-a_on_port', 'off')],
   timezone: 'UTC',
   entities: [{ entity_id: 'light.lamp_a', area_id: 'room-a', device_id: null }, { entity_id: 'light.lamp_c', area_id: 'room-c', device_id: null }],
   devices: [], areas: [{ area_id: 'room-a' }, { area_id: 'room-c' }], labels: [], sources: {},
@@ -41,7 +47,15 @@ class FakeClient {
     this.taken.push(call);
     return undefined;
   }
-  async subscribe(): Promise<void> {}
+  readonly listeners = new Map<string, (event: { event_type: string; data: object }) => void>();
+  async subscribe(event: string, callback: (event: { event_type: string; data: object }) => void): Promise<void> {
+    // Home Assistant hands an event only to the subscriptions live when it fires.
+    const handOver = { entity_id: 'input_boolean.ls_room-a_on_port', new_state: { ...wire('input_boolean.ls_room-a_on_port', 'on'),
+      last_changed: '2026-09-21T12:00:01.000000+00:00', last_updated: '2026-09-21T12:00:01.000000+00:00' } };
+    if (event === 'state_changed' && mode === 'gap') READ.states = READ.states.map(state => state.entity_id === handOver.entity_id ? handOver.new_state : state);
+    this.listeners.set(event, callback);
+    if (event === 'state_changed' && mode === 'gap-control') callback({ event_type: event, data: handOver });
+  }
   onConnection(): void {}
   async read(): Promise<HouseRead> { return structuredClone(READ); }
   async close(): Promise<void> {}
@@ -58,13 +72,17 @@ process.env.HA_URL = 'http://fake.invalid';
 process.env.HA_TOKEN_FILE = token;
 
 const { main } = await import('../../../src/main.ts');
-await main(['--live', '--config', catalogPath, '--state', join(dir, 'journal.json'), '--live-rooms', 'all']);
+await main(['--live', '--config', catalogPath, '--state', join(dir, 'journal.json'), '--live-rooms', gap ? 'room-a' : 'all']);
 const until = async (done: () => boolean) => { for (let waited = 0; !done() && waited < 5000; waited += 20) await new Promise(resolve => setTimeout(resolve, 20)); };
 
 if (mode === 'reload') {
   await writeFile(join(dir, 'catalog.next'), catalog({ 'light.lamp_a': ['bulb-a'], 'light.lamp_c': ['bulb-c'] }));
   await rename(join(dir, 'catalog.next'), catalogPath);
   await until(() => logged.includes('Runtime config reloaded.'));
+} else if (gap) {
+  await new Promise(resolve => setTimeout(resolve, 100));
+  fake.listeners.get('smarthome_script')?.({ event_type: 'smarthome_script', data: { script: 'automation.lighting_recover_pending_output', args: { trigger: {} } } });
+  await new Promise(resolve => setTimeout(resolve, 200));
 } else {
   // Let the start's turn make (and have refused) its calls.
   await until(() => fake.calls.some(call => call.service !== 'input_text.set_value'));
@@ -75,5 +93,6 @@ const heartbeat = (calls: readonly ServiceCall[]) => calls.filter(call => call.t
   .map(call => String(call.data.value));
 process.stdout.write(`${JSON.stringify({ made: heartbeat(fake.calls), taken: heartbeat(fake.taken),
   others: fake.calls.filter(call => call.target?.entity_id !== 'input_text.ls_port_heartbeat').length, logged,
+  bulbA: fake.calls.filter(call => call.service === 'mqtt.publish' && call.data.topic === 'zigbee2mqtt/bulb-a').length,
   catalog: await readFile(catalogPath, 'utf8') })}\n`);
 process.exit(0);

@@ -706,3 +706,17 @@ test('closeout r2 A3: a bulb parked by put-backs whose wall power returns before
   assert.deepEqual(sends.map(to).filter(bulb => bulb === bulbA3), [bulbA3]);
   assert.deepEqual(bulbs.shows(bulbA3), { reach: 'reachable', light: lit(150, kelvin(3003)) });
 });
+
+test("closeout r3 B8: a plug that changed just before our send, stamped by Home Assistant's clock 3 s ahead, is no press", { todo: 'closeout r3 B8' }, () => {
+  // Break: switchPressed compares Home Assistant's `last_changed` with our clock's `sentAt` (src/adapter/reconcile.ts:250).
+  // The plug went off at our clock's -1 s; Home Assistant, 3 s ahead, stamps it +2 s. Our turn at 0 sees it off and sends
+  // on; the next look shows it the same, not yet switched, and the stamp reads as a change after our send.
+  const bulbs = new FakeBulbs(topics);
+  const before = plugShows(bulbs, 'off', at(2));
+  const { beliefs, sends } = pass(bulbs, EVENING, NO_BELIEFS, at(0));
+  assert.deepEqual(sends.filter(send => send.kind === 'switch'), [{ kind: 'switch', switch: plugA, power: 'on' }], 'control: our on is sent');
+  const unswitched = plugShows(bulbs, 'off', at(2));
+  const plug = (look: Observed) => ({ power: look.switches[plugA], changed: look.switchChanged[plugA] });
+  assert.deepEqual(plug(unswitched), plug(before), 'control: the next look shows the plug as the last one did');
+  assert.deepEqual(unexplained(before, unswitched, beliefs), []);
+});
