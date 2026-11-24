@@ -93,7 +93,7 @@ export type Sending = { send: Send; carriedBy: readonly number[] };
 
 /**
  * A turn once its outputs have gone: the state to keep, when to be woken (the lighting's next change, or a failed
- * send's or write's retry when that comes first), the bulbs given up on, each reported once, and the writes parked,
+ * send's, an open switch send's or a write's retry when that comes first), the bulbs given up on, each reported once, and the writes parked,
  * each warned of once. A send settling asks for no
  * wake of its own: the next minute's tick looks again, as today's scripts did, and a wake seconds after every send
  * would move the house's clock under the harness's checkpoints.

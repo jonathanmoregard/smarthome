@@ -209,9 +209,12 @@ export function newlyParkedSwitches(before: Beliefs, after: Beliefs): SwitchId[]
   return entriesOf(after.switches).flatMap(([plug, sent]) => sent.kind === 'parked' && before.switches[plug]?.kind !== 'parked' ? [plug] : []);
 }
 
-/** The first retry due after `now`, if any bulb is being retried. */
+/** The first retry due after `now`, if any bulb is being retried or any switch's send is still open. */
 export function nextRetry(beliefs: Beliefs, now: Instant): Instant | undefined {
-  const due = entriesOf(beliefs.bulbs).flatMap(([, belief]) => belief.kind === 'retrying' && belief.retryAt > now ? [belief.retryAt] : []);
+  const due = [
+    ...entriesOf(beliefs.bulbs).flatMap(([, belief]) => belief.kind === 'retrying' && belief.retryAt > now ? [belief.retryAt] : []),
+    ...entriesOf(beliefs.switches).flatMap(([, sent]) => sent.kind === 'open' && sent.retryAt > now ? [sent.retryAt] : []),
+  ];
   return due.length === 0 ? undefined : instantOrThrow(Math.min(...due));
 }
 

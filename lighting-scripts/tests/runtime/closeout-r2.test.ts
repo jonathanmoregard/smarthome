@@ -257,7 +257,7 @@ test('closeout r2 B2 (refuted): a Home Assistant that refuses every call takes n
   assert.deepEqual(run.taken, []);
 });
 
-test("closeout r2 B7: a switch's open send sets a wake at its retry", { todo: 'closeout r2 B7' }, () => {
+test("closeout r2 B7: a switch's open send sets a wake at its retry", () => {
   // Break: afterOutputs' wake reads nextRetry, which covers bulbs only (src/adapter/reconcile.ts:213-216;
   // src/adapter/loop.ts:123), so the switch's retryAt sets no wake.
   const states = syntheticStates(change => { change['switch.plug_a'] = { state: 'on', attributes: {} }; });
