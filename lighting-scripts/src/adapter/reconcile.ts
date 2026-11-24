@@ -292,9 +292,8 @@ export function switchesSeen(beliefs: Beliefs, observed: Observed, target: Reado
   })) };
 }
 
-/** What to send now to make the house show `target`, and when to look again: the first retry due, if any. */
-export function nextSends(target: LightingState, config: Config, observed: Observed, beliefs: Beliefs, now: Instant):
-  { sends: Send[]; wakeAt: Instant | undefined } {
+/** What to send now to make the house show `target`. When to look again is the loop's: {@link nextRetry} after the sends. */
+export function nextSends(target: LightingState, config: Config, observed: Observed, beliefs: Beliefs, now: Instant): Send[] {
   const sends: Send[] = [];
   if (observed.bridgeConnected) {
     for (const [lamp, light] of entriesOf(target.lamps)) {
@@ -313,7 +312,7 @@ export function nextSends(target: LightingState, config: Config, observed: Obser
     if (open !== undefined && open.power === power && (open.kind === 'parked' || now < open.retryAt)) continue;
     sends.push({ kind: 'switch', switch: plug, power });
   }
-  return { sends, wakeAt: firstRetry(sends, beliefs, now) };
+  return sends;
 }
 
 /** The send one bulb needs, if any, by what is held about it. */
@@ -384,16 +383,6 @@ const NEXT_ATTEMPT: readonly (Attempts | undefined)[] = [1, 2, 3, 4, undefined];
 function startsOnly(shows: BulbAppearance, appearance: BulbAppearance): boolean {
   return runsCandle(appearance) && shows.power === 'on' && appearance.power === 'on' && shows.firmwareEffect === 'none'
     && sameLight(shows, appearance);
-}
-
-/**
- * The first retry due after `now` of a bulb this pass does not send to. A settling send asks for no wake: the
- * minute's tick compares it with its report, as today's scripts did (a wake seconds after every send would move the
- * house's clock under the harness's checkpoints, M3 T3-A).
- */
-function firstRetry(sends: readonly Send[], beliefs: Beliefs, now: Instant): Instant | undefined {
-  const resent = new Set(sends.flatMap(send => send.kind === 'switch' ? [] : [send.bulb]));
-  return nextRetry({ ...beliefs, bulbs: Object.fromEntries(entriesOf(beliefs.bulbs).filter(([bulb]) => !resent.has(bulb))) }, now);
 }
 
 /**

@@ -6,7 +6,7 @@ import type { Publish } from '../../src/adapter/encode.ts';
 import type { MqttTopic } from '../../src/adapter/codecs/ids.ts';
 import type { Observed } from '../../src/adapter/reconcile.ts';
 import {
-  afterSend, backOn, EFFECT_START_FADE, forgotten, MANUAL_FADE, NO_BELIEFS, newlyParked, newlyParkedSwitches, nextSends, REAPPLY_LIMIT, REAPPLY_WINDOW,
+  afterSend, backOn, EFFECT_START_FADE, forgotten, MANUAL_FADE, NO_BELIEFS, newlyParked, newlyParkedSwitches, nextRetry, nextSends, REAPPLY_LIMIT, REAPPLY_WINDOW,
   reportedChanged, RETRY_FIRST, switchesSeen, unexplained, unparked,
 } from '../../src/adapter/reconcile.ts';
 import type { Beliefs, Send } from '../../src/adapter/reconcile.ts';
@@ -61,7 +61,7 @@ function pass(bulbs: FakeBulbs, target: LightingState, beliefs: Beliefs, now: In
   { lost = () => false, failing = () => false, groups = NO_GROUPS }: {
     lost?: (publish: Publish) => boolean; failing?: (publish: Publish) => boolean; groups?: BulbGroups;
   } = {}): { beliefs: Beliefs; sends: Send[]; sent: Publish[] } {
-  const { sends } = nextSends(target, config, bulbs.observed(), beliefs, now);
+  const sends = nextSends(target, config, bulbs.observed(), beliefs, now);
   const sent = publishes(sends, topics, groups);
   const failed = bulbs.apply(sent, lost, failing);
   let after = beliefs;
@@ -273,7 +273,7 @@ test('a bulb reported changed is forgotten, but not one our own put-back lit', (
 test('a disconnected bridge sends the bulbs nothing', () => {
   // Break: publishes go out while Zigbee2MQTT is away, and are lost.
   const bulbs = new FakeBulbs(topics);
-  const { sends } = nextSends(EVENING, config, bulbs.observed(false), NO_BELIEFS, at(0));
+  const sends = nextSends(EVENING, config, bulbs.observed(false), NO_BELIEFS, at(0));
   assert.equal(sends.some(send => send.kind === 'bulb'), false);
 });
 
@@ -302,12 +302,12 @@ test('a switch is sent its target when it reports otherwise, and an unreachable 
   // Break: a switch is never compared with its report, or one that cannot be reached is sent a command.
   const bulbs = new FakeBulbs(topics);
   bulbs.switches.set(plugA, 'off');
-  assert.deepEqual(nextSends(EVENING, config, bulbs.observed(), NO_BELIEFS, at(0)).sends.filter(send => send.kind === 'switch'),
+  assert.deepEqual(nextSends(EVENING, config, bulbs.observed(), NO_BELIEFS, at(0)).filter(send => send.kind === 'switch'),
     [{ kind: 'switch', switch: plugA, power: 'on' }]);
   bulbs.switches.set(plugA, 'on');
-  assert.deepEqual(nextSends(EVENING, config, bulbs.observed(), NO_BELIEFS, at(0)).sends.filter(send => send.kind === 'switch'), []);
+  assert.deepEqual(nextSends(EVENING, config, bulbs.observed(), NO_BELIEFS, at(0)).filter(send => send.kind === 'switch'), []);
   bulbs.switches.set(plugA, 'unreachable');
-  assert.deepEqual(nextSends(EVENING, config, bulbs.observed(), NO_BELIEFS, at(0)).sends.filter(send => send.kind === 'switch'), []);
+  assert.deepEqual(nextSends(EVENING, config, bulbs.observed(), NO_BELIEFS, at(0)).filter(send => send.kind === 'switch'), []);
 });
 
 test('a scheduled fade goes out over its step, a manual change over the manual fade, the candle over the effect start\'s fade', () => {
@@ -317,7 +317,7 @@ test('a scheduled fade goes out over its step, a manual change over the manual f
     lamps: { [lampA1]: on(100, WARM, candle), [lampA2]: on(150, kelvin(3000), normal, { kind: 'scheduled fade', over: toSeconds(60) }), [lampB1]: on(90, WARM) },
     switches: {},
   };
-  const over = Object.fromEntries(nextSends(fading, config, bulbs.observed(), NO_BELIEFS, at(0)).sends.flatMap(send =>
+  const over = Object.fromEntries(nextSends(fading, config, bulbs.observed(), NO_BELIEFS, at(0)).flatMap(send =>
     send.kind === 'bulb' ? [[send.bulb, send.over]] : []));
   assert.deepEqual(over, { [bulbA1]: EFFECT_START_FADE, [bulbA2]: MANUAL_FADE, [bulbA3]: 60, [bulbB1]: MANUAL_FADE });
 });
@@ -332,15 +332,15 @@ test('an off by a room\'s power switch goes out with no fade; any other off over
 });
 
 test('the next wake is a retry only: a settling send asks for none, the minute tick looks again', () => {
-  // Review fix 4. Break: nextSends asks to be woken when a send settles (a wake the loop does not use: it would move
+  // Review fix 4. Break: the wake asked for covers a send settling (a wake the loop does not use: it would move
   // the house's clock under the harness's checkpoints), or forgets the retry a failed send is owed.
   const bulbs = new FakeBulbs(topics);
-  assert.equal(nextSends(EVENING, config, bulbs.observed(), NO_BELIEFS, at(0)).wakeAt, undefined);
   const settling = pass(bulbs, EVENING, NO_BELIEFS, at(0)).beliefs;
-  assert.deepEqual(nextSends(EVENING, config, bulbs.observed(), settling, at(1)), { sends: [], wakeAt: undefined });
+  assert.equal(nextRetry(settling, at(0)), undefined);
+  assert.deepEqual(nextSends(EVENING, config, bulbs.observed(), settling, at(1)), []);
   const failing = (publish: Publish) => publish.topic === topics[bulbA3];
   const failed = pass(new FakeBulbs(topics), EVENING, NO_BELIEFS, at(0), { failing }).beliefs;
-  assert.equal(nextSends(EVENING, config, bulbs.observed(), failed, at(0.5)).wakeAt, at(0) + RETRY_FIRST);
+  assert.equal(nextRetry(failed, at(0.5)), at(0) + RETRY_FIRST);
 });
 
 test('the fades are 0.2 s for a manual change and 0.4 s into an effect start', () => {
@@ -569,7 +569,7 @@ test('a send that never landed is dropped when the target moves off it, and a la
   const pressed = plugShows(bulbs, 'on', at(600));
   assert.deepEqual(unexplained(before, pressed, dropped), [{ kind: 'switch pressed', switch: plugA, power: 'on' }]);
   const held: LightingState = { ...EVENING, switches: { [plugA]: 'on' } };
-  assert.deepEqual(nextSends(held, config, pressed, dropped, at(600)).sends.filter(send => send.kind === 'switch'), [],
+  assert.deepEqual(nextSends(held, config, pressed, dropped, at(600)).filter(send => send.kind === 'switch'), [],
     'held on by the press: not sent back');
 });
 
@@ -584,7 +584,7 @@ test('a plug that drops out and comes back while our send is open is a return, n
   const away = bulbs.observed();
   const back = plugShows(bulbs, 'off', at(30));
   assert.deepEqual(unexplained(away, back, beliefs), [], 'a return');
-  assert.deepEqual(nextSends(EVENING, config, back, beliefs, at(30)).sends.filter(send => send.kind === 'switch'),
+  assert.deepEqual(nextSends(EVENING, config, back, beliefs, at(30)).filter(send => send.kind === 'switch'),
     [{ kind: 'switch', switch: plugA, power: 'on' }], 'it is sent its target');
   const pressed = plugShows(bulbs, 'off', at(40));
   const reachable = plugShows(bulbs, 'off', at(30));

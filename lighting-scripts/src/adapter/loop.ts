@@ -214,7 +214,7 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
   }
   beliefs = switchesSeen(backOn(beliefs, changed.flatMap(change => change.kind === 'bulb back on' ? [change.bulb] : [])), observed,
     lighting.switches);
-  const { sends } = nextSends(sharedLighting(lighting, model.config, share), model.config, observed, beliefs, now);
+  const sends = nextSends(sharedLighting(lighting, model.config, share), model.config, observed, beliefs, now);
   const topics = bulbTopics(house.catalog), groups = bulbGroups(house.catalog);
   const sent = publishes(sends, topics, groups), first = outputs.length, sending: Sending[] = [];
   for (const publish of sent) outputs.push({ kind: 'publish', publish });
