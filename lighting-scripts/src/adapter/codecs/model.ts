@@ -17,6 +17,8 @@ import type { ConfigSource } from './config.ts';
 import { FOLLOWS_ROOM, decodeLampProfile } from './lamp-profiles.ts';
 import { storeKeys } from './overlay-key.ts';
 import { decodeOverrides } from './overrides-sensor.ts';
+import type { OverridesState } from './overrides-sensor.ts';
+import { OVERRIDES_SENSOR } from './writes.ts';
 import type { Share } from './rooms.ts';
 import { IDLE_REMOTE } from '../../domain/remote.ts';
 import { decodeRemoteModel } from './remote-helpers.ts';
@@ -38,10 +40,13 @@ export type ConfigRead = Pick<Model, 'config' | 'lampProfiles' | 'switchProfiles
  */
 export type ConfigFrom = Pick<ConfigSource, 'rooms' | 'labels' | 'timezone'> & { states: Readonly<Record<string, Shown | undefined>> };
 
-/** The whole Model, and what its config and profiles were read from (see {@link ConfigFrom}). */
+/**
+ * The whole Model, and what its config and profiles were read from (see {@link ConfigFrom}). While the overrides sensor
+ * is unread the Model holds no overlays or ranges, so the house lights from the schedule.
+ */
 export function decodeModelFrom(source: ConfigSource, catalog: Catalog): { model: Model; from: ConfigFrom } {
-  const { read, from } = readConfig(source, catalog), config = read.config;
-  const overrides = decodeOverrides(source.states['sensor.ls_overrides']?.attributes, storeKeys(catalog));
+  const { read, from } = readConfig(source, catalog), config = read.config, sensor = overridesRead(source.states, catalog);
+  const overrides = sensor.kind === 'read' ? sensor.overrides : decodeOverrides(undefined, storeKeys(catalog));
   const remotes: Record<RemoteId, RemoteModel> = Object.fromEntries(entriesOf(config.remotes).map(([remote, { room }]) =>
     [remote, room === undefined ? IDLE_REMOTE : decodeRemoteModel(source, room, reportsOn(source, config, overrides.switchRanges, room))]));
   return { model: { ...read, ...overrides, remotes }, from };
@@ -122,6 +127,20 @@ export function reportsOn(source: ConfigSource, config: Config, switchRanges: Mo
     || entriesOf(switchRanges).some(([plug]) => config.switches[plug]?.room === room && on(plug));
 }
 
+/**
+ * The overrides sensor as a read finds it. Unread while Home Assistant has no state of it, or only its `unavailable`
+ * or `unknown` (still loading the integration, or started again without it yet): an absent sensor is not an empty
+ * one. Read, with what it holds.
+ */
+export type OverridesRead = { kind: 'unread' } | { kind: 'read'; overrides: OverridesState };
+
+/** The overrides sensor in `states`, read. */
+export function overridesRead(states: ConfigSource['states'], catalog: Catalog): OverridesRead {
+  const sensor = states[OVERRIDES_SENSOR];
+  if (sensor === undefined || sensor.state === 'unavailable' || sensor.state === 'unknown') return { kind: 'unread' };
+  return { kind: 'read', overrides: decodeOverrides(sensor.attributes, storeKeys(catalog)) };
+}
+
 /** What a decoder reads of an entity: its state and attributes; Home Assistant's stamps and context are not the config. */
 type Shown = Pick<EntityState, 'state' | 'attributes'>;
 
@@ -141,5 +160,5 @@ export function decodeModel(source: ConfigSource, catalog: Catalog): Model {
  */
 export function followingSensor(model: Model, house: Pick<HouseView, 'state' | 'catalog'>, share: Share): Model {
   if (share.kind === 'house') return model;
-  return { ...model, ...decodeOverrides(house.state['sensor.ls_overrides']?.attributes, storeKeys(house.catalog)) };
+  return { ...model, ...decodeOverrides(house.state[OVERRIDES_SENSOR]?.attributes, storeKeys(house.catalog)) };
 }

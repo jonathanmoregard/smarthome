@@ -25,6 +25,7 @@ import type { Instant } from '../../src/domain/types/time.ts';
 import type { FakeBulbs } from './fake-bulbs.ts';
 import { CATALOG, houseView, syntheticStates, world, writeBack } from './fixtures/house-view.ts';
 import { servicesTook } from './support/fake-ha-services.ts';
+import { bridged } from './support/inputs.ts';
 
 /**
  * Close-out round 3 reproducers (`.superpowers/sdd/2026-11-22-m2-m6-build/closeout-r3-{A,B}.md`; verdicts in
@@ -100,7 +101,7 @@ function loop(states: Record<string, EntityState>) {
   };
 }
 
-test("closeout r3 A2/B3: a start before Home Assistant has the overrides sensor does not delete the sensor's ranges once it has", { todo: 'closeout r3 A2/B3' }, () => {
+test("closeout r3 A2/B3: a start before Home Assistant has the overrides sensor does not delete the sensor's ranges once it has", () => {
   // Break: the whole house's Model takes its overlays and ranges from the sensor at the start only
   // (src/adapter/codecs/model.ts:44; followingSensor returns it as is for the house, model.ts:143), so an absent
   // sensor reads as none, and the next turn writes the stored ones' deletion (src/adapter/codecs/writes.ts:193-200).
@@ -118,6 +119,29 @@ test("closeout r3 A2/B3: a start before Home Assistant has the overrides sensor 
   assert.deepEqual(control.state.model.switchRanges[plugA], { kind: 'custom', range: { low: 20, high: 60 } }, 'control: the range is read');
   const late = wake(true);
   assert.deepEqual(sensorWrites(late), [], "the wake writes no deletion of the sensor's switch_ranges");
+});
+
+test('closeout r3 A2/B3 (ruling): while the overrides sensor is unread the port writes it nothing, still lights, and reads it once it comes', () => {
+  // Break: an absent (or restored-unavailable) sensor reads as an empty one, so a hold made meanwhile is written over
+  // what the sensor holds once Home Assistant has loaded it; or the port stops lighting while it waits; or, once read,
+  // the Model keeps the empty overlays instead of the sensor's.
+  const plugA = toSwitchId('switch.plug_a');
+  const sensorWrites = (turn: Turn) => turn.outputs.filter(output => output.kind === 'sensor');
+  const publishes = (turn: Turn) => turn.outputs.filter(output => output.kind === 'publish').length;
+  for (const unread of ['absent', 'unavailable'] as const) {
+    const states = syntheticStates(), sensor = states['sensor.ls_overrides']!, turn = loop(states);
+    if (unread === 'absent') delete states['sensor.ls_overrides'];
+    else states['sensor.ls_overrides'] = { state: 'unavailable', attributes: { restored: true, friendly_name: 'ls_overrides' } };
+    const start = turn('12:00:00', { kind: 'started' });
+    assert.ok(publishes(start) > 0, `${unread}: the start still lights the house from the schedule`);
+    assert.deepEqual(sensorWrites(start), [], `${unread}: the start writes no sensor`);
+    const toggled = turn('12:00:30', bridged('ls_remote_command', { command: 'toggle', area: 'room-a', source: 'remote-a' }));
+    assert.deepEqual(sensorWrites(toggled), [], `${unread}: a hold made while the sensor is unread is not written`);
+    states['sensor.ls_overrides'] = sensor;
+    const read = turn('12:01:00', { kind: 'wake' });
+    assert.deepEqual(read.state.model.switchRanges[plugA], { kind: 'custom', range: { low: 20, high: 60 } }, `${unread}: once read, the ranges are the sensor's`);
+    assert.deepEqual(sensorWrites(read), [], `${unread}: once read, nothing of the sensor's is deleted`);
+  }
 });
 
 /* The host over a fake Home Assistant, as closeout-r2.test.ts runs it. */

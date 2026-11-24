@@ -21,9 +21,10 @@ import type { HouseView } from './codecs/house.ts';
 import { ParseError } from './codecs/parse.ts';
 import { bulbGroups } from './codecs/bulb-groups.ts';
 import { blockLightSaved, bulbTopics, decodeConfig, reportedBulbs } from './codecs/config.ts';
-import type { BlockLight } from './codecs/config.ts';
-import { configMoved, configSource, decodeModelFrom, followingSensor, readConfig, readsConfig } from './codecs/model.ts';
-import type { ConfigFrom } from './codecs/model.ts';
+import type { BlockLight, ConfigSource } from './codecs/config.ts';
+import type { Catalog } from './codecs/catalog.ts';
+import { configMoved, configSource, decodeModelFrom, followingSensor, overridesRead, readConfig, readsConfig } from './codecs/model.ts';
+import type { ConfigFrom, OverridesRead } from './codecs/model.ts';
 import { drives, portSwitchesOn } from './codecs/rooms.ts';
 import type { Share } from './codecs/rooms.ts';
 import { ownsMessage, shareOf } from './live-rooms.ts';
@@ -68,20 +69,31 @@ export type AdapterState = {
   reread: boolean;
   /** What the config was last read from: a turn that finds any of it changed reads the config again. */
   configFrom: ConfigFrom;
+  /** Whether Home Assistant had the overrides sensor at the last turn: while it is unread, the port writes it nothing. */
+  overrides: OverridesRead['kind'];
 };
 
 /**
- * The Model the turn starts from, and what its config was read from: decoded whole at a start; otherwise the kept one,
- * its config and profiles read again on a helper change, a reconnect, a reread asked for, or when anything they are
- * read from shows otherwise than at the last read.
+ * The Model the turn starts from, what its config was read from, and the overrides sensor's read: decoded whole at a
+ * start; otherwise the kept one, its config and profiles read again on a helper change, a reconnect, a reread asked
+ * for, or when anything they are read from shows otherwise than at the last read, and its overlays and ranges the
+ * sensor's when it is read for the first time since it was unread. The sensor is read when Home Assistant reports it;
+ * what it holds is read with the port's own writes still waiting laid over it.
  */
-function modelRead(state: AdapterState | undefined, input: HaInput, house: HouseView, now: Instant): { model: Model; from: ConfigFrom } {
+function modelRead(state: AdapterState | undefined, input: HaInput, house: HouseView, reported: HouseView, now: Instant):
+  { model: Model; from: ConfigFrom; overrides: OverridesRead } {
   const source = configSource(house);
-  if (state === undefined || input.kind === 'started') return decodeModelFrom(source, house.catalog);
+  const overrides: OverridesRead = overridesRead(reported.state, house.catalog).kind === 'unread' ? { kind: 'unread' } : overridesRead(house.state, house.catalog);
+  if (state === undefined || input.kind === 'started') return { ...decodeModelFrom(source, house.catalog), overrides };
   const again = input.kind === 'helper changed' || input.kind === 'reconnected' || state.reread || configMoved(state.configFrom, source);
-  if (!again) return { model: state.model, from: state.configFrom };
-  const { read, from } = readConfig(source, house.catalog);
-  return { model: update(state.model, { kind: 'configChanged', ...read, at: now }), from };
+  const { model, from } = again ? reread(state.model, source, house.catalog, now) : { model: state.model, from: state.configFrom };
+  return { model: overrides.kind === 'read' && state.overrides === 'unread' ? { ...model, ...overrides.overrides } : model, from, overrides };
+}
+
+/** The Model with its config and profiles read again from `source`, and what they were read from. */
+function reread(model: Model, source: ConfigSource, catalog: Catalog, now: Instant): { model: Model; from: ConfigFrom } {
+  const { read, from } = readConfig(source, catalog);
+  return { model: update(model, { kind: 'configChanged', ...read, at: now }), from };
 }
 
 /**
@@ -188,7 +200,7 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
   // A reconnect unparks every parked write, as it does every bulb.
   const landed = settled(state?.outbox ?? [], reported), waiting = input.kind === 'reconnected' ? unparkedWrites(landed, now) : landed;
   const house = withWaiting(reported, waiting);
-  const { model: decoded, from: configFrom } = modelRead(state, input, house, now);
+  const { model: decoded, from: configFrom, overrides } = modelRead(state, input, house, reported, now);
   const share = shareOf(given, given.kind === 'listed' ? portSwitchesOn(house.state, given.rooms) : new Set());
   const before = followingSensor(decoded, house, share);
   // The clock runs first, and the input is read against what it leaves: a reset at this instant is already applied.
@@ -218,7 +230,8 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
     : update(messaged, blockLightRead(light, saved.change, configWrite, messaged, house, now));
   const writes: Write[] = [];
   const written = modelWrites(before, model, house, reported, now, share);
-  if (written.sensor !== undefined) writes.push({ kind: 'sensor', write: written.sensor });
+  // An unread sensor is not an empty one: no write of it, which would delete what Home Assistant has yet to load.
+  if (written.sensor !== undefined && overrides.kind === 'read') writes.push({ kind: 'sensor', write: written.sensor });
   for (const write of written.helpers) writes.push({ kind: 'helper', write });
   for (const write of written.stores) writes.push({ kind: 'store', write });
   if (configWrite !== undefined) writes.push({ kind: 'store', write: configWrite });
@@ -232,7 +245,8 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
     for (const write of dashboardWrites(previous, view, sync, house)) writes.push({ kind: 'dashboard', write });
     for (const write of uiSyncWrites(house, previous === undefined)) writes.push({ kind: 'dashboard', write });
   }
-  const outbox = queued(waiting, writes, now), due = dueAt(outbox, now).filter(entry => !awaitsEcho(entry, reported, share));
+  const outbox = queued(waiting, writes, now), due = dueAt(outbox, now)
+    .filter(entry => !awaitsEcho(entry, reported, share) && (entry.write.kind !== 'sensor' || overrides.kind === 'read'));
   const outputs: Output[] = due.map(entry => outputOf(entry, reported, share));
   const writing = due.map((entry, output) => ({ entry, output }));
 
@@ -267,7 +281,7 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
     }
   }
   const journalled = outputs.flatMap((output, index) => output.kind === 'publish' ? [index] : []);
-  const next: AdapterState = { model, beliefs, view, observed, outbox, reread: false, share, topicless, configFrom };
+  const next: AdapterState = { model, beliefs, view, observed, outbox, reread: false, share, topicless, configFrom, overrides: overrides.kind };
   return { state: next, outputs, sends: sending, now, nextChange: nextChange(model, now), dropped, errors, journalled, writing };
 }
 
