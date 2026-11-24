@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -560,6 +560,9 @@ test("closeout r4 B9: the calls a running port makes leave the runtime sensor's 
 
 const EXPORT = fileURLToPath(new URL('../../scripts/export-bridge.py', import.meta.url));
 const RENDER = fileURLToPath(new URL('./support/render-conditions.py', import.meta.url));
+/** The captured live automations are private (gitignored): a checkout without them, CI's included, skips the tests that read them. */
+const WITHOUT_CAPTURES = existsSync(fileURLToPath(new URL('../../reference/live/automations', import.meta.url)))
+  ? false : 'the private captures (reference/live) are not in this checkout';
 const captured = (slug: string) => (JSON.parse(readFileSync(fileURLToPath(new URL(`../../reference/live/automations/${slug}.json`, import.meta.url)), 'utf8')) as
   { config: JsonObject }).config;
 
@@ -574,7 +577,7 @@ function rolloutBridge(slug: string, config: JsonObject): { status: number | nul
   return { status: run.status, stderr: run.stderr, conditions };
 }
 
-test("closeout r4 A2/B4 (bridge): the rollout's lamp change bridge passes a person's light.toggle", () => {
+test("closeout r4 A2/B4 (bridge): the rollout's lamp change bridge passes a person's light.toggle", { skip: WITHOUT_CAPTURES }, () => {
   // Break: the bridge is built to pass `service in ('turn_on', 'turn_off')` only (scripts/export-bridge.py:77, 116), so a
   // person's toggle of a port room's lamp never reaches the port. Rendered with Home Assistant 2026.7.4's Jinja.
   const { status, stderr, conditions } = rolloutBridge('lighting_schedule_lamp_change_detector', captured('lighting_schedule_lamp_change_detector'));
@@ -591,7 +594,7 @@ test("closeout r4 A2/B4 (bridge): the rollout's lamp change bridge passes a pers
   assert.equal(passes('toggle'), true);
 });
 
-test("closeout r4 B8: the pending-output bridge's export fails when no condition reads the old runtime's bookkeeping", () => {
+test("closeout r4 B8: the pending-output bridge's export fails when no condition reads the old runtime's bookkeeping", { skip: WITHOUT_CAPTURES }, () => {
   // Break: the rollout drops the conditions that name ls_effects_runtime (scripts/export-bridge.py:205) and succeeds when
   // none does, so a recovery whose dirty check reads its bookkeeping under another name keeps that check, and the port's
   // rooms get no 5 s tick while the old side is clean.

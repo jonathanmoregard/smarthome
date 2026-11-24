@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -323,6 +323,9 @@ test('closeout r3 B7 (ruling): state changes that come while the house is read a
 const EXPORT = fileURLToPath(new URL('../../scripts/export-bridge.py', import.meta.url));
 const RENDER = fileURLToPath(new URL('./support/render-conditions.py', import.meta.url));
 const DETECTOR = 'lighting_schedule_lamp_change_detector';
+/** The captured live automations are private (gitignored): a checkout without them, CI's included, skips the tests that read them. */
+const WITHOUT_CAPTURES = existsSync(fileURLToPath(new URL('../../reference/live/automations', import.meta.url)))
+  ? false : 'the private captures (reference/live) are not in this checkout';
 const CAPTURED = fileURLToPath(new URL(`../../reference/live/automations/${DETECTOR}.json`, import.meta.url));
 
 /** The detector's rollout bridge, exported with --rollout from `config` (the captured one by default), and the run. */
@@ -352,7 +355,7 @@ function passes(conditions: JsonObject[], service: string, serviceData: JsonObje
   return verdicts.every(Boolean);
 }
 
-test("closeout r3 B2: the rollout's lamp change bridge passes a person's call that names a port room by area, device or label", () => {
+test("closeout r3 B2: the rollout's lamp change bridge passes a person's call that names a port room by area, device or label", { skip: WITHOUT_CAPTURES }, () => {
   // Break: LAMP_CHANGE_ON_PORT reads only service_data.entity_id (scripts/export-bridge.py:120-124); a call with no
   // entity_id is not the port's, though callReach reads area_id, device_id and label_id (src/adapter/codecs/native-call.ts:66-71).
   const { status, stderr, conditions } = rolloutDetector();
@@ -370,7 +373,7 @@ test("closeout r3 B2: the rollout's lamp change bridge passes a person's call th
   assert.deepEqual(by, { area_id: true, device_id: true, label_id: true });
 });
 
-test("closeout r3 B5: the rendered rollout lamp change conditions pass a person's turn_off for a port room", () => {
+test("closeout r3 B5: the rendered rollout lamp change conditions pass a person's turn_off for a port room", { skip: WITHOUT_CAPTURES }, () => {
   // Pin for B5: export-bridge-rollout.test.ts:126 checks only that the text `service == 'turn_on'` is gone; a widened
   // filter that still drops turn_off passes it. This renders the conditions, and passes today. With TURN_ON_OR_OFF
   // (export-bridge.py:67) as "trigger.event.data.service in ('turn_on', 'turn_off')[:1]" it fails on its last
@@ -383,7 +386,7 @@ test("closeout r3 B5: the rendered rollout lamp change conditions pass a person'
   assert.equal(passes(conditions, 'turn_off', { entity_id: 'light.lamp_a2' }), true);
 });
 
-test("closeout r3 B9: a detector whose turn_on filter is worded otherwise is widened, or the export fails", () => {
+test("closeout r3 B9: a detector whose turn_on filter is worded otherwise is widened, or the export fails", { skip: WITHOUT_CAPTURES }, () => {
   // Break: passing_turn_off is a str.replace of one exact text (scripts/export-bridge.py:66-73); the same filter with
   // double quotes is left as it is, and the export still exits 0.
   const captured = JSON.parse(readFileSync(CAPTURED, 'utf8')) as { config: JsonObject };
@@ -395,7 +398,7 @@ test("closeout r3 B9: a detector whose turn_on filter is worded otherwise is wid
     `the export exited ${status} (${stderr.trim()}) and its bridge drops a person's turn_off`);
 });
 
-test('closeout r3 B9 (ruling): a detector condition of a shape the export does not know fails the export, naming what it found', () => {
+test('closeout r3 B9 (ruling): a detector condition of a shape the export does not know fails the export, naming what it found', { skip: WITHOUT_CAPTURES }, () => {
   // Break: the export widens what it can find and passes the rest through, so a filter it did not read stays, and the
   // bridge drops a person's call with the export's exit 0.
   const captured = JSON.parse(readFileSync(CAPTURED, 'utf8')) as { config: JsonObject };
