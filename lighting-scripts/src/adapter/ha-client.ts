@@ -5,6 +5,7 @@
  */
 import { callService, createConnection, createLongLivedTokenAuth, getConfig, getStates, isConnectionLost } from 'home-assistant-js-websocket';
 import type { Connection } from 'home-assistant-js-websocket';
+import { guardAnswerOf, guardedScript } from './codecs/guard.ts';
 
 /** A JSON value as Home Assistant and the harness send it: the input to parsing, never its result. */
 export type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject;
@@ -40,6 +41,20 @@ export interface ServiceCall {
 export type Guard = { entity: string; lastUpdated: string };
 
 /**
+ * A call's result, as Home Assistant answered it with success: the context id it gave, if any. A guarded call's script
+ * answers success whether it wrote or not, so its response is read, and a call it did not write is refused.
+ */
+export function takenContext(result: unknown, guard: Guard | undefined): string | undefined {
+  if (guard !== undefined) {
+    const answer = guardAnswerOf(object(result).response);
+    if (answer === undefined) throw new Error(`${guard.entity}: Home Assistant's answer does not say the write was made`);
+    if (answer.kind === 'refused') throw new Error(`${guard.entity} changed since it was read: Home Assistant saw ${answer.seen}, not ${guard.lastUpdated}`);
+  }
+  const context = object(object(result).context).id;
+  return typeof context === 'string' ? context : undefined;
+}
+
+/**
  * A call that did not reach Home Assistant, or whose answer was lost with the connection: Home Assistant is out of
  * reach, which says nothing about the bulb or helper the call was for.
  */
@@ -52,7 +67,6 @@ export class Unreachable extends Error {}
 export interface HaClient {
   call(call: ServiceCall): Promise<string | undefined>;
 }
-
 /** An entity's state as the websocket sends it. */
 export interface WireState { entity_id: string; state: string; attributes: unknown; context?: unknown; last_changed: string; last_updated: string }
 export interface EntityEntry { entity_id: string; area_id: string | null; device_id: string | null; labels?: string[] }
@@ -64,9 +78,10 @@ export type HouseRead = {
   states: readonly WireState[]; timezone: string; entities: readonly EntityEntry[]; devices: readonly DeviceEntry[];
   areas: readonly AreaEntry[]; labels: readonly LabelEntry[]; sources: Readonly<Record<string, { domain: string }>>;
 };
-export interface HaEvent { event_type: string; data: JsonObject }
 
 const object = (value: unknown): JsonObject => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as JsonObject : {};
+
+export interface HaEvent { event_type: string; data: JsonObject }
 
 /**
  * Home Assistant over its websocket, through the official client, which owns
@@ -89,26 +104,20 @@ export class HomeAssistantClient implements HaClient {
 
   /**
    * A service call; rejects when Home Assistant is out of reach or refuses it. The answer is the call's context id.
-   * A guarded call is run as a script whose first step stops it with an error when the guard's entity has changed,
-   * the check the old scripts make of a commit's `expected_revision`.
+   * A guarded call is run as a script that answers refused when the guard's entity has changed, the check the old
+   * scripts make of a commit's `expected_revision`; {@link takenContext} reads that answer.
    */
   async call(call: ServiceCall): Promise<string | undefined> {
     // Do not enter the client's suspended-connection queue with stale output.
     if (!this.connection.connected) throw new Unreachable('Home Assistant is disconnected');
     const [domain, service, extra] = call.service.split('.');
     if (domain === undefined || service === undefined || extra !== undefined) throw new Error('Invalid Home Assistant service name');
-    const guard = call.guard;
-    const sent = guard === undefined ? callService(this.connection, domain, service, call.data, call.target)
-      : this.connection.sendMessagePromise({ type: 'execute_script', sequence: [
-        { if: [{ condition: 'template', value_template: `{{ states.${guard.entity}.last_updated.isoformat() != ${JSON.stringify(guard.lastUpdated)} }}` }],
-          then: [{ stop: `${guard.entity} changed since it was read`, error: true }] },
-        { action: call.service, ...call.target === undefined ? {} : { target: call.target }, data: call.data },
-      ] });
-    const response: unknown = await sent.catch((error: unknown) => {
+    const sent = call.guard === undefined ? callService(this.connection, domain, service, call.data, call.target)
+      : this.connection.sendMessagePromise({ type: 'execute_script', sequence: guardedScript(call, call.guard) });
+    const result: unknown = await sent.catch((error: unknown) => {
       throw isConnectionLost(error) ? new Unreachable('Home Assistant connection lost') : error;
     });
-    const context = object(object(response).context).id;
-    return typeof context === 'string' ? context : undefined;
+    return takenContext(result, call.guard);
   }
 
   async subscribe(event: string, callback: (event: HaEvent) => void): Promise<void> {

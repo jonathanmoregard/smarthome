@@ -33,10 +33,20 @@ test('official HA client sends service frames and releases event subscriptions o
   assert.equal(events, 1);
 });
 
-test('a guarded call is made as a script that stops with an error when its entity changed since it was read', async () => {
-  // Review finding 2. Break: the port's write of the overrides sensor lands over an old scripts' commit made since
-  // the port read it, and the commit is lost; or a call with no guard is sent as anything but the plain service call.
-  const socket = new SocketPort();
+test('a guarded call is made as a script that answers refused, with the stamp seen, when its entity changed since it was read', async () => {
+  // Review finding 2, close-out r3 A1/B1. Break: the port's write of the overrides sensor lands over an old scripts'
+  // commit made since the port read it, and the commit is lost; the script answers nothing that tells a refused write
+  // from a made one; or a call with no guard is sent as anything but the plain service call. Home Assistant 2026.7.4's
+  // handle_execute_script, run offline over this sequence, answers `{guard: 'written'}` when fresh and
+  // `{guard: 'refused', seen: <last_updated>}` when stale, success either way.
+  class ScriptPort extends SocketPort {
+    override send(data: string) {
+      const frame = JSON.parse(data) as Record<string, unknown>; this.frames.push(frame);
+      const result = frame.type === 'execute_script' ? { context: { id: 'script-context' }, response: { guard: 'written' } } : null;
+      queueMicrotask(() => this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify({ id: frame.id, type: 'result', success: true, result }) })));
+    }
+  }
+  const socket = new ScriptPort();
   const connection = await createConnection({ createSocket: async () => socket as unknown as HaWebSocket });
   const transport = new HomeAssistantClient(connection);
   const write = { service: 'variable.update_sensor', target: { entity_id: 'sensor.ls_overrides' },
@@ -45,8 +55,12 @@ test('a guarded call is made as a script that stops with an error when its entit
   assert.deepEqual(socket.frames[0], { id: socket.frames[0]?.id, type: 'execute_script', sequence: [
     { if: [{ condition: 'template',
       value_template: '{{ states.sensor.ls_overrides.last_updated.isoformat() != "2026-09-21T11:59:00.123456+00:00" }}' }],
-    then: [{ stop: 'sensor.ls_overrides changed since it was read', error: true }] },
+    then: [
+      { variables: { answer: { guard: 'refused', seen: '{{ states.sensor.ls_overrides.last_updated.isoformat() }}' } } },
+      { stop: 'sensor.ls_overrides changed since it was read', response_variable: 'answer' }] },
     { action: 'variable.update_sensor', target: { entity_id: 'sensor.ls_overrides' }, data: write.data },
+    { variables: { answer: { guard: 'written' } } },
+    { stop: 'written', response_variable: 'answer' },
   ] });
   await transport.call(write);
   assert.equal(socket.frames[1]?.type, 'call_service');

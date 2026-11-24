@@ -54,12 +54,13 @@ class SocketPort extends EventTarget {
   close() { this.readyState = 3; this.dispatchEvent(new Event('close')); }
 }
 
-test('closeout r3 A1/B1, B4: a guarded call Home Assistant stopped at its guard rejects', { todo: 'closeout r3 A1/B1, B4' }, async () => {
-  // Break: the guard is `stop` with `error: true` inside `if/then` (src/adapter/ha-client.ts:103-104). Home Assistant
-  // 2026.7.4 runs `then` as a sub-script, whose _AbortScript the top-level run catches and swallows
-  // (helpers/script.py:474-477), so execute_script answers success with `{context, response: None}`
-  // (components/websocket_api/commands.py:1216-1222), the same answer as a write it made. The socket answers as that.
-  // B4: FakeHa (closeout-r2.test.ts) throws on a stale guard; this is the client-level pin of what HA really answers.
+test('closeout r3 A1/B1, B4: a guarded call Home Assistant stopped at its guard rejects', async () => {
+  // Break: the client takes a guarded call's success as the write made, without reading the script's response. Home
+  // Assistant 2026.7.4 answers execute_script with success whether the guard stopped the script or not
+  // (helpers/script.py:474-487, components/websocket_api/commands.py:1216-1222); the guard script's `stop` with
+  // `response_variable` says which: `{guard: 'written'}`, or `{guard: 'refused', seen: <the stamp it saw>}`. The
+  // socket answers as Home Assistant's own handle_execute_script answered that script, run offline.
+  // B4: this is the client-level pin of what Home Assistant really answers.
   const stale = { service: 'variable.update_sensor', target: { entity_id: 'sensor.ls_overrides' },
     data: { value: 'r2', attributes: { overrides: {} }, replace_attributes: false },
     guard: { entity: 'sensor.ls_overrides', lastUpdated: '2026-09-21T11:59:00.123456+00:00' } };
@@ -70,11 +71,19 @@ test('closeout r3 A1/B1, B4: a guarded call Home Assistant stopped at its guard 
   const refused = await client(() => ({ success: false, error: { code: 'home_assistant_error', message: 'refused' } }));
   await assert.rejects(refused.client.call(stale), { code: 'home_assistant_error' }, 'control: an error answer rejects');
   await refused.client.close();
-  const stopped = await client(() => ({ success: true, result: { context: { id: 'script-context' }, response: null } }));
+  const written = await client(() => ({ success: true, result: { context: { id: 'script-context' }, response: { guard: 'written' } } }));
+  assert.equal(await written.client.call(stale), 'script-context', 'control: a guard that let the write through resolves');
+  await written.client.close();
+  const unread = await client(() => ({ success: true, result: { context: { id: 'script-context' }, response: null } }));
+  await assert.rejects(unread.client.call(stale), 'control: an answer that does not say the write was made rejects');
+  await unread.client.close();
+  const stopped = await client(() => ({ success: true,
+    result: { context: { id: 'script-context' }, response: { guard: 'refused', seen: '2026-09-21T11:59:30.654321+00:00' } } }));
   const answer = await stopped.client.call(stale).then(context => `resolved with ${context}`, (error: unknown) => error);
   await stopped.client.close();
   assert.equal(stopped.socket.frames[0]?.type, 'execute_script', 'control: the guard went as a script');
   assert.ok(answer instanceof Error, `a stopped guard must reject: ${String(answer)}`);
+  assert.match(answer.message, /2026-09-21T11:59:30\.654321\+00:00/, 'the refusal names the stamp Home Assistant saw');
 });
 
 /* The loop alone, as closeout-r2.test.ts runs it: each output taken, the house left as the test sets it. */

@@ -17,6 +17,7 @@ import { afterOutputs, handleInput } from '../../src/adapter/loop.ts';
 import type { Kept, Settled, Turn } from '../../src/adapter/loop.ts';
 import { NO_BELIEFS } from '../../src/adapter/reconcile.ts';
 import type { Publish } from '../../src/adapter/encode.ts';
+import { takenContext } from '../../src/adapter/ha-client.ts';
 import type { EntityState, ServiceCall } from '../../src/adapter/ha-client.ts';
 import { lightingState } from '../../src/domain/lighting-state.ts';
 import { update } from '../../src/domain/update.ts';
@@ -58,12 +59,17 @@ class FakeHa {
     writeBack(this.bulbs, this.states);
   }
 
-  /** A guarded call is refused, as the script the client sends stops, when its entity was updated since the guard's read. */
+  /**
+   * A guarded call is refused, as the script the client sends stops, when its entity was updated since the guard's
+   * read. Home Assistant answers it as it answers that script, success with the script's response, and the client's
+   * own reading of that answer decides whether the call was taken.
+   */
   async call(call: ServiceCall): Promise<string | undefined> {
     this.calls.push(call);
-    if (call.guard !== undefined && this.states[call.guard.entity]?.last_updated !== call.guard.lastUpdated) {
+    const seen = call.guard === undefined ? undefined : this.states[call.guard.entity]?.last_updated;
+    if (call.guard !== undefined && seen !== call.guard.lastUpdated) {
       this.refused.push(call);
-      throw new Error(`${call.guard.entity} changed since it was read`);
+      return takenContext({ context: { id: `context-${this.calls.length}` }, response: { guard: 'refused', seen: seen ?? null } }, call.guard);
     }
     const now = toInstant(Date.now() / 1000), before = this.states;
     this.states = servicesTook(this.states, call, now);
@@ -75,7 +81,8 @@ class FakeHa {
       this.bulbs.apply([{ topic: toMqttTopic(call.data.topic), payload: JSON.parse(call.data.payload) as Publish['payload'] }]);
       writeBack(this.bulbs, this.states);
     }
-    return `context-${this.calls.length}`;
+    const context = { id: `context-${this.calls.length}` };
+    return takenContext(call.guard === undefined ? { context } : { context, response: { guard: 'written' } }, call.guard);
   }
 
   mirror(): HouseMirror {
@@ -200,6 +207,34 @@ test("closeout r2 A4 (ruling): a guarded sensor write waits for Home Assistant's
     assert.deepEqual(guarded().map(call => call.guard?.lastUpdated), ['2026-09-21T11:59:00.123456+00:00', echoed.last_updated], arrives);
     assert.deepEqual(ha.refused, [], arrives);
   }
+});
+
+test("closeout r3 B4: a guarded sensor write Home Assistant answered refused stays waiting, and is made over the stamp read next", async () => {
+  // Break: the client takes the guard script's success as the write made, without reading its `refused` response, so
+  // the write leaves the outbox and the old scripts' commit that came first is all the sensor ever holds.
+  const states = syntheticStates(change => {
+    change['input_boolean.ls_room-a_on_port'] = { state: 'on', attributes: {}, last_changed: '2026-09-21T10:00:00+00:00' };
+    change['sensor.ls_overrides'] = { ...change['sensor.ls_overrides']!, last_updated: '2026-09-21T11:59:00.123456+00:00' };
+  });
+  const ha = new FakeHa(states), now = { time: at('12:00:00') };
+  const { host } = await open(ha, now, { kind: 'listed', rooms: new Set([roomA]) });
+  host.accept({ kind: 'started' });
+  await host.idle();
+  // The old scripts commit to the sensor; the port has not yet heard of it.
+  const committed = { ...ha.states['sensor.ls_overrides']!, state: 'r-old-scripts', last_updated: '2026-09-21T12:00:01.000000+00:00' };
+  ha.states['sensor.ls_overrides'] = committed;
+  const guarded = () => ha.calls.filter(call => call.guard?.entity === 'sensor.ls_overrides');
+  host.accept(bridged('ls_remote_command', { command: 'toggle', area: roomA, source: 'remote-a' }));
+  await host.idle();
+  assert.deepEqual(guarded().map(call => call.guard?.lastUpdated), ['2026-09-21T11:59:00.123456+00:00'], 'control: the write went over the stale stamp');
+  assert.equal(ha.refused.length, 1, 'control: Home Assistant refused it');
+  host.stateChanged('sensor.ls_overrides', committed);
+  now.time = at('12:10:00');
+  host.accept({ kind: 'tick' });
+  await host.idle();
+  await host.close();
+  assert.deepEqual(guarded().map(call => call.guard?.lastUpdated), ['2026-09-21T11:59:00.123456+00:00', committed.last_updated]);
+  assert.equal(ha.refused.length, 1, 'the second write, over the stamp read, is taken');
 });
 
 test("closeout r2 B1: a lamp moved to another room in Home Assistant's registry is in that room at the next tick", () => {
