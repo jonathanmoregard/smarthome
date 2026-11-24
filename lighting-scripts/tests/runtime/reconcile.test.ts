@@ -656,7 +656,7 @@ test('a look that shows a switch differing from our open send is no press: the s
 
 /* Close-out round 1 reproducers: `todo` with the finding's id while the defect stands; the fixer drops the mark. */
 
-test('closeout r1 A2: a level set behind our back under a running candle is put back, the candle with it', { todo: 'closeout r1 A2' }, () => {
+test('closeout r1 A2: a level set behind our back under a running candle is put back, the candle with it', { todo: 'owner decision: candle unobservable' }, () => {
   // Break: a bulb believed to run the candle is checked for its power only, so a level the firmware took from
   // someone else (which ends the candle) is never seen, and ten passes send nothing.
   let { bulbs, beliefs } = steady();
@@ -671,7 +671,7 @@ test('closeout r1 A2: a level set behind our back under a running candle is put 
     `sends to bulb-a1 over ten passes: ${sent.filter(send => to(send) === bulbA1).length}`);
 });
 
-test('closeout r1 A2: a wall power cycle no look saw as out of reach gets the candle back', { todo: 'closeout r1 A2' }, () => {
+test('closeout r1 A2: a wall power cycle no look saw as out of reach gets the candle back', { todo: 'owner decision: candle unobservable' }, () => {
   // Break: the bulb comes back from the cycle showing the candle's light without the candle; its report is on, as
   // the belief expects, so ten passes send nothing.
   let { bulbs, beliefs } = steady();
