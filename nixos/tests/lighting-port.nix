@@ -7,18 +7,22 @@
 # Home Assistant.
 #
 # What is pinned, and why each matters:
-#   - a clone that cannot happen yet (origin unreachable) leaves the unit
-#     restarting with a zero exit status, never `failed` and never
-#     auto-restarting on a non-zero status, because switch-to-configuration
-#     counts exactly those two as a failed deploy and the deployer rolls back;
+#   - no failure leaves the unit `failed` or auto-restarting on a non-zero
+#     status, because switch-to-configuration counts exactly those two as a
+#     failed deploy and the deployer rolls back. Covered: an unreachable
+#     origin, an interrupted clone, a failing `npm ci`, an unforeseen setup
+#     failure (an unreadable package-lock.json), a crashing watcher, and a
+#     watcher that ignores SIGTERM at stop;
+#   - repeated setup failures back off, so a dead origin is not hammered;
 #   - a refusal (env file or LIVE_ROOMS missing, token unreadable, catalog
-#     missing) stops the unit cleanly with status 78 and runs nothing;
+#     missing, node_modules not writable by the service) stops the unit
+#     cleanly with status 78 and runs nothing;
 #   - the watcher gets the agreed command line and environment;
-#   - a crashing watcher is restarted, again with a zero main status;
-#   - an existing checkout is never pulled or reset, and `npm ci` reruns only
-#     when package-lock.json changes;
+#   - an existing checkout is never pulled or reset; `npm ci` reruns only
+#     when package-lock.json changes, and never runs lifecycle scripts;
 #   - the operator, as a member of the group, edits the env file and the
-#     checkout without sudo, and git works for them in the checkout.
+#     checkout without sudo; git trusts the checkout only as lighting-port,
+#     which can write its .git/config.
 #
 #   nix build --no-link -L .#checks.x86_64-linux.lighting-port
 {
@@ -50,15 +54,19 @@ let
 
   # Records the command line, environment and identity it ran with, then stays
   # up like the real watcher. `.runtime/crash` reading `yes` makes it exit 3,
-  # standing in for a host that crashes.
+  # standing in for a host that crashes; `.runtime/stubborn` reading `yes`
+  # makes it ignore SIGTERM, standing in for a host whose shutdown hangs on an
+  # unreachable Home Assistant.
   standInWatcher = pkgsSystem.writeText "dev.mjs" ''
     import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
     import { tmpdir } from 'node:os';
     import { join } from 'node:path';
-    const crashing = () => {
-      try { return readFileSync('.runtime/crash', 'utf8').trim() === 'yes'; } catch { return false; }
+    const flag = name => {
+      try { return readFileSync('.runtime/' + name, 'utf8').trim() === 'yes'; } catch { return false; }
     };
+    const crashing = () => flag('crash');
     if (crashing()) process.exit(3);
+    if (flag('stubborn')) process.on('SIGTERM', () => {});
     const scratch = mkdtempSync(join(tmpdir(), 'stand-in-'));
     writeFileSync('.runtime/record.json', JSON.stringify({
       argv: process.argv.slice(2),
@@ -82,6 +90,7 @@ let
     JSON
     cat > "$out/lighting-scripts/package.json" <<'JSON'
     {"name": "stand-in", "version": "0.0.0", "private": true,
+     "scripts": {"postinstall": "node -e \"require('fs').writeFileSync('lifecycle-script-ran', 'ran')\""},
      "dependencies": {"stand-in-dep": "file:./stand-in-dep"}}
     JSON
     cat > "$out/lighting-scripts/package-lock.json" <<'JSON'
@@ -165,22 +174,60 @@ pkgsSystem.testers.runNixOSTest {
     def restart():
         machine.succeed("systemctl restart lighting-port.service")
 
+    def as_service(command):
+        return machine.succeed(f"runuser -u lighting-port -- sh -c {shlex.quote(command)}")
+
+    def logged(text, timeout=120):
+        machine.wait_until_succeeds(
+            "journalctl -u lighting-port.service -o cat --no-pager | "
+            f"grep -F {shlex.quote(text)}",
+            timeout=timeout,
+        )
+
+    def stays_uncounted(seconds):
+        for _ in range(seconds):
+            never_counted_as_failed()
+            machine.sleep(1)
+
+    def running():
+        machine.wait_until_succeeds(
+            "test \"$(systemctl show lighting-port.service -P SubState)\" = running", timeout=60
+        )
+
+    # SubState=running holds from the moment the script starts, setup
+    # included; the stand-in writing its record is what shows the watcher,
+    # and so the whole of setup, has run.
+    def restart_watcher():
+        machine.succeed(": > ${scripts}/.runtime/record.json")
+        restart()
+        machine.wait_until_succeeds("test -s ${scripts}/.runtime/record.json", timeout=90)
+
+    def installs():
+        return int(machine.succeed(
+            "journalctl -u lighting-port.service -o cat --no-pager | "
+            "grep -cF 'lighting-port: running npm ci' || true"
+        ).strip())
+
     machine.wait_for_unit("multi-user.target")
     machine.succeed("test \"$(stat -c '%U:%G %a' /var/lib/lighting-port)\" = 'lighting-port:lighting-port 2770'")
     machine.succeed("test \"$(stat -c '%U:%G %a' /run/agenix/lighting-port-ha-token)\" = 'lighting-port:lighting-port 400'")
 
-    # The origin does not exist yet: the clone fails and is retried, and the
-    # unit stays out of the states a switch would count against a deploy.
-    machine.wait_until_succeeds(
-        "journalctl -u lighting-port.service -o cat --no-pager | "
-        "grep -F 'lighting-port: clone failed'",
-        timeout=120,
-    )
-    machine.wait_until_succeeds(
-        "test \"$(systemctl show lighting-port.service -P NRestarts)\" -ge 1", timeout=60
-    )
-    never_counted_as_failed()
+    # The origin does not exist yet: the clone fails and is retried, waiting
+    # longer each time, and the unit stays out of the states a switch would
+    # count against a deploy.
+    logged("lighting-port: clone failed; retrying in 10s (setup failure 1 in a row)")
+    logged("lighting-port: clone failed; retrying in 20s (setup failure 2 in a row)", timeout=90)
+    stays_uncounted(3)
     machine.succeed("test ! -e ${src}")
+
+    # A clone cut short is moved aside, never deleted and never mistaken for
+    # a checkout. A restart in the middle of a backoff stops cleanly.
+    as_service("mkdir /var/lib/lighting-port/.src.partial && touch /var/lib/lighting-port/.src.partial/junk")
+    restart()
+    logged("lighting-port: moved an interrupted clone aside to /var/lib/lighting-port/.src.partial.")
+    logged("lighting-port: clone failed; retrying in 40s (setup failure 3 in a row)")
+    machine.succeed("ls /var/lib/lighting-port/.src.partial.*/junk")
+    never_counted_as_failed()
 
     machine.succeed(
         "cp -r ${standInCheckout} /tmp/work && chmod -R u+w /tmp/work && "
@@ -190,12 +237,17 @@ pkgsSystem.testers.runNixOSTest {
         "git clone -q --bare /tmp/work ${origin} && "
         "chown -R lighting-port:lighting-port ${origin}"
     )
+    restart()
 
-    # Cloned on a later attempt, dependencies installed, then refused: there
-    # is no env file, so nothing may run.
+    # Cloned, dependencies installed, then refused: there is no env file, so
+    # nothing may run. A setup that got through resets the backoff.
     refused("/var/lib/lighting-port/env does not exist")
     machine.succeed("test -d ${src}/.git")
+    machine.succeed("test \"$(cat /var/lib/lighting-port/.setup-failures)\" = 0")
     machine.succeed("test -L ${scripts}/node_modules/stand-in-dep")
+    # npm ci runs no lifecycle scripts: the token is readable and the network
+    # open in this unit.
+    machine.succeed("test ! -e ${scripts}/lifecycle-script-ran")
     machine.succeed(
         "test \"$(cat ${scripts}/node_modules/.lighting-port-lock.sha256)\" = "
         "\"$(sha256sum ${scripts}/package-lock.json | cut -d' ' -f1)\""
@@ -262,17 +314,31 @@ pkgsSystem.testers.runNixOSTest {
     for _ in range(10):
         never_counted_as_failed()
         machine.sleep(1)
+    machine.succeed(": > ${scripts}/.runtime/record.json")
     as_operator("printf 'no\\n' > ${scripts}/.runtime/crash")
-    machine.wait_until_succeeds(
-        "test \"$(systemctl show lighting-port.service -P SubState)\" = running", timeout=60
-    )
+    machine.wait_until_succeeds("test -s ${scripts}/.runtime/record.json", timeout=90)
+
+    # A watcher whose shutdown hangs (Home Assistant unreachable) is killed
+    # by the unit before systemd's stop timeout, and the stop stays clean: a
+    # timed-out stop would leave the unit failed.
+    as_operator("printf 'yes\\n' > ${scripts}/.runtime/stubborn")
+    restart_watcher()
+    machine.succeed("systemctl stop lighting-port.service", timeout=60)
+    logged("lighting-port: watcher still running 15s after stop; killing it")
+    assert show("ActiveState") == "inactive", show("ActiveState")
+    assert show("Result") == "success", show("Result")
+    as_operator("printf 'no\\n' > ${scripts}/.runtime/stubborn")
+    restart_watcher()
 
     # The checkout is the operator's working copy: a local edit and a newer
-    # origin commit both survive a restart untouched, and git works for the
-    # operator in a checkout another user owns.
-    head = machine.succeed("git -C ${src} rev-parse HEAD").strip()
+    # origin commit both survive a restart untouched. Git trusts it only as
+    # lighting-port: anyone who can write .git/config could otherwise run
+    # commands as whoever runs git there.
+    head = as_service("git -C ${src} rev-parse HEAD").strip()
     as_operator("printf 'local edit\\n' >> ${scripts}/scripts/dev.mjs.note")
-    as_operator("git -C ${src} status --porcelain")
+    machine.fail("git config --system --get-all safe.directory")
+    machine.fail("runuser -u jonathan -- git -C ${src} status --porcelain")
+    as_service("git -C ${src} status --porcelain")
     machine.succeed(
         "printf 'upstream\\n' > /tmp/work/upstream && "
         "git -C /tmp/work -c user.name=t -c user.email=t@example.invalid add -A && "
@@ -283,33 +349,55 @@ pkgsSystem.testers.runNixOSTest {
         "git -C /tmp/work push -q ${origin} ${branch} && "
         "chown -R lighting-port:lighting-port ${origin}"
     )
-    installs = machine.succeed(
-        "journalctl -u lighting-port.service -o cat --no-pager | grep -cF 'lighting-port: running npm ci'"
-    ).strip()
-    restart()
-    machine.wait_until_succeeds(
-        "test \"$(systemctl show lighting-port.service -P SubState)\" = running", timeout=60
-    )
-    assert machine.succeed("git -C ${src} rev-parse HEAD").strip() == head
+    before = installs()
+    restart_watcher()
+    assert as_service("git -C ${src} rev-parse HEAD").strip() == head
     machine.succeed("grep -Fx 'local edit' ${scripts}/scripts/dev.mjs.note")
     machine.succeed("test ! -e ${src}/upstream")
-    assert machine.succeed(
-        "journalctl -u lighting-port.service -o cat --no-pager | grep -cF 'lighting-port: running npm ci'"
-    ).strip() == installs, "npm ci ran again with an unchanged package-lock.json"
+    assert installs() == before, "npm ci ran again with an unchanged package-lock.json"
 
-    # A changed package-lock.json is installed again on the next start.
+    # node_modules the service cannot rewrite (npm run as the operator with
+    # umask 022) is the operator's to fix, and says so, instead of an npm ci
+    # that fails with EACCES on every retry.
+    as_operator("umask 022; mkdir ${scripts}/node_modules/foreign")
     as_operator(
         "sed -i 's/\"requires\": true/\"requires\": true, \"x-edited\": 1/' ${scripts}/package-lock.json"
     )
+    restart()
+    refused("${scripts}/node_modules/foreign is not writable by lighting-port")
+
+    # Given back, the changed package-lock.json is installed on the next start.
+    machine.succeed("chown -R lighting-port:lighting-port ${scripts}/node_modules")
+    before = installs()
     restart()
     machine.wait_until_succeeds(
         "test \"$(cat ${scripts}/node_modules/.lighting-port-lock.sha256)\" = "
         "\"$(sha256sum ${scripts}/package-lock.json | cut -d' ' -f1)\"",
         timeout=120,
     )
-    assert int(machine.succeed(
-        "journalctl -u lighting-port.service -o cat --no-pager | grep -cF 'lighting-port: running npm ci'"
-    ).strip()) == int(installs) + 1
+    assert installs() == before + 1
+    running()
+
+    # A failing npm ci is retried with backoff, never counted.
+    machine.succeed(
+        "cp ${scripts}/package-lock.json /tmp/lock.good && "
+        "printf 'not json\\n' > ${scripts}/package-lock.json"
+    )
+    restart()
+    stays_uncounted(5)
+    logged("lighting-port: npm ci failed; retrying in 10s (setup failure 1 in a row)")
+    machine.succeed("cp /tmp/lock.good ${scripts}/package-lock.json")
+    restart_watcher()
+
+    # An unforeseen setup failure (here an unreadable package-lock.json) is
+    # retried like any other, not left to errexit and a non-zero status.
+    mode = machine.succeed("stat -c %a ${scripts}/package-lock.json").strip()
+    machine.succeed("chmod 000 ${scripts}/package-lock.json")
+    restart()
+    stays_uncounted(5)
+    logged("lighting-port: setup failed unexpectedly (status 1); retrying in 10s (setup failure 1 in a row)")
+    machine.succeed(f"chmod {mode} ${scripts}/package-lock.json")
+    restart_watcher()
 
     never_counted_as_failed()
     machine.fail("systemctl --failed --no-legend --plain | grep -F lighting-port")

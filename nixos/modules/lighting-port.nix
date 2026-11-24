@@ -21,8 +21,10 @@
 #     and counts its failure;
 #   - something only the operator can fix stops the unit cleanly with status
 #     78 and is not retried (`refuse`);
-#   - anything worth another try, the watcher exiting included, exits 0 and
-#     is restarted by Restart=always (`retry`). The real status is logged.
+#   - any other setup failure, foreseen or not (`retry`, `catch_all`), and the
+#     watcher exiting, exit 0 and are restarted by Restart=always. The real
+#     status is logged;
+#   - a stop is clean even when the port's own shutdown hangs.
 
 let
   inherit (lib) mkEnableOption mkIf mkOption types;
@@ -35,6 +37,9 @@ let
   nodejs = pkgs.nodejs_22;
   # EX_CONFIG: the configuration is wrong, and a retry will not fix it.
   refusedStatus = 78;
+  # How long the port gets to shut down before the unit kills it itself;
+  # below TimeoutStopSec, so systemd never has to.
+  stopGraceSeconds = 15;
 
   isRuntimePath = value:
     lib.hasPrefix "/" value
@@ -43,19 +48,51 @@ let
 
   run = pkgs.writeShellApplication {
     name = "lighting-port";
-    runtimeInputs = [ pkgs.coreutils pkgs.git nodejs ];
+    runtimeInputs = [ pkgs.coreutils pkgs.findutils pkgs.git pkgs.util-linux nodejs ];
     text = ''
       repository=${lib.escapeShellArg cfg.repository}
       branch=${lib.escapeShellArg cfg.branch}
       checkout=${checkout}
       partial=${stateDir}/.src.partial
+      failures_file=${stateDir}/.setup-failures
       scripts=${scriptsDir}
       env_file=${envFile}
       catalog=.runtime/catalog.json
+      stop_grace_seconds=${toString stopGraceSeconds}
 
       say() { printf 'lighting-port: %s\n' "$*" >&2; }
       refuse() { say "refusing to start: $*"; exit ${toString refusedStatus}; }
-      retry() { say "$*; retrying after restart"; exit 0; }
+
+      # A setup failure worth another try. Each consecutive one waits longer
+      # (10 s, doubling, at most 5 min) before handing back to Restart=, so a
+      # deleted branch or an unreachable origin is not hammered. The count
+      # resets once setup gets through.
+      retry() {
+        failures=$(cat -- "$failures_file" 2>/dev/null) || failures=0
+        if ! [[ "$failures" =~ ^[0-9]+$ ]]; then failures=0; fi
+        failures=$((failures + 1))
+        delay=300
+        if [ "$failures" -le 5 ]; then delay=$((10 << (failures - 1))); fi
+        printf '%s\n' "$failures" > "$failures_file" || true
+        say "$1; retrying in ''${delay}s (setup failure $failures in a row)"
+        sleep "$delay"
+        exit 0
+      }
+
+      # A stop (or a restart by a deploy) is never a failure.
+      trap 'exit 0' TERM INT
+      # The catch-all: anything that fails without being refused or retried
+      # above (errexit on a step nobody foresaw) is retried too, instead of
+      # leaving a non-zero status that a switch would count.
+      # shellcheck disable=SC2329 # invoked by the EXIT trap
+      catch_all() {
+        status=$?
+        if [ "$status" -ne 0 ] && [ "$status" -ne ${toString refusedStatus} ]; then
+          trap - EXIT
+          retry "setup failed unexpectedly (status $status)"
+        fi
+      }
+      trap catch_all EXIT
 
       # Clone only into an absent checkout, and make it appear whole: a clone
       # cut short must not leave a directory that later counts as present.
@@ -81,10 +118,22 @@ let
       lock_hash=$(sha256sum package-lock.json | cut -d' ' -f1)
       stamp=node_modules/.lighting-port-lock.sha256
       if [ ! -f "$stamp" ] || [ "$(cat "$stamp")" != "$lock_hash" ]; then
+        # npm ci replaces node_modules, so it needs every directory in it.
+        # npm run there as the operator (umask 022) leaves some it cannot
+        # write, and no retry fixes that.
+        if [ -d node_modules ]; then
+          foreign=$(find node_modules -type d ! -writable -print -quit 2>/dev/null) || true
+          if [ -n "$foreign" ]; then
+            refuse "$scripts/$foreign is not writable by lighting-port, so npm ci cannot replace node_modules; give it back with: sudo chown -R lighting-port:lighting-port $scripts/node_modules"
+          fi
+        fi
         say "running npm ci"
-        npm ci --no-audit --no-fund || retry "npm ci failed"
+        # No lifecycle scripts: this process can read the Home Assistant
+        # token and reach the network. The port's dependencies have none.
+        npm ci --ignore-scripts --no-audit --no-fund || retry "npm ci failed"
         printf '%s\n' "$lock_hash" > "$stamp"
       fi
+      printf '0\n' > "$failures_file"
 
       # Which rooms the port may drive is the operator's call, made in the env
       # file; a missing answer never means any room. An empty LIVE_ROOMS is
@@ -106,8 +155,30 @@ let
       fi
 
       say "starting the watcher for live rooms '$LIVE_ROOMS'"
+      # Its own process group, so a stop can reach the watcher and the host
+      # it runs together.
+      setsid node scripts/dev.mjs --live --config "$catalog" --live-rooms "$LIVE_ROOMS" &
+      watcher=$!
+
+      # systemd has already sent every process of the unit SIGTERM. A host
+      # whose shutdown hangs (Home Assistant unreachable) would outlive
+      # TimeoutStopSec, be killed by systemd, and leave the unit failed,
+      # which a switch counts. So it is killed here first, and the stop stays
+      # clean.
+      # shellcheck disable=SC2329 # invoked by the TERM/INT trap
+      stop_watcher() {
+        for _ in $(seq $((stop_grace_seconds * 2))); do
+          if ! kill -0 -- "-$watcher" 2>/dev/null; then exit 0; fi
+          sleep 0.5
+        done
+        say "watcher still running ''${stop_grace_seconds}s after stop; killing it"
+        kill -KILL -- "-$watcher" 2>/dev/null || true
+        exit 0
+      }
+      trap stop_watcher TERM INT
+
       status=0
-      node scripts/dev.mjs --live --config "$catalog" --live-rooms "$LIVE_ROOMS" || status=$?
+      wait "$watcher" || status=$?
       say "watcher exited with status $status; restarting"
       exit 0
     '';
@@ -157,12 +228,11 @@ in
     };
     users.groups.lighting-port.members = cfg.operators;
 
-    # The checkout belongs to lighting-port; git refuses to work in a
-    # repository another user owns unless it is named here.
-    programs.git = {
-      enable = true;
-      config.safe.directory = [ checkout ];
-    };
+    # Git for the operator, who runs it in the checkout as lighting-port.
+    # Deliberately no safe.directory for the checkout: lighting-port can write
+    # its .git/config, and a config there (core.fsmonitor, hooks) runs
+    # commands as whoever runs git in it, so no other user may trust it.
+    programs.git.enable = true;
 
     systemd.services.lighting-port = {
       description = "Lighting port, run by its dev watcher from ${scriptsDir}";
@@ -191,9 +261,12 @@ in
         # A deploy that changes this unit restarts it inside the deployer's
         # 120 s switch timeout. The port's shutdown waits on Home Assistant,
         # which may be restarting in the same switch; the default 90 s would
-        # spend most of that budget. Its journal is written whole and renamed
-        # into place, so a kill cannot leave it half-written.
-        TimeoutStopSec = "20s";
+        # spend most of that budget. The script kills a host still running
+        # after ${toString stopGraceSeconds} s itself, so systemd's timeout
+        # (which would leave the unit failed) is never reached. The journal is
+        # written whole and renamed into place, so a kill cannot leave it
+        # half-written.
+        TimeoutStopSec = "${toString (stopGraceSeconds + 5)}s";
         SuccessExitStatus = [ refusedStatus ];
         RestartPreventExitStatus = [ refusedStatus ];
         # Group-writable, setgid: the operator and the service share every
