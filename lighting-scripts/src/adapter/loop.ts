@@ -260,7 +260,8 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
   const writing = due.map((entry, output) => ({ entry, output }));
 
   let beliefs = kept.kind === 'running' ? kept.state.beliefs : kept.beliefs;
-  if (input.kind === 'reconnected') beliefs = unparked(beliefs);
+  // Home Assistant back, or a start, unparks: a park the journal kept does not outlive a restart.
+  if (input.kind === 'reconnected' || input.kind === 'started') beliefs = unparked(beliefs);
   // What the port sent a room before it was handed over says nothing: the old scripts drove it meanwhile.
   beliefs = switchesForgotten(forgotten(beliefs, taken.bulbs), taken.switches);
   const observed = decodeObserved(house.state, model.config);

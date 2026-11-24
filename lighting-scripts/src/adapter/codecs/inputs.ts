@@ -50,7 +50,7 @@ import type { RangeDefaults, RangeRule } from '../../domain/switches.ts';
 
 /** What happened in Home Assistant, as a script or automation run names it. Fields are read by `messages`. */
 export type HaInput =
-  /** Home Assistant started: everything is read again. */
+  /** Home Assistant or the port started: everything is read again, and every parked bulb and switch is unparked. */
   | { kind: 'started' }
   /** The minute's clock. */
   | { kind: 'tick' }

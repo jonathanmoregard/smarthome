@@ -432,6 +432,35 @@ test("a bulb that flaps its power is parked though each put-back's own on is rep
   assert.deepEqual(parked, [bulbA3]);
 });
 
+/** A house whose bulb-a3 was put back six times, then parked. */
+function parkedA3(): House {
+  const house = new House();
+  house.turn('12:00:00', { kind: 'started' });
+  for (let minute = 1; minute <= 6; minute++) {
+    house.bulbs.set(bulbA3, { reach: 'reachable', light: lit(40, { kind: 'kelvin', kelvin: toKelvin(4000) }) });
+    writeBack(house.bulbs, house.states);
+    house.turn(`12:0${minute}:00`, { kind: 'tick' });
+  }
+  assert.equal(house.state?.beliefs.bulbs[bulbA3]?.kind, 'parked', 'control: six put-backs park it');
+  return house;
+}
+
+/** Bulb-a3 back from its wall power with its power-on light, reported on to on. */
+function poweredUp(house: House): void {
+  house.bulbs.set(bulbA3, { reach: 'reachable', light: lit(254, undefined) });
+  writeBack(house.bulbs, house.states);
+}
+
+test('a start unparks a bulb the journal held parked, so a park does not outlive a restart', () => {
+  // Break: the journal's park survives the restart, so a bulb whose light was lost while the port was down is sent
+  // nothing until its target moves.
+  const house = parkedA3();
+  poweredUp(house);
+  const journal: Kept = { kind: 'starting', beliefs: house.state!.beliefs, share: { kind: 'house' } };
+  const turn = handleInput(journal, houseView(house.states, '2026-09-21T12:08:00Z'), { kind: 'started' }, HOUSE);
+  assert.deepEqual(publishedTo(turn, bulbA3).map(publish => publish.payload), [{ brightness: 220, color_temp: 250, transition: 0.2 }]);
+});
+
 test('the turn asks to be woken for a retry due before the next change', () => {
   // Break: a failed send waits for the next change, which may be hours away, instead of its backoff.
   const house = new House();
