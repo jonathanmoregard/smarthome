@@ -5,12 +5,14 @@
  * and the rooms it names whole, and the colour it asks for.
  *
  * The targets: the entities named (a text list split on commas), every entity
- * in each area, each device's entities and each label's. They reach a lamp
+ * in each area and in each area of each floor, each device's entities and
+ * each label's. They reach a lamp
  * when they name the lamp or one of its bulbs, directly, through a catalog
  * group, or through a Home Assistant group or zone (nested, and only an
  * entity Home Assistant reports). An area names its room whole, and so does a
  * catalog group holding every lamp of a room; a Home Assistant group does
- * not. A target that is not text raises.
+ * not. A floor names each of its areas, as Home Assistant expands it. A
+ * target that is not text raises.
  *
  * The colour: the first colour key the call holds, in today's order; a key
  * whose value cannot be read raises. `color_temp` (mireds) is read after
@@ -27,8 +29,8 @@ import type { LampId, RoomId } from '../../domain/types/ids.ts';
 import { entriesOf } from '../../domain/types/ids.ts';
 import type { Colour } from '../../domain/types/light.ts';
 import { COLOUR_NAMES } from './colour-names.ts';
-import type { DeviceId, EntityId, LabelId } from './ids.ts';
-import { toColourChannel, toDeviceId, toEntityId, toKelvin, toLabelId, toLampId, toRoomId } from './ids.ts';
+import type { DeviceId, EntityId, FloorId, LabelId } from './ids.ts';
+import { toColourChannel, toDeviceId, toEntityId, toFloorId, toKelvin, toLabelId, toLampId, toRoomId } from './ids.ts';
 import { groupChildren, lampKelvinRange } from './native-controls.ts';
 import type { JsonObject, JsonValue } from '../ha-client.ts';
 import type { HouseView } from './house.ts';
@@ -51,20 +53,23 @@ function kelvinRgb(kelvin: number): Rgb {
   return [roundEven(clamped(r)), roundEven(clamped(g)), roundEven(clamped(b))];
 }
 
-/** What a light call targets: its areas, the entities it names, its devices and its labels. */
-export type CallTargets = { areas: readonly RoomId[]; entities: readonly EntityId[]; devices: readonly DeviceId[]; labels: readonly LabelId[] };
+/** What a light call targets: its areas, its floors, the entities it names, its devices and its labels. */
+export type CallTargets = {
+  areas: readonly RoomId[]; floors: readonly FloorId[]; entities: readonly EntityId[]; devices: readonly DeviceId[]; labels: readonly LabelId[];
+};
 
 /** A call's targets, from its service data. A target that is not text raises. */
 export function callTargets(sd: JsonObject): CallTargets {
   return {
-    areas: selector(sd, 'area_id').map(toRoomId), entities: selector(sd, 'entity_id', true).map(toEntityId),
+    areas: selector(sd, 'area_id').map(toRoomId), floors: selector(sd, 'floor_id').map(toFloorId), entities: selector(sd, 'entity_id', true).map(toEntityId),
     devices: selector(sd, 'device_id').map(toDeviceId), labels: selector(sd, 'label_id').map(toLabelId),
   };
 }
 
 /** The lamps a call reaches, in the config's order, and the rooms of the config it names whole. */
 export function callReach(targets: CallTargets, config: Config, house: HouseView): { lamps: LampId[]; rooms: RoomId[] } {
-  const { areas, devices, labels } = targets, requested: string[] = [...targets.entities];
+  const { devices, labels } = targets, requested: string[] = [...targets.entities];
+  const areas = [...targets.areas, ...targets.floors.flatMap(floor => listed(house.floors, floor).map(toRoomId))];
   const rooms = house.rooms.ofId;
   for (const area of areas) requested.push(...Object.keys(rooms).filter(entity => rooms[entity] === area));
   for (const device of devices) requested.push(...listed(house.devices, device));

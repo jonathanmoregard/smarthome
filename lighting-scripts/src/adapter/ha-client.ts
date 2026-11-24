@@ -97,7 +97,7 @@ export interface WireState { entity_id: string; state: string; attributes: unkno
 
 export interface EntityEntry { entity_id: string; area_id: string | null; device_id: string | null; labels?: string[] }
 export interface DeviceEntry { id: string; area_id: string | null; labels?: string[]; identifiers?: JsonValue[] }
-export interface AreaEntry { area_id: string; labels?: string[] }
+export interface AreaEntry { area_id: string; labels?: string[]; floor_id?: string | null }
 export interface LabelEntry { label_id: string; name: string }
 /** The states, the timezone and the registry as one whole read brings them; `codecs/house.ts` makes the mirror of it. */
 export type HouseRead = {

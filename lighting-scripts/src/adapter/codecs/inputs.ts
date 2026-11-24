@@ -480,25 +480,25 @@ function personCall(call: LightCall, model: Model, now: Instant, house: HouseVie
   const { lamps, rooms } = callReach(call.targets, model.config, house);
   if (lamps.length === 0) return [];
   const [first] = lamps, asked = call.light;
-  const light: RequestedLight = asked.power === 'off' ? { power: 'off' }
+  const light: RequestedLight = asked.power !== 'on' ? asked
     : { ...asked, colour: asked.colour === undefined ? undefined : callColour(asked.colour, house, first) };
   return [{ kind: 'lampChangedByPerson', lamps, rooms, light, at: now }];
 }
 
 /**
- * A `call_service` event read as a person's light call: a user's `light.turn_on` or `light.turn_off`; none for any
- * other call. A switch-on reads its brightness (absolute, a percent, or a step the domain resolves per lamp), its
- * colour and its effect.
+ * A `call_service` event read as a person's light call: a user's `light.turn_on`, `light.turn_off` or `light.toggle`;
+ * none for any other call. A switch-on reads its brightness (absolute, a percent, or a step the domain resolves per
+ * lamp), its colour and its effect; a toggle, which the domain resolves per lamp, reads nothing more.
  */
 function lightCall(event: JsonObject): LightCall | undefined {
   const context = object(event.context), data = object(event.data);
   if (typeof context.user_id !== 'string' || context.user_id === '') return undefined;
   if (data.domain !== undefined && data.domain !== 'light') return undefined;
-  if (data.service !== 'turn_on' && data.service !== 'turn_off') return undefined;
+  if (data.service !== 'turn_on' && data.service !== 'turn_off' && data.service !== 'toggle') return undefined;
   const sd = object(data.service_data), targets = callTargets(sd);
   return {
     context: typeof context.id === 'string' ? toContextId(context.id) : undefined, targets,
-    light: data.service === 'turn_off' ? { power: 'off' }
+    light: data.service === 'turn_off' ? { power: 'off' } : data.service === 'toggle' ? { power: 'toggle' }
       : { power: 'on', brightness: requestedBrightness(sd), colour: parseCallColour(sd), effect: requestedEffect(sd.effect) },
   };
 }
@@ -524,10 +524,11 @@ function requestedEffect(value: JsonValue | undefined): RequestedEffect | undefi
   return value.toLowerCase() === 'candle' ? { kind: 'candle' } : { kind: 'normal' };
 }
 
-/** What a light call asks for: off, or on with the brightness, the colour (as the call holds it) and the effect it names. */
+/** What a light call asks for: off, on with the brightness, the colour (as the call holds it) and the effect it names, or a toggle. */
 type CallLight =
   | { power: 'off' }
-  | { power: 'on'; brightness: RequestedBrightness | undefined; colour: CallColour | undefined; effect: RequestedEffect | undefined };
+  | { power: 'on'; brightness: RequestedBrightness | undefined; colour: CallColour | undefined; effect: RequestedEffect | undefined }
+  | { power: 'toggle' };
 
 /** Where a press or a command comes from, as far as its run names it: the remote's device, the room, the remote's source. */
 export type PressFrom = { device: RemoteId | undefined; room: RoomId | undefined; source: RemoteSource | undefined };

@@ -94,12 +94,14 @@ export type LampChangedByPerson = {
 
 /**
  * What a person's call set: off, or on with a brightness, a colour, the
- * candle or the normal light. Switched on with none of them (a plain
- * `turn_on`), it ends the off holds there and switches the room on.
+ * candle or the normal light, or each lamp's power the other way (a toggle).
+ * Switched on with none of them (a plain `turn_on`), it ends the off holds
+ * there and switches the room on.
  */
 export type RequestedLight =
   | { power: 'off' }
-  | { power: 'on'; brightness: RequestedBrightness | undefined; colour: Colour | undefined; effect: RequestedEffect | undefined };
+  | { power: 'on'; brightness: RequestedBrightness | undefined; colour: Colour | undefined; effect: RequestedEffect | undefined }
+  | { power: 'toggle' };
 
 /**
  * A person's brightness: a fixed level, or a step that moves each lamp the
@@ -167,13 +169,23 @@ export type LampPart =
  * level and colour shown, unless the call sets them, and ends a candle.
  *
  * `shown` is what the lighting state shows when the change arrives: each
- * lamp's light, which a step moves from, and what the normal light pins.
+ * lamp's light, which a step moves from, and what the normal light pins. A
+ * toggle is resolved per lamp against it: a lamp shown lit is switched off,
+ * and one shown off is switched on, as a plain switch-on; a room named whole
+ * stays one overlay where all its lamps the call reaches go the same way.
  */
 export function personChanged(
   overlays: { lamps: readonly LampOverlay[]; roomPower: RoomPower }, config: Config,
   shown: { lamps: Readonly<Record<LampId, LampLight>>; pinned: (over: LampOrRoom) => Pinned | undefined }, change: LampChangedByPerson,
 ): { lamps: readonly LampOverlay[]; roomPower: RoomPower } {
   const { light, at: now } = change;
+  if (light.power === 'toggle') {
+    const lit = (lamp: LampId) => shown.lamps[lamp]?.power === 'on';
+    const part = (resolved: RequestedLight, takes: (lamp: LampId) => boolean): LampChangedByPerson => ({ ...change, light: resolved,
+      lamps: change.lamps.filter(takes), rooms: change.rooms.filter(room => change.lamps.every(lamp => config.lamps[lamp]?.room !== room || takes(lamp))) });
+    const off = personChanged(overlays, config, shown, part({ power: 'off' }, lit));
+    return personChanged(off, config, shown, part({ power: 'on', brightness: undefined, colour: undefined, effect: undefined }, lamp => !lit(lamp)));
+  }
   const known = [...new Set(change.lamps)].filter(lamp => config.lamps[lamp] !== undefined);
   const whole = [...new Set(change.rooms)].filter(room => config.rooms[room] !== undefined).sort();
   const from: LampOverlayFrom = { kind: 'person' };

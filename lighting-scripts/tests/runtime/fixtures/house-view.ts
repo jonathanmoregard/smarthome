@@ -51,6 +51,7 @@ export function houseView(states: Record<string, EntityState>, now: string): Hou
       'remote-a': 'room-a' }),
     labels: { on_off: ['switch.plug_a'], private_room: ['room-b'] },
     devices: { 'device-plug-a': ['switch.plug_a'] },
+    floors: { ground: ['room-a'] },
     entitySources: {},
     timezone: source.timezone,
     now,

@@ -55,6 +55,14 @@ export function toDeviceId(raw: string): DeviceId {
   return raw as DeviceId;
 }
 
+/** A Home Assistant floor, as a light call targets it. */
+export type FloorId = Id<'FloorId'>;
+
+export function toFloorId(raw: string): FloorId {
+  // Cast: the edge read this string as a floor; this is the one place that says so.
+  return raw as FloorId;
+}
+
 /** A Home Assistant label, as a light call targets it. */
 export type LabelId = Id<'LabelId'>;
 

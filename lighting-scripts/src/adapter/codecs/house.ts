@@ -18,6 +18,8 @@ export type HouseView = {
   rooms: Rooms;
   labels?: Record<string, string[]>;
   devices?: Record<string, string[]>;
+  /** Each floor's areas, as the area registry places them. */
+  floors?: Record<string, string[]>;
   entitySources?: Record<string, string>;
   /** The house's timezone; none when Home Assistant gave none, which the config codec reads as its default. */
   timezone: string | undefined;
@@ -40,6 +42,8 @@ export type HouseMirror = {
   areas: Record<string, string>;
   labels?: Record<string, string[]>;
   devices?: Record<string, string[]>;
+  /** Each floor's areas, as the area registry places them. */
+  floors?: Record<string, string[]>;
   entitySources?: Record<string, string>;
   timezone?: string;
 };
@@ -64,9 +68,11 @@ export function mergedRead(current: HouseMirror, read: HouseMirror, startedAt: I
   return { ...read, state };
 }
 
-/** The mirror of a whole read: the states, each entity's room, its labels, each device's entities and the timezone. */
+/** The mirror of a whole read: the states, each entity's room, its labels, each device's entities, each floor's areas and the timezone. */
 export function houseMirrorOf(read: HouseRead): HouseMirror {
   const areaOf: Record<string, string> = {}, deviceEntities: Record<string, string[]> = {}, labelled: Record<string, string[]> = {};
+  const floors: Record<string, string[]> = {};
+  for (const area of read.areas) if (typeof area.floor_id === 'string') (floors[area.floor_id] ??= []).push(area.area_id);
   const deviceIndex = new Map(read.devices.map(device => [device.id, device]));
   const labelIndex = new Map(read.labels.map(label => [label.label_id, label.name]));
   const label = (name: string, entity: string) => {
@@ -82,7 +88,7 @@ export function houseMirrorOf(read: HouseRead): HouseMirror {
     for (const name of [...entity.labels ?? [], ...device?.labels ?? []]) label(name, entity.entity_id);
   }
   return {
-    state: Object.fromEntries(read.states.map(state => [state.entity_id, entityStateOf(state)])), areas: areaOf, labels: labelled, devices: deviceEntities,
+    state: Object.fromEntries(read.states.map(state => [state.entity_id, entityStateOf(state)])), areas: areaOf, labels: labelled, devices: deviceEntities, floors,
   entitySources: Object.fromEntries(Object.entries(read.sources).map(([entity, source]) => [entity, source.domain])), timezone: read.timezone,
   };
 }
@@ -91,7 +97,7 @@ export function houseMirrorOf(read: HouseRead): HouseMirror {
 export function houseView(mirror: HouseMirror, now: Instant, catalog: Catalog): HouseView {
   const state = mirror.state;
   return {
-    state, rooms: parseRooms(mirror.areas), labels: mirror.labels ?? {}, devices: mirror.devices ?? {},
+    state, rooms: parseRooms(mirror.areas), labels: mirror.labels ?? {}, devices: mirror.devices ?? {}, floors: mirror.floors ?? {},
     entitySources: mirror.entitySources ?? {}, timezone: mirror.timezone, now: isoText(now), catalog,
     get: entity => state[entity]?.state ?? 'unknown',
     attr: (entity, key) => state[entity]?.attributes[key],

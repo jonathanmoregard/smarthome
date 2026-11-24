@@ -11,6 +11,7 @@ import { readRuntimeCatalog, rereading } from '../../src/main.ts';
 import { Host } from '../../src/host.ts';
 import type { HostIo, Journal, Timer } from '../../src/host.ts';
 import { parseCatalog } from '../../src/adapter/codecs/catalog.ts';
+import { houseMirrorOf } from '../../src/adapter/codecs/house.ts';
 import type { HouseMirror } from '../../src/adapter/codecs/house.ts';
 import { toEntityId, toInstant, toMqttTopic, toRoomId, toSwitchId } from '../../src/adapter/codecs/ids.ts';
 import { outputCall, switchCall } from '../../src/adapter/encode.ts';
@@ -23,7 +24,7 @@ import type { Kept, Settled, Turn } from '../../src/adapter/loop.ts';
 import { NO_BELIEFS } from '../../src/adapter/reconcile.ts';
 import { bounded, HomeAssistantClient } from '../../src/adapter/ha-client.ts';
 import { Health } from '../../src/health.ts';
-import type { EntityState, JsonObject, ServiceCall } from '../../src/adapter/ha-client.ts';
+import type { EntityState, HouseRead, JsonObject, ServiceCall } from '../../src/adapter/ha-client.ts';
 import type { BulbId } from '../../src/domain/types/ids.ts';
 import type { Instant } from '../../src/domain/types/time.ts';
 import type { FakeBulbs } from './fake-bulbs.ts';
@@ -99,7 +100,7 @@ const personCall = (service: string, serviceData: JsonObject) => bridged('automa
   context: { user_id: 'person-1', id: 'person-call' }, data: { domain: 'light', service, service_data: serviceData } } } });
 const heldLamps = (turn: Turn) => JSON.stringify(turn.state.model.overlays.lamps);
 
-test("closeout r4 A2/B4: a person's light.toggle, and a light call by floor_id, hold the lamps they reach", { todo: 'closeout r4 A2/B4' }, () => {
+test("closeout r4 A2/B4: a person's light.toggle, and a light call by floor_id, hold the lamps they reach", () => {
   // Break: lightCall reads only `turn_on` and `turn_off` (src/adapter/codecs/inputs.ts:494), so a toggle is no call;
   // callTargets reads entity_id, area_id, device_id and label_id (src/adapter/codecs/native-call.ts:58-61), and the
   // house view has no floors, so a floor_id call reaches no lamp. Either way nothing is held and the next turn puts the
@@ -118,6 +119,34 @@ test("closeout r4 A2/B4: a person's light.toggle, and a light call by floor_id, 
   assert.equal(holdsA2(run('turn_on', { entity_id: 'light.lamp_b1' })), false, 'control: a call into room-b holds nothing of room-a');
   assert.deepEqual({ toggle: holdsA2(run('toggle', { entity_id: 'light.lamp_a2' })), floor: holdsA2(run('turn_off', { floor_id: 'ground' })) },
     { toggle: true, floor: true }, "a person's toggle of lamp_a2, and a turn_off of room-a's floor (`ground`, which the house view has yet to carry), hold it");
+});
+
+test("closeout r4 A2/B4 (ruling): a person's toggle switches each lamp against what it shows", () => {
+  // Ruling A2/B4: the port resolves a toggle per lamp: a lamp shown lit goes off, and one shown off comes on. Break:
+  // a toggle is read as one power for every lamp it reaches, or as an off whatever the lamp shows.
+  const states = syntheticStates();
+  const turn = loop(states);
+  turn('12:00:00', { kind: 'started' });
+  const off = turn('12:00:10', personCall('turn_off', { entity_id: 'light.lamp_a2' }));
+  assert.match(heldLamps(off), /"kind":"off".*lamp_a2/, 'control: the person holds lamp_a2 off');
+  const offHolds = (turn: Turn) => JSON.stringify(turn.state.model.overlays.lamps.filter(overlay => overlay.kind === 'off'));
+  const back = turn('12:00:20', personCall('toggle', { entity_id: 'light.lamp_a2' }));
+  assert.doesNotMatch(offHolds(back), /lamp_a2/, 'a toggle of lamp_a2, shown off, ends its off: it comes on');
+  const mixed = loop(syntheticStates());
+  mixed('12:00:00', { kind: 'started' });
+  mixed('12:00:10', personCall('turn_off', { entity_id: 'light.lamp_a2' }));
+  const area = mixed('12:00:20', personCall('toggle', { area_id: 'room-a' }));
+  const offs = area.state.model.overlays.lamps.filter(overlay => overlay.kind === 'off').map(overlay => JSON.stringify(overlay.over));
+  assert.deepEqual(offs, [JSON.stringify({ kind: 'lamp', lamp: 'light.lamp_a1' })],
+    'a toggle of room-a, lamp_a1 shown lit and lamp_a2 held off: lamp_a1 goes off, lamp_a2 comes on');
+});
+
+test('closeout r4 A2/B4 (ruling): the house read gives each floor its areas, from the area registry', () => {
+  // Ruling A2/B4: a floor_id target resolves to that floor's areas, each area's floor read from the area registry in
+  // the house read and decoded in the codecs. Break: the read drops the areas' floor_id, so a floor call reaches nothing.
+  const read: HouseRead = { states: [], timezone: 'UTC', entities: [], devices: [], labels: [], sources: {},
+    areas: [{ area_id: 'room-a', floor_id: 'ground' }, { area_id: 'room-b', floor_id: null }, { area_id: 'room-c', floor_id: 'ground' }] };
+  assert.deepEqual(houseMirrorOf(read).floors, { ground: ['room-a', 'room-c'] });
 });
 
 /* The host over a fake Home Assistant, as closeout-r3.test.ts runs it. */
