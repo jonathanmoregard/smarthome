@@ -36,9 +36,9 @@ export type Snapshot = HouseMirror & {
 
 /** The mirror the snapshot holds, without the harness's own fields. */
 function mirrorOf(snapshot: Snapshot): HouseMirror {
-  const { state, areas, members, labels, devices, entitySources, timezone } = snapshot;
+  const { state, areas, labels, devices, entitySources, timezone } = snapshot;
   return {
-    state, areas, members, ...(labels === undefined ? {} : { labels }), ...(devices === undefined ? {} : { devices }),
+    state, areas, ...(labels === undefined ? {} : { labels }), ...(devices === undefined ? {} : { devices }),
     ...(entitySources === undefined ? {} : { entitySources }), ...(timezone === undefined ? {} : { timezone }),
   };
 }

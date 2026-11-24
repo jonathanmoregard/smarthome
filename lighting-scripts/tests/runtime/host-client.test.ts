@@ -77,7 +77,7 @@ test('entity context survives a full read', async () => {
   const socket = new SnapshotPort();
   const connection = await createConnection({ createSocket: async () => socket as unknown as HaWebSocket });
   const transport = new HomeAssistantClient(connection);
-  const read = houseMirrorOf(await transport.read(), new Set());
+  const read = houseMirrorOf(await transport.read());
   assert.deepEqual(read.state['script.test']?.context, { id: 'script-call' });
   assert.deepEqual(read.state['sensor.ls_overrides']?.context, { id: 'state-call' });
   await transport.close();

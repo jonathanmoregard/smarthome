@@ -16,7 +16,6 @@ import { parseRooms } from './rooms.ts';
 export type HouseView = {
   state: Record<string, EntityState>;
   rooms: Rooms;
-  members: string[];
   labels?: Record<string, string[]>;
   devices?: Record<string, string[]>;
   entitySources?: Record<string, string>;
@@ -39,7 +38,6 @@ export function withStates(house: HouseView, state: Record<string, EntityState>)
 export type HouseMirror = {
   state: Record<string, EntityState>;
   areas: Record<string, string>;
-  members: string[];
   labels?: Record<string, string[]>;
   devices?: Record<string, string[]>;
   entitySources?: Record<string, string>;
@@ -65,8 +63,8 @@ export function mergedRead(current: HouseMirror, read: HouseMirror, startedAt: I
   return { ...read, state };
 }
 
-/** The mirror of a whole read. Schedule membership is the `house_schedule` label over the catalog's lamps. */
-export function houseMirrorOf(read: HouseRead, lamps: ReadonlySet<string>): HouseMirror {
+/** The mirror of a whole read: the states, each entity's room, its labels, each device's entities and the timezone. */
+export function houseMirrorOf(read: HouseRead): HouseMirror {
   const areaOf: Record<string, string> = {}, deviceEntities: Record<string, string[]> = {}, labelled: Record<string, string[]> = {};
   const deviceIndex = new Map(read.devices.map(device => [device.id, device]));
   const labelIndex = new Map(read.labels.map(label => [label.label_id, label.name]));
@@ -83,8 +81,7 @@ export function houseMirrorOf(read: HouseRead, lamps: ReadonlySet<string>): Hous
     for (const name of [...entity.labels ?? [], ...device?.labels ?? []]) label(name, entity.entity_id);
   }
   return {
-    state: Object.fromEntries(read.states.map(state => [state.entity_id, entityStateOf(state)])), areas: areaOf,
-  members: (labelled.house_schedule ?? []).filter(entity => lamps.has(entity)), labels: labelled, devices: deviceEntities,
+    state: Object.fromEntries(read.states.map(state => [state.entity_id, entityStateOf(state)])), areas: areaOf, labels: labelled, devices: deviceEntities,
   entitySources: Object.fromEntries(Object.entries(read.sources).map(([entity, source]) => [entity, source.domain])), timezone: read.timezone,
   };
 }
@@ -93,7 +90,7 @@ export function houseMirrorOf(read: HouseRead, lamps: ReadonlySet<string>): Hous
 export function houseView(mirror: HouseMirror, now: Instant, catalog: Catalog): HouseView {
   const state = mirror.state;
   return {
-    state, rooms: parseRooms(mirror.areas), members: mirror.members, labels: mirror.labels ?? {}, devices: mirror.devices ?? {},
+    state, rooms: parseRooms(mirror.areas), labels: mirror.labels ?? {}, devices: mirror.devices ?? {},
     entitySources: mirror.entitySources ?? {}, timezone: mirror.timezone, now: isoText(now), catalog,
     get: entity => state[entity]?.state ?? 'unknown',
     attr: (entity, key) => state[entity]?.attributes[key],

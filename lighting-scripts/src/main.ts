@@ -44,7 +44,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   const journal = resolve(option('--state') ?? '.runtime/journal.json'), unlock = await lockJournal(journal);
   const ha = await HomeAssistantClient.connect(url, await readFile(tokenFile, 'utf8'))
     .catch(async (error: unknown) => { await unlock(); throw error; });
-  const read = async () => houseMirrorOf(await ha.read(), new Set(Object.keys(catalog.members)));
+  const read = async () => houseMirrorOf(await ha.read());
   let stopHeartbeat = () => {}, watcher: FSWatcher | undefined;
   try {
     const mirror = await read();
