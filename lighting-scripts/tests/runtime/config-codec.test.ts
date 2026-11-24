@@ -236,8 +236,7 @@ test('the rooms are those of the lamps, switches and remotes, and the switches a
   const config = decode();
   assert.deepEqual(Object.keys(config.rooms).sort(), [roomA, roomB]);
   assert.deepEqual(Object.keys(config.switches), ['switch.plug_a']);
-  assert.equal(config.switches[toSwitchId('switch.plug_a')]!.room, roomA);
-  assert.equal(config.switches[toSwitchId('switch.plug_a')]!.onOff, true);
+  assert.deepEqual(config.switches[toSwitchId('switch.plug_a')], { kind: 'lighting', room: roomA, onOff: true });
 });
 
 test('a switch with a saved range rule is a switch, whether or not it is labelled on/off', () => {
@@ -247,9 +246,9 @@ test('a switch with a saved range rule is a switch, whether or not it is labelle
   const rooms = parseRooms({ 'light.lamp_a': 'room-a', 'switch.plug_a': 'room-a', 'switch.ranged': 'room-b' });
   const config = decode({ 'sensor.ls_overrides': state('0', { switch_ranges: ranges }) }, { rooms });
   assert.deepEqual(Object.keys(config.switches).sort(), ['light.ranged_lamp', 'switch.plug_a', 'switch.ranged']);
-  assert.deepEqual(config.switches[toSwitchId('switch.plug_a')], { room: roomA, onOff: true });
-  assert.deepEqual(config.switches[toSwitchId('switch.ranged')], { room: roomB, onOff: false });
-  assert.deepEqual(config.switches[toSwitchId('light.ranged_lamp')], { room: undefined, onOff: false });
+  assert.deepEqual(config.switches[toSwitchId('switch.plug_a')], { kind: 'lighting', room: roomA, onOff: true });
+  assert.deepEqual(config.switches[toSwitchId('switch.ranged')], { kind: 'lighting', room: roomB, onOff: false });
+  assert.deepEqual(config.switches[toSwitchId('light.ranged_lamp')], { kind: 'lighting', room: undefined, onOff: false });
 });
 
 test('a saved switch range under a key that is no light or switch is skipped, not raised', () => {

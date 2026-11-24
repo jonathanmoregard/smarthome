@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { BlockSchedule, Config, Room, RoomBlock } from '../../src/domain/config.ts';
 import type { EffectName } from '../../src/domain/effect.ts';
-import { blockLight, blockPosition, sceneBetween, scheduledStage, wakeStage } from '../../src/domain/schedule.ts';
+import { blockLight, blockPosition, dayStarts, sceneBetween, scheduledStage, wakeStage } from '../../src/domain/schedule.ts';
 import type { RoomId } from '../../src/domain/types/ids.ts';
 import type { Colour, SceneLight } from '../../src/domain/types/light.ts';
 import type { Instant } from '../../src/domain/types/time.ts';
 import {
-  toBrightness, toColourChannel, toInstant, toKelvin, toMinutes, toProgress, toRoomId, toTimeOfDay, toTimezone,
+  toBrightness, toColourChannel, toInstant, toKelvin, toMinutes, toPlantHours, toProgress, toRoomId, toTimeOfDay, toTimezone,
 } from '../../src/adapter/codecs/ids.ts';
 import type { Block } from '../../src/domain/types/schedule.ts';
 
@@ -54,6 +54,7 @@ function config(change: (house: Record<Block, BlockSchedule>) => void = () => {}
     timezone: toTimezone(zone), house, rooms, lamps: {}, switches: {}, remotes: {}, controls: {},
     overlayReset: { atNextBlock: false, atSetTime: undefined, afterAge: undefined },
     warmEnd: { red: toColourChannel(255), green: toColourChannel(126), blue: toColourChannel(0) },
+    plantHours: toPlantHours(12),
   };
 }
 
@@ -261,3 +262,36 @@ test('spring and autumn clock changes keep block starts at local time', () => {
 function pick(position: ReturnType<typeof blockPosition>): { current: Block; since: Instant | undefined } {
   return { current: position.current, since: position.currentSince };
 }
+
+test('the day starts either side of an instant', () => {
+  // Break: the search stops at the current day, or last and next swap.
+  assert.deepEqual(dayStarts(config(), undefined, t('2026-11-23T12:00:00Z')),
+    { last: t('2026-11-23T07:00:00Z'), next: t('2026-11-24T07:00:00Z') });
+});
+
+test('a day start is the block start, not its fade start', () => {
+  // Break: the fade start (06:40) is returned in place of the start.
+  assert.deepEqual(dayStarts(config(), undefined, t('2026-11-23T06:50:00Z')),
+    { last: t('2026-11-22T09:00:00Z'), next: t('2026-11-23T07:00:00Z') });
+});
+
+test('a weekend morning takes the weekend start', () => {
+  // Break: the weekend start is read on weekdays only, or weekday times are read at the weekend.
+  assert.deepEqual(dayStarts(config(), undefined, t('2026-11-28T08:00:00Z')),
+    { last: t('2026-11-27T07:00:00Z'), next: t('2026-11-28T09:00:00Z') });
+});
+
+test('a room with its own day timing has its own day starts, a room the config does not hold the house\'s', () => {
+  // Break: the room's timing is ignored, or an unknown room is an error.
+  const own: RoomBlock = { ...followsHouse, timing: { follows: 'own',
+    own: { weekdayStart: toTimeOfDay(8, 30), weekendStart: toTimeOfDay(9, 0), fade: toMinutes(20) } } };
+  const house = config(() => {}, { [roomA]: { ...plainRoom, blocks: { ...plainRoom.blocks, day: own } } });
+  assert.equal(dayStarts(house, roomA, t('2026-11-23T08:00:00Z')).next, t('2026-11-23T08:30:00Z'));
+  assert.equal(dayStarts(house, toRoomId('nowhere'), t('2026-11-23T08:00:00Z')).last, t('2026-11-23T07:00:00Z'));
+});
+
+test('with no day start set there is none either side', () => {
+  // Break: an absent start is read as midnight.
+  const house = config(blocks => { blocks.day.weekdayStart = undefined; blocks.day.weekendStart = undefined; });
+  assert.deepEqual(dayStarts(house, undefined, t('2026-11-23T12:00:00Z')), { last: undefined, next: undefined });
+});

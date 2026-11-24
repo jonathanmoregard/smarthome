@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ParseError } from '../../src/adapter/codecs/parse.ts';
-import { toColourChannel, toInstant, toSeconds, toTimeOfDay, toTimezone } from '../../src/adapter/codecs/ids.ts';
+import { toColourChannel, toInstant, toPlantHours, toSeconds, toTimeOfDay, toTimezone } from '../../src/adapter/codecs/ids.ts';
 
 test('a colour channel is 0..255 and may be fractional', () => {
   assert.equal(toColourChannel(0), 0);
@@ -32,4 +32,10 @@ test('a time of day is hour 0..23 and minute 0..59, whole', () => {
 test('a timezone is a non-empty IANA zone id', () => {
   assert.equal(toTimezone('Europe/Stockholm'), 'Europe/Stockholm');
   for (const bad of ['', 'Not/AZone']) assert.throws(() => toTimezone(bad), ParseError);
+});
+test('plant hours are 0..24 and may be fractional', () => {
+  assert.equal(toPlantHours(0), 0);
+  assert.equal(toPlantHours(0.5), 0.5);
+  assert.equal(toPlantHours(24), 24);
+  for (const bad of [-0.5, 24.5, NaN]) assert.throws(() => toPlantHours(bad), ParseError);
 });

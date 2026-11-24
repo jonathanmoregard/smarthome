@@ -10,7 +10,7 @@
  * the stage is still). `isRangeDefault` is not moved: a `PercentRange` is in order inside
  * 0..100 by its type.
  */
-import type { Config } from './config.ts';
+import type { Config, Switch } from './config.ts';
 import { ownSwitchSetting } from './profiles.ts';
 import type { SwitchProfiles } from './profiles.ts';
 import { blockPosition } from './schedule.ts';
@@ -67,7 +67,7 @@ export type RangeDefaultsSaved = { kind: 'rangeDefaultsSaved'; defaults: RangeDe
  * config does not hold is left alone.
  */
 export function switchButtonPressed(overlays: SwitchOverlays, config: Config, press: SwitchButtonPressed): SwitchOverlays {
-  if (config.switches[press.switch] === undefined) return overlays;
+  if (config.switches[press.switch]?.kind !== 'lighting') return overlays;
   return { ...overlays, [press.switch]: { power: press.power, since: press.at } };
 }
 
@@ -80,8 +80,10 @@ export function switchButtonPressed(overlays: SwitchOverlays, config: Config, pr
  * then a room the config holds no schedule for follows the house's.
  */
 export function rangeSaved(config: Config, rules: RangeRules, saved: RangeSaved): { config: Config; switchRanges: RangeRules } {
-  const switches = config.switches[saved.switch] === undefined
-    ? { ...config.switches, [saved.switch]: { room: saved.room, onOff: false } } : config.switches;
+  const held = config.switches[saved.switch];
+  if (held?.kind === 'plant light') return { config, switchRanges: rules };
+  const switches = held === undefined
+    ? { ...config.switches, [saved.switch]: { kind: 'lighting', room: saved.room, onOff: false } satisfies Switch } : config.switches;
   return { config: { ...config, switches }, switchRanges: { ...rules, [saved.switch]: saved.rule } };
 }
 
@@ -108,6 +110,7 @@ export function switchPower(
   const config = model.config;
   const power: Record<SwitchId, Power> = {};
   for (const [id, placed] of entriesOf(config.switches)) {
+    if (placed.kind !== 'lighting') continue;
     // The switch's room is the config's, as decoded or saved; a room the config holds no schedule for follows the house's.
     const room = placed.room, scheduled = room !== undefined && config.rooms[room] !== undefined ? room : undefined;
     const light = rooms[scheduled === undefined ? 'house' : scheduled];

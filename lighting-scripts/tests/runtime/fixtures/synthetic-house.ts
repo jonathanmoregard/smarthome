@@ -21,7 +21,7 @@ import type { RoomId } from '../../../src/domain/types/ids.ts';
 import type { EffectName } from '../../../src/domain/effect.ts';
 import type { Colour } from '../../../src/domain/types/light.ts';
 import {
-  toBrightness, toBulbId, toColourChannel, toDashboardControlId, toInstant, toKelvin, toLampId, toMinutes, toPercentRange,
+  toBrightness, toBulbId, toColourChannel, toDashboardControlId, toInstant, toKelvin, toLampId, toMinutes, toPercentRange, toPlantHours,
   toRemoteId, toRemoteSource, toRoomId, toStep, toStepCount, toSwitchId, toTimeOfDay, toTimezone,
 } from '../../../src/adapter/codecs/ids.ts';
 import type { ConfigSource } from '../../../src/adapter/codecs/config.ts';
@@ -87,11 +87,12 @@ const config: Config = {
     [lampA2]: { room: roomA, bulbs: [{ bulb: toBulbId('bulb-a3'), firmware: 'stock' }] },
     [lampB1]: { room: roomB, bulbs: [{ bulb: toBulbId('bulb-b1'), firmware: 'stock' }] },
   },
-  switches: { [plugA]: { room: roomA, onOff: true } },
+  switches: { [plugA]: { kind: 'lighting', room: roomA, onOff: true } },
   remotes: { [remoteA]: { room: roomA }, [remoteB]: { room: undefined } },
   overlayReset: { atNextBlock: true, atSetTime: undefined, afterAge: toMinutes(180) },
   controls: {},
   warmEnd: { red: toColourChannel(255), green: toColourChannel(126), blue: toColourChannel(0) },
+  plantHours: toPlantHours(12),
 };
 
 /** Three brighter presses from the full range: both bounds moved up by three, the upper one held at the top. */

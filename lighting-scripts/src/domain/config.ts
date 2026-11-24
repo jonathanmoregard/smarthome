@@ -1,7 +1,7 @@
 import type { BulbInfo } from './effect.ts';
 import type { DashboardControlId, LampId, LampOrRoom, RemoteId, RoomId, SwitchId } from './types/ids.ts';
 import type { RGB, SceneLight } from './types/light.ts';
-import type { Minutes } from './types/range.ts';
+import type { Minutes, PlantHours } from './types/range.ts';
 import type { Instant, TimeOfDay, Timezone } from './types/time.ts';
 import type { Block } from './types/schedule.ts';
 
@@ -22,6 +22,8 @@ export type Config = {
   controls: Record<DashboardControlId, LampOrRoom>;
   /** The warm end of the cosy-day blend, and the colour a candle holds. */
   warmEnd: RGB;
+  /** How long a plant light is on from the day start, when it has no hours of its own. */
+  plantHours: PlantHours;
 };
 
 /** The house's schedule: each block's timing and light. */
@@ -53,11 +55,17 @@ export type WakeLight = { at: Instant; fade: Minutes };
 /** A lamp in no room follows the house. */
 export type Lamp = { room: RoomId | undefined; bulbs: readonly BulbInfo[] };
 
+/** A switch is a lighting switch, which the schedule and the overlays run, or a plant light, which keeps its own hours. */
+export type Switch = LightingSwitch | PlantLight;
+
 /**
- * A switch is a light or switch labelled on/off, or one with a saved range rule. Only an on/off-labelled one
+ * A light or switch labelled on/off, or one with a saved range rule. Only an on/off-labelled one
  * (`onOff`) follows its block's on/off setting; a range-only switch follows its range rule or is left as it is.
  */
-export type Switch = { room: RoomId | undefined; onOff: boolean };
+export type LightingSwitch = { kind: 'lighting'; room: RoomId | undefined; onOff: boolean };
+
+/** A grow-lamp plug: on from the day start for its hours, its own or the house's. */
+export type PlantLight = { kind: 'plant light'; room: RoomId | undefined; hours: OwnOrHouse<PlantHours> };
 
 /** No room: the remote does nothing. */
 export type Remote = { room: RoomId | undefined };

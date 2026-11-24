@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { rangeSaved, switchButtonPressed } from '../../src/domain/switches.ts';
 import { lightingState } from '../../src/domain/lighting-state.ts';
 import type { SwitchId } from '../../src/domain/types/ids.ts';
 import type { Power } from '../../src/domain/types/light.ts';
@@ -123,7 +124,7 @@ test('a switch with no rule and no on/off setting is left as it is', () => {
 test('a switch in no room follows the house\'s on/off setting, whatever its rule', () => {
   // A rule needs a room to read. Break: a switch in no room is left out, or its rule reads some room.
   const plugC = toSwitchId('switch.plug_c');
-  const model = house(m => { m.config.switches[plugC] = { room: undefined, onOff: true }; m.switchRanges[plugC] = { kind: 'cosy' }; });
+  const model = house(m => { m.config.switches[plugC] = { kind: 'lighting', room: undefined, onOff: true }; m.switchRanges[plugC] = { kind: 'cosy' }; });
   assert.equal(power(model, at('12:00:00'), plugC), 'on');
   assert.equal(power(model, at('23:30:00'), plugC), 'off');
 });
@@ -155,7 +156,7 @@ test('with the next-block rule on, a switch overlay set before the last fade sta
 const ranged = toSwitchId('switch.ranged');
 const rangeOnly = (room: typeof roomA | undefined) => (m: Model) => {
   delete m.switchRanges[plugA];
-  m.config.switches[ranged] = { room, onOff: false };
+  m.config.switches[ranged] = { kind: 'lighting', room, onOff: false };
   m.switchRanges[ranged] = { kind: 'custom', range: toPercentRange(20, 60) };
 };
 
@@ -237,4 +238,28 @@ test('a range-only switch ignores a profile of its own', () => {
     m.switchProfiles[ranged] = { day: { follows: 'own', power: 'on' }, cosy: { follows: 'own', power: 'on' }, night: { follows: 'own', power: 'on' } };
   });
   assert.equal(power(model, at('12:00:00'), ranged), undefined);
+});
+
+test('a press on a plant light makes no lighting switch overlay', () => {
+  // Break: a plant light's button press is held like a lighting switch's.
+  const plantA = toSwitchId('switch.plant_a');
+  const model = house(m => { m.config.switches[plantA] = { kind: 'plant light', room: roomA, hours: { follows: 'house' } }; });
+  const press = { kind: 'switchButtonPressed', switch: plantA, power: 'off', at: at('12:00:00') } as const;
+  assert.deepEqual(switchButtonPressed({}, model.config, press), {});
+});
+
+test('a range saved for a plant light changes nothing', () => {
+  // Break: a saved range turns a plant light into a lighting switch.
+  const plantA = toSwitchId('switch.plant_a');
+  const model = house(m => { m.config.switches[plantA] = { kind: 'plant light', room: roomA, hours: { follows: 'house' } }; });
+  const saved = { kind: 'rangeSaved', switch: plantA, rule: { kind: 'bright' }, room: roomA, at: at('12:00:00') } as const;
+  assert.deepEqual(rangeSaved(model.config, model.switchRanges, saved), { config: model.config, switchRanges: model.switchRanges });
+});
+
+test('a range saved for an unknown plug makes a lighting switch', () => {
+  // Break: the new switch is built without its kind.
+  const model = house();
+  const saved = { kind: 'rangeSaved', switch: toSwitchId('switch.new'), rule: { kind: 'bright' }, room: roomA, at: at('12:00:00') } as const;
+  assert.deepEqual(rangeSaved(model.config, model.switchRanges, saved).config.switches[toSwitchId('switch.new')],
+    { kind: 'lighting', room: roomA, onOff: false });
 });

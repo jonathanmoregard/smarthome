@@ -42,7 +42,7 @@ export function holdBlock(overlays: BlockOverlays, config: Config, held: BlockHe
 function houseRooms(config: Config): RoomId[] {
   const placed = [
     ...Object.values(config.lamps).map(lamp => lamp.room),
-    ...Object.values(config.switches).flatMap(placedSwitch => placedSwitch.onOff ? [placedSwitch.room] : []),
+    ...Object.values(config.switches).flatMap(placedSwitch => placedSwitch.kind === 'lighting' && placedSwitch.onOff ? [placedSwitch.room] : []),
   ];
   const rooms = placed.flatMap(room => room !== undefined && config.rooms[room] !== undefined && !config.rooms[room].private ? [room] : []);
   return [...new Set(rooms)];

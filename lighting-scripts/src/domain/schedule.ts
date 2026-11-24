@@ -52,23 +52,15 @@ export type BlockPosition = {
  * its start; a fade of zero minutes, or into the block already current, is no fade.
  */
 export function blockPosition(config: Config, room: RoomId | undefined, now: Instant): BlockPosition {
-  const zone = config.timezone;
-  const today = localParts(now, zone);
+  const today = localParts(now, config.timezone);
   let started: Block | undefined, currentSince: Instant | undefined;
   let next: Block | undefined, nextStart: Instant | undefined, nextFade = 0;
   let lastFadeStart: Instant | undefined, nextFadeStart: Instant | undefined;
-  for (const offset of [-2, -1, 0, 1]) {
-    const eve = new Date(Date.UTC(today.year, today.month - 1, today.day + offset));
+  for (const eve of eves(today)) {
     for (const block of BLOCKS) {
-      const timing = timingOf(config, room, block);
-      const isDay = block === 'day';
-      const weekday = (eve.getUTCDay() + (isDay ? 1 : 0)) % 7;
-      const weekend = isDay ? weekday === 6 || weekday === 0 : weekday === 5 || weekday === 6;
-      const time = weekend ? timing.weekendStart : timing.weekdayStart;
-      if (time === undefined) continue;
-      const start = instantOrThrow(localTime(eve.getUTCFullYear(), eve.getUTCMonth() + 1,
-        eve.getUTCDate() + (isDay || time.hour < 12 ? 1 : 0), time.hour, time.minute, zone));
-      const fade = timing.fade * 60;
+      const placed = startOf(config, room, block, eve);
+      if (placed === undefined) continue;
+      const { start, fade } = placed;
       const fadeStart = instantOrThrow(start - fade);
       if (start <= now && (currentSince === undefined || start > currentSince)) { started = block; currentSince = start; }
       if (start > now && (nextStart === undefined || start < nextStart)) { next = block; nextStart = start; nextFade = fade; }
@@ -91,14 +83,25 @@ export function blockPosition(config: Config, room: RoomId | undefined, now: Ins
   };
 }
 
-/** A block's timing for the room: its own where it has one, the house's otherwise. */
-function timingOf(config: Config, room: RoomId | undefined, block: Block): BlockTiming {
-  const placed = roomBlock(config, room, block);
-  return placed !== undefined && placed.timing.follows === 'own' ? placed.timing.own : config.house[block];
-}
+/** The day block's start either side of an instant: the newest at or before it and the first after. */
+export type DayStarts = { last: Instant | undefined; next: Instant | undefined };
 
-/** How long after its start a block counts as just started. */
-const JUST_STARTED: Seconds = secondsOrThrow(90);
+/**
+ * The starts of the day block for a room (or the house) either side of `now`,
+ * over the same days {@link blockPosition} searches; undefined where the day
+ * has no start in reach. It is the block's start, not its fade start.
+ */
+export function dayStarts(config: Config, room: RoomId | undefined, now: Instant): DayStarts {
+  let last: Instant | undefined, next: Instant | undefined;
+  for (const eve of eves(localParts(now, config.timezone))) {
+    const placed = startOf(config, room, 'day', eve);
+    if (placed === undefined) continue;
+    const { start } = placed;
+    if (start <= now && (last === undefined || start > last)) last = start;
+    if (start > now && (next === undefined || start < next)) next = start;
+  }
+  return { last, next };
+}
 
 /** The light a lamp moves between and how far it has got: a held block, a fade, or the wake light. */
 export type Stage = { from: StageEnd; into: StageEnd; progress: Progress; moving: boolean };
@@ -117,6 +120,9 @@ export function stageLight(stage: Stage, lightIn: (block: Block) => SceneLight |
   };
   return stage.moving ? sceneBetween(end(stage.from), end(stage.into), stage.progress) : end(stage.into);
 }
+
+/** How long after its start a block counts as just started. */
+const JUST_STARTED: Seconds = secondsOrThrow(90);
 
 /**
  * The light `progress` of the way through a moving stage from one light into
@@ -147,12 +153,6 @@ export function sceneBetween(from: SceneLight, into: SceneLight, progress: Progr
   };
 }
 
-/**
- * The completed wake's hold: within a day of the wake, and only for a wake hour
- * from 4 up to 11 (today's deployed hold, separate from the alarm's 05-12 input).
- */
-const WAKE_HOLD = { within: secondsOrThrow(86400), fromHour: 4, beforeHour: 11 };
-
 /** Two colours part way, a colour temperature rounded half to even; where one end has none, the other's, the destination's first. */
 function colourBetween(from: Colour | undefined, into: Colour | undefined, progress: Progress): Colour | undefined {
   if (from === undefined || into === undefined) return into === undefined ? from : into;
@@ -167,6 +167,12 @@ export type StageEnd = { kind: 'block'; block: Block } | { kind: 'held light' };
 export function blockAt(end: StageEnd, otherwise: Block): Block {
   return end.kind === 'block' ? end.block : otherwise;
 }
+
+/**
+ * The completed wake's hold: within a day of the wake, and only for a wake hour
+ * from 4 up to 11 (today's deployed hold, separate from the alarm's 05-12 input).
+ */
+const WAKE_HOLD = { within: secondsOrThrow(86400), fromHour: 4, beforeHour: 11 };
 
 /**
  * When the schedule next moves a light by itself: inside a fade or a wake
@@ -347,6 +353,36 @@ export function lastTimeOfDay(at: Instant, time: TimeOfDay, zone: Timezone): Ins
   const today = localParts(at, zone);
   const sameDay = localTime(today.year, today.month, today.day, time.hour, time.minute, zone);
   return instantOrThrow(sameDay <= at ? sameDay : localTime(today.year, today.month, today.day - 1, time.hour, time.minute, zone));
+}
+
+/**
+ * The days a block's start is searched on, as the evening each begins: from two
+ * evenings before the local date to the evening after it.
+ */
+function eves(today: { year: number; month: number; day: number }): Date[] {
+  return [-2, -1, 0, 1].map(offset => new Date(Date.UTC(today.year, today.month - 1, today.day + offset)));
+}
+
+/**
+ * When a block starts for the room on the day whose evening is `eve`, and its
+ * fade in seconds; undefined when its time is absent on that day.
+ */
+function startOf(config: Config, room: RoomId | undefined, block: Block, eve: Date): { start: Instant; fade: Seconds } | undefined {
+  const timing = timingOf(config, room, block);
+  const isDay = block === 'day';
+  const weekday = (eve.getUTCDay() + (isDay ? 1 : 0)) % 7;
+  const weekend = isDay ? weekday === 6 || weekday === 0 : weekday === 5 || weekday === 6;
+  const time = weekend ? timing.weekendStart : timing.weekdayStart;
+  if (time === undefined) return undefined;
+  const start = instantOrThrow(localTime(eve.getUTCFullYear(), eve.getUTCMonth() + 1,
+    eve.getUTCDate() + (isDay || time.hour < 12 ? 1 : 0), time.hour, time.minute, config.timezone));
+  return { start, fade: secondsOrThrow(timing.fade * 60) };
+}
+
+/** A block's timing for the room: its own where it has one, the house's otherwise. */
+function timingOf(config: Config, room: RoomId | undefined, block: Block): BlockTiming {
+  const placed = roomBlock(config, room, block);
+  return placed !== undefined && placed.timing.follows === 'own' ? placed.timing.own : config.house[block];
 }
 
 /** One formatter per zone: building one is slow, and the schedule asks many times a pass. */

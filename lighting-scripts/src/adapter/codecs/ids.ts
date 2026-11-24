@@ -11,11 +11,11 @@
 import type { BulbId, DashboardControlId, Id, LampId, RemoteId, RoomId, SwitchId } from '../../domain/types/ids.ts';
 import type { Brightness, BrightnessStep, ColourChannel, Kelvin, Level, Percent, PercentRange } from '../../domain/types/light.ts';
 import type { Instant, Seconds, TimeOfDay, Timezone } from '../../domain/types/time.ts';
-import type { Minutes, Step, StepCount } from '../../domain/types/range.ts';
+import type { Minutes, PlantHours, Step, StepCount } from '../../domain/types/range.ts';
 import type { Progress } from '../../domain/types/schedule.ts';
 import {
   brightnessOrThrow, brightnessStepOrThrow, colourChannelOrThrow, instantOrThrow, isWithin, kelvinOrThrow, levelOrThrow,
-  minutesOrThrow, percentOrThrow,
+  minutesOrThrow, percentOrThrow, plantHoursOrThrow,
   percentRangeOrThrow, PERCENT_BOUNDS, progressOrThrow, secondsOrThrow, stepCountOrThrow, stepOrThrow, STEP_BOUNDS, timeOfDayOrThrow,
 } from '../../domain/types/range.ts';
 import { ParseError } from './parse.ts';
@@ -205,6 +205,10 @@ export function toProgress(raw: number): Progress {
 
 export function toMinutes(raw: number): Minutes {
   return asParseError(() => minutesOrThrow(raw));
+}
+
+export function toPlantHours(raw: number): PlantHours {
+  return asParseError(() => plantHoursOrThrow(raw));
 }
 
 /** A remote's step range: two step bounds, `min` not above `max`. */

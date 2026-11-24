@@ -25,6 +25,15 @@ export function minutesOrThrow(raw: number): Minutes {
   return raw as Minutes;
 }
 
+/** Hours a plant light stays on, 0..24, not necessarily whole. */
+export type PlantHours = Ranged<'PlantHours'>;
+
+export function plantHoursOrThrow(raw: number): PlantHours {
+  mustBeWithin(raw, 0, 24, 'Plant light hours');
+  // Cast: checked just above; this is the one place a number becomes plant hours.
+  return raw as PlantHours;
+}
+
 /** A place on the blend: 0 at cosy, 1 at day, beyond both within -2..2. */
 export type BlendPosition = Ranged<'BlendPosition'>;
 

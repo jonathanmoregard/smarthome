@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   blendPositionOrThrow, brightnessOrThrow, brightnessStepOrThrow, colourChannelOrThrow, instantOrThrow, kelvinOrThrow, levelOrThrow, minutesOrThrow, percentOrThrow,
-  percentRangeOrThrow, progressOrThrow, secondsOrThrow, stepCountOrThrow, stepOrThrow, timeOfDayOrThrow,
+  percentRangeOrThrow, plantHoursOrThrow, progressOrThrow, secondsOrThrow, stepCountOrThrow, stepOrThrow, timeOfDayOrThrow,
 } from '../../src/domain/types/range.ts';
 
 test('each range constructor accepts both ends of its range and throws a RangeError just outside', () => {
@@ -11,7 +11,7 @@ test('each range constructor accepts both ends of its range and throws a RangeEr
     ['level', levelOrThrow, 1, 254], ['brightness', brightnessOrThrow, 0, 255], ['kelvin', kelvinOrThrow, 1000, 10000],
     ['progress', progressOrThrow, 0, 1], ['percent', percentOrThrow, 0, 100], ['colour channel', colourChannelOrThrow, 0, 255],
     ['step', stepOrThrow, -20, 20], ['step count', stepCountOrThrow, -40, 40], ['blend position', blendPositionOrThrow, -2, 2],
-    ['brightness step', brightnessStepOrThrow, -255, 255],
+    ['brightness step', brightnessStepOrThrow, -255, 255], ['plant hours', plantHoursOrThrow, 0, 24],
   ];
   for (const [name, build, low, high] of cases) {
     assert.equal(build(low), low, `${name} low end`);
@@ -28,6 +28,7 @@ test('whole-number ranges refuse a fraction, and the colour channel and progress
   assert.throws(() => brightnessOrThrow(1.5), RangeError);
   assert.equal(colourChannelOrThrow(127.5), 127.5);
   assert.equal(progressOrThrow(0.25), 0.25);
+  assert.equal(plantHoursOrThrow(0.5), 0.5);
 });
 
 test('seconds and minutes are not negative, an instant is any finite number', () => {

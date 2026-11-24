@@ -20,11 +20,11 @@ import type { BulbInfo } from '../../domain/effect.ts';
 import type { BulbId, DashboardControlId, LampId, LampOrRoom, RemoteId, RoomId, SwitchId } from '../../domain/types/ids.ts';
 import { entriesOf } from '../../domain/types/ids.ts';
 import type { Colour, RGB, SceneLight } from '../../domain/types/light.ts';
-import type { Minutes } from '../../domain/types/range.ts';
+import type { Minutes, PlantHours } from '../../domain/types/range.ts';
 import type { Block, RoomOrHouse } from '../../domain/types/schedule.ts';
 import type { TimeOfDay, Timezone } from '../../domain/types/time.ts';
 import {
-  toBrightness, toBulbId, toColourChannel, toDashboardControlId, toInstant, toKelvin, toLampId, toMinutes, toMqttTopic, toRoomId, toSwitchId, toTimeOfDay, toTimezone,
+  toBrightness, toBulbId, toColourChannel, toDashboardControlId, toInstant, toKelvin, toLampId, toMinutes, toMqttTopic, toPlantHours, toRoomId, toSwitchId, toTimeOfDay, toTimezone,
 } from './ids.ts';
 import type { MqttTopic } from './ids.ts';
 import type { Catalog } from './catalog.ts';
@@ -53,6 +53,8 @@ export const DEFAULT_OVERLAY_AGE: Minutes = toMinutes(180);
 export const DEFAULT_WAKE_FADE: Minutes = toMinutes(37.5);
 /** The zone used when the source names none: today's fallback. */
 const DEFAULT_TIMEZONE: Timezone = toTimezone('Europe/Stockholm');
+/** How long a plant light is on when nothing sets its hours: twelve. */
+export const DEFAULT_PLANT_HOURS: PlantHours = toPlantHours(12);
 /** The candle's colour when the helper holds no readable one: today's warm end. */
 const DEFAULT_WARM_END: RGB = { red: toColourChannel(255), green: toColourChannel(126), blue: toColourChannel(0) };
 
@@ -69,6 +71,7 @@ export function decodeConfig(source: ConfigSource, catalog: Catalog): Config {
     overlayReset: decodeOverlayReset(source),
     controls: decodeControls(catalog, lamps, rooms),
     warmEnd: decodeWarmEnd(source),
+    plantHours: DEFAULT_PLANT_HOURS,
   };
 }
 
@@ -116,7 +119,7 @@ function decodeSwitches(source: ConfigSource): Record<SwitchId, Switch> {
   const labelled = (source.labels['on_off'] ?? []).filter(isSwitch);
   const ranged = Object.keys(rangeEntities(source)).filter(isSwitch);
   return Object.fromEntries([...new Set([...labelled, ...ranged])].map(entity =>
-    [toSwitchId(entity), { room: roomOfEntity(source.rooms, entity), onOff: labelled.includes(entity) } satisfies Switch]));
+    [toSwitchId(entity), { kind: 'lighting', room: roomOfEntity(source.rooms, entity), onOff: labelled.includes(entity) } satisfies Switch]));
 }
 
 /** The entities with a saved switch range: the keys of `sensor.ls_overrides`'s `switch_ranges`. */
