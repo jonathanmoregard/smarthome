@@ -99,7 +99,7 @@ let
 
   # The port's own dev watcher, copied verbatim from
   # feature/typescript-lighting-scripts (lighting-scripts/scripts/dev.mjs at
-  # fe27322b). It forwards its SIGTERM to the host it runs, so it decides how
+  # b0ff823). It forwards its SIGTERM to the host it runs, so it decides how
   # often the host is signalled at a stop.
   realWatcher = "${./fixtures/lighting-port-dev.mjs}";
   # The compiler the real watcher runs before each start: every build passes.
