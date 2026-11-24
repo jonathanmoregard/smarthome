@@ -27,13 +27,14 @@
  * ## Why some fields stay unvalidated
  *
  * `multicast`, `ui_rows` and `ui_discovery` are heterogeneous candidate lists
- * whose consumers filter them with `continue`: `effects_group_plan` skips an
+ * whose readers filter them with `continue`: `effects_group_plan` skips an
  * unverified group, a group with a non-string topic, and a group with one
  * member. That leniency is load-bearing behaviour -- a catalog mid-pairing
  * legitimately contains pending groups -- so parsing their elements strictly
  * here would turn a silent skip into a raise and break grouping. They are
  * typed as the lists they are; their elements are parsed by the consumer that
- * knows which records it may ignore.
+ * knows which records it may ignore, except the discovery rows, parsed here
+ * once into {@link DiscoveryRow}s with the same skip.
  *
  * Everywhere else the rule is the opposite: parse to a concrete type and raise
  * at load time. A catalog whose `topics` hold a number is an authoring error,
@@ -177,8 +178,8 @@ export interface Catalog {
    * states what it means.
    */
   ui_rows: JsonValue[] | undefined;
-  /** MQTT discovery payloads; optional for the same reason as {@link Catalog.ui_rows}. */
-  ui_discovery: JsonValue[] | undefined;
+  /** The discovered lights whose effect list is republished; optional for the same reason as {@link Catalog.ui_rows}. */
+  ui_discovery: DiscoveryRow[] | undefined;
   /** The house's mode; none in a catalog that names none (a test's), which a deployed catalog may not be. */
   mode: HouseMode | undefined;
 }
@@ -243,18 +244,10 @@ export function parseCatalog(document: JsonValue | undefined): Catalog {
       : stringList(document.ui_choices, `${at}.ui_choices`).filter(choice => !REMOVED_EFFECTS.has(choice)),
     multicast: valueList(document, 'multicast', at),
     ui_rows: document.ui_rows === undefined ? undefined : requireArray(document, 'ui_rows', at),
-    ui_discovery: document.ui_discovery === undefined ? undefined : requireArray(document, 'ui_discovery', at),
+    ui_discovery: document.ui_discovery === undefined ? undefined : discoveryRows(requireArray(document, 'ui_discovery', at)),
     mode: document.mode === undefined ? undefined : parseMode(document.mode, `${at}.mode`),
   };
 }
-
-/**
- * Effects a catalog may still list that the lamps no longer run (the owner,
- * 2026-11-22: Breathe and Colour loop are removed). They are dropped here,
- * once, so no menu built from the parsed catalog offers one; a saved profile
- * that still names one shows the lamp's normal light.
- */
-const REMOVED_EFFECTS: ReadonlySet<string> = new Set(['Breathe', 'Colour loop']);
 
 function withoutRemovedEffects<T>(effects: Record<string, T>): Record<string, T> {
   return Object.fromEntries(Object.entries(effects).filter(([name]) => !REMOVED_EFFECTS.has(name)));
@@ -267,6 +260,14 @@ function recordMap<T>(document: JsonObject, key: string, context: string,
   return Object.fromEntries(Object.keys(mapping).map(name =>
     [name, parse(requireObject(mapping, name, `${context}.${key}`), `${context}.${key}.${name}`)]));
 }
+
+/**
+ * Effects a catalog may still list that the lamps no longer run (the owner,
+ * 2026-11-22: Breathe and Colour loop are removed). They are dropped here,
+ * once, so no menu built from the parsed catalog offers one; a saved profile
+ * that still names one shows the lamp's normal light.
+ */
+const REMOVED_EFFECTS: ReadonlySet<string> = new Set(['Breathe', 'Colour loop']);
 
 /**
  * Logical lamp to its physical members. A bulb belongs to at most one lamp:
@@ -304,6 +305,17 @@ function stringMap(document: JsonObject, key: string, context: string): Record<s
 /** An absent list is an empty one; a present non-list is an error. */
 function valueList(document: JsonObject, key: string, context: string): JsonValue[] {
   return document[key] === undefined ? [] : requireArray(document, key, context);
+}
+
+/** One discovery row of the catalog: its light, the unique id its config topic is named for, and the config. */
+export type DiscoveryRow = { entity: string; uniqueId: string; config: JsonObject };
+
+/** The discovery rows, leniently: a row with no entity, or whose config has no unique id, is passed over (mid-pairing). */
+function discoveryRows(raw: readonly JsonValue[]): DiscoveryRow[] {
+  return raw.flatMap(value => {
+    const row = object(value), config = object(row.config), uniqueId = config.unique_id;
+    return typeof row.entity === 'string' && typeof uniqueId === 'string' ? [{ entity: row.entity, uniqueId, config }] : [];
+  });
 }
 
 /** A UI row of the catalog: the control's source, its proxy, its profile store (none for a live control), its members and topics. */

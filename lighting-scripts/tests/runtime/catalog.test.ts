@@ -87,6 +87,13 @@ test('the two row arrays keep absence distinct from emptiness', () => {
   assert.throws(() => parseCatalog({ ...minimal, ui_rows: {} }), /ui_rows must be an array/);
 });
 
+test('the discovery rows are parsed once, at load, a malformed one passed over', () => {
+  // Closeout r2 B11. Break: ui_discovery stays raw JSON, re-read every turn by the dashboard sync.
+  const config = { unique_id: 'ep_room_a_all', name: 'Room A' };
+  const parsed = parseCatalog({ ...minimal, ui_discovery: [{ entity: 'light.ep_room_a_all', config }, { entity: 'light.no_id', config: {} }, 'x'] });
+  assert.deepEqual(parsed.ui_discovery, [{ entity: 'light.ep_room_a_all', uniqueId: 'ep_room_a_all', config }]);
+});
+
 test('multicast records are carried through unvalidated', () => {
   // effects_group_plan filters candidate groups with `continue`: an unverified
   // group, a missing topic or a one-member group is skipped, not rejected.

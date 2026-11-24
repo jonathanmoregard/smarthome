@@ -131,7 +131,7 @@ export function uiSyncWrites(house: HouseView, force: boolean): DashboardWrite[]
   const writes: DashboardWrite[] = [];
   for (const row of uiRowsOf(house.catalog)) if (row.proxy !== undefined) writes.push(...rowSync(house, row, row.proxy, force));
   const choices = house.catalog.ui_choices === undefined ? DEFAULT_CHOICES : house.catalog.ui_choices;
-  for (const row of discoveryRowsOf(house)) {
+  for (const row of house.catalog.ui_discovery === undefined ? [] : house.catalog.ui_discovery) {
     if (house.state[row.entity] === undefined || isDeepStrictEqual(house.attr(row.entity, 'effect_list'), choices)) continue;
     const topic = `homeassistant/light/${row.uniqueId}/config`;
     writes.push({ kind: 'discovery', topic, payload: JSON.stringify({ ...row.config, effect_list: [...choices] }) });
@@ -238,17 +238,6 @@ function channels(light: ControlShown): Record<Channel, string | undefined> {
 
 /** The dashboard's effect choices when the catalog names none (today's `uiChoices`). */
 const DEFAULT_CHOICES: readonly string[] = ['Normal Light', 'Candle'];
-
-/** One discovery row of the catalog: its light, the unique id its config topic is named for, and the config. */
-type DiscoveryRow = { entity: string; uniqueId: string; config: JsonObject };
-
-/** The catalog's discovery rows; a row with no entity, or whose config has no unique id, is left out. */
-function discoveryRowsOf(house: HouseView): DiscoveryRow[] {
-  return (house.catalog.ui_discovery === undefined ? [] : house.catalog.ui_discovery).flatMap(raw => {
-    const row = object(raw), config = object(row.config), uniqueId = config.unique_id;
-    return typeof row.entity === 'string' && typeof uniqueId === 'string' ? [{ entity: row.entity, uniqueId, config }] : [];
-  });
-}
 
 /**
  * The sensor write the changes make now, over the sensor as Home Assistant shows it: each change still standing laid
