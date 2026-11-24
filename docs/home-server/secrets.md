@@ -1,8 +1,14 @@
 # Secrets
 
-Only ciphertext belongs in Git. The current production secret is
-`nixos/secrets/zigbee2mqtt-network-key.age`; agenix decrypts it at activation to
-`/run/agenix/zigbee2mqtt-network-key` with mode `0400`, owned by root.
+Only ciphertext belongs in Git. The production secrets are:
+
+1. `nixos/secrets/zigbee2mqtt-network-key.age`; agenix decrypts it at
+   activation to `/run/agenix/zigbee2mqtt-network-key` with mode `0400`, owned
+   by root.
+2. `nixos/secrets/lighting-port-ha-token.age`, the lighting port's Home
+   Assistant token; decrypted to `/run/agenix/lighting-port-ha-token` with mode
+   `0400`, owned by `lighting-port`. See
+   [below](#home-assistant-token-for-the-lighting-port).
 
 The physical host age recipient is committed in
 [`deployment-identity.nix`](../../nixos/hosts/home-server/deployment-identity.nix).
@@ -104,6 +110,57 @@ git diff --check
 
 Review must confirm only ciphertext changed. Never paste decrypted content into
 test fixtures; VM tests create disposable independent age identities.
+
+## Home Assistant token for the lighting port
+
+The [lighting port](lighting-port.md) authenticates to Home Assistant with a
+long-lived access token. The host configuration declares
+`nixos/secrets/lighting-port-ha-token.age`, and the home-server system does not
+evaluate without that file: there is no placeholder, so a missing token cannot
+deploy as a bogus one.
+
+A token can be replaced in Home Assistant at any time, so unlike the Zigbee key
+it is encrypted to the physical host recipient only and needs no portable
+recovery identity. Losing it means creating a new one.
+
+1. Use the token the port already runs with on the laptop, or create a
+   dedicated one (your profile in Home Assistant, then Security, then a
+   long-lived access token named e.g. `lighting-port (home-server)`), which can
+   then be revoked without touching the laptop. Either is fine. Keep it in a
+   KeePass entry's password field, never in a shell, file or chat.
+2. Encrypt it from the KeePass entry through a file descriptor, in an operator
+   shell as above:
+
+   <!-- markdownlint-disable MD013 -->
+   ```console
+   nix shell nixpkgs#keepassxc --command bash
+   read -r -p 'KeePass database path: ' keepass_database
+   read -r -p 'Lighting port token entry path: ' token_entry
+   host_recipient='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEnGlRJufT9hIgzqFqHujW28DsSX1YDYg/0vGG7BsO1+ root@home-server'
+   umask 077
+   exec 3< <(keepassxc-cli show -q -s -a Password \
+     "$keepass_database" "$token_entry")
+   nix develop --command age \
+     -r "$host_recipient" \
+     -o nixos/secrets/lighting-port-ha-token.age \
+     /proc/self/fd/3
+   exec 3<&-
+   ```
+   <!-- markdownlint-enable MD013 -->
+
+3. Optionally verify that the host decrypts it, with the "Verify the physical
+   host recipient" steps above and the file name
+   `lighting-port-ha-token.age`.
+4. Track it (flakes only see tracked files), run the checks listed under
+   "After changing ciphertext", and commit only the `.age` file:
+
+   ```console
+   git add nixos/secrets/lighting-port-ha-token.age
+   ```
+
+To rotate, create the new token, encrypt it the same way, deploy, restart the
+port (`sudo systemctl restart lighting-port`), then delete the old token in
+Home Assistant.
 
 ## Runtime rules
 
