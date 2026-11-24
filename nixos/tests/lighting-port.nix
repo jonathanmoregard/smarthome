@@ -310,9 +310,11 @@ pkgsSystem.testers.runNixOSTest {
     def journal_since(marker):
         return f"journalctl -u lighting-port.service -o cat --no-pager --since @{marker}"
 
+    # journald reads a unit's output asynchronously: a read that is not
+    # retried syncs the journal first, so what was written is in it.
     def installs():
         return int(machine.succeed(
-            "journalctl -u lighting-port.service -o cat --no-pager | "
+            "journalctl --sync && journalctl -u lighting-port.service -o cat --no-pager | "
             "grep -cF 'lighting-port: running npm ci' || true"
         ).strip())
 
@@ -329,7 +331,7 @@ pkgsSystem.testers.runNixOSTest {
 
     def follow_logged(text):
         machine.succeed(
-            "journalctl -u lighting-port-follow.service -o cat --no-pager | "
+            "journalctl --sync && journalctl -u lighting-port-follow.service -o cat --no-pager | "
             f"grep -F {shlex.quote(text)}"
         )
 
@@ -626,6 +628,7 @@ pkgsSystem.testers.runNixOSTest {
         )
         follow()
         run = machine.succeed(
+            "journalctl --sync && "
             f"journalctl _SYSTEMD_INVOCATION_ID={follow_show('InvocationID')} -o cat --no-pager"
         )
         asked = "lighting-port-follow: restarting lighting-port.service for the update" in run

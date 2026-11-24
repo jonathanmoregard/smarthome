@@ -315,8 +315,11 @@ let
       interruptible() { "$@" & wait "$!"; }
 
       # The whole run is bounded: this script runs itself again under
-      # timeout, which stops it (and its git) after run_seconds. A run
-      # systemd had to time out would be left failed.
+      # timeout, which stops it after run_seconds. A run systemd had to time
+      # out would be left failed. Accepted: the fetch's own timeout runs in
+      # its own process group, so this TERM misses it and the fetch lives
+      # until systemd cleans the unit's cgroup; the unit still ends in
+      # success.
       if [ "''${1-}" != --bounded ]; then
         status=0
         interruptible timeout --kill-after=10 "$run_seconds" "$0" --bounded || status=$?
@@ -346,7 +349,9 @@ let
       cd "$checkout"
 
       # A request dated in the future (a clock stepped back) would never be
-      # older than a start, and restart the unit every minute.
+      # older than a start, and restart the unit every minute. Accepted: a
+      # clock that steps back right after a real request loses that one
+      # restart, rather than looping.
       if [ -f "$restart_request" ] && [ "$(stat -c %Y -- "$restart_request")" -gt "$(date +%s)" ]; then
         say "the restart request was dated in the future; setting it back"
         touch -d @0 -- "$restart_request"
