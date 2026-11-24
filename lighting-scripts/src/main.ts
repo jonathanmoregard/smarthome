@@ -13,6 +13,7 @@ import type { Catalog } from './adapter/codecs/catalog.ts';
 import { HA_EVENTS, houseMirrorOf, houseView, stateChangedOf } from './adapter/codecs/house.ts';
 import { decodeConfig } from './adapter/codecs/config.ts';
 import { configSource } from './adapter/codecs/model.ts';
+import { parseRooms } from './adapter/codecs/rooms.ts';
 import type { HouseMirror } from './adapter/codecs/house.ts';
 import { bridgeRunOf } from './adapter/codecs/inputs.ts';
 import { toInstant } from './adapter/codecs/ids.ts';
@@ -41,12 +42,26 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   if (configuration === undefined) throw new Error('Live mode requires --config with the runtime catalog');
   const url = process.env.HA_URL, tokenFile = process.env.HA_TOKEN_FILE;
   if (url === undefined || tokenFile === undefined) throw new Error('Live mode requires HA_URL and an existing HA_TOKEN_FILE');
-  let catalog = await readRuntimeCatalog(configuration);
-  const journal = resolve(option('--state') ?? '.runtime/journal.json'), unlock = await lockJournal(journal);
-  const ha = await HomeAssistantClient.connect(url, await readFile(tokenFile, 'utf8'))
-    .catch(async (error: unknown) => { await unlock(); throw error; });
+  // Watched before its first read, as fs.watch reports no change made before it was set up: a change until the start's
+  // turn is queued is read once it is, and every later one at once.
+  let started: Host | undefined, missed = false;
+  const reload = reloading(configuration, read => {
+    if (started === undefined) return;
+    started.catalogChanged(read);
+    started.accept({ kind: 'wake' });
+    console.error('Runtime config reloaded.');
+  }, message => console.error(message));
+  const watcher = watchRuntimeCatalog(configuration, () => { if (started === undefined) missed = true; else reload(started.house()); });
+  const opening = async () => {
+    const catalog = await readRuntimeCatalog(configuration);
+    const journal = resolve(option('--state') ?? '.runtime/journal.json'), unlock = await lockJournal(journal);
+    const ha = await HomeAssistantClient.connect(url, await readFile(tokenFile, 'utf8'))
+      .catch(async (error: unknown) => { await unlock(); throw error; });
+    return { catalog, journal, unlock, ha };
+  };
+  const { catalog, journal, unlock, ha } = await opening().catch((error: unknown) => { watcher.close(); throw error; });
   const read = async () => houseMirrorOf(await ha.read());
-  let stopHeartbeat = () => {}, watcher: FSWatcher | undefined;
+  let stopHeartbeat = () => {};
   try {
     // Subscribed before the house is read, as Home Assistant hands an event only to the subscriptions live when it
     // fires: what comes before the host is open is held, and handed to it in order once it is.
@@ -79,31 +94,57 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     await ha.subscribe(HA_EVENTS.bridgeRun, event => { const run = bridgeRunOf(event.data); host.script(run.script, run.args); });
     // Each beat names every room the port may drive as it stands: with the whole house, each room of the config's lamps.
     stopHeartbeat = startHeartbeat(() => host.liveRooms(), call => beats.call(call), message => console.error(message), HEARTBEAT_MS, () => host.paused());
-    watcher = watchRuntimeCatalog(configuration, async read => {
-      catalog = read;
-      host.catalogChanged(catalog);
-      host.accept({ kind: 'wake' });
-      console.error('Runtime config reloaded.');
-    }, error => console.error(`Runtime config rejected; previous config retained: ${String(error)}`));
     host.accept({ kind: 'started' });
+    started = host;
+    if (missed) reload(host.house());
     let stopping = false;
     const stop = async () => {
       if (stopping) return;
-      stopping = true; stopHeartbeat(); watcher?.close(); await host.close(); await ha.close(); await unlock();
+      stopping = true; stopHeartbeat(); watcher.close(); await host.close(); await ha.close(); await unlock();
     };
     process.once('SIGINT', () => { void stop().then(() => process.exit()); });
     process.once('SIGTERM', () => { void stop().then(() => process.exit()); });
     console.error('Home Assistant host ready.');
   } catch (error) {
-    stopHeartbeat(); watcher?.close(); await ha.close(); await unlock();
+    stopHeartbeat(); watcher.close(); await ha.close(); await unlock();
     throw error;
   }
 }
 
-/** The runtime catalog, parsed in full at load and at every reload, so a catalog the lighting would refuse never replaces the running one. */
-export async function readRuntimeCatalog(path: string): Promise<Catalog> {
+/**
+ * The runtime catalog, parsed in full and its config decoded over `house` (at load, before the house is read, over
+ * none: the catalog's own), so a catalog the lighting would refuse at a turn never replaces the running one.
+ */
+export async function readRuntimeCatalog(path: string, house: HouseMirror = NO_HOUSE): Promise<Catalog> {
   const document: JsonValue = JSON.parse(await readFile(path, 'utf8'));
-  return parseDeployedCatalog(document);
+  const catalog = parseDeployedCatalog(document);
+  decodeConfig(configSource({ state: house.state, rooms: parseRooms(house.areas), labels: house.labels ?? {}, timezone: house.timezone }), catalog);
+  return catalog;
+}
+
+/** The house before it is read: no states and no registry. */
+const NO_HOUSE: HouseMirror = { state: {}, areas: {} };
+
+/**
+ * Each call reads the catalog again, checked over the house it is given, and hands it to `accept`; one the check
+ * refuses leaves the running catalog in use and is reported, once for as long as the file fails the same way. Only
+ * the latest read is taken.
+ */
+export function reloading(path: string, accept: (catalog: Catalog) => void, report: (message: string) => void): (house: HouseMirror) => void {
+  let revision = 0, refused: string | undefined;
+  return house => {
+    const current = ++revision;
+    readRuntimeCatalog(path, house).then(catalog => {
+      if (current !== revision) return;
+      refused = undefined;
+      accept(catalog);
+    }, (error: unknown) => {
+      const message = String(error);
+      if (current !== revision || message === refused) return;
+      refused = message;
+      report(`Runtime config rejected; previous config retained: ${message}`);
+    });
+  };
 }
 
 /** The journal in a file: none before the first save; each save written whole and renamed into place. */
@@ -170,13 +211,9 @@ export function startHeartbeat(live: () => LiveRooms, send: (call: ServiceCall) 
   return () => clearInterval(timer);
 }
 
-export function watchRuntimeCatalog(path: string, accept: (catalog: Catalog) => Promise<void>, reject: (error: unknown) => void): FSWatcher {
-  let revision = 0;
-  return watch(dirname(resolve(path)), (_event, filename) => {
-    if (filename !== basename(path)) return;
-    const current = ++revision;
-    void readRuntimeCatalog(path).then(async catalog => { if (current === revision) await accept(catalog); }).catch(reject);
-  });
+/** The catalog's file watched: `changed` at each change of it from now on. */
+export function watchRuntimeCatalog(path: string, changed: () => void): FSWatcher {
+  return watch(dirname(resolve(path)), (_event, filename) => { if (filename === basename(path)) changed(); });
 }
 
 if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {

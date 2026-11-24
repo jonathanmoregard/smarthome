@@ -3,7 +3,7 @@
  * (tests/runtime/closeout-r2.test.ts). Node's `setInterval` is caught so the heartbeat beats only when this script
  * says, and the process exits when done, which ends the catalog watcher and the journal lock with it.
  *
- * Usage: main-child.ts <dir> reload|refuse|gap|gap-control|during-read|late-catalog|runtime. Prints one JSON line: every
+ * Usage: main-child.ts <dir> reload|refuse|gap|gap-control|during-read|late-catalog|runtime|reject. Prints one JSON line: every
  * heartbeat call made, those Home Assistant took, what the process logged, how many publishes reached bulb-a, and every
  * call to `sensor.ls_effects_runtime`.
  *   reload: the catalog gains `light.lamp_c`, which the registry has in `room-c`, under `--live-rooms all`.
@@ -16,6 +16,9 @@
  *   late-catalog: as reload, but the catalog gains `light.lamp_c` while the house read is out, after main() read the
  *     catalog and before it watches it (close-out round 4, B5).
  *   runtime: under `--live-rooms all`, the start's turn and the calls main() makes after it (close-out round 4, B9).
+ *   reject: under `--live-rooms all`, a catalog naming one device for two remotes is written twice once main() is up,
+ *     then a bridged recovery tick runs a turn (close-out round 4, A4 ruling: the running catalog is kept, and the
+ *     rejection logged once).
  */
 import { readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -23,7 +26,7 @@ import { HomeAssistantClient } from '../../../src/adapter/ha-client.ts';
 import type { HouseRead, ServiceCall } from '../../../src/adapter/ha-client.ts';
 
 const [dir, mode] = process.argv.slice(2);
-const MODES = ['reload', 'refuse', 'gap', 'gap-control', 'during-read', 'late-catalog', 'runtime'];
+const MODES = ['reload', 'refuse', 'gap', 'gap-control', 'during-read', 'late-catalog', 'runtime', 'reject'];
 if (dir === undefined || mode === undefined || !MODES.includes(mode)) throw new Error(`usage: main-child.ts <dir> ${MODES.join('|')}`);
 const gap = mode === 'gap' || mode === 'gap-control' || mode === 'during-read';
 
@@ -100,6 +103,17 @@ if (mode === 'late-catalog') {
   await until(() => logged.includes('Runtime config reloaded.'));
 } else if (mode === 'runtime') {
   await until(() => fake.calls.some(call => call.target?.entity_id === 'sensor.ls_effects_runtime'));
+} else if (mode === 'reject') {
+  const twice = JSON.parse(catalog({ 'light.lamp_a': ['bulb-a'], 'light.lamp_c': ['bulb-c'] })) as object;
+  for (let write = 0; write < 2; write++) {
+    await writeFile(join(dir, 'catalog.next'), JSON.stringify({ ...twice,
+      remotes: { 'room-a': { device_id: 'remote-a', source: 'remote-a' }, unplaced: { device_id: 'remote-a', source: 'remote-b' } } }));
+    await rename(join(dir, 'catalog.next'), catalogPath);
+    await until(() => logged.filter(line => line.startsWith('Runtime config rejected')).length > 0);
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  fake.listeners.get('smarthome_script')?.({ event_type: 'smarthome_script', data: { script: 'automation.lighting_recover_pending_output', args: { trigger: {} } } });
+  await new Promise(resolve => setTimeout(resolve, 200));
 } else if (mode === 'reload') {
   await writeFile(join(dir, 'catalog.next'), catalog({ 'light.lamp_a': ['bulb-a'], 'light.lamp_c': ['bulb-c'] }));
   await rename(join(dir, 'catalog.next'), catalogPath);

@@ -206,7 +206,7 @@ test("closeout r4 A3: a person's light call that comes while a bulb's publish fa
     "a failed publish is no echo of a light call: the person's turn_off is taken, and lamp_a2 stays off");
 });
 
-test('closeout r4 A4: a reloaded catalog that names one device for two remotes is rejected, and the running one kept', { todo: 'closeout r4 A4' }, async () => {
+test('closeout r4 A4: a reloaded catalog that names one device for two remotes is rejected, and the running one kept', async () => {
   // Break: the reload reads the catalog with parseDeployedCatalog alone (src/main.ts:104-107, 178), which does not see
   // a device listed twice; decodeConfig does (src/adapter/codecs/config.ts:131-133), at every turn after the reload,
   // so each turn throws, and the config the port ran on is gone.
@@ -390,7 +390,7 @@ test("closeout r4 B6: a profile saved to a store Home Assistant lacks is not tak
 
 type ChildRun = { made: string[]; logged: string[]; catalog: string; runtime: ServiceCall[] };
 
-function mainChild(mode: 'reload' | 'late-catalog' | 'runtime'): ChildRun {
+function mainChild(mode: 'reload' | 'late-catalog' | 'runtime' | 'reject'): ChildRun {
   const dir = mkdtempSync(join(tmpdir(), 'closeout-r4-main-'));
   const child = fileURLToPath(new URL('./support/main-child.ts', import.meta.url));
   const run = spawnSync(process.execPath, ['--experimental-strip-types', '--no-warnings', child, dir, mode], { encoding: 'utf8', timeout: 30_000 });
@@ -398,7 +398,19 @@ function mainChild(mode: 'reload' | 'late-catalog' | 'runtime'): ChildRun {
   return JSON.parse(run.stdout.trim().split('\n').at(-1) ?? '{}') as ChildRun;
 }
 
-test('closeout r4 B5: a catalog written while main() starts, after it read the catalog, is loaded', { todo: 'closeout r4 B5' }, () => {
+test('closeout r4 A4 (ruling): main() keeps the running catalog when a reload fails the config decode, and logs it once', () => {
+  // Ruling A4: a reloaded catalog is checked with the full config decode before it replaces the old one; on a failure
+  // the previous catalog and config stay in use, and the error is logged once. Break: the reload takes the catalog after
+  // parseDeployedCatalog alone, so the turns after it throw; or each write of the same bad catalog is logged again.
+  const run = mainChild('reject');
+  const named = run.logged.filter(line => /device remote-a is listed for more than one remote/.test(line));
+  assert.deepEqual({ named: named.length, rejected: named.every(line => line.startsWith('Runtime config rejected')),
+    reloaded: run.logged.includes('Runtime config reloaded.') }, { named: 1, rejected: true, reloaded: false },
+    `the bad catalog is rejected once, and no turn throws on it: ${JSON.stringify(run.logged)}`);
+  assert.match(run.made.at(-1) ?? '', /\|room-a$/, 'the heartbeat still names the running catalog\'s rooms alone');
+});
+
+test('closeout r4 B5: a catalog written while main() starts, after it read the catalog, is loaded', () => {
   // Break: main() reads the catalog at its start (src/main.ts:44) and watches the file only from :82, after connecting
   // and reading the house; fs.watch reports no change made before it was set up, so the new catalog is never loaded.
   const reload = mainChild('reload');
