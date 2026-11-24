@@ -195,7 +195,7 @@ test("closeout r2 B1: a lamp moved to another room in Home Assistant's registry 
   assert.equal(roomOf({ kind: 'tick' }), roomA);
 });
 
-test('closeout r2 B3: a missing Zigbee2MQTT bridge sensor is not silent: the bulbs are sent their light, or the log names it', { todo: 'closeout r2 B3' }, async () => {
+test('closeout r2 B3: a missing Zigbee2MQTT bridge sensor is not silent: the bulbs are sent their light, or the log names it', async () => {
   // Break: an absent `binary_sensor.zigbee2mqtt_bridge_connection_state` reads as disconnected
   // (src/adapter/codecs/observed.ts:34), so nextSends sends no bulb (src/adapter/reconcile.ts:299), nothing is
   // logged, and the host's heartbeat stays on (src/host.ts:182).

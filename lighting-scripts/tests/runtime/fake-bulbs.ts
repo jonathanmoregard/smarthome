@@ -13,7 +13,7 @@
 import type { BulbGroups } from '../../src/adapter/codecs/bulb-groups.ts';
 import type { Publish } from '../../src/adapter/encode.ts';
 import type { MqttTopic } from '../../src/adapter/codecs/ids.ts';
-import type { Observed, ObservedBulb } from '../../src/adapter/reconcile.ts';
+import type { BridgeState, Observed, ObservedBulb } from '../../src/adapter/reconcile.ts';
 import type { BulbId, SwitchId } from '../../src/domain/types/ids.ts';
 import { entriesOf } from '../../src/domain/types/ids.ts';
 import type { Colour, Level, Power } from '../../src/domain/types/light.ts';
@@ -95,10 +95,10 @@ export class FakeBulbs {
   }
 
   /** What the bulbs and switches report, as the reconciler observes them. */
-  observed(bridgeConnected = true): Observed {
+  observed(bridge: BridgeState = 'connected'): Observed {
     const bulbs: Record<BulbId, ObservedBulb> = {};
     for (const [bulb, shown] of this.bulbs) bulbs[bulb] = reported(shown);
-    return { bulbs, switches: Object.fromEntries(this.switches), switchChanged: Object.fromEntries(this.switchChanged), bridgeConnected };
+    return { bulbs, switches: Object.fromEntries(this.switches), switchChanged: Object.fromEntries(this.switchChanged), bridge };
   }
 }
 

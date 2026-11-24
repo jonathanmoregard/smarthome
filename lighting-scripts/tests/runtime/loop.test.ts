@@ -461,3 +461,18 @@ test("the beliefs part-way through a turn hold only the sends whose outputs have
   const believed = (settled: Settled) => Object.keys(settled.state.beliefs.bulbs).length;
   assert.ok(believed(none) < believed(some) && believed(some) < believed(all), `${believed(none)} ${believed(some)} ${believed(all)}`);
 });
+
+test('a missing Zigbee2MQTT bridge sensor counts as unknown: the bulbs are still sent, and the error is said once', () => {
+  // Closeout r2 B3. Break: a missing sensor reads as disconnected, so nothing is sent and nothing said; or the error
+  // is said every turn.
+  const house = new House();
+  delete house.states['binary_sensor.zigbee2mqtt_bridge_connection_state'];
+  const start = house.turn('12:00:00', { kind: 'started' });
+  assert.ok(publishesOf(start).length > 0, 'the start sends the bulbs');
+  assert.deepEqual(start.errors.filter(error => error.includes('binary_sensor.zigbee2mqtt_bridge_connection_state')).length, 1);
+  assert.deepEqual(house.turn('12:01:00', { kind: 'tick' }).errors, [], 'said once, not every turn');
+  house.states['binary_sensor.zigbee2mqtt_bridge_connection_state'] = { state: 'off', attributes: {} };
+  house.bulbs.set(bulbA3, { reach: 'reachable', light: { power: 'off' } });
+  writeBack(house.bulbs, house.states);
+  assert.deepEqual(publishesOf(house.turn('12:02:00', { kind: 'tick' })), [], 'a disconnected bridge is still sent nothing');
+});

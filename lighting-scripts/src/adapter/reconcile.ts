@@ -15,7 +15,7 @@
  * started alone; a candle-firmware bulb under a normal lit target is sent the
  * stop and its light, since a leftover candle's flicker hides in its report.
  * Only a bulb that cannot be reached (switched off at the wall) and every
- * bulb while Zigbee2MQTT is disconnected are sent nothing. A switch is sent
+ * bulb while Zigbee2MQTT reports itself disconnected are sent nothing. A switch is sent
  * its target when it reports otherwise; the send stays open until Home
  * Assistant reports the target, and is sent again on the bulbs' backoff, the
  * fifth send it does not show parking it.
@@ -95,8 +95,14 @@ export type Observed = {
   bulbs: Record<BulbId, ObservedBulb>;
   switches: Record<SwitchId, Power | 'unreachable'>;
   switchChanged: Record<SwitchId, Instant>;
-  bridgeConnected: boolean;
+  bridge: BridgeState;
 };
+
+/**
+ * Zigbee2MQTT's connection as Home Assistant reports it: `unknown` when Home Assistant has no such sensor, in which
+ * case the bulbs are still sent (Zigbee2MQTT drops a publish while it is down).
+ */
+export type BridgeState = 'connected' | 'disconnected' | 'unknown';
 
 /**
  * One thing to send: a bulb's light (`stopFirst`: it is leaving the candle,
@@ -298,7 +304,7 @@ export function switchesSeen(beliefs: Beliefs, observed: Observed, target: Reado
 /** What to send now to make the house show `target`. When to look again is the loop's: {@link nextRetry} after the sends. */
 export function nextSends(target: LightingState, config: Config, observed: Observed, beliefs: Beliefs, now: Instant): Send[] {
   const sends: Send[] = [];
-  if (observed.bridgeConnected) {
+  if (observed.bridge !== 'disconnected') {
     for (const [lamp, light] of entriesOf(target.lamps)) {
       const info = config.lamps[lamp];
       if (info === undefined) continue;

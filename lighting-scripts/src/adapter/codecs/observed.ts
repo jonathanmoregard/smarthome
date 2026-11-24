@@ -15,13 +15,13 @@ import type { Config } from '../../domain/config.ts';
 import type { BulbId, SwitchId } from '../../domain/types/ids.ts';
 import { entriesOf } from '../../domain/types/ids.ts';
 import type { Level, Power } from '../../domain/types/light.ts';
-import type { Observed, ObservedBulb } from '../reconcile.ts';
+import type { BridgeState, Observed, ObservedBulb } from '../reconcile.ts';
 import type { Instant } from '../../domain/types/time.ts';
 import type { EntityState } from '../ha-client.ts';
 import { parseFinite } from './parse.ts';
 import { toInstant, toLevel } from './ids.ts';
 
-/** Every bulb of every lamp, every switch, and whether Zigbee2MQTT is connected (`binary_sensor.zigbee2mqtt_bridge_connection_state`). */
+/** Every bulb of every lamp, every switch, and Zigbee2MQTT's connection ({@link BRIDGE_SENSOR}). */
 export function decodeObserved(states: Readonly<Record<string, EntityState>>, config: Config): Observed {
   const bulbs: Record<BulbId, ObservedBulb> = {};
   for (const [, lamp] of entriesOf(config.lamps)) for (const { bulb } of lamp.bulbs) bulbs[bulb] = observedBulb(states[bulb]);
@@ -31,7 +31,16 @@ export function decodeObserved(states: Readonly<Record<string, EntityState>>, co
     const changed = changedAt(states[plug]);
     if (changed !== undefined) switchChanged[plug] = changed;
   }
-  return { bulbs, switches, switchChanged, bridgeConnected: states['binary_sensor.zigbee2mqtt_bridge_connection_state']?.state === 'on' };
+  return { bulbs, switches, switchChanged, bridge: bridgeOf(states[BRIDGE_SENSOR]) };
+}
+
+/** The sensor Zigbee2MQTT reports its connection on. */
+export const BRIDGE_SENSOR = 'binary_sensor.zigbee2mqtt_bridge_connection_state';
+
+/** Connected when the sensor is `on`, disconnected for any other state, unknown when Home Assistant has none. */
+function bridgeOf(state: EntityState | undefined): BridgeState {
+  if (state === undefined) return 'unknown';
+  return state.state === 'on' ? 'connected' : 'disconnected';
 }
 
 /** A bulb `on` with its level and colour, or `off`; anything else cannot be reached. */

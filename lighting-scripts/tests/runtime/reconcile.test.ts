@@ -273,7 +273,7 @@ test('a bulb reported changed is forgotten, but not one our own put-back lit', (
 test('a disconnected bridge sends the bulbs nothing', () => {
   // Break: publishes go out while Zigbee2MQTT is away, and are lost.
   const bulbs = new FakeBulbs(topics);
-  const sends = nextSends(EVENING, config, bulbs.observed(false), NO_BELIEFS, at(0));
+  const sends = nextSends(EVENING, config, bulbs.observed('disconnected'), NO_BELIEFS, at(0));
   assert.equal(sends.some(send => send.kind === 'bulb'), false);
 });
 

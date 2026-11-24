@@ -32,7 +32,7 @@ import type { Output } from './encode.ts';
 import { messages, storeSaveIn, unexplainedMessages } from './codecs/inputs.ts';
 import { uiRowsOf } from './codecs/catalog.ts';
 import type { HaInput, StoreSave } from './codecs/inputs.ts';
-import { decodeObserved } from './codecs/observed.ts';
+import { BRIDGE_SENSOR, decodeObserved } from './codecs/observed.ts';
 import type { Observed } from './reconcile.ts';
 import {
   afterSend, backOn, forgotten, MAX_ATTEMPTS, NO_BELIEFS, newlyParked, newlyParkedSwitches, nextRetry, nextSends, reportedChanged, switchesForgotten,
@@ -82,6 +82,8 @@ export function catalogChanged(kept: Kept): Kept {
 export type Turn = {
   state: AdapterState; outputs: Output[]; sends: readonly Sending[]; now: Instant; nextChange: Instant | undefined;
   dropped: string | undefined;
+  /** What the turn found wrong with the house, each said once, when it is first found: the host's error log. */
+  errors: readonly string[];
   /** The outputs, by their place, after which the journal is saved: each bulb's publish, so a crash loses no send. */
   journalled: readonly number[];
   /** The outbox's writes the turn makes, each with its output's place. */
@@ -208,6 +210,8 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
   // What the port sent a room before it was handed over says nothing: the old scripts drove it meanwhile.
   beliefs = switchesForgotten(forgotten(beliefs, taken.bulbs), taken.switches);
   const observed = decodeObserved(house.state, model.config);
+  const errors = state?.observed.bridge !== 'unknown' && observed.bridge === 'unknown'
+    ? [`lighting: Home Assistant has no ${BRIDGE_SENSOR}; Zigbee2MQTT's connection is unknown, and the bulbs are sent as if it were up`] : [];
   if (input.kind === 'state changed') {
     const reported = reportedBulbs(input.entities, model.config);
     beliefs = state === undefined ? forgotten(beliefs, reported) : reportedChanged(beliefs, state.observed, observed, reported);
@@ -228,7 +232,7 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
   }
   const journalled = outputs.flatMap((output, index) => output.kind === 'publish' ? [index] : []);
   const next: AdapterState = { model, beliefs, view, observed, outbox, reread: false, share };
-  return { state: next, outputs, sends: sending, now, nextChange: nextChange(model, now), dropped, journalled, writing };
+  return { state: next, outputs, sends: sending, now, nextChange: nextChange(model, now), dropped, errors, journalled, writing };
 }
 
 /**

@@ -109,6 +109,7 @@ export class Host {
   private async run(input: HaInput, now: Instant): Promise<Instant | undefined> {
     const turn = handleInput(this.kept, houseView(this.mirror, now, this.catalog), input, this.io.rooms);
     if (turn.dropped !== undefined) this.io.log.error(`lighting: ${input.kind}: ${turn.dropped}; dropped`);
+    for (const error of turn.errors) this.io.log.error(error);
     const failed: boolean[] = [], started = performance.now();
     this.turns++; this.calling = true;
     for (const [index, output] of turn.outputs.entries()) {
