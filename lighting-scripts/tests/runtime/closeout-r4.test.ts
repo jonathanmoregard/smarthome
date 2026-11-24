@@ -13,8 +13,9 @@ import type { HostIo, Journal } from '../../src/host.ts';
 import { parseCatalog } from '../../src/adapter/codecs/catalog.ts';
 import type { HouseMirror } from '../../src/adapter/codecs/house.ts';
 import { toEntityId, toInstant, toMqttTopic, toRoomId, toSwitchId } from '../../src/adapter/codecs/ids.ts';
-import { outputCall } from '../../src/adapter/encode.ts';
+import { outputCall, switchCall } from '../../src/adapter/encode.ts';
 import type { Publish } from '../../src/adapter/encode.ts';
+import { bridgeVerdict } from '../../src/adapter/codecs/inputs.ts';
 import type { HaInput } from '../../src/adapter/codecs/inputs.ts';
 import type { RoomsGiven } from '../../src/adapter/live-rooms.ts';
 import { afterOutputs, handleInput } from '../../src/adapter/loop.ts';
@@ -167,7 +168,7 @@ async function open(ha: FakeHa, rooms: RoomsGiven, clock: () => Instant, timer: 
   return { host: await Host.open(io, ha.mirror(), catalog), logged };
 }
 
-test("closeout r4 A3: a person's light call that comes while a bulb's publish fails is taken", { todo: 'closeout r4 A3' }, async () => {
+test("closeout r4 A3: a person's light call that comes while a bulb's publish fails is taken", async () => {
   // Break: script() marks a run that came while the turn was calling, and drops it when any call of that turn failed
   // (src/host.ts:72-74; bridgeVerdict, src/adapter/codecs/inputs.ts:697). A failed mqtt.publish cannot be a lamp change
   // detector's echo (that triggers on call_service of domain light, and the port calls no light service), yet the
@@ -204,6 +205,26 @@ test("closeout r4 A3: a person's light call that comes while a bulb's publish fa
   const failed = await run(true);
   assert.deepEqual({ a3: failed.a3, dropped: failed.dropped }, { a3: 'off', dropped: [] },
     "a failed publish is no echo of a light call: the person's turn_off is taken, and lamp_a2 stays off");
+});
+
+test('closeout r4 A3 (ruling): a failed call drops only a run it may itself have made', () => {
+  // Ruling A3: a failed call affects only the echo rule for its own context. A switch call to a plug that is a light
+  // reaches the light domain (homeassistant.turn_<power> calls light.turn_<power> with the same context), and a mode
+  // mirror write may switch the mode, so a run of that kind that comes as such a call fails is still dropped.
+  // Break: a failed call drops no run, or every run, whatever it was.
+  const person = { trigger: { event: { context: { user_id: 'person-1', id: 'person-call' },
+    data: { domain: 'light', service: 'turn_off', service_data: { entity_id: 'light.lamp_a2' } } } } };
+  const mode = catalog.mode!;
+  const modeRun = { trigger: { id: 'on', to_state: { context: { user_id: 'person-1', id: 'person-switch' } } } };
+  const verdict = (script: string, args: JsonObject, failed: ServiceCall[]) => bridgeVerdict(script, args, catalog, { contexts: [], failed }).kind;
+  const publish: ServiceCall = { service: 'mqtt.publish', data: { topic: 'zigbee2mqtt/bulb-b1', payload: '{}' } };
+  assert.deepEqual({
+    lightPlug: verdict(DETECTOR, person, [switchCall(toSwitchId('light.plug_l'), 'on')]),
+    plug: verdict(DETECTOR, person, [switchCall(plugA, 'on')]),
+    publish: verdict(DETECTOR, person, [publish]),
+    mirror: verdict(mode.switched, modeRun, [{ service: 'input_boolean.turn_on', data: {}, target: { entity_id: mode.mirror } }]),
+    mirrorPublish: verdict(mode.switched, modeRun, [publish]),
+  }, { lightPlug: 'dropped', plug: 'input', publish: 'input', mirror: 'dropped', mirrorPublish: 'input' });
 });
 
 test('closeout r4 A4: a reloaded catalog that names one device for two remotes is rejected, and the running one kept', async () => {

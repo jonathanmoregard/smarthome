@@ -28,7 +28,7 @@ import {
   percentRangeOf, toBrightness, toBrightnessStep, toColourChannel, toContextId, toDashboardControlId, toEntityId, toKelvin, toLampId,
   toRemoteId, toRemoteSource, toRoomId, toSwitchId,
 } from './ids.ts';
-import type { JsonObject, JsonValue } from '../ha-client.ts';
+import type { JsonObject, JsonValue, ServiceCall } from '../ha-client.ts';
 import type { HouseView } from './house.ts';
 import { blockLightOf, roomOfEntity } from './config.ts';
 import type { BlockLight } from './config.ts';
@@ -118,6 +118,9 @@ export function haInput(script: string, args: JsonObject, mode: HouseMode | unde
   }
 }
 
+/** The automation that forwards a light call (Home Assistant's call_service of the light domain): a person's, or the echo of ours. */
+const LAMP_CHANGE_DETECTOR = 'automation.lighting_schedule_lamp_change_detector';
+
 function readInput(script: string, args: JsonObject, mode: HouseMode | undefined): HaInput | undefined {
   const trigger = object(args.trigger);
   const remote = REMOTE_AUTOMATION.exec(script);
@@ -134,7 +137,7 @@ function readInput(script: string, args: JsonObject, mode: HouseMode | undefined
     case 'automation.lighting_recover_pending_output':
     case 'automation.effects_refresh_native_light_controls': return { kind: 'tick' };
     case 'automation.switch_lamps_validate_house_defaults': return { kind: 'helper changed' };
-    case 'automation.lighting_schedule_lamp_change_detector': return { kind: 'service called', call: lightCall(object(trigger.event)) };
+    case LAMP_CHANGE_DETECTOR: return { kind: 'service called', call: lightCall(object(trigger.event)) };
     case 'automation.lighting_schedule_override_store_writer':
       return { kind: 'overlay event', event: overlayEventOf(object(object(trigger.event).data), mode) };
     case 'automation.effects_native_light_controls': return previewSet(optionalText(trigger.topic), trigger.payload);
@@ -679,8 +682,8 @@ function profileStoreOf(store: string, model: Model): ProfileStore | undefined {
 /** What the host makes of a bridge run: an input to run, the echo of a call of ours (dropped quietly), or dropped, and why. */
 export type BridgeVerdict = { kind: 'input'; input: HaInput } | { kind: 'echo' } | { kind: 'dropped'; why: string };
 
-/** What the host knows of its own calls: the context ids of the recent ones, and whether one failed as the run came. */
-export type OwnCalls = { contexts: readonly string[]; callFailed: boolean };
+/** What the host knows of its own calls: the context ids of the recent ones, and those that failed as the run came. */
+export type OwnCalls = { contexts: readonly string[]; failed: readonly ServiceCall[] };
 
 /** A bridge event (`smarthome_script`): the script or automation it forwards, and its arguments. */
 export function bridgeRunOf(data: JsonObject): { script: string; args: JsonObject } {
@@ -689,14 +692,15 @@ export function bridgeRunOf(data: JsonObject): { script: string; args: JsonObjec
 
 /**
  * A bridge run, read against our own calls: a run our own call may trigger is that call's echo when its context is
- * one of ours, and is dropped when it came as a call failed, since it cannot be told from a person's. Otherwise it is
- * an input, or dropped: a dry run, or a name that is not an input.
+ * one of ours, and is dropped when it came as a call failed that may make it, since that call's context is not known,
+ * and its echo cannot be told from a person's. Otherwise it is an input, or dropped: a dry run, or a name that is not
+ * an input.
  */
 export function bridgeVerdict(script: string, args: JsonObject, catalog: Pick<Catalog, 'remotes' | 'mode'>, own: OwnCalls): BridgeVerdict {
   if (echoed(script, catalog.mode)) {
-    if (own.callFailed) return { kind: 'dropped', why: `${script} came as a call failed` };
     const context = echoContext(args);
     if (context !== undefined && own.contexts.includes(context)) return { kind: 'echo' };
+    if (own.failed.some(call => mayEchoAs(call, script, catalog.mode))) return { kind: 'dropped', why: `${script} came as a call failed` };
   }
   const input = scriptInput(script, args, catalog);
   if (input === 'dry run') return { kind: 'dropped', why: `${script} is a dry run` };
@@ -709,7 +713,18 @@ export function bridgeVerdict(script: string, args: JsonObject, catalog: Pick<Ca
  * back through the bridge, and is not a person's. Each carries the context of the change that triggered it.
  */
 function echoed(script: string, mode: HouseMode | undefined): boolean {
-  return script === 'automation.lighting_schedule_lamp_change_detector' || (mode !== undefined && script === mode.switched);
+  return script === LAMP_CHANGE_DETECTOR || (mode !== undefined && script === mode.switched);
+}
+
+/**
+ * Whether a call of ours may come back as the bridge run `script`: a call that reaches a light (a plug that is a light,
+ * switched by homeassistant.turn_*, which calls the light's own service with the call's context) as a lamp change, and
+ * a write of the mode mirror as the mode switch. A bulb's publish, or any other write, makes neither.
+ */
+function mayEchoAs(call: ServiceCall, script: string, mode: HouseMode | undefined): boolean {
+  const entity = call.target?.entity_id;
+  if (script === LAMP_CHANGE_DETECTOR) return call.service.startsWith('light.') || (typeof entity === 'string' && entity.startsWith('light.'));
+  return mode !== undefined && script === mode.switched && entity === mode.mirror;
 }
 
 /** The context id of the change that triggered a bridge run: its new state's, or its event's; none when it carries none. */

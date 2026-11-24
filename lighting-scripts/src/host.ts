@@ -10,7 +10,7 @@ import { loadJournal, saveJournal } from './adapter/codecs/journal.ts';
 import type { JournalRecord } from './adapter/codecs/journal.ts';
 import { outputCall } from './adapter/encode.ts';
 import { bounded, Unanswered, Unreachable } from './adapter/ha-client.ts';
-import type { BoundedClient, EntityState, HaClient, JsonObject } from './adapter/ha-client.ts';
+import type { BoundedClient, EntityState, HaClient, JsonObject, ServiceCall } from './adapter/ha-client.ts';
 import { bridgeVerdict } from './adapter/codecs/inputs.ts';
 import type { HaInput } from './adapter/codecs/inputs.ts';
 import { afterOutputs, catalogChanged, handleInput, keptConfig, wantsTurn } from './adapter/loop.ts';
@@ -45,9 +45,9 @@ const UNHEALTHY_AFTER = 3;
 export class Host {
   private readonly io: HostIo; private readonly ha: BoundedClient; private mirror: HouseMirror; private catalog: Catalog; private kept: Kept;
   private queue: Promise<void> = Promise.resolve(); private cancelWake: (() => void) | undefined; private closed = false;
-  /** The context ids of our recent calls, the turns run so far, the last one with a failed call, and whether one is calling. */
+  /** The context ids of our recent calls, the turns run so far, the last one with a failed call and those calls, and whether one is calling. */
   private ownContexts: string[] = [];
-  private turns = 0; private failedTurn = -1; private calling = false; private thrownInARow = 0; private refusedInARow = 0;
+  private turns = 0; private failed: { turn: number; calls: ServiceCall[] } = { turn: -1, calls: [] }; private calling = false; private thrownInARow = 0; private refusedInARow = 0;
   /** Whether Home Assistant is in reach: while it is not, nothing is sent, no wake runs, and inputs are held. */
   private connected = true; private held: HaInput[] = [];
   /** The journal's text as last loaded or saved, so a turn that leaves it as it is saves nothing. */
@@ -66,12 +66,12 @@ export class Host {
   /**
    * A script or automation run Home Assistant's bridge forwards: an input, or logged and dropped. It waits its turn,
    * so the echo of a call still being made is known for ours once that call is answered; one that came while a call
-   * failed cannot be told from a person's, and is dropped.
+   * that may make it failed cannot be told from a person's, and is dropped.
    */
   script(name: string, args: JsonObject): void {
     const during = this.calling ? this.turns : undefined;
     this.enqueue(async () => {
-      const own = { contexts: this.ownContexts, callFailed: during !== undefined && this.failedTurn === during };
+      const own = { contexts: this.ownContexts, failed: during !== undefined && this.failed.turn === during ? this.failed.calls : [] };
       const verdict = bridgeVerdict(name, args, this.catalog, own);
       if (verdict.kind === 'dropped') this.io.log.error(`lighting: ${verdict.why}; dropped`);
       else if (verdict.kind === 'input') await this.turn(verdict.input);
@@ -120,7 +120,7 @@ export class Host {
         // Out of reach is no failure of the bulb or helper: the call, and the turn's later ones, count as not made.
         if (error instanceof Unreachable) { this.disconnected(); break; }
         this.io.log.error(`lighting: ${call.service} failed: ${error instanceof Error ? error.message : String(error)}`);
-        failed.push(true); this.failedTurn = this.turns;
+        failed.push(true); this.failed = { turn: this.turns, calls: [...this.failed.turn === this.turns ? this.failed.calls : [], call] };
         if (error instanceof Unanswered && this.ha.unansweredInARow() === UNHEALTHY_AFTER) this.io.log.error(`lighting: Home Assistant answered none of ${UNHEALTHY_AFTER} calls in a row; the heartbeat stops until it answers one`);
       }
       if (turn.journalled.includes(index)) await this.save(afterOutputs(turn, failed).state);
