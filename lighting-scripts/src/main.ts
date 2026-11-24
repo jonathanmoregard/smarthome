@@ -16,7 +16,7 @@ import { configSource } from './adapter/codecs/model.ts';
 import type { HouseMirror } from './adapter/codecs/house.ts';
 import { bridgeRunOf } from './adapter/codecs/inputs.ts';
 import { toInstant } from './adapter/codecs/ids.ts';
-import { HomeAssistantClient } from './adapter/ha-client.ts';
+import { bounded, HomeAssistantClient } from './adapter/ha-client.ts';
 import type { JsonValue, ServiceCall } from './adapter/ha-client.ts';
 import { heartbeatCall, timingCall } from './adapter/encode.ts';
 import { lockJournal } from './journal-lock.ts';
@@ -53,8 +53,10 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       refuseUnknownRooms(given.rooms, decodeConfig(configSource(houseView(mirror, clock(), catalog)), catalog));
       refuseRoomsWithoutSwitch(given.rooms, mirror.state);
     }
+    // The host bounds its own calls; the beat and the timing go through the same bound.
+    const beats = bounded(ha, warn);
     const host = await Host.open({ ha, journal: fileJournal(journal), clock, log: console,
-      timer, rooms: given, took: seconds => void ha.call(timingCall(seconds)).catch(() => undefined) }, mirror, catalog);
+      timer, rooms: given, took: seconds => void beats.call(timingCall(seconds)).catch(() => undefined) }, mirror, catalog);
     // A registry change may move a lamp or a label the config is read from: the turn after the read takes it.
     const reread = rereading(read, (house, startedAt) => { host.houseRead(house, startedAt); host.accept({ kind: 'wake' }); }, warn, clock, timer);
     const reconnect = rereading(read, (house, startedAt) => host.reconnected(house, startedAt), warn, clock, timer);
@@ -68,7 +70,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     await ha.subscribe(HA_EVENTS.bridgeRun, event => { const run = bridgeRunOf(event.data); host.script(run.script, run.args); });
     for (const event of HA_EVENTS.registries) await ha.subscribe(event, reread);
     // Each beat names every room the port may drive as it stands: with the whole house, each room of the config's lamps.
-    stopHeartbeat = startHeartbeat(() => host.liveRooms(), call => ha.call(call), message => console.error(message), HEARTBEAT_MS, () => host.paused());
+    stopHeartbeat = startHeartbeat(() => host.liveRooms(), call => beats.call(call), message => console.error(message), HEARTBEAT_MS, () => host.paused());
     watcher = watchRuntimeCatalog(configuration, async read => {
       catalog = read;
       host.catalogChanged(catalog);

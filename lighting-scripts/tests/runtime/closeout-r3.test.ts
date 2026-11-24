@@ -18,7 +18,7 @@ import { afterOutputs, handleInput } from '../../src/adapter/loop.ts';
 import type { Kept, Settled, Turn } from '../../src/adapter/loop.ts';
 import { NO_BELIEFS } from '../../src/adapter/reconcile.ts';
 import type { Publish } from '../../src/adapter/encode.ts';
-import { HomeAssistantClient } from '../../src/adapter/ha-client.ts';
+import { bounded, CALL_TIMEOUT_MS, HomeAssistantClient } from '../../src/adapter/ha-client.ts';
 import type { EntityState, JsonObject, ServiceCall } from '../../src/adapter/ha-client.ts';
 import type { BulbId } from '../../src/domain/types/ids.ts';
 import type { Instant } from '../../src/domain/types/time.ts';
@@ -194,7 +194,7 @@ async function open(ha: FakeHa, rooms: RoomsGiven, clock: () => Instant, timer: 
   return { host: await Host.open(io, ha.mirror(), catalog), logged };
 }
 
-test('closeout r3 B6: a call Home Assistant never answers stops the heartbeat, so its watchdog hands the rooms back', { todo: 'closeout r3 B6' }, async t => {
+test('closeout r3 B6: a call Home Assistant never answers stops the heartbeat, so its watchdog hands the rooms back', async t => {
   // Break: the host awaits each call with no bound (src/host.ts:114), so its queue waits for good, while paused()
   // (src/host.ts:182) stays false and main()'s heartbeat, a call of its own (src/main.ts:68), keeps beating. Home
   // Assistant's websocket call_service awaits the service with no timeout of its own (components/websocket_api/
@@ -215,6 +215,57 @@ test('closeout r3 B6: a call Home Assistant never answers stops the heartbeat, s
   t.mock.timers.reset();
   await host.close();
   assert.equal(paused, true, 'a minute into a call Home Assistant has not answered, the heartbeat is paused');
+});
+
+test('closeout r3 B6 (ruling): a call unanswered for 15 s is refused, and an answer after that is logged and ignored', async t => {
+  // Break: a call Home Assistant never answers is waited on for good; or it is refused sooner than 15 s; or its late
+  // answer is taken (the call resolves twice, or is believed made) or is dropped without a word.
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const timer: HostIo['timer'] = (ms, wake) => { const handle = setTimeout(wake, ms); return () => clearTimeout(handle); };
+  const answers: ((context: string) => void)[] = [], late: string[] = [];
+  const ha = bounded({ call: () => new Promise<string | undefined>(resolve => { answers.push(resolve); }) }, message => late.push(message), timer);
+  const publish: ServiceCall = { service: 'mqtt.publish', data: { topic: 'zigbee2mqtt/bulb-a1', payload: '{}' } };
+  const outcome = (call: Promise<string | undefined>) => call.then(context => `took ${context}`, (error: unknown) => error);
+  const prompt = ha.call(publish);
+  answers[0]?.('context-1');
+  assert.equal(await outcome(prompt), 'took context-1', 'control: an answer in time is the call’s');
+  const hung = outcome(ha.call(publish));
+  t.mock.timers.tick(CALL_TIMEOUT_MS - 1);
+  await Promise.resolve();
+  let settled = false;
+  void hung.then(() => { settled = true; });
+  await Promise.resolve();
+  assert.equal(settled, false, 'not refused before 15 s');
+  t.mock.timers.tick(1);
+  const refused = await hung;
+  assert.ok(refused instanceof Error && /mqtt\.publish/.test(refused.message) && /15 s/.test(refused.message), String(refused));
+  answers[1]?.('context-2');
+  await Promise.resolve(); await Promise.resolve();
+  assert.equal(late.length, 1, 'the late answer is logged');
+  assert.match(late[0] ?? '', /mqtt\.publish.*after/);
+});
+
+test('closeout r3 B6 (ruling): a publish Home Assistant never answers is refused, the queue moves on, and the bulb is sent again', async t => {
+  // Break: the queue waits on the hung publish for good; or the timed-out publish counts as made, and the bulb is not sent again.
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: Date.parse('2026-09-21T12:00:00Z') });
+  const ha = new FakeHa();
+  let hung = 0;
+  ha.hangs = call => call.service === 'mqtt.publish' && call.data.topic === 'zigbee2mqtt/bulb-a3' && ++hung === 1;
+  const timer: HostIo['timer'] = (ms, wake) => { const handle = setTimeout(wake, ms); return () => clearTimeout(handle); };
+  const { host, logged } = await open(ha, HOUSE, () => toInstant(Date.now() / 1000), timer);
+  const toBulbA3 = () => ha.calls.filter(call => call.data.topic === 'zigbee2mqtt/bulb-a3').length;
+  host.accept({ kind: 'started' });
+  for (let i = 0; i < 500 && ha.hung.length === 0; i++) await Promise.resolve();
+  assert.equal(ha.hung.length, 1, 'control: the start’s publish to bulb-a3 hangs');
+  for (let second = 0; second < 120; second++) { t.mock.timers.tick(1000); for (let i = 0; i < 5; i++) await Promise.resolve(); }
+  const paused = host.paused();
+  for (const reject of ha.hung.splice(0)) reject(new Error('test over'));
+  t.mock.timers.reset();
+  await host.close();
+  assert.equal(paused, false, 'one call unanswered among answered ones does not stop the heartbeat');
+  assert.ok(ha.calls.length > ha.calls.indexOf(ha.calls.find(call => call.data.topic === 'zigbee2mqtt/bulb-a3')!) + 1, 'the queue moved on past the hung publish');
+  assert.ok(toBulbA3() >= 2, `bulb-a3 is sent again: ${toBulbA3()} publishes`);
+  assert.ok(logged.some(line => /mqtt\.publish failed: .*15 s/.test(line)), JSON.stringify(logged));
 });
 
 test('closeout r3 B10: a listed room with no port switch helper is not silent', async () => {

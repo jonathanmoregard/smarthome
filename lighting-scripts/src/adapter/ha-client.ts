@@ -60,6 +60,9 @@ export function takenContext(result: unknown, guard: Guard | undefined): string 
  */
 export class Unreachable extends Error {}
 
+/** A call Home Assistant did not answer in time: refused, as far as the caller knows, though it may still be made. */
+export class Unanswered extends Error {}
+
 /**
  * What the host needs of Home Assistant: a service call, which rejects when Home Assistant did not take it, and
  * answers the context id Home Assistant gave it, when it gave one.
@@ -67,8 +70,23 @@ export class Unreachable extends Error {}
 export interface HaClient {
   call(call: ServiceCall): Promise<string | undefined>;
 }
+
+/**
+ * How long a call waits for Home Assistant's answer. Its websocket `call_service` waits on the service with no bound of
+ * its own (an MQTT publish is bounded at 10 s, a cloud plug's call is not), so one hung call would hold the queue, while
+ * the heartbeat beats on and Home Assistant's watchdog never hands the rooms back.
+ */
+export const CALL_TIMEOUT_MS = 15_000;
+
+/** Node's timer: `wake` after `delayMs`, unless the answer is called first. */
+const nodeTimer = (delayMs: number, wake: () => void): (() => void) => { const handle = setTimeout(wake, delayMs); return () => clearTimeout(handle); };
+
+/** A client whose every call is bounded, and how many calls in a row Home Assistant has not answered in time. */
+export type BoundedClient = HaClient & { unansweredInARow(): number };
+
 /** An entity's state as the websocket sends it. */
 export interface WireState { entity_id: string; state: string; attributes: unknown; context?: unknown; last_changed: string; last_updated: string }
+
 export interface EntityEntry { entity_id: string; area_id: string | null; device_id: string | null; labels?: string[] }
 export interface DeviceEntry { id: string; area_id: string | null; labels?: string[]; identifiers?: JsonValue[] }
 export interface AreaEntry { area_id: string; labels?: string[] }
@@ -78,10 +96,9 @@ export type HouseRead = {
   states: readonly WireState[]; timezone: string; entities: readonly EntityEntry[]; devices: readonly DeviceEntry[];
   areas: readonly AreaEntry[]; labels: readonly LabelEntry[]; sources: Readonly<Record<string, { domain: string }>>;
 };
+export interface HaEvent { event_type: string; data: JsonObject }
 
 const object = (value: unknown): JsonObject => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as JsonObject : {};
-
-export interface HaEvent { event_type: string; data: JsonObject }
 
 /**
  * Home Assistant over its websocket, through the official client, which owns
@@ -151,4 +168,31 @@ export class HomeAssistantClient implements HaClient {
     await Promise.allSettled(this.subscriptions.map(unsubscribe => unsubscribe()));
     this.subscriptions.length = 0; this.listeners.length = 0;
   }
+}
+
+/**
+ * `ha` with every call bounded at `timeoutMs` of `timer`, Node's own by default (the bound is the wire's, not the
+ * house's clock): one Home Assistant has not answered by then rejects {@link Unanswered}, a refused call, so the caller
+ * moves on and tries it again. An answer that comes after is said to `late` and taken for nothing. Any answer in time,
+ * a refusal too, ends the run of calls unanswered.
+ */
+export function bounded(ha: HaClient, late: (message: string) => void, timer: (delayMs: number, wake: () => void) => () => void = nodeTimer,
+  timeoutMs = CALL_TIMEOUT_MS): BoundedClient {
+  let unanswered = 0;
+  return {
+    unansweredInARow: () => unanswered,
+    call: call => new Promise((resolve, reject) => {
+      let over = false;
+      const cancel = timer(timeoutMs, () => {
+        over = true; unanswered++;
+        reject(new Unanswered(`Home Assistant did not answer ${call.service} within ${timeoutMs / 1000} s; counted as refused`));
+      });
+      const answered = (take: () => void, what: string) => {
+        if (over) late(`lighting: ${call.service} ${what} after its ${timeoutMs / 1000} s timeout; ignored`);
+        else { cancel(); unanswered = 0; take(); }
+      };
+      ha.call(call).then(context => answered(() => resolve(context), 'answered'),
+        (error: unknown) => answered(() => reject(error), `failed (${error instanceof Error ? error.message : String(error)})`));
+    }),
+  };
 }
