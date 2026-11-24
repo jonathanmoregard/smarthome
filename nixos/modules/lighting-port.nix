@@ -252,6 +252,14 @@ in
     # commands as whoever runs git in it, so no other user may trust it.
     programs.git.enable = true;
 
+    # The operator runs git and npm in the checkout with
+    # `sudo -u lighting-port`. Under sudo's own umask (022) a file they
+    # rewrite would be closed to the group, so the operator could no longer
+    # edit it in place; they get the unit's umask instead.
+    security.sudo.extraConfig = ''
+      Defaults>lighting-port umask=0007, umask_override
+    '';
+
     systemd.services.lighting-port = {
       description = "Lighting port, run by its dev watcher from ${scriptsDir}";
       wantedBy = [ "multi-user.target" ];

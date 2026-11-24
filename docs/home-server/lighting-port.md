@@ -60,6 +60,8 @@ sudo -u lighting-port HOME=/var/lib/lighting-port \
   nix shell nixpkgs#nodejs_22 --command npm install --ignore-scripts <package>
 ```
 
+sudo runs both with the service's umask (`007`), not its own `022`, so the
+files they write stay group-writable and you can still edit them yourself.
 npm run as yourself leaves directories in `node_modules` the service cannot
 replace. The service then refuses to start and names one; give the tree back
 with `sudo chown -R lighting-port:lighting-port

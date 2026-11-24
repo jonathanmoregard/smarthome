@@ -29,7 +29,8 @@
 #     when package-lock.json changes, and never runs lifecycle scripts;
 #   - the operator, as a member of the group, edits the env file and the
 #     checkout without sudo; git trusts the checkout only as lighting-port,
-#     which can write its .git/config.
+#     which can write its .git/config; a file git rewrites when run as the
+#     docs say (sudo -u lighting-port) stays editable by the operator.
 #
 #   nix build --no-link -L .#checks.x86_64-linux.lighting-port
 {
@@ -472,6 +473,14 @@ pkgsSystem.testers.runNixOSTest {
     machine.succeed("grep -Fx 'local edit' ${scripts}/scripts/dev.mjs.note")
     machine.succeed("test ! -e ${src}/upstream")
     assert installs() == before, "npm ci ran again with an unchanged package-lock.json"
+
+    # Git run in the checkout as the docs say (sudo -u lighting-port) leaves
+    # a file it rewrites editable by the operator, as the unit's own writes
+    # are.
+    as_operator("printf 'drift\\n' >> ${scripts}/.gitignore")
+    machine.succeed("sudo -u lighting-port git -C ${src} checkout -- lighting-scripts/.gitignore")
+    machine.succeed("test \"$(stat -c '%U:%G %a' ${scripts}/.gitignore)\" = 'lighting-port:lighting-port 660'")
+    as_operator("printf '# edited in place\\n' >> ${scripts}/.gitignore")
 
     # node_modules the service cannot rewrite (npm run as the operator with
     # umask 022) is the operator's to fix, and says so, instead of an npm ci
