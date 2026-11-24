@@ -22,6 +22,8 @@ let
       | age -r "$recipient" -o "$out/home-server-cd-secret.age"
     printf '%s' '[7,1,255,0,42,9,100,3,200,17,66,5,250,13,77,1]' \
       | age -r "$recipient" -o "$out/zigbee2mqtt-network-key.age"
+    printf '%s\n' 'lighting-port-test-token' \
+      | age -r "$recipient" -o "$out/lighting-port-ha-token.age"
   '';
 
   hydratorSeam = pkgs.writeShellApplication {
@@ -107,6 +109,11 @@ in
       age.identityPaths = mkForce [ "${testAgenix}/id_ed25519" ];
       age.secrets.zigbee2mqtt-network-key.file =
         mkForce "${testAgenix}/zigbee2mqtt-network-key.age";
+      # The lighting port stays enabled: its clone cannot reach GitHub here,
+      # which is exactly the state every switch below must not count as a
+      # failed unit.
+      age.secrets.lighting-port-ha-token.file =
+        mkForce "${testAgenix}/lighting-port-ha-token.age";
       age.secrets.home-server-cd-secret = {
         file = "${testAgenix}/home-server-cd-secret.age";
         owner = "root";
