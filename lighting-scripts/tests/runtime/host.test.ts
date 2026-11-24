@@ -480,7 +480,7 @@ test('closeout r1 A1/B1: a full read of a plug that missed our call is no press,
   await host.close();
 });
 
-test('closeout r1 A3: a host whose every turn throws stops its heartbeat, so the watchdog hands the room back', { todo: 'closeout r1 A3' }, async () => {
+test('closeout r1 A3: a host whose every turn throws stops its heartbeat, so the watchdog hands the room back', async () => {
   // Break: the heartbeat pauses only while Home Assistant is out of reach, so a port that drives nothing beats on.
   // The catalog lists one device under two remotes: it parses, and decodeRemotes throws on every turn.
   const broken = parseCatalog({ ...CATALOG, remotes: { 'room-a': { device_id: 'remote-a', source: 'remote-a' },
@@ -500,6 +500,30 @@ test('closeout r1 A3: a host whose every turn throws stops its heartbeat, so the
     stop();
   }
   assert.deepEqual(beats, [], `no beat from a host that drives nothing; host.paused() is ${host.paused()}`);
+  await host.close();
+});
+
+test('a host that stopped its heartbeat after turns that threw resumes it at the first turn that succeeds, saying once that it stopped', async () => {
+  // Break: the heartbeat stays stopped once stopped, so a fixed catalog never takes the rooms back; or a turn's throw
+  // alone stops it; or the stop is not logged, or is logged at every failed turn after the third.
+  const broken = parseCatalog({ ...CATALOG, remotes: { 'room-a': { device_id: 'remote-a', source: 'remote-a' },
+    unplaced: { device_id: 'remote-a', source: 'remote-b' } } });
+  const ha = new FakeHa(), now = { time: at('12:00:00') }, logged: string[] = [];
+  const host = await Host.open({ ha, journal: new MemoryJournal(), clock: () => now.time,
+    log: { info: () => {}, warn: () => {}, error: message => logged.push(message) }, timer: () => () => {}, rooms: { kind: 'house' } },
+  ha.mirror(), broken);
+  const stopped = () => logged.filter(line => /turns in a row failed/.test(line)).length;
+  host.accept({ kind: 'started' }); host.accept({ kind: 'tick' });
+  await host.idle();
+  assert.equal(host.paused(), false, 'two turns that threw are not yet unhealthy');
+  for (const input of [{ kind: 'wake' }, { kind: 'tick' }] as const) host.accept(input);
+  await host.idle();
+  assert.equal(host.paused(), true);
+  assert.equal(stopped(), 1, 'the stop is logged once');
+  host.catalogChanged(catalog);
+  host.accept({ kind: 'wake' });
+  await host.idle();
+  assert.equal(host.paused(), false, 'the first turn that succeeds resumes the heartbeat');
   await host.close();
 });
 

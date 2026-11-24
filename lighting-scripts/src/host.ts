@@ -38,6 +38,8 @@ const LONGEST_WAIT_MS = 2_147_483_647;
 const OWN_CONTEXTS = 1024;
 /** How soon a turn that threw is followed by a wake. */
 const AFTER_A_FAILED_TURN_SECONDS = 5;
+/** The turns in a row that throw before the host counts as unhealthy and its heartbeat stops, so the watchdog hands the rooms back. */
+const UNHEALTHY_AFTER = 3;
 
 export class Host {
   private readonly io: HostIo;
@@ -49,7 +51,7 @@ export class Host {
   private closed = false;
   /** The context ids of our recent calls, the turns run so far, the last one with a failed call, and whether one is calling. */
   private ownContexts: string[] = [];
-  private turns = 0; private failedTurn = -1; private calling = false;
+  private turns = 0; private failedTurn = -1; private calling = false; private thrownInARow = 0;
   /** Whether Home Assistant is in reach: while it is not, nothing is sent, no wake runs, and inputs are held. */
   private connected = true; private held: HaInput[] = [];
 
@@ -91,6 +93,10 @@ export class Host {
     let wakeAt: Instant | undefined = toInstant(now + AFTER_A_FAILED_TURN_SECONDS);
     try {
       wakeAt = await this.run(input, now);
+      this.thrownInARow = 0;
+    } catch (error) {
+      if (++this.thrownInARow === UNHEALTHY_AFTER) this.io.log.error(`lighting: ${UNHEALTHY_AFTER} turns in a row failed; the heartbeat stops until a turn succeeds`);
+      throw error;
     } finally {
       this.cancelWake?.();
       this.cancelWake = wakeAt === undefined || this.closed || !this.connected ? undefined
@@ -172,8 +178,8 @@ export class Host {
     });
   }
 
-  /** Whether sends and wakes are paused, Home Assistant being out of reach or not yet read again. */
-  paused(): boolean { return !this.connected; }
+  /** Whether the heartbeat is paused: Home Assistant is out of reach or not yet read again, or the last turns all threw. */
+  paused(): boolean { return !this.connected || this.thrownInARow >= UNHEALTHY_AFTER; }
 
   /** The house as the host holds it now. */
   house(): HouseMirror { return this.mirror; }
