@@ -689,10 +689,10 @@ test('closeout r1 A2: a wall power cycle no look saw as out of reach gets the ca
 
 /* Close-out round 2 reproducers: `todo` with the finding's id while the defect stands; the fixer drops the mark. */
 
-test('closeout r2 A3: a bulb parked by put-backs whose wall power returns before Home Assistant saw it unavailable gets its light back', { todo: 'owner decision: parked bulb on-to-on' }, () => {
+test('closeout r2 A3: a bulb parked by put-backs whose wall power returns before Home Assistant saw it unavailable gets its light back on its announce', () => {
   // Break: the power-on light comes in as an on-to-on report, which `unexplained` does not read as back on, and a
-  // parked bulb whose target equals `lastSent` is sent nothing (src/adapter/reconcile.ts:330), so it keeps the
-  // power-on light. The pass follows the loop: unexplained, backOn, nextSends (src/adapter/loop.ts:166, 215-217).
+  // parked bulb whose target equals `lastSent` is sent nothing, so it keeps the power-on light. The bulb's own
+  // Zigbee announce is the loop's `bulb announced` input, which takes it as back on (src/adapter/loop.ts).
   let { bulbs, beliefs } = steady();
   for (let n = 1; n <= REAPPLY_LIMIT; n++) {
     bulbs.set(bulbA3, { reach: 'reachable', light: lit(40, kelvin(3003)) });
@@ -701,9 +701,13 @@ test('closeout r2 A3: a bulb parked by put-backs whose wall power returns before
   assert.equal(beliefs.bulbs[bulbA3]?.kind, 'parked', 'control: six put-backs park it');
   const before = bulbs.observed();
   bulbs.set(bulbA3, { reach: 'reachable', light: lit(254, undefined) });
-  const back = unexplained(before, bulbs.observed(), beliefs).flatMap(change => change.kind === 'bulb back on' ? [change.bulb] : []);
-  const { sends } = pass(bulbs, EVENING, backOn(beliefs, back), at(REAPPLY_LIMIT * 60 + 60));
-  assert.deepEqual(sends.map(to).filter(bulb => bulb === bulbA3), [bulbA3]);
+  // A flapping bulb stays parked on its reports: an on-to-on report alone is no power-up, and nothing is sent.
+  assert.deepEqual(unexplained(before, bulbs.observed(), beliefs), [], 'control: the on-to-on report is not back on');
+  const reported = pass(bulbs, EVENING, beliefs, at(REAPPLY_LIMIT * 60 + 30));
+  assert.deepEqual(reported.sends.map(to).filter(bulb => bulb === bulbA3), [], 'control: the report alone sends nothing');
+  assert.equal(reported.beliefs.bulbs[bulbA3]?.kind, 'parked', 'control: the report alone leaves it parked');
+  const { sends } = pass(bulbs, EVENING, backOn(reported.beliefs, [bulbA3]), at(REAPPLY_LIMIT * 60 + 60));
+  assert.deepEqual(sends.filter(send => to(send) === bulbA3).map(send => send.kind === 'bulb' ? send.over : undefined), [MANUAL_FADE]);
   assert.deepEqual(bulbs.shows(bulbA3), { reach: 'reachable', light: lit(150, kelvin(3003)) });
 });
 

@@ -16,6 +16,7 @@ import { configSource } from './adapter/codecs/model.ts';
 import { parseRooms } from './adapter/codecs/rooms.ts';
 import type { HouseMirror } from './adapter/codecs/house.ts';
 import { bridgeRunOf } from './adapter/codecs/inputs.ts';
+import { BRIDGE_EVENT_TOPIC } from './adapter/codecs/bridge-event.ts';
 import { toInstant } from './adapter/codecs/ids.ts';
 import { bounded, HomeAssistantClient } from './adapter/ha-client.ts';
 import type { JsonValue, ServiceCall } from './adapter/ha-client.ts';
@@ -92,6 +93,8 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     await ha.subscribe(HA_EVENTS.started, reconnect);
     // Home Assistant keeps the triggers only; every decision runs in this process.
     await ha.subscribe(HA_EVENTS.bridgeRun, event => { const run = bridgeRunOf(event.data); host.script(run.script, run.args); });
+    // A bulb's own power-up, which its report hides when its wall power came back before Home Assistant saw it gone.
+    await ha.subscribeMqtt(BRIDGE_EVENT_TOPIC, payload => host.bridgeEvent(payload));
     // Each beat names every room the port may drive as it stands: with the whole house, each room of the config's lamps.
     stopHeartbeat = startHeartbeat(() => host.liveRooms(), call => beats.call(call), message => console.error(message), HEARTBEAT_MS, () => host.paused());
     host.accept({ kind: 'started' });

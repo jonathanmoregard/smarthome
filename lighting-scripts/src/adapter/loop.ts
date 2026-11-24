@@ -269,7 +269,9 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
     const reported = reportedBulbs(input.entities, model.config);
     beliefs = state === undefined ? forgotten(beliefs, reported) : reportedChanged(beliefs, state.observed, observed, reported);
   }
-  beliefs = backOn(beliefs, changed.flatMap(change => change.kind === 'bulb back on' ? [change.bulb] : []));
+  // A bulb's own announce is its power-up, which a report from on to on hides: back on, parked or not (closeout r2 A3).
+  beliefs = backOn(beliefs, [...changed.flatMap(change => change.kind === 'bulb back on' ? [change.bulb] : []),
+    ...input.kind === 'bulb announced' ? [input.bulb] : []]);
   const superseded = supersededAfter(state === undefined ? {} : state.superseded, beliefs, observed, lighting.switches, now);
   beliefs = switchesSeen(beliefs, observed, lighting.switches);
   const sends = nextSends(sharedLighting(lighting, model.config, share), model.config, observed, beliefs, now);

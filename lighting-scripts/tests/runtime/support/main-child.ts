@@ -65,6 +65,8 @@ class FakeClient {
     this.listeners.set(event, callback);
     if (event === 'state_changed' && mode === 'gap-control') callback({ event_type: event, data: handOver });
   }
+  readonly mqtt = new Map<string, (payload: unknown) => void>();
+  async subscribeMqtt(topic: string, callback: (payload: unknown) => void): Promise<void> { this.mqtt.set(topic, callback); }
   onConnection(): void {}
   async read(): Promise<HouseRead> {
     const read = structuredClone(READ);

@@ -324,6 +324,27 @@ test('a reconnect unparks every parked bulb and sends it its light', async () =>
   await host.close();
 });
 
+test("a bridge event announcing a bulb is a turn that sends it its light; the bridge's other events are none", async () => {
+  // Closeout r2 A3. Break: the announce never reaches a turn, or it is read against a catalog other than the host's,
+  // or any bridge event (a join, a garbled payload) runs one.
+  const ha = new FakeHa(), now = { time: at('12:00:00') };
+  const { host: opening } = open(ha, new MemoryJournal(), now);
+  const host = await opening;
+  host.accept({ kind: 'started' });
+  await host.idle();
+  const before = ha.calls.length, sentBefore = ha.publishesTo('bulb-a3' as BulbId).length;
+  host.bridgeEvent(JSON.stringify({ type: 'device_joined', data: { friendly_name: 'bulb-a3' } }));
+  host.bridgeEvent('not json');
+  await host.idle();
+  assert.equal(ha.calls.length, before, 'no turn');
+  // The bulb shows its light already: only the announce explains a send to it.
+  host.bridgeEvent(JSON.stringify({ type: 'device_announce', data: { friendly_name: 'bulb-a3', ieee_address: '0x0000000000000003' } }));
+  await host.idle();
+  assert.deepEqual(ha.publishesTo('bulb-a3' as BulbId).slice(sentBefore).map(call => call.data.payload),
+    ['{"brightness":220,"color_temp":250,"transition":0.2}']);
+  await host.close();
+});
+
 
 test('a save made as Home Assistant goes out of reach survives the reconnect and lands', async () => {
   // Re-review 1. Break: the reconnect reads the profiles again from what Home Assistant still holds, the Model takes

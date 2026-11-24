@@ -451,6 +451,18 @@ function poweredUp(house: House): void {
   writeBack(house.bulbs, house.states);
 }
 
+test("a parked bulb's announce, its own power-up, sends it its light with the power-on fade; its on-to-on report alone does not", () => {
+  // Closeout r2 A3. Break: the announce is not an input, so a parked bulb whose wall power came back before Home
+  // Assistant saw it unavailable keeps its power-on light; or the report alone unparks it, and a flapping bulb is
+  // fought again.
+  const house = parkedA3();
+  poweredUp(house);
+  assert.deepEqual(publishedTo(house.turn('12:07:00', { kind: 'tick' }), bulbA3), [], 'control: the on-to-on report leaves it parked');
+  const announced = house.turn('12:07:30', { kind: 'bulb announced', bulb: bulbA3 });
+  assert.deepEqual(publishedTo(announced, bulbA3).map(publish => publish.payload), [{ brightness: 220, color_temp: 250, transition: 0.2 }]);
+  assert.deepEqual(shows(house, bulbA3), { power: 'on', level: 220, colour: { kind: 'kelvin', kelvin: 4000 }, effect: 'none' });
+});
+
 test('a start unparks a bulb the journal held parked, so a park does not outlive a restart', () => {
   // Break: the journal's park survives the restart, so a bulb whose light was lost while the port was down is sent
   // nothing until its target moves.

@@ -10,7 +10,8 @@ import { loadJournal, saveJournal } from './adapter/codecs/journal.ts';
 import type { JournalRecord } from './adapter/codecs/journal.ts';
 import { outputCall } from './adapter/encode.ts';
 import { bounded, Unreachable } from './adapter/ha-client.ts';
-import type { BoundedClient, EntityState, HaClient, JsonObject, ServiceCall } from './adapter/ha-client.ts';
+import type { BoundedClient, EntityState, HaClient, JsonObject, JsonValue, ServiceCall } from './adapter/ha-client.ts';
+import { announcedBulb } from './adapter/codecs/bridge-event.ts';
 import { bridgeVerdict } from './adapter/codecs/inputs.ts';
 import type { HaInput } from './adapter/codecs/inputs.ts';
 import { afterOutputs, catalogChanged, handleInput, keptConfig, wantsTurn } from './adapter/loop.ts';
@@ -75,6 +76,14 @@ export class Host {
       const verdict = bridgeVerdict(name, args, this.catalog, own);
       if (verdict.kind === 'dropped') this.io.log.error(`lighting: ${verdict.why}; dropped`);
       else if (verdict.kind === 'input') await this.turn(verdict.input);
+    });
+  }
+
+  /** A Zigbee2MQTT bridge event's payload, read against the host's catalog in its turn: a bulb's announce is an input, any other event none. */
+  bridgeEvent(payload: JsonValue | undefined): void {
+    this.enqueue(async () => {
+      const bulb = announcedBulb(payload, this.catalog);
+      if (bulb !== undefined) await this.turn({ kind: 'bulb announced', bulb });
     });
   }
 

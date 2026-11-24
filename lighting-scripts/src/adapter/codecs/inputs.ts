@@ -16,7 +16,7 @@
  * in `messages`; either way the loop logs it and drops the input.
  */
 import type { EffectName } from '../../domain/effect.ts';
-import type { DashboardControlId, LampId, RemoteId, RoomId, SwitchId } from '../../domain/types/ids.ts';
+import type { BulbId, DashboardControlId, LampId, RemoteId, RoomId, SwitchId } from '../../domain/types/ids.ts';
 import { entriesOf } from '../../domain/types/ids.ts';
 import type { Brightness, Colour, PercentRange, Power } from '../../domain/types/light.ts';
 import type { Block, RoomOrHouse } from '../../domain/types/schedule.ts';
@@ -52,6 +52,11 @@ import type { RangeDefaults, RangeRule } from '../../domain/switches.ts';
 export type HaInput =
   /** Home Assistant or the port started: everything is read again, and every parked bulb and switch is unparked. */
   | { kind: 'started' }
+  /**
+   * A bulb announced itself on Zigbee2MQTT's bridge: it powered up, its wall power back, though its report may go on
+   * to on (Home Assistant never saw it unavailable). It is back on: sent its light, parked or not.
+   */
+  | { kind: 'bulb announced'; bulb: BulbId }
   /** The minute's clock. */
   | { kind: 'tick' }
   /** A wake the loop asked for, or a render request: the clock at the instant. */
@@ -224,7 +229,7 @@ function storeSaved(data: JsonObject): HaInput {
  */
 export function messages(input: HaInput, model: Model, now: Instant, house: HouseView): Msg[] {
   switch (input.kind) {
-    case 'started': case 'tick': case 'wake': case 'reconnected': case 'helper changed': case 'state changed': return [];
+    case 'started': case 'tick': case 'wake': case 'reconnected': case 'helper changed': case 'state changed': case 'bulb announced': return [];
     case 'overlay event': return overlayEvent(input.event, model, now, house);
     case 'dashboard script': return dashboardScript(input.script, model, now, house);
     case 'service called': return input.call === undefined ? [] : personCall(input.call, model, now, house);

@@ -154,6 +154,15 @@ test('a lamp in a room that is not live is sent nothing', () => {
   assert.deepEqual(bulbsSent(shared.turn('12:00:00', { kind: 'started' })), ['zigbee2mqtt/bulb-b1']);
 });
 
+test("a bulb's announce in a room that is not live sends it nothing; in a live room, its light", () => {
+  // Closeout r2 A3. Break: the announce bypasses the share, and the port fights the old scripts over a bulb they drive.
+  const shared = new Shared(sharedStates({ [roomA]: 'on', [roomB]: 'on' }), listed(roomB));
+  shared.turn('12:00:00', { kind: 'started' });
+  assert.deepEqual(bulbsSent(shared.turn('12:01:00', { kind: 'bulb announced', bulb: id.bulb('bulb-a1') })), []);
+  assert.deepEqual(bulbsSent(shared.turn('12:01:30', { kind: 'bulb announced', bulb: id.bulb('bulb-b1') })), ['zigbee2mqtt/bulb-b1'],
+    'control: the live room\'s bulb is sent its light');
+});
+
 test("a room whose port switch is off is not the port's: switching it off hands the room back", () => {
   // Break: the list alone decides, so the watchdog's switch-off, or a person's, does not stop the port.
   const shared = new Shared(sharedStates({ [roomA]: 'on', [roomB]: 'off' }), listed(roomA, roomB));

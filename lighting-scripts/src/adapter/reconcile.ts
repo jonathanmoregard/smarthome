@@ -24,11 +24,15 @@
  * failed send is sent again after 1 s, doubling up to 60 s; the fifth failure
  * in a row parks the bulb. A bulb sent the same light again six times in ten
  * minutes is parked too. A parked bulb is sent nothing until it comes back on
- * from out of reach (its wall power) or its light changes, and is logged once:
- * a parked bulb's off to on in reach is the echo of the put-back that parked
- * it, or someone else's, and either way not ours to fight. A bulb that comes
- * back on (from off or out of reach, and nothing we sent explains it) is sent
- * its light with the short fade, then the candle's start.
+ * from out of reach (its wall power), announces itself on Zigbee2MQTT's bridge
+ * (its own power-up, which a report from on to on hides when its wall power
+ * came back before Home Assistant saw it gone), or its light changes; a start
+ * or Home Assistant back unparks every bulb. It is logged once. A parked bulb's
+ * report alone never unparks it, so a flapping bulb stays parked: its off to on
+ * in reach is the echo of the put-back that parked it, or someone else's, and
+ * either way not ours to fight; nor is there a timed unpark. A bulb that comes
+ * back on (from off or out of reach, and nothing we sent explains it, or by its
+ * announce) is sent its light with the short fade, then the candle's start.
  */
 import type { Config } from '../domain/config.ts';
 import { bulbAppearance } from '../domain/effect.ts';
@@ -159,7 +163,7 @@ export type Outcome = 'sent' | 'failed' | 'start failed';
  * 2. `retrying`: its last `attempts` sends failed, and it is sent again from `retryAt`. `shows` is the light it is
  *    known to show when only the candle's start failed; otherwise what it shows is not known.
  * 3. `parked`: given up on, after too many failed sends or put-backs: sent nothing until it comes back on from out
- *    of reach or its light changes from `lastSent`.
+ *    of reach or by its announce, or its light changes from `lastSent`.
  * 4. `back on`: it came back on, and is owed its light with the short fade.
  * No belief at all is a bulb never sent anything, or whose belief was forgotten.
  */
