@@ -54,14 +54,16 @@ export class Host {
   private turns = 0; private failedTurn = -1; private calling = false; private thrownInARow = 0;
   /** Whether Home Assistant is in reach: while it is not, nothing is sent, no wake runs, and inputs are held. */
   private connected = true; private held: HaInput[] = [];
+  /** The journal's text as last loaded or saved, so a turn that leaves it as it is saves nothing. */
+  private saved: string | undefined;
 
-  private constructor(io: HostIo, mirror: HouseMirror, catalog: Catalog, kept: Kept) {
-    this.io = io; this.mirror = mirror; this.catalog = catalog; this.kept = kept;
+  private constructor(io: HostIo, mirror: HouseMirror, catalog: Catalog, saved: string | undefined) {
+    this.io = io; this.mirror = mirror; this.catalog = catalog; this.saved = saved; this.kept = { kind: 'starting', ...loadJournal(saved) };
   }
 
   /** A host over the house as Home Assistant shows it, holding the beliefs its journal kept. */
   static async open(io: HostIo, mirror: HouseMirror, catalog: Catalog): Promise<Host> {
-    return new Host(io, structuredClone(mirror), catalog, { kind: 'starting', ...loadJournal(await io.journal.load()) });
+    return new Host(io, structuredClone(mirror), catalog, await io.journal.load());
   }
 
   /**
@@ -130,6 +132,8 @@ export class Host {
     this.calling = false;
     const settled = afterOutputs(turn, failed);
     this.kept = { kind: 'running', state: settled.state };
+    // Each publish saved the journal; any other change of the beliefs or the share is saved once the turn is done.
+    if (saveJournal(settled.state) !== this.saved) await this.save(settled.state);
     for (const note of settled.notes) this.io.log.info(note);
     for (const warning of settled.warnings) this.io.log.warn(warning);
     if (turn.outputs.length > 0 && this.connected) this.io.took?.((performance.now() - started) / 1000);
@@ -144,7 +148,8 @@ export class Host {
   }
 
   private async save(record: JournalRecord): Promise<void> {
-    await this.io.journal.save(saveJournal(record)).catch(error =>
+    const text = saveJournal(record);
+    await this.io.journal.save(text).then(() => { this.saved = text; }, error =>
       this.io.log.error(`lighting: journal not saved: ${error instanceof Error ? error.message : String(error)}`));
   }
 

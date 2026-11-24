@@ -551,7 +551,7 @@ test('closeout r1 A4: a catalog reload with a new bulb sends that bulb its light
   await host.close();
 });
 
-test('closeout r1 B4: a turn that hands a room back saves the journal, so a restart takes the room as found', { todo: 'closeout r1 B4' }, async () => {
+test('closeout r1 B4: a turn that hands a room back saves the journal, so a restart takes the room as found', async () => {
   // Break: the journal is saved only after a bulb publish, so the turn that hands room-a back (no publish) is never
   // saved; the next start reads room-a as driven all along and trusts beliefs the old scripts made stale.
   const ha = new FakeHa(), now = { time: at('12:00:00') }, journal = new MemoryJournal();
