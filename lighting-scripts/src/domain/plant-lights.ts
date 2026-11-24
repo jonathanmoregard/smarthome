@@ -58,7 +58,6 @@ export function plantLightSwitched(overrides: PlantOverrides, config: Config, pr
  * included).
  */
 export function plantOverridesReleased(overrides: PlantOverrides, config: Config, now: Instant): PlantOverrides {
-  const lights = plantLightsOf(config);
   const lastOf = (placed: PlantLight): Instant | undefined => dayStarts(config, roomOf(config, placed), now).last;
   const handSwitches: Partial<Record<SwitchId, HandSwitch>> = {};
   for (const [id, hand] of entriesOf(overrides.handSwitches)) {
@@ -66,8 +65,15 @@ export function plantOverridesReleased(overrides: PlantOverrides, config: Config
     if (hand !== undefined && placed?.kind === 'plant light' && holds(hand.since, lastOf(placed))) handSwitches[id] = hand;
   }
   const allOff = overrides.allOff;
-  const stillHolds = allOff !== undefined && lights.some(([, placed]) => holds(allOff.since, lastOf(placed)));
-  return { handSwitches, allOff: stillHolds ? allOff : undefined };
+  return { handSwitches, allOff: allOff !== undefined && allOffHolds(config, allOff.since, now) ? allOff : undefined };
+}
+
+/**
+ * Whether all off set at `since` still holds at `now`: it applies to some plant light of the config, until that one's
+ * next day start. An all off switched on before the day start that released it holds nothing.
+ */
+export function allOffHolds(config: Config, since: Instant, now: Instant): boolean {
+  return plantLightsOf(config).some(([, placed]) => holds(since, dayStarts(config, roomOf(config, placed), now).last));
 }
 
 /** A hold set at `since` still applies from the day start that last passed, or where none has. */

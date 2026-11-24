@@ -118,9 +118,10 @@ export function keptConfig(kept: Kept, house: HouseView): Config {
 /**
  * Whether `entity` changing to `state` is a reason for a turn: the config is read from it, it is the all-off control, a
  * sensor write waits on it, or it is a switch of the config that now shows another power than the last turn saw (its
- * own button, our send landing, or its reach). A switch's change is a live input: its turn reads it against the look just before, so a
- * press is told from our send without a clock (`switchPressed`, reconcile.ts). The same power again (an attribute's
- * report, a bounce) runs no turn. Bulbs run none: their reports come at every step of a fade and the candle's flicker.
+ * own button, our send landing, or its reach). A switch's change is a live input: its turn reads it against the look
+ * just before, so a press is told from our send without a clock (`switchPressed`, reconcile.ts). The same power again
+ * (an attribute's report, a bounce) runs no turn. Bulbs run none: their reports come at every step of a fade and the
+ * candle's flicker.
  */
 export function wantsTurn(kept: Kept, entity: string, state: EntityState | undefined): boolean {
   if (kept.kind !== 'running') return false;
@@ -238,7 +239,7 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
   }
   // The all-off control, read against the Model before the clock: a hold the clock releases this turn, whose off to the
   // control is still to be written, is not read as a new on. Read whether the input read or was dropped.
-  const allOffRead = plantsAllOffMessages(house, before.plantOverrides.allOff !== undefined, now);
+  const allOffRead = plantsAllOffMessages(house, before.plantOverrides.allOff !== undefined, clocked.config, now);
   // The turn's messages are its share's parts of the input's, the presses' and the control's alike, whether the input
   // read or was dropped.
   const own = [...unexplainedMessages(changed, now), ...allOffRead, ...inputMessages].flatMap(msg => {

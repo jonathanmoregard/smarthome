@@ -76,7 +76,7 @@ class House {
       }
       if (output.kind === 'switch') this.states[output.switch] = { state: output.power, attributes: {} };
       if (output.kind === 'dashboard' && output.write.kind === 'plants all-off' && failed[index] !== true) {
-        this.states[output.write.entity] = { state: output.write.on ? 'on' : 'off', attributes: {} };
+        this.states[output.write.entity] = { state: output.write.on ? 'on' : 'off', attributes: {}, last_changed: at };
       }
     }
     this.bulbs.apply(turn.outputs.flatMap((output, index) => output.kind === 'publish' && !failed[index] ? [output.publish] : []));
@@ -533,14 +533,14 @@ test('a missing Zigbee2MQTT bridge sensor counts as unknown: the bulbs are still
   assert.deepEqual(publishesOf(house.turn('12:02:00', { kind: 'tick' })), [], 'a disconnected bridge is still sent nothing');
 });
 
+const PLANT_A = 'switch.plant_a';
+
 /** A house with one plant light, `switch.plant_a` in `room-a`, and the all-off control off. */
 function plantHouse(): House {
   const house = new House({ plants: [PLANT_A] });
   house.states[PLANTS_ALL_OFF] = { state: 'off', attributes: {} };
   return house;
 }
-
-const PLANT_A = 'switch.plant_a';
 
 /** The turn's switch output for `switch.plant_a`, if it made one. */
 function plantOut(turn: Turn): Extract<Output, { kind: 'switch' }> | undefined {
@@ -552,11 +552,11 @@ function allOffOut(turn: Turn): Output | undefined {
   return turn.outputs.find(output => output.kind === 'dashboard' && output.write.kind === 'plants all-off');
 }
 
-/** A plant house started at noon, all off switched on from the dashboard at 12:05. */
+/** A plant house started at noon, all off switched on from the dashboard at 12:05, as Home Assistant stamps it. */
 function allOffAt1205(): House {
   const house = plantHouse();
   house.turn('12:00:00', { kind: 'started' });
-  house.states[PLANTS_ALL_OFF] = { state: 'on', attributes: {} };
+  house.states[PLANTS_ALL_OFF] = { state: 'on', attributes: {}, last_changed: '2026-09-21T12:05:00Z' };
   house.turn('12:05:00', { kind: 'wake' });
   return house;
 }
@@ -598,6 +598,43 @@ test('Review Focus 3: while the control\'s off write has not landed, its on does
   const next = house.turn('2026-09-22T07:01:00', { kind: 'tick' }, failing);
   assert.equal(next.state.model.plantOverrides.allOff, undefined);
   assert.equal(house.states['switch.plant_a']!.state, 'on');
+  // Past the refusal limit: the write is parked and no longer laid over the house, so the control shows its old on.
+  const warnings: string[] = [];
+  for (const minute of ['02', '03', '04', '05', '06', '07', '08']) {
+    const turn = house.turn(`2026-09-22T07:${minute}:00`, { kind: 'tick' }, failing);
+    warnings.push(...turn.warnings);
+    assert.equal(turn.state.model.plantOverrides.allOff, undefined, `07:${minute}`);
+    assert.equal(house.states['switch.plant_a']!.state, 'on', `07:${minute}`);
+  }
+  assert.ok(warnings.some(warning => warning.includes(PLANTS_ALL_OFF) && warning.includes('parked')), 'the control\'s write was parked');
+  // Home Assistant back: the parked off is laid over again, and the plant lights stay on.
+  const back = house.turn('2026-09-22T07:09:00', { kind: 'reconnected' });
+  assert.equal(back.state.model.plantOverrides.allOff, undefined);
+  assert.equal(house.states['switch.plant_a']!.state, 'on');
+  assert.equal(house.states[PLANTS_ALL_OFF]!.state, 'off', 'the control is switched off once Home Assistant takes it');
+});
+
+test('Review Focus 3: a control Home Assistant shows with no stamp is not read as a new on at the day start that releases it', () => {
+  // Break: the control is read against the clocked Model, so at the releasing day start an on that carries no
+  // `last_changed` (taken as switched on now) sets all off again before the port's off is even queued.
+  const house = allOffAt1205();
+  house.states[PLANTS_ALL_OFF] = { state: 'on', attributes: {} };
+  const turn = house.turn('2026-09-22T07:00:00', { kind: 'tick' });
+  assert.equal(turn.state.model.plantOverrides.allOff, undefined);
+  assert.equal(plantOut(turn)?.power, 'on');
+});
+
+test('Review Focus 3: a restart before the control\'s off lands does not set all off again', () => {
+  // Break: the outbox is not journalled, so after a restart the control's old on is read as a level against a sensor
+  // that no longer holds the hold, and all off is set again for a day no person chose.
+  const house = allOffAt1205();
+  const failing = (output: Output) => output.kind === 'dashboard' && output.write.kind === 'plants all-off';
+  house.turn('2026-09-22T07:00:00', { kind: 'tick' }, failing);
+  house.state = undefined;                         // the process starts again; its outbox is lost
+  const turn = house.turn('2026-09-22T07:02:00', { kind: 'started' });
+  assert.equal(turn.state.model.plantOverrides.allOff, undefined);
+  assert.equal(house.states['switch.plant_a']!.state, 'on');
+  assert.equal(house.states[PLANTS_ALL_OFF]!.state, 'off', 'the control is switched off');
 });
 
 test('Review Focus 2: a start while the control is unavailable keeps a stored all-off', () => {

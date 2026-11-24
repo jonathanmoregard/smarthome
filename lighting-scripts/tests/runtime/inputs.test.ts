@@ -331,27 +331,45 @@ test('no input type holds raw JSON: JSON stays at the run, where haInput reads i
   assert.deepEqual(types.filter(([, , body]) => /Json(Object|Value)/.test(body!)).map(([, name]) => name), []);
 });
 
-/** The synthetic house at noon, its all-off control holding `state`; `undefined`, Home Assistant has no such control. */
-function view(state: string | undefined): HouseView {
+/**
+ * The synthetic house at noon with one plant light, `switch.plant_a`, its all-off control holding `state` (`undefined`,
+ * Home Assistant has no such control), switched to it at `changed` (ISO text; none, no stamp).
+ */
+function view(state: string | undefined, changed?: string): HouseView {
   return houseView(states(made => {
-    if (state === undefined) delete made[PLANTS_ALL_OFF]; else made[PLANTS_ALL_OFF] = { state, attributes: {} };
-  }), NOW_TEXT);
+    if (state === undefined) delete made[PLANTS_ALL_OFF];
+    else made[PLANTS_ALL_OFF] = { state, attributes: {}, ...changed === undefined ? {} : { last_changed: changed } };
+  }), NOW_TEXT, ['switch.plant_a']);
 }
+/** The plant house's config, which says when an all off still holds. */
+const plants = modelOf(view('off')).config;
+// The brief's tests name the clock `now`.
 const now = NOW;
 
 test('the all-off control is read against what the Model held', () => {
   // Break: the control is read alone, so its on sets all off every turn (a newer hold each time), or its off clears
   // nothing; or it is read against the wrong held, so a change is missed.
-  assert.deepEqual(plantsAllOffMessages(view('on'), false, now), [{ kind: 'plantsAllOffSet', on: true, at: now }]);
-  assert.deepEqual(plantsAllOffMessages(view('off'), true, now), [{ kind: 'plantsAllOffSet', on: false, at: now }]);
-  assert.deepEqual(plantsAllOffMessages(view('on'), true, now), []);
-  assert.deepEqual(plantsAllOffMessages(view('off'), false, now), []);
+  assert.deepEqual(plantsAllOffMessages(view('on'), false, plants, now), [{ kind: 'plantsAllOffSet', on: true, at: now }]);
+  assert.deepEqual(plantsAllOffMessages(view('off'), true, plants, now), [{ kind: 'plantsAllOffSet', on: false, at: now }]);
+  assert.deepEqual(plantsAllOffMessages(view('on'), true, plants, now), []);
+  assert.deepEqual(plantsAllOffMessages(view('off'), false, plants, now), []);
 });
 
 test('Review Focus 2: a control that holds no power says nothing', () => {
   // Break: anything but `on` reads as off, so a control Home Assistant has not loaded yet (or lost) clears a stored
   // all off, and the plant lights come on.
   for (const state of ['unavailable', 'unknown', undefined]) for (const held of [true, false]) {
-    assert.deepEqual(plantsAllOffMessages(view(state), held, now), [], `${state} held ${held}`);
+    assert.deepEqual(plantsAllOffMessages(view(state), held, plants, now), [], `${state} held ${held}`);
   }
+});
+
+test('Review Focus 3: an on switched before the day start that released it is no new switch-on', () => {
+  // Break: the control's on is read as a level, so the port's own off that never landed (refused until parked, or lost
+  // in a restart) leaves an on from yesterday that sets all off again for a day no person chose.
+  assert.deepEqual(plantsAllOffMessages(view('on', '2026-09-20T12:05:00Z'), false, plants, now), [], 'switched on yesterday');
+  assert.deepEqual(plantsAllOffMessages(view('on', '2026-09-21T06:59:00Z'), false, plants, now), [], 'just before today\'s day start');
+  assert.deepEqual(plantsAllOffMessages(view('on', '2026-09-21T07:00:00Z'), false, plants, now), [{ kind: 'plantsAllOffSet', on: true, at: now }],
+    'at the day start');
+  assert.deepEqual(plantsAllOffMessages(view('on', '2026-09-21T11:59:00Z'), false, plants, now), [{ kind: 'plantsAllOffSet', on: true, at: now }],
+    'switched on today');
 });

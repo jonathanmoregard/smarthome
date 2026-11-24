@@ -21,11 +21,14 @@ import { entriesOf } from '../../domain/types/ids.ts';
 import type { Brightness, Colour, PercentRange, Power } from '../../domain/types/light.ts';
 import type { Block, RoomOrHouse } from '../../domain/types/schedule.ts';
 import type { Instant } from '../../domain/types/time.ts';
+import type { Config } from '../../domain/config.ts';
+import { allOffHolds } from '../../domain/plant-lights.ts';
+import { dateSeconds } from './time-text.ts';
 import { onOffOnly, ownRange, storedRangeBounds } from './ui-state.ts';
 import type { RangeBound } from './ui-state.ts';
 import type { ContextId, EntityId, RemoteSource } from './ids.ts';
 import {
-  percentRangeOf, toBrightness, toBrightnessStep, toColourChannel, toContextId, toDashboardControlId, toEntityId, toKelvin, toLampId,
+  percentRangeOf, toBrightness, toBrightnessStep, toColourChannel, toContextId, toDashboardControlId, toEntityId, toInstant, toKelvin, toLampId,
   toRemoteId, toRemoteSource, toRoomId, toSwitchId,
 } from './ids.ts';
 import type { JsonObject, JsonValue, ServiceCall } from '../ha-client.ts';
@@ -696,15 +699,21 @@ export type OwnCalls = { contexts: readonly string[]; failed: readonly ServiceCa
 
 /**
  * The all-off control read against `held`, whether the Model held all off before this turn's clock: the control
- * showing on while not held sets all off, showing off while held hands the plant lights back. A control that holds no
- * power (unavailable, unknown, or none in Home Assistant) says nothing, so a hold the sensor keeps is never cleared by
- * a control Home Assistant has yet to load. Read before the clock, a hold the clock releases this turn is not taken
- * for a new on while the port's off to the control is still on its way.
+ * showing off while held hands the plant lights back; showing on while not held sets all off, when it is a person's
+ * new switch-on. A control that holds no power (unavailable, unknown, or none in Home Assistant) says nothing, so a hold
+ * the sensor keeps is never cleared by a control Home Assistant has yet to load.
+ *
+ * An on is a new switch-on when an all off set when it was switched on (Home Assistant's `last_changed`; none, now)
+ * still holds: one switched on before the day start that released it is the port's own off to the control not yet
+ * landed (still on its way, refused until parked, or lost in a restart), and no person's choice. Read before the clock,
+ * `held` keeps the turn whose clock releases the hold from reading the control at all.
  */
-export function plantsAllOffMessages(house: HouseView, held: boolean, now: Instant): Msg[] {
+export function plantsAllOffMessages(house: HouseView, held: boolean, config: Config, now: Instant): Msg[] {
   const shown = plantsAllOffShown(house);
   if (shown === undefined || (shown === 'on') === held) return [];
-  return [{ kind: 'plantsAllOffSet', on: shown === 'on', at: now }];
+  if (shown === 'off') return [{ kind: 'plantsAllOffSet', on: false, at: now }];
+  const changed = house.state[PLANTS_ALL_OFF]?.last_changed, stamp = changed === undefined ? undefined : dateSeconds(changed);
+  return allOffHolds(config, stamp === undefined ? now : toInstant(stamp), now) ? [{ kind: 'plantsAllOffSet', on: true, at: now }] : [];
 }
 
 /** The power the all-off control shows; none when it holds no power. */
