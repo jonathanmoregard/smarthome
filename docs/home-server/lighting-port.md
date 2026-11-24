@@ -3,10 +3,12 @@
 The lighting port (`lighting-scripts/`, the TypeScript Home Assistant lighting
 controller) runs on the home server as `lighting-port.service`, defined in
 [`lighting-port.nix`](../../nixos/modules/lighting-port.nix). The service runs
-the port's dev watcher from a git checkout on the server: saving a file under
-`src/` recompiles it and restarts the port within a couple of seconds, and a
-compile error keeps the last good build running. No deploy and no CI run is
-involved in changing the code.
+the port's dev watcher from a git checkout on the server that follows a
+branch of the repository: a push to that branch reaches the server within
+about a minute, a changed file under `src/` is recompiled and the port
+restarted within a couple of seconds, and a compile error keeps the last good
+build running. No deploy, no CI run and no step on the server is involved in
+changing the code.
 
 NixOS provides Node 22, the `lighting-port` user and the unit, never the code.
 
@@ -23,49 +25,56 @@ NixOS provides Node 22, the `lighting-port` user and the unit, never the code.
 The port reaches Home Assistant at `http://127.0.0.1:8123`.
 
 The service clones the checkout only when `src` does not exist, from the branch
-in `services.lighting-port.branch` (today `feature/typescript-lighting-scripts`).
-After that the checkout is yours: nothing fetches, pulls or resets it, and
-changing the branch option does not touch it. The service runs `npm ci --ignore-scripts` in
+in `services.lighting-port.branch` (today `feature/typescript-lighting-scripts`;
+`main` once the port is merged). The service runs `npm ci --ignore-scripts` in
 `lighting-scripts/` when `node_modules` is missing or `package-lock.json`
 changed, on its next start. It runs no dependency install scripts, because
 the process can read the Home Assistant token; the port's dependencies have
 none.
 
 `/var/lib/lighting-port` belongs to the `lighting-port` group, is setgid and
-group-writable, and `jonathan` is a member, so you edit the checkout and the
-env file over SSH without sudo. Log in again after the first deploy for the
-membership to apply. A directory you create there yourself follows your
-umask; run `umask 007` first if the port has to write into it.
+group-writable, and `jonathan` is a member, so you write the env file and the
+catalog over SSH without sudo. Log in again after the first deploy for the
+membership to apply.
 
-### Git and npm run as lighting-port
+## Following the branch
 
-Run git in the checkout as `lighting-port`, never as yourself:
+`lighting-port-follow.timer` runs `lighting-port-follow.service` every
+minute. It fetches the branch from the checkout's `origin` and, when the
+checkout is anywhere else, forces it there (`git checkout --force -B`):
+
+1. A push reaches the server within about a minute. The watcher picks up
+   changes under `lighting-scripts/src/` by itself. When the update changes
+   anything else under `lighting-scripts/` (`scripts/`, `package.json`,
+   `tsconfig.json`, ...), or `package-lock.json` differs from what is
+   installed, the follower restarts `lighting-port.service`, which installs
+   the dependencies again if needed. It never restarts it while an install
+   runs.
+2. The checkout is not edited on the server. On the next run, local edits to
+   tracked files are discarded (the journal lists the files), and a local
+   commit or a checked-out local branch is left behind for the followed
+   branch. Untracked and ignored files stay:
+   `.runtime/` (catalog, journal) and `node_modules` are never touched.
+3. Changing `services.lighting-port.branch` switches the checkout to the new
+   branch on the first run after the deploy.
+4. A fetch that fails (GitHub or the network down) is logged and tried again
+   next minute. The follower never ends `failed`, and it is not a deploy
+   health unit.
 
 ```sh
-sudo -u lighting-port git -C /var/lib/lighting-port/src status
-sudo -u lighting-port git -C /var/lib/lighting-port/src \
-  -c user.name='Jonathan Moregard' -c user.email='<your address>' commit -am '...'
+journalctl -u lighting-port-follow -f              # what it fetched, discarded, restarted
+sudo systemctl stop lighting-port-follow.timer     # pause following
+sudo systemctl start lighting-port-follow.timer    # resume
+sudo -u lighting-port git -C /var/lib/lighting-port/src log -1 --oneline   # what runs
 ```
 
-Git refuses to work there as you, on purpose: `lighting-port` (and so the
-port's own code) can write the checkout's `.git/config`, and settings there
-such as `core.fsmonitor` or hooks run commands as whoever runs git. Do not add
-the checkout to your own `safe.directory`.
+A stopped timer stays stopped until the next boot or a deploy that starts it.
 
-Run npm there as `lighting-port` too, without install scripts:
-
-```sh
-cd /var/lib/lighting-port/src/lighting-scripts
-sudo -u lighting-port HOME=/var/lib/lighting-port \
-  nix shell nixpkgs#nodejs_22 --command npm install --ignore-scripts <package>
-```
-
-sudo runs both with the service's umask (`007`), not its own `022`, so the
-files they write stay group-writable and you can still edit them yourself.
-npm run as yourself leaves directories in `node_modules` the service cannot
-replace. The service then refuses to start and names one; give the tree back
-with `sudo chown -R lighting-port:lighting-port
-/var/lib/lighting-port/src/lighting-scripts/node_modules`.
+Run git in the checkout as `lighting-port`, never as yourself. Git refuses to
+work there as you, on purpose: `lighting-port` (and so the port's own code)
+can write the checkout's `.git/config`, and settings there such as
+`core.fsmonitor` or hooks run commands as whoever runs git. Do not add the
+checkout to your own `safe.directory`.
 
 ## First start
 
@@ -103,11 +112,11 @@ service refuses to start.
 ```sh
 systemctl status lighting-port          # state and the last log lines
 journalctl -u lighting-port -f          # follow the logs
-sudo systemctl restart lighting-port    # pick up env-file or dependency changes
+sudo systemctl restart lighting-port    # pick up env-file changes
 ```
 
-Code edits need no restart. A restart is needed after changing the env file,
-and to install a changed `package-lock.json`.
+Pushed code needs no restart: the watcher, or the follower (above), sees to
+it. A restart is needed after changing the env file.
 
 What the states mean:
 
@@ -144,20 +153,9 @@ port does not roll the server back.
 A clone cut short leaves `/var/lib/lighting-port/.src.partial.<time>` behind;
 delete it when convenient.
 
-To start over from a fresh clone, move `src` aside. A fresh clone holds only
-the branch as it is on GitHub: commits you have not brought into the
-repository, other local branches, stashes and uncommitted edits stay in the
-old checkout alone. Look first, as `lighting-port`:
-
-```sh
-sudo -u lighting-port git -C /var/lib/lighting-port/src status
-sudo -u lighting-port git -C /var/lib/lighting-port/src log --branches --not --remotes --oneline
-sudo -u lighting-port git -C /var/lib/lighting-port/src stash list
-```
-
-and reconcile anything you want to keep (commit it on a branch and bundle it,
-see below) before you go on. The catalog and the journal live in the old
-checkout's `.runtime`, so carry them into the new one:
+To start over from a fresh clone (a broken `.git`, say), move `src` aside.
+The catalog and the journal live in the old checkout's `.runtime`, so carry
+them into the new one:
 
 ```sh
 sudo systemctl stop lighting-port
@@ -175,24 +173,5 @@ sudo systemctl restart lighting-port
 ```
 
 Move them, do not copy them: a copy is yours, with your umask, and the service
-may not be able to read or replace it. Keep `src.old` until you are sure
-nothing in it is still needed; it is the only copy of whatever you did not
-reconcile.
-
-## Reconciling edits into the repository
-
-Edits made on the server stay on the server until you bring them into the
-repository by hand; nothing opens pull requests for them. Commit in the
-checkout on a branch (as `lighting-port`, above), write the branch to a
-bundle, and fetch it from the bundle on your laptop. A bundle carries only
-commits, never the checkout's git configuration:
-
-```sh
-ssh -t jonathan@100.87.199.107 'sudo -u lighting-port git -C /var/lib/lighting-port/src \
-  bundle create /var/lib/lighting-port/reconcile.bundle <branch>'
-scp jonathan@100.87.199.107:/var/lib/lighting-port/reconcile.bundle /tmp/
-git fetch /tmp/reconcile.bundle <branch>:<branch>
-```
-
-and open a pull request from there as usual. CI checks the pull request; it
-never blocks what runs on the server.
+may not be able to read or replace it. Delete `src.old` once the new
+checkout runs.
