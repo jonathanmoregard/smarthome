@@ -135,6 +135,12 @@ let
       fi
       printf '0\n' > "$failures_file"
 
+      # Created by the unit, so it is group-writable whatever the operator's
+      # umask, and the port can always write its journal next to the catalog.
+      # Before any refusal: the first start refuses for the missing env file,
+      # and the operator drops the catalog in here before writing that file.
+      mkdir -p .runtime
+
       # Which rooms the port may drive is the operator's call, made in the env
       # file; a missing answer never means any room. An empty LIVE_ROOMS is
       # the port's own "no rooms" and is passed through.
@@ -147,9 +153,6 @@ let
       if [ ! -r "$HA_TOKEN_FILE" ] || [ ! -s "$HA_TOKEN_FILE" ]; then
         refuse "HA token file $HA_TOKEN_FILE is missing, unreadable or empty"
       fi
-      # Created by the unit, so it is group-writable whatever the operator's
-      # umask, and the port can always write its journal next to the catalog.
-      mkdir -p .runtime
       if [ ! -f "$catalog" ]; then
         refuse "$scripts/$catalog does not exist"
       fi

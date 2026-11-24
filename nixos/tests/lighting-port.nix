@@ -16,7 +16,9 @@
 #   - repeated setup failures back off, so a dead origin is not hammered;
 #   - a refusal (env file or LIVE_ROOMS missing, token unreadable, catalog
 #     missing, node_modules not writable by the service) stops the unit
-#     cleanly with status 78 and runs nothing;
+#     cleanly with status 78 and runs nothing; .runtime exists, writable by
+#     the port, from the first refusal on, so the operator can drop the
+#     catalog in;
 #   - the watcher gets the agreed command line and environment;
 #   - an existing checkout is never pulled or reset; `npm ci` reruns only
 #     when package-lock.json changes, and never runs lifecycle scripts;
@@ -28,6 +30,9 @@
 {
   pkgsSystem,
   agenix,
+  # The module under test; only ever overridden to run this test against
+  # another revision of it.
+  module ? ../modules/lighting-port.nix,
 }:
 
 let
@@ -118,7 +123,7 @@ pkgsSystem.testers.runNixOSTest {
     {
       imports = [
         agenix.nixosModules.default
-        ../modules/lighting-port.nix
+        module
       ];
 
       users.users.jonathan.isNormalUser = true;
@@ -253,6 +258,13 @@ pkgsSystem.testers.runNixOSTest {
         "\"$(sha256sum ${scripts}/package-lock.json | cut -d' ' -f1)\""
     )
     machine.succeed("test ! -e ${scripts}/.runtime/record.json")
+    # The first start's refusal already left .runtime, made by the unit, so
+    # the operator can drop the catalog in (the docs' "First start" puts the
+    # catalog before the env file), and the port can write its journal there
+    # whatever the operator's umask.
+    machine.succeed(
+        "test \"$(stat -c '%U:%G %a' ${scripts}/.runtime)\" = 'lighting-port:lighting-port 2770'"
+    )
 
     # The operator writes the env file without sudo, but forgets LIVE_ROOMS.
     as_operator("printf 'UNRELATED=1\\n' > /var/lib/lighting-port/env")
