@@ -18,7 +18,13 @@ export async function develop(root = fileURLToPath(new URL('../', import.meta.ur
         if (!await compileCandidate(root, output)) { console.error('Compile failed; last working program remains active.'); continue; }
         if (stopped) break;
         // A good build restarts the host: the journal it keeps makes a restart send nothing the bulbs already show.
-        if (child) { child.removeAllListeners('exit'); const exited = new Promise(done => child.once('exit', done)); child.kill('SIGTERM'); await exited; }
+        // The old host leaves `child` before it is stopped, so a stop meanwhile does not signal it a second time, and
+        // no new host is started once a stop came.
+        if (child) {
+          const old = child; child = undefined;
+          old.removeAllListeners('exit'); const exited = new Promise(done => old.once('exit', done)); old.kill('SIGTERM'); await exited;
+          if (stopped) break;
+        }
         child = spawn(process.execPath, ['--experimental-strip-types', 'src/main.ts', ...process.argv.slice(2)], { cwd: root, stdio: 'inherit' });
         child.once('exit', code => { if (!stopped) { stopped = true; watcher.close(); process.exitCode = code ?? 1; } });
       }
