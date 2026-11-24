@@ -96,7 +96,7 @@ stops the start, naming it. Keep runtime data and credentials out of Git.
 python3 scripts/export-bridge.py
 ```
 
-This prepares 21 HA automation configurations and 18 command-script shims in
+This prepares 18 HA automation configurations and 17 command-script shims in
 `.runtime/bridge` (script shims are in its `scripts` subdirectory).
 Each retains its triggers and conditions and forwards the trigger data through a
 small `smarthome_script` event. The existing generated files have not been applied.
