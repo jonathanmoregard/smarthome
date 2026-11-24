@@ -177,6 +177,8 @@ test('closeout r2 A2 (ruling): a state change of a helper the config is read fro
   await host.idle();
   const dimmed = { ...ha.states['light.ls_house_day']!, attributes: { ...ha.states['light.ls_house_day']!.attributes, brightness: 100 } };
   ha.states['light.ls_house_day'] = dimmed;
+  // Past the least gap between two sends to a bulb (MIN_GAP), so the change is sent at once rather than held.
+  now.time = at('12:00:01');
   host.stateChanged('light.ls_house_day', dimmed);
   await host.idle();
   await host.close();

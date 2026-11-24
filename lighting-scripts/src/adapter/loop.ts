@@ -40,7 +40,7 @@ import { BRIDGE_SENSOR, decodeObserved, observedSwitch } from './codecs/observed
 import type { EntityState } from './ha-client.ts';
 import type { Observed } from './reconcile.ts';
 import {
-  afterSend, backOn, forgotten, landedLate, MAX_ATTEMPTS, NO_BELIEFS, newlyParked, newlyParkedSwitches, nextRetry, nextSends, reportedChanged,
+  afterSend, backOn, forgotten, landedLate, MAX_ATTEMPTS, NO_BELIEFS, newlyParked, newlyParkedSwitches, nextRetry, nextPlan, reportedChanged,
   supersededAfter, switchesForgotten, switchesSeen, unexplained, unparked,
 } from './reconcile.ts';
 import type { Beliefs, Outcome, Send, Superseded } from './reconcile.ts';
@@ -137,6 +137,8 @@ export function wantsTurn(kept: Kept, entity: string, state: EntityState | undef
  */
 export type Turn = {
   state: AdapterState; outputs: Output[]; sends: readonly Sending[]; now: Instant; nextChange: Instant | undefined;
+  /** When the first bulb send held for the least gap between sends is due (`MIN_GAP`, reconcile.ts). */
+  heldUntil: Instant | undefined;
   dropped: string | undefined;
   /** The host's error log: the input dropped, if it was, and what the turn found wrong with the house, each said once, when first found. */
   errors: readonly string[];
@@ -150,9 +152,9 @@ export type Turn = {
 export type Sending = { send: Send; carriedBy: readonly number[] };
 
 /**
- * A turn once its outputs have gone: the state to keep, when to be woken (the lighting's next change, or a failed
- * send's, an open switch send's or a write's retry when that comes first), the bulbs given up on, each reported once,
- * and the writes parked, each warned of once. A send settling asks for no wake of its own: the next minute's tick
+ * A turn once its outputs have gone: the state to keep, when to be woken (the lighting's next change, a held bulb
+ * send's due time, or a failed send's, an open switch send's or a write's retry when that comes first), the bulbs
+ * given up on, each reported once, and the writes parked, each warned of once. A send settling asks for no wake of its own: the next minute's tick
  * looks again, as today's scripts did, and a wake seconds after every send would move the house's clock under the
  * harness's checkpoints.
  */
@@ -179,7 +181,7 @@ export function afterOutputs(turn: Turn, failed: readonly boolean[]): Settled {
     });
     beliefs = afterSend(beliefs, send, outcomeIn(send, lost), turn.now);
   }
-  const wakeAt = [turn.nextChange, nextRetry(beliefs, turn.now), nextTry(outbox, turn.now)].reduce<Instant | undefined>((first, at) =>
+  const wakeAt = [turn.nextChange, turn.heldUntil, nextRetry(beliefs, turn.now), nextTry(outbox, turn.now)].reduce<Instant | undefined>((first, at) =>
     at === undefined || (first !== undefined && first <= at) ? first : at, undefined);
   const parked = newlyParked(turn.state.beliefs, beliefs);
   // A bulb given up on is most often switched off at the wall: said once, for the host's info log (owner, 2026-11-20).
@@ -284,7 +286,7 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
     ...input.kind === 'bulb announced' ? [input.bulb] : []]);
   const superseded = supersededAfter(state === undefined ? {} : state.superseded, beliefs, observed, lighting.switches, now);
   beliefs = switchesSeen(beliefs, observed, lighting.switches);
-  const sends = nextSends(sharedLighting(lighting, model.config, share), model.config, observed, beliefs, now);
+  const { sends, heldUntil } = nextPlan(sharedLighting(lighting, model.config, share), model.config, observed, beliefs, now);
   const topics = bulbTopics(house.catalog), groups = bulbGroups(house.catalog);
   const topicless = entriesOf(model.config.lamps).flatMap(([, lamp]) => lamp.bulbs.flatMap(({ bulb }) => topics[bulb] === undefined ? [bulb] : []));
   const errors = [
@@ -309,7 +311,7 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
   }
   const journalled = outputs.flatMap((output, index) => output.kind === 'publish' ? [index] : []);
   const next: AdapterState = { model, beliefs, view, observed, outbox, reread: false, share, topicless, configFrom, overrides: overrides.kind, superseded };
-  return { state: next, outputs, sends: sending, now, nextChange: nextChange(model, now), dropped, errors, journalled, writing };
+  return { state: next, outputs, sends: sending, now, nextChange: nextChange(model, now), heldUntil, dropped, errors, journalled, writing };
 }
 
 /**

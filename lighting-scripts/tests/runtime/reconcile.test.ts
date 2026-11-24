@@ -6,7 +6,7 @@ import type { Publish } from '../../src/adapter/encode.ts';
 import type { MqttTopic } from '../../src/adapter/codecs/ids.ts';
 import type { Observed } from '../../src/adapter/reconcile.ts';
 import {
-  afterSend, backOn, EFFECT_START_FADE, forgotten, MANUAL_FADE, NO_BELIEFS, newlyParked, newlyParkedSwitches, nextRetry, nextSends, REAPPLY_LIMIT, REAPPLY_WINDOW,
+  afterSend, backOn, EFFECT_START_FADE, forgotten, MANUAL_FADE, MIN_GAP, NO_BELIEFS, nextPlan, newlyParked, newlyParkedSwitches, nextRetry, nextSends, REAPPLY_LIMIT, REAPPLY_WINDOW,
   reportedChanged, RETRY_FIRST, SETTLE_MARGIN, switchesSeen, unexplained, unparked,
 } from '../../src/adapter/reconcile.ts';
 import type { Beliefs, Send } from '../../src/adapter/reconcile.ts';
@@ -755,4 +755,70 @@ test("closeout r3 B8: a plug that changed just before our send, stamped by Home 
   const unswitched = plugShows(bulbs, 'off');
   assert.deepEqual(unswitched.switches[plugA], before.switches[plugA], 'control: the next look shows the plug as the last one did');
   assert.deepEqual(unexplained(before, unswitched, beliefs), []);
+});
+
+/*
+ * Pacing (2026-11-24): a bulb is sent nothing within MIN_GAP of its last send. A remote's burst of presses otherwise
+ * puts a group broadcast on the network per press, past the coordinator's broadcast budget, and Zigbee2MQTT drops the
+ * ones it refuses. A held send is made once the gap is over, with the target as it is then.
+ */
+
+const brighter = (level: number): LightingState => ({ ...EVENING, lamps: { ...EVENING.lamps, [lampA2]: on(level, kelvin(3000)) } });
+
+test('a change within the gap is held, and sent once with the newest target when the gap is over', () => {
+  // Break: the held change is sent at once, or dropped, or sent with the target it had when it was held.
+  let { bulbs, beliefs } = steady();
+  beliefs = pass(bulbs, brighter(160), beliefs, at(60)).beliefs;
+  const held = nextPlan(brighter(170), config, bulbs.observed(), beliefs, at(60.3));
+  assert.deepEqual(held.sends.filter(send => to(send) === bulbA3), []);
+  assert.equal(held.heldUntil, at(60 + MIN_GAP));
+  const later = nextPlan(brighter(180), config, bulbs.observed(), beliefs, at(60.6));
+  assert.deepEqual(later.sends.filter(send => to(send) === bulbA3), []);
+  assert.equal(later.heldUntil, at(60 + MIN_GAP));
+  const { sends } = pass(bulbs, brighter(180), beliefs, at(60 + MIN_GAP));
+  assert.deepEqual(sends.map(to), [bulbA3]);
+  assert.deepEqual(bulbs.shows(bulbA3), { reach: 'reachable', light: lit(180, kelvin(3003)) });
+});
+
+test('presses at 0, 0.3 and 0.6 s make one send at once and one when the gap is over', () => {
+  // Break: each press is its own send (three broadcasts), or the last press is lost.
+  let { bulbs, beliefs } = steady();
+  const before = bulbs.received.length;
+  for (const [offset, level] of [[0, 160], [0.3, 170], [0.6, 180]] as const) beliefs = pass(bulbs, brighter(level), beliefs, at(60 + offset)).beliefs;
+  beliefs = pass(bulbs, brighter(180), beliefs, at(60 + MIN_GAP)).beliefs;
+  assert.equal(bulbs.received.slice(before).filter(({ bulbs: reached }) => reached.includes(bulbA3)).length, 2);
+  assert.deepEqual(bulbs.shows(bulbA3), { reach: 'reachable', light: lit(180, kelvin(3003)) });
+  assert.deepEqual(pass(bulbs, brighter(180), beliefs, at(61.5)).sends, [], 'nothing more once it shows the newest');
+});
+
+test('a held change under a candle is sent as its light, then the start, never the start alone', () => {
+  // Break: the held send is made from the belief of the light alone, and the start goes out without the new level.
+  let { bulbs, beliefs } = steady();
+  const candleAt = (level: number): LightingState => ({ ...EVENING, lamps: { ...EVENING.lamps, [lampA1]: on(level, WARM, candle) } });
+  beliefs = pass(bulbs, candleAt(120), beliefs, at(60)).beliefs;
+  assert.deepEqual(pass(bulbs, candleAt(140), beliefs, at(60.4)).sends.filter(send => to(send) === bulbA1), []);
+  const { sent } = pass(bulbs, candleAt(140), beliefs, at(60 + MIN_GAP));
+  assert.deepEqual(kinds(sent, bulbA1), ['light', 'channel_change']);
+  assert.deepEqual(bulbs.shows(bulbA1), { reach: 'reachable', light: lit(140, WARM, 'candle') });
+});
+
+test('a first send, and one after the gap, is not held', () => {
+  // Break: every send waits the gap, so a single press lags by it.
+  let { bulbs, beliefs } = steady();
+  const first = nextPlan(brighter(160), config, bulbs.observed(), beliefs, at(60));
+  assert.deepEqual(first.sends.map(to), [bulbA3]);
+  assert.equal(first.heldUntil, undefined);
+  beliefs = pass(bulbs, brighter(160), beliefs, at(60)).beliefs;
+  const after = nextPlan(brighter(170), config, bulbs.observed(), beliefs, at(60 + MIN_GAP));
+  assert.deepEqual(after.sends.map(to), [bulbA3]);
+  assert.equal(after.heldUntil, undefined);
+});
+
+test('a held change leaves the beliefs as they were', () => {
+  // Break: a held send is believed sent (it never went out), so its newest target is taken as shown and never sent.
+  let { bulbs, beliefs } = steady();
+  beliefs = pass(bulbs, brighter(160), beliefs, at(60)).beliefs;
+  const held = pass(bulbs, brighter(170), beliefs, at(60.3));
+  assert.deepEqual(held.sent, []);
+  assert.deepEqual(held.beliefs, beliefs);
 });

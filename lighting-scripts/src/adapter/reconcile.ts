@@ -143,6 +143,13 @@ export const SETTLE_MARGIN: Seconds = secondsOrThrow(5);
  * and stays as it was is then sent its light again, which counts toward the flap limit.
  */
 export const REPORT_WAIT: Seconds = secondsOrThrow(10);
+/**
+ * The least time between two sends to a bulb: one within it is held, and made once it is over with the target as it is
+ * then, so a remote's burst of presses makes one send at once and one at the end. A bulb is sent as one of its
+ * Zigbee2MQTT group, and a group send is a network-wide broadcast, of which the coordinator takes only a few in a
+ * window and refuses the rest (owner, 2026-11-24: the bulbs stay addressed as groups).
+ */
+export const MIN_GAP: Seconds = secondsOrThrow(1);
 /** The fade of a change made at once, and of a bulb coming back on. */
 export const MANUAL_FADE: Seconds = secondsOrThrow(0.2);
 /** The fade of an off by a room's power switch: none, as today's `homeassistant.turn_off`. */
@@ -297,6 +304,12 @@ export function landedLate(sent: Superseded | undefined, power: Power, now: Inst
 }
 
 /**
+ * What to send now to make the house show `target`, and when the first send held for {@link MIN_GAP} is due, if any. A
+ * held send is not made, so nothing is believed of it; the loop looks again when it is due.
+ */
+export type Plan = { sends: Send[]; heldUntil: Instant | undefined };
+
+/**
  * The beliefs once Home Assistant reported `bulbs` changed (a lamp switched on names its bulbs): each is sent its
  * light again, as today's `lamp_on` does, but not a bulb our own put-back lit between `before` and `after`, whose
  * belief and put-backs stay so a bulb that keeps going off still reaches the flap limit.
@@ -323,6 +336,12 @@ export function litByUs(before: Observed, after: Observed, beliefs: Beliefs): Bu
 }
 
 /**
+ * How long after its target moved a superseded switch send is still on its way: the longest the reconciler waits
+ * between two sends to a switch that does not show its power ({@link RETRY_CAP}).
+ */
+const LATE_LANDING: Seconds = RETRY_CAP;
+
+/**
  * The beliefs without the switch sends that are over: one `observed` shows landed (the switch shows what we sent),
  * and one whose power the target has moved off (it may never have landed: {@link supersededAfter} keeps it on its way
  * for a while, and past that a change to its power is not ours).
@@ -331,12 +350,6 @@ export function switchesSeen(beliefs: Beliefs, observed: Observed, target: Reado
   return { ...beliefs, switches: Object.fromEntries(entriesOf(beliefs.switches).filter(([plug, sent]) =>
     !landed(plug, sent, observed) && target[plug] === sent.power)) };
 }
-
-/**
- * How long after its target moved a superseded switch send is still on its way: the longest the reconciler waits
- * between two sends to a switch that does not show its power ({@link RETRY_CAP}).
- */
-const LATE_LANDING: Seconds = RETRY_CAP;
 
 /**
  * Whether `observed` shows a switch's send landed: the switch shows what we sent. A switch is sent only a power it does
@@ -361,14 +374,22 @@ export function supersededAfter(kept: Readonly<Record<SwitchId, Superseded>>, be
 
 /** What to send now to make the house show `target`. When to look again is the loop's: {@link nextRetry} after the sends. */
 export function nextSends(target: LightingState, config: Config, observed: Observed, beliefs: Beliefs, now: Instant): Send[] {
-  const sends: Send[] = [];
+  return nextPlan(target, config, observed, beliefs, now).sends;
+}
+
+export function nextPlan(target: LightingState, config: Config, observed: Observed, beliefs: Beliefs, now: Instant): Plan {
+  const sends: Send[] = [], held: Instant[] = [];
   if (observed.bridge !== 'disconnected') {
     for (const [lamp, light] of entriesOf(target.lamps)) {
       const info = config.lamps[lamp];
       if (info === undefined) continue;
       for (const bulb of info.bulbs) {
-        const send = bulbSend(light, bulb, observed.bulbs[bulb.bulb], beliefs.bulbs[bulb.bulb], now);
-        if (send !== undefined) sends.push(send);
+        const belief = beliefs.bulbs[bulb.bulb];
+        const send = bulbSend(light, bulb, observed.bulbs[bulb.bulb], belief, now);
+        if (send === undefined) continue;
+        const due = belief?.kind === 'sent' ? instantOrThrow(belief.sentAt + MIN_GAP) : undefined;
+        if (due !== undefined && now < due) held.push(due);
+        else sends.push(send);
       }
     }
   }
@@ -379,7 +400,7 @@ export function nextSends(target: LightingState, config: Config, observed: Obser
     if (open !== undefined && open.power === power && (open.kind === 'parked' || now < open.retryAt)) continue;
     sends.push({ kind: 'switch', switch: plug, power });
   }
-  return sends;
+  return { sends, heldUntil: held.length === 0 ? undefined : instantOrThrow(Math.min(...held)) };
 }
 
 /** The send one bulb needs, if any, by what is held about it. */

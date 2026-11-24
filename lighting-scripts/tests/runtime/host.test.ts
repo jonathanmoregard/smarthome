@@ -111,11 +111,15 @@ test('inputs run one at a time', async () => {
   const ha = new FakeHa(), now = { time: at('12:00:00') };
   let inside = 0, overlapped = false;
   ha.during = async () => { inside++; if (inside > 1) overlapped = true; await new Promise(resolve => setImmediate(resolve)); inside--; };
-  const { host } = open(ha, new MemoryJournal(), now);
+  const { host, timers } = open(ha, new MemoryJournal(), now);
   const opened = await host;
   opened.accept({ kind: 'started' });
   opened.accept(bridged('ls_remote_command', { command: 'toggle', area: 'room-a', source: 'remote-a' }));
   opened.accept({ kind: 'tick' });
+  await opened.idle();
+  // The toggle came within the least gap of the start's sends (MIN_GAP): it is held, and made on the wake at its end.
+  now.time = at('12:00:01');
+  for (const timer of timers.live()) timer.wake();
   await opened.idle();
   assert.equal(overlapped, false);
   assert.ok(ha.calls.length > 0);
