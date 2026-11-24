@@ -52,7 +52,8 @@ export type HouseMirror = {
 export function mergedRead(current: HouseMirror, read: HouseMirror, startedAt: Instant): HouseMirror {
   const state: Record<string, EntityState> = {};
   const updated = (entity: EntityState | undefined): number => {
-    const seconds = entity?.last_updated === undefined ? NaN : Date.parse(entity.last_updated) / 1000;
+    // Our own write's time where it is laid and not yet echoed; Home Assistant's stamp otherwise.
+    const stamp = entity?.laid !== undefined ? entity.laid : entity?.last_updated, seconds = stamp === undefined ? NaN : Date.parse(stamp) / 1000;
     return Number.isFinite(seconds) ? seconds : -Infinity;
   };
   for (const [entity, mine] of Object.entries(current.state)) {
@@ -118,16 +119,17 @@ export function writeSettled(states: Readonly<Record<string, EntityState>>, outp
 }
 
 /**
- * The states once Home Assistant has taken an output of ours, as it reports them: what the output leaves
+ * The states once Home Assistant has taken an output of ours, as it will report them: what the output leaves
  * ({@link leftBy}) laid over its entity, a sensor's attributes merged over the stored ones. Applied at once, so the
- * next turn reads what was written before the echo arrives.
+ * next turn reads what was written before the echo arrives. The laid state is marked as ours (`laid`) and carries no
+ * `last_updated`: only Home Assistant's echo, or a read, brings its stamp.
  */
 export function afterOutput(states: Readonly<Record<string, EntityState>>, output: Output, at: Instant): Record<string, EntityState> {
   const left = leftBy(output), now = isoText(at);
   if (left === undefined) return { ...states };
   const previous = states[left.entity], kept = previous === undefined ? {} : previous.attributes;
   return { ...states, [left.entity]: { entity_id: left.entity, state: left.state,
-    attributes: structuredClone(left.attributes === undefined ? kept : { ...kept, ...left.attributes }), last_updated: now,
+    attributes: structuredClone(left.attributes === undefined ? kept : { ...kept, ...left.attributes }), laid: now,
     last_changed: previous?.state === left.state ? previous.last_changed ?? now : now } };
 }
 

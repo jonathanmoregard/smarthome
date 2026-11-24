@@ -18,6 +18,11 @@ export interface EntityState {
   entity_id?: string;
   last_updated?: string;
   last_changed?: string;
+  /**
+   * Set only by the port, on a state a write of its own laid over before Home Assistant reported it: when the write
+   * was taken, as ISO text. Such a state has no `last_updated`, which is Home Assistant's stamp alone.
+   */
+  laid?: string;
 }
 
 /**

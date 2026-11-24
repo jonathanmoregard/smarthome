@@ -50,6 +50,15 @@ export function outputOf(entry: Entry, reported: HouseView, share: Share): Outpu
   return write.kind !== 'sensor' ? write : { kind: 'sensor', write: sensorWriteOver(write.write, reported.state[write.write.entity], entry.queuedAt, share) };
 }
 
+/**
+ * Whether a waiting write is held for Home Assistant's echo: a guarded sensor write (some room is the old scripts') is
+ * made only over a `last_updated` Home Assistant reported, so while the sensor shows a write of ours it has not yet
+ * echoed, the write waits for that echo or the next read, rather than going over our own stamp and being refused.
+ */
+export function awaitsEcho(entry: Entry, reported: HouseView, share: Share): boolean {
+  return entry.write.kind === 'sensor' && share.kind !== 'house' && reported.state[entry.write.write.entity]?.laid !== undefined;
+}
+
 export type Outbox = readonly Entry[];
 
 /**
@@ -61,6 +70,9 @@ export function settled(outbox: Outbox, house: HouseView): Outbox {
   return outbox.filter(({ write, queuedAt }) => write.kind === 'sensor' ? !sensorSettled(write.write, house.state[write.write.entity], queuedAt)
     : !writeSettled(house.state, write, queuedAt));
 }
+
+/** The share a write laid over the house is resolved for: the read it is laid on is the one it is made over. */
+const HOUSE: Share = { kind: 'house' };
 
 /**
  * The house as it will be once the waiting writes land: each laid over Home Assistant's states, so a read of the
@@ -74,13 +86,13 @@ export function withWaiting(house: HouseView, outbox: Outbox): HouseView {
     : afterOutput(states, outputOf(entry, withStates(house, states), HOUSE), entry.queuedAt), house.state));
 }
 
-/** The share a write laid over the house is resolved for: the read it is laid on is the one it is made over. */
-const HOUSE: Share = { kind: 'house' };
-
-/** When the next waiting write is due, if one is. */
-export function nextTry(outbox: Outbox): Instant | undefined {
-  return outbox.reduce<Instant | undefined>((first, entry) =>
-    entry.status.kind !== 'due' || (first !== undefined && first <= entry.status.at) ? first : entry.status.at, undefined);
+/**
+ * When the next waiting write is due after `now`, if one is. A write due by `now` that the turn did not make waits for
+ * Home Assistant (back in reach, or the echo of ours): what brings that runs the next turn, so it asks for no wake.
+ */
+export function nextTry(outbox: Outbox, now: Instant): Instant | undefined {
+  return outbox.reduce<Instant | undefined>((first, entry) => entry.status.kind !== 'due' || entry.status.at <= now
+    || (first !== undefined && first <= entry.status.at) ? first : entry.status.at, undefined);
 }
 
 /** Every parked write due again at `now`, its refusals forgotten: Home Assistant is back, or started again, as bulbs are unparked. */

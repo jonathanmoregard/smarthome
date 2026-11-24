@@ -42,7 +42,7 @@ import {
   switchesSeen, unexplained, unparked,
 } from './reconcile.ts';
 import type { Beliefs, Outcome, Send } from './reconcile.ts';
-import { afterTries, dueAt, nextTry, outputOf, queued, settled, targetOf, unparkedWrites, withWaiting } from './outbox.ts';
+import { afterTries, awaitsEcho, dueAt, nextTry, outputOf, queued, settled, targetOf, unparkedWrites, withWaiting } from './outbox.ts';
 import type { Entry, Outbox, Tried, Write } from './outbox.ts';
 import { configStoreWrite, dashboardWrites, modelWrites, uiSyncWrites } from './codecs/writes.ts';
 import type { ControlRow, StoreWrite } from './codecs/writes.ts';
@@ -100,9 +100,10 @@ export function keptConfig(kept: Kept, house: HouseView): Config {
   return kept.kind === 'running' ? kept.state.model.config : decodeConfig(configSource(house), house.catalog);
 }
 
-/** Whether the config the kept state was read with is read from `entity`: a state change of it is a reason for a turn. */
-export function movesConfig(kept: Kept, entity: string): boolean {
-  return kept.kind === 'running' && readsConfig(kept.state.configFrom, entity);
+/** Whether a state change of `entity` is a reason for a turn: the config is read from it, or a sensor write waits on it. */
+export function wantsTurn(kept: Kept, entity: string): boolean {
+  return kept.kind === 'running' && (readsConfig(kept.state.configFrom, entity)
+    || kept.state.outbox.some(({ write }) => write.kind === 'sensor' && write.write.entity === entity));
 }
 
 /**
@@ -154,7 +155,7 @@ export function afterOutputs(turn: Turn, failed: readonly boolean[]): Settled {
     });
     beliefs = afterSend(beliefs, send, outcomeIn(send, lost), turn.now);
   }
-  const wakeAt = [turn.nextChange, nextRetry(beliefs, turn.now), nextTry(outbox)].reduce<Instant | undefined>((first, at) =>
+  const wakeAt = [turn.nextChange, nextRetry(beliefs, turn.now), nextTry(outbox, turn.now)].reduce<Instant | undefined>((first, at) =>
     at === undefined || (first !== undefined && first <= at) ? first : at, undefined);
   const parked = newlyParked(turn.state.beliefs, beliefs);
   // A bulb given up on is most often switched off at the wall: said once, for the host's info log (owner, 2026-11-20).
@@ -231,7 +232,7 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
     for (const write of dashboardWrites(previous, view, sync, house)) writes.push({ kind: 'dashboard', write });
     for (const write of uiSyncWrites(house, previous === undefined)) writes.push({ kind: 'dashboard', write });
   }
-  const outbox = queued(waiting, writes, now), due = dueAt(outbox, now);
+  const outbox = queued(waiting, writes, now), due = dueAt(outbox, now).filter(entry => !awaitsEcho(entry, reported, share));
   const outputs: Output[] = due.map(entry => outputOf(entry, reported, share));
   const writing = due.map((entry, output) => ({ entry, output }));
 

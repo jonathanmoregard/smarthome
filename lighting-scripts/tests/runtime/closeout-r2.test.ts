@@ -197,6 +197,34 @@ test("closeout r2 A4: a sensor write queued before Home Assistant's echo of the 
   assert.deepEqual(ha.refused.map(call => call.guard?.lastUpdated), []);
 });
 
+test("closeout r2 A4 (ruling): a guarded sensor write waits for Home Assistant's echo of ours, or a read, and is made over its stamp", async () => {
+  // Break: the second write is guarded by the port's own stamp of the first and refused; or it is sent unguarded; or
+  // it waits for good once the echo or a read has come.
+  for (const arrives of ['echo', 'read'] as const) {
+    const states = syntheticStates(change => {
+      change['input_boolean.ls_room-a_on_port'] = { state: 'on', attributes: {}, last_changed: '2026-09-21T10:00:00+00:00' };
+      change['sensor.ls_overrides'] = { ...change['sensor.ls_overrides']!, last_updated: '2026-09-21T11:59:00.123456+00:00' };
+    });
+    const ha = new FakeHa(states), now = { time: at('12:00:00') };
+    ha.stamp = at => new Date(at * 1000).toISOString().replace(/\.(\d{3})Z$/, '.$1456+00:00');
+    const { host } = await open(ha, now, { kind: 'listed', rooms: new Set([roomA]) });
+    host.accept({ kind: 'started' });
+    await host.idle();
+    const guarded = () => ha.calls.filter(call => call.guard?.entity === 'sensor.ls_overrides');
+    host.accept(bridged('ls_remote_command', { command: 'toggle', area: roomA, source: 'remote-a' }));
+    host.accept(bridged('ls_remote_command', { command: 'toggle', area: roomA, source: 'remote-a' }));
+    await host.idle();
+    assert.equal(guarded().length, 1, `${arrives}: the second write waits while the sensor shows ours unechoed`);
+    const echoed = ha.states['sensor.ls_overrides']!;
+    if (arrives === 'echo') host.stateChanged('sensor.ls_overrides', echoed);
+    else { host.houseRead(ha.mirror(), now.time); host.accept({ kind: 'tick' }); }
+    await host.idle();
+    await host.close();
+    assert.deepEqual(guarded().map(call => call.guard?.lastUpdated), ['2026-09-21T11:59:00.123456+00:00', echoed.last_updated], arrives);
+    assert.deepEqual(ha.refused, [], arrives);
+  }
+});
+
 test("closeout r2 B1: a lamp moved to another room in Home Assistant's registry is in that room at the next tick", () => {
   // Break: a registry event re-reads the house into the mirror only (src/main.ts:58, 68; src/host.ts:165-167), queuing
   // no input, and the next tick keeps the config's rooms (src/adapter/loop.ts:156).
