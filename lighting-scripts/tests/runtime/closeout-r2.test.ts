@@ -118,11 +118,9 @@ function loop(states: Record<string, EntityState>) {
   };
 }
 
-test("closeout r2 A1: a person's turn_off that reaches the port only as a state change is not undone at the next tick", { todo: 'closeout r2 A1' }, async () => {
-  // Break: the rollout's (and the cutover's) lamp change bridge passes only `turn_on` (scripts/export-bridge.py:124
-  // keeps the detector's condition), so the off comes in only as state_changed, which moves the mirror and nothing
-  // else (src/host.ts:157-159); the reconciler sees a settled bulb that reports off under a lit belief and sends it
-  // its light again (src/adapter/reconcile.ts:337-339).
+test("closeout r2 A1: a person's bridged turn_off holds the lamp off at the next tick", async () => {
+  // The bridge now forwards a person's turn_off (export-bridge-rollout.test.ts). An off that reaches the port only as a
+  // state change, with no call behind it, is put back: the owner's rule (2026-11-23) restores a lamp wrongly off.
   const offAfterTick = async (bridgedCall: boolean) => {
     const ha = new FakeHa(), now = { time: at('12:00:00') };
     const { host } = await open(ha, now);
@@ -141,8 +139,9 @@ test("closeout r2 A1: a person's turn_off that reaches the port only as a state 
     await host.close();
     return ha.bulbs.shows(bulbA3);
   };
-  assert.deepEqual(await offAfterTick(true), { reach: 'reachable', light: { power: 'off' } }, 'control: the bridged turn_off holds the lamp off');
-  assert.deepEqual(await offAfterTick(false), { reach: 'reachable', light: { power: 'off' } });
+  assert.deepEqual(await offAfterTick(true), { reach: 'reachable', light: { power: 'off' } });
+  const unbridged = await offAfterTick(false);
+  assert.ok(unbridged.reach === 'reachable' && unbridged.light.power === 'on', 'an off with no call behind it is put back');
 });
 
 test('closeout r2 A2: a wake time changed in Home Assistant is the one the next tick uses', () => {
@@ -173,28 +172,6 @@ test('closeout r2 A2 (ruling): a state change of a helper the config is read fro
   await host.close();
   const shown = ha.bulbs.shows(bulbA3);
   assert.equal(shown.reach === 'reachable' && shown.light.power === 'on' ? shown.light.level : undefined, 100);
-});
-
-test("closeout r2 A4: a sensor write queued before Home Assistant's echo of the last one is made over Home Assistant's own read", { todo: 'closeout r2 A4' }, async () => {
-  // Break: afterOutput stamps the mirror's `last_updated` as JavaScript ISO text (src/adapter/codecs/house.ts:129-133),
-  // the next write's guard is taken from it (src/adapter/codecs/writes.ts:264), and Home Assistant's `isoformat()`
-  // never equals it, so the write is refused and made again a second later.
-  const states = syntheticStates(change => {
-    change['input_boolean.ls_room-a_on_port'] = { state: 'on', attributes: {}, last_changed: '2026-09-21T10:00:00+00:00' };
-    change['sensor.ls_overrides'] = { ...change['sensor.ls_overrides']!, last_updated: '2026-09-21T11:59:00.123456+00:00' };
-  });
-  const ha = new FakeHa(states), now = { time: at('12:00:00') };
-  ha.stamp = at => new Date(at * 1000).toISOString().replace(/\.(\d{3})Z$/, '.$1456+00:00');
-  const { host } = await open(ha, now, { kind: 'listed', rooms: new Set([roomA]) });
-  host.accept({ kind: 'started' });
-  await host.idle();
-  host.accept(bridged('ls_remote_command', { command: 'toggle', area: roomA, source: 'remote-a' }));
-  host.accept(bridged('ls_remote_command', { command: 'toggle', area: roomA, source: 'remote-a' }));
-  await host.idle();
-  await host.close();
-  const sensorWrites = ha.calls.filter(call => call.guard?.entity === 'sensor.ls_overrides');
-  assert.ok(sensorWrites.length >= 2, `control: both toggles write the sensor (${sensorWrites.length} writes)`);
-  assert.deepEqual(ha.refused.map(call => call.guard?.lastUpdated), []);
 });
 
 test("closeout r2 A4 (ruling): a guarded sensor write waits for Home Assistant's echo of ours, or a read, and is made over its stamp", async () => {
