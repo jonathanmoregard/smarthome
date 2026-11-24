@@ -11,8 +11,10 @@
 #     status, because switch-to-configuration counts exactly those two as a
 #     failed deploy and the deployer rolls back. Covered: an unreachable
 #     origin, an interrupted clone, a failing `npm ci`, an unforeseen setup
-#     failure (an unreadable package-lock.json), a crashing watcher, and a
-#     watcher that ignores SIGTERM at stop;
+#     failure (an unreadable package-lock.json), a crashing watcher, a
+#     watcher that ignores SIGTERM at stop, and a stop that lands between
+#     the watcher's start and the script's stop handling;
+#   - a stop is prompt, in a backoff too;
 #   - repeated setup failures back off, so a dead origin is not hammered;
 #   - a refusal (env file or LIVE_ROOMS missing, token unreadable, catalog
 #     missing, node_modules not writable by the service) stops the unit
@@ -20,6 +22,8 @@
 #     the port, from the first refusal on, so the operator can drop the
 #     catalog in;
 #   - the watcher gets the agreed command line and environment;
+#   - with the port's real watcher (fixtures/lighting-port-dev.mjs), a stop
+#     reaches the host once, and the host finishes its own shutdown;
 #   - an existing checkout is never pulled or reset; `npm ci` reruns only
 #     when package-lock.json changes, and never runs lifecycle scripts;
 #   - the operator, as a member of the group, edits the env file and the
@@ -86,6 +90,31 @@ let
     setInterval(() => { if (crashing()) process.exit(3); }, 200);
   '';
 
+  # The port's own dev watcher, copied verbatim from
+  # feature/typescript-lighting-scripts (lighting-scripts/scripts/dev.mjs at
+  # fe27322b). It forwards its SIGTERM to the host it runs, so it decides how
+  # often the host is signalled at a stop.
+  realWatcher = "${./fixtures/lighting-port-dev.mjs}";
+  # The compiler the real watcher runs before each start: every build passes.
+  standInCompiler = pkgsSystem.writeText "tsc" "process.exit(0);\n";
+  # The host the real watcher starts. Like the port's src/main.ts it handles
+  # SIGTERM once (process.once), and its shutdown takes a while; a clean one
+  # leaves `.runtime/clean` and gives its journal lock back.
+  standInHost = pkgsSystem.writeText "main.ts" ''
+    import { unlinkSync, writeFileSync } from 'node:fs';
+    const lock = '.runtime/journal.json.lock';
+    writeFileSync(lock, String(process.pid) + '\n');
+    writeFileSync('.runtime/host-started', String(process.pid) + '\n');
+    const stop = () => setTimeout(() => {
+      writeFileSync('.runtime/clean', 'clean\n');
+      unlinkSync(lock);
+      process.exit(0);
+    }, 1000);
+    process.once('SIGINT', stop);
+    process.once('SIGTERM', stop);
+    setInterval(() => {}, 1 << 30);
+  '';
+
   standInCheckout = pkgsSystem.runCommand "lighting-port-stand-in-checkout" { } ''
     mkdir -p "$out/lighting-scripts/scripts" "$out/lighting-scripts/stand-in-dep"
     cp ${standInWatcher} "$out/lighting-scripts/scripts/dev.mjs"
@@ -143,12 +172,18 @@ pkgsSystem.testers.runNixOSTest {
         mode = "0400";
       };
 
-      system.extraDependencies = [ standInCheckout ];
+      system.extraDependencies = [
+        standInCheckout
+        realWatcher
+        standInCompiler
+        standInHost
+      ];
     };
 
   testScript = ''
     import json
     import shlex
+    import time
 
     def show(prop):
         return machine.succeed(f"systemctl show lighting-port.service -P {prop}").strip()
@@ -207,6 +242,16 @@ pkgsSystem.testers.runNixOSTest {
         restart()
         machine.wait_until_succeeds("test -s ${scripts}/.runtime/record.json", timeout=90)
 
+    # A stop that systemd had to time out leaves the unit failed; one that
+    # waits on a step of the script is slow. Neither may happen.
+    def stops_promptly(within=10):
+        started = time.monotonic()
+        machine.succeed("systemctl stop lighting-port.service", timeout=60)
+        took = time.monotonic() - started
+        assert show("Result") == "success", show("Result")
+        assert show("ActiveState") == "inactive", show("ActiveState")
+        assert took < within, f"the stop took {took:.1f}s"
+
     def installs():
         return int(machine.succeed(
             "journalctl -u lighting-port.service -o cat --no-pager | "
@@ -224,6 +269,8 @@ pkgsSystem.testers.runNixOSTest {
     logged("lighting-port: clone failed; retrying in 20s (setup failure 2 in a row)", timeout=90)
     stays_uncounted(3)
     machine.succeed("test ! -e ${src}")
+    # A stop in the middle of a backoff does not wait it out.
+    stops_promptly()
 
     # A clone cut short is moved aside, never deleted and never mistaken for
     # a checkout. A restart in the middle of a backoff stops cleanly.
@@ -339,6 +386,32 @@ pkgsSystem.testers.runNixOSTest {
     logged("lighting-port: watcher still running 15s after stop; killing it")
     assert show("ActiveState") == "inactive", show("ActiveState")
     assert show("Result") == "success", show("Result")
+
+    # So is a stop that lands after the watcher started but before the
+    # script handles a stop by waiting on it. That window is a few shell
+    # statements wide; a copy of the unit's script with a pause right after
+    # the start widens it, so the stop lands in it.
+    exec_start = machine.succeed(
+        "systemctl cat lighting-port.service | sed -n 's/^ExecStart=//p'"
+    ).strip()
+    machine.succeed(
+        "mkdir -p /var/lib/lighting-port-widened && "
+        f"sed '/^watcher=/a sleep 10 & wait $!' {exec_start} > /var/lib/lighting-port-widened/run && "
+        "chmod 555 /var/lib/lighting-port-widened/run && "
+        "test \"$(grep -c '^watcher=' /var/lib/lighting-port-widened/run)\" = 1 && "
+        "grep -A1 '^watcher=' /var/lib/lighting-port-widened/run | grep -qx 'sleep 10 & wait \\$!'"
+    )
+    machine.succeed(
+        "mkdir -p /run/systemd/system/lighting-port.service.d && "
+        "printf '[Service]\\nExecStart=\\nExecStart=/var/lib/lighting-port-widened/run\\n' "
+        "> /run/systemd/system/lighting-port.service.d/widened.conf && "
+        "systemctl daemon-reload"
+    )
+    restart_watcher()
+    stops_promptly()
+    machine.succeed(
+        ": > /run/systemd/system/lighting-port.service.d/widened.conf && systemctl daemon-reload"
+    )
     as_operator("printf 'no\\n' > ${scripts}/.runtime/stubborn")
     restart_watcher()
 
@@ -410,6 +483,24 @@ pkgsSystem.testers.runNixOSTest {
     logged("lighting-port: setup failed unexpectedly (status 1); retrying in 10s (setup failure 1 in a row)")
     machine.succeed(f"chmod {mode} ${scripts}/package-lock.json")
     restart_watcher()
+
+    # The port's real watcher, running a host whose shutdown takes a moment:
+    # a stop reaches the host once, through the watcher, and the host
+    # finishes its shutdown instead of dying halfway with its lock left.
+    machine.succeed(
+        "cp ${realWatcher} ${scripts}/scripts/dev.mjs && "
+        "mkdir -p ${scripts}/src ${scripts}/node_modules/typescript/bin && "
+        "cp ${standInHost} ${scripts}/src/main.ts && "
+        "cp ${standInCompiler} ${scripts}/node_modules/typescript/bin/tsc && "
+        "chown -R lighting-port:lighting-port ${scripts}/scripts ${scripts}/src ${scripts}/node_modules/typescript && "
+        "chmod -R ug+rw ${scripts}/scripts ${scripts}/src"
+    )
+    restart()
+    machine.wait_until_succeeds("test -s ${scripts}/.runtime/host-started", timeout=60)
+    machine.succeed("test -e ${scripts}/.runtime/journal.json.lock")
+    stops_promptly()
+    machine.succeed("grep -Fx clean ${scripts}/.runtime/clean")
+    machine.succeed("test ! -e ${scripts}/.runtime/journal.json.lock")
 
     never_counted_as_failed()
     machine.fail("systemctl --failed --no-legend --plain | grep -F lighting-port")

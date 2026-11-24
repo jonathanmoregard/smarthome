@@ -24,7 +24,8 @@
 #   - any other setup failure, foreseen or not (`retry`, `catch_all`), and the
 #     watcher exiting, exit 0 and are restarted by Restart=always. The real
 #     status is logged;
-#   - a stop is clean even when the port's own shutdown hangs.
+#   - a stop reaches the host once, through the watcher, and is clean even
+#     when the port's own shutdown hangs.
 
 let
   inherit (lib) mkEnableOption mkIf mkOption types;
@@ -75,12 +76,18 @@ let
         if [ "$failures" -le 5 ]; then delay=$((10 << (failures - 1))); fi
         printf '%s\n' "$failures" > "$failures_file" || true
         say "$1; retrying in ''${delay}s (setup failure $failures in a row)"
-        sleep "$delay"
+        interruptible sleep "$delay"
         exit 0
       }
 
-      # A stop (or a restart by a deploy) is never a failure.
+      # A stop (or a restart by a deploy) is never a failure. systemd sends
+      # its SIGTERM to this script alone (KillMode=mixed) and SIGKILLs
+      # whatever is left once the script has exited. Bash runs a trap only
+      # between commands, so a step that can take long runs in the
+      # background and is waited for: a wait ends at the signal, a foreground
+      # command would hold the stop until it finished.
       trap 'exit 0' TERM INT
+      interruptible() { "$@" & wait "$!"; }
       # The catch-all: anything that fails without being refused or retried
       # above (errexit on a step nobody foresaw) is retried too, instead of
       # leaving a non-zero status that a switch would count.
@@ -103,7 +110,7 @@ let
           say "moved an interrupted clone aside to $stale; delete it when convenient"
         fi
         say "cloning $repository ($branch) into $checkout"
-        git clone --quiet --branch "$branch" -- "$repository" "$partial" || retry "clone failed"
+        interruptible git clone --quiet --branch "$branch" -- "$repository" "$partial" || retry "clone failed"
         mv -- "$partial" "$checkout"
       fi
 
@@ -130,7 +137,7 @@ let
         say "running npm ci"
         # No lifecycle scripts: this process can read the Home Assistant
         # token and reach the network. The port's dependencies have none.
-        npm ci --ignore-scripts --no-audit --no-fund || retry "npm ci failed"
+        interruptible npm ci --ignore-scripts --no-audit --no-fund || retry "npm ci failed"
         printf '%s\n' "$lock_hash" > "$stamp"
       fi
       printf '0\n' > "$failures_file"
@@ -163,13 +170,16 @@ let
       setsid node scripts/dev.mjs --live --config "$catalog" --live-rooms "$LIVE_ROOMS" &
       watcher=$!
 
-      # systemd has already sent every process of the unit SIGTERM. A host
-      # whose shutdown hangs (Home Assistant unreachable) would outlive
-      # TimeoutStopSec, be killed by systemd, and leave the unit failed,
-      # which a switch counts. So it is killed here first, and the stop stays
-      # clean.
+      # The stop goes to the watcher alone, which passes it on to the host it
+      # runs: the host handles one SIGTERM, and a second one (as every
+      # process of the unit would get from systemd) kills it halfway through
+      # its shutdown. A host whose shutdown hangs (Home Assistant
+      # unreachable) would outlive TimeoutStopSec, be killed by systemd, and
+      # leave the unit failed, which a switch counts. So it is killed here
+      # first, and the stop stays clean.
       # shellcheck disable=SC2329 # invoked by the TERM/INT trap
       stop_watcher() {
+        kill -TERM -- "$watcher" 2>/dev/null || true
         for _ in $(seq $((stop_grace_seconds * 2))); do
           if ! kill -0 -- "-$watcher" 2>/dev/null; then exit 0; fi
           sleep 0.5
@@ -270,6 +280,10 @@ in
         # written whole and renamed into place, so a kill cannot leave it
         # half-written.
         TimeoutStopSec = "${toString (stopGraceSeconds + 5)}s";
+        # SIGTERM to the script only, which passes it to the watcher; the
+        # rest of the unit is SIGKILLed once the script has exited. The
+        # default (SIGTERM to every process) signals the host twice.
+        KillMode = "mixed";
         SuccessExitStatus = [ refusedStatus ];
         RestartPreventExitStatus = [ refusedStatus ];
         # Group-writable, setgid: the operator and the service share every
