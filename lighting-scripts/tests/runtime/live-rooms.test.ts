@@ -8,7 +8,7 @@ import type { HaInput } from '../../src/adapter/codecs/inputs.ts';
 import type { EntityState, JsonObject } from '../../src/adapter/ha-client.ts';
 import { outputCall } from '../../src/adapter/encode.ts';
 import type { Output } from '../../src/adapter/encode.ts';
-import { lampRooms, parseLiveRooms, readLiveRoomsFlag, refuseUnknownRooms, roomsGiven, shareOf } from '../../src/adapter/live-rooms.ts';
+import { lampRooms, parseLiveRooms, readLiveRoomsFlag, refuseRoomsWithoutSwitch, refuseUnknownRooms, roomsGiven, shareOf } from '../../src/adapter/live-rooms.ts';
 import type { RoomsGiven } from '../../src/adapter/live-rooms.ts';
 import { afterOutputs, handleInput } from '../../src/adapter/loop.ts';
 import type { AdapterState, Kept, Turn } from '../../src/adapter/loop.ts';
@@ -58,6 +58,16 @@ test("a live room that holds no lamp of the house is refused, naming it and the 
   assert.throws(() => refuseUnknownRooms(parseLiveRooms('studio,den,stduio'), config),
     { message: '--live-rooms names stduio, which holds no lamp of the house; its rooms are den, studio' });
   assert.throws(() => refuseUnknownRooms(parseLiveRooms('studio,porch'), config), /names porch/);
+});
+
+test('a live room with no port switch helper in Home Assistant is refused at start, naming the helper', () => {
+  // Closeout r3 B10. Break: the missing helper reads as a room not handed over, so the old scripts keep driving it and
+  // the port idles there with nothing said.
+  const helpers = { 'input_boolean.ls_studio_on_port': { state: 'off', attributes: {} } };
+  assert.doesNotThrow(() => refuseRoomsWithoutSwitch(parseLiveRooms('studio'), helpers), 'an off switch is a room not yet handed over');
+  assert.doesNotThrow(() => refuseRoomsWithoutSwitch(parseLiveRooms(''), {}));
+  assert.throws(() => refuseRoomsWithoutSwitch(parseLiveRooms('studio,den'), helpers),
+    { message: '--live-rooms names den, which has no port switch input_boolean.ls_den_on_port in Home Assistant; create it to hand the room over' });
 });
 
 test("the house's lamps are the config's: a house_schedule label decides which rooms hold one", () => {

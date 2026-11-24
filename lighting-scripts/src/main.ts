@@ -20,7 +20,7 @@ import { HomeAssistantClient } from './adapter/ha-client.ts';
 import type { JsonValue, ServiceCall } from './adapter/ha-client.ts';
 import { heartbeatCall, timingCall } from './adapter/encode.ts';
 import { lockJournal } from './journal-lock.ts';
-import { refuseUnknownRooms, roomsGiven } from './adapter/live-rooms.ts';
+import { refuseRoomsWithoutSwitch, refuseUnknownRooms, roomsGiven } from './adapter/live-rooms.ts';
 import type { LiveRooms } from './adapter/live-rooms.ts';
 import { Host } from './host.ts';
 import type { Journal, Timer } from './host.ts';
@@ -49,7 +49,10 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   let stopHeartbeat = () => {}, watcher: FSWatcher | undefined;
   try {
     const mirror = await read(), clock = () => toInstant(Date.now() / 1000), warn = (message: string) => console.warn(message);
-    if (given.kind === 'listed') refuseUnknownRooms(given.rooms, decodeConfig(configSource(houseView(mirror, clock(), catalog)), catalog));
+    if (given.kind === 'listed') {
+      refuseUnknownRooms(given.rooms, decodeConfig(configSource(houseView(mirror, clock(), catalog)), catalog));
+      refuseRoomsWithoutSwitch(given.rooms, mirror.state);
+    }
     const host = await Host.open({ ha, journal: fileJournal(journal), clock, log: console,
       timer, rooms: given, took: seconds => void ha.call(timingCall(seconds)).catch(() => undefined) }, mirror, catalog);
     // A registry change may move a lamp or a label the config is read from: the turn after the read takes it.

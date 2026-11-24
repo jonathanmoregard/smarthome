@@ -14,7 +14,8 @@
 import type { Config } from '../domain/config.ts';
 import type { RoomId } from '../domain/types/ids.ts';
 import { entriesOf } from '../domain/types/ids.ts';
-import { drives, roomOfText } from './codecs/rooms.ts';
+import { drives, portSwitch, portSwitchesMissing, roomOfText } from './codecs/rooms.ts';
+import type { EntityState } from './ha-client.ts';
 import type { Share } from './codecs/rooms.ts';
 import type { Msg, OverlayRequest } from '../domain/update.ts';
 
@@ -60,6 +61,21 @@ export function refuseUnknownRooms(live: LiveRooms, config: Config): void {
 /** The rooms that hold a lamp of the house: the config's lamps, its one owner. */
 export function lampRooms(config: Config): LiveRooms {
   return new Set(entriesOf(config.lamps).flatMap(([, lamp]) => lamp.room === undefined ? [] : [lamp.room]));
+}
+
+/**
+ * Refuse a live room Home Assistant has no port switch for: the old scripts read the room as not handed over and keep
+ * driving it, and the port, never handed it, would drive nothing there and say nothing.
+ */
+export function refuseRoomsWithoutSwitch(live: LiveRooms, state: Readonly<Record<string, EntityState>>): void {
+  const missing = portSwitchesMissing(state, live);
+  if (missing.length > 0) throw new Error(noPortSwitch(missing));
+}
+
+/** What a live room with no port switch is told as: the rooms, and the helpers to make. */
+export function noPortSwitch(missing: readonly RoomId[]): string {
+  return `${LIVE_ROOMS_FLAG} names ${missing.join(', ')}, which ${missing.length === 1 ? 'has' : 'have'} no port switch `
+    + `${missing.map(portSwitch).join(', ')} in Home Assistant; create it to hand the room over`;
 }
 
 /** The rooms a process is given: the whole house (the harness), or those its command line lists (the live port). */

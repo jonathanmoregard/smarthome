@@ -217,7 +217,7 @@ test('closeout r3 B6: a call Home Assistant never answers stops the heartbeat, s
   assert.equal(paused, true, 'a minute into a call Home Assistant has not answered, the heartbeat is paused');
 });
 
-test('closeout r3 B10: a listed room with no port switch helper is not silent', { todo: 'closeout r3 B10' }, async () => {
+test('closeout r3 B10: a listed room with no port switch helper is not silent', async () => {
   // Break: portSwitchesOn reads a missing `input_boolean.ls_<room>_on_port` as off (src/adapter/codecs/rooms.ts:56),
   // so the listed room is never handed over; refuseUnknownRooms (src/adapter/live-rooms.ts:51) checks only that the
   // room has lamps, and nothing logs the helper's absence.

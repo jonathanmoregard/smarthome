@@ -25,9 +25,9 @@ import type { BlockLight, ConfigSource } from './codecs/config.ts';
 import type { Catalog } from './codecs/catalog.ts';
 import { configMoved, configSource, decodeModelFrom, followingSensor, overridesRead, readConfig, readsConfig } from './codecs/model.ts';
 import type { ConfigFrom, OverridesRead } from './codecs/model.ts';
-import { drives, portSwitchesOn } from './codecs/rooms.ts';
+import { drives, portSwitchesMissing, portSwitchesOn } from './codecs/rooms.ts';
 import type { Share } from './codecs/rooms.ts';
-import { ownPart, shareOf } from './live-rooms.ts';
+import { noPortSwitch, ownPart, shareOf } from './live-rooms.ts';
 import type { RoomsGiven } from './live-rooms.ts';
 import type { JournalRecord } from './codecs/journal.ts';
 import { decodeRangeDefaults } from './codecs/range-defaults.ts';
@@ -272,6 +272,9 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
     ...state?.observed.bridge !== 'unknown' && observed.bridge === 'unknown'
       ? [`lighting: Home Assistant has no ${BRIDGE_SENSOR}; Zigbee2MQTT's connection is unknown, and the bulbs are sent as if it were up`] : [],
     ...topicless.filter(bulb => state?.topicless.includes(bulb) !== true).map(bulb => `lighting: the catalog gives ${bulb} no topic; it is sent nothing`),
+    // A start refuses such a room (src/main.ts); a host started over one says it once, at its start.
+    ...given.kind === 'listed' && (state === undefined || input.kind === 'started') && portSwitchesMissing(house.state, given.rooms).length > 0
+      ? [`lighting: ${noPortSwitch(portSwitchesMissing(house.state, given.rooms))}`] : [],
   ];
   const sent = publishes(sends, topics, groups), first = outputs.length, sending: Sending[] = [];
   for (const publish of sent) outputs.push({ kind: 'publish', publish });

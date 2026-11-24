@@ -53,7 +53,17 @@ export function parseRooms(areas: Readonly<Record<string, string>>): Rooms {
  * watchdog, hands a room to the port or back there.
  */
 export function portSwitchesOn(state: Readonly<Record<string, EntityState>>, listed: ReadonlySet<RoomId>): ReadonlySet<RoomId> {
-  return new Set([...listed].filter(room => state[`input_boolean.ls_${room}_on_port`]?.state === 'on'));
+  return new Set([...listed].filter(room => state[portSwitch(room)]?.state === 'on'));
+}
+
+/** The rooms of `listed` Home Assistant has no port switch for: such a room is never handed over. */
+export function portSwitchesMissing(state: Readonly<Record<string, EntityState>>, listed: ReadonlySet<RoomId>): RoomId[] {
+  return [...listed].filter(room => state[portSwitch(room)] === undefined);
+}
+
+/** A room's port switch, the helper that hands it to the port. */
+export function portSwitch(room: RoomId): string {
+  return `input_boolean.ls_${room}_on_port`;
 }
 
 /** A room argument's text read back: `''` is no room, as the captured `default('')` and its falsy test read it. */
