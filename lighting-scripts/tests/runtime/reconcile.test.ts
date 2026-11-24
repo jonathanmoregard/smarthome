@@ -689,7 +689,7 @@ test('closeout r1 A2: a wall power cycle no look saw as out of reach gets the ca
 
 /* Close-out round 2 reproducers: `todo` with the finding's id while the defect stands; the fixer drops the mark. */
 
-test('closeout r2 A3: a bulb parked by put-backs whose wall power returns before Home Assistant saw it unavailable gets its light back', { todo: 'closeout r2 A3' }, () => {
+test('closeout r2 A3: a bulb parked by put-backs whose wall power returns before Home Assistant saw it unavailable gets its light back', { todo: 'owner decision: parked bulb on-to-on' }, () => {
   // Break: the power-on light comes in as an on-to-on report, which `unexplained` does not read as back on, and a
   // parked bulb whose target equals `lastSent` is sent nothing (src/adapter/reconcile.ts:330), so it keeps the
   // power-on light. The pass follows the loop: unexplained, backOn, nextSends (src/adapter/loop.ts:166, 215-217).
