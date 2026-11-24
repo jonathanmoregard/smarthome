@@ -141,6 +141,16 @@ export function overridesRead(states: ConfigSource['states'], catalog: Catalog):
   return { kind: 'read', overrides: decodeOverrides(sensor.attributes, storeKeys(catalog)) };
 }
 
+/**
+ * The Model with its overlays as the overrides sensor holds them, while some room is the old scripts': they commit the
+ * house's events, which reach the port's rooms too (a hold over the house holds each room), so the store is the truth.
+ * The port's own writes still on their way are in the house `overrides` is read from. The whole house, or a sensor
+ * unread (an unavailable sensor is not an empty one), keeps the Model it holds.
+ */
+export function followingSensor(model: Model, overrides: OverridesRead, share: Share): Model {
+  return share.kind === 'house' || overrides.kind === 'unread' ? model : { ...model, ...overrides.overrides };
+}
+
 /** What a decoder reads of an entity: its state and attributes; Home Assistant's stamps and context are not the config. */
 type Shown = Pick<EntityState, 'state' | 'attributes'>;
 
@@ -153,12 +163,3 @@ export function decodeModel(source: ConfigSource, catalog: Catalog): Model {
   return decodeModelFrom(source, catalog).model;
 }
 
-/**
- * The Model with its overlays as the overrides sensor holds them, while some room is the old scripts': they commit the
- * house's events, which reach the port's rooms too (a hold over the house holds each room), so the store is the truth.
- * The port's own writes still on their way are in the house it reads. The whole house keeps the Model it holds.
- */
-export function followingSensor(model: Model, house: Pick<HouseView, 'state' | 'catalog'>, share: Share): Model {
-  if (share.kind === 'house') return model;
-  return { ...model, ...decodeOverrides(house.state[OVERRIDES_SENSOR]?.attributes, storeKeys(house.catalog)) };
-}

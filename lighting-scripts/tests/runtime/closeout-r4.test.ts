@@ -275,7 +275,7 @@ function applied(states: Record<string, EntityState>, given: RoomsGiven) {
   return { turn, bulbs };
 }
 
-test('closeout r4 B1: a listed room keeps its hold while the overrides sensor is unavailable', { todo: 'closeout r4 B1' }, () => {
+test('closeout r4 B1: a listed room keeps its hold while the overrides sensor is unavailable', () => {
   // Break: with some room the old scripts', followingSensor decodes the sensor's attributes at every turn
   // (src/adapter/codecs/model.ts:161-163) without asking whether it is read (model.ts:138-142): an unavailable sensor
   // (Home Assistant restarting the variable integration) reads as no overlays, and the wake lights the held-off lamp.

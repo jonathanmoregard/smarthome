@@ -202,7 +202,7 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
   const house = withWaiting(reported, waiting);
   const { model: decoded, from: configFrom, overrides } = modelRead(state, input, house, reported, now);
   const share = shareOf(given, given.kind === 'listed' ? portSwitchesOn(house.state, given.rooms) : new Set());
-  const before = followingSensor(decoded, house, share);
+  const before = followingSensor(decoded, overrides, share);
   // The clock runs first, and the input is read against what it leaves: a reset at this instant is already applied.
   const clocked = update(before, { kind: 'clock', now });
   const taken = takenOver(kept.kind === 'running' ? kept.state.share : kept.share, share, clocked.config);
