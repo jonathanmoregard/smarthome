@@ -410,7 +410,7 @@ test('closeout r4 B5: a catalog written while main() starts, after it read the c
     { reloaded: true, beat: true }, `the catalog on disk is the one the port runs: ${JSON.stringify(late.made)}`);
 });
 
-test("closeout r4 B9: the calls a running port makes leave the runtime sensor's carried records as the old scripts wrote them", { todo: 'closeout r4 B9' }, () => {
+test("closeout r4 B9: the calls a running port makes leave the runtime sensor's carried records as the old scripts wrote them", () => {
   // Pin for B9: live-rooms.test.ts:445-450 ('carried 5..8') reads handleInput's outputs only, but main() writes
   // sensor.ls_effects_runtime itself, through `took` (src/main.ts:70, timingCall in src/adapter/encode.ts:203-206).
   // With timingCall's `replace_attributes: false` made `true`, which deletes every carried record, all four of those
