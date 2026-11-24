@@ -49,7 +49,9 @@ checkout is anywhere else, forces it there (`git checkout --force -B`):
    `tsconfig.json`, ...), or `package-lock.json` differs from what is
    installed, the follower restarts `lighting-port.service`, which installs
    the dependencies again if needed. It never restarts it while an install
-   runs.
+   runs, nor before the checkout has got through: a checkout that keeps
+   failing (a directory it cannot write, a full disk) is logged every run
+   and restarts nothing until it succeeds.
 2. The checkout is not edited on the server. On the next run, local edits to
    tracked files are discarded (the journal lists the files), and a local
    commit or a checked-out local branch is left behind for the followed
@@ -60,8 +62,9 @@ checkout is anywhere else, forces it there (`git checkout --force -B`):
 4. A fetch that fails (GitHub or the network down) is logged and tried again
    next minute. A run is stopped after 150 s, and a git lock that a killed
    run left behind is moved aside to `/var/lib/lighting-port/.stale-git-locks`
-   once it is 5 minutes old. The follower never ends `failed`, and it is not
-   a deploy health unit.
+   once it is 5 minutes old. Git's own upkeep (`git maintenance run --auto`)
+   runs at the end of a run, in the foreground, when git finds it due. The
+   follower never ends `failed`, and it is not a deploy health unit.
 5. A branch that no longer exists on origin freezes the checkout where it is,
    and every run logs `branch <name> no longer exists on origin`. When the
    port's pull request is merged and `feature/typescript-lighting-scripts` is

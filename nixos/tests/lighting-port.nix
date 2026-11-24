@@ -41,8 +41,10 @@
 #     differs from what is installed; not for src/ or anything outside
 #     lighting-scripts, never while an install runs, and once per
 #     package-lock.json. A run cut off before its restart restarts on the
-#     next run. Nothing before the clone, an unreachable origin or a stop in
-#     the middle of a fetch fails it;
+#     next run; a checkout that keeps failing restarts nothing until it gets
+#     through. Git's upkeep after a fetch runs to its end instead of being
+#     killed with the run. Nothing before the clone, an unreachable origin
+#     or a stop in the middle of a fetch fails it;
 #   - `npm ci` reruns only when package-lock.json changes, and never runs
 #     lifecycle scripts;
 #   - the operator, as a member of the group, writes the env file and the
@@ -326,6 +328,12 @@ pkgsSystem.testers.runNixOSTest {
     # returns once the run and its restart decision are over.
     def follow():
         machine.succeed("systemctl start lighting-port-follow.service", timeout=240)
+        # The start returns once the run is over; anything the run left
+        # behind is stopped after that.
+        machine.wait_until_succeeds(
+            "systemctl show lighting-port-follow.service -P ActiveState | grep -vx deactivating",
+            timeout=120,
+        )
         assert follow_show("Result") == "success", follow_show("Result")
         assert follow_show("ActiveState") == "inactive", follow_show("ActiveState")
 
@@ -620,7 +628,7 @@ pkgsSystem.testers.runNixOSTest {
     # journal says whether it did, however slow the stop. The stand-in
     # watcher writes its record once, at its start: one that fills again
     # shows the restart happened.
-    def follow_restarts(restarted):
+    def follow_restarted():
         started = show("ExecMainStartTimestampMonotonic")
         machine.succeed(
             "cp ${scripts}/.runtime/record.json /tmp/record.kept && "
@@ -632,13 +640,17 @@ pkgsSystem.testers.runNixOSTest {
             f"journalctl _SYSTEMD_INVOCATION_ID={follow_show('InvocationID')} -o cat --no-pager"
         )
         asked = "lighting-port-follow: restarting lighting-port.service for the update" in run
-        assert asked == restarted, run
-        if restarted:
+        if asked:
             machine.wait_until_succeeds("test -s ${scripts}/.runtime/record.json", timeout=90)
             assert show("ExecMainStartTimestampMonotonic") != started
         else:
             assert show("ExecMainStartTimestampMonotonic") == started
             machine.succeed("cat /tmp/record.kept > ${scripts}/.runtime/record.json")
+        return asked, run
+
+    def follow_restarts(restarted):
+        asked, run = follow_restarted()
+        assert asked == restarted, run
 
     # A pushed commit arrives. It changes nothing the watcher does not watch
     # (a file outside lighting-scripts, a file under src/), so the unit is
@@ -809,6 +821,85 @@ pkgsSystem.testers.runNixOSTest {
     assert head() == target
     as_service("git -C ${origin} branch -m gone ${branch}")
     follow()
+
+    # A checkout that keeps failing (here a directory under lighting-scripts
+    # outside src/ that it cannot write; a git lock not yet stale or a full
+    # disk do the same) never restarts the unit: a restart would land it on
+    # a half-updated tree, every minute. Once the checkout gets through, the
+    # unit restarts once.
+    target_before = target
+    target = push("printf 'export const two = 2;\\n' > lighting-scripts/scripts/helper.mjs", "helper 2")
+    mode = machine.succeed("stat -c %a ${scripts}/scripts").strip()
+    machine.succeed("chmod a-w ${scripts}/scripts")
+    stuck = [follow_restarted()[0] for _ in range(3)]
+    assert stuck == [False, False, False], f"restarts while the checkout fails: {stuck}"
+    # The failed checkout still moves the branch; the file is what is stale.
+    machine.succeed("test \"$(cat ${scripts}/scripts/helper.mjs)\" = 'export {};'")
+    machine.succeed(f"chmod {mode} ${scripts}/scripts")
+    follow_restarts(True)
+    assert head() == target
+    machine.succeed("test \"$(cat ${scripts}/scripts/helper.mjs)\" = 'export const two = 2;'")
+    follow_restarts(False)
+
+    # A run cut off after its checkout, before it asked for the restart it
+    # owed, leaves it owed: the next run, with nothing new, asks for it.
+    as_service("printf 'owed\\n' > /var/lib/lighting-port/.follow-restart-owed")
+    follow_restarts(True)
+    follow_restarts(False)
+
+    # Git's own upkeep after a fetch (packing loose objects once there are
+    # more than gc.auto, 6700) gets done: started in the background, it
+    # would be killed with the rest of the run the moment the oneshot ends,
+    # leave the objects loose, and start over on every run. One push brings
+    # 20000 loose objects here (as many small fetches do over time); trace2
+    # records how each git process ended.
+    as_service(
+        "mkdir -p /var/lib/lighting-port/trace2 && "
+        "printf '%s\\n' '[trace2]' 'eventTarget = /var/lib/lighting-port/trace2' "
+        "> /var/lib/lighting-port/.gitconfig && "
+        "git -C ${src} config fetch.unpackLimit 1000000"
+    )
+    push("mkdir bulk && head -c 8000000 /dev/urandom | split -b 400 -a 5 - bulk/", "bulk")
+    target = push("mv bulk /tmp/bulk.aside", "bulk gone")
+
+    # The git processes of one run that did not end on their own. trace2
+    # writes one file per process, one JSON event per line; a process that
+    # ends normally writes `atexit`, one stopped by a signal does not.
+    def git_cut_off(run):
+        as_service(
+            f"mv /var/lib/lighting-port/trace2 /var/lib/lighting-port/trace2.{run} && "
+            "mkdir /var/lib/lighting-port/trace2"
+        )
+        events = [
+            json.loads(line)
+            for line in machine.succeed(
+                f"find /var/lib/lighting-port/trace2.{run} -type f -exec cat {{}} +"
+            ).splitlines()
+            if line.strip()
+        ]
+        started = {e["sid"]: e["argv"] for e in events if e["event"] == "start"}
+        ended = {e["sid"] for e in events if e["event"] == "atexit"}
+        return [" ".join(argv) for sid, argv in started.items() if sid not in ended]
+
+    def loose_objects():
+        counts = as_service("git -C ${src} count-objects -v")
+        fields = dict(line.split(": ", 1) for line in counts.splitlines())
+        return int(fields["count"])
+
+    git_cut_off("pushes")
+    for run in range(2):
+        follow()
+        cut_off = git_cut_off(run)
+        loose = loose_objects()
+        leftovers = machine.succeed(
+            "find ${src}/.git/objects/pack -name 'tmp_*' -o -name '.tmp-*'"
+        ).split()
+        print(f"git cut off: {cut_off}; loose objects: {loose}; temporary packs: {leftovers}")
+    assert head() == target
+    assert cut_off == [], f"git processes cut off by the end of the run: {cut_off}"
+    assert loose < 6700, f"{loose} loose objects left after two runs"
+    assert leftovers == [], leftovers
+    as_service(": > /var/lib/lighting-port/.gitconfig && git -C ${src} config --unset fetch.unpackLimit")
 
     # node_modules the service cannot rewrite (npm run as the operator with
     # umask 022) is the operator's to fix, and says so, instead of an npm ci

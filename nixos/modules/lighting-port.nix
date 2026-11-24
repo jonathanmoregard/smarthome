@@ -274,6 +274,9 @@ let
   # its root part restarts the unit when the file is newer than the unit's
   # current start. A run cut off between the two is caught up by the next.
   restartRequest = "${stateDir}/.follow-restart";
+  # `owed` from the run that found a restart needed until a checkout got
+  # through and the restart was asked for (`asked`).
+  restartOwed = "${stateDir}/.follow-restart-owed";
   # The package-lock.json hash a restart was last asked for, so a lock that
   # npm ci fails on (and leaves the old stamp) is not restarted every minute
   # past the unit's own backoff.
@@ -300,6 +303,7 @@ let
       lock=${scriptsDir}/package-lock.json
       stamp=${scriptsDir}/node_modules/.lighting-port-lock.sha256
       restart_request=${restartRequest}
+      restart_owed=${restartOwed}
       lock_requested=${lockRequested}
       stale_locks=${stateDir}/.stale-git-locks
 
@@ -367,9 +371,12 @@ let
         say "moved a stale git lock aside: $stale (into $stale_locks)"
       done < <(find .git -name '*.lock' -type f -mmin +${toString staleLockMinutes} -print0)
 
+      # No automatic maintenance: a fetch would start it detached, and the
+      # end of this oneshot kills it, every run. It runs at the end instead.
       if ! interruptible timeout ${toString fetchTimeoutSeconds} \
         git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60 \
-          fetch --quiet --no-tags origin "+refs/heads/$branch:refs/remotes/origin/$branch"; then
+          fetch --quiet --no-tags --no-auto-maintenance \
+          origin "+refs/heads/$branch:refs/remotes/origin/$branch"; then
         # Exit status 2: origin answered, and has no such branch.
         gone=0
         interruptible timeout 60 git ls-remote --quiet --exit-code --heads origin "refs/heads/$branch" \
@@ -395,19 +402,27 @@ let
         fi
         # The watcher sees only src/. Without a stamp an install is running
         # (npm ci empties node_modules first), and the unit starts the
-        # watcher from what is here once it is done. Asked before the
-        # checkout, so a run cut off during it still restarts, and again
-        # after it, so a unit that starts on its own in between (from
-        # half-updated files) is not taken for one that started after it.
-        outside_src=no
+        # watcher from what is here once it is done. The restart is owed
+        # here and asked for below, once the checkout got through.
         if [ -f "$stamp" ] \
           && ! git diff --quiet "$target" -- lighting-scripts ':(exclude)lighting-scripts/src'; then
-          outside_src=yes
-          request_restart "the update changes lighting-scripts outside src/"
+          printf 'owed\n' > "$restart_owed"
         fi
         say "updating $checkout to $target ($branch); it was at ''${head:-no commit} (''${on:-no branch})"
+        # A checkout that fails (a directory it cannot write, a git lock,
+        # a full disk) ends the run here, owing the restart: a restart now
+        # would start the unit from a half-updated tree, every minute.
         git checkout --quiet --force -B "$branch" "refs/remotes/origin/$branch"
-        if [ "$outside_src" = yes ]; then touch -- "$restart_request"; fi
+      fi
+
+      # The checkout is whole. Asked for only now, so a unit that started
+      # on its own before this (from half-updated files) is restarted too;
+      # owed until asked for, so a run cut off before this is caught up by
+      # the next.
+      owed=$(cat -- "$restart_owed" 2>/dev/null) || owed=
+      if [ "$owed" = owed ]; then
+        request_restart "the update changes lighting-scripts outside src/"
+        printf 'asked\n' > "$restart_owed"
       fi
 
       # The unit installs a package-lock.json at its start, and stamps it.
@@ -419,6 +434,12 @@ let
           printf '%s\n' "$lock_hash" > "$lock_requested"
         fi
       fi
+
+      # Git's own upkeep (packing loose objects once there are enough), in
+      # the foreground and within the run's bound, when git finds it due.
+      interruptible git -c maintenance.autoDetach=false -c gc.autoDetach=false \
+        maintenance run --auto --quiet \
+        || say "git maintenance failed (status $?); trying again next minute"
     '';
   };
 
