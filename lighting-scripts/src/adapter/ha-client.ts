@@ -3,7 +3,7 @@
  * entity's state, a service call, the shapes a whole read and an event come
  * in, and the websocket client that carries them.
  */
-import { callService, createConnection, createLongLivedTokenAuth, getConfig, getStates, isConnectionLost } from 'home-assistant-js-websocket';
+import { callService, createConnection, createLongLivedTokenAuth, ERR_CONNECTION_LOST, getConfig, getStates } from 'home-assistant-js-websocket';
 import type { Connection } from 'home-assistant-js-websocket';
 import { guardAnswerOf, guardedScript } from './codecs/guard.ts';
 
@@ -139,8 +139,12 @@ export class HomeAssistantClient implements HaClient {
     if (domain === undefined || service === undefined || extra !== undefined) throw new Error('Invalid Home Assistant service name');
     const sent = call.guard === undefined ? callService(this.connection, domain, service, call.data, call.target)
       : this.connection.sendMessagePromise({ type: 'execute_script', sequence: guardedScript(call, call.guard) });
+    // The released client (9.7.1) rejects a lost connection with the bare code, or with an error result carrying it.
+    const connectionLost = (error: unknown): boolean => error === ERR_CONNECTION_LOST
+      || (typeof error === 'object' && error !== null && 'error' in error && typeof error.error === 'object' && error.error !== null
+        && 'code' in error.error && error.error.code === ERR_CONNECTION_LOST);
     const result: unknown = await sent.catch((error: unknown) => {
-      throw isConnectionLost(error) ? new Unreachable('Home Assistant connection lost') : error;
+      throw connectionLost(error) ? new Unreachable('Home Assistant connection lost') : error;
     });
     return takenContext(result, call.guard);
   }
