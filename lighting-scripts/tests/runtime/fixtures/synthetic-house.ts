@@ -27,6 +27,7 @@ import {
 import type { ConfigSource } from '../../../src/adapter/codecs/config.ts';
 import { parseCatalog } from '../../../src/adapter/codecs/catalog.ts';
 import type { Catalog } from '../../../src/adapter/codecs/catalog.ts';
+import { NO_PLANT_OVERRIDES } from '../../../src/domain/plant-lights.ts';
 import type { EntityState, JsonObject } from '../../../src/adapter/ha-client.ts';
 import { parseRooms } from '../../../src/adapter/codecs/rooms.ts';
 import type { Block } from '../../../src/domain/types/schedule.ts';
@@ -158,6 +159,7 @@ export function syntheticHouse(): Model {
     },
     switchRanges: { [plugA]: { kind: 'custom', range: toPercentRange(20, 60) } },
     rangeDefaults: { bright: toPercentRange(90, 100), cosy: toPercentRange(30, 60) },
+    plantOverrides: NO_PLANT_OVERRIDES,
     switchProfiles: { [plugA]: { day: { follows: 'room', power: 'off' }, cosy: { follows: 'room', power: 'off' }, night: { follows: 'room', power: 'off' } } },
     lampProfiles: {
       [lampA1]: { ...followsRoom, cosy: { follows: 'own', own: { power: 'on', light: lit(100, undefined, 'Candle') } } },

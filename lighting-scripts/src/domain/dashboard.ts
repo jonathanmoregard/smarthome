@@ -18,9 +18,9 @@ import type { Model } from './update.ts';
 
 /**
  * The dashboard's view: the block each scope's selector shows (the held block,
- * or the scheduled one), whether the mode switch is on, and each control's light.
+ * or the scheduled one), whether the mode switch is on, whether all plant lights are held off, and each control's light.
  */
-export type DashboardView = { blockShown: Record<RoomOrHouse, Block>; modeOn: boolean; controls: readonly DashboardControlView[] };
+export type DashboardView = { blockShown: Record<RoomOrHouse, Block>; modeOn: boolean; plantsAllOff: boolean; controls: readonly DashboardControlView[] };
 
 export function dashboardView(model: Model, lighting: LightingState, now: Instant): DashboardView {
   const { config, overlays, modeOverlay } = model;
@@ -33,6 +33,7 @@ export function dashboardView(model: Model, lighting: LightingState, now: Instan
   return {
     blockShown,
     modeOn: modeOverlay.active,
+    plantsAllOff: model.plantOverrides.allOff !== undefined,
     controls: entriesOf(config.controls).map(([control, over]) => ({ control, over, light: controlShown(model, lighting, over) })),
   };
 }

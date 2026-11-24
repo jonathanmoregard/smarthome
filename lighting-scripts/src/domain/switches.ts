@@ -88,6 +88,9 @@ export function rangeSaved(config: Config, rules: RangeRules, saved: RangeSaved)
 }
 
 /**
+ * Whether each lighting switch is on; a plant light is not one (`plantPower`
+ * in `./plant-lights.ts` gives it) and is skipped.
+ *
  * A switch overlay that still applies wins over the range rule, the plug's own
  * on/off profile for the block and the block's on/off setting. Then a switch with a range rule is on while its room is on
  * and the room's level, as a percent of 255, is inside the range, both ends

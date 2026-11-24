@@ -38,6 +38,8 @@ import type { BlendEnds, Placed, RemoteAdjustment, RemoteOverlay, RemotePart, St
 import { switchedOff } from './room-power.ts';
 import { blockAt, blockLight, blockPosition, fallbackColour, roomStage, stageLight, still } from './schedule.ts';
 import type { BlockPosition, Stage } from './schedule.ts';
+import { plantPower } from './plant-lights.ts';
+import type { PlantOverrides } from './plant-lights.ts';
 import { switchPower } from './switches.ts';
 import type { RangeDefaults, RangeRules, RoomLight } from './switches.ts';
 import type { LampId, LampOrRoom, RoomId, SwitchId } from './types/ids.ts';
@@ -64,6 +66,7 @@ export type LightingSources = {
   rangeDefaults: RangeDefaults;
   lampProfiles: LampProfiles;
   switchProfiles: SwitchProfiles;
+  plantOverrides: PlantOverrides;
 };
 
 /** What choosing the normal light pins on a lamp or a room at `now`: what it shows under its overlays. */
@@ -325,7 +328,7 @@ export function lightingState(model: LightingSources, now: Instant): LightingSta
   for (const [lamp] of entriesOf(model.config.lamps)) lamps[lamp] = lampLight(model, lamp, now);
   const rooms: Record<RoomOrHouse, RoomLight> = { house: roomShown(model, 'house', now).light };
   for (const [room] of entriesOf(model.config.rooms)) rooms[room] = roomShown(model, room, now).light;
-  return { lamps, switches: switchPower(model, rooms, now) };
+  return { lamps, switches: { ...switchPower(model, rooms, now), ...plantPower(model, now) } };
 }
 
 /** The overlays that apply to a lamp at `now`, after the next-block reset. One function, used by `lightingState` and by M3's remote. */

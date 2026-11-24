@@ -8,8 +8,9 @@
  * The concepts: the remote (`./remote.ts`), lamp overlays
  * (`./lamp-overlays.ts`), block overlays (`./block-overlays.ts`), the mode
  * overlay (`./mode.ts`), room power (`./room-power.ts`), switches and their
- * range rules (`./switches.ts`), lamp and plug profiles (`./profiles.ts`) and
- * the overlay resets (`./overlay-resets.ts`). The lighting state
+ * range rules (`./switches.ts`), lamp and plug profiles (`./profiles.ts`), the
+ * overlay resets (`./overlay-resets.ts`) and plant lights with their overrides
+ * (`./plant-lights.ts`). The lighting state
  * (`./lighting-state.ts`) is derived from the Model; a person's change and a
  * dashboard control read it here, for the level a step moves from and what
  * the normal light pins.
@@ -24,6 +25,8 @@ import { modeSet } from './mode.ts';
 import type { ModeOverlay, ModeToggled } from './mode.ts';
 import { clearAll, clearRoom, releasedAtNextBlock, resetsDue, resetTimes } from './overlay-resets.ts';
 import type { ClearAll, Overlays } from './overlay-resets.ts';
+import { plantChanges, plantLightSwitched, plantOverridesReleased, plantsAllOffSet } from './plant-lights.ts';
+import type { PlantOverrides, PlantsAllOffSet } from './plant-lights.ts';
 import { lampProfileSaved, switchProfileSaved } from './profiles.ts';
 import type { LampProfiles, LampProfileSaved, SwitchProfiles, SwitchProfileSaved } from './profiles.ts';
 import { buttonPressed, remoteState, remoteSteered, windowDeadlines, windowsClosed } from './remote.ts';
@@ -52,17 +55,19 @@ export type Model = {
   rangeDefaults: RangeDefaults;
   lampProfiles: LampProfiles;
   switchProfiles: SwitchProfiles;
+  plantOverrides: PlantOverrides;
 };
 
 /**
  * The next instant the Model or the lighting state changes by itself, when the
  * adapter sends the clock (Elm's subscriptions): the schedule's next move, the
  * next overlay reset falling due (an overlay's age limit, the daily reset
- * time), or a remote's chord or power burst closing its window (a burst of
- * one press then toggles its room). Undefined when nothing is coming.
+ * time), a remote's chord or power burst closing its window (a burst of one
+ * press then toggles its room), or a plant light's day start or timer
+ * switch-off. Undefined when nothing is coming.
  */
 export function nextChange(model: Model, now: Instant): Instant | undefined {
-  const times = [...scheduleChanges(model.config, now), ...resetTimes(model, now), ...windowDeadlines(model.remotes)];
+  const times = [...scheduleChanges(model.config, now), ...resetTimes(model, now), ...windowDeadlines(model.remotes), ...plantChanges(model.config, now)];
   const coming = times.filter(time => time > now);
   return coming.length === 0 ? undefined : instantOrThrow(Math.min(...coming));
 }
@@ -164,7 +169,8 @@ export type Msg =
   | RangeSaved
   | RangeDefaultsSaved
   | LampProfileSaved
-  | SwitchProfileSaved;
+  | SwitchProfileSaved
+  | PlantsAllOffSet;
 
 /** An overlay asked for from the dashboard. */
 export type OverlayRequest = BlockHeld | ClearAll | DashboardControlSet | RoomPowerRequested;
@@ -175,11 +181,14 @@ export type OverlayRequest = BlockHeld | ClearAll | DashboardControlSet | RoomPo
  *
  * The clock removes the overlays a reset makes due and those the next-block
  * reset released, then closes the remotes' chords and power bursts whose
- * window has closed.
+ * window has closed, and drops the plant overrides that no longer apply.
  */
 export function update(model: Model, msg: Msg): Model {
   switch (msg.kind) {
-    case 'clock': return remoteTimeouts(releasedAtNextBlock(resetsDue(model, msg.now), msg.now), msg.now);
+    case 'clock': {
+      const released = remoteTimeouts(releasedAtNextBlock(resetsDue(model, msg.now), msg.now), msg.now);
+      return { ...released, plantOverrides: plantOverridesReleased(released.plantOverrides, released.config, msg.now) };
+    }
     case 'configChanged': return { ...model, config: msg.config, lampProfiles: msg.lampProfiles, switchProfiles: msg.switchProfiles };
     case 'overlayRequested': return overlayRequested(model, msg.request, msg.at);
     case 'lampChangedByPerson': {
@@ -188,12 +197,16 @@ export function update(model: Model, msg: Msg): Model {
     }
     case 'remotePressed': return remotePressed(model, msg);
     case 'remoteButtonPressed': return remoteButtonPressed(model, msg);
-    case 'switchButtonPressed': return withOverlays(model, { switches: switchButtonPressed(model.overlays.switches, model.config, msg) });
+    case 'switchButtonPressed':
+      return model.config.switches[msg.switch]?.kind === 'plant light'
+        ? { ...model, plantOverrides: plantLightSwitched(model.plantOverrides, model.config, msg) }
+        : withOverlays(model, { switches: switchButtonPressed(model.overlays.switches, model.config, msg) });
     case 'modeToggled': return { ...model, modeOverlay: modeSet(model.modeOverlay, msg.on, msg.at) };
     case 'rangeSaved': return { ...model, ...rangeSaved(model.config, model.switchRanges, msg) };
     case 'rangeDefaultsSaved': return { ...model, rangeDefaults: msg.defaults };
     case 'lampProfileSaved': return { ...model, lampProfiles: lampProfileSaved(model.lampProfiles, msg) };
     case 'switchProfileSaved': return { ...model, switchProfiles: switchProfileSaved(model.switchProfiles, msg) };
+    case 'plantsAllOffSet': return { ...model, plantOverrides: plantsAllOffSet(model.plantOverrides, msg) };
   }
 }
 

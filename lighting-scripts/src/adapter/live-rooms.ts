@@ -128,6 +128,7 @@ export function ownPart(share: Share, msg: Msg, config: Config): Msg | undefined
     case 'lampProfileSaved': return owned(all([config.lamps[msg.lamp]?.room]));
     case 'switchProfileSaved': return owned(all([config.switches[msg.switch]?.room]));
     case 'modeToggled': case 'rangeDefaultsSaved': return owned(share.kind === 'house');
+    case 'plantsAllOffSet': return msg;
   }
 }
 

@@ -71,6 +71,7 @@ const oneOfEach = {
   lampProfileSaved: { kind: 'lampProfileSaved', lamp: lampA1, block: 'cosy', at: now,
     change: { own: false, power: undefined, brightness: undefined, colour: undefined, effect: undefined } },
   switchProfileSaved: { kind: 'switchProfileSaved', switch: switchA, block: 'day', change: { own: true, power: 'off' }, at: now },
+  plantsAllOffSet: { kind: 'plantsAllOffSet', on: true, at: now },
 } satisfies { [K in Msg['kind']]: Extract<Msg, { kind: K }> };
 
 test('the model test and the synthetic house compile, and every refusal below is a refusal', () => {

@@ -121,7 +121,7 @@ test("the mode's mirror is the one the catalog's mode names", () => {
   const base = houseView(syntheticStates(states => {
     states['input_boolean.ls_evening_mode_mirror'] = { state: 'off', attributes: {} };
   }), NOW);
-  const view = { blockShown: { house: 'day' as const }, modeOn: true, controls: [] };
+  const view = { blockShown: { house: 'day' as const }, modeOn: true, plantsAllOff: false, controls: [] };
   const named = { ...base, catalog: parseCatalog({ ...CATALOG, mode: 'evening' }) };
   assert.deepEqual(dashboardWrites(undefined, view, [], named), [{ kind: 'mode mirror', entity: 'input_boolean.ls_evening_mode_mirror', on: true }]);
   assert.deepEqual(dashboardWrites(undefined, view, [], { ...base, catalog: { ...named.catalog, mode: undefined } }), []);
