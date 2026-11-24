@@ -9,7 +9,7 @@ import { createConnection } from 'home-assistant-js-websocket';
 import type { HaWebSocket } from 'home-assistant-js-websocket';
 import { readRuntimeCatalog, rereading } from '../../src/main.ts';
 import { Host } from '../../src/host.ts';
-import type { HostIo, Journal } from '../../src/host.ts';
+import type { HostIo, Journal, Timer } from '../../src/host.ts';
 import { parseCatalog } from '../../src/adapter/codecs/catalog.ts';
 import type { HouseMirror } from '../../src/adapter/codecs/house.ts';
 import { toEntityId, toInstant, toMqttTopic, toRoomId, toSwitchId } from '../../src/adapter/codecs/ids.ts';
@@ -21,7 +21,8 @@ import type { RoomsGiven } from '../../src/adapter/live-rooms.ts';
 import { afterOutputs, handleInput } from '../../src/adapter/loop.ts';
 import type { Kept, Settled, Turn } from '../../src/adapter/loop.ts';
 import { NO_BELIEFS } from '../../src/adapter/reconcile.ts';
-import { HomeAssistantClient } from '../../src/adapter/ha-client.ts';
+import { bounded, HomeAssistantClient } from '../../src/adapter/ha-client.ts';
+import { Health } from '../../src/health.ts';
 import type { EntityState, JsonObject, ServiceCall } from '../../src/adapter/ha-client.ts';
 import type { BulbId } from '../../src/domain/types/ids.ts';
 import type { Instant } from '../../src/domain/types/time.ts';
@@ -120,6 +121,8 @@ class FakeHa {
   /** A call this says hangs is left unanswered, as Home Assistant leaves a service call it is still running. */
   hangs: (call: ServiceCall) => boolean = () => false;
   readonly hung: ((error: Error) => void)[] = [];
+  /** The host's probes (Home Assistant's config asked for, which changes nothing), each answered unless `hangs` says a probe hangs. */
+  probes = 0;
 
   constructor(states: Record<string, EntityState> = syntheticStates()) {
     this.states = states;
@@ -142,6 +145,11 @@ class FakeHa {
       writeBack(this.bulbs, this.states);
     }
     return `context-${this.calls.length}`;
+  }
+
+  async probe(): Promise<void> {
+    this.probes++;
+    if (this.hangs({ service: 'get_config', data: {} })) return new Promise((_resolve, reject) => { this.hung.push(reject); });
   }
 
   mirror(): HouseMirror {
@@ -291,7 +299,7 @@ test('closeout r4 B1: a listed room keeps its hold while the overrides sensor is
     'an unavailable sensor is unread, not empty: lamp_a2 stays held off');
 });
 
-test('closeout r4 B2: once the watchdog hands the rooms back after unanswered calls, the heartbeat beats again', { todo: 'closeout r4 B2' }, async t => {
+test('closeout r4 B2: once the watchdog hands the rooms back after unanswered calls, the heartbeat beats again', async t => {
   // Break: the run of unanswered calls ends only with a call answered (src/adapter/ha-client.ts:192), and paused()
   // reads it (src/host.ts:184). Once Home Assistant's watchdog has turned the port switch off, the turns drive no room
   // and make no call, so the count stays at 3, paused() stays true, and main() never beats again (src/main.ts:164).
@@ -313,14 +321,37 @@ test('closeout r4 B2: once the watchdog hands the rooms back after unanswered ca
   // Home Assistant's watchdog, 30 s without a beat, turns the port switch off; Home Assistant answers again.
   ha.hangs = () => false;
   host.stateChanged('input_boolean.ls_room-a_on_port', { state: 'off', attributes: {}, last_changed: new Date(Date.now()).toISOString() });
-  const before = ha.calls.length;
+  const before = ha.calls.length, probed = ha.probes;
   for (let minute = 0; minute < 3; minute++) { host.accept({ kind: 'tick' }); await seconds(60); }
-  const after = { calls: ha.calls.length - before, paused: host.paused() };
+  const after = { calls: ha.calls.length - before, paused: host.paused(), probes: ha.probes - probed };
   for (const reject of ha.hung.splice(0)) reject(new Error('test over'));
   t.mock.timers.reset();
   await host.close();
   assert.equal(after.calls, 0, 'control: with room-a handed back, the ticks make no call');
+  assert.ok(after.probes > 0, 'ruling B2: while paused for failing calls, the host probes Home Assistant with no service call');
   assert.equal(after.paused, false, 'with no call out and none unanswered since, the heartbeat beats again');
+});
+
+test('closeout r4 B2 (ruling): a probe Home Assistant answers resumes a pause for failing calls, never one for turns that threw', async () => {
+  // Ruling B2: while paused for failing calls, Home Assistant is probed every 60 s with a request that changes nothing
+  // (no service call, not the heartbeat), and an answer resumes the beat; the pause for thrown turns still ends only at
+  // a good turn. Break: no probe; a probe made as a call; or a probe that clears the thrown turns too.
+  const waits: { ms: number; wake: () => void }[] = [];
+  const timer: Timer = (ms, wake) => { const wait = { ms, wake }; waits.push(wait); return () => { waits.splice(waits.indexOf(wait), 1); }; };
+  let calls = 0, probes = 0;
+  const client = bounded({ call: async () => { calls++; throw new Error('refused'); }, probe: async () => { probes++; } }, () => {}, () => () => {});
+  const health = new Health(client, { info: () => {}, warn: () => {}, error: () => {} }, timer);
+  const fire = async () => { const wait = waits.shift(); assert.equal(wait?.ms, 60_000); wait?.wake(); for (let i = 0; i < 5; i++) await Promise.resolve(); };
+  for (let turn = 0; turn < 3; turn++) health.callsMade([true], 1);
+  assert.equal(health.paused(), true, 'control: three refused turns pause the heartbeat');
+  await fire();
+  assert.deepEqual({ paused: health.paused(), calls, probes }, { paused: false, calls: 0, probes: 1 }, 'the probe answered resumes it, and is no call');
+  for (let turn = 0; turn < 3; turn++) { health.turnThrew(); health.callsMade([true], 1); }
+  await fire();
+  assert.deepEqual({ paused: health.paused(), probes }, { paused: true, probes: 2 }, 'turns that threw stay paused after the probe');
+  health.turnRan();
+  assert.equal(health.paused(), false, 'a good turn resumes it');
+  health.close();
 });
 
 /* Home Assistant's websocket, as tests/runtime/host-client.test.ts fakes it: a frame `answer` gives nothing to is never answered. */

@@ -99,7 +99,7 @@ export async function answer(request: Request, adjust: (catalog: Catalog) => voi
   const mirror = mirrorOf(snapshot);
   if (host === undefined) {
     host = await Host.open({
-      ha: { call: async call => { current.calls.push({ ...call, time: current.elapsed }); return undefined; } },
+      ha: { call: async call => { current.calls.push({ ...call, time: current.elapsed }); return undefined; }, probe: async () => {} },
       journal: { load: async () => journal, save: async text => { journal = text; } },
       clock: () => current.now, log: console, rooms: { kind: 'house' },
       timer: delayMs => { current.wakeMs = delayMs; return () => { current.wakeMs = undefined; }; },

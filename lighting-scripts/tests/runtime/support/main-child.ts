@@ -55,6 +55,7 @@ class FakeClient {
     this.taken.push(call);
     return undefined;
   }
+  async probe(): Promise<void> {}
   readonly listeners = new Map<string, (event: { event_type: string; data: object }) => void>();
   async subscribe(event: string, callback: (event: { event_type: string; data: object }) => void): Promise<void> {
     // Home Assistant hands an event only to the subscriptions live when it fires.

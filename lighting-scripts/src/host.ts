@@ -9,7 +9,7 @@ import { afterOutput, houseView, mergedRead, withState } from './adapter/codecs/
 import { loadJournal, saveJournal } from './adapter/codecs/journal.ts';
 import type { JournalRecord } from './adapter/codecs/journal.ts';
 import { outputCall } from './adapter/encode.ts';
-import { bounded, Unanswered, Unreachable } from './adapter/ha-client.ts';
+import { bounded, Unreachable } from './adapter/ha-client.ts';
 import type { BoundedClient, EntityState, HaClient, JsonObject, ServiceCall } from './adapter/ha-client.ts';
 import { bridgeVerdict } from './adapter/codecs/inputs.ts';
 import type { HaInput } from './adapter/codecs/inputs.ts';
@@ -19,6 +19,7 @@ import { beatRooms } from './adapter/live-rooms.ts';
 import type { LiveRooms, RoomsGiven } from './adapter/live-rooms.ts';
 import type { Instant } from './domain/types/time.ts';
 import { toInstant } from './adapter/codecs/ids.ts';
+import { Health } from './health.ts';
 
 /** Where the reconciler's beliefs are kept across a restart: the journal's text, none before the first save. */
 export type Journal = { load(): Promise<string | undefined>; save(text: string): Promise<void> };
@@ -39,15 +40,14 @@ const LONGEST_WAIT_MS = 2_147_483_647;
 const OWN_CONTEXTS = 1024;
 /** How soon a turn that threw is followed by a wake. */
 const AFTER_A_FAILED_TURN_SECONDS = 5;
-/** The turns in a row that throw or whose every call is refused, or the calls in a row unanswered, before the heartbeat stops and the watchdog hands the rooms back. */
-const UNHEALTHY_AFTER = 3;
 
 export class Host {
   private readonly io: HostIo; private readonly ha: BoundedClient; private mirror: HouseMirror; private catalog: Catalog; private kept: Kept;
   private queue: Promise<void> = Promise.resolve(); private cancelWake: (() => void) | undefined; private closed = false;
   /** The context ids of our recent calls, the turns run so far, the last one with a failed call and those calls, and whether one is calling. */
   private ownContexts: string[] = [];
-  private turns = 0; private failed: { turn: number; calls: ServiceCall[] } = { turn: -1, calls: [] }; private calling = false; private thrownInARow = 0; private refusedInARow = 0;
+  private turns = 0; private failed: { turn: number; calls: ServiceCall[] } = { turn: -1, calls: [] }; private calling = false;
+  private readonly health: Health;
   /** Whether Home Assistant is in reach: while it is not, nothing is sent, no wake runs, and inputs are held. */
   private connected = true; private held: HaInput[] = [];
   /** The journal's text as last loaded or saved, so a turn that leaves it as it is saves nothing. */
@@ -55,7 +55,7 @@ export class Host {
 
   private constructor(io: HostIo, mirror: HouseMirror, catalog: Catalog, saved: string | undefined) {
     this.io = io; this.mirror = mirror; this.catalog = catalog; this.saved = saved; this.kept = { kind: 'starting', ...loadJournal(saved) };
-    this.ha = bounded(io.ha, message => io.log.warn(message));
+    this.ha = bounded(io.ha, message => io.log.warn(message)); this.health = new Health(this.ha, io.log, io.timer);
   }
 
   /** A host over the house as Home Assistant shows it, holding the beliefs its journal kept. */
@@ -92,9 +92,9 @@ export class Host {
     let wakeAt: Instant | undefined = toInstant(now + AFTER_A_FAILED_TURN_SECONDS);
     try {
       wakeAt = await this.run(input, now);
-      this.thrownInARow = 0;
+      this.health.turnRan();
     } catch (error) {
-      if (++this.thrownInARow === UNHEALTHY_AFTER) this.io.log.error(`lighting: ${UNHEALTHY_AFTER} turns in a row failed; the heartbeat stops until a turn succeeds`);
+      this.health.turnThrew();
       throw error;
     } finally {
       this.cancelWake?.();
@@ -121,14 +121,12 @@ export class Host {
         if (error instanceof Unreachable) { this.disconnected(); break; }
         this.io.log.error(`lighting: ${call.service} failed: ${error instanceof Error ? error.message : String(error)}`);
         failed.push(true); this.failed = { turn: this.turns, calls: [...this.failed.turn === this.turns ? this.failed.calls : [], call] };
-        if (error instanceof Unanswered && this.ha.unansweredInARow() === UNHEALTHY_AFTER) this.io.log.error(`lighting: Home Assistant answered none of ${UNHEALTHY_AFTER} calls in a row; the heartbeat stops until it answers one`);
+        this.health.callFailed(error);
       }
       if (turn.journalled.includes(index)) await this.save(afterOutputs(turn, failed).state);
     }
     this.calling = false;
-    if (failed.includes(false)) this.refusedInARow = 0;
-    else if (failed.length > 0 && failed.length === turn.outputs.length && ++this.refusedInARow === UNHEALTHY_AFTER)
-      this.io.log.error(`lighting: Home Assistant refused every call of ${UNHEALTHY_AFTER} turns in a row; the heartbeat stops until it takes one`);
+    this.health.callsMade(failed, turn.outputs.length);
     const settled = afterOutputs(turn, failed);
     this.kept = { kind: 'running', state: settled.state };
     // Each publish saved the journal; any other change of the beliefs or the share is saved once the turn is done.
@@ -180,8 +178,8 @@ export class Host {
     });
   }
 
-  /** Whether the heartbeat is paused: Home Assistant is out of reach or not yet read again, the last turns all threw or were refused, or the last calls went unanswered. */
-  paused(): boolean { return !this.connected || [this.thrownInARow, this.refusedInARow, this.ha.unansweredInARow()].some(count => count >= UNHEALTHY_AFTER); }
+  /** Whether the heartbeat is paused: Home Assistant is out of reach or not yet read again, or the host is unhealthy ({@link Health}). */
+  paused(): boolean { return !this.connected || this.health.paused(); }
 
   /** The rooms the heartbeat names now: those given, or the rooms of the current config's lamps. */
   liveRooms(): LiveRooms { return beatRooms(this.io.rooms, keptConfig(this.kept, houseView(this.mirror, this.io.clock(), this.catalog))); }
@@ -195,5 +193,5 @@ export class Host {
   /** Settles once every input has run, those accepted while waiting included. */
   async idle(): Promise<void> { for (let current = this.queue; ; current = this.queue) { await current; if (current === this.queue) return; } }
 
-  async close(): Promise<void> { this.closed = true; this.cancelWake?.(); await this.queue; }
+  async close(): Promise<void> { this.closed = true; this.cancelWake?.(); this.health.close(); await this.queue; }
 }

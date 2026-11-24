@@ -65,10 +65,12 @@ export class Unanswered extends Error {}
 
 /**
  * What the host needs of Home Assistant: a service call, which rejects when Home Assistant did not take it, and
- * answers the context id Home Assistant gave it, when it gave one.
+ * answers the context id Home Assistant gave it, when it gave one; and a probe, a request that changes nothing, which
+ * settles once Home Assistant answers it.
  */
 export interface HaClient {
   call(call: ServiceCall): Promise<string | undefined>;
+  probe(): Promise<void>;
 }
 
 /**
@@ -143,6 +145,12 @@ export class HomeAssistantClient implements HaClient {
     return takenContext(result, call.guard);
   }
 
+  /** Home Assistant's config asked for, a request with no effect (never a service call, nor the heartbeat). */
+  async probe(): Promise<void> {
+    if (!this.connection.connected) throw new Unreachable('Home Assistant is disconnected');
+    await getConfig(this.connection);
+  }
+
   async subscribe(event: string, callback: (event: HaEvent) => void): Promise<void> {
     const unsubscribe = await this.connection.subscribeEvents<HaEvent>(callback, event);
     this.subscriptions.push(unsubscribe);
@@ -185,28 +193,26 @@ function answeredWithin<T>(timeoutMs: number, what: string, answer: Promise<T>):
 }
 
 /**
- * `ha` with every call bounded at `timeoutMs` of `timer`, Node's own by default (the bound is the wire's, not the
- * house's clock): one Home Assistant has not answered by then rejects {@link Unanswered}, a refused call, so the caller
- * moves on and tries it again. An answer that comes after is said to `late` and taken for nothing. Any answer in time,
- * a refusal too, ends the run of calls unanswered.
+ * `ha` with every call and probe bounded at `timeoutMs` of `timer`, Node's own by default (the bound is the wire's,
+ * not the house's clock): one Home Assistant has not answered by then rejects {@link Unanswered}, a refused call, so
+ * the caller moves on and tries it again. An answer that comes after is said to `late` and taken for nothing. Any
+ * answer in time, a refusal too, ends the run of calls unanswered.
  */
 export function bounded(ha: HaClient, late: (message: string) => void, timer: (delayMs: number, wake: () => void) => () => void = nodeTimer,
   timeoutMs = CALL_TIMEOUT_MS): BoundedClient {
   let unanswered = 0;
-  return {
-    unansweredInARow: () => unanswered,
-    call: call => new Promise((resolve, reject) => {
-      let over = false;
-      const cancel = timer(timeoutMs, () => {
-        over = true; unanswered++;
-        reject(new Unanswered(`Home Assistant did not answer ${call.service} within ${timeoutMs / 1000} s; counted as refused`));
-      });
-      const answered = (take: () => void, what: string) => {
-        if (over) late(`lighting: ${call.service} ${what} after its ${timeoutMs / 1000} s timeout; ignored`);
-        else { cancel(); unanswered = 0; take(); }
-      };
-      ha.call(call).then(context => answered(() => resolve(context), 'answered'),
-        (error: unknown) => answered(() => reject(error), `failed (${error instanceof Error ? error.message : String(error)})`));
-    }),
-  };
+  const within = <T>(what: string, ask: () => Promise<T>): Promise<T> => new Promise((resolve, reject) => {
+    let over = false;
+    const cancel = timer(timeoutMs, () => {
+      over = true; unanswered++;
+      reject(new Unanswered(`Home Assistant did not answer ${what} within ${timeoutMs / 1000} s; counted as refused`));
+    });
+    const answered = (take: () => void, how: string) => {
+      if (over) late(`lighting: ${what} ${how} after its ${timeoutMs / 1000} s timeout; ignored`);
+      else { cancel(); unanswered = 0; take(); }
+    };
+    ask().then(value => answered(() => resolve(value), 'answered'),
+      (error: unknown) => answered(() => reject(error), `failed (${error instanceof Error ? error.message : String(error)})`));
+  });
+  return { unansweredInARow: () => unanswered, call: call => within(call.service, () => ha.call(call)), probe: () => within('the probe', () => ha.probe()) };
 }
