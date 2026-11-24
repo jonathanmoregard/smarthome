@@ -278,23 +278,30 @@ let
   # npm ci fails on (and leaves the old stamp) is not restarted every minute
   # past the unit's own backoff.
   lockRequested = "${stateDir}/.follow-lock-requested";
-  # Bounds the whole fetch, well below the follower's TimeoutStartSec, which
-  # would leave it failed.
+  # Bounds the fetch.
   fetchTimeoutSeconds = 120;
+  # Bounds the whole run, fetch included, so the script ends it, exiting 0,
+  # well before the follower's TimeoutStartSec would leave it failed.
+  runTimeoutSeconds = 150;
+  # A git lock this old outlived any run (and any git someone runs by hand):
+  # it was left by a run killed outright, and would fail every later one.
+  staleLockMinutes = 5;
 
   # As lighting-port: brings the checkout to origin's branch and decides
   # whether the unit needs a restart. Git runs as the user that owns the
   # checkout and can write its .git/config, never as root.
   follow = pkgs.writeShellApplication {
     name = "lighting-port-follow";
-    runtimeInputs = [ pkgs.coreutils pkgs.git ];
+    runtimeInputs = [ pkgs.coreutils pkgs.findutils pkgs.git ];
     text = ''
+      run_seconds=${toString runTimeoutSeconds}
       branch=${lib.escapeShellArg cfg.branch}
       checkout=${checkout}
       lock=${scriptsDir}/package-lock.json
       stamp=${scriptsDir}/node_modules/.lighting-port-lock.sha256
       restart_request=${restartRequest}
       lock_requested=${lockRequested}
+      stale_locks=${stateDir}/.stale-git-locks
 
       say() { printf 'lighting-port-follow: %s\n' "$*" >&2; }
       request_restart() {
@@ -306,6 +313,19 @@ let
       # counts it: a stop exits 0, and so does anything that fails.
       trap 'exit 0' TERM INT
       interruptible() { "$@" & wait "$!"; }
+
+      # The whole run is bounded: this script runs itself again under
+      # timeout, which stops it (and its git) after run_seconds. A run
+      # systemd had to time out would be left failed.
+      if [ "''${1-}" != --bounded ]; then
+        status=0
+        interruptible timeout --kill-after=10 "$run_seconds" "$0" --bounded || status=$?
+        if [ "$status" -eq 124 ] || [ "$status" -eq 137 ]; then
+          say "the run took longer than ''${run_seconds}s; stopped it, trying again next minute"
+        fi
+        exit 0
+      fi
+
       # shellcheck disable=SC2329 # invoked by the EXIT trap
       catch_all() {
         status=$?
@@ -325,10 +345,35 @@ let
       fi
       cd "$checkout"
 
+      # A request dated in the future (a clock stepped back) would never be
+      # older than a start, and restart the unit every minute.
+      if [ -f "$restart_request" ] && [ "$(stat -c %Y -- "$restart_request")" -gt "$(date +%s)" ]; then
+        say "the restart request was dated in the future; setting it back"
+        touch -d @0 -- "$restart_request"
+      fi
+
+      # A lock git left when it was killed outright (a power cut, SIGKILL)
+      # fails every later run. Git removes its locks on any other exit, and
+      # no run lasts staleLockMinutes, so an older one is moved aside.
+      while IFS= read -r -d "" stale; do
+        mkdir -p -- "$stale_locks"
+        relative=''${stale#.git/}
+        mv -- "$stale" "$stale_locks/$(date +%s)-''${relative//\//_}"
+        say "moved a stale git lock aside: $stale (into $stale_locks)"
+      done < <(find .git -name '*.lock' -type f -mmin +${toString staleLockMinutes} -print0)
+
       if ! interruptible timeout ${toString fetchTimeoutSeconds} \
         git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60 \
           fetch --quiet --no-tags origin "+refs/heads/$branch:refs/remotes/origin/$branch"; then
-        say "fetching $branch from origin failed; trying again next minute"
+        # Exit status 2: origin answered, and has no such branch.
+        gone=0
+        interruptible timeout 60 git ls-remote --quiet --exit-code --heads origin "refs/heads/$branch" \
+          > /dev/null || gone=$?
+        if [ "$gone" -eq 2 ]; then
+          say "branch $branch no longer exists on origin; the checkout stays as it is until services.lighting-port.branch names a branch that does"
+        else
+          say "fetching $branch from origin failed; trying again next minute"
+        fi
         exit 0
       fi
       target=$(git rev-parse --verify --quiet "refs/remotes/origin/$branch^{commit}")
@@ -346,13 +391,18 @@ let
         # The watcher sees only src/. Without a stamp an install is running
         # (npm ci empties node_modules first), and the unit starts the
         # watcher from what is here once it is done. Asked before the
-        # checkout, so a run cut off after it still restarts.
+        # checkout, so a run cut off during it still restarts, and again
+        # after it, so a unit that starts on its own in between (from
+        # half-updated files) is not taken for one that started after it.
+        outside_src=no
         if [ -f "$stamp" ] \
           && ! git diff --quiet "$target" -- lighting-scripts ':(exclude)lighting-scripts/src'; then
+          outside_src=yes
           request_restart "the update changes lighting-scripts outside src/"
         fi
         say "updating $checkout to $target ($branch); it was at ''${head:-no commit} (''${on:-no branch})"
         git checkout --quiet --force -B "$branch" "refs/remotes/origin/$branch"
+        if [ "$outside_src" = yes ]; then touch -- "$restart_request"; fi
       fi
 
       # The unit installs a package-lock.json at its start, and stamps it.
@@ -400,6 +450,12 @@ let
       read -r kind started <<< "$property"
       if [ "$kind" != t ] || ! [[ "$started" =~ ^[0-9]+$ ]] || ! [[ "$requested" =~ ^[0-9]+$ ]]; then
         say "cannot tell whether lighting-port.service started after the update ($property); not restarting it"
+        exit 0
+      fi
+      # lighting-port sets the request's time. One dated in the future would
+      # be newer than every start, and restart the unit every minute.
+      if [ "$requested" -gt "$(date +%s%6N)" ]; then
+        say "ignoring a restart request dated in the future"
         exit 0
       fi
       if [ "$requested" -gt "$started" ]; then
@@ -524,6 +580,9 @@ in
       description = "Keep ${checkout} at ${cfg.branch} on origin";
       restartIfChanged = false;
       environment.HOME = stateDir;
+      # A start limit, hit by runs in quick succession (by hand, besides the
+      # timer), would leave the follower failed, which a switch counts.
+      unitConfig.StartLimitIntervalSec = 0;
       serviceConfig = {
         Type = "oneshot";
         ExecStart = lib.getExe follow;
@@ -531,7 +590,9 @@ in
         ExecStartPost = "+${lib.getExe restartForUpdate}";
         User = "lighting-port";
         Group = "lighting-port";
-        TimeoutStartSec = "${toString (fetchTimeoutSeconds + 60)}s";
+        # Above the run's own bound (plus timeout's 10 s grace to kill it)
+        # and the restart check, so the script, not systemd, ends a long run.
+        TimeoutStartSec = "${toString (runTimeoutSeconds + 30)}s";
         UMask = "0007";
         ProtectSystem = "strict";
         # Optional: before the main unit's first start it does not exist,

@@ -58,8 +58,15 @@ checkout is anywhere else, forces it there (`git checkout --force -B`):
 3. Changing `services.lighting-port.branch` switches the checkout to the new
    branch on the first run after the deploy.
 4. A fetch that fails (GitHub or the network down) is logged and tried again
-   next minute. The follower never ends `failed`, and it is not a deploy
-   health unit.
+   next minute. A run is stopped after 150 s, and a git lock that a killed
+   run left behind is moved aside to `/var/lib/lighting-port/.stale-git-locks`
+   once it is 5 minutes old. The follower never ends `failed`, and it is not
+   a deploy health unit.
+5. A branch that no longer exists on origin freezes the checkout where it is,
+   and every run logs `branch <name> no longer exists on origin`. When the
+   port's pull request is merged and `feature/typescript-lighting-scripts` is
+   deleted, set `services.lighting-port.branch = "main"` in the same change
+   (or before deleting the branch); until that deploys, pushes reach nothing.
 
 ```sh
 journalctl -u lighting-port-follow -f              # what it fetched, discarded, restarted

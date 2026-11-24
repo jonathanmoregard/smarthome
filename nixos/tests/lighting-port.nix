@@ -613,10 +613,11 @@ pkgsSystem.testers.runNixOSTest {
             timeout=120,
         )
 
-    # One follower run, and whether it restarted the unit. The stand-in
-    # watcher writes its record once, at its start: an emptied record that
-    # stays empty shows the unit was not restarted; one that fills shows it
-    # was.
+    # One follower run, and whether it restarted the unit. The root part
+    # logs its restart before it asks for it, within the run, so that run's
+    # journal says whether it did, however slow the stop. The stand-in
+    # watcher writes its record once, at its start: one that fills again
+    # shows the restart happened.
     def follow_restarts(restarted):
         started = show("ExecMainStartTimestampMonotonic")
         machine.succeed(
@@ -624,12 +625,15 @@ pkgsSystem.testers.runNixOSTest {
             ": > ${scripts}/.runtime/record.json"
         )
         follow()
+        run = machine.succeed(
+            f"journalctl _SYSTEMD_INVOCATION_ID={follow_show('InvocationID')} -o cat --no-pager"
+        )
+        asked = "lighting-port-follow: restarting lighting-port.service for the update" in run
+        assert asked == restarted, run
         if restarted:
             machine.wait_until_succeeds("test -s ${scripts}/.runtime/record.json", timeout=90)
             assert show("ExecMainStartTimestampMonotonic") != started
         else:
-            machine.sleep(3)
-            machine.succeed("test ! -s ${scripts}/.runtime/record.json")
             assert show("ExecMainStartTimestampMonotonic") == started
             machine.succeed("cat /tmp/record.kept > ${scripts}/.runtime/record.json")
 
@@ -744,9 +748,64 @@ pkgsSystem.testers.runNixOSTest {
     machine.succeed("systemctl stop lighting-port-follow.service", timeout=60)
     assert follow_show("Result") == "success", follow_show("Result")
     assert follow_show("ActiveState") == "inactive", follow_show("ActiveState")
+
+    # A run that outlasts its bound (150 s; 5 s in a copy of the script,
+    # against that 20 s fetch) is stopped by the script itself and exits 0,
+    # before systemd's start timeout would leave the unit failed.
+    follow_exec = machine.succeed(
+        "systemctl cat lighting-port-follow.service | sed -n 's/^ExecStart=//p'"
+    ).strip()
+    machine.succeed(
+        "mkdir -p /var/lib/lighting-port-widened && "
+        f"sed 's/^run_seconds=.*/run_seconds=5/' {follow_exec} > /var/lib/lighting-port-widened/follow && "
+        "chmod 555 /var/lib/lighting-port-widened/follow && "
+        "grep -qx 'run_seconds=5' /var/lib/lighting-port-widened/follow && "
+        "mkdir -p /run/systemd/system/lighting-port-follow.service.d && "
+        "printf '[Service]\\nExecStart=\\nExecStart=/var/lib/lighting-port-widened/follow\\n' "
+        "> /run/systemd/system/lighting-port-follow.service.d/bounded.conf && "
+        "systemctl daemon-reload"
+    )
+    follow()
+    follow_logged("lighting-port-follow: the run took longer than 5s; stopped it, trying again next minute")
+    machine.succeed(
+        ": > /run/systemd/system/lighting-port-follow.service.d/bounded.conf && systemctl daemon-reload"
+    )
     as_service(": > /var/lib/lighting-port/.gitconfig")
     follow()
     assert head() == target
+
+    # A git lock left by a run killed outright (a power cut) is moved aside
+    # once it is older than any run, instead of failing every later run for
+    # good. A fresh one may be a git still running, and is left alone.
+    target_before = target
+    target = push("printf 'export const locked = 1;\\n' > lighting-scripts/src/port.ts", "locked")
+    as_service("touch ${src}/.git/index.lock")
+    follow()
+    assert head() == target_before
+    machine.succeed("test -e ${src}/.git/index.lock")
+    as_service("touch -d '-10 min' ${src}/.git/index.lock")
+    follow()
+    assert head() == target
+    machine.succeed("test ! -e ${src}/.git/index.lock")
+    follow_logged("lighting-port-follow: moved a stale git lock aside: .git/index.lock")
+    machine.succeed("ls /var/lib/lighting-port/.stale-git-locks/*index.lock")
+
+    # A restart request dated in the future (a clock stepped back) is never
+    # newer than a start, so it would restart the unit every minute: it is
+    # ignored, and set back.
+    as_service("touch -d '2099-01-01' /var/lib/lighting-port/.follow-restart")
+    follow_restarts(False)
+    follow_logged("lighting-port-follow: the restart request was dated in the future; setting it back")
+    follow_restarts(False)
+
+    # A followed branch gone from origin (merged and deleted) says so, and
+    # leaves the checkout as it is until the option names another branch.
+    as_service("git -C ${origin} branch -m ${branch} gone")
+    follow()
+    follow_logged("lighting-port-follow: branch ${branch} no longer exists on origin")
+    assert head() == target
+    as_service("git -C ${origin} branch -m gone ${branch}")
+    follow()
 
     # node_modules the service cannot rewrite (npm run as the operator with
     # umask 022) is the operator's to fix, and says so, instead of an npm ci

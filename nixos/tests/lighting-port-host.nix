@@ -46,6 +46,9 @@ assert follow.wantedBy == [ ];
 assert !follow.restartIfChanged;
 assert builtins.elem "timers.target" followTimer.wantedBy;
 assert follow.serviceConfig.Type == "oneshot";
+# Runs in quick succession (by hand, besides the timer) never hit a start
+# limit, which would leave the follower failed.
+assert follow.unitConfig.StartLimitIntervalSec == 0;
 # Git in the checkout runs as the user that owns it, never as root.
 assert follow.serviceConfig.User == "lighting-port";
 pkgsSystem.runCommand "lighting-port-host-contract" { } "touch $out"
