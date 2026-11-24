@@ -358,7 +358,9 @@ test("closeout r3 B2: the rollout's lamp change bridge passes a person's call th
   // too, and the port drops that room ("closeout r3 B2 (ruling)" below). What the bridge still decides is a person's light call.
   assert.equal(passes(conditions, 'turn_off', { entity_id: 'light.lamp_b1' }), true, 'control: reach is the port\'s, so a room not on the port is passed');
   assert.equal(passes(conditions, 'turn_off', { entity_id: 'light.lamp_a2' }, null), false, 'control: a call no person made is not passed');
-  assert.equal(passes(conditions, 'toggle', { entity_id: 'light.lamp_a2' }), false, 'control: a light call other than turn_on or turn_off is not passed');
+  // Close-out r4 ruling A2/B4: a person's toggle is passed too; the port resolves it per lamp.
+  assert.equal(passes(conditions, 'toggle', { entity_id: 'light.lamp_a2' }), true, "control: a person's toggle is passed");
+  assert.equal(passes(conditions, 'reload', { entity_id: 'light.lamp_a2' }), false, 'control: a light call other than turn_on, turn_off or toggle is not passed');
   const by = Object.fromEntries((['area_id', 'device_id', 'label_id'] as const).map(key =>
     [key, passes(conditions, 'turn_off', { [key]: { area_id: 'room-a', device_id: 'device-a', label_id: 'label-a' }[key] })]));
   assert.deepEqual(by, { area_id: true, device_id: true, label_id: true });

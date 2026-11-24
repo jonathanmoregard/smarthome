@@ -445,7 +445,7 @@ function rolloutBridge(slug: string, config: JsonObject): { status: number | nul
   return { status: run.status, stderr: run.stderr, conditions };
 }
 
-test("closeout r4 A2/B4 (bridge): the rollout's lamp change bridge passes a person's light.toggle", { todo: 'closeout r4 A2/B4' }, () => {
+test("closeout r4 A2/B4 (bridge): the rollout's lamp change bridge passes a person's light.toggle", () => {
   // Break: the bridge is built to pass `service in ('turn_on', 'turn_off')` only (scripts/export-bridge.py:77, 116), so a
   // person's toggle of a port room's lamp never reaches the port. Rendered with Home Assistant 2026.7.4's Jinja.
   const { status, stderr, conditions } = rolloutBridge('lighting_schedule_lamp_change_detector', captured('lighting_schedule_lamp_change_detector'));

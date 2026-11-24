@@ -65,16 +65,17 @@ class ExportError(Exception):
 
 
 # The lamp change detector's own condition passes only a person's turn_on: the old scripts made no override of a
-# power-only call. The port reads a person's turn_off as a lamp switched off (src/adapter/codecs/inputs.ts), so the
-# detector's bridges pass every person's light call, turn_on or turn_off, whatever it targets: which lamps it reaches,
-# and whether their rooms are the port's, the port alone decides (src/adapter/live-rooms.ts, ownPart). The condition is
-# parsed into its top-level `and` terms and built again as a person's call, turn_on or turn_off, and the rest of its
-# terms as they were (the running-script check). A shape the export does not know stops it.
+# power-only call. The port reads a person's turn_off as a lamp switched off, and a toggle as each lamp it reaches
+# switched against what that lamp shows (src/adapter/codecs/inputs.ts), so the detector's bridges pass every person's
+# light call, turn_on, turn_off or toggle, whatever it targets: which lamps it reaches, and whether their rooms are the
+# port's, the port alone decides (src/adapter/live-rooms.ts, ownPart). The condition is parsed into its top-level `and`
+# terms and built again as a person's call, turn_on, turn_off or toggle, and the rest of its terms as they were (the
+# running-script check). A shape the export does not know stops it.
 DETECTOR = 'lighting_schedule_lamp_change_detector'
 PERSON = 'trigger.event.context.user_id is not none'
 SERVICE = 'trigger.event.data.service'
 TURN_ON_ONLY = re.compile(r"""trigger\.event\.data\.service\s*==\s*(['"])turn_on\1""")
-TURN_ON_OR_OFF = "trigger.event.data.service in ('turn_on', 'turn_off')"
+LAMP_CALL = "trigger.event.data.service in ('turn_on', 'turn_off', 'toggle')"
 TOKEN = re.compile(r"""'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|[()\[\]{}]|\s+|[^\s()\[\]{}'"]+""")
 
 
@@ -96,8 +97,8 @@ def and_terms(expression):
     return terms + [current.strip()]
 
 
-def passing_turn_off(conditions):
-    """The detector's conditions with its one template condition built again to pass a person's turn_on or turn_off."""
+def passing_lamp_calls(conditions):
+    """The detector's conditions with its one template condition built again to pass a person's turn_on, turn_off or toggle."""
     templates = [c for c in conditions if isinstance(c, dict) and c.get('condition') == 'template']
     if len(templates) != 1 or not isinstance(templates[0].get('value_template'), str):
         raise ExportError(f'{DETECTOR}: expected one template condition, found {len(templates)}')
@@ -112,8 +113,8 @@ def passing_turn_off(conditions):
     unknown = [term for term in rest if 'trigger.event.data' in term and not TURN_ON_ONLY.fullmatch(term)]
     if unknown:
         raise ExportError(f'{DETECTOR}: a filter of the call other than `{SERVICE} == \'turn_on\'`, {unknown[0]!r}: '
-                          'the bridge passes a person\'s turn_on or turn_off, and the rest of the call is the port\'s to read')
-    built = '{{ ' + ' and '.join([PERSON, TURN_ON_OR_OFF] + [t for t in rest if not TURN_ON_ONLY.fullmatch(t)]) + ' }}'
+                          'the bridge passes a person\'s turn_on, turn_off or toggle, and the rest of the call is the port\'s to read')
+    built = '{{ ' + ' and '.join([PERSON, LAMP_CALL] + [t for t in rest if not TURN_ON_ONLY.fullmatch(t)]) + ' }}'
     return [dict(c, value_template=built) if c is templates[0] else c for c in conditions]
 
 
@@ -124,7 +125,7 @@ def bridge(slug, original):
         if not keys:
             raise ExportError(f'{DETECTOR}: expected a list of conditions, which hold its check of a person\'s call')
         for key in keys:
-            result[key] = passing_turn_off(result[key])
+            result[key] = passing_lamp_calls(result[key])
     action = original.get('actions', original.get('action', []))
     rooms = set(re.findall(r'script\.ls_remote_gesture_([a-z0-9_]+)', json.dumps(action)))
     args = {'trigger': TRIGGER_DATA}
