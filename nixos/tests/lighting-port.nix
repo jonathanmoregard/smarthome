@@ -16,7 +16,10 @@
 #     the watcher's start and the script's stop handling;
 #   - a stop is prompt in every phase (a backoff, a stalled clone), and a
 #     clone from an origin that stalls gives up and is retried;
-#   - repeated setup failures back off, so a dead origin is not hammered;
+#   - repeated setup failures back off, so a dead origin is not hammered, and
+#     so does a watcher that exits again right after each start (the port
+#     refusing its rooms, catalog or token); that count starts over once the
+#     watcher has run a while;
 #   - a refusal (env file or LIVE_ROOMS missing, token unreadable, catalog
 #     missing, node_modules not writable by the service) stops the unit
 #     cleanly with status 78 and runs nothing; .runtime exists, writable by
@@ -392,15 +395,25 @@ pkgsSystem.testers.runNixOSTest {
     as_operator("printf 'LIVE_ROOMS=bedroom\\n' > /var/lib/lighting-port/env")
 
     # A crashing watcher is restarted, and its status never reaches systemd.
+    # One that exits again right after each start (the port refusing an
+    # unknown room, a catalog or a revoked token, which the unit cannot tell
+    # from a crash) backs off like a failing setup, instead of restarting,
+    # and recompiling, every 10 s for good.
     restarts = int(show("NRestarts"))
+    marker = machine.succeed("date +%s").strip()
+    machine.sleep(1)
     as_operator("printf 'yes\\n' > ${scripts}/.runtime/crash")
+    logged("lighting-port: watcher exited with status 3 after ")
     machine.wait_until_succeeds(
-        "journalctl -u lighting-port.service -o cat --no-pager | "
-        "grep -F 'lighting-port: watcher exited with status 3'",
+        journal_since(marker) + " | grep -F '; retrying in 10s (watcher exit 1 in a row)'",
         timeout=60,
     )
     machine.wait_until_succeeds(
         f"test \"$(systemctl show lighting-port.service -P NRestarts)\" -gt {restarts}",
+        timeout=60,
+    )
+    machine.wait_until_succeeds(
+        journal_since(marker) + " | grep -F '; retrying in 20s (watcher exit 2 in a row)'",
         timeout=60,
     )
     for _ in range(10):
@@ -446,6 +459,39 @@ pkgsSystem.testers.runNixOSTest {
         ": > /run/systemd/system/lighting-port.service.d/widened.conf && systemctl daemon-reload"
     )
     as_operator("printf 'no\\n' > ${scripts}/.runtime/stubborn")
+    restart_watcher()
+
+    # The count of watcher exits starts over once the port has run a while
+    # (5 min; 5 s in a copy of the script), at its next exit or stop: a port
+    # that crashes once a day comes back after 10 s, not after the minutes a
+    # past crash loop worked up to.
+    machine.succeed(
+        f"sed 's/^stable_seconds=.*/stable_seconds=5/' {exec_start} > /var/lib/lighting-port-widened/settles && "
+        "chmod 555 /var/lib/lighting-port-widened/settles && "
+        "grep -qx 'stable_seconds=5' /var/lib/lighting-port-widened/settles && "
+        "printf '[Service]\\nExecStart=\\nExecStart=/var/lib/lighting-port-widened/settles\\n' "
+        "> /run/systemd/system/lighting-port.service.d/widened.conf && "
+        "systemctl daemon-reload"
+    )
+    as_service("printf '4\\n' > /var/lib/lighting-port/.watcher-exits")
+    restart_watcher()
+    machine.sleep(6)
+    marker = machine.succeed("date +%s").strip()
+    machine.sleep(1)
+    as_operator("printf 'yes\\n' > ${scripts}/.runtime/crash")
+    machine.wait_until_succeeds(
+        journal_since(marker) + " | grep -F '; retrying in 10s (watcher exit 1 in a row)'",
+        timeout=60,
+    )
+    machine.succeed(": > ${scripts}/.runtime/record.json")
+    as_operator("printf 'no\\n' > ${scripts}/.runtime/crash")
+    machine.wait_until_succeeds("test -s ${scripts}/.runtime/record.json", timeout=90)
+    machine.sleep(6)
+    stops_promptly()
+    machine.succeed("test \"$(cat /var/lib/lighting-port/.watcher-exits)\" = 0")
+    machine.succeed(
+        ": > /run/systemd/system/lighting-port.service.d/widened.conf && systemctl daemon-reload"
+    )
     restart_watcher()
 
     # The checkout is the operator's working copy: a local edit and a newer

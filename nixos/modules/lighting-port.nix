@@ -22,8 +22,8 @@
 #   - something only the operator can fix stops the unit cleanly with status
 #     78 and is not retried (`refuse`);
 #   - any other setup failure, foreseen or not (`retry`, `catch_all`), and the
-#     watcher exiting, exit 0 and are restarted by Restart=always. The real
-#     status is logged;
+#     watcher exiting, exit 0 and are restarted by Restart=always, backing
+#     off while they repeat. The real status is logged;
 #   - a stop reaches the host once, through the watcher, and is clean even
 #     when the port's own shutdown hangs.
 
@@ -41,6 +41,9 @@ let
   # How long the port gets to shut down before the unit kills it itself;
   # below TimeoutStopSec, so systemd never has to.
   stopGraceSeconds = 15;
+  # A watcher that has run this long before it exits (or is stopped) ran;
+  # its exit is not part of a run of failed starts.
+  stableSeconds = 300;
 
   isRuntimePath = value:
     lib.hasPrefix "/" value
@@ -56,29 +59,34 @@ let
       checkout=${checkout}
       partial=${stateDir}/.src.partial
       failures_file=${stateDir}/.setup-failures
+      exits_file=${stateDir}/.watcher-exits
       scripts=${scriptsDir}
       env_file=${envFile}
       catalog=.runtime/catalog.json
       stop_grace_seconds=${toString stopGraceSeconds}
+      stable_seconds=${toString stableSeconds}
 
       say() { printf 'lighting-port: %s\n' "$*" >&2; }
       refuse() { say "refusing to start: $*"; exit ${toString refusedStatus}; }
 
-      # A setup failure worth another try. Each consecutive one waits longer
-      # (10 s, doubling, at most 5 min) before handing back to Restart=, so a
-      # deleted branch or an unreachable origin is not hammered. The count
-      # resets once setup gets through.
-      retry() {
-        failures=$(cat -- "$failures_file" 2>/dev/null) || failures=0
+      # A failure worth another try. Each consecutive one, counted in
+      # <count file>, waits longer (10 s, doubling, at most 5 min) before
+      # handing back to Restart=, so a deleted branch, an unreachable origin
+      # or a port that refuses its configuration is not hammered.
+      # back_off <count file> <what is counted> <message>
+      back_off() {
+        failures=$(cat -- "$1" 2>/dev/null) || failures=0
         if ! [[ "$failures" =~ ^[0-9]+$ ]]; then failures=0; fi
         failures=$((failures + 1))
         delay=300
         if [ "$failures" -le 5 ]; then delay=$((10 << (failures - 1))); fi
-        printf '%s\n' "$failures" > "$failures_file" || true
-        say "$1; retrying in ''${delay}s (setup failure $failures in a row)"
+        printf '%s\n' "$failures" > "$1" || true
+        say "$3; retrying in ''${delay}s ($2 $failures in a row)"
         interruptible sleep "$delay"
         exit 0
       }
+      # A setup step failed. The count resets once setup gets through.
+      retry() { back_off "$failures_file" "setup failure" "$1"; }
 
       # A stop (or a restart by a deploy) is never a failure. systemd sends
       # its SIGTERM to this script alone (KillMode=mixed) and SIGKILLs
@@ -174,6 +182,15 @@ let
       # it runs together.
       setsid node scripts/dev.mjs --live --config "$catalog" --live-rooms "$LIVE_ROOMS" &
       watcher=$!
+      started=$(date +%s)
+
+      # The watcher has run long enough that a run of failed starts, if there
+      # was one, is over.
+      settle() {
+        if [ $(($(date +%s) - started)) -ge "$stable_seconds" ]; then
+          printf '0\n' > "$exits_file" || true
+        fi
+      }
 
       # The stop goes to the watcher alone, which passes it on to the host it
       # runs: the host handles one SIGTERM, and a second one (as every
@@ -184,6 +201,7 @@ let
       # first, and the stop stays clean.
       # shellcheck disable=SC2329 # invoked by the TERM/INT trap
       stop_watcher() {
+        settle
         kill -TERM -- "$watcher" 2>/dev/null || true
         for _ in $(seq $((stop_grace_seconds * 2))); do
           if ! kill -0 -- "-$watcher" 2>/dev/null; then exit 0; fi
@@ -197,8 +215,16 @@ let
 
       status=0
       wait "$watcher" || status=$?
-      say "watcher exited with status $status; restarting"
-      exit 0
+      # From here a stop has no watcher to pass on.
+      trap 'exit 0' TERM INT
+      # The port exits on what only the operator can fix (a room in
+      # LIVE_ROOMS the house does not have, a catalog it refuses, a revoked
+      # token) as it does on a crash, and says which above; the unit cannot
+      # tell them apart. Either way a port that exits again right after each
+      # start backs off, instead of restarting, and recompiling, every 10 s.
+      settle
+      back_off "$exits_file" "watcher exit" \
+        "watcher exited with status $status after $(($(date +%s) - started))s"
     '';
   };
 in

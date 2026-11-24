@@ -122,8 +122,13 @@ What the states mean:
    on its own, waiting 10 s, then twice as long each time, at most 5 min.
    A clone that has moved less than 1 KB/s for a minute counts as failed.
    A restart retries at once.
-4. `watcher exited with status N; restarting`: the port stopped or crashed
-   and is restarted after 10 s.
+4. `watcher exited with status N after <t>s; retrying in <n>s (watcher exit
+   <k> in a row)`: the port exited. It crashed, or refused something only
+   you can fix (a room in `LIVE_ROOMS` the house does not have, a catalog it
+   rejects, a revoked token); the lines before say which. The service cannot
+   tell these apart, so it never stops for them: it restarts the port with
+   the same backoff as a failed setup step, and the count starts over once
+   the port has run 5 minutes.
 
 `systemctl stop lighting-port` lasts until the next boot or deploy, which
 start it again. To keep the port off, remove the `LIVE_ROOMS` line. A port
