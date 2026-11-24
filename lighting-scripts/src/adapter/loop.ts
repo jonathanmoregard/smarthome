@@ -114,7 +114,7 @@ export function wantsTurn(kept: Kept, entity: string): boolean {
 export type Turn = {
   state: AdapterState; outputs: Output[]; sends: readonly Sending[]; now: Instant; nextChange: Instant | undefined;
   dropped: string | undefined;
-  /** What the turn found wrong with the house, each said once, when it is first found: the host's error log. */
+  /** The host's error log: the input dropped, if it was, and what the turn found wrong with the house, each said once, when first found. */
   errors: readonly string[];
   /** The outputs, by their place, after which the journal is saved: each bulb's publish, so a crash loses no send. */
   journalled: readonly number[];
@@ -251,6 +251,7 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
   const topics = bulbTopics(house.catalog), groups = bulbGroups(house.catalog);
   const topicless = entriesOf(model.config.lamps).flatMap(([, lamp]) => lamp.bulbs.flatMap(({ bulb }) => topics[bulb] === undefined ? [bulb] : []));
   const errors = [
+    ...dropped === undefined ? [] : [`lighting: ${input.kind}: ${dropped}; dropped`],
     ...state?.observed.bridge !== 'unknown' && observed.bridge === 'unknown'
       ? [`lighting: Home Assistant has no ${BRIDGE_SENSOR}; Zigbee2MQTT's connection is unknown, and the bulbs are sent as if it were up`] : [],
     ...topicless.filter(bulb => state?.topicless.includes(bulb) !== true).map(bulb => `lighting: the catalog gives ${bulb} no topic; it is sent nothing`),

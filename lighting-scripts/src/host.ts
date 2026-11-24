@@ -39,19 +39,12 @@ const LONGEST_WAIT_MS = 2_147_483_647;
 const OWN_CONTEXTS = 1024;
 /** How soon a turn that threw is followed by a wake. */
 const AFTER_A_FAILED_TURN_SECONDS = 5;
-/**
- * The turns in a row that throw, or whose every call Home Assistant refuses, before the host counts as unhealthy and its
- * heartbeat stops, so the watchdog hands the rooms back.
- */
+/** The turns in a row that throw, or whose every call is refused, before the heartbeat stops and the watchdog hands the rooms back. */
 const UNHEALTHY_AFTER = 3;
 
 export class Host {
-  private readonly io: HostIo;
-  private mirror: HouseMirror;
-  private catalog: Catalog;
-  private kept: Kept;
-  private queue: Promise<void> = Promise.resolve();
-  private cancelWake: (() => void) | undefined; private closed = false;
+  private readonly io: HostIo; private mirror: HouseMirror; private catalog: Catalog; private kept: Kept;
+  private queue: Promise<void> = Promise.resolve(); private cancelWake: (() => void) | undefined; private closed = false;
   /** The context ids of our recent calls, the turns run so far, the last one with a failed call, and whether one is calling. */
   private ownContexts: string[] = [];
   private turns = 0; private failedTurn = -1; private calling = false; private thrownInARow = 0; private refusedInARow = 0;
@@ -112,10 +105,8 @@ export class Host {
   /** One turn: its outputs made one at a time; the answer is when to be woken. */
   private async run(input: HaInput, now: Instant): Promise<Instant | undefined> {
     const turn = handleInput(this.kept, houseView(this.mirror, now, this.catalog), input, this.io.rooms);
-    if (turn.dropped !== undefined) this.io.log.error(`lighting: ${input.kind}: ${turn.dropped}; dropped`);
     for (const error of turn.errors) this.io.log.error(error);
-    const failed: boolean[] = [], started = performance.now();
-    this.turns++; this.calling = true;
+    const failed: boolean[] = [], started = performance.now(); this.turns++; this.calling = true;
     for (const [index, output] of turn.outputs.entries()) {
       const call = outputCall(output, turn.now);
       if (!this.connected) break;
@@ -134,9 +125,8 @@ export class Host {
     }
     this.calling = false;
     if (failed.includes(false)) this.refusedInARow = 0;
-    else if (failed.length > 0 && failed.length === turn.outputs.length && ++this.refusedInARow === UNHEALTHY_AFTER) {
+    else if (failed.length > 0 && failed.length === turn.outputs.length && ++this.refusedInARow === UNHEALTHY_AFTER)
       this.io.log.error(`lighting: Home Assistant refused every call of ${UNHEALTHY_AFTER} turns in a row; the heartbeat stops until it takes one`);
-    }
     const settled = afterOutputs(turn, failed);
     this.kept = { kind: 'running', state: settled.state };
     // Each publish saved the journal; any other change of the beliefs or the share is saved once the turn is done.
@@ -164,10 +154,8 @@ export class Host {
 
   /** A state Home Assistant reports changed, or removed, in order with the inputs; one a turn waits on runs a turn. */
   stateChanged(entity: string, state: EntityState | undefined): void {
-    this.enqueue(async () => {
-      this.mirror = { ...this.mirror, state: withState(this.mirror.state, entity, state) };
-      if (wantsTurn(this.kept, entity)) await this.turn({ kind: 'wake' });
-    });
+    this.enqueue(async () => { this.mirror = { ...this.mirror, state: withState(this.mirror.state, entity, state) }; });
+    this.enqueue(async () => { if (wantsTurn(this.kept, entity)) await this.turn({ kind: 'wake' }); });
   }
 
   /**
@@ -204,10 +192,8 @@ export class Host {
 
   /** Settles once every input has run, those accepted while waiting included. */
   async idle(): Promise<void> {
-    for (let current = this.queue; ; current = this.queue) {
-      await current;
-      if (current === this.queue) return;
-    }
+    let current: Promise<void>;
+    do { current = this.queue; await current; } while (current !== this.queue);
   }
 
   async close(): Promise<void> { this.closed = true; this.cancelWake?.(); await this.queue; }
