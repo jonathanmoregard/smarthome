@@ -16,14 +16,14 @@ import type { MqttTopic } from './ids.ts';
 import type { BulbId } from '../../domain/types/ids.ts';
 import type { Catalog } from './catalog.ts';
 import type { JsonObject, JsonValue } from '../ha-client.ts';
-import { toBulbId, toMqttTopic } from './ids.ts';
+import { toBulbId, toMqttTopic, ZIGBEE2MQTT_BASE } from './ids.ts';
 
 export type BulbGroup = { readonly topic: MqttTopic; readonly members: readonly BulbId[] };
 /** A verified group on a `/set` topic with two or more members, none twice; anything else is none. */
 function usableGroup(entry: JsonValue): BulbGroup | undefined {
   if (!isMapping(entry) || entry['verified'] !== true) return undefined;
   const topic = entry['topic'], members = entry['members'];
-  if (typeof topic !== 'string' || !topic.startsWith('zigbee2mqtt/') || !topic.endsWith('/set')) return undefined;
+  if (typeof topic !== 'string' || !topic.startsWith(`${ZIGBEE2MQTT_BASE}/`) || !topic.endsWith('/set')) return undefined;
   if (!Array.isArray(members) || members.length <= 1) return undefined;
   const names = members.filter((member): member is string => typeof member === 'string');
   if (names.length !== members.length || new Set(names).size !== names.length) return undefined;

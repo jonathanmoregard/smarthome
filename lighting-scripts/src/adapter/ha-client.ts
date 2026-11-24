@@ -156,6 +156,15 @@ export class HomeAssistantClient implements HaClient {
     this.subscriptions.push(unsubscribe);
   }
 
+  /**
+   * The messages on an MQTT topic, through Home Assistant's `mqtt/subscribe` (an admin's only, as `execute_script`
+   * is): each one's payload as Home Assistant forwards it, text. Subscribed again after a reconnect, as an event is.
+   */
+  async subscribeMqtt(topic: string, callback: (payload: JsonValue | undefined) => void): Promise<void> {
+    const unsubscribe = await this.connection.subscribeMessage<unknown>(message => callback(object(message).payload), { type: 'mqtt/subscribe', topic });
+    this.subscriptions.push(unsubscribe);
+  }
+
   onConnection(callback: (connected: boolean) => void): void {
     for (const [name, value] of [['ready', true], ['disconnected', false]] as const) {
       const listener = () => callback(value);

@@ -132,6 +132,9 @@ export function toMqttTopic(raw: string): MqttTopic {
   return raw as MqttTopic;
 }
 
+/** Zigbee2MQTT's base topic: every bulb's and group's topic is under it, and so is its bridge's (`<base>/bridge/event`). */
+export const ZIGBEE2MQTT_BASE = 'zigbee2mqtt';
+
 export function toRoomId(raw: string): RoomId {
   // Cast: the edge read this string as a room; this is the one place that says so.
   return raw as RoomId;
