@@ -144,8 +144,20 @@ port does not roll the server back.
 A clone cut short leaves `/var/lib/lighting-port/.src.partial.<time>` behind;
 delete it when convenient.
 
-To start over from a fresh clone, move `src` aside. The catalog and the
-journal live in its `.runtime`, so carry them into the new checkout:
+To start over from a fresh clone, move `src` aside. A fresh clone holds only
+the branch as it is on GitHub: commits you have not brought into the
+repository, other local branches, stashes and uncommitted edits stay in the
+old checkout alone. Look first, as `lighting-port`:
+
+```sh
+sudo -u lighting-port git -C /var/lib/lighting-port/src status
+sudo -u lighting-port git -C /var/lib/lighting-port/src log --branches --not --remotes --oneline
+sudo -u lighting-port git -C /var/lib/lighting-port/src stash list
+```
+
+and reconcile anything you want to keep (commit it on a branch and bundle it,
+see below) before you go on. The catalog and the journal live in the old
+checkout's `.runtime`, so carry them into the new one:
 
 ```sh
 sudo systemctl stop lighting-port
@@ -163,7 +175,9 @@ sudo systemctl restart lighting-port
 ```
 
 Move them, do not copy them: a copy is yours, with your umask, and the service
-may not be able to read or replace it. Delete `src.old` when convenient.
+may not be able to read or replace it. Keep `src.old` until you are sure
+nothing in it is still needed; it is the only copy of whatever you did not
+reconcile.
 
 ## Reconciling edits into the repository
 
