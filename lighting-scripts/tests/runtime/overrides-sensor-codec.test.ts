@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { BUILT_IN_RANGE_DEFAULTS, EPOCH, decodeOverrides, encodeOverrides } from '../../src/adapter/codecs/overrides-sensor.ts';
 import { DEFAULT_STEP_RANGE } from '../../src/domain/remote.ts';
+import { NO_PLANT_OVERRIDES } from '../../src/domain/plant-lights.ts';
 import { storeKeys } from '../../src/adapter/codecs/overlay-key.ts';
 import type { OverridesState } from '../../src/adapter/codecs/overrides-sensor.ts';
 import type { JsonObject, JsonValue } from '../../src/adapter/ha-client.ts';
@@ -333,7 +334,7 @@ test("the Model's overlays written into an empty store decode back to the same o
   // Every overlay of the synthetic house, including the combinations no writer makes today (a level hold newer than
   // a candle, a Normal over a room). Break: an encoder writes a part the decoder reads back differently.
   const house = syntheticHouse();
-  const state: OverridesState = { overlays: house.overlays, modeOverlay: house.modeOverlay, switchRanges: house.switchRanges, rangeDefaults: house.rangeDefaults };
+  const state: OverridesState = { overlays: house.overlays, modeOverlay: house.modeOverlay, switchRanges: house.switchRanges, rangeDefaults: house.rangeDefaults, plantOverrides: house.plantOverrides };
   const written = encodeOverrides(state, {}, allRooms, config, sources);
   assert.deepEqual(decodeOverrides(written, sources), state);
   // A candle older than both parts runs from the level's time (review item 3); what is written then reads back as itself.
@@ -627,4 +628,54 @@ test("the mode's entry is the one the catalog's mode names, and it is written un
   assert.deepEqual(decodeOverrides({ overrides: { 'mode:sara': modeEntry(7) } }, evening).modeOverlay, { active: false });
   const state: OverridesState = { ...decodeOverrides({}, evening), modeOverlay: { active: true, since: at(7) } };
   assert.deepEqual((encodeOverrides(state, {}, allRooms, config, evening).overrides as JsonObject)['mode:evening'], stored);
+});
+
+// The plant lights' overrides: `plant_hand_switches` and `plant_all_off`, written by the port only.
+
+const plantA = id.switch('switch.plant_a');
+const configWithPlantA = { ...config, switches: { ...config.switches, [plantA]: { kind: 'plant light', room: roomA, hours: { follows: 'house' } } } } as typeof config;
+const plantsHeld = { handSwitches: { [plantA]: { power: 'on' as const, since: at(30) } }, allOff: { since: at(40) } };
+
+test('the stored plant overrides are read', () => {
+  // Break: either attribute is not read, or a key is read under the wrong id.
+  const read = decodeOverrides({ plant_hand_switches: { [plantA]: { power: 'off', when: iso(10) } }, plant_all_off: { held: { when: iso(20) } } }, sources);
+  assert.deepEqual(read.plantOverrides, { handSwitches: { [plantA]: { power: 'off', since: at(10) } }, allOff: { since: at(20) } });
+});
+
+test('a sensor from before plant lights holds none', () => {
+  assert.deepEqual(decodeOverrides(fullStore(), sources).plantOverrides, NO_PLANT_OVERRIDES);
+});
+
+test('garbage in a stored plant override is dropped, never raised', () => {
+  // Break: a bad power, a bad when or a non-mapping raises, or is read as an override.
+  const read = decodeOverrides({ plant_hand_switches: { [plantA]: { power: 'dim', when: iso(10) }, 'switch.plant_b': 7 }, plant_all_off: { held: { when: 12 } } }, sources);
+  assert.deepEqual(read.plantOverrides, NO_PLANT_OVERRIDES);
+  assert.deepEqual(decodeOverrides({ plant_hand_switches: 'x', plant_all_off: [] }, sources).plantOverrides, NO_PLANT_OVERRIDES);
+});
+
+test('the plant overrides are written and read back, and nothing else moves', () => {
+  // Break: a plant override is written into an attribute the old scripts read.
+  const found = fullStore();
+  const state = { ...decodeOverrides(found, sources), plantOverrides: plantsHeld };
+  const written = encodeOverrides(state, found, allRooms, configWithPlantA, sources);
+  assert.deepEqual(decodeOverrides(written, sources).plantOverrides, plantsHeld);
+  for (const attribute of ['overrides', 'power', 'switch_ranges', 'range_defaults']) assert.deepEqual(written[attribute], found[attribute], attribute);
+});
+
+test('a released all-off and hand switch are removed from the sensor', () => {
+  // Break: a released override stays in the sensor and is read again after a restart.
+  const found = fullStore();
+  const state = decodeOverrides(found, sources);
+  const held = encodeOverrides({ ...state, plantOverrides: plantsHeld }, found, allRooms, configWithPlantA, sources);
+  const released = encodeOverrides({ ...state, plantOverrides: NO_PLANT_OVERRIDES }, held, allRooms, configWithPlantA, sources);
+  assert.deepEqual(released['plant_hand_switches'], {});
+  assert.deepEqual(released['plant_all_off'], {});
+});
+
+test('unchanged plant overrides keep the stored bytes', () => {
+  // Break: an entry that reads back as the Model holds it is rewritten.
+  const found = fullStore();
+  const stored = { ...found, plant_all_off: { held: { when: iso(40), note: 'kept' } } };
+  const state = { ...decodeOverrides(found, sources), plantOverrides: { handSwitches: {}, allOff: { since: at(40) } } };
+  assert.deepEqual(encodeOverrides(state, stored, allRooms, configWithPlantA, sources)['plant_all_off'], stored.plant_all_off);
 });

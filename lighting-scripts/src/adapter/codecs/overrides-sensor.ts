@@ -47,11 +47,12 @@ import type { BrightnessOverlay, ColourOverlay, EffectOverlay, LampOverlay } fro
 import type {
   HeldBlock, PresetChoice, RememberedPreset, RemoteAdjustment, RemoteOverlay, RemotePreset, StepRange,
 } from '../../domain/remote.ts';
+import type { AllOff } from '../../domain/plant-lights.ts';
 import type { ModeOverlay } from '../../domain/mode.ts';
 import type { Overlays } from '../../domain/overlay-resets.ts';
 
 /** What the overrides sensor holds of the Model. */
-export type OverridesState = Pick<Model, 'overlays' | 'modeOverlay' | 'switchRanges' | 'rangeDefaults'>;
+export type OverridesState = Pick<Model, 'overlays' | 'modeOverlay' | 'switchRanges' | 'rangeDefaults' | 'plantOverrides'>;
 
 /** A `when` that is not a date, today's `as_timestamp(when, 0)`: the next overlay reset ends the overlay. */
 export const EPOCH: Instant = toInstant(0);
@@ -95,6 +96,10 @@ export function decodeOverrides(attributes: JsonObject | undefined, keys: StoreK
     modeOverlay: mode === undefined ? { active: false } : mode.overlay,
     switchRanges: Object.fromEntries(decodeKeyed(stored['switch_ranges'], toSwitchId, decodeRangeRule)),
     rangeDefaults: decodeRangeDefaults(stored['range_defaults']),
+    plantOverrides: {
+      handSwitches: Object.fromEntries(decodeKeyed(stored['plant_hand_switches'], toSwitchId, decodeSwitchOverlay)),
+      allOff: decodeAllOff(stored['plant_all_off']),
+    },
   };
 }
 
@@ -121,6 +126,10 @@ export function encodeOverrides(state: OverridesState, found: JsonObject, share:
     : { ...isObject(found['range_defaults']) ? found['range_defaults'] : {}, ...storedRangeDefaults(state.rangeDefaults) });
   set('switch_overlays', encodeKeyed(state.overlays.switches, found['switch_overlays'], toSwitchId, decodeSwitchOverlay,
     overlay => ({ power: overlay.power, when: isoText(overlay.since) }), switchLive));
+  set('plant_hand_switches', encodeKeyed(state.plantOverrides.handSwitches, found['plant_hand_switches'], toSwitchId, decodeSwitchOverlay,
+    hand => ({ power: hand.power, when: isoText(hand.since) }), switchLive));
+  set('plant_all_off', encodeKeyed<string, AllOff>(state.plantOverrides.allOff === undefined ? {} : { [ALL_OFF_KEY]: state.plantOverrides.allOff },
+    found['plant_all_off'], text => text, decodeHeld, held => ({ when: isoText(held.since) }), text => text === ALL_OFF_KEY));
   return written;
 }
 
@@ -131,6 +140,20 @@ function decodeKeyed<K extends string, V>(raw: JsonValue | undefined, key: (text
     const value = decode(entry);
     return value === undefined ? [] : [[key(text), value]];
   }) : [];
+}
+
+/** The one key of `plant_all_off`: the all-off hold. No such key is no hold. */
+const ALL_OFF_KEY = 'held';
+
+/** The all-off hold of `plant_all_off`, written by this port only; no `held` key, or one without a date `when`, is none. */
+function decodeAllOff(raw: JsonValue | undefined): AllOff | undefined {
+  return isObject(raw) && raw[ALL_OFF_KEY] !== undefined ? decodeHeld(raw[ALL_OFF_KEY]) : undefined;
+}
+
+function decodeHeld(raw: JsonValue): AllOff | undefined {
+  const when = isObject(raw) ? raw['when'] : undefined;
+  const stamp = typeof when === 'string' ? dateSeconds(when) : undefined;
+  return stamp === undefined ? undefined : { since: toInstant(stamp) };
 }
 
 /** A room's saved power: a boolean; anything else leaves the room on. */

@@ -26,7 +26,6 @@ import { FOLLOWS_ROOM_SWITCH, decodeSwitchProfile } from './switch-profiles.ts';
 import { BLOCKS } from '../../domain/types/schedule.ts';
 import type { Block } from '../../domain/types/schedule.ts';
 import type { LampProfile, SwitchProfile } from '../../domain/profiles.ts';
-import { NO_PLANT_OVERRIDES } from '../../domain/plant-lights.ts';
 import type { Model } from '../../domain/update.ts';
 import type { RemoteModel } from '../../domain/remote.ts';
 
@@ -50,8 +49,7 @@ export function decodeModelFrom(source: ConfigSource, catalog: Catalog): { model
   const overrides = sensor.kind === 'read' ? sensor.overrides : decodeOverrides(undefined, storeKeys(catalog));
   const remotes: Record<RemoteId, RemoteModel> = Object.fromEntries(entriesOf(config.remotes).map(([remote, { room }]) =>
     [remote, room === undefined ? IDLE_REMOTE : decodeRemoteModel(source, room, reportsOn(source, config, overrides.switchRanges, room))]));
-  // The plant lights' overrides are not read from the sensor yet.
-  return { model: { ...read, ...overrides, remotes, plantOverrides: NO_PLANT_OVERRIDES }, from };
+  return { model: { ...read, ...overrides, remotes }, from };
 }
 
 /** Whether the config's sources show otherwise in `source` than when it was read `from`: it is to be read again. */

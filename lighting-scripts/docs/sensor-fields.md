@@ -52,6 +52,8 @@ M6 Task 1 found that no compatibility writer is needed for that. With the old-si
 | 4 | `switch_ranges` (switch to rule) | ls_base, ls_room_base, ls_plan, ls_room_plan, ls_remote_plan, ls_commit, ls_range_save, effects_set | yes (its keys add rooms to every schedule pass) | `Model.switchRanges` |
 | 5 | `range_defaults` | ls_plan, ls_room_plan | yes | `Model.rangeDefaults` |
 | 6 | `switch_overlays` (new: switch to `{power, when}`) | none (written by the port only) | no | `Model.overlays.switches` |
+| 6a | `plant_hand_switches` (new: plant light to `{power, when}`) | none (written by the port only) | no | `Model.plantOverrides.handSwitches` |
+| 6b | `plant_all_off` (new: the one key `held`, to `{when}`) | none (written by the port only) | no | `Model.plantOverrides.allOff` |
 | 7 | `remote_ack` (source to request id) | ls_commit | no (one key per remote) | left out: 5 |
 | 8 | `last_via` | none (ls_commit writes it) | no | left out: 5 |
 | 9 | `pending_rooms` | ls_commit, ls_render, lighting_recover_pending_output | yes | carried |
