@@ -16,7 +16,9 @@
  * stop and its light, since a leftover candle's flicker hides in its report.
  * Only a bulb that cannot be reached (switched off at the wall) and every
  * bulb while Zigbee2MQTT is disconnected are sent nothing. A switch is sent
- * its target when it reports otherwise.
+ * its target when it reports otherwise; the send stays open until Home
+ * Assistant reports the target, and is sent again on the bulbs' backoff, the
+ * fifth send it does not show parking it.
  *
  * Retries, parking and the flap limit (reconciler spec, sections 2 and 3): a
  * failed send is sent again after 1 s, doubling up to 60 s; the fifth failure
@@ -169,9 +171,16 @@ export type Beliefs = { bulbs: Record<BulbId, Belief>; switches: Record<SwitchId
 
 export const NO_BELIEFS: Beliefs = { bulbs: {}, switches: {} };
 
-/** The beliefs with every parked bulb's forgotten, so the next pass sends each what its report does not show. */
+/** The beliefs with every parked bulb's and switch's forgotten, so the next pass sends each what its report does not show. */
 export function unparked(beliefs: Beliefs): Beliefs {
-  return forgotten(beliefs, entriesOf(beliefs.bulbs).flatMap(([bulb, belief]) => belief.kind === 'parked' ? [bulb] : []));
+  return switchesForgotten(forgotten(beliefs, entriesOf(beliefs.bulbs).flatMap(([bulb, belief]) => belief.kind === 'parked' ? [bulb] : [])),
+    entriesOf(beliefs.switches).flatMap(([plug, sent]) => sent.kind === 'parked' ? [plug] : []));
+}
+
+/** The beliefs with what was sent to `switches` forgotten: each is taken as it shows. */
+export function switchesForgotten(beliefs: Beliefs, switches: readonly SwitchId[]): Beliefs {
+  const forget = new Set(switches);
+  return { ...beliefs, switches: Object.fromEntries(entriesOf(beliefs.switches).filter(([plug]) => !forget.has(plug))) };
 }
 
 /**
@@ -181,12 +190,6 @@ export function unparked(beliefs: Beliefs): Beliefs {
 export function forgotten(beliefs: Beliefs, bulbs: readonly BulbId[]): Beliefs {
   const forget = new Set(bulbs);
   return { ...beliefs, bulbs: Object.fromEntries(entriesOf(beliefs.bulbs).filter(([bulb]) => !forget.has(bulb))) };
-}
-
-/** The beliefs with what was sent to `switches` forgotten: each is taken as it shows. */
-export function switchesForgotten(beliefs: Beliefs, switches: readonly SwitchId[]): Beliefs {
-  const forget = new Set(switches);
-  return { ...beliefs, switches: Object.fromEntries(entriesOf(beliefs.switches).filter(([plug]) => !forget.has(plug))) };
 }
 
 /** The beliefs with `bulbs` back on: each is owed its light with the short fade, and is no longer parked. */
@@ -201,14 +204,25 @@ export function newlyParked(before: Beliefs, after: Beliefs): BulbId[] {
   return entriesOf(after.bulbs).flatMap(([bulb, belief]) => belief.kind === 'parked' && before.bulbs[bulb]?.kind !== 'parked' ? [bulb] : []);
 }
 
+/** The switches parked in `after` that were not in `before`, each logged once as a bulb is. */
+export function newlyParkedSwitches(before: Beliefs, after: Beliefs): SwitchId[] {
+  return entriesOf(after.switches).flatMap(([plug, sent]) => sent.kind === 'parked' && before.switches[plug]?.kind !== 'parked' ? [plug] : []);
+}
+
 /** The first retry due after `now`, if any bulb is being retried. */
 export function nextRetry(beliefs: Beliefs, now: Instant): Instant | undefined {
   const due = entriesOf(beliefs.bulbs).flatMap(([, belief]) => belief.kind === 'retrying' && belief.retryAt > now ? [belief.retryAt] : []);
   return due.length === 0 ? undefined : instantOrThrow(Math.min(...due));
 }
 
-/** A switch we sent `power` at `sentAt`, not yet seen to land. */
-export type SwitchSent = { power: Power; sentAt: Instant };
+/**
+ * A switch we sent `power`, first at `sentAt`, not yet seen to show it: `open`, sent `attempts` times and sent again
+ * from `retryAt`; or `parked`, after {@link MAX_ATTEMPTS} sends it did not show, sent nothing more until its target
+ * moves or Home Assistant is back. Only Home Assistant's report of the target ends it ({@link switchesSeen}).
+ */
+export type SwitchSent =
+  | { kind: 'open'; power: Power; sentAt: Instant; attempts: Attempts; retryAt: Instant }
+  | { kind: 'parked'; power: Power; sentAt: Instant };
 
 /**
  * Is a switch showing `power` its own button pressed? Only one that could be reached at the last look: a switch back
@@ -216,8 +230,8 @@ export type SwitchSent = { power: Power; sentAt: Instant };
  * 1. With a send of ours still open and HA's `last_changed`: when it shows another power than we sent, changed after
  *    the send. A switch showing what we sent is ours, whenever it changed. This catches a press made between our
  *    send and the next look, which the last look alone cannot (it may show the same power as before the send).
- * 2. Otherwise, as before `last_changed` was read (the harness sends none): when it changed since the last look to a
- *    power no open send of ours asked for.
+ * 2. Otherwise, as before `last_changed` was read (the harness sends none): when it changed since the last look and no
+ *    send of ours is open. A switch differing from our open send has not switched yet, and is sent it again.
  * M5 may replace the first rule with a switch change as a live input of its own (option A of the M4 review), once
  * the host owns HA's event stream.
  */
@@ -225,7 +239,14 @@ function switchPressed(was: Power | 'unreachable' | undefined, power: Power, sen
   changed: Instant | undefined): boolean {
   if (was === undefined || was === 'unreachable') return false;
   if (sent !== undefined && changed !== undefined) return power !== sent.power && changed > sent.sentAt;
-  return was !== power && (sent === undefined || sent.power !== power);
+  return sent === undefined && was !== power;
+}
+
+/** A switch's open send after one more send of `power`: its first send's time kept, parked past the last attempt. */
+function switchAfter(before: SwitchSent | undefined, power: Power, now: Instant): SwitchSent {
+  const open = before?.kind === 'open' && before.power === power ? before : undefined;
+  const sentAt = open === undefined ? now : open.sentAt, attempts = NEXT_ATTEMPT[open === undefined ? 0 : open.attempts];
+  return attempts === undefined ? { kind: 'parked', power, sentAt } : { kind: 'open', power, sentAt, attempts, retryAt: retryAt(now, attempts) };
 }
 
 /** What an observation that nothing we sent explains means. */
@@ -286,8 +307,11 @@ export function nextSends(target: LightingState, config: Config, observed: Obser
     }
   }
   for (const [plug, power] of entriesOf(target.switches)) {
-    const reported = observed.switches[plug];
-    if (reported !== undefined && reported !== 'unreachable' && reported !== power) sends.push({ kind: 'switch', switch: plug, power });
+    const reported = observed.switches[plug], open = beliefs.switches[plug];
+    if (reported === undefined || reported === 'unreachable' || reported === power) continue;
+    // An open send of this power waits for its retry, as a failing bulb does; a parked one waits for its target to move.
+    if (open !== undefined && open.power === power && (open.kind === 'parked' || now < open.retryAt)) continue;
+    sends.push({ kind: 'switch', switch: plug, power });
   }
   return { sends, wakeAt: firstRetry(sends, beliefs, now) };
 }
@@ -353,14 +377,14 @@ function sameAppearance(a: BulbAppearance, b: BulbAppearance): boolean {
   return sameLight(a, b) && a.firmwareEffect === b.firmwareEffect;
 }
 
+/** The attempts after one more failure, by the failures before it; past the table, the bulb is parked. */
+const NEXT_ATTEMPT: readonly (Attempts | undefined)[] = [1, 2, 3, 4, undefined];
+
 /** The bulb shows the candle's light without the candle: the start alone gets it there. */
 function startsOnly(shows: BulbAppearance, appearance: BulbAppearance): boolean {
   return runsCandle(appearance) && shows.power === 'on' && appearance.power === 'on' && shows.firmwareEffect === 'none'
     && sameLight(shows, appearance);
 }
-
-/** The attempts after one more failure, by the failures before it; past the table, the bulb is parked. */
-const NEXT_ATTEMPT: readonly (Attempts | undefined)[] = [1, 2, 3, 4, undefined];
 
 /**
  * The first retry due after `now` of a bulb this pass does not send to. A settling send asks for no wake: the
@@ -376,14 +400,15 @@ function firstRetry(sends: readonly Send[], beliefs: Beliefs, now: Instant): Ins
  * The beliefs after a send. Sent: what was sent is believed, and a send of the light the bulb was already believed
  * to show is a put-back, the sixth of which within the window parks it. Failed: what it shows is no longer known
  * (every member of a failed group publish), and it is retried after the backoff, the fifth failure parking it; when
- * only the candle's start failed, its light is still known. A switch's failed send is left for the next pass.
+ * only the candle's start failed, its light is still known. A switch's send, taken or failed, is open until it is
+ * seen, one attempt more; the fifth parks it.
  */
 export function afterSend(beliefs: Beliefs, send: Send, outcome: Outcome, now: Instant): Beliefs {
   switch (send.kind) {
     case 'bulb': case 'start':
       return { ...beliefs, bulbs: { ...beliefs.bulbs, [send.bulb]: bulbAfter(beliefs.bulbs[send.bulb], send, outcome, now) } };
     case 'switch':
-      return outcome === 'sent' ? { ...beliefs, switches: { ...beliefs.switches, [send.switch]: { power: send.power, sentAt: now } } } : beliefs;
+      return { ...beliefs, switches: { ...beliefs.switches, [send.switch]: switchAfter(beliefs.switches[send.switch], send.power, now) } };
   }
 }
 
@@ -402,13 +427,13 @@ function bulbAfter(before: Belief | undefined, send: Extract<Send, { kind: 'bulb
     attempts, retryAt: retryAt(now, attempts) };
 }
 
+function settlesAt(now: Instant, over: Seconds): Instant {
+  return instantOrThrow(now + over + SETTLE_MARGIN);
+}
+
 /** When what failed `failures` times in a row (a bulb's send, a write) is tried again: {@link RETRY_FIRST} after the first, doubling up to {@link RETRY_CAP}. */
 export function retryAt(now: Instant, failures: number): Instant {
   return instantOrThrow(now + Math.min(RETRY_CAP, RETRY_FIRST * 2 ** (failures - 1)));
-}
-
-function settlesAt(now: Instant, over: Seconds): Instant {
-  return instantOrThrow(now + over + SETTLE_MARGIN);
 }
 
 /**

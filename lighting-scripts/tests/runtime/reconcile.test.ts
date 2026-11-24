@@ -6,8 +6,8 @@ import type { Publish } from '../../src/adapter/encode.ts';
 import type { MqttTopic } from '../../src/adapter/codecs/ids.ts';
 import type { Observed } from '../../src/adapter/reconcile.ts';
 import {
-  afterSend, backOn, EFFECT_START_FADE, forgotten, MANUAL_FADE, NO_BELIEFS, newlyParked, nextSends, REAPPLY_LIMIT, REAPPLY_WINDOW, reportedChanged, RETRY_FIRST,
-  switchesSeen, unexplained,
+  afterSend, backOn, EFFECT_START_FADE, forgotten, MANUAL_FADE, NO_BELIEFS, newlyParked, newlyParkedSwitches, nextSends, REAPPLY_LIMIT, REAPPLY_WINDOW,
+  reportedChanged, RETRY_FIRST, switchesSeen, unexplained, unparked,
 } from '../../src/adapter/reconcile.ts';
 import type { Beliefs, Send } from '../../src/adapter/reconcile.ts';
 import type { Config } from '../../src/domain/config.ts';
@@ -614,8 +614,44 @@ test('a switch that changed with no send of ours is a press; one we switched is 
   bulbs.switches.set(plugA, 'on');
   assert.deepEqual(unexplained(before, bulbs.observed(), beliefs), [], 'we switched it on');
   const shown = bulbs.observed();
+  // The look that shows our send ends it, as the loop's switchesSeen does: no send of ours is open after it.
+  const seen = switchesSeen(beliefs, shown, EVENING.switches);
   bulbs.switches.set(plugA, 'off');
-  assert.deepEqual(unexplained(shown, bulbs.observed(), beliefs), [{ kind: 'switch pressed', switch: plugA, power: 'off' }]);
+  assert.deepEqual(unexplained(shown, bulbs.observed(), seen), [{ kind: 'switch pressed', switch: plugA, power: 'off' }]);
+});
+
+test('a switch send stays open until the switch shows it: sent again on the backoff, parked after the last attempt', () => {
+  // Closeout r1 A1/B1. Break: a send Home Assistant took is taken as landed, so a plug that missed it is never sent
+  // again; or it is sent at every pass with no backoff; or a plug that never switches is sent forever.
+  const bulbs = new FakeBulbs(topics);
+  plugShows(bulbs, 'off', at(-3600));
+  let beliefs = NO_BELIEFS;
+  const sentAt: number[] = [];
+  for (const time of [0, 0.5, 1, 2, 3, 6, 7, 15, 60, 600]) {
+    beliefs = switchesSeen(beliefs, bulbs.observed(), EVENING.switches);
+    const next = pass(bulbs, EVENING, beliefs, at(time));
+    if (next.sends.some(send => send.kind === 'switch')) sentAt.push(time);
+    beliefs = next.beliefs;
+  }
+  assert.deepEqual(sentAt, [0, 1, 3, 7, 15], 'the bulbs\' backoff, five sends in all');
+  assert.equal(beliefs.switches[plugA]?.kind, 'parked');
+  assert.deepEqual(newlyParkedSwitches(NO_BELIEFS, beliefs), [plugA]);
+  assert.deepEqual(unparked(beliefs).switches, {}, 'Home Assistant back: sent again');
+  const off: LightingState = { ...EVENING, switches: { [plugA]: 'off' } };
+  assert.deepEqual(switchesSeen(beliefs, bulbs.observed(), off.switches).switches, {}, 'its target moved: sent anew when it moves back');
+  plugShows(bulbs, 'on', undefined);
+  assert.deepEqual(switchesSeen(beliefs, bulbs.observed(), EVENING.switches).switches, {}, 'it shows the target at last: over');
+});
+
+test('a look that shows a switch differing from our open send is no press: the switch has not switched yet', () => {
+  // Closeout r1 A1/B1, the read. Break: a switch not yet showing our send, against a last look that showed otherwise,
+  // is taken for its own button and held there.
+  const bulbs = new FakeBulbs(topics);
+  const before = plugShows(bulbs, 'on', undefined);
+  const open: Beliefs = { ...NO_BELIEFS, switches: { [plugA]: { kind: 'open', power: 'on', sentAt: at(0), attempts: 1, retryAt: at(1) } } };
+  assert.deepEqual(unexplained(before, plugShows(bulbs, 'off', undefined), open), []);
+  assert.deepEqual(unexplained(before, plugShows(bulbs, 'off', undefined), NO_BELIEFS), [{ kind: 'switch pressed', switch: plugA, power: 'off' }],
+    'control: with no send of ours it is a press');
 });
 
 /* Close-out round 1 reproducers: `todo` with the finding's id while the defect stands; the fixer drops the mark. */

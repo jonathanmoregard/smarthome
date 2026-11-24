@@ -29,7 +29,10 @@ const EVERY_KIND: Beliefs = {
     [toBulbId('light.c1')]: { kind: 'parked', lastSent: { power: 'off' } },
     [toBulbId('light.c2')]: { kind: 'back on' },
   },
-  switches: { [toSwitchId('switch.plug')]: { power: 'on', sentAt: at(7) } },
+  switches: {
+    [toSwitchId('switch.plug')]: { kind: 'open', power: 'on', sentAt: at(7), attempts: 2, retryAt: at(9) },
+    [toSwitchId('switch.lamp')]: { kind: 'parked', power: 'off', sentAt: at(3) },
+  },
 };
 
 test('round trip: every kind of belief comes back as it went in', () => {
@@ -66,7 +69,8 @@ test('an unreadable entry is no belief for that bulb or switch; the rest are kep
   text.bulbs['light.a1'] = { kind: 'sent', shows: { power: 'on', level: 999 } };
   text.bulbs['light.b2'] = { kind: 'retrying', shows: undefined, attempts: 7, retryAt: 8 };
   text.bulbs['light.c1'] = 'parked';
-  text.switches['switch.plug'] = { power: 'dim', sentAt: 1 };
+  text.switches['switch.plug'] = { kind: 'open', power: 'dim', sentAt: 1, attempts: 1, retryAt: 2 };
+  text.switches['switch.lamp'] = { power: 'off', sentAt: 1 };
   const loaded = loadBeliefs(JSON.stringify(text));
   assert.deepEqual(Object.keys(loaded.bulbs).sort(), ['light.a2', 'light.a3', 'light.b1', 'light.b3', 'light.c2']);
   assert.deepEqual(loaded.switches, {});

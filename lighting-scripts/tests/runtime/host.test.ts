@@ -52,6 +52,9 @@ class FakeHa {
     if (this.unreachable) throw new Unreachable('Home Assistant is disconnected');
     if (this.failing(call)) throw new Error('Home Assistant did not take it');
     this.states = afterCall(this.states, call, toInstant(Date.now() / 1000));
+    // A plug that works switches; afterCall leaves a switch to its own report, which this Home Assistant makes here.
+    const power = /^homeassistant\.turn_(on|off)$/.exec(call.service)?.[1], plug = call.target?.entity_id;
+    if (power !== undefined && typeof plug === 'string') this.states[plug] = { ...this.states[plug] ?? { attributes: {} }, state: power };
     if (call.service === 'mqtt.publish' && typeof call.data.topic === 'string' && typeof call.data.payload === 'string'
       && call.data.topic.startsWith('zigbee2mqtt/')) {
       this.bulbs.apply([{ topic: toMqttTopic(call.data.topic), payload: JSON.parse(call.data.payload) as Publish['payload'] }]);
@@ -435,7 +438,7 @@ function deafPlug(): FakeHa {
   return ha;
 }
 
-test('closeout r1 A1/B1: a switch call Home Assistant took but the plug missed is sent again', { todo: 'closeout r1 A1/B1' }, async () => {
+test('closeout r1 A1/B1: a switch call Home Assistant took but the plug missed is sent again', async () => {
   // Break: afterCall puts the switch's sent power into the mirror the moment Home Assistant answers, so the plug reads
   // as on target and is never sent again. The day block at 12:00 lights room-a at 220 (86%), outside plug_a's 20..60.
   const ha = deafPlug(), now = { time: at('12:00:00') };
@@ -454,7 +457,7 @@ test('closeout r1 A1/B1: a switch call Home Assistant took but the plug missed i
   await host.close();
 });
 
-test('closeout r1 A1/B1: a full read of a plug that missed our call is no press, and the plug is sent its target', { todo: 'closeout r1 A1/B1' }, async () => {
+test('closeout r1 A1/B1: a full read of a plug that missed our call is no press, and the plug is sent its target', async () => {
   // Break: the mirror took the missed off as landed, so the read's real on reads as the plug's own button, and the
   // plug is held on against its range rule.
   const ha = deafPlug(), now = { time: at('12:00:00') };

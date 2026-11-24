@@ -35,8 +35,8 @@ import type { HaInput, StoreSave } from './codecs/inputs.ts';
 import { decodeObserved } from './codecs/observed.ts';
 import type { Observed } from './reconcile.ts';
 import {
-  afterSend, backOn, forgotten, MAX_ATTEMPTS, NO_BELIEFS, newlyParked, nextRetry, nextSends, reportedChanged, switchesForgotten, switchesSeen,
-  unexplained, unparked,
+  afterSend, backOn, forgotten, MAX_ATTEMPTS, NO_BELIEFS, newlyParked, newlyParkedSwitches, nextRetry, nextSends, reportedChanged, switchesForgotten,
+  switchesSeen, unexplained, unparked,
 } from './reconcile.ts';
 import type { Beliefs, Outcome, Send } from './reconcile.ts';
 import { afterTries, dueAt, nextTry, queued, settled, targetOf, unparkedWrites, withWaiting } from './outbox.ts';
@@ -124,7 +124,9 @@ export function afterOutputs(turn: Turn, failed: readonly boolean[]): Settled {
     at === undefined || (first !== undefined && first <= at) ? first : at, undefined);
   const parked = newlyParked(turn.state.beliefs, beliefs);
   // A bulb given up on is most often switched off at the wall: said once, for the host's info log (owner, 2026-11-20).
-  const notes = parked.map(bulb => `lighting: ${bulb} is parked: it does not take what it is sent; left until it comes back on or its light changes`);
+  const notes = [...parked.map(bulb => `lighting: ${bulb} is parked: it does not take what it is sent; left until it comes back on or its light changes`),
+    ...newlyParkedSwitches(turn.state.beliefs, beliefs).map(plug =>
+      `lighting: ${plug} is parked: Home Assistant did not report it switched after ${MAX_ATTEMPTS} sends; left until its target changes or Home Assistant is back`)];
   const warnings = stopped.map(entry =>
     `lighting: ${targetOf(entry.write)} is parked: Home Assistant refused it ${MAX_ATTEMPTS} times; the lighting follows what Home Assistant holds until it is written anew, changes, or Home Assistant is back`);
   return { state: { ...turn.state, beliefs, outbox, reread: turn.state.reread || stopped.length > 0 }, wakeAt, parked, notes, warnings };

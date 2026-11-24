@@ -124,8 +124,9 @@ export function callSettled(states: Readonly<Record<string, EntityState>>, call:
 /**
  * The states once Home Assistant has taken a call of ours, as it reports them: a sensor update sets its value and its
  * attributes (merged, unless `replace_attributes`), a text or number helper its value as text (`String(value)`), a
- * select its option, a boolean or a switch its power, a timer its run. Any other call changes no state here: what it
- * reaches reports back. Applied at once, so the next turn reads what was written before the echo arrives.
+ * select its option, a boolean its power, a timer its run. Any other call changes no state here: what it reaches
+ * reports back. A switch's power is one of those: Home Assistant taking the call is not the plug switching, so only
+ * its report moves it. Applied at once, so the next turn reads what was written before the echo arrives.
  */
 export function afterCall(states: Readonly<Record<string, EntityState>>, call: ServiceCall, at: Instant): Record<string, EntityState> {
   const next = { ...states }, now = isoText(at);
@@ -142,7 +143,7 @@ export function afterCall(states: Readonly<Record<string, EntityState>>, call: S
       put(String(data.value ?? previous?.state ?? 'unknown'), { ...(data.replace_attributes === true ? {} : previous?.attributes), ...attributes });
     } else if (call.service === 'input_text.set_value' || call.service === 'input_number.set_value') put(String(data.value), undefined);
     else if (call.service === 'input_select.select_option') put(String(data.option), undefined);
-    else if (/^(input_boolean|homeassistant)\.turn_(on|off)$/.test(call.service)) put(call.service.endsWith('_on') ? 'on' : 'off', undefined);
+    else if (/^input_boolean\.turn_(on|off)$/.test(call.service)) put(call.service.endsWith('_on') ? 'on' : 'off', undefined);
     else if (call.service === 'timer.start' || call.service === 'timer.cancel') put(call.service === 'timer.start' ? 'active' : 'idle', undefined);
   }
   return next;

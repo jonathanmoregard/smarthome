@@ -154,8 +154,12 @@ function attemptsOf(value: JsonValue | undefined): Attempts {
 }
 
 function switchSentOf(entry: JsonValue): SwitchSent {
-  const fields = fieldsOf(entry);
-  return { power: powerOf(fields.power), sentAt: instantOf(fields.sentAt) };
+  const fields = fieldsOf(entry), power = powerOf(fields.power), sentAt = instantOf(fields.sentAt);
+  switch (fields.kind) {
+    case 'open': return { kind: 'open', power, sentAt, attempts: attemptsOf(fields.attempts), retryAt: instantOf(fields.retryAt) };
+    case 'parked': return { kind: 'parked', power, sentAt };
+    default: throw new ParseError(`journal: not a switch send kind: ${JSON.stringify(fields.kind) ?? 'none'}`);
+  }
 }
 
 function powerOf(value: JsonValue | undefined): Power {
