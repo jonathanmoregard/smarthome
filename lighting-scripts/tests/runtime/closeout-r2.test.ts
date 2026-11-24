@@ -215,7 +215,7 @@ test('closeout r2 B3: a missing Zigbee2MQTT bridge sensor is not silent: the bul
     `publishes: ${publishes}; logged: ${JSON.stringify(logged)}; heartbeat paused: ${paused}`);
 });
 
-test('closeout r2 B4: a bulb the catalog gives no topic is not believed sent', { todo: 'closeout r2 B4' }, () => {
+test('closeout r2 B4: a bulb the catalog gives no topic is not believed sent', () => {
   // Break: `publishes` makes no publish for a bulb with no topic (src/adapter/encode.ts:84), so its send is carried by
   // no output (src/adapter/loop.ts:226) and is settled as sent (src/adapter/loop.ts:116-121).
   const { 'bulb-a3': _dropped, ...topics } = CATALOG.topics as Record<string, string>;
@@ -225,6 +225,17 @@ test('closeout r2 B4: a bulb the catalog gives no topic is not believed sent', {
   assert.ok(sending !== undefined, 'control: bulb-a3 is sent its light');
   assert.deepEqual(sending.carriedBy, [], 'control: no output carries it');
   assert.notEqual(turn.state.beliefs.bulbs[bulbA3]?.kind, 'sent');
+});
+
+test('closeout r2 B4 (ruling): a bulb the catalog gives no topic gets no belief, and the error names it once', () => {
+  // Break: the bulb is believed (sent, or retrying) for a publish never made; or nothing names it; or it is named every turn.
+  const { 'bulb-a3': _dropped, ...topics } = CATALOG.topics as Record<string, string>;
+  const noTopic = parseCatalog({ ...CATALOG, topics }), turn = loop(syntheticStates());
+  const view = (house: ReturnType<typeof houseView>) => ({ ...house, catalog: noTopic });
+  const start = turn('12:00:00', { kind: 'started' }, view);
+  assert.equal(start.state.beliefs.bulbs[bulbA3], undefined);
+  assert.deepEqual(start.errors.filter(error => error.includes('bulb-a3')).length, 1);
+  assert.deepEqual(turn('12:01:00', { kind: 'tick' }, view).errors, [], 'said once, not every turn');
 });
 
 test('closeout r2 B5: a range saved for a plug alone in its room applies at once', { todo: 'closeout r2 B5' }, () => {

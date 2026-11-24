@@ -56,6 +56,8 @@ export type AdapterState = {
   model: Model; beliefs: Beliefs; view: DashboardView | undefined; observed: Observed; outbox: Outbox;
   /** The share of the house the last turn drove, so a room handed over since is taken as found. */
   share: Share;
+  /** The config's bulbs the catalog gives no topic: sent nothing, and each named once, when first found. */
+  topicless: readonly BulbId[];
   /**
    * The config is read again next turn, as on a helper change: a write was parked, and the Model follows what Home
    * Assistant holds; or the catalog changed, and the config is decoded from the new one.
@@ -115,7 +117,8 @@ export function afterOutputs(turn: Turn, failed: readonly boolean[]): Settled {
     [entry, output >= failed.length ? 'not made' : failed[output] === true ? 'refused' : 'taken']));
   const { outbox, parked: stopped } = afterTries(turn.state.outbox, tried, turn.now);
   for (const { send, carriedBy } of turn.sends) {
-    if (carriedBy.some(index => index >= failed.length)) continue;
+    // A bulb's send no output carries (the catalog gives the bulb no topic) was never made, so nothing is believed of it.
+    if (carriedBy.some(index => index >= failed.length) || (send.kind !== 'switch' && carriedBy.length === 0)) continue;
     const lost = carriedBy.flatMap(index => {
       const output = turn.outputs[index];
       return failed[index] === true && output !== undefined ? [output] : [];
@@ -210,8 +213,6 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
   // What the port sent a room before it was handed over says nothing: the old scripts drove it meanwhile.
   beliefs = switchesForgotten(forgotten(beliefs, taken.bulbs), taken.switches);
   const observed = decodeObserved(house.state, model.config);
-  const errors = state?.observed.bridge !== 'unknown' && observed.bridge === 'unknown'
-    ? [`lighting: Home Assistant has no ${BRIDGE_SENSOR}; Zigbee2MQTT's connection is unknown, and the bulbs are sent as if it were up`] : [];
   if (input.kind === 'state changed') {
     const reported = reportedBulbs(input.entities, model.config);
     beliefs = state === undefined ? forgotten(beliefs, reported) : reportedChanged(beliefs, state.observed, observed, reported);
@@ -220,6 +221,12 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
     lighting.switches);
   const sends = nextSends(sharedLighting(lighting, model.config, share), model.config, observed, beliefs, now);
   const topics = bulbTopics(house.catalog), groups = bulbGroups(house.catalog);
+  const topicless = entriesOf(model.config.lamps).flatMap(([, lamp]) => lamp.bulbs.flatMap(({ bulb }) => topics[bulb] === undefined ? [bulb] : []));
+  const errors = [
+    ...state?.observed.bridge !== 'unknown' && observed.bridge === 'unknown'
+      ? [`lighting: Home Assistant has no ${BRIDGE_SENSOR}; Zigbee2MQTT's connection is unknown, and the bulbs are sent as if it were up`] : [],
+    ...topicless.filter(bulb => state?.topicless.includes(bulb) !== true).map(bulb => `lighting: the catalog gives ${bulb} no topic; it is sent nothing`),
+  ];
   const sent = publishes(sends, topics, groups), first = outputs.length, sending: Sending[] = [];
   for (const publish of sent) outputs.push({ kind: 'publish', publish });
   for (const send of sends) {
@@ -231,7 +238,7 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
     }
   }
   const journalled = outputs.flatMap((output, index) => output.kind === 'publish' ? [index] : []);
-  const next: AdapterState = { model, beliefs, view, observed, outbox, reread: false, share };
+  const next: AdapterState = { model, beliefs, view, observed, outbox, reread: false, share, topicless };
   return { state: next, outputs, sends: sending, now, nextChange: nextChange(model, now), dropped, errors, journalled, writing };
 }
 
