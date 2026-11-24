@@ -730,6 +730,10 @@ pkgsSystem.testers.runNixOSTest {
     )
     follow_restarts(False)
     assert head() == target
+    # The restart is owed all the same: the install may end before the
+    # checkout writes, and start the watcher from the files it replaced.
+    owed = machine.succeed("cat /var/lib/lighting-port/.follow-restart-owed").strip()
+    assert owed == "owed", f"no restart owed for a change made during an install: {owed}"
     as_service(
         "mv /var/lib/lighting-port/stamp.kept ${scripts}/node_modules/.lighting-port-lock.sha256"
     )
@@ -910,8 +914,13 @@ pkgsSystem.testers.runNixOSTest {
             "find ${src}/.git/objects/pack -name 'tmp_*' -o -name '.tmp-*'"
         ).split()
         print(f"git cut off: {cut_off}; loose objects: {loose}; temporary packs: {leftovers}")
+        assert cut_off == [], f"run {run}: git processes cut off by the end of the run: {cut_off}"
+        run_log = machine.succeed(
+            "journalctl --sync && "
+            f"journalctl _SYSTEMD_INVOCATION_ID={follow_show('InvocationID')} -o cat --no-pager"
+        )
+        assert "took longer than" not in run_log, f"run {run} hit its bound: {run_log}"
     assert head() == target
-    assert cut_off == [], f"git processes cut off by the end of the run: {cut_off}"
     assert loose < 6700, f"{loose} loose objects left after two runs"
     assert leftovers == [], leftovers
     as_service(": > /var/lib/lighting-port/.gitconfig && git -C ${src} config --unset fetch.unpackLimit")

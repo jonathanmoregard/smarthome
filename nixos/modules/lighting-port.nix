@@ -400,12 +400,11 @@ let
         if [ -n "$edited" ]; then
           say "discarding local edits to: $(printf '%s\n' "$edited" | paste -sd ' ')"
         fi
-        # The watcher sees only src/. Without a stamp an install is running
-        # (npm ci empties node_modules first), and the unit starts the
-        # watcher from what is here once it is done. The restart is owed
-        # here and asked for below, once the checkout got through.
-        if [ -f "$stamp" ] \
-          && ! git diff --quiet "$target" -- lighting-scripts ':(exclude)lighting-scripts/src'; then
+        # The watcher sees only src/. The restart is owed here and asked
+        # for below, once the checkout got through and no install runs. Owed
+        # during an install too: it may end before the checkout writes, and
+        # start the watcher from the files the checkout then replaces.
+        if ! git diff --quiet "$target" -- lighting-scripts ':(exclude)lighting-scripts/src'; then
           printf 'owed\n' > "$restart_owed"
         fi
         say "updating $checkout to $target ($branch); it was at ''${head:-no commit} (''${on:-no branch})"
