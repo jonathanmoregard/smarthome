@@ -439,3 +439,26 @@ test("a dropped input's turn still leaves a switch of a room that is not live to
   assert.equal(dropped.state.model.overlays.switches[plug], undefined);
   assert.equal(run({ kind: 'wake' }).state.model.overlays.switches[plug], undefined);
 });
+
+/* Close-out round 1 reproducers: `todo` with the finding's id while the defect stands; the fixer drops the mark. */
+
+test("closeout r1 B2/B3: an old scripts' commit to the port's own room, made after a refused write, is not undone by it", { todo: 'closeout r1 B2/B3' }, () => {
+  // B3: the test above checks the commit is kept only for block:room-a, a room the port does not drive. Break (B2):
+  // the refused write's whole `overrides` is laid over the newer read, so the old scripts' house hold, which they
+  // commit to every room (block:room-b included), is taken back to the port's older hold and written again.
+  const shared = new Shared(sharedStates({ [roomA]: 'on', [roomB]: 'on' }), listed(roomB));
+  shared.turn('12:00:00', { kind: 'started' });
+  shared.turn('12:01:00', holdRoomB, ['sensor']);
+  oldCommit(shared, '12:01:05', attributes => {
+    for (const target of ['house', roomA, roomB]) {
+      (attributes.overrides as JsonObject)[`block:${target}`] = { kind: 'block', target, value: 'day', when: '2026-09-21T12:01:05+00:00',
+        created: '2026-09-21T12:01:05+00:00', who: null, via: 'app' };
+    }
+  });
+  const turn = shared.turn('12:01:10', { kind: 'wake' });
+  const again = sensorWrite(turn);
+  const written = (again?.attributes.overrides as JsonObject | undefined)?.[`block:${roomB}`] as JsonObject | undefined;
+  assert.equal(turn.state.model.overlays.blocks[roomB]?.block, 'day',
+    `the newer commit holds room-b; the write made again stores block:room-b = ${String(written?.value)}`);
+  assert.ok(written === undefined || written.value === 'day', `no write takes block:room-b back to ${String(written?.value)}`);
+});

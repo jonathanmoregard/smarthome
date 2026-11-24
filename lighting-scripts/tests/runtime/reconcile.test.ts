@@ -617,3 +617,36 @@ test('a switch that changed with no send of ours is a press; one we switched is 
   bulbs.switches.set(plugA, 'off');
   assert.deepEqual(unexplained(shown, bulbs.observed(), beliefs), [{ kind: 'switch pressed', switch: plugA, power: 'off' }]);
 });
+
+/* Close-out round 1 reproducers: `todo` with the finding's id while the defect stands; the fixer drops the mark. */
+
+test('closeout r1 A2: a level set behind our back under a running candle is put back, the candle with it', { todo: 'closeout r1 A2' }, () => {
+  // Break: a bulb believed to run the candle is checked for its power only, so a level the firmware took from
+  // someone else (which ends the candle) is never seen, and ten passes send nothing.
+  let { bulbs, beliefs } = steady();
+  bulbs.set(bulbA1, { reach: 'reachable', light: lit(60, WARM, 'none') });
+  const sent: Send[] = [];
+  for (let n = 1; n <= 10; n++) {
+    const next = pass(bulbs, EVENING, beliefs, at(n * 60));
+    sent.push(...next.sends);
+    beliefs = next.beliefs;
+  }
+  assert.deepEqual(bulbs.shows(bulbA1), { reach: 'reachable', light: lit(100, WARM, 'candle') },
+    `sends to bulb-a1 over ten passes: ${sent.filter(send => to(send) === bulbA1).length}`);
+});
+
+test('closeout r1 A2: a wall power cycle no look saw as out of reach gets the candle back', { todo: 'closeout r1 A2' }, () => {
+  // Break: the bulb comes back from the cycle showing the candle's light without the candle; its report is on, as
+  // the belief expects, so ten passes send nothing.
+  let { bulbs, beliefs } = steady();
+  bulbs.cut(bulbA1);
+  bulbs.restore(bulbA1);
+  const sent: Send[] = [];
+  for (let n = 1; n <= 10; n++) {
+    const next = pass(bulbs, EVENING, beliefs, at(n * 60));
+    sent.push(...next.sends);
+    beliefs = next.beliefs;
+  }
+  assert.deepEqual(bulbs.shows(bulbA1), { reach: 'reachable', light: lit(100, WARM, 'candle') },
+    `sends to bulb-a1 over ten passes: ${sent.filter(send => to(send) === bulbA1).length}`);
+});

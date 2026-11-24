@@ -6,10 +6,12 @@ import { parseCatalog } from '../../src/adapter/codecs/catalog.ts';
 import type { HouseMirror } from '../../src/adapter/codecs/house.ts';
 import { afterCall } from '../../src/adapter/codecs/house.ts';
 import { loadJournal } from '../../src/adapter/codecs/journal.ts';
-import { toInstant, toMqttTopic } from '../../src/adapter/codecs/ids.ts';
+import { toInstant, toMqttTopic, toRoomId } from '../../src/adapter/codecs/ids.ts';
+import { parseLiveRooms } from '../../src/adapter/live-rooms.ts';
+import { startHeartbeat } from '../../src/main.ts';
 import type { Publish } from '../../src/adapter/encode.ts';
 import { Unreachable } from '../../src/adapter/ha-client.ts';
-import type { EntityState, ServiceCall } from '../../src/adapter/ha-client.ts';
+import type { EntityState, JsonObject, ServiceCall } from '../../src/adapter/ha-client.ts';
 import type { BulbId } from '../../src/domain/types/ids.ts';
 import type { Instant } from '../../src/domain/types/time.ts';
 import type { FakeBulbs } from './fake-bulbs.ts';
@@ -409,4 +411,152 @@ test('a held input that throws is logged, and the press held after it is still a
   assert.ok(logged.some(line => /the hold broke/.test(line)), 'the throw is logged');
   assert.equal(ha.states['bulb-a3']?.state, 'off', 'the press held after it was applied');
   await host.close();
+});
+
+/*
+ * Close-out round 1 reproducers. Each is marked `todo` with its finding's id while the defect stands, so the suite
+ * stays green; the fixer drops the mark once the fix makes it pass.
+ */
+
+const PLUG = 'switch.plug_a';
+const plugCalls = (ha: FakeHa, service: string) => ha.calls.filter(call => call.service === service && call.target?.entity_id === PLUG);
+
+/** A Home Assistant that takes every call but whose plug never switches: no state of the plug moves, no event comes. */
+function deafPlug(): FakeHa {
+  const ha = new FakeHa();
+  ha.states[PLUG] = { state: 'on', attributes: {} };
+  const take = ha.call.bind(ha);
+  ha.call = async call => {
+    const plug = structuredClone(ha.states[PLUG]);
+    const context = await take(call);
+    ha.states[PLUG] = plug!;
+    return context;
+  };
+  return ha;
+}
+
+test('closeout r1 A1/B1: a switch call Home Assistant took but the plug missed is sent again', { todo: 'closeout r1 A1/B1' }, async () => {
+  // Break: afterCall puts the switch's sent power into the mirror the moment Home Assistant answers, so the plug reads
+  // as on target and is never sent again. The day block at 12:00 lights room-a at 220 (86%), outside plug_a's 20..60.
+  const ha = deafPlug(), now = { time: at('12:00:00') };
+  const host = await open(ha, new MemoryJournal(), now).host;
+  host.accept({ kind: 'started' });
+  await host.idle();
+  assert.equal(plugCalls(ha, 'homeassistant.turn_off').length, 1, 'the plug is sent off once');
+  for (const time of ['12:01:00', '12:02:00', '12:03:00']) {
+    now.time = at(time);
+    host.accept({ kind: 'tick' });
+    await host.idle();
+  }
+  assert.equal(ha.states[PLUG]?.state, 'on', 'Home Assistant still shows the plug on');
+  assert.ok(plugCalls(ha, 'homeassistant.turn_off').length > 1,
+    `the plug still on is sent off again; mirror shows ${host.house().state[PLUG]?.state}, calls ${plugCalls(ha, 'homeassistant.turn_off').length}`);
+  await host.close();
+});
+
+test('closeout r1 A1/B1: a full read of a plug that missed our call is no press, and the plug is sent its target', { todo: 'closeout r1 A1/B1' }, async () => {
+  // Break: the mirror took the missed off as landed, so the read's real on reads as the plug's own button, and the
+  // plug is held on against its range rule.
+  const ha = deafPlug(), now = { time: at('12:00:00') };
+  const host = await open(ha, new MemoryJournal(), now).host;
+  host.accept({ kind: 'started' });
+  await host.idle();
+  now.time = at('12:01:00');
+  host.accept({ kind: 'tick' });
+  await host.idle();
+  const before = plugCalls(ha, 'homeassistant.turn_off').length;
+  now.time = at('12:02:00');
+  host.houseRead(ha.mirror(), at('12:02:00'));
+  host.accept({ kind: 'tick' });
+  await host.idle();
+  assert.equal(host.house().state[PLUG]?.state, 'on', 'the read shows the plug on');
+  const held = ha.calls.flatMap(call => {
+    const attributes = call.service === 'variable.update_sensor' ? call.data.attributes as JsonObject | undefined : undefined;
+    const overlays = attributes?.switch_overlays as JsonObject | undefined;
+    return overlays?.[PLUG] === undefined ? [] : [overlays[PLUG]];
+  });
+  assert.ok(plugCalls(ha, 'homeassistant.turn_off').length > before,
+    `the plug is sent off again; the plug's stored hold: ${JSON.stringify(held.at(-1))}`);
+  await host.close();
+});
+
+test('closeout r1 A3: a host whose every turn throws stops its heartbeat, so the watchdog hands the room back', { todo: 'closeout r1 A3' }, async () => {
+  // Break: the heartbeat pauses only while Home Assistant is out of reach, so a port that drives nothing beats on.
+  // The catalog lists one device under two remotes: it parses, and decodeRemotes throws on every turn.
+  const broken = parseCatalog({ ...CATALOG, remotes: { 'room-a': { device_id: 'remote-a', source: 'remote-a' },
+    unplaced: { device_id: 'remote-a', source: 'remote-b' } } });
+  const ha = new FakeHa(), now = { time: at('12:00:00') }, logged: string[] = [];
+  const host = await Host.open({ ha, journal: new MemoryJournal(), clock: () => now.time,
+    log: { info: () => {}, warn: () => {}, error: message => logged.push(message) }, timer: () => () => {}, rooms: { kind: 'house' } },
+  ha.mirror(), broken);
+  for (const input of [{ kind: 'started' }, { kind: 'tick' }, { kind: 'wake' }] as const) host.accept(input);
+  await host.idle();
+  assert.equal(logged.filter(line => /more than one remote/.test(line)).length, 3, 'every turn threw');
+  const beats: ServiceCall[] = [];
+  const stop = startHeartbeat(parseLiveRooms('room-a'), async call => { beats.push(call); }, () => {}, 5, () => host.paused());
+  try {
+    await new Promise(resolve => setTimeout(resolve, 25));
+  } finally {
+    stop();
+  }
+  assert.deepEqual(beats, [], `no beat from a host that drives nothing; host.paused() is ${host.paused()}`);
+  await host.close();
+});
+
+test('closeout r1 A4: a catalog reload with a new bulb sends that bulb its light at the wake', { todo: 'closeout r1 A4' }, async () => {
+  // Break: the wake main.ts sends after a reload keeps the Model's Config, decoded from the old catalog, so the new
+  // bulb is not in any lamp until a helper changes or the process restarts.
+  const ha = new FakeHa(), now = { time: at('12:00:00') };
+  ha.states['bulb-a4'] = { state: 'off', attributes: {} };
+  const host = await open(ha, new MemoryJournal(), now).host;
+  host.accept({ kind: 'started' });
+  await host.idle();
+  const grown = parseCatalog({ ...CATALOG, members: { ...CATALOG.members as JsonObject, 'light.lamp_a2': ['bulb-a3', 'bulb-a4'] },
+    topics: { ...CATALOG.topics as JsonObject, 'bulb-a4': 'zigbee2mqtt/bulb-a4' } });
+  const toA4 = () => ha.publishesTo('bulb-a4' as BulbId).length;
+  host.catalogChanged(grown);
+  now.time = at('12:00:10');
+  host.accept({ kind: 'wake' });
+  await host.idle();
+  const atWake = toA4();
+  now.time = at('12:00:20');
+  host.accept({ kind: 'helper changed' });
+  await host.idle();
+  assert.ok(toA4() > atWake, 'control: a helper change, which reads the config again, sends the new bulb');
+  assert.ok(atWake > 0, 'the wake after the reload sends the new bulb its light');
+  await host.close();
+});
+
+test('closeout r1 B4: a turn that hands a room back saves the journal, so a restart takes the room as found', { todo: 'closeout r1 B4' }, async () => {
+  // Break: the journal is saved only after a bulb publish, so the turn that hands room-a back (no publish) is never
+  // saved; the next start reads room-a as driven all along and trusts beliefs the old scripts made stale.
+  const ha = new FakeHa(), now = { time: at('12:00:00') }, journal = new MemoryJournal();
+  const portSwitch = 'input_boolean.ls_room-a_on_port';
+  const live = (power: 'on' | 'off', time: string): EntityState =>
+    ({ entity_id: portSwitch, state: power, attributes: {}, last_changed: `2026-09-21T${time}Z`, last_updated: `2026-09-21T${time}Z` });
+  ha.states[portSwitch] = live('on', '11:00:00');
+  const openListed = () => Host.open({ ha, journal, clock: () => now.time, log: { info: () => {}, warn: () => {}, error: () => {} },
+    timer: () => () => {}, rooms: { kind: 'listed', rooms: new Set([toRoomId('room-a')]) } }, ha.mirror(), catalog);
+  const first = await openListed();
+  first.accept({ kind: 'started' });
+  await first.idle();
+  assert.ok(ha.publishesTo(bulbA1).length > 0, 'room-a is driven');
+  assert.deepEqual(loadJournal(journal.saved.at(-1)).share, { kind: 'rooms', rooms: new Set(['room-a']) });
+  ha.states[portSwitch] = live('off', '12:00:10');
+  first.stateChanged(portSwitch, ha.states[portSwitch]);
+  now.time = at('12:00:20');
+  first.accept({ kind: 'tick' });
+  await first.idle();
+  await first.close();
+  const handedBack = loadJournal(journal.saved.at(-1)).share;
+
+  ha.states[portSwitch] = live('on', '12:00:30');
+  ha.calls.length = 0;
+  now.time = at('12:00:40');
+  const second = await openListed();
+  second.accept({ kind: 'started' });
+  await second.idle();
+  assert.ok(ha.publishesTo(bulbA1).length > 0,
+    `room-a handed back and over again is taken as found; the journal's share after the hand-back: ${JSON.stringify([...(handedBack.kind === 'rooms' ? handedBack.rooms : ['house'])])}`);
+  await second.close();
 });
