@@ -41,8 +41,13 @@ function same(a: Write, b: Write): boolean {
   return a.kind === 'sensor' && b.kind === 'sensor' ? isDeepStrictEqual(keys(a.write), keys(b.write)) : isDeepStrictEqual(a, b);
 }
 
-/** A write waiting: when it was queued, how often Home Assistant refused it, and when it is next due, or parked. */
-export type Entry = { write: Write; queuedAt: Instant; refusals: number; status: { kind: 'due'; at: Instant } | { kind: 'parked' } };
+/**
+ * A write waiting: when it was queued, how often Home Assistant refused it, and when it is next due, parked, or held
+ * for its store, which Home Assistant does not have.
+ */
+export type Entry = {
+  write: Write; queuedAt: Instant; refusals: number; status: { kind: 'due'; at: Instant } | { kind: 'parked' } | { kind: 'no store' };
+};
 
 /** The output a waiting write makes now: the sensor's changes laid over the sensor as Home Assistant reports it, any other write as it is. */
 export function outputOf(entry: Entry, reported: HouseView, share: Share): Output {
@@ -111,6 +116,27 @@ export function queued(outbox: Outbox, writes: readonly Write[], now: Instant): 
   const fresh = writes.filter(write => !outbox.some(entry => targetOf(entry.write) === targetOf(write) && same(entry.write, write)));
   const kept = outbox.filter(entry => !fresh.some(write => targetOf(write) === targetOf(entry.write)));
   return [...kept, ...fresh.map((write): Entry => ({ write, queuedAt: now, refusals: 0, status: { kind: 'due', at: now } }))];
+}
+
+/**
+ * The outbox with each store write held while Home Assistant has no such store, and made due at `now` once it has;
+ * and the writes held anew, each said once. Home Assistant answers a write to an input_text it lacks with success and
+ * sets nothing, so a write sent there would be taken and lost. A held write is still laid over the house, so the Model
+ * keeps it.
+ */
+export function heldForStore(outbox: Outbox, reported: HouseView, now: Instant): { outbox: Outbox; held: Entry[] } {
+  const held: Entry[] = [];
+  const next = outbox.map((entry): Entry => {
+    if (entry.write.kind !== 'store') return entry;
+    const missing = reported.state[entry.write.write.entity] === undefined;
+    if (missing && entry.status.kind !== 'no store') {
+      const waiting: Entry = { ...entry, status: { kind: 'no store' } };
+      held.push(waiting);
+      return waiting;
+    }
+    return !missing && entry.status.kind === 'no store' ? { ...entry, status: { kind: 'due', at: now } } : entry;
+  });
+  return { outbox: next, held };
 }
 
 /** The writes due at `now`, in the order they were queued. */

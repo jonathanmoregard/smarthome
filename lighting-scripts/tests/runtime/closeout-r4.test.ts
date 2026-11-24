@@ -355,7 +355,7 @@ test('closeout r4 B3: a house read one of whose lists Home Assistant never answe
   assert.equal(after.paused, false, `ten minutes on, the house was read again and the host is back: ${JSON.stringify(after)}`);
 });
 
-test("closeout r4 B6: a profile saved to a store Home Assistant lacks is not taken as written and then lost", { todo: 'closeout r4 B6' }, async () => {
+test("closeout r4 B6: a profile saved to a store Home Assistant lacks is not taken as written and then lost", async () => {
   // Break: Home Assistant 2026.7.4 answers input_text.set_value over an entity it does not have with success, and only
   // logs a warning (helpers/service.py:765-771 log_missing, :801-806 `return None`; websocket_api/commands.py:281-292
   // send_result; run offline, closeout-r4-verdicts.md). The outbox drops a write answered so as taken
@@ -373,8 +373,10 @@ test("closeout r4 B6: a profile saved to a store Home Assistant lacks is not tak
   now.time = at('12:01:00');
   host.accept(bridged('ls_store', { store, own: true, on: true, brightness: 100 }));
   await host.idle();
-  assert.ok(ha.calls.some(call => call.service === 'input_text.set_value' && call.target?.entity_id === store), 'control: the save was written');
-  assert.equal(ha.states[store], undefined, 'control: Home Assistant answered it, and set nothing');
+  // Ruling B6: the store is checked against the mirror before sending, so a save to one Home Assistant lacks is held
+  // rather than sent (this control said "the save was written" until then).
+  assert.ok(!ha.calls.some(call => call.service === 'input_text.set_value' && call.target?.entity_id === store), 'control: the save is held, not sent');
+  assert.equal(ha.states[store], undefined, 'control: Home Assistant set nothing');
   assert.equal(level(), 100, `control: lamp_a2 shows the save (the schedule's ${scheduled} before)`);
   // The next read of the config: Home Assistant comes back after a blip, and the house is read whole.
   now.time = at('12:05:00');
@@ -384,6 +386,8 @@ test("closeout r4 B6: a profile saved to a store Home Assistant lacks is not tak
   await host.close();
   const named = logged.filter(line => line.includes(store));
   assert.ok(level() === 100 || named.length > 0, `after the config is read again lamp_a2 shows ${level()}, and the log names no ${store}: ${JSON.stringify(logged)}`);
+  assert.deepEqual({ level: level(), named: named.length }, { level: 100, named: 1 },
+    'ruling B6: the Model keeps the profile, and the missing store is named once');
 });
 
 /* main() run whole in a child process (tests/runtime/support/main-child.ts). */

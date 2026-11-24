@@ -43,7 +43,7 @@ import {
   switchesSeen, unexplained, unparked,
 } from './reconcile.ts';
 import type { Beliefs, Outcome, Send } from './reconcile.ts';
-import { afterTries, awaitsEcho, dueAt, nextTry, outputOf, queued, settled, targetOf, unparkedWrites, withWaiting } from './outbox.ts';
+import { afterTries, awaitsEcho, dueAt, heldForStore, nextTry, outputOf, queued, settled, targetOf, unparkedWrites, withWaiting } from './outbox.ts';
 import type { Entry, Outbox, Tried, Write } from './outbox.ts';
 import { configStoreWrite, dashboardWrites, modelWrites, uiSyncWrites } from './codecs/writes.ts';
 import type { ControlRow, StoreWrite } from './codecs/writes.ts';
@@ -248,7 +248,7 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
     for (const write of dashboardWrites(previous, view, sync, house)) writes.push({ kind: 'dashboard', write });
     for (const write of uiSyncWrites(house, previous === undefined)) writes.push({ kind: 'dashboard', write });
   }
-  const outbox = queued(waiting, writes, now), due = dueAt(outbox, now)
+  const { outbox, held } = heldForStore(queued(waiting, writes, now), reported, now), due = dueAt(outbox, now)
     .filter(entry => !awaitsEcho(entry, reported, share) && (entry.write.kind !== 'sensor' || overrides.kind === 'read'));
   const outputs: Output[] = due.map(entry => outputOf(entry, reported, share));
   const writing = due.map((entry, output) => ({ entry, output }));
@@ -272,6 +272,7 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
     ...state?.observed.bridge !== 'unknown' && observed.bridge === 'unknown'
       ? [`lighting: Home Assistant has no ${BRIDGE_SENSOR}; Zigbee2MQTT's connection is unknown, and the bulbs are sent as if it were up`] : [],
     ...topicless.filter(bulb => state?.topicless.includes(bulb) !== true).map(bulb => `lighting: the catalog gives ${bulb} no topic; it is sent nothing`),
+    ...held.map(entry => `lighting: Home Assistant has no ${targetOf(entry.write)}; the write to it waits until it does`),
     // A start refuses such a room (src/main.ts); a host started over one says it once, at its start.
     ...given.kind === 'listed' && (state === undefined || input.kind === 'started') && portSwitchesMissing(house.state, given.rooms).length > 0
       ? [`lighting: ${noPortSwitch(portSwitchesMissing(house.state, given.rooms))}`] : [],

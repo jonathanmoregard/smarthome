@@ -329,6 +329,8 @@ test('a save made as Home Assistant goes out of reach survives the reconnect and
   // Re-review 1. Break: the reconnect reads the profiles again from what Home Assistant still holds, the Model takes
   // the old profile over the save, and the save is never written.
   const ha = new FakeHa(), now = { time: at('12:00:00') };
+  // Home Assistant has the store, an input_text helper: a save to one it lacks is held (close-out r4 ruling B6).
+  ha.states['input_text.ls_house_day'] = { state: '', attributes: {} };
   const host = await open(ha, new MemoryJournal(), now).host;
   host.accept({ kind: 'started' });
   await host.idle();

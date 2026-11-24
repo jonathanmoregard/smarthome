@@ -33,8 +33,17 @@ const roomA = toRoomId('room-a');
 const ROOM_A_BULBS = ['bulb-a1', 'bulb-a2', 'bulb-a3'] as BulbId[];
 
 /** A house the loop runs in: the states, the bulbs' world and the adapter's state. */
+/**
+ * The stores this file's saves go to, as Home Assistant has them, input_text helpers: a save to a store Home Assistant
+ * lacks is held, not sent (close-out r4 ruling B6).
+ */
+const STORES = ['input_text.ls_house_day', 'input_text.ls_room-a_day', 'input_text.ls_nowhere_day', 'input_text.ls_lamp_lamp_a2_day',
+  'input_text.ls_lamp_plug_a_cosy'];
+
 class House {
-  readonly states: Record<string, EntityState> = syntheticStates();
+  readonly states: Record<string, EntityState> = syntheticStates(change => {
+    for (const store of STORES) change[store] = { state: '', attributes: {} };
+  });
   readonly bulbs: FakeBulbs = world();
   state: AdapterState | undefined;
   last: Turn | undefined;
