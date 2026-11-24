@@ -11,6 +11,7 @@ import type { SwitchButtonPressed } from './switches.ts';
 import type { RoomId, SwitchId } from './types/ids.ts';
 import { entriesOf } from './types/ids.ts';
 import type { Power } from './types/light.ts';
+import type { PlantHours } from './types/range.ts';
 import { instantOrThrow } from './types/range.ts';
 import type { Instant } from './types/time.ts';
 
@@ -126,6 +127,6 @@ function switchOffAt(config: Config, placed: PlantLight, last: Instant | undefin
 }
 
 /** Its own hours where it keeps its own, else the house's default. */
-function hoursOf(config: Config, placed: PlantLight): number {
+function hoursOf(config: Config, placed: PlantLight): PlantHours {
   return placed.hours.follows === 'own' ? placed.hours.own : config.plantHours;
 }
