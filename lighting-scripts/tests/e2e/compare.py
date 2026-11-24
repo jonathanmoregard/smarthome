@@ -299,7 +299,9 @@ def compare_flow(reference: Sequence[Checkpoint], port: Sequence[Checkpoint], sc
     for step in sorted(ref_steps.keys() | port_steps.keys()):
         ref, new = ref_steps.get(step, [None])[-1], port_steps.get(step, [None])[-1]
         if ref is None or new is None or ref.t != new.t:   # rule 8
-            t = (ref or new).t   # type: ignore[union-attr]
+            present = ref if ref is not None else new
+            assert present is not None, f'step {step} has no checkpoint on either side'
+            t = present.t
             found.append((Difference(step, t, 'checkpoint', 'checkpoint', None if ref is None else ref.t,
                                      None if new is None else new.t, rule='checkpoint'), None))
             continue
@@ -461,9 +463,10 @@ def _reacts(first: tuple[Checkpoint, Checkpoint], second: tuple[Checkpoint, Chec
         if any(name not in checkpoint.bulbs for checkpoint in (ref_a, ref_b, port_a, port_b)):
             continue
         states = (ref_a.bulbs[name], ref_b.bulbs[name], port_a.bulbs[name], port_b.bulbs[name])
-        if not all(isinstance(state, On) for state in states):
+        lit = [state for state in states if isinstance(state, On)]
+        if len(lit) != len(states):
             continue
-        ra, rb, pa, pb = (state.level for state in states)   # type: ignore[union-attr]
+        ra, rb, pa, pb = (state.level for state in lit)
         if rb != ra and (pb - pa) * (1 if rb > ra else -1) >= REACTION_STEPS:
             return True
     return False
