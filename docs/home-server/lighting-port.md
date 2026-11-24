@@ -51,7 +51,8 @@ checkout is anywhere else, forces it there (`git checkout --force -B`):
    the dependencies again if needed. It never restarts it while an install
    runs, nor before the checkout has got through: a checkout that keeps
    failing (a directory it cannot write, a full disk) is logged every run
-   and restarts nothing until it succeeds.
+   and restarts nothing until it succeeds. A restart it owes waits, too,
+   while an install runs.
 2. The checkout is not edited on the server. On the next run, local edits to
    tracked files are discarded (the journal lists the files), and a local
    commit or a checked-out local branch is left behind for the followed

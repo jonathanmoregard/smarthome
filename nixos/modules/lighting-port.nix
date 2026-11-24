@@ -418,9 +418,11 @@ let
       # The checkout is whole. Asked for only now, so a unit that started
       # on its own before this (from half-updated files) is restarted too;
       # owed until asked for, so a run cut off before this is caught up by
-      # the next.
+      # the next. Not while an install runs (no stamp): the unit may have
+      # started on its own from a checkout that failed half way, and a
+      # restart would kill its npm ci. It stays owed until the stamp is back.
       owed=$(cat -- "$restart_owed" 2>/dev/null) || owed=
-      if [ "$owed" = owed ]; then
+      if [ "$owed" = owed ] && [ -f "$stamp" ]; then
         request_restart "the update changes lighting-scripts outside src/"
         printf 'asked\n' > "$restart_owed"
       fi

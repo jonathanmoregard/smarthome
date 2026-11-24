@@ -847,6 +847,21 @@ pkgsSystem.testers.runNixOSTest {
     follow_restarts(True)
     follow_restarts(False)
 
+    # An owed restart waits while an install runs (no stamp): the unit may
+    # have started on its own, from a checkout that failed half way, and a
+    # restart would kill its npm ci. Once the install is done, it is asked.
+    as_service(
+        "printf 'owed\\n' > /var/lib/lighting-port/.follow-restart-owed && "
+        "mv ${scripts}/node_modules/.lighting-port-lock.sha256 /var/lib/lighting-port/stamp.kept"
+    )
+    follow_restarts(False)
+    follow_restarts(False)
+    as_service(
+        "mv /var/lib/lighting-port/stamp.kept ${scripts}/node_modules/.lighting-port-lock.sha256"
+    )
+    follow_restarts(True)
+    follow_restarts(False)
+
     # Git's own upkeep after a fetch (packing loose objects once there are
     # more than gc.auto, 6700) gets done: started in the background, it
     # would be killed with the rest of the run the moment the oneshot ends,
