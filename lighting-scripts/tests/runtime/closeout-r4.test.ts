@@ -462,7 +462,7 @@ test("closeout r4 A2/B4 (bridge): the rollout's lamp change bridge passes a pers
   assert.equal(passes('toggle'), true);
 });
 
-test("closeout r4 B8: the pending-output bridge's export fails when no condition reads the old runtime's bookkeeping", { todo: 'closeout r4 B8' }, () => {
+test("closeout r4 B8: the pending-output bridge's export fails when no condition reads the old runtime's bookkeeping", () => {
   // Break: the rollout drops the conditions that name ls_effects_runtime (scripts/export-bridge.py:205) and succeeds when
   // none does, so a recovery whose dirty check reads its bookkeeping under another name keeps that check, and the port's
   // rooms get no 5 s tick while the old side is clean.

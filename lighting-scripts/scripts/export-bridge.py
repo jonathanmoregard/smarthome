@@ -202,7 +202,10 @@ def rollout_bridge(slug, original, remotes):
         conditions.append(template('{{ ' + ON_PORT.format(area='area_id(trigger.entity_id)') + ' }}'))
     elif slug == 'lighting_recover_pending_output':
         # Its own check reads the old scripts' render bookkeeping, which the port does not share.
-        conditions = [c for c in conditions if 'ls_effects_runtime' not in json.dumps(c)]
+        kept = [c for c in conditions if 'ls_effects_runtime' not in json.dumps(c)]
+        if len(kept) == len(conditions):
+            raise ValueError(f'{slug}: no condition names ls_effects_runtime, so its dirty check would stay')
+        conditions = kept
         conditions.append(template(ANY_ON_PORT))
     else:
         raise ValueError(f'{slug}: the rollout does not know whether it is a room or the house; add it to a list')
