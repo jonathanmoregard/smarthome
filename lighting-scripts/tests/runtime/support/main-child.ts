@@ -3,13 +3,15 @@
  * (tests/runtime/closeout-r2.test.ts). Node's `setInterval` is caught so the heartbeat beats only when this script
  * says, and the process exits when done, which ends the catalog watcher and the journal lock with it.
  *
- * Usage: main-child.ts <dir> reload|refuse|gap|gap-control. Prints one JSON line: every heartbeat call made, those
+ * Usage: main-child.ts <dir> reload|refuse|gap|gap-control|during-read. Prints one JSON line: every heartbeat call made, those
  * Home Assistant took, what the process logged, and how many publishes reached bulb-a.
  *   reload: the catalog gains `light.lamp_c`, which the registry has in `room-c`, under `--live-rooms all`.
  *   refuse: Home Assistant refuses every call with an error (not out of reach).
  *   gap: under `--live-rooms room-a`, `input_boolean.ls_room-a_on_port` turns on after the read and before the
  *     state_changed subscription, so no subscriber hears it (close-out round 3, B7); then a bridged recovery tick.
  *   gap-control: the same change, made once the subscription is live, so it is heard; then the same tick.
+ *   during-read: while the house read is out, the switch turns off and then on, two state_changed events the read
+ *     does not show; then the same tick (close-out round 3, B7 ruling: events held during the read apply after it, in order).
  */
 import { readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -17,10 +19,10 @@ import { HomeAssistantClient } from '../../../src/adapter/ha-client.ts';
 import type { HouseRead, ServiceCall } from '../../../src/adapter/ha-client.ts';
 
 const [dir, mode] = process.argv.slice(2);
-if (dir === undefined || (mode !== 'reload' && mode !== 'refuse' && mode !== 'gap' && mode !== 'gap-control')) {
-  throw new Error('usage: main-child.ts <dir> reload|refuse|gap|gap-control');
+if (dir === undefined || (mode !== 'reload' && mode !== 'refuse' && mode !== 'gap' && mode !== 'gap-control' && mode !== 'during-read')) {
+  throw new Error('usage: main-child.ts <dir> reload|refuse|gap|gap-control|during-read');
 }
-const gap = mode === 'gap' || mode === 'gap-control';
+const gap = mode === 'gap' || mode === 'gap-control' || mode === 'during-read';
 
 const beats: (() => void)[] = [];
 globalThis.setInterval = ((beat: () => void) => { beats.push(beat); return 0; }) as unknown as typeof setInterval;
@@ -57,7 +59,17 @@ class FakeClient {
     if (event === 'state_changed' && mode === 'gap-control') callback({ event_type: event, data: handOver });
   }
   onConnection(): void {}
-  async read(): Promise<HouseRead> { return structuredClone(READ); }
+  async read(): Promise<HouseRead> {
+    const read = structuredClone(READ);
+    if (mode === 'during-read') {
+      for (const [state, second] of [['off', '01'], ['on', '02']] as const) {
+        const at = `2026-09-21T12:00:${second}.000000+00:00`;
+        this.listeners.get('state_changed')?.({ event_type: 'state_changed', data: { entity_id: 'input_boolean.ls_room-a_on_port',
+          new_state: { ...wire('input_boolean.ls_room-a_on_port', state), last_changed: at, last_updated: at } } });
+      }
+    }
+    return read;
+  }
   async close(): Promise<void> {}
 }
 const fake = new FakeClient();

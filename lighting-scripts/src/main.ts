@@ -48,6 +48,17 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   const read = async () => houseMirrorOf(await ha.read());
   let stopHeartbeat = () => {}, watcher: FSWatcher | undefined;
   try {
+    // Subscribed before the house is read, as Home Assistant hands an event only to the subscriptions live when it
+    // fires: what comes before the host is open is held, and handed to it in order once it is.
+    const held: ((host: Host) => void)[] = [];
+    let opened: Host | undefined;
+    const toHost = (step: (host: Host) => void) => { if (opened === undefined) held.push(step); else step(opened); };
+    await ha.subscribe(HA_EVENTS.stateChanged, event => {
+      const changed = stateChangedOf(event.data);
+      toHost(host => host.stateChanged(changed.entity, changed.state));
+    });
+    let reread = () => {};
+    for (const event of HA_EVENTS.registries) await ha.subscribe(event, () => toHost(() => reread()));
     const mirror = await read(), clock = () => toInstant(Date.now() / 1000), warn = (message: string) => console.warn(message);
     if (given.kind === 'listed') {
       refuseUnknownRooms(given.rooms, decodeConfig(configSource(houseView(mirror, clock(), catalog)), catalog));
@@ -58,17 +69,14 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     const host = await Host.open({ ha, journal: fileJournal(journal), clock, log: console,
       timer, rooms: given, took: seconds => void beats.call(timingCall(seconds)).catch(() => undefined) }, mirror, catalog);
     // A registry change may move a lamp or a label the config is read from: the turn after the read takes it.
-    const reread = rereading(read, (house, startedAt) => { host.houseRead(house, startedAt); host.accept({ kind: 'wake' }); }, warn, clock, timer);
+    reread = rereading(read, (house, startedAt) => { host.houseRead(house, startedAt); host.accept({ kind: 'wake' }); }, warn, clock, timer);
+    opened = host;
+    for (const step of held.splice(0)) step(host);
     const reconnect = rereading(read, (house, startedAt) => host.reconnected(house, startedAt), warn, clock, timer);
     ha.onConnection(connected => { if (connected) reconnect(); else host.disconnected(); });
     await ha.subscribe(HA_EVENTS.started, reconnect);
-    await ha.subscribe(HA_EVENTS.stateChanged, event => {
-      const changed = stateChangedOf(event.data);
-      host.stateChanged(changed.entity, changed.state);
-    });
     // Home Assistant keeps the triggers only; every decision runs in this process.
     await ha.subscribe(HA_EVENTS.bridgeRun, event => { const run = bridgeRunOf(event.data); host.script(run.script, run.args); });
-    for (const event of HA_EVENTS.registries) await ha.subscribe(event, reread);
     // Each beat names every room the port may drive as it stands: with the whole house, each room of the config's lamps.
     stopHeartbeat = startHeartbeat(() => host.liveRooms(), call => beats.call(call), message => console.error(message), HEARTBEAT_MS, () => host.paused());
     watcher = watchRuntimeCatalog(configuration, async read => {

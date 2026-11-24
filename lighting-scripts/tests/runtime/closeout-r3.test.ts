@@ -289,7 +289,7 @@ test('closeout r3 B10: a listed room with no port switch helper is not silent', 
 
 /* main() run whole in a child process (tests/runtime/support/main-child.ts). */
 
-function mainChild(mode: 'gap' | 'gap-control'): { bulbA: number; logged: string[] } {
+function mainChild(mode: 'gap' | 'gap-control' | 'during-read'): { bulbA: number; logged: string[] } {
   const dir = mkdtempSync(join(tmpdir(), 'closeout-r3-main-'));
   const child = fileURLToPath(new URL('./support/main-child.ts', import.meta.url));
   const run = spawnSync(process.execPath, ['--experimental-strip-types', '--no-warnings', child, dir, mode], { encoding: 'utf8', timeout: 30_000 });
@@ -297,7 +297,7 @@ function mainChild(mode: 'gap' | 'gap-control'): { bulbA: number; logged: string
   return JSON.parse(run.stdout.trim().split('\n').at(-1) ?? '{}');
 }
 
-test('closeout r3 B7: a state change between the house read and the state_changed subscription reaches the mirror', { todo: 'closeout r3 B7' }, () => {
+test('closeout r3 B7: a state change between the house read and the state_changed subscription reaches the mirror', () => {
   // Break: main() reads the house (src/main.ts:51) and subscribes to state_changed only later (src/main.ts:60), after
   // Host.open and the homeassistant_started subscription; Home Assistant hands an event only to the subscriptions live
   // when it fires, so a change in between never reaches the mirror until a whole read. Here room-a is handed to the port
@@ -305,6 +305,13 @@ test('closeout r3 B7: a state change between the house read and the state_change
   assert.ok(mainChild('gap-control').bulbA > 0, 'control: handed over once subscribed, the tick drives room-a');
   const gap = mainChild('gap');
   assert.ok(gap.bulbA > 0, `handed over in the gap, the tick drives room-a: ${gap.bulbA} publishes to bulb-a`);
+});
+
+test('closeout r3 B7 (ruling): state changes that come while the house is read are held and applied after it, in order', () => {
+  // Break: main() subscribes after the read, so the changes are never heard; or it applies them before the read lands,
+  // which the read then overwrites; or out of order, so the switch ends off. The read shows the switch off.
+  const during = mainChild('during-read');
+  assert.ok(during.bulbA > 0, `switched off then on during the read, the tick drives room-a: ${during.bulbA} publishes to bulb-a`);
 });
 
 /* The rollout's lamp change bridge, exported from the captured detector and rendered as Home Assistant renders it. */
