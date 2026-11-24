@@ -707,7 +707,7 @@ test('closeout r2 A3: a bulb parked by put-backs whose wall power returns before
   assert.deepEqual(bulbs.shows(bulbA3), { reach: 'reachable', light: lit(150, kelvin(3003)) });
 });
 
-test("closeout r3 B8: a plug that changed just before our send, stamped by Home Assistant's clock 3 s ahead, is no press", { todo: 'closeout r3 B8' }, () => {
+test("closeout r3 B8: a plug that changed just before our send, stamped by Home Assistant's clock 3 s ahead, is no press", { todo: 'advisory: clock skew' }, () => {
   // Break: switchPressed compares Home Assistant's `last_changed` with our clock's `sentAt` (src/adapter/reconcile.ts:250).
   // The plug went off at our clock's -1 s; Home Assistant, 3 s ahead, stamps it +2 s. Our turn at 0 sees it off and sends
   // on; the next look shows it the same, not yet switched, and the stamp reads as a change after our send.
