@@ -142,8 +142,28 @@ refuses, so `switch-to-configuration` never sees it failed, and a crashing
 port does not roll the server back.
 
 A clone cut short leaves `/var/lib/lighting-port/.src.partial.<time>` behind;
-delete it when convenient. To start over from a fresh clone, move `src` aside
-and restart.
+delete it when convenient.
+
+To start over from a fresh clone, move `src` aside. The catalog and the
+journal live in its `.runtime`, so carry them into the new checkout:
+
+```sh
+sudo systemctl stop lighting-port
+mv /var/lib/lighting-port/src /var/lib/lighting-port/src.old
+sudo systemctl start lighting-port
+```
+
+The service clones and installs again, then stops with `refusing to start:
+.../.runtime/catalog.json does not exist`. Then:
+
+```sh
+mv /var/lib/lighting-port/src.old/lighting-scripts/.runtime/* \
+  /var/lib/lighting-port/src/lighting-scripts/.runtime/
+sudo systemctl restart lighting-port
+```
+
+Move them, do not copy them: a copy is yours, with your umask, and the service
+may not be able to read or replace it. Delete `src.old` when convenient.
 
 ## Reconciling edits into the repository
 

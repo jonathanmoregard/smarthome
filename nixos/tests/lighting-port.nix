@@ -28,6 +28,8 @@
 #   - the watcher gets the agreed command line and environment;
 #   - with the port's real watcher (fixtures/lighting-port-dev.mjs), a stop
 #     reaches the host once, and the host finishes its own shutdown;
+#   - starting over from a fresh clone as the docs say carries the catalog
+#     and the journal into it, still the service's;
 #   - an existing checkout is never pulled or reset; `npm ci` reruns only
 #     when package-lock.json changes, and never runs lifecycle scripts;
 #   - the operator, as a member of the group, edits the env file and the
@@ -597,6 +599,31 @@ pkgsSystem.testers.runNixOSTest {
     stops_promptly()
     machine.succeed("grep -Fx clean ${scripts}/.runtime/clean")
     machine.succeed("test ! -e ${scripts}/.runtime/journal.json.lock")
+
+    # Starting over from a fresh clone, step by step as the docs say: the
+    # catalog and the journal live in the checkout's .runtime and are carried
+    # into the new one, still the service's, instead of a clone that refuses
+    # for a missing catalog and a port that starts without its journal.
+    as_service("printf 'kept\\n' > ${scripts}/.runtime/journal.json")
+    marker = machine.succeed("date +%s").strip()
+    machine.sleep(1)
+    machine.succeed("systemctl stop lighting-port.service")
+    as_operator("mv /var/lib/lighting-port/src /var/lib/lighting-port/src.old")
+    machine.succeed("systemctl start lighting-port.service")
+    machine.wait_until_succeeds(
+        journal_since(marker) + " | grep -F "
+        "'lighting-port: refusing to start: ${scripts}/.runtime/catalog.json does not exist'",
+        timeout=120,
+    )
+    as_operator(
+        "mv /var/lib/lighting-port/src.old/lighting-scripts/.runtime/* ${scripts}/.runtime/"
+    )
+    restart_watcher()
+    machine.succeed("grep -Fx kept ${scripts}/.runtime/journal.json")
+    machine.succeed(
+        "test \"$(stat -c '%U:%G' ${scripts}/.runtime/journal.json)\" = 'lighting-port:lighting-port'"
+    )
+    machine.succeed("systemctl stop lighting-port.service")
 
     # An origin that stalls mid-clone: a stop meanwhile is prompt, and the
     # clone gives up and is retried instead of holding the unit forever. The
