@@ -41,15 +41,18 @@ export function syntheticStates(change: (states: Record<string, EntityState>) =>
   return states;
 }
 
-/** The house at `now` (ISO text) over `states`, which the test keeps and the world writes back into. */
-export function houseView(states: Record<string, EntityState>, now: string): HouseView {
+/**
+ * The house at `now` (ISO text) over `states`, which the test keeps and the world writes back into. Each of `plants`
+ * is a plant light, labelled `plant_light`, in `room-a`.
+ */
+export function houseView(states: Record<string, EntityState>, now: string, plants: readonly string[] = []): HouseView {
   const source = syntheticSource();
   const catalog = parseCatalog(CATALOG);
   return {
     state: states,
     rooms: parseRooms({ 'light.lamp_a1': 'room-a', 'light.lamp_a2': 'room-a', 'light.lamp_b1': 'room-b', 'switch.plug_a': 'room-a',
-      'remote-a': 'room-a' }),
-    labels: { on_off: ['switch.plug_a'], private_room: ['room-b'] },
+      'remote-a': 'room-a', ...Object.fromEntries(plants.map(plant => [plant, 'room-a'])) }),
+    labels: { on_off: ['switch.plug_a'], private_room: ['room-b'], plant_light: [...plants] },
     devices: { 'device-plug-a': ['switch.plug_a'] },
     floors: { ground: ['room-a'] },
     entitySources: {},

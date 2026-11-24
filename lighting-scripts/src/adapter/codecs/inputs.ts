@@ -685,11 +685,33 @@ function profileStoreOf(store: string, model: Model): ProfileStore | undefined {
   return model.config.switches[plug] === undefined ? undefined : { kind: 'switch', switch: plug, block };
 }
 
+/** The dashboard's control that holds every plant light off; the port alone reads and writes it. */
+export const PLANTS_ALL_OFF = 'input_boolean.ls_plants_all_off';
+
 /** What the host makes of a bridge run: an input to run, the echo of a call of ours (dropped quietly), or dropped, and why. */
 export type BridgeVerdict = { kind: 'input'; input: HaInput } | { kind: 'echo' } | { kind: 'dropped'; why: string };
 
 /** What the host knows of its own calls: the context ids of the recent ones, and those that failed as the run came. */
 export type OwnCalls = { contexts: readonly string[]; failed: readonly ServiceCall[] };
+
+/**
+ * The all-off control read against `held`, whether the Model held all off before this turn's clock: the control
+ * showing on while not held sets all off, showing off while held hands the plant lights back. A control that holds no
+ * power (unavailable, unknown, or none in Home Assistant) says nothing, so a hold the sensor keeps is never cleared by
+ * a control Home Assistant has yet to load. Read before the clock, a hold the clock releases this turn is not taken
+ * for a new on while the port's off to the control is still on its way.
+ */
+export function plantsAllOffMessages(house: HouseView, held: boolean, now: Instant): Msg[] {
+  const shown = plantsAllOffShown(house);
+  if (shown === undefined || (shown === 'on') === held) return [];
+  return [{ kind: 'plantsAllOffSet', on: shown === 'on', at: now }];
+}
+
+/** The power the all-off control shows; none when it holds no power. */
+export function plantsAllOffShown(house: HouseView): Power | undefined {
+  const shown = house.state[PLANTS_ALL_OFF]?.state;
+  return shown === 'on' || shown === 'off' ? shown : undefined;
+}
 
 /** A bridge event (`smarthome_script`): the script or automation it forwards, and its arguments. */
 export function bridgeRunOf(data: JsonObject): { script: string; args: JsonObject } {

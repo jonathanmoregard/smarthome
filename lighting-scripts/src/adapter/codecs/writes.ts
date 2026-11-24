@@ -26,6 +26,7 @@ import { decodeLampProfile, encodeLampProfile } from './lamp-profiles.ts';
 import { profileStore } from './model.ts';
 import { storeKeys } from './overlay-key.ts';
 import { encodeOverrides } from './overrides-sensor.ts';
+import { PLANTS_ALL_OFF, plantsAllOffShown } from './inputs.ts';
 import { drives } from './rooms.ts';
 import type { Share } from './rooms.ts';
 import { encodeSwitchProfile } from './switch-profiles.ts';
@@ -69,8 +70,9 @@ function superseded(change: SensorKeyChange, shown: EntityState | undefined, que
 /**
  * What an output leaves in Home Assistant once taken, as the entity it writes reports it: the sensor its revision and
  * its attributes merged over the stored ones, a remote helper its value as text or its timer's run, a store its text,
- * a block selector its option, the mode mirror its power. A bulb's publish, a switch's power (only the switch's own
- * report moves it) and an MQTT message to the dashboard leave nothing: what they reach reports back.
+ * a block selector its option, the mode mirror and the all-off control their power. A bulb's publish, a switch's
+ * power (only the switch's own report moves it) and an MQTT message to the dashboard leave nothing: what they reach
+ * reports back.
  */
 export type Left = { entity: string; state: string; attributes: JsonObject | undefined };
 
@@ -87,7 +89,7 @@ export function leftBy(output: Output): Left | undefined {
     case 'dashboard': {
       const write = output.write;
       if (write.kind === 'block selector') return text(write.entity, write.option);
-      return write.kind === 'mode mirror' ? text(write.entity, write.on ? 'on' : 'off') : undefined;
+      return write.kind === 'mode mirror' || write.kind === 'plants all-off' ? text(write.entity, write.on ? 'on' : 'off') : undefined;
     }
   }
 }
@@ -107,6 +109,8 @@ export function configStoreWrite(light: BlockLight, change: LampProfileChange, h
 export type DashboardWrite =
   | { kind: 'block selector'; entity: string; option: string }
   | { kind: 'mode mirror'; entity: string; on: boolean }
+  /** The all-off control set to whether every plant light is held off. */
+  | { kind: 'plants all-off'; entity: string; on: boolean }
   /** One retained MQTT message to a control's proxy. */
   | { kind: 'control sync'; topic: string; payload: string }
   /** A discovered light's config republished, retained, with the catalog's effect choices. */
@@ -169,6 +173,17 @@ function rowSync(house: HouseView, row: UiRow, proxy: string, force: boolean): D
 }
 
 export const OVERRIDES_SENSOR = 'sensor.ls_overrides';
+
+/**
+ * The all-off control set to what the dashboard view holds, when it shows the other power: the hold set from the
+ * control needs no write, the clock's release at the day start switches it off. A control that holds no power
+ * (unavailable, unknown, or none) is not written.
+ */
+export function plantsAllOffWrite(view: DashboardView, house: HouseView): DashboardWrite | undefined {
+  const shown = plantsAllOffShown(house);
+  return shown === undefined || (shown === 'on') === view.plantsAllOff ? undefined
+    : { kind: 'plants all-off', entity: PLANTS_ALL_OFF, on: view.plantsAllOff };
+}
 
 /** A source or proxy that reports on or off is available. */
 function reportsPower(state: string): boolean {

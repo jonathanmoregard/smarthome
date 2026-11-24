@@ -33,7 +33,7 @@ import type { JournalRecord } from './codecs/journal.ts';
 import { decodeRangeDefaults } from './codecs/range-defaults.ts';
 import { carries, outcomeOf, publishes } from './encode.ts';
 import type { Output } from './encode.ts';
-import { messages, storeSaveIn, unexplainedMessages } from './codecs/inputs.ts';
+import { messages, PLANTS_ALL_OFF, plantsAllOffMessages, storeSaveIn, unexplainedMessages } from './codecs/inputs.ts';
 import { uiRowsOf } from './codecs/catalog.ts';
 import type { HaInput, StoreSave } from './codecs/inputs.ts';
 import { BRIDGE_SENSOR, decodeObserved, observedSwitch } from './codecs/observed.ts';
@@ -46,7 +46,7 @@ import {
 import type { Beliefs, Outcome, Send, Superseded } from './reconcile.ts';
 import { afterTries, awaitsEcho, dueAt, heldForStore, nextTry, outputOf, queued, settled, targetOf, unparkedWrites, withWaiting } from './outbox.ts';
 import type { Entry, Outbox, Tried, Write } from './outbox.ts';
-import { configStoreWrite, dashboardWrites, modelWrites, uiSyncWrites } from './codecs/writes.ts';
+import { configStoreWrite, dashboardWrites, modelWrites, plantsAllOffWrite, uiSyncWrites } from './codecs/writes.ts';
 import type { ControlRow, StoreWrite } from './codecs/writes.ts';
 import type { LightingState } from '../domain/lighting-state.ts';
 import type { LampProfileChange } from '../domain/profiles.ts';
@@ -116,16 +116,16 @@ export function keptConfig(kept: Kept, house: HouseView): Config {
 }
 
 /**
- * Whether `entity` changing to `state` is a reason for a turn: the config is read from it, a sensor write waits on it,
- * or it is a switch of the config that now shows another power than the last turn saw (its own button, our send
- * landing, or its reach). A switch's change is a live input: its turn reads it against the look just before, so a
+ * Whether `entity` changing to `state` is a reason for a turn: the config is read from it, it is the all-off control, a
+ * sensor write waits on it, or it is a switch of the config that now shows another power than the last turn saw (its
+ * own button, our send landing, or its reach). A switch's change is a live input: its turn reads it against the look just before, so a
  * press is told from our send without a clock (`switchPressed`, reconcile.ts). The same power again (an attribute's
  * report, a bounce) runs no turn. Bulbs run none: their reports come at every step of a fade and the candle's flicker.
  */
 export function wantsTurn(kept: Kept, entity: string, state: EntityState | undefined): boolean {
   if (kept.kind !== 'running') return false;
   const { configFrom, outbox, model, observed } = kept.state, plug = toSwitchId(entity);
-  return readsConfig(configFrom, entity)
+  return readsConfig(configFrom, entity) || entity === PLANTS_ALL_OFF
     || outbox.some(({ write }) => write.kind === 'sensor' && write.write.entity === entity)
     || (model.config.switches[plug] !== undefined && observedSwitch(state) !== observed.switches[plug]);
 }
@@ -236,8 +236,12 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
     if (!(error instanceof ParseError)) throw error;
     dropped = `${input.kind}: ${error.message}`;
   }
-  // The turn's messages are its share's parts of the input's and the presses alike, whether the input read or was dropped.
-  const own = [...unexplainedMessages(changed, now), ...inputMessages].flatMap(msg => {
+  // The all-off control, read against the Model before the clock: a hold the clock releases this turn, whose off to the
+  // control is still to be written, is not read as a new on. Read whether the input read or was dropped.
+  const allOffRead = plantsAllOffMessages(house, before.plantOverrides.allOff !== undefined, now);
+  // The turn's messages are its share's parts of the input's, the presses' and the control's alike, whether the input
+  // read or was dropped.
+  const own = [...unexplainedMessages(changed, now), ...allOffRead, ...inputMessages].flatMap(msg => {
     const part = ownPart(share, msg, clocked.config);
     return part === undefined ? [] : [part];
   });
@@ -266,6 +270,9 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
     for (const write of dashboardWrites(previous, view, sync, house)) writes.push({ kind: 'dashboard', write });
     for (const write of uiSyncWrites(house, previous === undefined)) writes.push({ kind: 'dashboard', write });
   }
+  // The all-off control is the port's to mirror whatever the share: the old scripts do not know it.
+  const allOffWrite = plantsAllOffWrite(view, house);
+  if (allOffWrite !== undefined) writes.push({ kind: 'dashboard', write: allOffWrite });
   const { outbox, held } = heldForStore(queued(waiting, writes, now), reported, now), due = dueAt(outbox, now)
     .filter(entry => !awaitsEcho(entry, reported, share) && (entry.write.kind !== 'sensor' || overrides.kind === 'read'));
   const outputs: Output[] = due.map(entry => outputOf(entry, reported, share));

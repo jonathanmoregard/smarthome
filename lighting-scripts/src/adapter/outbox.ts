@@ -28,7 +28,11 @@ export type Write = { kind: 'sensor'; write: SensorChanges } | Exclude<Output, {
 export function targetOf(write: Write): string {
   switch (write.kind) {
     case 'sensor': case 'helper': case 'store': return write.write.entity;
-    case 'dashboard': return write.write.kind === 'block selector' || write.write.kind === 'mode mirror' ? write.write.entity : `mqtt:${write.write.topic}`;
+    case 'dashboard': {
+      const dashboard = write.write;
+      return dashboard.kind === 'block selector' || dashboard.kind === 'mode mirror' || dashboard.kind === 'plants all-off' ? dashboard.entity
+        : `mqtt:${dashboard.topic}`;
+    }
   }
 }
 

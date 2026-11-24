@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { configSource, decodeModel } from '../../src/adapter/codecs/model.ts';
-import { haInput, messages } from '../../src/adapter/codecs/inputs.ts';
+import { haInput, messages, PLANTS_ALL_OFF, plantsAllOffMessages } from '../../src/adapter/codecs/inputs.ts';
 import type { HaInput } from '../../src/adapter/codecs/inputs.ts';
 import { handleInput } from '../../src/adapter/loop.ts';
 import { NO_BELIEFS } from '../../src/adapter/reconcile.ts';
@@ -329,4 +329,29 @@ test('no input type holds raw JSON: JSON stays at the run, where haInput reads i
   const types = [...source.matchAll(/^(?:export )?type (\w+)[^=]*=([\s\S]*?);\n/gm)];
   assert.ok(types.some(([, name]) => name === 'HaInput'), 'HaInput is declared here');
   assert.deepEqual(types.filter(([, , body]) => /Json(Object|Value)/.test(body!)).map(([, name]) => name), []);
+});
+
+/** The synthetic house at noon, its all-off control holding `state`; `undefined`, Home Assistant has no such control. */
+function view(state: string | undefined): HouseView {
+  return houseView(states(made => {
+    if (state === undefined) delete made[PLANTS_ALL_OFF]; else made[PLANTS_ALL_OFF] = { state, attributes: {} };
+  }), NOW_TEXT);
+}
+const now = NOW;
+
+test('the all-off control is read against what the Model held', () => {
+  // Break: the control is read alone, so its on sets all off every turn (a newer hold each time), or its off clears
+  // nothing; or it is read against the wrong held, so a change is missed.
+  assert.deepEqual(plantsAllOffMessages(view('on'), false, now), [{ kind: 'plantsAllOffSet', on: true, at: now }]);
+  assert.deepEqual(plantsAllOffMessages(view('off'), true, now), [{ kind: 'plantsAllOffSet', on: false, at: now }]);
+  assert.deepEqual(plantsAllOffMessages(view('on'), true, now), []);
+  assert.deepEqual(plantsAllOffMessages(view('off'), false, now), []);
+});
+
+test('Review Focus 2: a control that holds no power says nothing', () => {
+  // Break: anything but `on` reads as off, so a control Home Assistant has not loaded yet (or lost) clears a stored
+  // all off, and the plant lights come on.
+  for (const state of ['unavailable', 'unknown', undefined]) for (const held of [true, false]) {
+    assert.deepEqual(plantsAllOffMessages(view(state), held, now), [], `${state} held ${held}`);
+  }
 });

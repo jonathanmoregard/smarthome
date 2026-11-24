@@ -3,7 +3,8 @@ import test from 'node:test';
 import type { Publish } from '../../src/adapter/encode.ts';
 import { configSource, decodeModel } from '../../src/adapter/codecs/model.ts';
 import type { HaInput } from '../../src/adapter/codecs/inputs.ts';
-import { afterOutputs, handleInput } from '../../src/adapter/loop.ts';
+import { afterOutputs, handleInput, wantsTurn } from '../../src/adapter/loop.ts';
+import { PLANTS_ALL_OFF } from '../../src/adapter/codecs/inputs.ts';
 import type { Output } from '../../src/adapter/encode.ts';
 import type { AdapterState, Kept, Settled, Turn } from '../../src/adapter/loop.ts';
 import type { RoomsGiven } from '../../src/adapter/live-rooms.ts';
@@ -48,23 +49,35 @@ class House {
   state: AdapterState | undefined;
   last: Turn | undefined;
 
-  constructor() {
+  /** The plant lights, each labelled `plant_light` in `room-a`. */
+  readonly plants: readonly string[];
+
+  /** `plants`: the house's plant lights, each a plug seeded off. */
+  constructor({ plants = [] }: { plants?: readonly string[] } = {}) {
+    this.plants = plants;
+    for (const plant of plants) this.states[plant] = { state: 'off', attributes: {} };
     writeBack(this.bulbs, this.states);
   }
 
   /**
-   * One turn at `time` (UTC, on the Monday): its writes land in the states, its publishes reach the bulbs but for the
-   * `failing` ones, and the turn is settled with how each output went.
+   * One turn at `time` (UTC: a time on the Monday, or a full instant such as `2026-09-22T07:00:00`): its writes land
+   * in the states, its publishes reach the bulbs and the all-off control's write lands, but for the `failing` ones, and
+   * the turn is settled with how each output went.
    */
   turn(time: string, input: HaInput, failing: (output: Output) => boolean = () => false): Turn & Settled {
-    const turn = handleInput(this.state === undefined ? STARTING : { kind: 'running', state: this.state }, houseView(this.states, `2026-09-21T${time}Z`), input, HOUSE);
+    const at = time.includes('T') ? `${time}Z` : `2026-09-21T${time}Z`;
+    const turn = handleInput(this.state === undefined ? STARTING : { kind: 'running', state: this.state }, houseView(this.states, at, this.plants),
+      input, HOUSE);
     const failed = turn.outputs.map(failing);
-    for (const output of turn.outputs) {
+    for (const [index, output] of turn.outputs.entries()) {
       if (output.kind === 'sensor') {
         const sensor = this.states[output.write.entity]!;
         this.states[output.write.entity] = { state: output.write.revision, attributes: { ...sensor.attributes, ...output.write.attributes } };
       }
       if (output.kind === 'switch') this.states[output.switch] = { state: output.power, attributes: {} };
+      if (output.kind === 'dashboard' && output.write.kind === 'plants all-off' && failed[index] !== true) {
+        this.states[output.write.entity] = { state: output.write.on ? 'on' : 'off', attributes: {} };
+      }
     }
     this.bulbs.apply(turn.outputs.flatMap((output, index) => output.kind === 'publish' && !failed[index] ? [output.publish] : []));
     writeBack(this.bulbs, this.states);
@@ -518,4 +531,98 @@ test('a missing Zigbee2MQTT bridge sensor counts as unknown: the bulbs are still
   house.bulbs.set(bulbA3, { reach: 'reachable', light: { power: 'off' } });
   writeBack(house.bulbs, house.states);
   assert.deepEqual(publishesOf(house.turn('12:02:00', { kind: 'tick' })), [], 'a disconnected bridge is still sent nothing');
+});
+
+/** A house with one plant light, `switch.plant_a` in `room-a`, and the all-off control off. */
+function plantHouse(): House {
+  const house = new House({ plants: [PLANT_A] });
+  house.states[PLANTS_ALL_OFF] = { state: 'off', attributes: {} };
+  return house;
+}
+
+const PLANT_A = 'switch.plant_a';
+
+/** The turn's switch output for `switch.plant_a`, if it made one. */
+function plantOut(turn: Turn): Extract<Output, { kind: 'switch' }> | undefined {
+  return turn.outputs.find((output): output is Extract<Output, { kind: 'switch' }> => output.kind === 'switch' && output.switch === toSwitchId(PLANT_A));
+}
+
+/** The turn's write to the all-off control, if it made one. */
+function allOffOut(turn: Turn): Output | undefined {
+  return turn.outputs.find(output => output.kind === 'dashboard' && output.write.kind === 'plants all-off');
+}
+
+/** A plant house started at noon, all off switched on from the dashboard at 12:05. */
+function allOffAt1205(): House {
+  const house = plantHouse();
+  house.turn('12:00:00', { kind: 'started' });
+  house.states[PLANTS_ALL_OFF] = { state: 'on', attributes: {} };
+  house.turn('12:05:00', { kind: 'wake' });
+  return house;
+}
+
+test('all off from the dashboard switches the plant lights off, and is stored', () => {
+  // Break: the control is not read, so the plant light stays on; or all off is not written to the sensor, so a
+  // restart forgets it; or the port writes the control it was just switched by.
+  const house = plantHouse(); house.turn('12:00:00', { kind: 'started' });
+  house.states[PLANTS_ALL_OFF] = { state: 'on', attributes: {} };
+  const turn = house.turn('12:05:00', { kind: 'wake' });
+  assert.equal(plantOut(turn)?.power, 'off');
+  assert.notEqual(house.states['sensor.ls_overrides']!.attributes['plant_all_off'], undefined);
+  assert.equal(allOffOut(turn), undefined);
+});
+
+test('at the next day start the plant lights go on and the control is switched off', () => {
+  // Break: the control is not mirrored back, so it shows on after the hold is gone; or the control's on, read against
+  // the clocked Model, sets all off again at the day start.
+  const house = allOffAt1205();
+  const turn = house.turn('2026-09-22T07:00:00', { kind: 'tick' });
+  assert.equal(plantOut(turn)?.power, 'on');
+  assert.deepEqual(allOffOut(turn), { kind: 'dashboard', write: { kind: 'plants all-off', entity: PLANTS_ALL_OFF, on: false } });
+  assert.equal(house.turn('2026-09-22T07:01:00', { kind: 'tick' }).state.model.plantOverrides.allOff, undefined);
+});
+
+test('switching all off off by hand ends the hold at once', () => {
+  // Break: the control's off is not read, so the plant lights stay off until the next day start.
+  const house = allOffAt1205();
+  house.states[PLANTS_ALL_OFF] = { state: 'off', attributes: {} };
+  assert.equal(plantOut(house.turn('13:00:00', { kind: 'wake' }))?.power, 'on');
+});
+
+test('Review Focus 3: while the control\'s off write has not landed, its on does not set all off again', () => {
+  // Break: the control is read as Home Assistant reports it, not with the port's own write still waiting laid over
+  // it, so the refused off leaves it on and the next turn sets all off again.
+  const house = allOffAt1205();
+  const failing = (output: Output) => output.kind === 'dashboard' && output.write.kind === 'plants all-off';
+  house.turn('2026-09-22T07:00:00', { kind: 'tick' }, failing);
+  const next = house.turn('2026-09-22T07:01:00', { kind: 'tick' }, failing);
+  assert.equal(next.state.model.plantOverrides.allOff, undefined);
+  assert.equal(house.states['switch.plant_a']!.state, 'on');
+});
+
+test('Review Focus 2: a start while the control is unavailable keeps a stored all-off', () => {
+  // Break: an unavailable control reads as off, so a restart before Home Assistant loads it clears the stored hold
+  // and the plant lights come on.
+  const house = allOffAt1205();
+  house.state = undefined;                         // the process starts again
+  house.states[PLANTS_ALL_OFF] = { state: 'unavailable', attributes: {} };
+  const turn = house.turn('12:30:00', { kind: 'started' });
+  assert.notEqual(turn.state.model.plantOverrides.allOff, undefined);
+  assert.equal(house.states['switch.plant_a']!.state, 'off');
+});
+
+test('the control switching is a reason for a turn', () => {
+  // Break: no turn runs when the control is switched, so all off waits for the next minute's tick.
+  const house = plantHouse(); house.turn('12:00:00', { kind: 'started' });
+  assert.equal(wantsTurn({ kind: 'running', state: house.state! }, PLANTS_ALL_OFF, { state: 'on', attributes: {} }), true);
+});
+
+test('the all-off control is switched off at the day start while some room is still the old scripts\'', () => {
+  // Break: the control's write is made only with the whole house, as the dashboard's other writes are, so during the
+  // rollout it shows on after the hold is gone; the old scripts do not know the control.
+  const house = allOffAt1205();
+  house.states['input_boolean.ls_room-a_on_port'] = { state: 'on', attributes: {} };
+  const rooms: RoomsGiven = { kind: 'listed', rooms: new Set([roomA]) };
+  const turn = handleInput({ kind: 'running', state: house.state! }, houseView(house.states, '2026-09-22T07:00:00Z', house.plants), { kind: 'tick' }, rooms);
+  assert.deepEqual(allOffOut(turn), { kind: 'dashboard', write: { kind: 'plants all-off', entity: PLANTS_ALL_OFF, on: false } });
 });

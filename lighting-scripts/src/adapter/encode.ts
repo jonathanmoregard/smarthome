@@ -173,7 +173,8 @@ function duration(seconds: number): string {
 function dashboardCall(write: DashboardWrite): ServiceCall {
   switch (write.kind) {
     case 'block selector': return { service: 'input_select.select_option', data: { option: write.option }, target: { entity_id: write.entity } };
-    case 'mode mirror': return { service: `input_boolean.turn_${write.on ? 'on' : 'off'}`, data: {}, target: { entity_id: write.entity } };
+    case 'mode mirror': case 'plants all-off':
+      return { service: `input_boolean.turn_${write.on ? 'on' : 'off'}`, data: {}, target: { entity_id: write.entity } };
     case 'control sync': case 'discovery': return mqttPublishCall(write.topic, write.payload, true);
   }
 }
