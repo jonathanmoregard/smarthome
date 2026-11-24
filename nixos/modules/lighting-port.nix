@@ -25,7 +25,8 @@
 #     watcher exiting, exit 0 and are restarted by Restart=always, backing
 #     off while they repeat. The real status is logged;
 #   - a stop reaches the host once, through the watcher, and is clean even
-#     when the port's own shutdown hangs.
+#     when the port's own shutdown hangs; a watcher that dies alone has its
+#     host stopped the same way before the unit backs off.
 
 let
   inherit (lib) mkEnableOption mkIf mkOption types;
@@ -124,7 +125,11 @@ let
         # for a minute counts as stalled, and the clone is retried.
         interruptible git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60 \
           clone --quiet --branch "$branch" -- "$repository" "$partial" || retry "clone failed"
-        mv -- "$partial" "$checkout"
+        # -T: a $checkout the operator put back meanwhile is theirs. Without
+        # it the clone would land inside it; with it the move fails, and the
+        # next start runs what is there.
+        mv -T -- "$partial" "$checkout" \
+          || retry "$checkout appeared while cloning; the clone stays at $partial"
       fi
 
       if [ ! -f "$scripts/package-lock.json" ]; then
@@ -153,13 +158,14 @@ let
         interruptible npm ci --ignore-scripts --no-audit --no-fund || retry "npm ci failed"
         printf '%s\n' "$lock_hash" > "$stamp"
       fi
-      printf '0\n' > "$failures_file"
 
       # Created by the unit, so it is group-writable whatever the operator's
       # umask, and the port can always write its journal next to the catalog.
       # Before any refusal: the first start refuses for the missing env file,
       # and the operator drops the catalog in here before writing that file.
       mkdir -p .runtime
+      # Setup got through, so the count of its failures starts over.
+      printf '0\n' > "$failures_file"
 
       # Which rooms the port may drive is the operator's call, made in the env
       # file; a missing answer never means any room. An empty LIVE_ROOMS is
@@ -187,13 +193,22 @@ let
       setsid node scripts/dev.mjs --live --config "$catalog" --live-rooms "$LIVE_ROOMS" &
       watcher=$!
       started=$(date +%s)
+      # Once the watcher has run stable_seconds, a run of failed starts, if
+      # there was one, is over, and its count starts over while the watcher
+      # still runs: a power cut after a long run leaves no old count behind.
+      sleep "$stable_seconds" &
+      settling=$!
 
-      # The watcher has run long enough that a run of failed starts, if there
-      # was one, is over.
-      settle() {
-        if [ $(($(date +%s) - started)) -ge "$stable_seconds" ]; then
-          printf '0\n' > "$exits_file" || true
-        fi
+      # Waits up to the grace for the watcher's process group (the watcher,
+      # the host it runs, a compile) to end, then kills whatever is left.
+      # end_group <what is waited for>
+      end_group() {
+        for _ in $(seq $((stop_grace_seconds * 2))); do
+          if ! kill -0 -- "-$watcher" 2>/dev/null; then return 0; fi
+          sleep 0.5
+        done
+        say "$1 still running ''${stop_grace_seconds}s after stop; killing it"
+        kill -KILL -- "-$watcher" 2>/dev/null || true
       }
 
       # The stop goes to the watcher alone, which passes it on to the host it
@@ -205,28 +220,44 @@ let
       # first, and the stop stays clean.
       # shellcheck disable=SC2329 # invoked by the TERM/INT trap
       stop_watcher() {
-        settle
         kill -TERM -- "$watcher" 2>/dev/null || true
-        for _ in $(seq $((stop_grace_seconds * 2))); do
-          if ! kill -0 -- "-$watcher" 2>/dev/null; then exit 0; fi
-          sleep 0.5
-        done
-        say "watcher still running ''${stop_grace_seconds}s after stop; killing it"
-        kill -KILL -- "-$watcher" 2>/dev/null || true
+        end_group watcher
         exit 0
       }
       trap stop_watcher TERM INT
 
       status=0
-      wait "$watcher" || status=$?
-      # From here a stop has no watcher to pass on.
+      ended=
+      wait -n -p ended "$watcher" "$settling" || status=$?
+      if [ "$ended" = "$settling" ]; then
+        printf '0\n' > "$exits_file" || true
+        status=0
+        wait "$watcher" || status=$?
+      else
+        kill "$settling" 2>/dev/null || true
+      fi
+
+      # The watcher can die alone (killed for memory, an fs.watch error) and
+      # leave its host running: unsupervised through the backoff, then killed
+      # outright when this script exits. It gets its one SIGTERM here
+      # instead, and its shutdown. A stop meanwhile waits for that shutdown
+      # (within the same grace), then ends the script.
+      stopping=no
+      trap 'stopping=yes' TERM INT
+      if kill -0 -- "-$watcher" 2>/dev/null; then
+        say "the watcher exited and left its host running; stopping it"
+        kill -TERM -- "-$watcher" 2>/dev/null || true
+        end_group "the watcher's host"
+      fi
+      if [ "$stopping" = yes ]; then exit 0; fi
+      # From here a stop has nothing to pass on.
       trap 'exit 0' TERM INT
+
       # The port exits on what only the operator can fix (a room in
       # LIVE_ROOMS the house does not have, a catalog it refuses, a revoked
       # token) as it does on a crash, and says which above; the unit cannot
       # tell them apart. Either way a port that exits again right after each
       # start backs off, instead of restarting, and recompiling, every 10 s.
-      settle
       back_off "$exits_file" "watcher exit" \
         "watcher exited with status $status after $(($(date +%s) - started))s"
     '';

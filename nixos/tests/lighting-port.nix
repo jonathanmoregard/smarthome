@@ -14,12 +14,14 @@
 #     failure (an unreadable package-lock.json), a crashing watcher, a
 #     watcher that ignores SIGTERM at stop, and a stop that lands between
 #     the watcher's start and the script's stop handling;
-#   - a stop is prompt in every phase (a backoff, a stalled clone), and a
-#     clone from an origin that stalls gives up and is retried;
-#   - repeated setup failures back off, so a dead origin is not hammered, and
-#     so does a watcher that exits again right after each start (the port
-#     refusing its rooms, catalog or token); that count starts over once the
-#     watcher has run a while;
+#   - a stop, or a restart, is prompt in every phase (a backoff, a stalled
+#     clone), and a clone from an origin that stalls gives up and is retried;
+#     a checkout moved back during a clone is never cloned into;
+#   - repeated setup failures back off, so a dead origin is not hammered,
+#     including a step that fails after the install; so does a watcher that
+#     exits again right after each start (the port refusing its rooms,
+#     catalog or token); that count starts over once the watcher has run a
+#     while, while it still runs, so a power cut keeps no old count;
 #   - a refusal (env file or LIVE_ROOMS missing, token unreadable, catalog
 #     missing or unreadable, node_modules not writable by the service) stops
 #     the unit cleanly with status 78 and runs nothing; .runtime exists,
@@ -27,7 +29,8 @@
 #     drop the catalog in;
 #   - the watcher gets the agreed command line and environment;
 #   - with the port's real watcher (fixtures/lighting-port-dev.mjs), a stop
-#     reaches the host once, and the host finishes its own shutdown;
+#     reaches the host once, and the host finishes its own shutdown; so does
+#     a host whose watcher dies alone, before the unit backs off;
 #   - starting over from a fresh clone as the docs say carries the catalog
 #     and the journal into it, still the service's;
 #   - an existing checkout is never pulled or reset; `npm ci` reruns only
@@ -149,6 +152,13 @@ let
             connection.close()
   '';
 
+  # An upload-pack that waits 20 s first: a clone that is slow, then completes.
+  slowUploadPack = pkgsSystem.writeShellScript "slow-upload-pack" ''
+    ${pkgsSystem.coreutils}/bin/sleep 20
+    shift
+    exec ${pkgsSystem.git}/bin/git-upload-pack "$@"
+  '';
+
   standInCheckout = pkgsSystem.runCommand "lighting-port-stand-in-checkout" { } ''
     mkdir -p "$out/lighting-scripts/scripts" "$out/lighting-scripts/stand-in-dep"
     cp ${standInWatcher} "$out/lighting-scripts/scripts/dev.mjs"
@@ -212,6 +222,7 @@ pkgsSystem.testers.runNixOSTest {
         standInCompiler
         standInHost
         stallingOrigin
+        slowUploadPack
       ];
     };
 
@@ -311,7 +322,7 @@ pkgsSystem.testers.runNixOSTest {
     stops_promptly()
 
     # A clone cut short is moved aside, never deleted and never mistaken for
-    # a checkout. A restart in the middle of a backoff stops cleanly.
+    # a checkout.
     as_service("mkdir /var/lib/lighting-port/.src.partial && touch /var/lib/lighting-port/.src.partial/junk")
     restart()
     logged("lighting-port: moved an interrupted clone aside to /var/lib/lighting-port/.src.partial.")
@@ -327,7 +338,15 @@ pkgsSystem.testers.runNixOSTest {
         "git clone -q --bare /tmp/work ${origin} && "
         "chown -R lighting-port:lighting-port ${origin}"
     )
+    # The unit is in its 40 s backoff: a restart (a deploy that changes the
+    # unit) does not wait it out, and the run it stops ends clean.
+    marker = machine.succeed("date +%s").strip()
+    machine.sleep(1)
+    started = time.monotonic()
     restart()
+    took = time.monotonic() - started
+    assert took < 10, f"the restart took {took:.1f}s"
+    machine.fail(journal_since(marker) + " | grep -F 'lighting-port.service: Failed with result'")
 
     # Cloned, dependencies installed, then refused: there is no env file, so
     # nothing may run. A setup that got through resets the backoff.
@@ -500,10 +519,31 @@ pkgsSystem.testers.runNixOSTest {
     machine.sleep(6)
     stops_promptly()
     machine.succeed("test \"$(cat /var/lib/lighting-port/.watcher-exits)\" = 0")
-    machine.succeed(
-        ": > /run/systemd/system/lighting-port.service.d/widened.conf && systemctl daemon-reload"
-    )
+
+    # It starts over while the port runs, not only at an exit or a stop the
+    # unit sees: after a power cut that ends a long run, the next crash backs
+    # off from 1, not from the old count. The reboot also drops the copy of
+    # the script, which lives in /run.
+    as_service("printf '4\\n' > /var/lib/lighting-port/.watcher-exits")
     restart_watcher()
+    machine.sleep(6)
+    machine.succeed(": > ${scripts}/.runtime/record.json && sync")
+    machine.crash()
+    machine.start()
+    machine.wait_for_unit("multi-user.target")
+    machine.wait_until_succeeds("test -s ${scripts}/.runtime/record.json", timeout=90)
+    machine.fail("test -e /run/systemd/system/lighting-port.service.d/widened.conf")
+    marker = machine.succeed("date +%s").strip()
+    machine.sleep(1)
+    as_operator("printf 'yes\\n' > ${scripts}/.runtime/crash")
+    machine.wait_until_succeeds(
+        journal_since(marker) + " | grep -F '; retrying in '",
+        timeout=60,
+    )
+    machine.succeed(journal_since(marker) + " | grep -F '; retrying in 10s (watcher exit 1 in a row)'")
+    machine.succeed(": > ${scripts}/.runtime/record.json")
+    as_operator("printf 'no\\n' > ${scripts}/.runtime/crash")
+    machine.wait_until_succeeds("test -s ${scripts}/.runtime/record.json", timeout=90)
 
     # The checkout is the operator's working copy: a local edit and a newer
     # origin commit both survive a restart untouched. Git trusts it only as
@@ -582,6 +622,22 @@ pkgsSystem.testers.runNixOSTest {
     machine.succeed(f"chmod {mode} ${scripts}/package-lock.json")
     restart_watcher()
 
+    # A step that fails after the install (here .runtime replaced by a file)
+    # still counts: the install that got through does not reset the count, so
+    # the failure backs off instead of retrying every 10 s for good.
+    machine.succeed("systemctl stop lighting-port.service")
+    as_service("mv ${scripts}/.runtime ${scripts}/.runtime.kept && touch ${scripts}/.runtime")
+    marker = machine.succeed("date +%s").strip()
+    machine.sleep(1)
+    machine.succeed("systemctl start lighting-port.service")
+    machine.wait_until_succeeds(
+        journal_since(marker) + " | grep -F 'lighting-port: setup failed unexpectedly (status 1); retrying in 20s (setup failure 2 in a row)'",
+        timeout=60,
+    )
+    machine.succeed("systemctl stop lighting-port.service")
+    as_service("mv ${scripts}/.runtime ${scripts}/.runtime.file && mv ${scripts}/.runtime.kept ${scripts}/.runtime")
+    restart_watcher()
+
     # The port's real watcher, running a host whose shutdown takes a moment:
     # a stop reaches the host once, through the watcher, and the host
     # finishes its shutdown instead of dying halfway with its lock left.
@@ -596,6 +652,25 @@ pkgsSystem.testers.runNixOSTest {
     restart()
     machine.wait_until_succeeds("test -s ${scripts}/.runtime/host-started", timeout=60)
     machine.succeed("test -e ${scripts}/.runtime/journal.json.lock")
+
+    # The watcher dying alone (killed for memory, an fs.watch error) does not
+    # leave its host running unsupervised through the backoff, to be killed
+    # outright when the backoff ends: the host is stopped, and finishes its
+    # shutdown, before the unit backs off.
+    marker = machine.succeed("date +%s").strip()
+    machine.sleep(1)
+    machine.succeed("pkill -KILL -u lighting-port -f scripts/dev.mjs")
+    machine.wait_until_succeeds(
+        journal_since(marker) + " | grep -F 'lighting-port: watcher exited with status 137 after '",
+        timeout=60,
+    )
+    machine.succeed("grep -Fx clean ${scripts}/.runtime/clean")
+    machine.succeed("test ! -e ${scripts}/.runtime/journal.json.lock")
+    machine.fail("pgrep -u lighting-port -f src/main.ts")
+    never_counted_as_failed()
+    as_service(": > ${scripts}/.runtime/clean && : > ${scripts}/.runtime/host-started")
+    machine.wait_until_succeeds("test -s ${scripts}/.runtime/host-started", timeout=90)
+
     stops_promptly()
     machine.succeed("grep -Fx clean ${scripts}/.runtime/clean")
     machine.succeed("test ! -e ${scripts}/.runtime/journal.json.lock")
@@ -625,10 +700,28 @@ pkgsSystem.testers.runNixOSTest {
     )
     machine.succeed("systemctl stop lighting-port.service")
 
+    # A checkout the operator moves back while a clone runs (here a clone
+    # that takes 20 s) is theirs: the finished clone never lands inside it,
+    # and the next start runs it.
+    as_service(": > ${scripts}/.runtime/record.json")
+    machine.succeed("mv ${src} /var/lib/lighting-port/src.kept")
+    as_service(
+        "printf '%s\\n' '[protocol \"ext\"]' 'allow = always' "
+        "'[url \"ext::${slowUploadPack} %S ${origin}\"]' 'insteadOf = file://${origin}' "
+        "> /var/lib/lighting-port/.gitconfig"
+    )
+    machine.succeed("systemctl start lighting-port.service")
+    machine.wait_until_succeeds("test -d /var/lib/lighting-port/.src.partial", timeout=30)
+    as_operator("mv /var/lib/lighting-port/src.kept ${src}")
+    machine.wait_until_succeeds("test -s ${scripts}/.runtime/record.json", timeout=120)
+    machine.succeed("test ! -e ${src}/.src.partial")
+    machine.succeed("test -d /var/lib/lighting-port/.src.partial/lighting-scripts")
+    machine.succeed("systemctl stop lighting-port.service")
+    machine.succeed("mv ${src} /var/lib/lighting-port/src.kept")
+
     # An origin that stalls mid-clone: a stop meanwhile is prompt, and the
     # clone gives up and is retried instead of holding the unit forever. The
     # service's git is pointed at it through its own ~/.gitconfig.
-    machine.succeed("mv ${src} /var/lib/lighting-port/src.kept")
     machine.succeed("systemd-run --unit=stalling-origin ${stallingOrigin}")
     machine.wait_for_open_port(8443)
     machine.succeed(
