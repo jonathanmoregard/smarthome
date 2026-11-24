@@ -14,6 +14,7 @@
  * wake hours away would run at once.
  */
 import { resolve } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import type { Catalog } from './adapter/codecs/catalog.ts';
@@ -60,10 +61,12 @@ type Current = { now: Instant; elapsed: number; calls: TimedCall[]; wakeMs: numb
 let current: Current = { now: toInstant(0), elapsed: 0, calls: [], wakeMs: undefined };
 let host: Host | undefined;
 let journal: string | undefined;
+/** The catalog the host holds: a request's catalog is handed over only when it differs, so the config is read again only then. */
+let held: Catalog | undefined;
 
 /** Start as a fresh process does, with an empty journal. */
 export function forgetState(): void {
-  host = undefined; journal = undefined;
+  host = undefined; journal = undefined; held = undefined;
 }
 
 /** Each line a request; each answer a line, or `{error}`. */
@@ -102,9 +105,10 @@ export async function answer(request: Request, adjust: (catalog: Catalog) => voi
       timer: delayMs => { current.wakeMs = delayMs; return () => { current.wakeMs = undefined; }; },
     }, mirror, catalog);
   } else {
-    host.catalogChanged(catalog);
+    if (!isDeepStrictEqual(catalog, held)) host.catalogChanged(catalog);
     host.houseRead(mirror, current.now);
   }
+  held = catalog;
   // As Home Assistant's bridge forwards it: the host reads it (an echo of ours, a dry run, an input) as live.
   host.script(script, args);
   await host.idle();
