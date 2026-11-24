@@ -110,6 +110,18 @@ test('during a fade it is between the two', () => {
   assert.deepEqual(lamp(model, lampB1, at('17:45:00')), shows(170, kelvin(3350), normal, FADING));
 });
 
+test('a fade into the candle moves towards the candle\'s colour, and the candle starts only at the block\'s start', () => {
+  // Owner, 2026-11-24: "would like lit to candle to fade into candle color over transition and then start effect".
+  // Break: the fade moves towards the block's own colour and the colour jumps to the warm end when the candle starts,
+  // or the candle starts before the fade ends.
+  const model = house();
+  const into = lit(100, WARM_END, 'Candle');
+  const halfway = sceneBetween(lit(220, kelvin(4000)), into, toProgress(0.5));
+  assert.ok(halfway.power === 'on');
+  assert.deepEqual(lamp(model, lampA1, at('17:07:30')), shows(160, halfway.colour, normal, FADING));
+  assert.deepEqual(lamp(model, lampA1, at('17:30:00')), shows(100, WARM_END, candle));
+});
+
 test('a lamp with its own profile shows that', () => {
   // Break: the lamp's own profile is ignored for its room's light.
   const model = house(m => { m.lampProfiles[lampA2] = { ...m.lampProfiles[lampA2]!, day: { follows: 'own', own: { power: 'on', light: lit(60, kelvin(3000)) } } }; });

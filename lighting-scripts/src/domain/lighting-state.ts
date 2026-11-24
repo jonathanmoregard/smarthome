@@ -191,6 +191,17 @@ type Subject = {
 
 
 
+/**
+ * A block's light in the colour it shows: the warm end where its effect holds the warm colour and the lamp can run
+ * that effect. A fade then moves into the colour the candle will show, and the candle starts at the block's start with
+ * no jump (owner, 2026-11-24: "fade into candle color over transition and then start effect").
+ */
+function warmWhereShown(light: SceneLight | undefined, subject: Subject): SceneLight | undefined {
+  if (light === undefined || light.power === 'off') return light;
+  const effect = effectNamed(light.effect);
+  return effect.holdsWarmColour && subject.canRun(effect) ? { ...light, colour: { kind: 'rgb', rgb: subject.warmEnd } } : light;
+}
+
 /** What the overlay parts leave a subject showing, before the mode overlay and room power. */
 type Shown = {
   brightness: Brightness | undefined;
@@ -270,7 +281,7 @@ function shownLight(sources: LampSources): LampLight {
 /** The stage's light with every overlay part folded over it, and whether the lamp is off: held off, unlit, or its room switched off. */
 function foldedLight(sources: LampSources): { shown: Shown; off: boolean } {
   const { model, subject, stage, block, overlays, room, now, held } = sources;
-  const staged = stageLight(stage, subject.lightIn, held);
+  const staged = stageLight(stage, block => warmWhereShown(subject.lightIn(block), subject), held);
   const base = staged.power === 'on' && staged.colour === undefined
     ? { ...staged, colour: fallbackColour(model.config, subject.lightIn, room, block, now) } : staged;
   const shown = fold(base, changesOf(overlays.lamps, overlays.remote), subject);
