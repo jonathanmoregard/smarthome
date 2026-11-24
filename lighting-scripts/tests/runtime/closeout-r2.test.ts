@@ -145,7 +145,7 @@ test("closeout r2 A1: a person's turn_off that reaches the port only as a state 
   assert.deepEqual(await offAfterTick(false), { reach: 'reachable', light: { power: 'off' } });
 });
 
-test('closeout r2 A2: a wake time changed in Home Assistant is the one the next tick uses', { todo: 'closeout r2 A2' }, () => {
+test('closeout r2 A2: a wake time changed in Home Assistant is the one the next tick uses', () => {
   // Break: the config is read again only on `helper changed` (src/adapter/loop.ts:156); a state_changed only moves the
   // host's mirror (src/host.ts:157-159), and no rollout bridge forwards the wake helper, so the Model keeps 06:00.
   const moved = at('05:15:00', 22);
@@ -157,6 +157,22 @@ test('closeout r2 A2: a wake time changed in Home Assistant is the one the next 
   };
   assert.equal(wakeAt({ kind: 'helper changed' }), moved, 'control: a helper change reads it');
   assert.equal(wakeAt({ kind: 'tick' }), moved);
+});
+
+test('closeout r2 A2 (ruling): a state change of a helper the config is read from runs a turn that reads it', async () => {
+  // Break: a state_changed only moves the host's mirror (src/host.ts stateChanged), so the house's new day light waits
+  // for some other input to land, and then the config is not read again.
+  const ha = new FakeHa(), now = { time: at('12:00:00') };
+  const { host } = await open(ha, now);
+  host.accept({ kind: 'started' });
+  await host.idle();
+  const dimmed = { ...ha.states['light.ls_house_day']!, attributes: { ...ha.states['light.ls_house_day']!.attributes, brightness: 100 } };
+  ha.states['light.ls_house_day'] = dimmed;
+  host.stateChanged('light.ls_house_day', dimmed);
+  await host.idle();
+  await host.close();
+  const shown = ha.bulbs.shows(bulbA3);
+  assert.equal(shown.reach === 'reachable' && shown.light.power === 'on' ? shown.light.level : undefined, 100);
 });
 
 test("closeout r2 A4: a sensor write queued before Home Assistant's echo of the last one is made over Home Assistant's own read", { todo: 'closeout r2 A4' }, async () => {
@@ -181,7 +197,7 @@ test("closeout r2 A4: a sensor write queued before Home Assistant's echo of the 
   assert.deepEqual(ha.refused.map(call => call.guard?.lastUpdated), []);
 });
 
-test("closeout r2 B1: a lamp moved to another room in Home Assistant's registry is in that room at the next tick", { todo: 'closeout r2 B1' }, () => {
+test("closeout r2 B1: a lamp moved to another room in Home Assistant's registry is in that room at the next tick", () => {
   // Break: a registry event re-reads the house into the mirror only (src/main.ts:58, 68; src/host.ts:165-167), queuing
   // no input, and the next tick keeps the config's rooms (src/adapter/loop.ts:156).
   const lampB1 = 'light.lamp_b1' as LampId;

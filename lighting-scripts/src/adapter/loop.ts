@@ -3,7 +3,9 @@
  * changed, compute the lighting state and reconcile the bulbs and switches to
  * it (spec 5.2). The Model lives in this process between turns; with none
  * (the process's first input) or on a start, it is read from Home Assistant.
- * A helper change reads the config and the profiles again.
+ * The config and the profiles are read again when anything they are read from
+ * shows otherwise (a helper's state, the registry's rooms or labels), and on a
+ * helper change, a reconnect or a catalog change.
  */
 import { dashboardView } from '../domain/dashboard.ts';
 import type { DashboardView } from '../domain/dashboard.ts';
@@ -20,7 +22,8 @@ import { ParseError } from './codecs/parse.ts';
 import { bulbGroups } from './codecs/bulb-groups.ts';
 import { blockLightSaved, bulbTopics, decodeConfig, reportedBulbs } from './codecs/config.ts';
 import type { BlockLight } from './codecs/config.ts';
-import { configSource, decodeModel, followingSensor } from './codecs/model.ts';
+import { configMoved, configSource, decodeModelFrom, followingSensor, readConfig, readsConfig } from './codecs/model.ts';
+import type { ConfigFrom } from './codecs/model.ts';
 import { drives, portSwitchesOn } from './codecs/rooms.ts';
 import type { Share } from './codecs/rooms.ts';
 import { ownsMessage, shareOf } from './live-rooms.ts';
@@ -63,7 +66,23 @@ export type AdapterState = {
    * Assistant holds; or the catalog changed, and the config is decoded from the new one.
    */
   reread: boolean;
+  /** What the config was last read from: a turn that finds any of it changed reads the config again. */
+  configFrom: ConfigFrom;
 };
+
+/**
+ * The Model the turn starts from, and what its config was read from: decoded whole at a start; otherwise the kept one,
+ * its config and profiles read again on a helper change, a reconnect, a reread asked for, or when anything they are
+ * read from shows otherwise than at the last read.
+ */
+function modelRead(state: AdapterState | undefined, input: HaInput, house: HouseView, now: Instant): { model: Model; from: ConfigFrom } {
+  const source = configSource(house);
+  if (state === undefined || input.kind === 'started') return decodeModelFrom(source, house.catalog);
+  const again = input.kind === 'helper changed' || input.kind === 'reconnected' || state.reread || configMoved(state.configFrom, source);
+  if (!again) return { model: state.model, from: state.configFrom };
+  const { read, from } = readConfig(source, house.catalog);
+  return { model: update(state.model, { kind: 'configChanged', ...read, at: now }), from };
+}
 
 /**
  * What the adapter has before a turn: the state it kept from the last turn, or, at the process's start, only what its
@@ -74,6 +93,11 @@ export type Kept = { kind: 'running'; state: AdapterState } | ({ kind: 'starting
 /** What is kept once the catalog changed: the next turn reads the config again, through `configChanged`, as a helper change does. A start reads it anyway. */
 export function catalogChanged(kept: Kept): Kept {
   return kept.kind === 'running' ? { kind: 'running', state: { ...kept.state, reread: true } } : kept;
+}
+
+/** Whether the config the kept state was read with is read from `entity`: a state change of it is a reason for a turn. */
+export function movesConfig(kept: Kept, entity: string): boolean {
+  return kept.kind === 'running' && readsConfig(kept.state.configFrom, entity);
 }
 
 /**
@@ -158,9 +182,7 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
   // A reconnect unparks every parked write, as it does every bulb.
   const landed = settled(state?.outbox ?? [], reported), waiting = input.kind === 'reconnected' ? unparkedWrites(landed, now) : landed;
   const house = withWaiting(reported, waiting);
-  const read = input.kind === 'helper changed' || input.kind === 'reconnected' || state?.reread === true ? helpersRead(house, now) : undefined;
-  const decoded = state === undefined || input.kind === 'started' ? decodeModel(configSource(house), house.catalog)
-    : read === undefined ? state.model : update(state.model, read);
+  const { model: decoded, from: configFrom } = modelRead(state, input, house, now);
   const share = shareOf(given, given.kind === 'listed' ? portSwitchesOn(house.state, given.rooms) : new Set());
   const before = followingSensor(decoded, house, share);
   // The clock runs first, and the input is read against what it leaves: a reset at this instant is already applied.
@@ -238,7 +260,7 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
     }
   }
   const journalled = outputs.flatMap((output, index) => output.kind === 'publish' ? [index] : []);
-  const next: AdapterState = { model, beliefs, view, observed, outbox, reread: false, share, topicless };
+  const next: AdapterState = { model, beliefs, view, observed, outbox, reread: false, share, topicless, configFrom };
   return { state: next, outputs, sends: sending, now, nextChange: nextChange(model, now), dropped, errors, journalled, writing };
 }
 
@@ -253,20 +275,6 @@ function takenOver(previous: Share, share: Share, config: Config): { bulbs: Bulb
     bulbs: entriesOf(config.lamps).flatMap(([, lamp]) => taken(lamp.room) ? lamp.bulbs.map(bulb => bulb.bulb) : []),
     switches: entriesOf(config.switches).flatMap(([plug, settings]) => taken(settings.room) ? [plug] : []),
   };
-}
-
-/** The lighting state of the lamps and switches the share drives: the reconciler sends nothing to the rest. */
-function sharedLighting(lighting: LightingState, config: Config, share: Share): LightingState {
-  return {
-    lamps: Object.fromEntries(entriesOf(lighting.lamps).filter(([lamp]) => drives(share, config.lamps[lamp]?.room))),
-    switches: Object.fromEntries(entriesOf(lighting.switches).filter(([plug]) => drives(share, config.switches[plug]?.room))),
-  };
-}
-
-/** The config and the profiles read again from the helpers, as the message `update` takes them. */
-function helpersRead(house: HouseView, now: Instant): Msg {
-  const read = decodeModel(configSource(house), house.catalog);
-  return { kind: 'configChanged', config: read.config, lampProfiles: read.lampProfiles, switchProfiles: read.switchProfiles, at: now };
 }
 
 /**
@@ -293,4 +301,12 @@ function controlRows(model: Model, house: HouseView): ControlRow[] {
     const control = toDashboardControlId(row.source);
     return row.store !== undefined || model.config.controls[control] === undefined ? [] : [{ control, topics: row.topics }];
   });
+}
+
+/** The lighting state of the lamps and switches the share drives: the reconciler sends nothing to the rest. */
+function sharedLighting(lighting: LightingState, config: Config, share: Share): LightingState {
+  return {
+    lamps: Object.fromEntries(entriesOf(lighting.lamps).filter(([lamp]) => drives(share, config.lamps[lamp]?.room))),
+    switches: Object.fromEntries(entriesOf(lighting.switches).filter(([plug]) => drives(share, config.switches[plug]?.room))),
+  };
 }

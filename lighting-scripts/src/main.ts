@@ -55,7 +55,8 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     const clock = () => toInstant(Date.now() / 1000), warn = (message: string) => console.warn(message);
     const host = await Host.open({ ha, journal: fileJournal(journal), clock, log: console,
       timer, rooms: given, took: seconds => void ha.call(timingCall(seconds)).catch(() => undefined) }, mirror, catalog);
-    const reread = rereading(read, (house, startedAt) => host.houseRead(house, startedAt), warn, clock, timer);
+    // A registry change may move a lamp or a label the config is read from: the turn after the read takes it.
+    const reread = rereading(read, (house, startedAt) => { host.houseRead(house, startedAt); host.accept({ kind: 'wake' }); }, warn, clock, timer);
     const reconnect = rereading(read, (house, startedAt) => host.reconnected(house, startedAt), warn, clock, timer);
     ha.onConnection(connected => { if (connected) reconnect(); else host.disconnected(); });
     await ha.subscribe(HA_EVENTS.started, reconnect);

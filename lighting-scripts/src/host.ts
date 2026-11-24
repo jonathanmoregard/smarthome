@@ -13,7 +13,7 @@ import { Unreachable } from './adapter/ha-client.ts';
 import type { EntityState, HaClient, JsonObject } from './adapter/ha-client.ts';
 import { bridgeVerdict } from './adapter/codecs/inputs.ts';
 import type { HaInput } from './adapter/codecs/inputs.ts';
-import { afterOutputs, catalogChanged, handleInput } from './adapter/loop.ts';
+import { afterOutputs, catalogChanged, handleInput, movesConfig } from './adapter/loop.ts';
 import type { Kept } from './adapter/loop.ts';
 import type { RoomsGiven } from './adapter/live-rooms.ts';
 import type { Instant } from './domain/types/time.ts';
@@ -154,9 +154,12 @@ export class Host {
   /** Queue an input; inputs run one at a time, in order. */
   accept(input: HaInput): void { this.enqueue(() => this.turn(input)); }
 
-  /** A state Home Assistant reports changed, or removed; it lands in order with the inputs. */
+  /** A state Home Assistant reports changed, or removed, in order with the inputs; one the config is read from runs a turn. */
   stateChanged(entity: string, state: EntityState | undefined): void {
-    this.enqueue(async () => { this.mirror = { ...this.mirror, state: withState(this.mirror.state, entity, state) }; });
+    this.enqueue(async () => {
+      this.mirror = { ...this.mirror, state: withState(this.mirror.state, entity, state) };
+      if (movesConfig(this.kept, entity)) await this.turn({ kind: 'wake' });
+    });
   }
 
   /**

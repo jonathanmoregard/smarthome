@@ -5,10 +5,12 @@
  * profile for each block from its store, and each plug's own on/off for
  * each block from the same kind of store.
  */
+import { isDeepStrictEqual } from 'node:util';
 import type { Config } from '../../domain/config.ts';
 import type { LampId, RemoteId, RoomId, SwitchId } from '../../domain/types/ids.ts';
 import { entriesOf } from '../../domain/types/ids.ts';
 import type { Catalog } from './catalog.ts';
+import type { EntityState } from '../ha-client.ts';
 import type { HouseView } from './house.ts';
 import { decodeConfig } from './config.ts';
 import type { ConfigSource } from './config.ts';
@@ -25,32 +27,57 @@ import type { LampProfile, SwitchProfile } from '../../domain/profiles.ts';
 import type { Model } from '../../domain/update.ts';
 import type { RemoteModel } from '../../domain/remote.ts';
 
-/** The house as the config is read from it: the states, the rooms, the labels and the timezone. */
-export function configSource(house: Pick<HouseView, 'state' | 'rooms' | 'labels' | 'timezone'>): ConfigSource {
-  return { states: house.state, rooms: house.rooms, labels: house.labels === undefined ? {} : house.labels, timezone: house.timezone };
-}
+/** The config and the profiles: what a helper read gives `update` again. */
+export type ConfigRead = Pick<Model, 'config' | 'lampProfiles' | 'switchProfiles'>;
 
-export function decodeModel(source: ConfigSource, catalog: Catalog): Model {
-  const config = decodeConfig(source, catalog);
+/**
+ * What the config and the profiles were last read from: each entity their decoders looked up, as Home Assistant
+ * showed it (none for one it does not have), and the registry's rooms, the labels and the timezone. This is the one
+ * owner of which entities the config is read from: the set is the decoders' own lookups, recorded as they read, so no
+ * list of them is kept by hand. A change to any of it is a change of the config.
+ */
+export type ConfigFrom = Pick<ConfigSource, 'rooms' | 'labels' | 'timezone'> & { states: Readonly<Record<string, Shown | undefined>> };
+
+/** The whole Model, and what its config and profiles were read from (see {@link ConfigFrom}). */
+export function decodeModelFrom(source: ConfigSource, catalog: Catalog): { model: Model; from: ConfigFrom } {
+  const { read, from } = readConfig(source, catalog), config = read.config;
   const overrides = decodeOverrides(source.states['sensor.ls_overrides']?.attributes, storeKeys(catalog));
   const remotes: Record<RemoteId, RemoteModel> = Object.fromEntries(entriesOf(config.remotes).map(([remote, { room }]) =>
     [remote, room === undefined ? IDLE_REMOTE : decodeRemoteModel(source, room, reportsOn(source, config, overrides.switchRanges, room))]));
-  const lampProfiles: Record<LampId, Record<Block, LampProfile>> = Object.fromEntries(entriesOf(config.lamps).map(([lamp]) =>
-    [lamp, lampProfilesOf(source, lamp)]));
-  const switchProfiles: Record<SwitchId, Record<Block, SwitchProfile>> = Object.fromEntries(entriesOf(config.switches).map(([plug]) =>
-    [plug, switchProfilesOf(source, plug)]));
-  return { config, ...overrides, remotes, lampProfiles, switchProfiles };
+  return { model: { ...read, ...overrides, remotes }, from };
 }
 
-/**
- * Whether anything the room's power toggle switches reports on: its lamps,
- * and its switches with a range rule (today's toggle `targets`). A power
- * burst read from the helpers keeps it, as a press keeps what it reported.
- */
-export function reportsOn(source: ConfigSource, config: Config, switchRanges: Model['switchRanges'], room: RoomId): boolean {
-  const on = (entity: LampId | SwitchId) => source.states[entity]?.state === 'on';
-  return entriesOf(config.lamps).some(([lamp, placed]) => placed.room === room && on(lamp))
-    || entriesOf(switchRanges).some(([plug]) => config.switches[plug]?.room === room && on(plug));
+/** Whether the config's sources show otherwise in `source` than when it was read `from`: it is to be read again. */
+export function configMoved(from: ConfigFrom, source: ConfigSource): boolean {
+  return !isDeepStrictEqual(from, configFromOf(source, Object.keys(from.states)));
+}
+
+function configFromOf(source: ConfigSource, entities: Iterable<string>): ConfigFrom {
+  const shown = (state: EntityState | undefined): Shown | undefined => state === undefined ? undefined : { state: state.state, attributes: state.attributes };
+  return { rooms: source.rooms, labels: source.labels, timezone: source.timezone,
+    states: Object.fromEntries([...entities].map(entity => [entity, shown(source.states[entity])])) };
+}
+
+/** Whether the config, as last read `from`, is read from `entity`. */
+export function readsConfig(from: ConfigFrom, entity: string): boolean {
+  return Object.hasOwn(from.states, entity);
+}
+
+/** The config and the profiles read from `source`, and what they were read from. */
+export function readConfig(source: ConfigSource, catalog: Catalog): { read: ConfigRead; from: ConfigFrom } {
+  const looked = new Set<string>();
+  const states = new Proxy(source.states, {
+    get(target, key, receiver) {
+      if (typeof key === 'string') looked.add(key);
+      return Reflect.get(target, key, receiver);
+    },
+  });
+  const recording: ConfigSource = { ...source, states }, config = decodeConfig(recording, catalog);
+  const lampProfiles: Record<LampId, Record<Block, LampProfile>> = Object.fromEntries(entriesOf(config.lamps).map(([lamp]) =>
+    [lamp, lampProfilesOf(recording, lamp)]));
+  const switchProfiles: Record<SwitchId, Record<Block, SwitchProfile>> = Object.fromEntries(entriesOf(config.switches).map(([plug]) =>
+    [plug, switchProfilesOf(recording, plug)]));
+  return { read: { config, lampProfiles, switchProfiles }, from: configFromOf(source, looked) };
 }
 
 /**
@@ -82,6 +109,29 @@ function switchProfilesOf(source: ConfigSource, plug: SwitchId): Record<Block, S
   };
   const [day, cosy, night] = BLOCKS;
   return { day: profile(day), cosy: profile(cosy), night: profile(night) };
+}
+
+/**
+ * Whether anything the room's power toggle switches reports on: its lamps,
+ * and its switches with a range rule (today's toggle `targets`). A power
+ * burst read from the helpers keeps it, as a press keeps what it reported.
+ */
+export function reportsOn(source: ConfigSource, config: Config, switchRanges: Model['switchRanges'], room: RoomId): boolean {
+  const on = (entity: LampId | SwitchId) => source.states[entity]?.state === 'on';
+  return entriesOf(config.lamps).some(([lamp, placed]) => placed.room === room && on(lamp))
+    || entriesOf(switchRanges).some(([plug]) => config.switches[plug]?.room === room && on(plug));
+}
+
+/** What a decoder reads of an entity: its state and attributes; Home Assistant's stamps and context are not the config. */
+type Shown = Pick<EntityState, 'state' | 'attributes'>;
+
+/** The house as the config is read from it: the states, the rooms, the labels and the timezone. */
+export function configSource(house: Pick<HouseView, 'state' | 'rooms' | 'labels' | 'timezone'>): ConfigSource {
+  return { states: house.state, rooms: house.rooms, labels: house.labels === undefined ? {} : house.labels, timezone: house.timezone };
+}
+
+export function decodeModel(source: ConfigSource, catalog: Catalog): Model {
+  return decodeModelFrom(source, catalog).model;
 }
 
 /**
