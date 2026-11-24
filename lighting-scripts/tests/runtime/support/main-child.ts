@@ -3,8 +3,9 @@
  * (tests/runtime/closeout-r2.test.ts). Node's `setInterval` is caught so the heartbeat beats only when this script
  * says, and the process exits when done, which ends the catalog watcher and the journal lock with it.
  *
- * Usage: main-child.ts <dir> reload|refuse|gap|gap-control|during-read. Prints one JSON line: every heartbeat call made, those
- * Home Assistant took, what the process logged, and how many publishes reached bulb-a.
+ * Usage: main-child.ts <dir> reload|refuse|gap|gap-control|during-read|late-catalog|runtime. Prints one JSON line: every
+ * heartbeat call made, those Home Assistant took, what the process logged, how many publishes reached bulb-a, and every
+ * call to `sensor.ls_effects_runtime`.
  *   reload: the catalog gains `light.lamp_c`, which the registry has in `room-c`, under `--live-rooms all`.
  *   refuse: Home Assistant refuses every call with an error (not out of reach).
  *   gap: under `--live-rooms room-a`, `input_boolean.ls_room-a_on_port` turns on after the read and before the
@@ -12,6 +13,9 @@
  *   gap-control: the same change, made once the subscription is live, so it is heard; then the same tick.
  *   during-read: while the house read is out, the switch turns off and then on, two state_changed events the read
  *     does not show; then the same tick (close-out round 3, B7 ruling: events held during the read apply after it, in order).
+ *   late-catalog: as reload, but the catalog gains `light.lamp_c` while the house read is out, after main() read the
+ *     catalog and before it watches it (close-out round 4, B5).
+ *   runtime: under `--live-rooms all`, the start's turn and the calls main() makes after it (close-out round 4, B9).
  */
 import { readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -19,9 +23,8 @@ import { HomeAssistantClient } from '../../../src/adapter/ha-client.ts';
 import type { HouseRead, ServiceCall } from '../../../src/adapter/ha-client.ts';
 
 const [dir, mode] = process.argv.slice(2);
-if (dir === undefined || (mode !== 'reload' && mode !== 'refuse' && mode !== 'gap' && mode !== 'gap-control' && mode !== 'during-read')) {
-  throw new Error('usage: main-child.ts <dir> reload|refuse|gap|gap-control|during-read');
-}
+const MODES = ['reload', 'refuse', 'gap', 'gap-control', 'during-read', 'late-catalog', 'runtime'];
+if (dir === undefined || mode === undefined || !MODES.includes(mode)) throw new Error(`usage: main-child.ts <dir> ${MODES.join('|')}`);
 const gap = mode === 'gap' || mode === 'gap-control' || mode === 'during-read';
 
 const beats: (() => void)[] = [];
@@ -61,6 +64,11 @@ class FakeClient {
   onConnection(): void {}
   async read(): Promise<HouseRead> {
     const read = structuredClone(READ);
+    if (mode === 'late-catalog' && !lateWritten) {
+      lateWritten = true;
+      await writeFile(join(dir!, 'catalog.next'), catalog({ 'light.lamp_a': ['bulb-a'], 'light.lamp_c': ['bulb-c'] }));
+      await rename(join(dir!, 'catalog.next'), catalogPath);
+    }
     if (mode === 'during-read') {
       for (const [state, second] of [['off', '01'], ['on', '02']] as const) {
         const at = `2026-09-21T12:00:${second}.000000+00:00`;
@@ -72,6 +80,7 @@ class FakeClient {
   }
   async close(): Promise<void> {}
 }
+let lateWritten = false;
 const fake = new FakeClient();
 (HomeAssistantClient as unknown as { connect: () => Promise<FakeClient> }).connect = async () => fake;
 
@@ -87,7 +96,11 @@ const { main } = await import('../../../src/main.ts');
 await main(['--live', '--config', catalogPath, '--state', join(dir, 'journal.json'), '--live-rooms', gap ? 'room-a' : 'all']);
 const until = async (done: () => boolean) => { for (let waited = 0; !done() && waited < 5000; waited += 20) await new Promise(resolve => setTimeout(resolve, 20)); };
 
-if (mode === 'reload') {
+if (mode === 'late-catalog') {
+  await until(() => logged.includes('Runtime config reloaded.'));
+} else if (mode === 'runtime') {
+  await until(() => fake.calls.some(call => call.target?.entity_id === 'sensor.ls_effects_runtime'));
+} else if (mode === 'reload') {
   await writeFile(join(dir, 'catalog.next'), catalog({ 'light.lamp_a': ['bulb-a'], 'light.lamp_c': ['bulb-c'] }));
   await rename(join(dir, 'catalog.next'), catalogPath);
   await until(() => logged.includes('Runtime config reloaded.'));
@@ -106,5 +119,6 @@ const heartbeat = (calls: readonly ServiceCall[]) => calls.filter(call => call.t
 process.stdout.write(`${JSON.stringify({ made: heartbeat(fake.calls), taken: heartbeat(fake.taken),
   others: fake.calls.filter(call => call.target?.entity_id !== 'input_text.ls_port_heartbeat').length, logged,
   bulbA: fake.calls.filter(call => call.service === 'mqtt.publish' && call.data.topic === 'zigbee2mqtt/bulb-a').length,
+  runtime: fake.calls.filter(call => call.target?.entity_id === 'sensor.ls_effects_runtime'),
   catalog: await readFile(catalogPath, 'utf8') })}\n`);
 process.exit(0);
