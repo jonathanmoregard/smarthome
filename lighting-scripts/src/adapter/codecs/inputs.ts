@@ -32,7 +32,7 @@ import type { JsonObject, JsonValue } from '../ha-client.ts';
 import type { HouseView } from './house.ts';
 import { blockLightOf } from './config.ts';
 import type { BlockLight } from './config.ts';
-import { ParseError, isObject, jinjaString, object, requireBoolean, requireString } from './parse.ts';
+import { ParseError, describe, isObject, jinjaString, object, requireBoolean, requireString } from './parse.ts';
 import { configSource, reportsOn } from './model.ts';
 import { callColour, callReach, callTargets, parseCallColour } from './native-call.ts';
 import type { CallColour, CallTargets } from './native-call.ts';
@@ -124,7 +124,8 @@ function readInput(script: string, args: JsonObject, mode: HouseMode | undefined
   if (remote !== null) return remoteAutomation(remote[1], args, trigger);
   if (mode !== undefined && script === mode.switched) {
     const user = object(object(trigger.to_state).context).user_id;
-    return { kind: 'mode switched', on: trigger.id === 'on', byPerson: typeof user === 'string' && user !== '' };
+    const on = powerNamed(trigger.id, 'on', 'off', 'the mode switch') === 'on';
+    return { kind: 'mode switched', on, byPerson: typeof user === 'string' && user !== '' };
   }
   if (mode !== undefined && script === mode.script) return { kind: 'dashboard script', script: { kind: 'toggle mode' } };
   switch (script) {
@@ -596,7 +597,7 @@ function controlLight(value: ControlValue): ControlLight {
 function controlValue(attribute: string, value: JsonValue | undefined): ControlValue {
   const text = jinjaString(value === undefined ? null : value);
   switch (attribute) {
-    case 'power': return { attribute, power: text === 'OFF' ? 'off' : 'on' };
+    case 'power': return { attribute, power: powerNamed(text, 'ON', 'OFF', 'a control\'s power') };
     case 'brightness': return { attribute, brightness: toBrightness(wholeNumber(text, 0, 255)) };
     case 'temperature': return { attribute, colour: miredsColour(text) };
     case 'rgb': return { attribute, colour: rgbColour(text) };
@@ -736,6 +737,13 @@ export function storeSaveIn(input: HaInput, house: HouseView, model: Model): Sto
   if (input.kind !== 'control set') return undefined;
   const row = controlRow(input.control, house);
   return row === undefined || row.store === undefined ? undefined : storeSaveOf(toEntityId(row.store), profileChange(input.value), model);
+}
+
+/** A power by the text the wire names it with, `on` for on and `off` for off; any other value is not a power. */
+function powerNamed(value: JsonValue | undefined, on: string, off: string, context: string): Power {
+  if (value === on) return 'on';
+  if (value === off) return 'off';
+  throw new ParseError(`${context}: ${describe(value)} is not on or off`);
 }
 
 function optionalText(value: JsonValue | undefined): string | undefined {

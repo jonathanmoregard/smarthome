@@ -303,6 +303,26 @@ test("a run's fields are read once, where it is named, into the input's own type
     { kind: 'unreadable', why: 'ls_override_block: Not a block: teatime' });
 });
 
+test("a control's power and a mode switch's trigger read as on or off; any other payload makes the run unreadable, so it is dropped", () => {
+  // Closeout r1 B6. Break: an unreadable payload becomes a power: a control's anything-but-OFF reads as on, a mode
+  // switch's anything-but-on as off.
+  const mode = parseCatalog({ mode: 'evening' }).mode, person = { context: { user_id: PERSON } };
+  const switched = (id: string) => haInput('automation.lighting_schedule_evening_mode_switch', { trigger: { id, to_state: person } }, mode);
+  const powerSet = (value: string) => haInput('effects_set', { source: 'light.room_a_all', attribute: 'power', value }, undefined);
+  const previewPower = (payload: string) => haInput('automation.effects_native_light_controls',
+    { trigger: { topic: 'house/v1/effect_preview/room_a_all/set/power', payload } }, undefined);
+  assert.deepEqual(switched('on'), { kind: 'mode switched', on: true, byPerson: true });
+  assert.deepEqual(switched('off'), { kind: 'mode switched', on: false, byPerson: true });
+  const control = { kind: 'row', source: toDashboardControlId('light.room_a_all') };
+  assert.deepEqual(powerSet('ON'), { kind: 'control set', control, value: { attribute: 'power', power: 'on' } });
+  assert.deepEqual(powerSet('OFF'), { kind: 'control set', control, value: { attribute: 'power', power: 'off' } });
+  for (const [input, script] of [[switched('toggle'), 'evening_mode_switch'], [switched(''), 'evening_mode_switch'],
+    [powerSet('banana'), 'effects_set'], [powerSet(''), 'effects_set'], [previewPower('maybe'), 'effects_native_light_controls']] as const) {
+    assert.equal(input?.kind, 'unreadable', `${script}: ${JSON.stringify(input)}`);
+    assert.match(input.kind === 'unreadable' ? input.why : '', /not a power|not on or off/);
+  }
+});
+
 test('no input type holds raw JSON: JSON stays at the run, where haInput reads it', () => {
   // M5 carry-over. Break: a variant (or a type one carries) is declared with JsonObject or JsonValue again.
   const source = readFileSync(new URL('../../src/adapter/codecs/inputs.ts', import.meta.url), 'utf8');
