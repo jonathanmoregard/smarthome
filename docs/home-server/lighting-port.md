@@ -113,8 +113,9 @@ What the states mean:
 
 1. `active (running)`: the watcher runs.
 2. `inactive (dead)` after a line `lighting-port: refusing to start: ...`:
-   something only you can fix (env file, `LIVE_ROOMS`, token, catalog,
-   `node_modules` the service cannot write, or a checkout without
+   something only you can fix (env file, `LIVE_ROOMS`, token, a catalog
+   missing or not readable by the service, `node_modules` it cannot write,
+   or a checkout without
    `lighting-scripts/package-lock.json`). Fix it and restart. It stays
    stopped until then.
 3. `lighting-port: <what> failed; retrying in <n>s (setup failure <k> in a

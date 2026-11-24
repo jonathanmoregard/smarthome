@@ -21,10 +21,10 @@
 #     refusing its rooms, catalog or token); that count starts over once the
 #     watcher has run a while;
 #   - a refusal (env file or LIVE_ROOMS missing, token unreadable, catalog
-#     missing, node_modules not writable by the service) stops the unit
-#     cleanly with status 78 and runs nothing; .runtime exists, writable by
-#     the port, from the first refusal on, so the operator can drop the
-#     catalog in;
+#     missing or unreadable, node_modules not writable by the service) stops
+#     the unit cleanly with status 78 and runs nothing; .runtime exists,
+#     writable by the port, from the first refusal on, so the operator can
+#     drop the catalog in;
 #   - the watcher gets the agreed command line and environment;
 #   - with the port's real watcher (fixtures/lighting-port-dev.mjs), a stop
 #     reaches the host once, and the host finishes its own shutdown;
@@ -359,8 +359,17 @@ pkgsSystem.testers.runNixOSTest {
     refused("${scripts}/.runtime/catalog.json does not exist")
 
     # The unit made .runtime itself, so the port can write its journal there
-    # whatever the operator's umask; the operator drops the catalog in.
-    as_operator("printf '{}\\n' > ${scripts}/.runtime/catalog.json")
+    # whatever the operator's umask; the operator drops the catalog in. One
+    # the service cannot read (copied in with mode 600) is the operator's to
+    # fix, and says so, instead of a port that fails to read it on every
+    # start.
+    as_operator("umask 077; printf '{}\\n' > ${scripts}/.runtime/catalog.json")
+    restart()
+    refused("${scripts}/.runtime/catalog.json is not readable by lighting-port")
+    as_operator(
+        "chgrp lighting-port ${scripts}/.runtime/catalog.json && "
+        "chmod g+r ${scripts}/.runtime/catalog.json"
+    )
 
     machine.succeed("chmod 000 /run/agenix/lighting-port-ha-token")
     restart()

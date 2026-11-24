@@ -176,6 +176,10 @@ let
       if [ ! -f "$catalog" ]; then
         refuse "$scripts/$catalog does not exist"
       fi
+      # A catalog copied in by the operator follows their umask and mode.
+      if [ ! -r "$catalog" ]; then
+        refuse "$scripts/$catalog is not readable by lighting-port; give it to the group with: chgrp lighting-port $scripts/$catalog && chmod g+r $scripts/$catalog"
+      fi
 
       say "starting the watcher for live rooms '$LIVE_ROOMS'"
       # Its own process group, so a stop can reach the watcher and the host
