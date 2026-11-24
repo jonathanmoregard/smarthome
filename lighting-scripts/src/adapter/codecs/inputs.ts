@@ -420,9 +420,16 @@ function rangeSaveOf(entity: string | undefined, profile: JsonValue | undefined,
   };
 }
 
+/**
+ * A switch's range save, refused first for a plant light, which takes no range (spec 3.7.4: one kind per plug), then
+ * by today's checks (`rangeRule`).
+ */
 function rangeSaved(save: RangeSave, model: Model, now: Instant, house: HouseView): Msg[] {
   if (save.entity === undefined) throw new ParseError(NOT_PHYSICAL);
   const entity = save.entity, domain = entity.split('.')[0];
+  if (model.config.switches[toSwitchId(entity)]?.kind === 'plant light') {
+    throw new ParseError(`${entity} is a plant light; it follows its day start and hours, and takes no range`);
+  }
   const physical = (domain === 'switch' || domain === 'light') && house.state[entity] !== undefined
     && Object.values(house.devices === undefined ? {} : house.devices).some(entities => entities.includes(entity))
     && !/^(switch|light)\.(ls_|ep_)/.test(entity) && !entity.includes('permit_join');

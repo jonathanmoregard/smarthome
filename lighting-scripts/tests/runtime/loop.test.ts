@@ -534,11 +534,13 @@ test('a missing Zigbee2MQTT bridge sensor counts as unknown: the bulbs are still
 });
 
 const PLANT_A = 'switch.plant_a';
+const plantA = toSwitchId(PLANT_A);
 
-/** A house with one plant light, `switch.plant_a` in `room-a`, and the all-off control off. */
-function plantHouse(): House {
+/** A house with one plant light, `switch.plant_a` in `room-a`, and the all-off control off; then `change` to its states. */
+function plantHouse(change: (states: Record<string, EntityState>) => void = () => {}): House {
   const house = new House({ plants: [PLANT_A] });
   house.states[PLANTS_ALL_OFF] = { state: 'off', attributes: {} };
+  change(house.states);
   return house;
 }
 
@@ -662,4 +664,116 @@ test('the all-off control is switched off at the day start while some room is st
   const rooms: RoomsGiven = { kind: 'listed', rooms: new Set([roomA]) };
   const turn = handleInput({ kind: 'running', state: house.state! }, houseView(house.states, '2026-09-22T07:00:00Z', house.plants), { kind: 'tick' }, rooms);
   assert.deepEqual(allOffOut(turn), { kind: 'dashboard', write: { kind: 'plants all-off', entity: PLANTS_ALL_OFF, on: false } });
+});
+
+/**
+ * A plant house started at noon, where the start sends `switch.plant_a` on, and the host's turn when Home Assistant
+ * reports that on landed (`wantsTurn`, a wake): a later change is read against the plug seen on, with no send open.
+ */
+function plantHouseAtNoon(): House {
+  const house = plantHouse(); house.turn('12:00:00', { kind: 'started' });
+  assert.equal(house.states['switch.plant_a']!.state, 'on', 'control: the start switched the plant light on');
+  house.turn('12:00:01', { kind: 'wake' });
+  return house;
+}
+
+/** A plant house started at noon, `switch.plant_a` switched off by hand at 12:05. */
+function handOffAt1205(): House {
+  const house = plantHouseAtNoon();
+  house.states['switch.plant_a'] = { state: 'off', attributes: {} };
+  house.turn('12:05:00', { kind: 'wake' });
+  return house;
+}
+
+test('a start sends a plant light what the clock says, at any instant', () => {
+  // Regression (passes after Task 6). Break: a start reads the plug's power as a hand switch, or sends it nothing.
+  const on = plantHouse(); assert.equal(plantOut(on.turn('12:00:00', { kind: 'started' }))?.power, 'on');
+  const off = plantHouse(states => { states['switch.plant_a'] = { state: 'on', attributes: {} }; });
+  assert.equal(plantOut(off.turn('20:00:00', { kind: 'started' }))?.power, 'off');
+});
+test('a plant light switched by hand holds until the next day start', () => {
+  // Regression. Break: the press is taken back, or held past the next day start.
+  const house = plantHouseAtNoon();
+  house.states['switch.plant_a'] = { state: 'off', attributes: {} };
+  const pressed = house.turn('12:05:00', { kind: 'wake' });
+  assert.equal(plantOut(pressed), undefined);
+  assert.equal(pressed.state.model.plantOverrides.handSwitches[plantA]?.power, 'off');
+  assert.equal(plantOut(house.turn('18:00:00', { kind: 'tick' })), undefined);
+  assert.equal(plantOut(house.turn('2026-09-22T07:00:00', { kind: 'tick' }))?.power, 'on');
+});
+test('a hand switch survives a restart', () => {
+  // Regression. Break: the hand switch is not stored, so the start puts the plug back on.
+  const house = handOffAt1205();
+  house.state = undefined;
+  assert.equal(plantOut(house.turn('12:30:00', { kind: 'started' })), undefined);
+  assert.equal(house.states['switch.plant_a']!.state, 'off');
+});
+test('a plant light found changed when Home Assistant is back is put right, not held', () => {
+  // Spec 3.7.5. Break: a change seen across a reconnect is read as the plug's own button and held for the day.
+  const house = plantHouseAtNoon();
+  house.states['switch.plant_a'] = { state: 'off', attributes: {} };
+  const turn = house.turn('12:10:00', { kind: 'reconnected' });
+  assert.equal(plantOut(turn)?.power, 'on');
+  assert.equal(turn.state.model.plantOverrides.handSwitches[plantA], undefined);
+});
+test('Review Focus 1: a plug out of reach at its day start is sent its power when it is back, with no hold', () => {
+  // Regression (Amendment 8.1). Break: its return from out of reach is read as its own button, held off for the day.
+  const house = plantHouse();
+  assert.equal(plantOut(house.turn('06:00:00', { kind: 'started' })), undefined, 'control: off before the day start, nothing sent');
+  house.states['switch.plant_a'] = { state: 'unavailable', attributes: {} };
+  assert.equal(plantOut(house.turn('07:00:00', { kind: 'tick' })), undefined);
+  house.states['switch.plant_a'] = { state: 'off', attributes: {} };
+  const back = house.turn('07:10:00', { kind: 'wake' });
+  assert.equal(plantOut(back)?.power, 'on');
+  assert.equal(back.state.model.plantOverrides.handSwitches[plantA], undefined);
+});
+test('a range save for a plant light is refused and logged', () => {
+  // Spec 3.7.4. Break: the save is dropped quietly by the domain, so the dashboard says nothing of why.
+  const house = plantHouse(); house.turn('12:00:00', { kind: 'started' });
+  const turn = house.turn('12:05:00', bridged('ls_range_save', { entity: 'switch.plant_a', profile: 'bright' }));
+  assert.match(turn.dropped ?? '', /is a plant light/);
+  assert.equal(turn.state.model.switchRanges[plantA], undefined);
+});
+test('a range rule stored for a plant light is said once', () => {
+  // Spec 3.7.4. Break: the stored rule is ignored without a word, or the error is said every turn.
+  const house = plantHouse(states => { states['sensor.ls_overrides']!.attributes.switch_ranges = { 'switch.plant_a': { profile: 'bright' } }; });
+  const said = (turn: Turn) => turn.errors.filter(error => /switch\.plant_a is a plant light/.test(error)).length;
+  assert.equal(said(house.turn('12:00:00', { kind: 'started' })), 1);
+  assert.equal(said(house.turn('12:01:00', { kind: 'tick' })), 0);
+});
+test('a lighting switch\'s own button is still an overlay', () => {
+  // Regression. Break: the plant lights' rules reach a lighting switch, whose press is no longer an overlay.
+  const house = plantHouse(); house.turn('12:00:00', { kind: 'started' });
+  house.states['switch.plug_a'] = { state: house.states['switch.plug_a']!.state === 'on' ? 'off' : 'on', attributes: {} };
+  assert.notEqual(house.turn('12:05:00', { kind: 'wake' }).state.model.overlays.switches[toSwitchId('switch.plug_a')], undefined);
+});
+test('a plant light found changed when Home Assistant starts again under a running port is put right, not held', () => {
+  // Spec 3.7.5, the start half. Break: only a reconnect is read afresh, so Home Assistant's own start, which the port
+  // runs through as `started` with its state kept, reads the change as the plug's own button.
+  const house = plantHouseAtNoon();
+  house.states['switch.plant_a'] = { state: 'off', attributes: {} };
+  const turn = house.turn('12:10:00', { kind: 'started' });
+  assert.equal(plantOut(turn)?.power, 'on');
+  assert.equal(turn.state.model.plantOverrides.handSwitches[plantA], undefined);
+});
+test('a switch overlay stored for a plant light is said once', () => {
+  // Spec 3.7.4. Break: only a stored range rule is said, and a lighting overlay left from before the label is ignored
+  // without a word.
+  const house = plantHouse(states => {
+    states['sensor.ls_overrides']!.attributes.switch_overlays = { 'switch.plant_a': { power: 'off', when: '2026-09-21T11:30:00Z' } };
+  });
+  const said = (turn: Turn) => turn.errors.filter(error => /switch\.plant_a is a plant light/.test(error)).length;
+  const started = house.turn('12:00:00', { kind: 'started' });
+  assert.notEqual(started.state.model.overlays.switches[plantA], undefined, 'control: the overlay is read into the Model');
+  assert.equal(said(started), 1);
+  assert.equal(said(house.turn('12:01:00', { kind: 'tick' })), 0);
+});
+test('a lighting switch found changed when Home Assistant is back is still its own button', () => {
+  // Interface 1, as today. Break: every switch found changed at a reconnect is put right, a lighting switch's press too.
+  const house = plantHouse(); house.turn('12:00:00', { kind: 'started' });
+  assert.equal(house.states['switch.plug_a']!.state, 'off', 'control: the plug is off and was sent nothing');
+  house.states['switch.plug_a'] = { state: 'on', attributes: {} };
+  const turn = house.turn('12:10:00', { kind: 'reconnected' });
+  assert.equal(turn.state.model.overlays.switches[plugA]?.power, 'on');
+  assert.deepEqual(switchesSent(turn).filter(([plug]) => plug === plugA), []);
 });

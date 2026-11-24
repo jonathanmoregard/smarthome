@@ -224,10 +224,14 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
   // What changed since the last turn that no send of ours explains: a plug's own button is pressed first, then the input.
   // A room handed over since was the old scripts' meanwhile, and is taken as found: a change there is theirs.
   // A switch send of ours whose target moved before it landed may land late, within its window by our clock: no press.
+  // A plant light found changed at a start or when Home Assistant is back is put right, not held (spec 3.7.5): only a
+  // change seen while the port runs is its own button. A lighting switch's stays a press, as today.
   const seen = decodeObserved(house.state, clocked.config);
+  const lookedAfresh = input.kind === 'started' || input.kind === 'reconnected';
   const changed = state === undefined ? [] : unexplained(state.observed, seen, state.beliefs)
     .filter(change => change.kind === 'switch pressed'
       ? !taken.switches.includes(change.switch) && !landedLate(state.superseded[change.switch], change.power, now)
+        && !(lookedAfresh && clocked.config.switches[change.switch]?.kind === 'plant light')
       : !taken.bulbs.includes(change.bulb));
   let inputMessages: Msg[] = [], dropped: string | undefined, saved: StoreSave | undefined;
   try {
@@ -302,6 +306,9 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
     ...state?.observed.bridge !== 'unknown' && observed.bridge === 'unknown'
       ? [`lighting: Home Assistant has no ${BRIDGE_SENSOR}; Zigbee2MQTT's connection is unknown, and the bulbs are sent as if it were up`] : [],
     ...topicless.filter(bulb => state?.topicless.includes(bulb) !== true).map(bulb => `lighting: the catalog gives ${bulb} no topic; it is sent nothing`),
+    // Found when the last turn's Model held no such setting for it: at the first turn, a relabel, or the sensor's first read.
+    ...plantLightsWithLightingSettings(model).filter(plug => state === undefined || !plantLightsWithLightingSettings(state.model).includes(plug))
+      .map(plug => `lighting: ${plug} is a plant light; its saved range rule or switch overlay is ignored`),
     ...held.map(entry => `lighting: Home Assistant has no ${targetOf(entry.write)}; the write to it waits until it does`),
     // A start refuses such a room (src/main.ts); a host started over one says it once, at its start.
     ...given.kind === 'listed' && (state === undefined || input.kind === 'started') && portSwitchesMissing(house.state, given.rooms).length > 0
@@ -320,6 +327,12 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
   const journalled = outputs.flatMap((output, index) => output.kind === 'publish' ? [index] : []);
   const next: AdapterState = { model, beliefs, view, observed, outbox, reread: false, share, topicless, configFrom, overrides: overrides.kind, superseded };
   return { state: next, outputs, sends: sending, now, nextChange: nextChange(model, now), heldUntil, dropped, errors, journalled, writing };
+}
+
+/** The plant lights the Model holds a range rule or a lighting switch overlay for: both ignored, one kind per plug (spec 3.7.4). */
+function plantLightsWithLightingSettings(model: Model): SwitchId[] {
+  return entriesOf(model.config.switches).flatMap(([plug, placed]) => placed.kind === 'plant light'
+    && (model.switchRanges[plug] !== undefined || model.overlays.switches[plug] !== undefined) ? [plug] : []);
 }
 
 /**
