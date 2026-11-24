@@ -39,7 +39,7 @@ import {
   switchesSeen, unexplained, unparked,
 } from './reconcile.ts';
 import type { Beliefs, Outcome, Send } from './reconcile.ts';
-import { afterTries, dueAt, nextTry, queued, settled, targetOf, unparkedWrites, withWaiting } from './outbox.ts';
+import { afterTries, dueAt, nextTry, outputOf, queued, settled, targetOf, unparkedWrites, withWaiting } from './outbox.ts';
 import type { Entry, Outbox, Tried, Write } from './outbox.ts';
 import { configStoreWrite, dashboardWrites, modelWrites, uiSyncWrites } from './codecs/writes.ts';
 import type { ControlRow, StoreWrite } from './codecs/writes.ts';
@@ -200,7 +200,7 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
     for (const write of uiSyncWrites(house, previous === undefined)) writes.push({ kind: 'dashboard', write });
   }
   const outbox = queued(waiting, writes, now), due = dueAt(outbox, now);
-  const outputs: Output[] = due.map(entry => entry.write);
+  const outputs: Output[] = due.map(entry => outputOf(entry, reported, share));
   const writing = due.map((entry, output) => ({ entry, output }));
 
   let beliefs = kept.kind === 'running' ? kept.state.beliefs : kept.beliefs;

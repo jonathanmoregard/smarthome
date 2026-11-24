@@ -316,14 +316,22 @@ test("a write refused because the old scripts committed since is made again over
   const shared = new Shared(sharedStates({ [roomA]: 'on', [roomB]: 'on' }), listed(roomB));
   shared.turn('12:00:00', { kind: 'started' });
   shared.turn('12:01:00', holdRoomB, ['sensor']);
+  // B3: the commit holds room-a, which the port does not drive, and switches off room-b's lamp, which it does.
+  const lampB1 = 'channels:native:light.lamp_b1';
   oldCommit(shared, '12:01:05', attributes => {
     (attributes.overrides as JsonObject)[`block:${roomA}`] = { kind: 'block', target: roomA, value: 'day', when: '2026-09-21T12:01:05+00:00',
       created: '2026-09-21T12:01:05+00:00', who: null, via: 'app' };
+    (attributes.overrides as JsonObject)[lampB1] = { kind: 'channels', key: lampB1, source: 'native:light.lamp_b1', scope: 'lamp',
+      target: 'light.lamp_b1', value: { power: 'off', channels: {} }, when: '2026-09-21T12:01:05+00:00', created: '2026-09-21T12:01:05+00:00',
+      who: null, via: 'app' };
   });
-  const again = sensorWrite(shared.turn('12:01:10', { kind: 'wake' }));
+  const turn = shared.turn('12:01:10', { kind: 'wake' }), again = sensorWrite(turn);
   assert.equal(again?.basis, '2026-09-21T12:01:05+00:00');
   const overrides = again?.attributes.overrides as JsonObject;
   assert.equal((overrides[`block:${roomA}`] as JsonObject).value, 'day', 'the commit is kept');
+  assert.equal(((overrides[lampB1] as JsonObject | undefined)?.value as JsonObject | undefined)?.power, 'off',
+    "the commit's key in a room the port drives is kept");
+  assert.equal(turn.state.model.overlays.lamps.length, 1, "the port holds room-b's lamp off, as committed");
   assert.equal((overrides[`block:${roomB}`] as JsonObject).value, 'night', "the port's hold is written");
 });
 
@@ -442,7 +450,7 @@ test("a dropped input's turn still leaves a switch of a room that is not live to
 
 /* Close-out round 1 reproducers: `todo` with the finding's id while the defect stands; the fixer drops the mark. */
 
-test("closeout r1 B2/B3: an old scripts' commit to the port's own room, made after a refused write, is not undone by it", { todo: 'closeout r1 B2/B3' }, () => {
+test("closeout r1 B2/B3: an old scripts' commit to the port's own room, made after a refused write, is not undone by it", () => {
   // B3: the test above checks the commit is kept only for block:room-a, a room the port does not drive. Break (B2):
   // the refused write's whole `overrides` is laid over the newer read, so the old scripts' house hold, which they
   // commit to every room (block:room-b included), is taken back to the port's older hold and written again.

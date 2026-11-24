@@ -13,11 +13,11 @@ import type { ControlShown, DashboardView } from '../../domain/dashboard.ts';
 import { savedLampProfile } from '../../domain/profiles.ts';
 import { entriesOf } from '../../domain/types/ids.ts';
 import type { Instant } from '../../domain/types/time.ts';
-import type { JsonObject } from '../ha-client.ts';
+import type { EntityState, JsonObject, JsonValue } from '../ha-client.ts';
 import type { HouseView } from './house.ts';
 import { roundEven } from '../../domain/blend.ts';
 import { lampReading, proxyKelvin, proxyShowsRgb, uiProfile } from './ui-state.ts';
-import { object } from './parse.ts';
+import { isObject, object } from './parse.ts';
 import { uiRowsOf } from './catalog.ts';
 import type { UiRow } from './catalog.ts';
 import { blockLightStore } from './config.ts';
@@ -43,6 +43,28 @@ import type { Model } from '../../domain/update.ts';
  */
 export type SensorWrite = { entity: string; revision: string; attributes: JsonObject; basis: string | undefined };
 
+/**
+ * The port's own changes to the overrides sensor, as the outbox holds them: each one key of a mapping attribute, set
+ * from `from` (as the read it was made over held it) to `to`, or removed (`to` none). Held key by key and not as whole
+ * attributes, so a write made again is laid over the freshest read, and a key the old scripts changed since is theirs.
+ */
+export type SensorChanges = { entity: string; revision: string; changes: readonly SensorKeyChange[] };
+/** Whether Home Assistant shows every change, or someone else's newer one to its key: the write has nothing left to do. */
+export function sensorSettled(write: SensorChanges, shown: EntityState | undefined, queuedAt: Instant): boolean {
+  return write.changes.every(change => isDeepStrictEqual(mapOf(shown, change.attribute)[change.key], change.to) || superseded(change, shown, queuedAt));
+}
+
+export type SensorKeyChange = { attribute: string; key: string; from: JsonValue | undefined; to: JsonValue | undefined };
+
+/**
+ * Whether someone else changed the change's key after it was queued (the sensor updated since, and the key holds
+ * neither what the change was made over nor what it writes): it is theirs, as for a helper write a newer change is.
+ */
+function superseded(change: SensorKeyChange, shown: EntityState | undefined, queuedAt: Instant): boolean {
+  const updated = shown?.last_updated === undefined ? NaN : Date.parse(shown.last_updated) / 1000, value = mapOf(shown, change.attribute)[change.key];
+  return Number.isFinite(updated) && updated > queuedAt && !isDeepStrictEqual(value, change.from) && !isDeepStrictEqual(value, change.to);
+}
+
 /** One remote helper of a room set to a value. */
 export type HelperWrite = { entity: string; value: HelperValue };
 
@@ -62,8 +84,6 @@ export type DashboardWrite =
   | { kind: 'control sync'; topic: string; payload: string }
   /** A discovered light's config republished, retained, with the catalog's effect choices. */
   | { kind: 'discovery'; topic: string; payload: string };
-
-export const OVERRIDES_SENSOR = 'sensor.ls_overrides';
 
 /**
  * What the proxies and the discovered lights show otherwise, moved from
@@ -121,19 +141,21 @@ function rowSync(house: HouseView, row: UiRow, proxy: string, force: boolean): D
   return writes;
 }
 
+export const OVERRIDES_SENSOR = 'sensor.ls_overrides';
+
 /** A source or proxy that reports on or off is available. */
 function reportsPower(state: string): boolean {
   return state === 'on' || state === 'off';
 }
 
-/** The Model's writes: the overrides sensor, each changed remote's helpers and each changed lamp or plug profile store. */
-export type ModelWrites = { sensor: SensorWrite | undefined; helpers: HelperWrite[]; stores: StoreWrite[] };
+/** The Model's writes: the overrides sensor's changes, each changed remote's helpers and each changed lamp or plug profile store. */
+export type ModelWrites = { sensor: SensorChanges | undefined; helpers: HelperWrite[]; stores: StoreWrite[] };
 
 /**
  * The writes that take Home Assistant from what it holds to `after`. The
  * sensor is written when its attributes, read with the Model written in,
  * differ from the ones Home Assistant reports (the codec keeps every untouched entry's bytes): the write is the
- * whole difference from that, made again each turn, so a newer one never drops what an older one still waiting held;
+ * whole difference from that, key by key, made again each turn, so a newer one never drops what an older one still waiting held;
  * a remote's helpers when its state changed this turn; a lamp's or a plug's
  * store when its profile did. The overrides sensor and the remotes' helpers are written only for what `share`
  * drives: the old scripts write the rest.
@@ -142,10 +164,13 @@ export function modelWrites(before: Model, after: Model, house: HouseView, repor
   const stored = reported.state[OVERRIDES_SENSOR];
   const found: JsonObject = stored === undefined ? {} : stored.attributes;
   const written = encodeOverrides(after, found, share, after.config, storeKeys(house.catalog));
-  const changed = Object.fromEntries(Object.entries(written).filter(([key, value]) => !isDeepStrictEqual(found[key], value)));
-  // While some room is the old scripts', they commit to the sensor too: the write is made only over the read it was made from.
-  const basis = share.kind === 'house' ? undefined : stored?.last_updated;
-  const sensor = Object.keys(changed).length === 0 ? undefined : { entity: OVERRIDES_SENSOR, revision: nowText(now), attributes: changed, basis };
+  // Every attribute the codec writes is a mapping, the stored one or one it made: its keys are the changes.
+  const changes = Object.entries(written).flatMap(([attribute, value]): SensorKeyChange[] => {
+    const was = isObject(found[attribute]) ? found[attribute] : {}, now = isObject(value) ? value : {};
+    return isDeepStrictEqual(found[attribute], value) ? [] : [...new Set([...Object.keys(was), ...Object.keys(now)])].flatMap(key =>
+      isDeepStrictEqual(was[key], now[key]) ? [] : [{ attribute, key, from: was[key], to: now[key] }]);
+  });
+  const sensor = changes.length === 0 ? undefined : { entity: OVERRIDES_SENSOR, revision: nowText(now), changes };
   const helpers = entriesOf(after.remotes).flatMap(([remote, state]): HelperWrite[] => {
     const was = before.remotes[remote], room = after.config.remotes[remote]?.room;
     if (was === undefined || room === undefined || !drives(share, room) || isDeepStrictEqual(was, state)) return [];
@@ -169,9 +194,6 @@ export function modelWrites(before: Model, after: Model, house: HouseView, repor
 /** A live control's row: its control and the proxy topic of each channel. */
 export type ControlRow = { control: string; topics: Partial<Record<string, string>> };
 
-/** The dashboard's effect choices when the catalog names none (today's `uiChoices`). */
-const DEFAULT_CHOICES: readonly string[] = ['Normal Light', 'Candle'];
-
 type Channel = 'power' | 'brightness' | 'temperature' | 'rgb' | 'effect';
 
 /** What a control shows, as the proxy's channel payloads: today's `uiMessages` texts. */
@@ -187,6 +209,9 @@ function channels(light: ControlShown): Record<Channel, string | undefined> {
   };
 }
 
+/** The dashboard's effect choices when the catalog names none (today's `uiChoices`). */
+const DEFAULT_CHOICES: readonly string[] = ['Normal Light', 'Candle'];
+
 /** One discovery row of the catalog: its light, the unique id its config topic is named for, and the config. */
 type DiscoveryRow = { entity: string; uniqueId: string; config: JsonObject };
 
@@ -196,6 +221,26 @@ function discoveryRowsOf(house: HouseView): DiscoveryRow[] {
     const row = object(raw), config = object(row.config), uniqueId = config.unique_id;
     return typeof row.entity === 'string' && typeof uniqueId === 'string' ? [{ entity: row.entity, uniqueId, config }] : [];
   });
+}
+
+/**
+ * The sensor write the changes make now, over the sensor as Home Assistant shows it: each change still standing laid
+ * on its attribute, and, while some room is the old scripts', made only over that read.
+ */
+export function sensorWriteOver(write: SensorChanges, shown: EntityState | undefined, queuedAt: Instant, share: Share): SensorWrite {
+  const attributes: JsonObject = {};
+  for (const change of write.changes.filter(change => !superseded(change, shown, queuedAt))) {
+    const map = { ...isObject(attributes[change.attribute]) ? attributes[change.attribute] as JsonObject : mapOf(shown, change.attribute) };
+    if (change.to === undefined) delete map[change.key]; else map[change.key] = change.to;
+    attributes[change.attribute] = map;
+  }
+  return { entity: write.entity, revision: write.revision, attributes, basis: share.kind === 'house' ? undefined : shown?.last_updated };
+}
+
+/** One of the sensor's mapping attributes as Home Assistant shows it; none, or not a mapping, is empty. */
+function mapOf(shown: EntityState | undefined, attribute: string): JsonObject {
+  const value = shown?.attributes[attribute];
+  return isObject(value) ? value : {};
 }
 
 /**

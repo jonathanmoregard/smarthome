@@ -3,7 +3,8 @@
  * stores, and the dashboard's writes. The outbox is held in the adapter's state; nothing derives it from the Model.
  *
  * A write enters when a turn makes it, and leaves when Home Assistant has it (it answered the call, or its state shows
- * the value) or when a newer change by someone else, made after the write was queued, supersedes it. Nothing else
+ * the value) or when a newer change by someone else, made after the write was queued, supersedes it; the sensor's
+ * changes are held key by key, and each is superseded on its own. Nothing else
  * drops it: a helper read, a reconnect or a helper change only update what Home Assistant is read to hold, and the
  * writes still waiting are laid over that read, so the Model keeps them. A refused write is tried again on the bulbs'
  * backoff, {@link MAX_ATTEMPTS} times, then parked and said once; a call not made (Home Assistant out of reach) counts
@@ -14,12 +15,15 @@ import type { Instant } from '../domain/types/time.ts';
 import { storeLanded } from './codecs/config.ts';
 import { afterCall, callSettled, withStates } from './codecs/house.ts';
 import type { HouseView } from './codecs/house.ts';
+import type { Share } from './codecs/rooms.ts';
+import { sensorSettled, sensorWriteOver } from './codecs/writes.ts';
+import type { SensorChanges } from './codecs/writes.ts';
 import { outputCall } from './encode.ts';
 import type { Output } from './encode.ts';
 import { MAX_ATTEMPTS, retryAt } from './reconcile.ts';
 
-/** A write to Home Assistant other than a bulb's publish or a switch's power. */
-export type Write = Exclude<Output, { kind: 'publish' } | { kind: 'switch' }>;
+/** A write to Home Assistant other than a bulb's publish or a switch's power: the sensor's as the port's own changes to it. */
+export type Write = { kind: 'sensor'; write: SensorChanges } | Exclude<Output, { kind: 'publish' } | { kind: 'switch' } | { kind: 'sensor' }>;
 
 /** What a write is to: its entity, or for a publish, its topic. */
 export function targetOf(write: Write): string {
@@ -30,32 +34,33 @@ export function targetOf(write: Write): string {
 }
 
 /**
- * Whether two writes to one target set the same: the sensor's by its attributes and the read it is made over, its
- * revision aside.
+ * Whether two writes to one target set the same: the sensor's by each key's new value, its revision and the reads they
+ * were made over aside.
  */
 function same(a: Write, b: Write): boolean {
-  return a.kind === 'sensor' && b.kind === 'sensor'
-    ? isDeepStrictEqual(a.write.attributes, b.write.attributes) && a.write.basis === b.write.basis : isDeepStrictEqual(a, b);
+  const keys = (write: SensorChanges) => write.changes.map(({ attribute, key, to }) => ({ attribute, key, to }));
+  return a.kind === 'sensor' && b.kind === 'sensor' ? isDeepStrictEqual(keys(a.write), keys(b.write)) : isDeepStrictEqual(a, b);
 }
 
 /** A write waiting: when it was queued, how often Home Assistant refused it, and when it is next due, or parked. */
 export type Entry = { write: Write; queuedAt: Instant; refusals: number; status: { kind: 'due'; at: Instant } | { kind: 'parked' } };
 
+/** The output a waiting write makes now: the sensor's changes laid over the sensor as Home Assistant reports it, any other write as it is. */
+export function outputOf(entry: Entry, reported: HouseView, share: Share): Output {
+  const write = entry.write;
+  return write.kind !== 'sensor' ? write : { kind: 'sensor', write: sensorWriteOver(write.write, reported.state[write.write.entity], entry.queuedAt, share) };
+}
+
 export type Outbox = readonly Entry[];
 
 /**
  * The outbox without the writes Home Assistant's states show it has, or that a newer change superseded. A sensor
- * write made over a read is not superseded by a newer commit: the turn makes it again over the newer read.
+ * write is settled once each of its keys shows its change or someone else's newer one; a newer commit to other keys
+ * leaves it to be made again over the newer read.
  */
 export function settled(outbox: Outbox, house: HouseView): Outbox {
-  return outbox.filter(entry => {
-    const write = entry.write;
-    if (write.kind === 'sensor' && write.write.basis !== undefined) {
-      const shown = house.state[write.write.entity]?.attributes;
-      return shown === undefined || !Object.entries(write.write.attributes).every(([key, value]) => isDeepStrictEqual(shown[key], value));
-    }
-    return !callSettled(house.state, outputCall(write, entry.queuedAt), entry.queuedAt);
-  });
+  return outbox.filter(({ write, queuedAt }) => write.kind === 'sensor' ? !sensorSettled(write.write, house.state[write.write.entity], queuedAt)
+    : !callSettled(house.state, outputCall(write, queuedAt), queuedAt));
 }
 
 /**
@@ -65,9 +70,13 @@ export function settled(outbox: Outbox, house: HouseView): Outbox {
  */
 export function withWaiting(house: HouseView, outbox: Outbox): HouseView {
   const laid = outbox.filter(entry => entry.status.kind !== 'parked');
-  return laid.length === 0 ? house : withStates(house, laid.reduce((states, { write, queuedAt }) => write.kind === 'store'
-    ? storeLanded(states, write.write.entity, write.write.text) : afterCall(states, outputCall(write, queuedAt), queuedAt), house.state));
+  return laid.length === 0 ? house : withStates(house, laid.reduce((states, entry) => entry.write.kind === 'store'
+    ? storeLanded(states, entry.write.write.entity, entry.write.write.text)
+    : afterCall(states, outputCall(outputOf(entry, withStates(house, states), HOUSE), entry.queuedAt), entry.queuedAt), house.state));
 }
+
+/** The share a write laid over the house is resolved for: the read it is laid on is the one it is made over. */
+const HOUSE: Share = { kind: 'house' };
 
 /** When the next waiting write is due, if one is. */
 export function nextTry(outbox: Outbox): Instant | undefined {
