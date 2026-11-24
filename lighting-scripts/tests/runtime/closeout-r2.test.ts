@@ -238,7 +238,7 @@ test('closeout r2 B4 (ruling): a bulb the catalog gives no topic gets no belief,
   assert.deepEqual(turn('12:01:00', { kind: 'tick' }, view).errors, [], 'said once, not every turn');
 });
 
-test('closeout r2 B5: a range saved for a plug alone in its room applies at once', { todo: 'closeout r2 B5' }, () => {
+test('closeout r2 B5: a range saved for a plug alone in its room applies at once', () => {
   // Break: rangeSaved adds the plug but not its room to config.rooms (src/domain/switches.ts:82-84), so switchPower
   // takes it as roomless and skips the rule (src/domain/switches.ts:110, 118) until the config is read again.
   const plugC = toSwitchId('switch.plug_c'), roomC = toRoomId('room-c'), now = at('12:00:00');

@@ -102,7 +102,7 @@ function decodeLamps(source: ConfigSource, catalog: Catalog): Record<LampId, Lam
   const labelled = source.labels['house_schedule'];
   const lamps = labelled === undefined ? Object.keys(catalog.members) : labelled.filter(entity => entity.startsWith('light.'));
   return Object.fromEntries(lamps.map(lamp => [toLampId(lamp), {
-    room: roomOf(source.rooms.ofId[lamp]),
+    room: roomOfEntity(source.rooms, lamp),
     bulbs: (catalog.members[toLampId(lamp)] ?? []).map(bulb => bulbInfo(catalog, bulb)),
   } satisfies Lamp]));
 }
@@ -116,7 +116,7 @@ function decodeSwitches(source: ConfigSource): Record<SwitchId, Switch> {
   const labelled = (source.labels['on_off'] ?? []).filter(isSwitch);
   const ranged = Object.keys(rangeEntities(source)).filter(isSwitch);
   return Object.fromEntries([...new Set([...labelled, ...ranged])].map(entity =>
-    [toSwitchId(entity), { room: roomOf(source.rooms.ofId[entity]), onOff: labelled.includes(entity) } satisfies Switch]));
+    [toSwitchId(entity), { room: roomOfEntity(source.rooms, entity), onOff: labelled.includes(entity) } satisfies Switch]));
 }
 
 /** The entities with a saved switch range: the keys of `sensor.ls_overrides`'s `switch_ranges`. */
@@ -209,7 +209,7 @@ function isOn(source: ConfigSource, entity: string): boolean {
 function decodeRooms(source: ConfigSource, placed: readonly (RoomId | undefined)[]): Record<RoomId, Room> {
   // A '' private-room label (a lamp in no area) names no room, so Room cannot carry it.
   const privateRooms = source.labels['private_room'] ?? [];
-  const ranged = Object.keys(rangeEntities(source)).map(entity => roomOf(source.rooms.ofId[entity]));
+  const ranged = Object.keys(rangeEntities(source)).map(entity => roomOfEntity(source.rooms, entity));
   const rooms = new Set([...placed, ...ranged].filter(room => room !== undefined));
   return Object.fromEntries([...rooms].map(room => [room, {
     blocks: perBlock(block => decodeRoomBlock(source, room, block)),
@@ -251,6 +251,11 @@ function decodeOverlayReset(source: ConfigSource): OverlayReset {
 
 function decodeWarmEnd(source: ConfigSource): RGB {
   return rgbOf(source.states['light.candle_test_rgb_warm_end']?.attributes['rgb_color']) ?? DEFAULT_WARM_END;
+}
+
+/** An entity's room, the one owner of where a lamp or a switch is: its registry area; none, or the empty area id, is no room. */
+export function roomOfEntity(rooms: Rooms, entity: string): RoomId | undefined {
+  return roomOf(rooms.ofId[entity]);
 }
 
 /** A registry area as a room; none, or the empty area id, is no room. */

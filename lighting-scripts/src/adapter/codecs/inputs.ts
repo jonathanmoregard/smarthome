@@ -30,7 +30,7 @@ import {
 } from './ids.ts';
 import type { JsonObject, JsonValue } from '../ha-client.ts';
 import type { HouseView } from './house.ts';
-import { blockLightOf } from './config.ts';
+import { blockLightOf, roomOfEntity } from './config.ts';
 import type { BlockLight } from './config.ts';
 import { ParseError, describe, isObject, jinjaString, object, requireBoolean, requireString } from './parse.ts';
 import { configSource, reportsOn } from './model.ts';
@@ -419,7 +419,7 @@ function rangeSaved(save: RangeSave, model: Model, now: Instant, house: HouseVie
   if (domain === 'light' && !onOffOnly(house, entity)) {
     throw new ParseError('Choose an on/off lamp; dimmable lamps use the normal lighting settings.');
   }
-  const room = house.rooms.ofId[entity];
+  const room = roomOfEntity(house.rooms, entity);
   if (room === undefined) throw new ParseError('Assign this lamp to a room before configuring its range.');
   const rule = rangeRule(save.profile, entity, save.minimum, save.maximum, house);
   return [{ kind: 'rangeSaved', switch: toSwitchId(entity), rule, room, at: now }];

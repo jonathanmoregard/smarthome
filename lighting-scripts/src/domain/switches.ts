@@ -50,9 +50,9 @@ export type RoomLight = {
 export type SwitchButtonPressed = { kind: 'switchButtonPressed'; switch: SwitchId; power: Power; at: Instant };
 
 /**
- * A switch's range rule saved from the dashboard. `room` is the room Home
- * Assistant has the switch in: a plug with no on/off label is a switch of the
- * house from its first range save on, in that room.
+ * A switch's range rule saved from the dashboard. `room` is the room the
+ * config codec reads the switch in: a plug with no on/off label is a switch of
+ * the house from its first range save on, in that room.
  */
 export type RangeSaved = { kind: 'rangeSaved'; switch: SwitchId; rule: RangeRule; room: RoomId | undefined; at: Instant };
 
@@ -76,7 +76,8 @@ export function switchButtonPressed(overlays: SwitchOverlays, config: Config, pr
  * `decideRangeSave`'s checks, which read Home Assistant's devices and stay at
  * the edge). A switch overlay on it stays. A plug the config does not hold yet
  * (no on/off label, no rule before) becomes one of the house's switches, in
- * the room the save names, as reading the config again would make it.
+ * the room the save names, as reading the config again would make it; until
+ * then a room the config holds no schedule for follows the house's.
  */
 export function rangeSaved(config: Config, rules: RangeRules, saved: RangeSaved): { config: Config; switchRanges: RangeRules } {
   const switches = config.switches[saved.switch] === undefined
@@ -107,11 +108,12 @@ export function switchPower(
   const config = model.config;
   const power: Record<SwitchId, Power> = {};
   for (const [id, placed] of entriesOf(config.switches)) {
-    const room = placed.room !== undefined && config.rooms[placed.room] !== undefined ? placed.room : undefined;
-    const light = rooms[room === undefined ? 'house' : room];
+    // The switch's room is the config's, as decoded or saved; a room the config holds no schedule for follows the house's.
+    const room = placed.room, scheduled = room !== undefined && config.rooms[room] !== undefined ? room : undefined;
+    const light = rooms[scheduled === undefined ? 'house' : scheduled];
     if (light === undefined) continue;
     const held = model.overlays.switches[id];
-    const lastFadeStart = blockPosition(config, room, now).lastFadeStart;
+    const lastFadeStart = blockPosition(config, scheduled, now).lastFadeStart;
     const released = held !== undefined && config.overlayReset.atNextBlock && lastFadeStart !== undefined && held.since <= lastFadeStart;
     const rule = model.switchRanges[id];
     if (held !== undefined && !released) power[id] = held.power;
@@ -121,7 +123,7 @@ export function switchPower(
       power[id] = share !== undefined && range.low <= share && share <= range.high ? 'on' : 'off';
     } else if (placed.onOff && !light.stage.moving) {
       const own = ownSwitchSetting(model.switchProfiles[id]?.[light.stage.block]);
-      const setting = own !== undefined ? own : switchesOn(config, room, light.stage.block);
+      const setting = own !== undefined ? own : switchesOn(config, scheduled, light.stage.block);
       if (setting !== undefined) power[id] = setting ? 'on' : 'off';
     }
   }
