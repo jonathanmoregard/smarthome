@@ -207,6 +207,11 @@ export function toMinutes(raw: number): Minutes {
   return asParseError(() => minutesOrThrow(raw));
 }
 
+/** A plant light's hours: a finite number (not a boolean or text) held to 0..24, so an out-of-range value recovers to the nearest end. */
+export function plantHoursOf(raw: unknown): PlantHours | undefined {
+  return typeof raw === 'number' && Number.isFinite(raw) ? toPlantHours(Math.min(Math.max(raw, 0), 24)) : undefined;
+}
+
 export function toPlantHours(raw: number): PlantHours {
   return asParseError(() => plantHoursOrThrow(raw));
 }

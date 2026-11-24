@@ -1,15 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { Config } from '../../src/domain/config.ts';
+import type { Config, Switch } from '../../src/domain/config.ts';
 import {
   DEFAULT_FADE, DEFAULT_OVERLAY_AGE, DEFAULT_WAKE_FADE, blockLightSaved, bulbTopics, decodeConfig,
 } from '../../src/adapter/codecs/config.ts';
+import { readConfig, readsConfig } from '../../src/adapter/codecs/model.ts';
 import type { ConfigSource } from '../../src/adapter/codecs/config.ts';
 import { parseCatalog } from '../../src/adapter/codecs/catalog.ts';
 import type { JsonObject } from '../../src/adapter/ha-client.ts';
 import type { EntityState } from '../../src/adapter/ha-client.ts';
 import { ParseError } from '../../src/adapter/codecs/parse.ts';
-import { toBrightness, toBulbId, toInstant, toKelvin, toLampId, toMinutes, toRemoteId, toRoomId, toSwitchId, toTimeOfDay } from '../../src/adapter/codecs/ids.ts';
+import { plantHoursOf, toBrightness, toBulbId, toInstant, toKelvin, toLampId, toMinutes, toPlantHours, toRemoteId, toRoomId, toSwitchId, toTimeOfDay } from '../../src/adapter/codecs/ids.ts';
 import { parseRooms } from '../../src/adapter/codecs/rooms.ts';
 import { BLOCKS } from '../../src/domain/types/schedule.ts';
 import type { Block } from '../../src/domain/types/schedule.ts';
@@ -371,4 +372,73 @@ test('lamps are the house_schedule-labelled lights when the label is present, wi
 test('two catalog remotes on one device are refused', () => {
   const twice = parseCatalog({ remotes: { a: { device_id: 'device-x', source: 'one' }, b: { device_id: 'device-x', source: 'two' } } });
   assert.throws(() => decodeConfig(source(), twice), ParseError);
+});
+
+/** A house whose `switch.plant_a` (in room-a) is labelled `plant_light`. */
+const plantSource = (changes: Record<string, EntityState | undefined> = {}): ConfigSource => {
+  const base = source(changes);
+  return { ...base, rooms: parseRooms({ 'light.lamp_a': 'room-a', 'switch.plug_a': 'room-a', 'switch.plant_a': 'room-a' }),
+    labels: { ...base.labels, plant_light: ['switch.plant_a'] } };
+};
+const plant = (config: Config): Switch | undefined => config.switches[toSwitchId('switch.plant_a')];
+const plantHoursOfPlug = (config: Config) => { const found = plant(config); return found?.kind === 'plant light' ? found.hours : undefined; };
+
+test('a plug labelled plant_light is a plant light following the default hours', () => {
+  // Break: the label is not read, or the plant light is taken for a lighting switch.
+  const config = decodeConfig(plantSource(), catalog());
+  assert.deepEqual(plant(config), { kind: 'plant light', room: roomA, hours: { follows: 'house' } });
+  assert.deepEqual(config.switches[toSwitchId('switch.plug_a')], { kind: 'lighting', room: roomA, onOff: true });
+  assert.equal(config.plantHours, toPlantHours(12));
+});
+
+test('one kind per plug: plant_light wins over on_off and a saved range', () => {
+  // Break: a plug that is also labelled on/off or ranged stays a lighting switch.
+  const both = plantSource({ 'sensor.ls_overrides': state('0', { switch_ranges: { 'switch.plant_a': { min: 10, max: 50 } } }) });
+  both.labels = { ...both.labels, on_off: ['switch.plug_a', 'switch.plant_a'] };
+  assert.equal(plant(decodeConfig(both, catalog()))?.kind, 'plant light');
+});
+
+test('a plant_light label on something that is no light or switch is skipped', () => {
+  const other = plantSource();
+  other.labels = { ...other.labels, plant_light: ['sensor.soil'] };
+  assert.equal(decodeConfig(other, catalog()).switches[toSwitchId('sensor.soil')], undefined);
+});
+
+test('the default hours come from input_number.ls_plant_hours', () => {
+  assert.equal(decodeConfig(plantSource({ 'input_number.ls_plant_hours': state('10.5') }), catalog()).plantHours, toPlantHours(10.5));
+});
+
+test('own hours need the own-hours switch on', () => {
+  // Break: the own hours apply without the flag, or the flag is not read.
+  const own = (flag: string, hours: string) => plantHoursOfPlug(decodeConfig(plantSource({
+    'input_boolean.ls_plant_plant_a_own_hours': state(flag), 'input_number.ls_plant_plant_a_hours': state(hours) }), catalog()));
+  assert.deepEqual(own('on', '8'), { follows: 'own', own: toPlantHours(8) });
+  assert.deepEqual(own('off', '8'), { follows: 'house' });
+});
+
+test('unreadable or out-of-range hours recover to a default or the nearest end', () => {
+  // Break: an unreadable helper raises or reads as zero, or an out-of-range one is refused.
+  const hours = (text: string) => decodeConfig(plantSource({ 'input_number.ls_plant_hours': state(text) }), catalog()).plantHours;
+  assert.equal(hours('unknown'), toPlantHours(12));
+  assert.equal(hours('30'), toPlantHours(24));
+  assert.equal(hours('-2'), toPlantHours(0));
+  const own = (text: string) => plantHoursOfPlug(decodeConfig(plantSource({
+    'input_boolean.ls_plant_plant_a_own_hours': state('on'), 'input_number.ls_plant_plant_a_hours': state(text) }), catalog()));
+  assert.deepEqual(own('unavailable'), { follows: 'house' });
+  assert.deepEqual(own('99'), { follows: 'own', own: toPlantHours(24) });
+});
+
+test('plantHoursOf holds a finite number to 0..24 and reads nothing else', () => {
+  assert.equal(plantHoursOf(12.5), toPlantHours(12.5));
+  assert.equal(plantHoursOf(30), toPlantHours(24));
+  assert.equal(plantHoursOf(-1), toPlantHours(0));
+  for (const raw of [Number.NaN, Infinity, '8', null, undefined, true]) assert.equal(plantHoursOf(raw), undefined);
+});
+
+test('a change to an hours helper is a change of the config', () => {
+  // Break: a helper is read around `source.states`, so a change to it is not noticed.
+  const { from } = readConfig(plantSource(), catalog());
+  for (const entity of ['input_number.ls_plant_hours', 'input_boolean.ls_plant_plant_a_own_hours', 'input_number.ls_plant_plant_a_hours']) {
+    assert.equal(readsConfig(from, entity), true, entity);
+  }
 });

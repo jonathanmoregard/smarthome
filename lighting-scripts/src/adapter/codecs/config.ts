@@ -24,7 +24,7 @@ import type { Minutes, PlantHours } from '../../domain/types/range.ts';
 import type { Block, RoomOrHouse } from '../../domain/types/schedule.ts';
 import type { TimeOfDay, Timezone } from '../../domain/types/time.ts';
 import {
-  toBrightness, toBulbId, toColourChannel, toDashboardControlId, toInstant, toKelvin, toLampId, toMinutes, toMqttTopic, toPlantHours, toRoomId, toSwitchId, toTimeOfDay, toTimezone,
+  toBrightness, toBulbId, toColourChannel, toDashboardControlId, toInstant, toKelvin, toLampId, plantHoursOf, toMinutes, toMqttTopic, toPlantHours, toRoomId, toSwitchId, toTimeOfDay, toTimezone,
 } from './ids.ts';
 import type { MqttTopic } from './ids.ts';
 import type { Catalog } from './catalog.ts';
@@ -71,7 +71,7 @@ export function decodeConfig(source: ConfigSource, catalog: Catalog): Config {
     overlayReset: decodeOverlayReset(source),
     controls: decodeControls(catalog, lamps, rooms),
     warmEnd: decodeWarmEnd(source),
-    plantHours: DEFAULT_PLANT_HOURS,
+    plantHours: plantHoursHelper(source, 'input_number.ls_plant_hours') ?? DEFAULT_PLANT_HOURS,
   };
 }
 
@@ -111,15 +111,35 @@ function decodeLamps(source: ConfigSource, catalog: Catalog): Record<LampId, Lam
 }
 
 /**
- * The switches are the entities labelled on/off that are lights or switches, and those with a saved range rule
- * (as today's switch plan drives them). A range key that is no light or switch is skipped.
+ * The switches are the entities labelled on/off that are lights or switches, those with a saved range rule
+ * (as today's switch plan drives them), and the plant lights. A range key that is no light or switch is skipped.
+ * One kind per plug: the plant_light label wins over on/off and a saved range.
  */
 function decodeSwitches(source: ConfigSource): Record<SwitchId, Switch> {
   const isSwitch = (entity: string) => /^(light|switch)\./.test(entity);
+  const plants = (source.labels['plant_light'] ?? []).filter(isSwitch);
   const labelled = (source.labels['on_off'] ?? []).filter(isSwitch);
   const ranged = Object.keys(rangeEntities(source)).filter(isSwitch);
-  return Object.fromEntries([...new Set([...labelled, ...ranged])].map(entity =>
-    [toSwitchId(entity), { kind: 'lighting', room: roomOfEntity(source.rooms, entity), onOff: labelled.includes(entity) } satisfies Switch]));
+  const lighting = [...new Set([...labelled, ...ranged])].filter(entity => !plants.includes(entity));
+  return Object.fromEntries([
+    ...lighting.map(entity =>
+      [toSwitchId(entity), { kind: 'lighting', room: roomOfEntity(source.rooms, entity), onOff: labelled.includes(entity) } satisfies Switch]),
+    ...[...new Set(plants)].map(entity =>
+      [toSwitchId(entity), { kind: 'plant light', room: roomOfEntity(source.rooms, entity), hours: decodePlantHours(source, entity) } satisfies Switch]),
+  ]);
+}
+
+/** A plant light's hours: its own when its own-hours switch is on and its hours are readable, else the house's. */
+function decodePlantHours(source: ConfigSource, entity: string): OwnOrHouse<PlantHours> {
+  const object = entity.slice(entity.indexOf('.') + 1);
+  const flag = isOn(source, `input_boolean.ls_plant_${object}_own_hours`);
+  const own = plantHoursHelper(source, `input_number.ls_plant_${object}_hours`);
+  return flag && own !== undefined ? { follows: 'own', own } : { follows: 'house' };
+}
+
+/** An `input_number` state as plant hours: held to 0..24; not a number is none. */
+function plantHoursHelper(source: ConfigSource, entity: string): PlantHours | undefined {
+  return plantHoursOf(parseFinite(source.states[entity]?.state));
 }
 
 /** The entities with a saved switch range: the keys of `sensor.ls_overrides`'s `switch_ranges`. */
