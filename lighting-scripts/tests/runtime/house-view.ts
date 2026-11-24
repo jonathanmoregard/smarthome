@@ -18,7 +18,7 @@ export function house(states: Record<string, string | [string, JsonObject] | Ent
     [entity, typeof value === 'string' ? { state: value, attributes: {} } : Array.isArray(value) ? { state: value[0], attributes: value[1] } : value]));
   const { catalogDocument, areas, ...rest } = topology;
   return {
-    state, rooms: parseRooms(areas ?? {}), members: [], now: '2026-10-26T12:00:00+01:00', timezone: 'Europe/Stockholm',
+    state, rooms: parseRooms(areas ?? {}), now: '2026-10-26T12:00:00+01:00', timezone: 'Europe/Stockholm',
     labels: {}, devices: {}, entitySources: {}, catalog: parseCatalog(catalogDocument ?? {}),
     get: (entity: string) => state[entity]?.state ?? 'unknown',
     attr: (entity: string, key: string): JsonValue | undefined => state[entity]?.attributes[key],

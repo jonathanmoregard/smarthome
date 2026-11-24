@@ -18,7 +18,7 @@ import type { Kept, Settled, Turn } from '../../src/adapter/loop.ts';
 import { NO_BELIEFS } from '../../src/adapter/reconcile.ts';
 import type { Publish } from '../../src/adapter/encode.ts';
 import { takenContext } from '../../src/adapter/ha-client.ts';
-import type { EntityState, ServiceCall } from '../../src/adapter/ha-client.ts';
+import type { EntityState, HaClient, ServiceCall } from '../../src/adapter/ha-client.ts';
 import { lightingState } from '../../src/domain/lighting-state.ts';
 import { update } from '../../src/domain/update.ts';
 import type { BulbId, LampId } from '../../src/domain/types/ids.ts';
@@ -46,7 +46,7 @@ const AREAS = { 'light.lamp_a1': 'room-a', 'light.lamp_a2': 'room-a', 'light.lam
 /* The host over a fake Home Assistant, as tests/runtime/host.test.ts runs it. */
 
 /** Home Assistant as the host sees it: each call recorded, its helper writes applied, its publishes reaching the bulbs. */
-class FakeHa {
+class FakeHa implements HaClient {
   readonly calls: ServiceCall[] = [];
   readonly refused: ServiceCall[] = [];
   readonly bulbs: FakeBulbs = world();
@@ -84,6 +84,9 @@ class FakeHa {
     const context = { id: `context-${this.calls.length}` };
     return takenContext(call.guard === undefined ? { context } : { context, response: { guard: 'written' } }, call.guard);
   }
+
+  /** A probe is answered. */
+  async probe(): Promise<void> {}
 
   mirror(): HouseMirror {
     return { state: structuredClone(this.states), areas: AREAS, labels: { on_off: ['switch.plug_a'], private_room: ['room-b'] },

@@ -143,7 +143,7 @@ class Shared {
 }
 
 const listed = (...names: string[]): RoomsGiven => ({ kind: 'listed', rooms: new Set(names.map(toRoomId)) });
-const bulbsSent = (turn: Turn) => [...new Set(turn.outputs.flatMap(output => output.kind === 'publish' ? [output.publish.topic] : []))].sort();
+const bulbsSent = (turn: Turn): string[] => [...new Set<string>(turn.outputs.flatMap(output => output.kind === 'publish' ? [output.publish.topic] : []))].sort();
 const sensorWrite = (turn: Turn) => turn.outputs.flatMap(output => output.kind === 'sensor' ? [output.write] : [])[0];
 const pressInRoomA: HaInput = bridged('ls_remote_command', { command: 'toggle', area: roomA, source: 'remote-a' });
 const holdRoomB: HaInput = bridged('ls_override_block', { scope: roomB, block: 'night' });

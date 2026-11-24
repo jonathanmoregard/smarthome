@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { decodeModel } from '../../src/adapter/codecs/model.ts';
+import type { EntityState } from '../../src/adapter/ha-client.ts';
 import { syntheticCatalog, syntheticHouse, syntheticSource } from './fixtures/synthetic-house.ts';
 
 /**
@@ -24,7 +25,7 @@ test("an open power burst keeps what its room's lamps and range switches report,
   // Break: the burst reads every room's lamps, skips the range switches, or keeps a fixed value.
   const burst = (on: readonly string[]) => {
     const source = syntheticSource();
-    const states = { ...source.states, 'input_number.ls_room-a_remote_power_count': { state: '1.0', attributes: {} },
+    const states: Record<string, EntityState> = { ...source.states, 'input_number.ls_room-a_remote_power_count': { state: '1.0', attributes: {} },
       'input_text.ls_room-a_remote_power_token': { state: '2026-09-21T14:13:20.000000Z', attributes: {} } };
     for (const entity of on) states[entity] = { state: 'on', attributes: {} };
     const remote = Object.values(decodeModel({ ...source, states }, syntheticCatalog()).remotes)[0];

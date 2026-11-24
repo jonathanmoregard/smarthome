@@ -93,7 +93,7 @@ test('only verified groups on a set topic with two or more distinct members are 
 
 test('a publish goes to Home Assistant as mqtt.publish: its payload as JSON text, QoS 0, not retained', () => {
   // Break: another service, the payload passed as an object, or a bulb command retained (the broker would replay it).
-  assert.deepEqual(publishCall({ topic: topics[bulbA], payload: { brightness: toLevel(100), transition: toSeconds(0.4) } }), {
+  assert.deepEqual(publishCall({ topic: topic('bulb-a'), payload: { brightness: toLevel(100), transition: toSeconds(0.4) } }), {
     service: 'mqtt.publish',
     data: { topic: 'zigbee2mqtt/bulb-a/set', payload: '{"brightness":100,"transition":0.4}', qos: 0, retain: false },
   });

@@ -64,7 +64,7 @@ test('a house read that fails is tried again on its backoff until one lands', as
   // Re-review 2. Break: a read that fails once the connection is back is only reported, never tried again, so the host
   // stays paused for good.
   const landed: number[] = [], reports: string[] = [], timers: { delayMs: number; wake: () => void }[] = [];
-  const house: HouseMirror = { state: {}, areas: {}, members: [] };
+  const house: HouseMirror = { state: {}, areas: {} };
   let reads = 0;
   const start = rereading(async () => {
     reads++;

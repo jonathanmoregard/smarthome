@@ -5,7 +5,7 @@
   "type": "module",
   "engines": { "node": ">=22.18" },
   "scripts": {
-    "check": "tsc --noEmit && node scripts/json-edges.mjs && node scripts/domain-types.mjs && node scripts/domain-words.mjs && node scripts/item-order.mjs && node scripts/domain-imports.mjs",
+    "check": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json && node scripts/json-edges.mjs && node scripts/domain-types.mjs && node scripts/domain-words.mjs && node scripts/item-order.mjs && node scripts/domain-imports.mjs",
     "fix:item-order": "node scripts/item-order.mjs --fix",
     "build": "tsc",
     "test": "node --experimental-strip-types --test --experimental-test-isolation=none tests/runtime/*.test.ts",

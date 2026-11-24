@@ -44,9 +44,10 @@ test('an owned store\'s on is read by Home Assistant\'s bool filter, and a value
 
 test('decodeModel reads a plug\'s profile for each block from its own store, and a plug with no store follows the room', () => {
   // Break: a plug reads another plug's store or another block's, or the store of a lamp named like it.
-  const source = syntheticSource();
-  source.states['input_text.ls_lamp_plug_a_cosy'] = { state: text({ own: true, on: true }), attributes: {} };
-  source.states['input_text.ls_lamp_plug_a_night'] = { state: text({ own: true, on: false }), attributes: {} };
+  const synthetic = syntheticSource();
+  const source = { ...synthetic, states: { ...synthetic.states,
+    'input_text.ls_lamp_plug_a_cosy': { state: text({ own: true, on: true }), attributes: {} },
+    'input_text.ls_lamp_plug_a_night': { state: text({ own: true, on: false }), attributes: {} } } };
   const profiles = decodeModel(source, syntheticCatalog()).switchProfiles[toSwitchId('switch.plug_a')];
   assert.deepEqual(profiles, { day: FOLLOWS_ROOM_SWITCH, cosy: { follows: 'own', power: 'on' }, night: { follows: 'own', power: 'off' } });
 });

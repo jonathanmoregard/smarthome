@@ -12,7 +12,7 @@ import { parseLiveRooms } from '../../src/adapter/live-rooms.ts';
 import { startHeartbeat } from '../../src/main.ts';
 import type { Publish } from '../../src/adapter/encode.ts';
 import { Unreachable } from '../../src/adapter/ha-client.ts';
-import type { EntityState, JsonObject, ServiceCall } from '../../src/adapter/ha-client.ts';
+import type { EntityState, HaClient, JsonObject, ServiceCall } from '../../src/adapter/ha-client.ts';
 import type { BulbId } from '../../src/domain/types/ids.ts';
 import type { Instant } from '../../src/domain/types/time.ts';
 import type { FakeBulbs } from './fake-bulbs.ts';
@@ -32,7 +32,7 @@ const at = (time: string): Instant => toInstant(Date.parse(`2026-09-21T${time}Z`
 const bulbA1 = 'bulb-a1' as BulbId;
 
 /** Home Assistant as the host sees it: each call recorded, its helper writes applied, its publishes reaching the bulbs. */
-class FakeHa {
+class FakeHa implements HaClient {
   readonly calls: ServiceCall[] = [];
   readonly bulbs: FakeBulbs = world();
   states: Record<string, EntityState> = syntheticStates();
@@ -62,9 +62,14 @@ class FakeHa {
     return context;
   }
 
+  /** A probe is answered, unless Home Assistant is out of reach. */
+  async probe(): Promise<void> {
+    if (this.unreachable) throw new Unreachable('Home Assistant is disconnected');
+  }
+
   mirror(): HouseMirror {
     return { state: structuredClone(this.states), areas: { 'light.lamp_a1': 'room-a', 'light.lamp_a2': 'room-a', 'light.lamp_b1': 'room-b',
-      'switch.plug_a': 'room-a', 'remote-a': 'room-a' }, members: [], labels: { on_off: ['switch.plug_a'], private_room: ['room-b'] },
+      'switch.plug_a': 'room-a', 'remote-a': 'room-a' }, labels: { on_off: ['switch.plug_a'], private_room: ['room-b'] },
     devices: { 'device-plug-a': ['switch.plug_a'] }, timezone: 'UTC' };
   }
 

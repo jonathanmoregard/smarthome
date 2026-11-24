@@ -10,9 +10,9 @@ import type { RoomsGiven } from '../../src/adapter/live-rooms.ts';
 import { NO_BELIEFS } from '../../src/adapter/reconcile.ts';
 import type { BulbId } from '../../src/domain/types/ids.ts';
 import type { EntityState } from '../../src/adapter/ha-client.ts';
-import { toInstant, toKelvin, toRoomId, toSwitchId } from '../../src/adapter/codecs/ids.ts';
+import { toEntityId, toInstant, toKelvin, toRoomId, toSwitchId } from '../../src/adapter/codecs/ids.ts';
 import { lit } from './fake-bulbs.ts';
-import type { FakeBulbs } from './fake-bulbs.ts';
+import type { FakeBulbs, FakeLight } from './fake-bulbs.ts';
 import { houseView, syntheticStates, world, writeBack } from './fixtures/house-view.ts';
 import { bridged } from './support/inputs.ts';
 import { nextChange } from '../../src/domain/update.ts';
@@ -84,6 +84,13 @@ const shows = (house: House, bulb: BulbId) => {
   return shown.reach === 'reachable' ? shown.light : shown;
 };
 
+/** The light a bulb in reach shows; one out of reach fails the test. */
+const lightOrThrow = (house: House, bulb: BulbId): FakeLight => {
+  const shown = house.bulbs.shows(bulb);
+  if (shown.reach === 'unreachable') throw new Error(`${bulb} is out of reach`);
+  return shown.light;
+};
+
 test('a start with no state decodes it and lights the house', () => {
   const house = new House();
   const turn = house.turn('12:00:00', { kind: 'started' });
@@ -104,14 +111,14 @@ test('a remote press changes the model, the sensor and the bulbs in one turn', (
   assert.ok(sensor !== undefined && sensor.kind === 'sensor');
   assert.deepEqual(sensor.write.attributes.power, { [roomA]: false });
   for (const bulb of ROOM_A_BULBS) assert.deepEqual(shows(house, bulb), { power: 'off' }, bulb);
-  assert.equal(shows(house, 'bulb-b1' as BulbId).power, 'on');
+  assert.equal(lightOrThrow(house, 'bulb-b1' as BulbId).power, 'on');
 });
 
 test('inputs are applied one at a time in arrival order', () => {
   const house = new House();
   house.turn('16:40:00', { kind: 'started' });
   house.turn('16:55:00', { kind: 'tick' });
-  const fading = shows(house, 'bulb-a3' as BulbId);
+  const fading = lightOrThrow(house, 'bulb-a3' as BulbId);
   assert.equal(fading.power, 'on');
   house.turn('16:55:20', bridged('ls_remote_command', { command: 'toggle', area: roomA, source: 'remote-a' }));
   const after = house.turn('16:56:00', { kind: 'tick' });
@@ -119,7 +126,7 @@ test('inputs are applied one at a time in arrival order', () => {
   for (const bulb of ROOM_A_BULBS) assert.deepEqual(shows(house, bulb), { power: 'off' }, bulb);
   house.turn('16:56:20', bridged('ls_remote_command', { command: 'toggle', area: roomA, source: 'remote-a' }));
   house.turn('16:57:00', { kind: 'tick' });
-  const lit = shows(house, 'bulb-a3' as BulbId);
+  const lit = lightOrThrow(house, 'bulb-a3' as BulbId);
   assert.ok(lit.power === 'on' && fading.power === 'on' && lit.level !== fading.level, 'the fade went on after the press');
 });
 
@@ -374,7 +381,7 @@ test('a bulb back on from the wall gets its light with the short fade, though it
   house.turn('12:01:00', { kind: 'tick' });
   house.bulbs.restore(bulbA3);
   writeBack(house.bulbs, house.states);
-  const back = house.turn('12:01:30', { kind: 'state changed', entities: ['light.lamp_a2'] });
+  const back = house.turn('12:01:30', { kind: 'state changed', entities: [toEntityId('light.lamp_a2')] });
   assert.deepEqual(publishedTo(back, bulbA3).map(publish => publish.payload),
     [{ brightness: 220, color_temp: 250, transition: 0.2 }]);
 });
@@ -412,7 +419,7 @@ test("a bulb that flaps its power is parked though each put-back's own on is rep
     const turn = house.turn(`12:0${minute}:00`, { kind: 'tick' });
     if (publishedTo(turn, bulbA3).length > 0) putBack++;
     parked.push(...turn.parked);
-    parked.push(...house.turn(`12:0${minute}:30`, { kind: 'state changed', entities: ['light.lamp_a2'] }).parked);
+    parked.push(...house.turn(`12:0${minute}:30`, { kind: 'state changed', entities: [toEntityId('light.lamp_a2')] }).parked);
   }
   assert.equal(putBack, 6);
   assert.deepEqual(parked, [bulbA3]);

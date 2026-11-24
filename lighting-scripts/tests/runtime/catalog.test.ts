@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseCatalog, parseDeployedCatalog, emptyCatalog } from '../../src/adapter/codecs/catalog.ts';
 import type { JsonObject } from '../../src/adapter/ha-client.ts';
+import { toCatalogEffectName } from '../../src/adapter/codecs/ids.ts';
 
 /**
  * The runtime catalog is the lighting system's registry document: it maps
@@ -15,6 +16,7 @@ import type { JsonObject } from '../../src/adapter/ha-client.ts';
  */
 
 const minimal: JsonObject = { members: {}, groups: {}, effects: {} };
+const PULSE = toCatalogEffectName('Pulse'), CANDLE = toCatalogEffectName('Candle');
 
 test('a non-mapping members rejects the whole catalog', () => {
   // Break: a silent {} here makes every lamp lose its physical members, so
@@ -41,15 +43,15 @@ test('an effect without a renderer is accepted, because nothing renders frames',
   // `effects.Breathe` (since removed) carries no renderer: 8 failures against
   // 20 clean reference tests. The bulbs run the effect, so no path reads a
   // renderer at all.
-  assert.deepEqual(parseCatalog({ ...minimal, effects: { Pulse: {} } }).effects.Pulse, { channels: [] });
-  assert.deepEqual(parseCatalog({ ...minimal, effects: { Candle: { renderer: 7 } } }).effects.Candle, { channels: [] });
+  assert.deepEqual(parseCatalog({ ...minimal, effects: { Pulse: {} } }).effects[PULSE], { channels: [] });
+  assert.deepEqual(parseCatalog({ ...minimal, effects: { Candle: { renderer: 7 } } }).effects[CANDLE], { channels: [] });
   const parsed = parseCatalog({ ...minimal, effects: { Candle: { renderer: 'fx_candle', channels: ['brightness'] } } });
-  assert.deepEqual(parsed.effects.Candle, { channels: ['brightness'] });
+  assert.deepEqual(parsed.effects[CANDLE], { channels: ['brightness'] });
 });
 
 test('an effect may declare no channels, and that is an empty list', () => {
   // state-store treats a missing channel list as absence, not as an error.
-  assert.deepEqual(parseCatalog({ ...minimal, effects: { Candle: { renderer: 'fx' } } }).effects.Candle,
+  assert.deepEqual(parseCatalog({ ...minimal, effects: { Candle: { renderer: 'fx' } } }).effects[CANDLE],
     { channels: [] });
 });
 

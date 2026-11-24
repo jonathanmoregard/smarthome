@@ -59,6 +59,12 @@ const adjustment = (steps: number, lower: number, upper: number, minute: number,
   ({ steps: toStepCount(steps), lower: toStep(lower), upper: toStep(upper), from: 'current', at: at(minute), lastPress, everBrighter: true });
 
 const decode = (overrides: JsonValue, extra: JsonObject = {}) => decodeOverrides({ overrides, ...extra }, sources);
+
+/** A lamp overlay that holds parts; an off overlay, or none, fails the test. */
+function partsOrThrow(overlay: LampOverlay | undefined): Extract<LampOverlay, { kind: 'parts' }> {
+  if (overlay?.kind !== 'parts') throw new Error(`expected a lamp overlay of parts, found ${JSON.stringify(overlay)}`);
+  return overlay;
+}
 /** Encode the decoded state back over the same attributes, every room live: nothing changed, so nothing may move. */
 const reencoded = (attributes: JsonObject) => encodeOverrides(decodeOverrides(attributes, sources), attributes, allRooms, config, sources);
 const assertKept = (attributes: JsonObject) => assert.equal(JSON.stringify(reencoded(attributes)), JSON.stringify(attributes));
@@ -147,19 +153,19 @@ test('a candle keeps the brightness it runs at: its intensity, else the fixed va
     color: candleClaim('native:x:Candle', 9, { underlying: constant({ rgb: [255, 120, 0] }, 2) }),
   }, 9);
   const [intensity] = decode({ [`channels:native:${lampA1}`]: withIntensity }).overlays.lamps;
-  assert.deepEqual(intensity?.brightness, { kind: 'fixed', brightness: toBrightness(150), at: at(9) });
-  assert.deepEqual(intensity?.effect, { kind: 'candle', at: at(9) });
-  const [under] = decode({ [`channels:native:${lampA1}`]: underOnly }).overlays.lamps;
-  assert.deepEqual(under?.brightness, { kind: 'fixed', brightness: toBrightness(40), at: at(2) });
-  assert.deepEqual(under?.colour?.kind === 'fixed' ? under.colour.colour.kind : 'none', 'rgb');
+  assert.deepEqual(partsOrThrow(intensity).brightness, { kind: 'fixed', brightness: toBrightness(150), at: at(9) });
+  assert.deepEqual(partsOrThrow(intensity).effect, { kind: 'candle', at: at(9) });
+  const under = partsOrThrow(decode({ [`channels:native:${lampA1}`]: underOnly }).overlays.lamps[0]);
+  assert.deepEqual(under.brightness, { kind: 'fixed', brightness: toBrightness(40), at: at(2) });
+  assert.deepEqual(under.colour?.kind === 'fixed' ? under.colour.colour.kind : 'none', 'rgb');
 });
 
 test("today's dashboard Normal light: the held level and colour, and the normal light over a candle", () => {
   // Carry-over 1: the pick saves fixed values. They decode as fixed parts; the saved pick also ends a candle.
   // Break: the held values are lost, or the pick does not end the candle the lamp ran.
   const value = { channels: { brightness: constant(120, 6), color: constant({ kelvin: 2700 }, 6) }, selection: 'Normal light' };
-  const [overlay] = decode({ 'channels:ui:control-n': uiEntry('control-n', 'lamp', lampA1, value, 6) }).overlays.lamps;
-  assert.deepEqual([overlay?.brightness, overlay?.colour, overlay?.effect], [
+  const overlay = partsOrThrow(decode({ 'channels:ui:control-n': uiEntry('control-n', 'lamp', lampA1, value, 6) }).overlays.lamps[0]);
+  assert.deepEqual([overlay.brightness, overlay.colour, overlay.effect], [
     { kind: 'fixed', brightness: toBrightness(120), at: at(6) }, { kind: 'fixed', colour: kelvin(2700), at: at(6) }, { kind: 'normal', at: at(6) }]);
 });
 
@@ -167,7 +173,7 @@ test("a person's reset to normal light, marked as the pick, ends a candle as the
   // Review item 1. Break: only a dashboard entry's marker is read, so a person's reset leaves an older candle running.
   const value = { channels: { brightness: constant(120, 6), color: constant({ kelvin: 2700 }, 6) }, selection: 'Normal light' };
   const [overlay] = decode({ [`channels:native:${lampA1}`]: { ...nativeEntry('lamp', lampA1, {}, 6), value } }).overlays.lamps;
-  assert.deepEqual([overlay?.from, overlay?.effect], [{ kind: 'person' }, { kind: 'normal', at: at(6) }]);
+  assert.deepEqual([overlay?.from, partsOrThrow(overlay).effect], [{ kind: 'person' }, { kind: 'normal', at: at(6) }]);
 });
 
 test('a candle preset over an old channels record (legacy_channels) runs no candle and claims no input, as the resolver reads it', () => {
@@ -186,7 +192,7 @@ test('a candle preset over an old channels record (legacy_channels) runs no cand
 
 test("an adjustment anchored on day or cosy follows the remote's held period, as the resolver reads it", () => {
   // Review item 6. Break: the saved anchor is kept where today's reader swaps in `period`.
-  const read = (anchor: JsonValue, period: JsonValue) => {
+  const read = (anchor: JsonValue, period: JsonValue | undefined) => {
     const value = { adjustment: { ...storedAdjustment(1, -19, 20, 3, 'up'), anchor }, ...period === undefined ? {} : { period } };
     return decode({ 'channels:remote-a': inputEntry(value, 3) }).overlays.remotes[0]?.adjustment?.from;
   };
@@ -229,7 +235,7 @@ test('two overlays on one lamp keep their own times', () => {
     [`channels:native:${lampA1}`]: nativeEntry('lamp', lampA1, { brightness: constant(90, 35) }, 35),
   };
   const lamps = decode(overrides).overlays.lamps;
-  assert.deepEqual(lamps.map(overlay => [overlay.from.kind, overlay.since, overlay.effect?.at, overlay.brightness?.at]),
+  assert.deepEqual(lamps.map(partsOrThrow).map(overlay => [overlay.from.kind, overlay.since, overlay.effect?.at, overlay.brightness?.at]),
     [['dashboard', at(30), at(30), undefined], ['person', at(35), undefined, at(35)]]);
 });
 
@@ -331,7 +337,7 @@ test("the Model's overlays written into an empty store decode back to the same o
   const written = encodeOverrides(state, {}, allRooms, config, sources);
   assert.deepEqual(decodeOverrides(written, sources), state);
   // A candle older than both parts runs from the level's time (review item 3); what is written then reads back as itself.
-  const level = { ...state.overlays.lamps[1]!, effect: { kind: 'candle', at: at(30) } } satisfies LampOverlay;
+  const level = { ...partsOrThrow(state.overlays.lamps[1]), effect: { kind: 'candle', at: at(30) } } satisfies LampOverlay;
   const mixed: OverridesState = { ...state, overlays: { ...state.overlays, lamps: [level] } };
   const fromLevel = { ...level, effect: { kind: 'candle', at: at(35) } } satisfies LampOverlay;
   const once = decodeOverrides(encodeOverrides(mixed, {}, allRooms, config, sources), sources);
@@ -493,7 +499,7 @@ test('a when that is not a date is the epoch, so the next reset ends it', () => 
 
 test("a channel's updated that is not a number is the entry's when, as the resolver reads it", () => {
   const overrides = { [`channels:native:${lampA1}`]: nativeEntry('lamp', lampA1, { brightness: { kind: 'constant', value: 90, updated: 'later' } }, 6) };
-  assert.deepEqual(decode(overrides).overlays.lamps[0]?.brightness, { kind: 'fixed', brightness: toBrightness(90), at: at(6) });
+  assert.deepEqual(partsOrThrow(decode(overrides).overlays.lamps[0]).brightness, { kind: 'fixed', brightness: toBrightness(90), at: at(6) });
   assertKept({ overrides });
 });
 
@@ -529,7 +535,7 @@ test('an effect name that is not Candle is the schedule\'s effect', () => {
   // Review Focus 1: a saved Breathe shows the normal light.
   for (const effect of ['Breathe', 'Colour loop', 'Sparkle']) {
     const overrides = { [`channels:native:${lampA1}`]: nativeEntry('lamp', lampA1, { brightness: { ...candleClaim('native:x', 2), effect } }, 2) };
-    assert.deepEqual(decode(overrides).overlays.lamps[0]?.effect, { kind: 'schedule', at: at(2) }, effect);
+    assert.deepEqual(partsOrThrow(decode(overrides).overlays.lamps[0]).effect, { kind: 'schedule', at: at(2) }, effect);
     assertKept({ overrides });
   }
 });

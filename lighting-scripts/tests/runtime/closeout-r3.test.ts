@@ -19,7 +19,7 @@ import type { Kept, Settled, Turn } from '../../src/adapter/loop.ts';
 import { NO_BELIEFS } from '../../src/adapter/reconcile.ts';
 import type { Publish } from '../../src/adapter/encode.ts';
 import { bounded, CALL_TIMEOUT_MS, HomeAssistantClient } from '../../src/adapter/ha-client.ts';
-import type { EntityState, JsonObject, ServiceCall } from '../../src/adapter/ha-client.ts';
+import type { EntityState, HaClient, JsonObject, ServiceCall } from '../../src/adapter/ha-client.ts';
 import type { BulbId } from '../../src/domain/types/ids.ts';
 import type { Instant } from '../../src/domain/types/time.ts';
 import type { FakeBulbs } from './fake-bulbs.ts';
@@ -146,7 +146,7 @@ test('closeout r3 A2/B3 (ruling): while the overrides sensor is unread the port 
 
 /* The host over a fake Home Assistant, as closeout-r2.test.ts runs it. */
 
-class FakeHa {
+class FakeHa implements HaClient {
   readonly calls: ServiceCall[] = [];
   readonly bulbs: FakeBulbs = world();
   states: Record<string, EntityState>;
@@ -170,6 +170,9 @@ class FakeHa {
     }
     return `context-${this.calls.length}`;
   }
+
+  /** A probe is answered. */
+  async probe(): Promise<void> {}
 
   mirror(): HouseMirror {
     return { state: structuredClone(this.states), areas: AREAS, labels: { on_off: ['switch.plug_a'], private_room: ['room-b'] },
@@ -223,7 +226,8 @@ test('closeout r3 B6 (ruling): a call unanswered for 15 s is refused, and an ans
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const timer: HostIo['timer'] = (ms, wake) => { const handle = setTimeout(wake, ms); return () => clearTimeout(handle); };
   const answers: ((context: string) => void)[] = [], late: string[] = [];
-  const ha = bounded({ call: () => new Promise<string | undefined>(resolve => { answers.push(resolve); }) }, message => late.push(message), timer);
+  const ha = bounded({ call: () => new Promise<string | undefined>(resolve => { answers.push(resolve); }), probe: async () => {} },
+    message => late.push(message), timer);
   const publish: ServiceCall = { service: 'mqtt.publish', data: { topic: 'zigbee2mqtt/bulb-a1', payload: '{}' } };
   const outcome = (call: Promise<string | undefined>) => call.then(context => `took ${context}`, (error: unknown) => error);
   const prompt = ha.call(publish);
