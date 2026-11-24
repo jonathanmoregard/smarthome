@@ -7,7 +7,7 @@ import type { MqttTopic } from '../../src/adapter/codecs/ids.ts';
 import type { Observed } from '../../src/adapter/reconcile.ts';
 import {
   afterSend, backOn, EFFECT_START_FADE, forgotten, MANUAL_FADE, NO_BELIEFS, newlyParked, newlyParkedSwitches, nextRetry, nextSends, REAPPLY_LIMIT, REAPPLY_WINDOW,
-  reportedChanged, RETRY_FIRST, switchesSeen, unexplained, unparked,
+  reportedChanged, RETRY_FIRST, SETTLE_MARGIN, switchesSeen, unexplained, unparked,
 } from '../../src/adapter/reconcile.ts';
 import type { Beliefs, Send } from '../../src/adapter/reconcile.ts';
 import type { Config } from '../../src/domain/config.ts';
@@ -188,7 +188,8 @@ test('a report inside the settle window is not a difference', () => {
   const { beliefs } = pass(bulbs, EVENING, NO_BELIEFS, at(0));
   bulbs.set(bulbA3, { reach: 'reachable', light: lit(200, kelvin(3003)) });
   assert.deepEqual(pass(bulbs, EVENING, beliefs, at(1)).sends, []);
-  assert.deepEqual(pass(bulbs, EVENING, beliefs, at(3)).sends.map(send => to(send)), [bulbA3]);
+  assert.deepEqual(pass(bulbs, EVENING, beliefs, at(MANUAL_FADE + SETTLE_MARGIN - 0.1)).sends, [], 'still inside the measured margin');
+  assert.deepEqual(pass(bulbs, EVENING, beliefs, at(MANUAL_FADE + SETTLE_MARGIN + 0.1)).sends.map(send => to(send)), [bulbA3]);
 });
 
 test('a report within the tolerances is not a difference', () => {
@@ -482,6 +483,53 @@ test('flapping is capped at six in ten minutes', () => {
   };
   assert.equal(putBack(60, 12), REAPPLY_LIMIT);
   assert.equal(putBack(REAPPLY_WINDOW / (REAPPLY_LIMIT - 1), 12), 12, 'spread out, every put-back goes');
+});
+
+/** The evening with `light.lamp_a2` (bulb-a3) at `level` and `warmth` kelvin: one remote step. */
+const a2At = (level: number, warmth: number): LightingState => ({ ...EVENING, lamps: { ...EVENING.lamps, [lampA2]: on(level, kelvin(warmth)) } });
+const sendsTo = (sends: readonly Send[], bulb: BulbId): Send[] => sends.filter(send => to(send) === bulb);
+
+test('live trial 2026-11-24: a settled bulb whose report has not moved since the send is not put back', () => {
+  // The bedroom bulbs reported a remote step up to 3.4 s after its send. The reconciler took the send as settled at
+  // 2.2 s, read the step before's report as a bulb refusing its light, sent the same light again, and six such
+  // put-backs parked both bulbs while they worked. Break: a report from before the send is read as the bulb's answer.
+  let { bulbs, beliefs } = steady(a2At(242, 4405));
+  const before = bulbs.shows(bulbA3);
+  beliefs = pass(bulbs, a2At(254, 4651), beliefs, at(10)).beliefs;
+  bulbs.set(bulbA3, before);
+  for (const late of [2.28, 6, 12]) {
+    const next = pass(bulbs, a2At(254, 4651), beliefs, at(10 + late));
+    assert.deepEqual(sendsTo(next.sends, bulbA3), [], `${late} s after the send, the report is still the one from before it`);
+    beliefs = next.beliefs;
+  }
+  assert.equal(beliefs.bulbs[bulbA3]?.kind, 'sent');
+});
+
+test('live trial 2026-11-24: an earlier step\'s report landing just after the send is not put back before the bulbs can answer', () => {
+  // The report of the step before can land after the next step's send, so it differs from the report at that send.
+  // Break: a send settles before a bulb's slowest report (3.4 s measured), and that late report reads as a refusal.
+  let { bulbs, beliefs } = steady(a2At(230, 4166));
+  const older = bulbs.shows(bulbA3);
+  beliefs = pass(bulbs, a2At(242, 4405), beliefs, at(10)).beliefs;
+  const previous = bulbs.shows(bulbA3);
+  bulbs.set(bulbA3, older);
+  beliefs = pass(bulbs, a2At(254, 4651), beliefs, at(11.2)).beliefs;
+  bulbs.set(bulbA3, previous);
+  assert.deepEqual(sendsTo(pass(bulbs, a2At(254, 4651), beliefs, at(11.2 + 3.4)).sends, bulbA3), []);
+});
+
+test('a bulb that never answers is sent its light again once the report wait is over, and still parks', () => {
+  // Break: waiting for a report that never comes leaves a bulb that lost its send unlit for good, or never parks it.
+  let { bulbs, beliefs } = steady(a2At(242, 4405));
+  const lostToA3 = (publish: Publish) => publish.topic === topics[bulbA3];
+  let sent = 0;
+  for (let n = 1; n <= 12; n++) {
+    const next = pass(bulbs, a2At(254, 4651), beliefs, at(n * 20), { lost: lostToA3 });
+    if (sendsTo(next.sends, bulbA3).length > 0) sent++;
+    beliefs = next.beliefs;
+  }
+  assert.equal(sent, 1 + REAPPLY_LIMIT, 'the send, then a put-back at each look past the wait until the limit');
+  assert.equal(beliefs.bulbs[bulbA3]?.kind, 'parked');
 });
 
 test('a group failure invalidates every member', () => {

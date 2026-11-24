@@ -17,12 +17,15 @@ const red = toColourChannel(255), half = toColourChannel(127.5), none = toColour
 const EVERY_KIND: Beliefs = {
   bulbs: {
     [toBulbId('light.a1')]: { kind: 'sent', shows: { power: 'on', level: toLevel(120), colour: { kind: 'kelvin', kelvin: toKelvin(2200) },
-      firmwareEffect: 'candle' }, sentAt: at(0), settlesAt: at(2.4), reapplies: [at(-300), at(-60)] },
+      firmwareEffect: 'candle' }, sentAt: at(0), settlesAt: at(2.4), reapplies: [at(-300), at(-60)],
+      reportedWhenSent: { power: 'on', level: toLevel(118), colour: { kind: 'kelvin', kelvin: toKelvin(2207) } } },
     [toBulbId('light.a2')]: { kind: 'sent', shows: { power: 'on', level: toLevel(1), colour: { kind: 'rgb', rgb: { red, green: half, blue: none } },
-      firmwareEffect: 'none' }, sentAt: at(1), settlesAt: at(3.2), reapplies: [] },
+      firmwareEffect: 'none' }, sentAt: at(1), settlesAt: at(3.2), reapplies: [],
+      reportedWhenSent: { power: 'on', level: toLevel(3), colour: { kind: 'rgb', rgb: { red, green: none, blue: none } } } },
     [toBulbId('light.a3')]: { kind: 'sent', shows: { power: 'on', level: toLevel(254), colour: undefined, firmwareEffect: 'none' },
-      sentAt: at(1), settlesAt: at(3), reapplies: [] },
-    [toBulbId('light.b1')]: { kind: 'sent', shows: { power: 'off' }, sentAt: at(2), settlesAt: at(4.2), reapplies: [] },
+      sentAt: at(1), settlesAt: at(3), reapplies: [], reportedWhenSent: { power: 'on', level: toLevel(200), colour: undefined } },
+    [toBulbId('light.b1')]: { kind: 'sent', shows: { power: 'off' }, sentAt: at(2), settlesAt: at(4.2), reapplies: [],
+      reportedWhenSent: { power: 'off' } },
     [toBulbId('light.b2')]: { kind: 'retrying', shows: undefined, attempts: 3, retryAt: at(8) },
     [toBulbId('light.b3')]: { kind: 'retrying', shows: { power: 'on', level: toLevel(80), colour: undefined, firmwareEffect: 'candle' },
       attempts: 1, retryAt: at(5) },
@@ -75,4 +78,13 @@ test('an unreadable entry is no belief for that bulb or switch; the rest are kep
   assert.deepEqual(Object.keys(loaded.bulbs).sort(), ['light.a2', 'light.a3', 'light.b1', 'light.b3', 'light.c2']);
   assert.deepEqual(loaded.switches, {});
   assert.deepEqual(loaded.bulbs[toBulbId('light.b3')], EVERY_KIND.bulbs[toBulbId('light.b3')]);
+});
+
+test('a send journalled before the report at the send was kept is no belief', () => {
+  // Break: an old entry is read with a made-up report, which the next turn would take as the bulb's answer or not.
+  const text = JSON.parse(saveBeliefs(EVERY_KIND)) as { bulbs: Record<string, Record<string, unknown>> };
+  delete text.bulbs['light.a3']?.reportedWhenSent;
+  const loaded = loadBeliefs(JSON.stringify(text));
+  assert.equal(loaded.bulbs[toBulbId('light.a3')], undefined);
+  assert.deepEqual(loaded.bulbs[toBulbId('light.a2')], EVERY_KIND.bulbs[toBulbId('light.a2')]);
 });

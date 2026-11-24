@@ -62,6 +62,12 @@ function reportsShowing(reported: ObservedLight, appearance: BulbAppearance): bo
   return appearance.colour === undefined || closeColour(reported.colour, appearance.colour);
 }
 
+/** The same report exactly: a bulb that answered reports anew, and Home Assistant moves a state only when it changes. */
+function sameReport(a: ObservedLight, b: ObservedLight): boolean {
+  if (a.power === 'off' || b.power === 'off') return a.power === b.power;
+  return a.level === b.level && sameColour(a.colour, b.colour);
+}
+
 function closeColour(reported: Colour | undefined, wanted: Colour): boolean {
   if (reported === undefined) return false;
   if (wanted.kind === 'kelvin') return reported.kind === 'kelvin' && Math.abs(reported.kelvin - wanted.kelvin) <= KELVIN_TOLERANCE;
@@ -107,11 +113,12 @@ export type BridgeState = 'connected' | 'disconnected' | 'unknown';
 /**
  * One thing to send: a bulb's light (`stopFirst`: it is leaving the candle,
  * or may run one from before), the candle's start alone on a bulb that
- * already shows the candle's light, or a switch's power.
+ * already shows the candle's light, or a switch's power. A bulb's send
+ * carries the bulb's report as it was decided (`reported`).
  */
 export type Send =
-  | { kind: 'bulb'; bulb: BulbId; appearance: BulbAppearance; over: Seconds; stopFirst: boolean }
-  | { kind: 'start'; bulb: BulbId; appearance: LitAppearance }
+  | { kind: 'bulb'; bulb: BulbId; appearance: BulbAppearance; over: Seconds; stopFirst: boolean; reported: ObservedLight }
+  | { kind: 'start'; bulb: BulbId; appearance: LitAppearance; reported: ObservedLight }
   | { kind: 'switch'; switch: SwitchId; power: Power };
 
 /** A send's transition: a start alone has none. */
@@ -125,8 +132,17 @@ export const LEVEL_TOLERANCE = 2;
 export const KELVIN_TOLERANCE = 50;
 /** A reported RGB colour within this CIE 1931 xy distance of the target is the target. */
 export const XY_TOLERANCE = 0.01;
-/** How long after a send's transition a report still may not show it. To be measured against a real bulb (M4). */
-export const SETTLE_MARGIN: Seconds = secondsOrThrow(2);
+/**
+ * How long after a send's transition a report still may not show it. Measured live 2026-11-24 on the bedroom's bulbs
+ * (one Zigbee2MQTT group): a report most often 1.1 s after the send, at worst 3.4 s, and a step's report can land
+ * after the next step's send.
+ */
+export const SETTLE_MARGIN: Seconds = secondsOrThrow(5);
+/**
+ * How long past settling a bulb whose report has not moved since the send is waited for: a bulb that lost the send
+ * and stays as it was is then sent its light again, which counts toward the flap limit.
+ */
+export const REPORT_WAIT: Seconds = secondsOrThrow(10);
 /** The fade of a change made at once, and of a bulb coming back on. */
 export const MANUAL_FADE: Seconds = secondsOrThrow(0.2);
 /** The fade of an off by a room's power switch: none, as today's `homeassistant.turn_off`. */
@@ -156,6 +172,8 @@ export type Outcome = 'sent' | 'failed' | 'start failed';
  * What the reconciler holds about one bulb.
  * 1. `sent`: it was sent `shows` at `sentAt`, and its report should show it from `settlesAt`. `reapplies` are the
  *    times within the flap window it was sent that same light again because it reported something else.
+ *    `reportedWhenSent` is its report as the send went out: while its report is still that, the bulb has not
+ *    answered, and is waited for until {@link REPORT_WAIT} past settling.
  * 2. `retrying`: its last `attempts` sends failed, and it is sent again from `retryAt`. `shows` is the light it is
  *    known to show when only the candle's start failed; otherwise what it shows is not known.
  * 3. `parked`: given up on, after too many failed sends or put-backs: sent nothing until it comes back on from out
@@ -164,7 +182,7 @@ export type Outcome = 'sent' | 'failed' | 'start failed';
  * No belief at all is a bulb never sent anything, or whose belief was forgotten.
  */
 export type Belief =
-  | { kind: 'sent'; shows: BulbAppearance; sentAt: Instant; settlesAt: Instant; reapplies: readonly Instant[] }
+  | { kind: 'sent'; shows: BulbAppearance; sentAt: Instant; settlesAt: Instant; reapplies: readonly Instant[]; reportedWhenSent: ObservedLight }
   | { kind: 'retrying'; shows: LitAppearance | undefined; attempts: Attempts; retryAt: Instant }
   | { kind: 'parked'; lastSent: BulbAppearance }
   | { kind: 'back on' };
@@ -369,9 +387,10 @@ function bulbSend(light: LampLight, bulb: BulbInfo, observed: ObservedBulb | und
   Send | undefined {
   if (observed === undefined || observed.reach === 'unreachable') return undefined;
   const appearance = bulbAppearance(light, bulb);
+  const reported = observed.light;
   const full = (stopFirst: boolean, over: Seconds = fadeOf(light, appearance)): Send =>
-    ({ kind: 'bulb', bulb: bulb.bulb, appearance, over, stopFirst });
-  const start = appearance.power === 'on' ? { kind: 'start' as const, bulb: bulb.bulb, appearance } : undefined;
+    ({ kind: 'bulb', bulb: bulb.bulb, appearance, over, stopFirst, reported });
+  const start = appearance.power === 'on' ? { kind: 'start' as const, bulb: bulb.bulb, appearance, reported } : undefined;
   if (belief === undefined) return unknownSend(appearance, bulb, observed.light, full, start);
   switch (belief.kind) {
     case 'back on': return full(false, runsCandle(appearance) ? EFFECT_START_FADE : MANUAL_FADE);
@@ -382,7 +401,9 @@ function bulbSend(light: LampLight, bulb: BulbInfo, observed: ObservedBulb | und
         : full(bulb.firmware === 'candle' && !runsCandle(appearance));
     case 'sent': {
       const settled = now >= belief.settlesAt;
-      if (sameAppearance(belief.shows, appearance) && !(settled && !reportsSettled(observed.light, appearance))) return undefined;
+      // A report that has not moved since the send is no answer yet: the bulb is waited for, up to the report wait.
+      const answered = !sameReport(reported, belief.reportedWhenSent) || now >= belief.settlesAt + REPORT_WAIT;
+      if (sameAppearance(belief.shows, appearance) && !(settled && answered && !reportsSettled(reported, appearance))) return undefined;
       if (start !== undefined && startsOnly(belief.shows, appearance) && (!settled || reportsShowing(observed.light, appearance))) return start;
       return full(runsCandle(belief.shows) && !runsCandle(appearance));
     }
@@ -456,7 +477,7 @@ function bulbAfter(before: Belief | undefined, send: Extract<Send, { kind: 'bulb
     const putBack = before?.kind === 'sent' && sameAppearance(before.shows, send.appearance);
     const reapplies = putBack ? [...recent, now] : recent;
     if (reapplies.length >= REAPPLY_LIMIT) return { kind: 'parked', lastSent: send.appearance };
-    return { kind: 'sent', shows: send.appearance, sentAt: now, settlesAt: settlesAt(now, overOf(send)), reapplies };
+    return { kind: 'sent', shows: send.appearance, sentAt: now, settlesAt: settlesAt(now, overOf(send)), reapplies, reportedWhenSent: send.reported };
   }
   const attempts = NEXT_ATTEMPT[before?.kind === 'retrying' ? before.attempts : 0];
   if (attempts === undefined) return { kind: 'parked', lastSent: send.appearance };

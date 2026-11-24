@@ -24,7 +24,7 @@ const rgb = (red: number, green: number, blue: number): Colour =>
 const shows = (level: number, colour: Colour | undefined, firmwareEffect: 'none' | 'candle' = 'none'): BulbAppearance =>
   ({ power: 'on', level: toLevel(level), colour, firmwareEffect });
 const send = (bulb: BulbId, appearance: BulbAppearance, over = 0.4, stopFirst = false): Send =>
-  ({ kind: 'bulb', bulb, appearance, over: toSeconds(over), stopFirst });
+  ({ kind: 'bulb', bulb, appearance, over: toSeconds(over), stopFirst, reported: { power: 'off' } });
 
 test('the candle\'s start comes last and nothing follows it', () => {
   // Break: a start is sent before a light, or a light after a start (the firmware ends the candle on a level).

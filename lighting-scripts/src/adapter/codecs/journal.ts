@@ -9,7 +9,7 @@
  * each bulb. An entry that does not read is no belief for that bulb or switch;
  * the rest are kept.
  */
-import type { Attempts, Belief, Beliefs, LitAppearance, SwitchSent } from '../reconcile.ts';
+import type { Attempts, Belief, Beliefs, LitAppearance, ObservedLight, SwitchSent } from '../reconcile.ts';
 import { NO_BELIEFS } from '../reconcile.ts';
 import type { BulbAppearance } from '../../domain/effect.ts';
 import type { BulbId, SwitchId } from '../../domain/types/ids.ts';
@@ -94,7 +94,7 @@ function beliefOf(entry: JsonValue): Belief {
   switch (fields.kind) {
     case 'sent':
       return { kind: 'sent', shows: appearanceOf(fields.shows), sentAt: instantOf(fields.sentAt), settlesAt: instantOf(fields.settlesAt),
-        reapplies: listOf(fields.reapplies).map(instantOf) };
+        reapplies: listOf(fields.reapplies).map(instantOf), reportedWhenSent: reportOf(fields.reportedWhenSent) };
     case 'retrying':
       return { kind: 'retrying', shows: fields.shows === undefined ? undefined : litOf(fields.shows), attempts: attemptsOf(fields.attempts),
         retryAt: instantOf(fields.retryAt) };
@@ -123,6 +123,14 @@ function litOf(value: JsonValue | undefined): LitAppearance {
   if (firmwareEffect !== 'none' && firmwareEffect !== 'candle') throw new ParseError('journal: not a firmware effect');
   return { power: 'on', level: toLevel(numberOf(fields.level)), colour: fields.colour === undefined ? undefined : colourOf(fields.colour),
     firmwareEffect };
+}
+
+/** A bulb's report as a send went out; an entry saved before it was kept has none, and is no belief. */
+function reportOf(value: JsonValue | undefined): ObservedLight {
+  const fields = fieldsOf(value);
+  if (fields.power === 'off') return { power: 'off' };
+  if (fields.power !== 'on') throw new ParseError('journal: a report is neither on nor off');
+  return { power: 'on', level: toLevel(numberOf(fields.level)), colour: fields.colour === undefined ? undefined : colourOf(fields.colour) };
 }
 
 function numberOf(value: JsonValue | undefined): number {
