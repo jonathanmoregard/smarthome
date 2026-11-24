@@ -123,7 +123,7 @@ test('an automation the rollout does not know is refused rather than guessed', a
   assert.match(run.stderr, /lighting_mystery/);
 });
 
-test('closeout r2 A1: the app lamp change bridge forwards a person\'s turn_off, which the port reads as a lamp switched off', { todo: 'closeout r2 A1' }, async () => {
+test('closeout r2 A1: the app lamp change bridge forwards a person\'s turn_off, which the port reads as a lamp switched off', async () => {
   // The captured detector's own condition (reference/live/automations/lighting_schedule_lamp_change_detector.json:21)
   // passes only `turn_on`: the old scripts made no override of a power-only call. The port reads `turn_off` as a
   // person's off (src/adapter/codecs/inputs.ts:498), so its bridge must not keep that filter.
@@ -134,6 +134,23 @@ test('closeout r2 A1: the app lamp change bridge forwards a person\'s turn_off, 
   const { run, read } = await exportRollout({ lighting_schedule_lamp_change_detector: detector });
   assert.equal(run.status, 0, run.stderr);
   assert.doesNotMatch(templates(await read('lighting_schedule_lamp_change_detector.json')), /service == 'turn_on'/);
+});
+
+test('the full cutover\'s lamp change bridge forwards a person\'s turn_off too, and keeps the rest of its condition', async () => {
+  // Break: the cutover export (`bridge()`, no --rollout) keeps the detector's `service == 'turn_on'` filter, so after
+  // the cutover a person's turn_off reaches the port only as a state change, and the next tick lights the lamp again.
+  const root = await mkdtemp(join(tmpdir(), 'export-bridge-cutover-'));
+  const source = join(root, 'automations'), output = join(root, 'out');
+  await mkdir(source); await mkdir(join(root, 'scripts'));
+  const condition = "{{ trigger.event.context.user_id is not none and trigger.event.data.service == 'turn_on' }}";
+  await writeFile(join(source, 'lighting_schedule_lamp_change_detector.json'), JSON.stringify({ config: {
+    ...automations.lighting_schedule_lamp_change_detector, conditions: [{ condition: 'template', value_template: condition }] } }));
+  const run = spawnSync('python3', [SCRIPT, '--source', source, '--output', output], { encoding: 'utf8' });
+  assert.equal(run.status, 0, run.stderr);
+  const bridge: Bridge = JSON.parse(await readFile(join(output, 'lighting_schedule_lamp_change_detector.json'), 'utf8'));
+  assert.doesNotMatch(templates(bridge), /service == 'turn_on'/);
+  assert.match(templates(bridge), /turn_off/);
+  assert.match(templates(bridge), /user_id is not none/);
 });
 
 test('a bridge forwards the automation\'s own variables, so the port reads the dashboard sources Home Assistant routed by', async () => {

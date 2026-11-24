@@ -59,8 +59,26 @@ def script_bridge(name, original):
     return result
 
 
+# The lamp change detector's own condition passes only a person's turn_on: the old scripts made no override of a
+# power-only call. The port reads a person's turn_off as a lamp switched off (src/adapter/codecs/inputs.ts), so the
+# detector's bridges pass turn_off too; nothing else about its condition changes.
+DETECTOR = 'lighting_schedule_lamp_change_detector'
+TURN_ON_ONLY = "trigger.event.data.service == 'turn_on'"
+TURN_ON_OR_OFF = "trigger.event.data.service in ('turn_on', 'turn_off')"
+
+
+def passing_turn_off(conditions):
+    """The detector's conditions with its turn_on filter widened to turn_off."""
+    return [dict(c, value_template=c['value_template'].replace(TURN_ON_ONLY, TURN_ON_OR_OFF))
+            if isinstance(c, dict) and isinstance(c.get('value_template'), str) else c for c in conditions]
+
+
 def bridge(slug, original):
     result = copy.deepcopy(original)
+    if slug == DETECTOR:
+        for key in ('conditions', 'condition'):
+            if isinstance(result.get(key), list):
+                result[key] = passing_turn_off(result[key])
     action = original.get('actions', original.get('action', []))
     rooms = set(re.findall(r'script\.ls_remote_gesture_([a-z0-9_]+)', json.dumps(action)))
     args = {'trigger': TRIGGER_DATA}
@@ -121,7 +139,7 @@ def rollout_bridge(slug, original, remotes):
     result = bridge(slug, original)
     result['id'] = str(original['id']) + '_port'
     result['alias'] = original.get('alias', slug) + ' (port)'
-    conditions = list(original.get('conditions', original.get('condition', [])))
+    conditions = list(result.get('conditions', result.get('condition', [])))
     result.pop('condition', None)
     room = result['actions'][0]['event_data']['args'].get('room')
     if room is not None:
