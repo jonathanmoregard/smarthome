@@ -262,6 +262,22 @@ function switchAfter(before: SwitchSent | undefined, power: Power, now: Instant)
 export type Unexplained = { kind: 'switch pressed'; switch: SwitchId; power: Power } | { kind: 'bulb back on'; bulb: BulbId };
 
 /**
+ * A switch send superseded: its target moved off its power before Home Assistant reported it. It may still land, so
+ * until `until` the switch showing its power is that send landing late, not the plug's own button (close-out r4 A1).
+ */
+export type Superseded = { power: Power; sentAt: Instant; until: Instant };
+
+/**
+ * Whether a switch that changed to `power` (at `changed`, Home Assistant's `last_changed`, or seen at `now` without
+ * one) is the superseded send `sent` landing late: its power, changed after the send and within its window.
+ */
+export function landedLate(sent: Superseded | undefined, power: Power, changed: Instant | undefined, now: Instant): boolean {
+  if (sent === undefined || sent.power !== power) return false;
+  const at = changed === undefined ? now : changed;
+  return at >= sent.sentAt && at <= sent.until;
+}
+
+/**
  * The beliefs once Home Assistant reported `bulbs` changed (a lamp switched on names its bulbs): each is sent its
  * light again, as today's `lamp_on` does, but not a bulb our own put-back lit between `before` and `after`, whose
  * belief and put-backs stay so a bulb that keeps going off still reaches the flap limit.
@@ -290,15 +306,37 @@ export function litByUs(before: Observed, after: Observed, beliefs: Beliefs): Bu
 /**
  * The beliefs without the switch sends that are over: one `observed` shows landed (the switch shows what we sent,
  * changed at or after the send, or with no `last_changed` to say when), and one whose power the target has moved off
- * (it may never have landed, and a later change to its power must not be taken for ours). Past either, a change of
- * the switch is not ours.
+ * (it may never have landed: {@link supersededAfter} keeps it on its way for a while, and past that a change to its
+ * power is not ours).
  */
 export function switchesSeen(beliefs: Beliefs, observed: Observed, target: Readonly<Record<SwitchId, Power>>): Beliefs {
-  return { ...beliefs, switches: Object.fromEntries(entriesOf(beliefs.switches).filter(([plug, sent]) => {
-    const changed = observed.switchChanged[plug];
-    const landed = observed.switches[plug] === sent.power && (changed === undefined || changed >= sent.sentAt);
-    return !landed && target[plug] === sent.power;
-  })) };
+  return { ...beliefs, switches: Object.fromEntries(entriesOf(beliefs.switches).filter(([plug, sent]) =>
+    !landed(plug, sent, observed) && target[plug] === sent.power)) };
+}
+
+/**
+ * How long after its target moved a superseded switch send is still on its way: the longest the reconciler waits
+ * between two sends to a switch that does not show its power ({@link RETRY_CAP}).
+ */
+const LATE_LANDING: Seconds = RETRY_CAP;
+
+/** Whether `observed` shows a switch's send landed: the switch shows what we sent, changed at or after the send, or with no `last_changed` to say when. */
+function landed(plug: SwitchId, sent: Pick<SwitchSent, 'power' | 'sentAt'>, observed: Observed): boolean {
+  const changed = observed.switchChanged[plug];
+  return observed.switches[plug] === sent.power && (changed === undefined || changed >= sent.sentAt);
+}
+
+/**
+ * The superseded switch sends after a look at `observed` at `now`: those still on their way (not shown, their window
+ * open), and each open send of `beliefs` that `target` moved off and `observed` does not show landed, from `now`.
+ */
+export function supersededAfter(kept: Readonly<Record<SwitchId, Superseded>>, beliefs: Beliefs, observed: Observed,
+  target: Readonly<Record<SwitchId, Power>>, now: Instant): Record<SwitchId, Superseded> {
+  const going = entriesOf(kept).filter(([plug, sent]) => now <= sent.until && observed.switches[plug] !== sent.power);
+  const moved = entriesOf(beliefs.switches).flatMap(([plug, sent]): [SwitchId, Superseded][] =>
+    sent.kind === 'open' && target[plug] !== sent.power && !landed(plug, sent, observed)
+      ? [[plug, { power: sent.power, sentAt: sent.sentAt, until: instantOrThrow(now + LATE_LANDING) }]] : []);
+  return Object.fromEntries([...going, ...moved]);
 }
 
 /** What to send now to make the house show `target`. When to look again is the loop's: {@link nextRetry} after the sends. */

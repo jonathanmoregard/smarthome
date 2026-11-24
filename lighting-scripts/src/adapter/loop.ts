@@ -39,10 +39,10 @@ import type { HaInput, StoreSave } from './codecs/inputs.ts';
 import { BRIDGE_SENSOR, decodeObserved } from './codecs/observed.ts';
 import type { Observed } from './reconcile.ts';
 import {
-  afterSend, backOn, forgotten, MAX_ATTEMPTS, NO_BELIEFS, newlyParked, newlyParkedSwitches, nextRetry, nextSends, reportedChanged, switchesForgotten,
-  switchesSeen, unexplained, unparked,
+  afterSend, backOn, forgotten, landedLate, MAX_ATTEMPTS, NO_BELIEFS, newlyParked, newlyParkedSwitches, nextRetry, nextSends, reportedChanged,
+  supersededAfter, switchesForgotten, switchesSeen, unexplained, unparked,
 } from './reconcile.ts';
-import type { Beliefs, Outcome, Send } from './reconcile.ts';
+import type { Beliefs, Outcome, Send, Superseded } from './reconcile.ts';
 import { afterTries, awaitsEcho, dueAt, heldForStore, nextTry, outputOf, queued, settled, targetOf, unparkedWrites, withWaiting } from './outbox.ts';
 import type { Entry, Outbox, Tried, Write } from './outbox.ts';
 import { configStoreWrite, dashboardWrites, modelWrites, uiSyncWrites } from './codecs/writes.ts';
@@ -71,6 +71,8 @@ export type AdapterState = {
   configFrom: ConfigFrom;
   /** Whether Home Assistant had the overrides sensor at the last turn: while it is unread, the port writes it nothing. */
   overrides: OverridesRead['kind'];
+  /** The switch sends whose target moved before they landed, each still on its way for a while: its landing is no press. */
+  superseded: Readonly<Record<SwitchId, Superseded>>;
 };
 
 /**
@@ -208,8 +210,12 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
   const taken = takenOver(kept.kind === 'running' ? kept.state.share : kept.share, share, clocked.config);
   // What changed since the last turn that no send of ours explains: a plug's own button is pressed first, then the input.
   // A room handed over since was the old scripts' meanwhile, and is taken as found: a change there is theirs.
-  const changed = state === undefined ? [] : unexplained(state.observed, decodeObserved(house.state, clocked.config), state.beliefs)
-    .filter(change => change.kind === 'switch pressed' ? !taken.switches.includes(change.switch) : !taken.bulbs.includes(change.bulb));
+  // A switch send of ours whose target moved before it landed may land late: its landing is no press.
+  const seen = decodeObserved(house.state, clocked.config);
+  const changed = state === undefined ? [] : unexplained(state.observed, seen, state.beliefs)
+    .filter(change => change.kind === 'switch pressed'
+      ? !taken.switches.includes(change.switch) && !landedLate(state.superseded[change.switch], change.power, seen.switchChanged[change.switch], now)
+      : !taken.bulbs.includes(change.bulb));
   let inputMessages: Msg[] = [], dropped: string | undefined, saved: StoreSave | undefined;
   try {
     inputMessages = [...messages(input, clocked, now, house), ...rangeDefaultsMessages(input, house, now)];
@@ -262,8 +268,9 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
     const reported = reportedBulbs(input.entities, model.config);
     beliefs = state === undefined ? forgotten(beliefs, reported) : reportedChanged(beliefs, state.observed, observed, reported);
   }
-  beliefs = switchesSeen(backOn(beliefs, changed.flatMap(change => change.kind === 'bulb back on' ? [change.bulb] : [])), observed,
-    lighting.switches);
+  beliefs = backOn(beliefs, changed.flatMap(change => change.kind === 'bulb back on' ? [change.bulb] : []));
+  const superseded = supersededAfter(state === undefined ? {} : state.superseded, beliefs, observed, lighting.switches, now);
+  beliefs = switchesSeen(beliefs, observed, lighting.switches);
   const sends = nextSends(sharedLighting(lighting, model.config, share), model.config, observed, beliefs, now);
   const topics = bulbTopics(house.catalog), groups = bulbGroups(house.catalog);
   const topicless = entriesOf(model.config.lamps).flatMap(([, lamp]) => lamp.bulbs.flatMap(({ bulb }) => topics[bulb] === undefined ? [bulb] : []));
@@ -288,7 +295,7 @@ export function handleInput(kept: Kept, reported: HouseView, input: HaInput, giv
     }
   }
   const journalled = outputs.flatMap((output, index) => output.kind === 'publish' ? [index] : []);
-  const next: AdapterState = { model, beliefs, view, observed, outbox, reread: false, share, topicless, configFrom, overrides: overrides.kind };
+  const next: AdapterState = { model, beliefs, view, observed, outbox, reread: false, share, topicless, configFrom, overrides: overrides.kind, superseded };
   return { state: next, outputs, sends: sending, now, nextChange: nextChange(model, now), dropped, errors, journalled, writing };
 }
 

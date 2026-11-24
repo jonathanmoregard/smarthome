@@ -58,7 +58,7 @@ function loop(states: Record<string, EntityState>) {
 
 const switchSends = (turn: Turn) => turn.outputs.flatMap(output => output.kind === 'switch' ? [`${output.switch} ${output.power}`] : []);
 
-test('closeout r4 A1: our switch-on that lands after the target moved off is not taken for a press', { todo: 'closeout r4 A1' }, () => {
+test('closeout r4 A1: our switch-on that lands after the target moved off is not taken for a press', () => {
   // Break: switchesSeen drops an open send once the target moves off its power (src/adapter/reconcile.ts:300), so when
   // the send lands late, switchPressed finds no send of ours (reconcile.ts:251) and reads the plug's on as its own
   // button (loop.ts:211, inputs.ts:727): the plug is held on and is sent no off.
@@ -75,6 +75,23 @@ test('closeout r4 A1: our switch-on that lands after the target moved off is not
   const landed = turn('22:14:10', { kind: 'state changed', entities: [toEntityId('switch.plug_a')] });
   assert.deepEqual({ held: landed.state.model.overlays.switches[plugA], sent: switchSends(landed) }, { held: undefined, sent: ['switch.plug_a off'] },
     'our own late on is no press: the plug is not held, and is sent the off its range wants');
+});
+
+test('closeout r4 A1 (ruling): past its window, a change to a superseded send\'s power is a press', () => {
+  // Ruling A1: a superseded switch send stays on its way only for a while after its target moved; after that a
+  // change to its power is the plug's own button, as before (reconcile.test.ts, 'a send that never landed is dropped
+  // when the target moves off it'). Break: the superseded send is kept for good, and a later press is undone.
+  const states = syntheticStates(change => {
+    change['switch.plug_a'] = { state: 'off', attributes: {}, last_changed: '2026-09-21T20:00:00+00:00' };
+  });
+  const turn = loop(states);
+  assert.deepEqual(switchSends(turn('22:13:00', { kind: 'started' })), ['switch.plug_a on'], 'control: the on is sent');
+  assert.deepEqual(switchSends(turn('22:14:05', { kind: 'wake' })), [], 'control: the target moved off; the plug still shows off');
+  assert.deepEqual(switchSends(turn('22:15:00', { kind: 'tick' })), [], 'control: a minute on, nothing to send');
+  states['switch.plug_a'] = { state: 'on', attributes: {}, last_changed: '2026-09-21T22:15:10+00:00' };
+  const pressed = turn('22:15:12', { kind: 'state changed', entities: [toEntityId('switch.plug_a')] });
+  assert.deepEqual({ held: pressed.state.model.overlays.switches[plugA]?.power, sent: switchSends(pressed) }, { held: 'on', sent: [] },
+    'a minute past the target move, the plug turning on is its own button: held on, and not sent back off');
 });
 
 /** A person's light call as the lamp change detector forwards it: Home Assistant's call_service event data, target merged in. */
