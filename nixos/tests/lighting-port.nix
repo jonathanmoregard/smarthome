@@ -14,7 +14,8 @@
 #     failure (an unreadable package-lock.json), a crashing watcher, a
 #     watcher that ignores SIGTERM at stop, and a stop that lands between
 #     the watcher's start and the script's stop handling;
-#   - a stop is prompt, in a backoff too;
+#   - a stop is prompt in every phase (a backoff, a stalled clone), and a
+#     clone from an origin that stalls gives up and is retried;
 #   - repeated setup failures back off, so a dead origin is not hammered;
 #   - a refusal (env file or LIVE_ROOMS missing, token unreadable, catalog
 #     missing, node_modules not writable by the service) stops the unit
@@ -115,6 +116,33 @@ let
     setInterval(() => {}, 1 << 30);
   '';
 
+  # An HTTPS origin that completes the TLS handshake and then never answers,
+  # as a connection that stalls mid-clone does.
+  stallingOriginCert = pkgsSystem.runCommand "lighting-port-stalling-origin-cert"
+    { nativeBuildInputs = [ pkgsSystem.openssl ]; }
+    ''
+      mkdir -p "$out"
+      openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj /CN=127.0.0.1 \
+        -keyout "$out/key.pem" -out "$out/cert.pem" 2>/dev/null
+    '';
+  stallingOrigin = pkgsSystem.writeScript "stalling-origin" ''
+    #!${pkgsSystem.python3}/bin/python3
+    import socket, ssl
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain("${stallingOriginCert}/cert.pem", "${stallingOriginCert}/key.pem")
+    server = socket.socket()
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(("127.0.0.1", 8443))
+    server.listen(16)
+    held = []
+    while True:
+        connection, _ = server.accept()
+        try:
+            held.append(context.wrap_socket(connection, server_side=True))
+        except (ssl.SSLError, OSError):
+            connection.close()
+  '';
+
   standInCheckout = pkgsSystem.runCommand "lighting-port-stand-in-checkout" { } ''
     mkdir -p "$out/lighting-scripts/scripts" "$out/lighting-scripts/stand-in-dep"
     cp ${standInWatcher} "$out/lighting-scripts/scripts/dev.mjs"
@@ -177,6 +205,7 @@ pkgsSystem.testers.runNixOSTest {
         realWatcher
         standInCompiler
         standInHost
+        stallingOrigin
       ];
     };
 
@@ -251,6 +280,9 @@ pkgsSystem.testers.runNixOSTest {
         assert show("Result") == "success", show("Result")
         assert show("ActiveState") == "inactive", show("ActiveState")
         assert took < within, f"the stop took {took:.1f}s"
+
+    def journal_since(marker):
+        return f"journalctl -u lighting-port.service -o cat --no-pager --since @{marker}"
 
     def installs():
         return int(machine.succeed(
@@ -501,6 +533,34 @@ pkgsSystem.testers.runNixOSTest {
     stops_promptly()
     machine.succeed("grep -Fx clean ${scripts}/.runtime/clean")
     machine.succeed("test ! -e ${scripts}/.runtime/journal.json.lock")
+
+    # An origin that stalls mid-clone: a stop meanwhile is prompt, and the
+    # clone gives up and is retried instead of holding the unit forever. The
+    # service's git is pointed at it through its own ~/.gitconfig.
+    machine.succeed("mv ${src} /var/lib/lighting-port/src.kept")
+    machine.succeed("systemd-run --unit=stalling-origin ${stallingOrigin}")
+    machine.wait_for_open_port(8443)
+    machine.succeed(
+        "printf '%s\\n' "
+        "'[url \"https://127.0.0.1:8443/smarthome.git\"]' 'insteadOf = file://${origin}' "
+        "'[http \"https://127.0.0.1:8443/\"]' 'sslVerify = false' "
+        "> /var/lib/lighting-port/.gitconfig"
+    )
+    machine.succeed("systemctl start lighting-port.service")
+    machine.wait_until_succeeds("pgrep -u lighting-port -f git-remote-https", timeout=30)
+    stops_promptly()
+    marker = machine.succeed("date +%s").strip()
+    machine.sleep(1)
+    machine.succeed("systemctl start lighting-port.service")
+    # Still stalled well after it connected: nothing else ends this clone.
+    machine.wait_until_succeeds("pgrep -u lighting-port -f git-remote-https", timeout=30)
+    machine.sleep(15)
+    machine.succeed("pgrep -u lighting-port -f git-remote-https")
+    machine.fail(journal_since(marker) + " | grep -F 'lighting-port: clone failed'")
+    machine.wait_until_succeeds(
+        journal_since(marker) + " | grep -F 'lighting-port: clone failed; retrying in'",
+        timeout=150,
+    )
 
     never_counted_as_failed()
     machine.fail("systemctl --failed --no-legend --plain | grep -F lighting-port")

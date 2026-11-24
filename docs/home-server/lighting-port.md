@@ -118,6 +118,7 @@ What the states mean:
 3. `lighting-port: <what> failed; retrying in <n>s (setup failure <k> in a
    row)`: a clone, an `npm ci` or another setup step failed and is retried
    on its own, waiting 10 s, then twice as long each time, at most 5 min.
+   A clone that has moved less than 1 KB/s for a minute counts as failed.
    A restart retries at once.
 4. `watcher exited with status N; restarting`: the port stopped or crashed
    and is restarted after 10 s.

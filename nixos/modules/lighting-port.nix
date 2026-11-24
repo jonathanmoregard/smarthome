@@ -110,7 +110,12 @@ let
           say "moved an interrupted clone aside to $stale; delete it when convenient"
         fi
         say "cloning $repository ($branch) into $checkout"
-        interruptible git clone --quiet --branch "$branch" -- "$repository" "$partial" || retry "clone failed"
+        # Git has no transfer timeout of its own: a connection that stalls
+        # after it is made (the handshake is bounded by curl's connect
+        # timeout) would hold the clone, and the unit, forever. Under 1 KB/s
+        # for a minute counts as stalled, and the clone is retried.
+        interruptible git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60 \
+          clone --quiet --branch "$branch" -- "$repository" "$partial" || retry "clone failed"
         mv -- "$partial" "$checkout"
       fi
 
