@@ -316,7 +316,7 @@ class SocketPort extends EventTarget {
   close() { this.readyState = 3; this.dispatchEvent(new Event('close')); }
 }
 
-test('closeout r4 B3: a house read one of whose lists Home Assistant never answers is read again, and the host comes back', { todo: 'closeout r4 B3' }, async t => {
+test('closeout r4 B3: a house read one of whose lists Home Assistant never answers is read again, and the host comes back', async t => {
   // Break: read() awaits its seven requests with no bound (src/adapter/ha-client.ts:153-162), and rereading tries again
   // only on a rejection (src/main.ts:140-152). After a reconnect, one list left unanswered keeps the host disconnected,
   // paused() true, for good.

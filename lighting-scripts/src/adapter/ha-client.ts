@@ -78,6 +78,12 @@ export interface HaClient {
  */
 export const CALL_TIMEOUT_MS = 15_000;
 
+/**
+ * How long a whole read of the house waits for Home Assistant's seven answers. One list left unanswered would hold the
+ * read for good, and the host paused with it; a read past this rejects, and is tried again.
+ */
+export const READ_TIMEOUT_MS = 30_000;
+
 /** Node's timer: `wake` after `delayMs`, unless the answer is called first. */
 const nodeTimer = (delayMs: number, wake: () => void): (() => void) => { const handle = setTimeout(wake, delayMs); return () => clearTimeout(handle); };
 
@@ -149,16 +155,16 @@ export class HomeAssistantClient implements HaClient {
     }
   }
 
-  /** The states, the config's timezone and the registry, read whole, as Home Assistant sends them. */
+  /** The states, the config's timezone and the registry, read whole, as Home Assistant sends them; rejects {@link Unanswered} past {@link READ_TIMEOUT_MS}. */
   async read(): Promise<HouseRead> {
-    const [states, config, entities, devices, areas, labels, sources] = await Promise.all([
+    const [states, config, entities, devices, areas, labels, sources] = await answeredWithin(READ_TIMEOUT_MS, 'the house read', Promise.all([
       getStates(this.connection), getConfig(this.connection),
       this.connection.sendMessagePromise<EntityEntry[]>({ type: 'config/entity_registry/list' }),
       this.connection.sendMessagePromise<DeviceEntry[]>({ type: 'config/device_registry/list' }),
       this.connection.sendMessagePromise<AreaEntry[]>({ type: 'config/area_registry/list' }),
       this.connection.sendMessagePromise<LabelEntry[]>({ type: 'config/label_registry/list' }),
       this.connection.sendMessagePromise<Record<string, { domain: string }>>({ type: 'entity/source' }),
-    ]);
+    ]));
     return { states, timezone: config.time_zone, entities, devices, areas, labels, sources };
   }
 
@@ -168,6 +174,14 @@ export class HomeAssistantClient implements HaClient {
     await Promise.allSettled(this.subscriptions.map(unsubscribe => unsubscribe()));
     this.subscriptions.length = 0; this.listeners.length = 0;
   }
+}
+
+/** `answer` as it settles, unless `timeoutMs` of Node's timer pass first: then it rejects {@link Unanswered}, naming `what`. */
+function answeredWithin<T>(timeoutMs: number, what: string, answer: Promise<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const cancel = nodeTimer(timeoutMs, () => reject(new Unanswered(`Home Assistant did not answer ${what} within ${timeoutMs / 1000} s`)));
+    answer.then(value => { cancel(); resolve(value); }, (error: unknown) => { cancel(); reject(error); });
+  });
 }
 
 /**
