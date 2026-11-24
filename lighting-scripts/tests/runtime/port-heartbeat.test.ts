@@ -26,7 +26,7 @@ test('a port with no live room sends no heartbeat, so it sends nothing at all', 
 test('the heartbeat beats until stopped, and a failed beat does not stop it', async () => {
   const sent: ServiceCall[] = [], errors: string[] = [];
   let calls = 0;
-  const stop = startHeartbeat(parseLiveRooms('studio'), async call => {
+  const stop = startHeartbeat(() => parseLiveRooms('studio'), async call => {
     calls++;
     if (calls === 1) throw new Error('not connected');
     sent.push(call);
@@ -48,7 +48,7 @@ test('the heartbeat is held while the host is paused, so the watchdog sees the p
   // watchdog takes a port that drives nothing for alive.
   const sent: ServiceCall[] = [];
   let paused = true;
-  const stop = startHeartbeat(parseLiveRooms('studio'), async call => { sent.push(call); }, () => {}, 5, () => paused);
+  const stop = startHeartbeat(() => parseLiveRooms('studio'), async call => { sent.push(call); }, () => {}, 5, () => paused);
   try {
     await new Promise(resolve => setTimeout(resolve, 25));
     assert.deepEqual(sent, [], 'no beat while paused');

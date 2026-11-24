@@ -10,16 +10,17 @@ import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseDeployedCatalog } from './adapter/codecs/catalog.ts';
 import type { Catalog } from './adapter/codecs/catalog.ts';
-import { HA_EVENTS, houseMirrorOf, stateChangedOf } from './adapter/codecs/house.ts';
+import { HA_EVENTS, houseMirrorOf, houseView, stateChangedOf } from './adapter/codecs/house.ts';
+import { decodeConfig } from './adapter/codecs/config.ts';
+import { configSource } from './adapter/codecs/model.ts';
 import type { HouseMirror } from './adapter/codecs/house.ts';
 import { bridgeRunOf } from './adapter/codecs/inputs.ts';
 import { toInstant } from './adapter/codecs/ids.ts';
-import { parseRooms } from './adapter/codecs/rooms.ts';
 import { HomeAssistantClient } from './adapter/ha-client.ts';
 import type { JsonValue, ServiceCall } from './adapter/ha-client.ts';
 import { heartbeatCall, timingCall } from './adapter/encode.ts';
 import { lockJournal } from './journal-lock.ts';
-import { lampRooms, refuseUnknownRooms, roomsGiven } from './adapter/live-rooms.ts';
+import { refuseUnknownRooms, roomsGiven } from './adapter/live-rooms.ts';
 import type { LiveRooms } from './adapter/live-rooms.ts';
 import { Host } from './host.ts';
 import type { Journal, Timer } from './host.ts';
@@ -47,12 +48,8 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   const read = async () => houseMirrorOf(await ha.read());
   let stopHeartbeat = () => {}, watcher: FSWatcher | undefined;
   try {
-    const mirror = await read();
-    const areas = parseRooms(mirror.areas);
-    if (given.kind === 'listed') refuseUnknownRooms(given.rooms, catalog, areas);
-    // The heartbeat names every room the port may drive: with the whole house, each room of its lamps.
-    const liveRooms = given.kind === 'listed' ? given.rooms : lampRooms(catalog, areas);
-    const clock = () => toInstant(Date.now() / 1000), warn = (message: string) => console.warn(message);
+    const mirror = await read(), clock = () => toInstant(Date.now() / 1000), warn = (message: string) => console.warn(message);
+    if (given.kind === 'listed') refuseUnknownRooms(given.rooms, decodeConfig(configSource(houseView(mirror, clock(), catalog)), catalog));
     const host = await Host.open({ ha, journal: fileJournal(journal), clock, log: console,
       timer, rooms: given, took: seconds => void ha.call(timingCall(seconds)).catch(() => undefined) }, mirror, catalog);
     // A registry change may move a lamp or a label the config is read from: the turn after the read takes it.
@@ -67,7 +64,8 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     // Home Assistant keeps the triggers only; every decision runs in this process.
     await ha.subscribe(HA_EVENTS.bridgeRun, event => { const run = bridgeRunOf(event.data); host.script(run.script, run.args); });
     for (const event of HA_EVENTS.registries) await ha.subscribe(event, reread);
-    stopHeartbeat = startHeartbeat(liveRooms, call => ha.call(call), message => console.error(message), HEARTBEAT_MS, () => host.paused());
+    // Each beat names every room the port may drive as it stands: with the whole house, each room of the config's lamps.
+    stopHeartbeat = startHeartbeat(() => host.liveRooms(), call => ha.call(call), message => console.error(message), HEARTBEAT_MS, () => host.paused());
     watcher = watchRuntimeCatalog(configuration, async read => {
       catalog = read;
       host.catalogChanged(catalog);
@@ -144,14 +142,14 @@ export function rereading(read: () => Promise<HouseMirror>, land: (house: HouseM
 /** How often the port beats; Home Assistant's watchdog treats 30 s without a beat as the port gone. */
 export const HEARTBEAT_MS = 10_000;
 /**
- * Beat now and every `intervalMs` until the answer is called, but not while `paused` (the host waits for Home
+ * Beat now and every `intervalMs` until the answer is called, naming the rooms `live` gives at each beat, but not while `paused` (the host waits for Home
  * Assistant), so the watchdog sees the port stall. A failed beat is reported and the next one still goes.
  */
-export function startHeartbeat(live: LiveRooms, send: (call: ServiceCall) => Promise<unknown>, report: (message: string) => void,
+export function startHeartbeat(live: () => LiveRooms, send: (call: ServiceCall) => Promise<unknown>, report: (message: string) => void,
   intervalMs = HEARTBEAT_MS, paused: () => boolean = () => false): () => void {
   const beat = () => {
     if (paused()) return;
-    const call = heartbeatCall(live, Date.now());
+    const call = heartbeatCall(live(), Date.now());
     if (call !== undefined) void send(call).catch(error => report(`Heartbeat not sent: ${error instanceof Error ? error.message : String(error)}`));
   };
   beat();

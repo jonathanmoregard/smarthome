@@ -95,6 +95,11 @@ export function catalogChanged(kept: Kept): Kept {
   return kept.kind === 'running' ? { kind: 'running', state: { ...kept.state, reread: true } } : kept;
 }
 
+/** The config the kept state holds; before the first turn, the one the house reads as. */
+export function keptConfig(kept: Kept, house: HouseView): Config {
+  return kept.kind === 'running' ? kept.state.model.config : decodeConfig(configSource(house), house.catalog);
+}
+
 /** Whether the config the kept state was read with is read from `entity`: a state change of it is a reason for a turn. */
 export function movesConfig(kept: Kept, entity: string): boolean {
   return kept.kind === 'running' && readsConfig(kept.state.configFrom, entity);

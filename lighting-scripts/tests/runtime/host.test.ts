@@ -494,7 +494,7 @@ test('closeout r1 A3: a host whose every turn throws stops its heartbeat, so the
   await host.idle();
   assert.equal(logged.filter(line => /more than one remote/.test(line)).length, 3, 'every turn threw');
   const beats: ServiceCall[] = [];
-  const stop = startHeartbeat(parseLiveRooms('room-a'), async call => { beats.push(call); }, () => {}, 5, () => host.paused());
+  const stop = startHeartbeat(() => parseLiveRooms('room-a'), async call => { beats.push(call); }, () => {}, 5, () => host.paused());
   try {
     await new Promise(resolve => setTimeout(resolve, 25));
   } finally {

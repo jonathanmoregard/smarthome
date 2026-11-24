@@ -266,7 +266,7 @@ test('closeout r2 B5: a range saved for a plug alone in its room applies at once
   assert.equal(lightingState(saved(syntheticHouse()), now).switches[plugC], 'on');
 });
 
-test('closeout r2 B6: under --live-rooms all, a room that gains a lamp by a catalog reload is named by the next heartbeat', { todo: 'closeout r2 B6' }, () => {
+test('closeout r2 B6: under --live-rooms all, a room that gains a lamp by a catalog reload is named by the next heartbeat', () => {
   // Break: main() fixes the heartbeat's rooms at start (src/main.ts:54, 69); the reload only hands the host the new
   // catalog (src/main.ts:70-75). Runs main() whole in a child, over a fake client (tests/runtime/support/main-child.ts).
   const run = mainChild('reload');

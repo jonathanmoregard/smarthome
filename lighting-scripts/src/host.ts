@@ -13,9 +13,10 @@ import { Unreachable } from './adapter/ha-client.ts';
 import type { EntityState, HaClient, JsonObject } from './adapter/ha-client.ts';
 import { bridgeVerdict } from './adapter/codecs/inputs.ts';
 import type { HaInput } from './adapter/codecs/inputs.ts';
-import { afterOutputs, catalogChanged, handleInput, movesConfig } from './adapter/loop.ts';
+import { afterOutputs, catalogChanged, handleInput, keptConfig, movesConfig } from './adapter/loop.ts';
 import type { Kept } from './adapter/loop.ts';
-import type { RoomsGiven } from './adapter/live-rooms.ts';
+import { beatRooms } from './adapter/live-rooms.ts';
+import type { LiveRooms, RoomsGiven } from './adapter/live-rooms.ts';
 import type { Instant } from './domain/types/time.ts';
 import { toInstant } from './adapter/codecs/ids.ts';
 
@@ -184,6 +185,9 @@ export class Host {
 
   /** Whether the heartbeat is paused: Home Assistant is out of reach or not yet read again, or the last turns all threw. */
   paused(): boolean { return !this.connected || this.thrownInARow >= UNHEALTHY_AFTER; }
+
+  /** The rooms the heartbeat names now: those given, or the rooms of the current config's lamps. */
+  liveRooms(): LiveRooms { return beatRooms(this.io.rooms, keptConfig(this.kept, houseView(this.mirror, this.io.clock(), this.catalog))); }
 
   /** The house as the host holds it now. */
   house(): HouseMirror { return this.mirror; }

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { parseCatalog } from '../../src/adapter/codecs/catalog.ts';
 import { drives, parseRooms } from '../../src/adapter/codecs/rooms.ts';
+import { decodeConfig } from '../../src/adapter/codecs/config.ts';
 import { toRoomId } from '../../src/adapter/codecs/ids.ts';
 import type { HaInput } from '../../src/adapter/codecs/inputs.ts';
 import type { EntityState, JsonObject } from '../../src/adapter/ha-client.ts';
@@ -29,6 +30,8 @@ import { id } from './support/ids.ts';
 const catalog = parseCatalog({ members: { 'light.studio': ['light.studio_bulb'], 'light.den': ['light.den_bulb'],
   'light.loose': ['light.loose_bulb'] } });
 const rooms = parseRooms({ 'light.studio': 'studio', 'light.den': 'den', 'remote-s': 'studio', 'remote-x': 'porch' });
+/** The made-up house's config: with no house_schedule label, its lamps are the catalog's. */
+const config = decodeConfig({ states: {}, rooms, labels: {}, timezone: undefined }, catalog);
 
 test('the live rooms are refused when the setting is missing, so a missing list never means every room', () => {
   assert.throws(() => parseLiveRooms(undefined), /--live-rooms/);
@@ -50,11 +53,19 @@ test('a live-room list with an empty entry is refused', () => {
 
 test("a live room that holds no lamp of the house is refused, naming it and the house's rooms; part of the house is a list", () => {
   // Break: a misspelt room is driven by neither system; or a list that leaves rooms to the old scripts is refused.
-  assert.doesNotThrow(() => refuseUnknownRooms(parseLiveRooms('studio'), catalog, rooms));
-  assert.doesNotThrow(() => refuseUnknownRooms(parseLiveRooms(''), catalog, rooms));
-  assert.throws(() => refuseUnknownRooms(parseLiveRooms('studio,den,stduio'), catalog, rooms),
+  assert.doesNotThrow(() => refuseUnknownRooms(parseLiveRooms('studio'), config));
+  assert.doesNotThrow(() => refuseUnknownRooms(parseLiveRooms(''), config));
+  assert.throws(() => refuseUnknownRooms(parseLiveRooms('studio,den,stduio'), config),
     { message: '--live-rooms names stduio, which holds no lamp of the house; its rooms are den, studio' });
-  assert.throws(() => refuseUnknownRooms(parseLiveRooms('studio,porch'), catalog, rooms), /names porch/);
+  assert.throws(() => refuseUnknownRooms(parseLiveRooms('studio,porch'), config), /names porch/);
+});
+
+test("the house's lamps are the config's: a house_schedule label decides which rooms hold one", () => {
+  // Closeout r2 B10. Break: the live rooms read the catalog's lamps, a second idea of the house beside the config's.
+  const labelled = decodeConfig({ states: {}, rooms: parseRooms({ 'light.studio': 'studio', 'light.porch': 'porch' }),
+    labels: { house_schedule: ['light.studio', 'light.porch'] }, timezone: undefined }, catalog);
+  assert.deepEqual([...lampRooms(labelled)].sort(), ['porch', 'studio']);
+  assert.doesNotThrow(() => refuseUnknownRooms(parseLiveRooms('porch'), labelled));
 });
 
 /**
@@ -381,7 +392,7 @@ test('the whole house is the port\'s only by `--live-rooms all`, never by listin
 test('with every lamp room listed, a lamp in no room and a plug in a room with no lamp stay the old scripts\'', () => {
   // Review finding 4. Break: the share turns to the house, and things in no listed room get both drivers.
   const house = houseView(sharedStates({ [roomA]: 'on', [roomB]: 'on' }), '2026-09-21T12:00:00Z');
-  const every = lampRooms(house.catalog, house.rooms);
+  const every = lampRooms(decodeConfig({ states: house.state, rooms: house.rooms, labels: {}, timezone: undefined }, house.catalog));
   assert.deepEqual([...every].sort(), [roomA, roomB]);
   const share = shareOf({ kind: 'listed', rooms: every }, every);
   assert.equal(share.kind, 'rooms');

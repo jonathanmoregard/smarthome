@@ -13,9 +13,9 @@
  */
 import type { Config } from '../domain/config.ts';
 import type { RoomId } from '../domain/types/ids.ts';
+import { entriesOf } from '../domain/types/ids.ts';
 import { drives, roomOfText } from './codecs/rooms.ts';
-import type { Rooms, Share } from './codecs/rooms.ts';
-import type { Catalog } from './codecs/catalog.ts';
+import type { Share } from './codecs/rooms.ts';
 import type { Msg, OverlayRequest } from '../domain/update.ts';
 
 export type LiveRooms = ReadonlySet<RoomId>;
@@ -48,8 +48,8 @@ export function parseLiveRooms(raw: string | undefined): LiveRooms {
  * Refuse a live room that holds none of the house's lamps: a misspelt room (`bedrom`) would be skipped by neither
  * system's switch check and driven by neither.
  */
-export function refuseUnknownRooms(live: LiveRooms, catalog: Catalog, rooms: Rooms): void {
-  const house = lampRooms(catalog, rooms);
+export function refuseUnknownRooms(live: LiveRooms, config: Config): void {
+  const house = lampRooms(config);
   const unknown = [...live].filter(room => !house.has(room));
   if (unknown.length > 0) {
     throw new Error(`${LIVE_ROOMS_FLAG} names ${unknown.join(', ')}, which ${unknown.length === 1 ? 'holds' : 'hold'} no lamp of the house; `
@@ -57,12 +57,9 @@ export function refuseUnknownRooms(live: LiveRooms, catalog: Catalog, rooms: Roo
   }
 }
 
-/** The rooms that hold a lamp of the catalog. */
-export function lampRooms(catalog: Catalog, rooms: Rooms): LiveRooms {
-  return new Set(Object.keys(catalog.members).flatMap(lamp => {
-    const room = rooms.ofId[lamp];
-    return room === undefined ? [] : [room];
-  }));
+/** The rooms that hold a lamp of the house: the config's lamps, its one owner. */
+export function lampRooms(config: Config): LiveRooms {
+  return new Set(entriesOf(config.lamps).flatMap(([, lamp]) => lamp.room === undefined ? [] : [lamp.room]));
 }
 
 /** The rooms a process is given: the whole house (the harness), or those its command line lists (the live port). */
@@ -74,17 +71,22 @@ export function roomsGiven(argv: readonly string[]): RoomsGiven {
   return index >= 0 && argv[index + 1] === ALL_ROOMS ? { kind: 'house' } : { kind: 'listed', rooms: readLiveRoomsFlag(argv) };
 }
 
-export const LIVE_ROOMS_FLAG = '--live-rooms';
-
-/** The flag's value that gives the port the whole house: the full cutover. */
-const ALL_ROOMS = 'all';
-
 /**
  * The turn's share of the house: the whole house only when given it (`--live-rooms all`); otherwise the handed rooms,
  * even every one of them, so a lamp in no room and a plug in a room with no lamp stay the old scripts'.
  */
 export function shareOf(given: RoomsGiven, handed: ReadonlySet<RoomId>): Share {
   return given.kind === 'house' ? given : { kind: 'rooms', rooms: handed };
+}
+
+export const LIVE_ROOMS_FLAG = '--live-rooms';
+
+/** The flag's value that gives the port the whole house: the full cutover. */
+const ALL_ROOMS = 'all';
+
+/** The rooms a heartbeat names: those the command line lists, or with the whole house, each room of the config's lamps. */
+export function beatRooms(given: RoomsGiven, config: Config): LiveRooms {
+  return given.kind === 'listed' ? given.rooms : lampRooms(config);
 }
 
 /**
