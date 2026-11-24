@@ -13,8 +13,9 @@ disabled. Start with the runbooks for [bootstrap](docs/home-server/bootstrap.md)
 [deployment](docs/home-server/deployment.md),
 [recovery](docs/home-server/recovery.md),
 [secrets](docs/home-server/secrets.md),
-[access](docs/home-server/access.md), and
-[Home Assistant](docs/home-server/home-assistant.md).
+[access](docs/home-server/access.md),
+[Home Assistant](docs/home-server/home-assistant.md), and
+[the lighting port](docs/home-server/lighting-port.md).
 
 The staged TypeScript lighting program and its development reload loop live in
 [`lighting-scripts/`](lighting-scripts/README.md). Its tests reuse the preserved

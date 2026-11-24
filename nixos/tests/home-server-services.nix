@@ -22,6 +22,8 @@ let
       recipient="$(cat "$out/id_ed25519.pub")"
       printf '%s' '[7,1,255,0,42,9,100,3,200,17,66,5,250,13,77,1]' \
         | age -r "$recipient" -o "$out/zigbee2mqtt-network-key.age"
+      printf '%s\n' 'lighting-port-test-token' \
+        | age -r "$recipient" -o "$out/lighting-port-ha-token.age"
     '';
   mqttUsernameAssertion = username:
     let
@@ -144,6 +146,8 @@ pkgsSystem.testers.runNixOSTest {
       age.identityPaths = lib.mkForce [ "${zigbeeTestAgenix}/id_ed25519" ];
       age.secrets.zigbee2mqtt-network-key.file =
         lib.mkForce "${zigbeeTestAgenix}/zigbee2mqtt-network-key.age";
+      age.secrets.lighting-port-ha-token.file =
+        lib.mkForce "${zigbeeTestAgenix}/lighting-port-ha-token.age";
 
       # Keep the real timer loaded and active, but out of this run's window.
       # Production fires at OnBootSec=3min, inside the ~9 minutes this VM takes,
