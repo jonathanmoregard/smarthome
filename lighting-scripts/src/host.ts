@@ -47,8 +47,7 @@ export class Host {
   private catalog: Catalog;
   private kept: Kept;
   private queue: Promise<void> = Promise.resolve();
-  private cancelWake: (() => void) | undefined;
-  private closed = false;
+  private cancelWake: (() => void) | undefined; private closed = false;
   /** The context ids of our recent calls, the turns run so far, the last one with a failed call, and whether one is calling. */
   private ownContexts: string[] = [];
   private turns = 0; private failedTurn = -1; private calling = false; private thrownInARow = 0;
@@ -110,8 +109,7 @@ export class Host {
   private async run(input: HaInput, now: Instant): Promise<Instant | undefined> {
     const turn = handleInput(this.kept, houseView(this.mirror, now, this.catalog), input, this.io.rooms);
     if (turn.dropped !== undefined) this.io.log.error(`lighting: ${input.kind}: ${turn.dropped}; dropped`);
-    const failed: boolean[] = [];
-    const started = performance.now();
+    const failed: boolean[] = [], started = performance.now();
     this.turns++; this.calling = true;
     for (const [index, output] of turn.outputs.entries()) {
       const call = outputCall(output, turn.now);
@@ -149,14 +147,11 @@ export class Host {
 
   private async save(record: JournalRecord): Promise<void> {
     const text = saveJournal(record);
-    await this.io.journal.save(text).then(() => { this.saved = text; }, error =>
-      this.io.log.error(`lighting: journal not saved: ${error instanceof Error ? error.message : String(error)}`));
+    await this.io.journal.save(text).then(() => { this.saved = text; }, (error: unknown) => this.report(`journal not saved: ${error instanceof Error ? error.message : String(error)}`));
   }
 
   /** Queue an input; inputs run one at a time, in order. */
-  accept(input: HaInput): void {
-    this.enqueue(() => this.turn(input));
-  }
+  accept(input: HaInput): void { this.enqueue(() => this.turn(input)); }
 
   /** A state Home Assistant reports changed, or removed; it lands in order with the inputs. */
   stateChanged(entity: string, state: EntityState | undefined): void {
@@ -190,9 +185,7 @@ export class Host {
   house(): HouseMirror { return this.mirror; }
 
   /** A new catalog; the next turn reads it, and the config decoded from it. */
-  catalogChanged(catalog: Catalog): void {
-    this.enqueue(async () => { this.catalog = catalog; this.kept = catalogChanged(this.kept); });
-  }
+  catalogChanged(catalog: Catalog): void { this.enqueue(async () => { this.catalog = catalog; this.kept = catalogChanged(this.kept); }); }
 
   /** Settles once every input has run, those accepted while waiting included. */
   async idle(): Promise<void> {
