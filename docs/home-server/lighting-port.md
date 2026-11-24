@@ -25,17 +25,45 @@ The port reaches Home Assistant at `http://127.0.0.1:8123`.
 The service clones the checkout only when `src` does not exist, from the branch
 in `services.lighting-port.branch` (today `feature/typescript-lighting-scripts`).
 After that the checkout is yours: nothing fetches, pulls or resets it, and
-changing the branch option does not touch it. The service runs `npm ci` in
+changing the branch option does not touch it. The service runs `npm ci --ignore-scripts` in
 `lighting-scripts/` when `node_modules` is missing or `package-lock.json`
-changed, on its next start.
+changed, on its next start. It runs no dependency install scripts, because
+the process can read the Home Assistant token; the port's dependencies have
+none.
 
 `/var/lib/lighting-port` belongs to the `lighting-port` group, is setgid and
 group-writable, and `jonathan` is a member, so you edit the checkout and the
 env file over SSH without sudo. Log in again after the first deploy for the
-membership to apply. Git works in the checkout for you although
-`lighting-port` owns it (`safe.directory`). A directory you create there
-yourself follows your umask; run `umask 007` first if the port has to write
-into it.
+membership to apply. A directory you create there yourself follows your
+umask; run `umask 007` first if the port has to write into it.
+
+### Git and npm run as lighting-port
+
+Run git in the checkout as `lighting-port`, never as yourself:
+
+```sh
+sudo -u lighting-port git -C /var/lib/lighting-port/src status
+sudo -u lighting-port git -C /var/lib/lighting-port/src \
+  -c user.name='Jonathan Moregard' -c user.email='<your address>' commit -am '...'
+```
+
+Git refuses to work there as you, on purpose: `lighting-port` (and so the
+port's own code) can write the checkout's `.git/config`, and settings there
+such as `core.fsmonitor` or hooks run commands as whoever runs git. Do not add
+the checkout to your own `safe.directory`.
+
+Run npm there as `lighting-port` too, without install scripts:
+
+```sh
+cd /var/lib/lighting-port/src/lighting-scripts
+sudo -u lighting-port HOME=/var/lib/lighting-port \
+  nix shell nixpkgs#nodejs_22 --command npm install --ignore-scripts <package>
+```
+
+npm run as yourself leaves directories in `node_modules` the service cannot
+replace. The service then refuses to start and names one; give the tree back
+with `sudo chown -R lighting-port:lighting-port
+/var/lib/lighting-port/src/lighting-scripts/node_modules`.
 
 ## First start
 
@@ -83,19 +111,26 @@ What the states mean:
 
 1. `active (running)`: the watcher runs.
 2. `inactive (dead)` after a line `lighting-port: refusing to start: ...`:
-   something only you can fix (env file, `LIVE_ROOMS`, token, catalog, or a
-   checkout without `lighting-scripts/package-lock.json`). Fix it and restart.
-   It stays stopped until then.
-3. Restarting every 10 s, with `lighting-port: clone failed`,
-   `npm ci failed` or `watcher exited with status N`: retried on its own.
+   something only you can fix (env file, `LIVE_ROOMS`, token, catalog,
+   `node_modules` the service cannot write, or a checkout without
+   `lighting-scripts/package-lock.json`). Fix it and restart. It stays
+   stopped until then.
+3. `lighting-port: <what> failed; retrying in <n>s (setup failure <k> in a
+   row)`: a clone, an `npm ci` or another setup step failed and is retried
+   on its own, waiting 10 s, then twice as long each time, at most 5 min.
+   A restart retries at once.
+4. `watcher exited with status N; restarting`: the port stopped or crashed
+   and is restarted after 10 s.
 
 `systemctl stop lighting-port` lasts until the next boot or deploy, which
-start it again. To keep the port off, remove the `LIVE_ROOMS` line.
+start it again. To keep the port off, remove the `LIVE_ROOMS` line. A port
+still shutting down 15 s after a stop is killed; the journal is written whole
+and renamed into place, so that cannot corrupt it.
 
 The port is not a deploy health unit, and none of these states fails a
-deploy: the unit exits 0 when it is retrying and 78 when it refuses, so
-`switch-to-configuration` never sees it failed, and a crashing port does not
-roll the server back.
+deploy: the unit exits 0 when it is retrying or stopped and 78 when it
+refuses, so `switch-to-configuration` never sees it failed, and a crashing
+port does not roll the server back.
 
 A clone cut short leaves `/var/lib/lighting-port/.src.partial.<time>` behind;
 delete it when convenient. To start over from a fresh clone, move `src` aside
@@ -105,10 +140,15 @@ and restart.
 
 Edits made on the server stay on the server until you bring them into the
 repository by hand; nothing opens pull requests for them. Commit in the
-checkout on a branch, then fetch that branch from your laptop:
+checkout on a branch (as `lighting-port`, above), write the branch to a
+bundle, and fetch it from the bundle on your laptop. A bundle carries only
+commits, never the checkout's git configuration:
 
 ```sh
-git fetch jonathan@100.87.199.107:/var/lib/lighting-port/src <branch>
+ssh -t jonathan@100.87.199.107 'sudo -u lighting-port git -C /var/lib/lighting-port/src \
+  bundle create /var/lib/lighting-port/reconcile.bundle <branch>'
+scp jonathan@100.87.199.107:/var/lib/lighting-port/reconcile.bundle /tmp/
+git fetch /tmp/reconcile.bundle <branch>:<branch>
 ```
 
 and open a pull request from there as usual. CI checks the pull request; it
