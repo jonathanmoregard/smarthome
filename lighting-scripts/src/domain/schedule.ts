@@ -103,6 +103,20 @@ export function dayStarts(config: Config, room: RoomId | undefined, now: Instant
   return { last, next };
 }
 
+/**
+ * The starts of a fixed daily time either side of `now`: the same time on every day, over the same days
+ * {@link dayStarts} searches and read in the zone as it reads them (daylight saving included).
+ */
+export function fixedDayStarts(zone: Timezone, time: TimeOfDay, now: Instant): DayStarts {
+  let last: Instant | undefined, next: Instant | undefined;
+  for (const eve of eves(localParts(now, zone))) {
+    const start = instantOrThrow(localTime(eve.getUTCFullYear(), eve.getUTCMonth() + 1, eve.getUTCDate(), time.hour, time.minute, zone));
+    if (start <= now && (last === undefined || start > last)) last = start;
+    if (start > now && (next === undefined || start < next)) next = start;
+  }
+  return { last, next };
+}
+
 /** The light a lamp moves between and how far it has got: a held block, a fade, or the wake light. */
 export type Stage = { from: StageEnd; into: StageEnd; progress: Progress; moving: boolean };
 

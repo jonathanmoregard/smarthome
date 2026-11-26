@@ -798,16 +798,17 @@ Done by the operator through the Home Assistant MCP tools, after Task 8 is pushe
   1. `input_number.ls_plant_hours`: min 0, max 24, step 0.5, initial 12, unit `h`.
   2. `input_boolean.ls_plants_all_off`.
   3. Per plug: `input_boolean.ls_plant_<object>_own_hours` (off) and `input_number.ls_plant_<object>_hours` (min 0, max 24, step 0.5, initial 12, unit `h`).
+  4. Per plug, its own start: `input_boolean.ls_plant_<object>_own_start` (off) and `input_datetime.ls_plant_<object>_start` (time only, no date). With the switch on and a readable time the plug starts at that time every day of the week, in place of its room's day start; otherwise at the day start.
 
 - [ ] **Step 5: Create the label `plant_light`** and put it on each plug. Do this last, so the helpers exist when the port first reads the plug as a plant light.
 
 - [ ] **Step 6: Add a view called "Plants" to the existing dashboard**, kept the way that dashboard is kept:
   1. the default hours (`input_number.ls_plant_hours`);
-  2. one row per plug: the plug's power, its own-hours switch, its hours, and "switches off at": a template of today's day start plus the hours in force, for the timer only;
+  2. one row per plug: the plug's power, its own-start switch and start time, its own-hours switch, its hours, and "switches off at": a template of today's start in force (its own start, else the day start) plus the hours in force, for the timer only;
   3. `input_boolean.ls_plants_all_off`.
 
 - [ ] **Step 7: Live check**
-  1. Within a minute of labelling, each plug shows what the clock says (on between the day start and the day start plus its hours).
+  1. Within a minute of labelling, each plug shows what the clock says (on between its start, its own or the day start, and that start plus its hours).
   2. Switch `input_boolean.ls_plants_all_off` on: every plug goes off within seconds, and `sensor.ls_overrides` has `plant_all_off.held`. Switch it off: they return to the timer.
   3. Switch one plug by hand in HA: it stays, and `plant_hand_switches` holds it.
   4. Switch a room off from its remote and press a mode toggle: the plugs do not move.

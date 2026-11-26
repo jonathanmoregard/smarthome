@@ -64,8 +64,11 @@ export type Switch = LightingSwitch | PlantLight;
  */
 export type LightingSwitch = { kind: 'lighting'; room: RoomId | undefined; onOff: boolean };
 
-/** A grow-lamp plug: on from the day start for its hours, its own or the house's. */
-export type PlantLight = { kind: 'plant light'; room: RoomId | undefined; hours: OwnOrHouse<PlantHours> };
+/**
+ * A grow-lamp plug: on from its start for its hours, each its own or the house's. The house's start is its room's
+ * day start; an own start is one time for every day of the week.
+ */
+export type PlantLight = { kind: 'plant light'; room: RoomId | undefined; hours: OwnOrHouse<PlantHours>; start: OwnOrHouse<TimeOfDay> };
 
 /** No room: the remote does nothing. */
 export type Remote = { room: RoomId | undefined };

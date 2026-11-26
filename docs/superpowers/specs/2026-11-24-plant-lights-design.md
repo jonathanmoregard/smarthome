@@ -48,7 +48,7 @@ Non-goals:
 
 1. Light intensity, dimming, sunrise ramps or DLI. Plant lights are plain
    on/off plugs.
-2. Per-plant start times other than the day start.
+2. (Superseded 2026-11-26: a plant light can have its own start, one time every day, in place of the day start; see the plan's Task 9 helpers.) Per-plant start times that differ by weekday.
 3. Seasons, grow phases, or schedules that change by date.
 
 Anti-goals (failures even if it technically works):
@@ -90,7 +90,9 @@ for both kinds.
 
 The rule is computed from the clock, never stored or counted down:
 
-1. Its day start is the day start of the plug's room: the room's own day
+1. Its start is its own start where it has one (one time every day of the week,
+   `ls_plant_<object>_own_start` on and `ls_plant_<object>_start` readable);
+   else its day start, which is the day start of the plug's room: the room's own day
    timing where the room has one, else the house's, with the weekday and
    weekend times exactly as the lamps use them (`blockPosition` /
    `timingOf` in `schedule.ts`). A plug in no room uses the house's.
