@@ -103,8 +103,33 @@ export function dayStarts(config: Config, room: RoomId | undefined, now: Instant
   return { last, next };
 }
 
+/**
+ * The starts of a fixed daily time either side of `now`: the same time on every day, read in the zone
+ * (daylight saving included) by {@link lastTimeOfDay} and {@link nextTimeOfDay}, so there is one copy of that logic.
+ */
+export function fixedDayStarts(zone: Timezone, time: TimeOfDay, now: Instant): DayStarts {
+  return { last: lastTimeOfDay(now, time, zone), next: nextTimeOfDay(now, time, zone) };
+}
+
+/** The last instant at or before `at` at which the clock in `zone` showed `time`: today's, or else yesterday's. */
+export function lastTimeOfDay(at: Instant, time: TimeOfDay, zone: Timezone): Instant {
+  const today = localParts(at, zone);
+  const sameDay = localTime(today.year, today.month, today.day, time.hour, time.minute, zone);
+  return instantOrThrow(sameDay <= at ? sameDay : localTime(today.year, today.month, today.day - 1, time.hour, time.minute, zone));
+}
+
+/** The first instant after `at` at which the clock in `zone` shows `time`: today's, or else tomorrow's. */
+export function nextTimeOfDay(at: Instant, time: TimeOfDay, zone: Timezone): Instant {
+  const today = localParts(at, zone);
+  const sameDay = localTime(today.year, today.month, today.day, time.hour, time.minute, zone);
+  return instantOrThrow(sameDay > at ? sameDay : localTime(today.year, today.month, today.day + 1, time.hour, time.minute, zone));
+}
+
 /** The light a lamp moves between and how far it has got: a held block, a fade, or the wake light. */
 export type Stage = { from: StageEnd; into: StageEnd; progress: Progress; moving: boolean };
+
+/** How long after its start a block counts as just started. */
+const JUST_STARTED: Seconds = secondsOrThrow(90);
 
 /** A held block: no fade, from and into the same block. */
 export function still(block: Block): Stage {
@@ -120,9 +145,6 @@ export function stageLight(stage: Stage, lightIn: (block: Block) => SceneLight |
   };
   return stage.moving ? sceneBetween(end(stage.from), end(stage.into), stage.progress) : end(stage.into);
 }
-
-/** How long after its start a block counts as just started. */
-const JUST_STARTED: Seconds = secondsOrThrow(90);
 
 /**
  * The light `progress` of the way through a moving stage from one light into
@@ -160,6 +182,12 @@ function colourBetween(from: Colour | undefined, into: Colour | undefined, progr
   return mixed.kind === 'kelvin' ? { kind: 'kelvin', kelvin: kelvinOrThrow(roundEven(mixed.kelvin)) } : mixed;
 }
 
+/**
+ * The completed wake's hold: within a day of the wake, and only for a wake hour
+ * from 4 up to 11 (today's deployed hold, separate from the alarm's 05-12 input).
+ */
+const WAKE_HOLD = { within: secondsOrThrow(86400), fromHour: 4, beforeHour: 11 };
+
 /** One end of a stage: a block's light, or the light an overlay held, which the lamp fades out of. */
 export type StageEnd = { kind: 'block'; block: Block } | { kind: 'held light' };
 
@@ -167,12 +195,6 @@ export type StageEnd = { kind: 'block'; block: Block } | { kind: 'held light' };
 export function blockAt(end: StageEnd, otherwise: Block): Block {
   return end.kind === 'block' ? end.block : otherwise;
 }
-
-/**
- * The completed wake's hold: within a day of the wake, and only for a wake hour
- * from 4 up to 11 (today's deployed hold, separate from the alarm's 05-12 input).
- */
-const WAKE_HOLD = { within: secondsOrThrow(86400), fromHour: 4, beforeHour: 11 };
 
 /**
  * When the schedule next moves a light by itself: inside a fade or a wake
@@ -339,20 +361,6 @@ function localTime(year: number, month: number, day: number, hour: number, minut
     return Date.UTC(shown.year, shown.month - 1, shown.day, shown.hour, shown.minute) / 1000 === wall;
   });
   return valid.length > 0 ? Math.min(...valid) : Math.max(...candidates);
-}
-
-/** The first instant after `at` at which the clock in `zone` shows `time`: today's, or else tomorrow's. */
-export function nextTimeOfDay(at: Instant, time: TimeOfDay, zone: Timezone): Instant {
-  const today = localParts(at, zone);
-  const sameDay = localTime(today.year, today.month, today.day, time.hour, time.minute, zone);
-  return instantOrThrow(sameDay > at ? sameDay : localTime(today.year, today.month, today.day + 1, time.hour, time.minute, zone));
-}
-
-/** The last instant at or before `at` at which the clock in `zone` showed `time`: today's, or else yesterday's. */
-export function lastTimeOfDay(at: Instant, time: TimeOfDay, zone: Timezone): Instant {
-  const today = localParts(at, zone);
-  const sameDay = localTime(today.year, today.month, today.day, time.hour, time.minute, zone);
-  return instantOrThrow(sameDay <= at ? sameDay : localTime(today.year, today.month, today.day - 1, time.hour, time.minute, zone));
 }
 
 /**

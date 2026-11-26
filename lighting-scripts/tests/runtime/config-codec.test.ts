@@ -386,7 +386,7 @@ const plantHoursOfPlug = (config: Config) => { const found = plant(config); retu
 test('a plug labelled plant_light is a plant light following the default hours', () => {
   // Break: the label is not read, or the plant light is taken for a lighting switch.
   const config = decodeConfig(plantSource(), catalog());
-  assert.deepEqual(plant(config), { kind: 'plant light', room: roomA, hours: { follows: 'house' } });
+  assert.deepEqual(plant(config), { kind: 'plant light', room: roomA, hours: { follows: 'house' }, start: { follows: 'house' } });
   assert.deepEqual(config.switches[toSwitchId('switch.plug_a')], { kind: 'lighting', room: roomA, onOff: true });
   assert.equal(config.plantHours, toPlantHours(12));
 });
@@ -426,6 +426,26 @@ test('unreadable or out-of-range hours recover to a default or the nearest end',
     'input_boolean.ls_plant_plant_a_own_hours': state('on'), 'input_number.ls_plant_plant_a_hours': state(text) }), catalog()));
   assert.deepEqual(own('unavailable'), { follows: 'house' });
   assert.deepEqual(own('99'), { follows: 'own', own: toPlantHours(24) });
+});
+
+const plantStartOfPlug = (config: Config) => { const found = plant(config); return found?.kind === 'plant light' ? found.start : undefined; };
+
+test('an own start needs the own-start switch on and a readable time', () => {
+  // Break: the start applies without the flag, the flag is not read, or an unreadable time raises or reads as midnight.
+  const start = (flag: string, time: string) => plantStartOfPlug(decodeConfig(plantSource({
+    'input_boolean.ls_plant_plant_a_own_start': state(flag), 'input_datetime.ls_plant_plant_a_start': state(time) }), catalog()));
+  assert.deepEqual(start('on', '06:30:00'), { follows: 'own', own: toTimeOfDay(6, 30) });
+  assert.deepEqual(start('off', '06:30:00'), { follows: 'house' });
+  assert.deepEqual(start('on', 'unknown'), { follows: 'house' });
+  assert.deepEqual(start('on', '25:00:00'), { follows: 'house' });
+});
+
+test('a change to a start helper is a change of the config', () => {
+  // Break: a helper is read around `source.states`, so a change to it is not noticed.
+  const { from } = readConfig(plantSource(), catalog());
+  for (const entity of ['input_boolean.ls_plant_plant_a_own_start', 'input_datetime.ls_plant_plant_a_start']) {
+    assert.equal(readsConfig(from, entity), true, entity);
+  }
 });
 
 test('plantHoursOf holds a finite number to 0..24 and reads nothing else', () => {

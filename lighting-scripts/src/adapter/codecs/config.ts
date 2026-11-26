@@ -125,7 +125,7 @@ function decodeSwitches(source: ConfigSource): Record<SwitchId, Switch> {
     ...lighting.map(entity =>
       [toSwitchId(entity), { kind: 'lighting', room: roomOfEntity(source.rooms, entity), onOff: labelled.includes(entity) } satisfies Switch]),
     ...[...new Set(plants)].map(entity =>
-      [toSwitchId(entity), { kind: 'plant light', room: roomOfEntity(source.rooms, entity), hours: decodePlantHours(source, entity) } satisfies Switch]),
+      [toSwitchId(entity), { kind: 'plant light', room: roomOfEntity(source.rooms, entity), hours: decodePlantHours(source, entity), start: decodePlantStart(source, entity) } satisfies Switch]),
   ]);
 }
 
@@ -134,6 +134,14 @@ function decodePlantHours(source: ConfigSource, entity: string): OwnOrHouse<Plan
   const object = entity.slice(entity.indexOf('.') + 1);
   const flag = isOn(source, `input_boolean.ls_plant_${object}_own_hours`);
   const own = plantHoursHelper(source, `input_number.ls_plant_${object}_hours`);
+  return flag && own !== undefined ? { follows: 'own', own } : { follows: 'house' };
+}
+
+/** A plant light's start: its own when its own-start switch is on and its time is readable, else the house's (its room's day start). */
+function decodePlantStart(source: ConfigSource, entity: string): OwnOrHouse<TimeOfDay> {
+  const object = entity.slice(entity.indexOf('.') + 1);
+  const flag = isOn(source, `input_boolean.ls_plant_${object}_own_start`);
+  const own = timeOf(source, `input_datetime.ls_plant_${object}_start`);
   return flag && own !== undefined ? { follows: 'own', own } : { follows: 'house' };
 }
 

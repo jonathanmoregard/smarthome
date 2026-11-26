@@ -38,9 +38,10 @@ Goals:
 2. Hours: one house default (12 to start), and an optional own value per plant
    light.
 3. A person switching a plant light by hand (its own button, or in HA) holds
-   that power until the next day start.
-4. One "all plant lights off" control holds every plant light off until the
-   next day start.
+   that power until the plug's next start (its own start when set, else the
+   room's day start).
+4. One "all plant lights off" control holds every plant light off until each
+   plug's next start (its own start when set, else the room's day start).
 5. A "Plants" view in HA to set the default hours, each plant light's hours,
    and the all-off control, and to see each plant light's state.
 
@@ -48,7 +49,7 @@ Non-goals:
 
 1. Light intensity, dimming, sunrise ramps or DLI. Plant lights are plain
    on/off plugs.
-2. Per-plant start times other than the day start.
+2. (Superseded 2026-11-26: a plant light can have its own start, one time every day, in place of the day start; see the plan's Task 9 helpers.) Per-plant start times that differ by weekday.
 3. Seasons, grow phases, or schedules that change by date.
 
 Anti-goals (failures even if it technically works):
@@ -90,7 +91,9 @@ for both kinds.
 
 The rule is computed from the clock, never stored or counted down:
 
-1. Its day start is the day start of the plug's room: the room's own day
+1. Its start is its own start where it has one (one time every day of the week,
+   `ls_plant_<object>_own_start` on and `ls_plant_<object>_start` readable);
+   else its day start, which is the day start of the plug's room: the room's own day
    timing where the room has one, else the house's, with the weekday and
    weekend times exactly as the lamps use them (`blockPosition` /
    `timingOf` in `schedule.ts`). A plug in no room uses the house's.
@@ -101,16 +104,16 @@ The rule is computed from the clock, never stored or counted down:
 4. A plant light is never touched by a scheduled fade: it switches at the
    instant the day block starts (the block start, not the fade start).
 
-### 3.3 Overrides, both reset at the next day start
+### 3.3 Overrides, both reset at the plug's next start
 
 1. **Hand switch.** A plant light's power changed by a person (its own
    button, or switched in HA; the reconciler already reports such a change as
-   `switchButtonPressed`) holds that power until the next day start of that
-   plug. Then the timer rule applies again.
+   `switchButtonPressed`) holds that power until that plug's next start (its
+   own start when set, else the room's day start). Then the timer rule applies again.
 2. **All off.** The all-off control, switched on, holds every plant light off
-   until the next day start. At that day start control goes back to the timer
-   (each plug's own day start, if rooms differ) and the control shows off
-   again.
+   until each plug's next start. At that start control goes back to the timer
+   (each plug's own start when set, else its room's day start, if they differ)
+   and the control shows off again.
 3. If both apply, the newer one wins: switching one plug on by hand after
    "all off" turns that one plug on.
 
@@ -164,7 +167,7 @@ A plug appears there once it has the `plant_light` label.
    helpers: a plant light with no hours helpers, or with its own-hours switch
    off, follows the default.
 2. **All off, rooms with different day starts.** Each plant light is held off
-   until its own next day start. The control shows on while any plant light is
+   until its own next start (its own start when set, else its room's day start). The control shows on while any plant light is
    still held by it, and the port turns it off when the last one is released.
 3. **Turning all off off by hand** ends the hold at once: every plant light
    goes back to its timer (a hand switch newer than the all-off still holds).
@@ -196,12 +199,12 @@ A plug appears there once it has the `plant_light` label.
 
 1. Unit tests on the plant-light module: on and off at the day start plus the
    hours, weekday and weekend, a room with its own day timing, hours 0 and 24,
-   the default versus own hours, a hand switch held until the next day start,
-   all-off held until the next day start and the newer of the two winning,
+   the default versus own hours, a hand switch held until the plug's next start,
+   all-off held until the plug's next start and the newer of the two winning,
    and a restart at any instant giving the same power (no stored timer).
 2. Room power, remotes, the mode overlay, block holds and a clear-all leave a
    plant light's power unchanged (one test each).
 3. Today's lighting switches behave exactly as before: the existing switch
    tests and the golden replay show no new differences.
-4. Live: a plug labelled `plant_light` goes on at the next day start, off
+4. Live: a plug labelled `plant_light` goes on at its next start, off
    after its hours, and the Plants view sets the hours and the all-off control.

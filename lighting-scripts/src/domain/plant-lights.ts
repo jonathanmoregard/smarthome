@@ -1,12 +1,19 @@
 /**
- * Plant lights: a plant light is on from its room's day start for its hours
- * (its own, else the house's default), whatever the rest of the lights do. A
- * hand switch or the all-off hold keeps it as set until its next day start.
- * It shares only `dayStarts` with the schedule: no block, fade, room power,
- * remote, overlay or mode reaches it.
+ * Plant lights: a plant light is on from its start for its hours (its own,
+ * else the house's default), whatever the rest of the lights do. Its start is
+ * its own time, the same every day of the week, or else its room's day start.
+ * A hand switch or the all-off hold keeps it as set until its next start.
+ * It shares only the day start and the clock with the schedule: no block, fade,
+ * room power, remote, overlay or mode reaches it.
+ *
+ * Changing an own start mid-day takes effect at once, since the start in force is
+ * the last one before now: moved later than now, `last` becomes yesterday's, so
+ * the timer may switch the plug off now until the new start; moved earlier, a
+ * hand switch made before the new `last` is released at once.
  */
 import type { Config, PlantLight } from './config.ts';
-import { dayStarts } from './schedule.ts';
+import type { DayStarts } from './schedule.ts';
+import { dayStarts, fixedDayStarts } from './schedule.ts';
 import type { SwitchButtonPressed } from './switches.ts';
 import type { RoomId, SwitchId } from './types/ids.ts';
 import { entriesOf } from './types/ids.ts';
@@ -15,10 +22,10 @@ import type { PlantHours } from './types/range.ts';
 import { instantOrThrow } from './types/range.ts';
 import type { Instant } from './types/time.ts';
 
-/** A plant light switched on or off by hand, held until its next day start. */
+/** A plant light switched on or off by hand, held until its next start. */
 export type HandSwitch = { power: Power; since: Instant };
 
-/** Every plant light held off from the dashboard, until each one's next day start. */
+/** Every plant light held off from the dashboard, until each one's next start. */
 export type AllOff = { since: Instant };
 
 /** What holds plant lights over their timer: a hand switch each, and all off. */
@@ -35,7 +42,7 @@ export function plantPower(model: { config: Config; plantOverrides: PlantOverrid
   const { config, plantOverrides } = model;
   const power: Record<SwitchId, Power> = {};
   for (const [id, placed] of plantLightsOf(config)) {
-    const { last } = dayStarts(config, roomOf(config, placed), now);
+    const { last } = startsOf(config, placed, now);
     const hand = plantOverrides.handSwitches[id], allOff = plantOverrides.allOff;
     const heldByHand = hand !== undefined && holds(hand.since, last) ? hand : undefined;
     const heldByAllOff = allOff !== undefined && holds(allOff.since, last) ? allOff : undefined;
@@ -58,7 +65,7 @@ export function plantLightSwitched(overrides: PlantOverrides, config: Config, pr
  * included).
  */
 export function plantOverridesReleased(overrides: PlantOverrides, config: Config, now: Instant): PlantOverrides {
-  const lastOf = (placed: PlantLight): Instant | undefined => dayStarts(config, roomOf(config, placed), now).last;
+  const lastOf = (placed: PlantLight): Instant | undefined => startsOf(config, placed, now).last;
   const handSwitches: Partial<Record<SwitchId, HandSwitch>> = {};
   for (const [id, hand] of entriesOf(overrides.handSwitches)) {
     const placed = config.switches[id];
@@ -70,18 +77,18 @@ export function plantOverridesReleased(overrides: PlantOverrides, config: Config
 
 /**
  * Whether all off set at `since` still holds at `now`: it applies to some plant light of the config, until that one's
- * next day start. An all off switched on before the day start that released it holds nothing.
+ * next start. An all off switched on before the start that released it holds nothing.
  */
 export function allOffHolds(config: Config, since: Instant, now: Instant): boolean {
-  return plantLightsOf(config).some(([, placed]) => holds(since, dayStarts(config, roomOf(config, placed), now).last));
+  return plantLightsOf(config).some(([, placed]) => holds(since, startsOf(config, placed, now).last));
 }
 
-/** A hold set at `since` still applies from the day start that last passed, or where none has. */
+/** A hold set at `since` still applies from the start that last passed, or where none has. */
 function holds(since: Instant, last: Instant | undefined): boolean {
   return last === undefined || since >= last;
 }
 
-/** On from the last day start for its hours; 24 hours is on throughout, and with no day start it is off. */
+/** On from the last start for its hours; 24 hours is on throughout, and with no start it is off. */
 function timerPower(config: Config, placed: PlantLight, last: Instant | undefined, now: Instant): Power {
   if (hoursOf(config, placed) === 24) return 'on';
   const off = switchOffAt(config, placed, last);
@@ -101,11 +108,11 @@ export function plantsAllOffSet(overrides: PlantOverrides, set: PlantsAllOffSet)
   return { ...overrides, allOff: undefined };
 }
 
-/** The instants a plant light changes next: each one's next day start, and its timer's switch-off when that is still to come. */
+/** The instants a plant light changes next: each one's next start, and its timer's switch-off when that is still to come. */
 export function plantChanges(config: Config, now: Instant): Instant[] {
   const times: Instant[] = [];
   for (const [, placed] of plantLightsOf(config)) {
-    const { last, next } = dayStarts(config, roomOf(config, placed), now);
+    const { last, next } = startsOf(config, placed, now);
     if (next !== undefined) times.push(next);
     const off = switchOffAt(config, placed, last);
     if (off !== undefined && off > now) times.push(off);
@@ -115,13 +122,13 @@ export function plantChanges(config: Config, now: Instant): Instant[] {
 
 /**
  * When each plant light's timer switches it off in the current day period, kept shown after it has passed until the
- * next day start. A light with no switch-off has no entry: no day start in reach, 24 hours (never off) or 0 hours (never on).
+ * next start. A light with no switch-off has no entry: no start in reach, 24 hours (never off) or 0 hours (never on).
  */
 export function plantSwitchOffTimes(config: Config, now: Instant): Partial<Record<SwitchId, Instant>> {
   const times: Partial<Record<SwitchId, Instant>> = {};
   for (const [id, placed] of plantLightsOf(config)) {
     if (hoursOf(config, placed) === 0) continue;
-    const off = switchOffAt(config, placed, dayStarts(config, roomOf(config, placed), now).last);
+    const off = switchOffAt(config, placed, startsOf(config, placed, now).last);
     if (off !== undefined) times[id] = off;
   }
   return times;
@@ -134,12 +141,19 @@ function plantLightsOf(config: Config): [SwitchId, PlantLight][] {
   return lights;
 }
 
+/** The starts of a plant light either side of `now`: its own time every day where it has one, else its room's day start. */
+function startsOf(config: Config, placed: PlantLight, now: Instant): DayStarts {
+  return placed.start.follows === 'own'
+    ? fixedDayStarts(config.timezone, placed.start.own, now)
+    : dayStarts(config, roomOf(config, placed), now);
+}
+
 /** A plant light's room is its config room where the config holds that room, else the house, as a switch's is. */
 function roomOf(config: Config, placed: PlantLight): RoomId | undefined {
   return placed.room !== undefined && config.rooms[placed.room] !== undefined ? placed.room : undefined;
 }
 
-/** When the timer switches off: its hours after the last day start. Undefined with no day start, or at 24 hours, which never switches off. */
+/** When the timer switches off: its hours after the last start. Undefined with no start, or at 24 hours, which never switches off. */
 function switchOffAt(config: Config, placed: PlantLight, last: Instant | undefined): Instant | undefined {
   const hours = hoursOf(config, placed);
   if (last === undefined || hours === 24) return undefined;

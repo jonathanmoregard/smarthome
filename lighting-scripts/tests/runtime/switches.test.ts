@@ -243,7 +243,7 @@ test('a range-only switch ignores a profile of its own', () => {
 test('a press on a plant light makes no lighting switch overlay', () => {
   // Break: a plant light's button press is held like a lighting switch's.
   const plantA = toSwitchId('switch.plant_a');
-  const model = house(m => { m.config.switches[plantA] = { kind: 'plant light', room: roomA, hours: { follows: 'house' } }; });
+  const model = house(m => { m.config.switches[plantA] = { kind: 'plant light', room: roomA, hours: { follows: 'house' }, start: { follows: 'house' } }; });
   const press = { kind: 'switchButtonPressed', switch: plantA, power: 'off', at: at('12:00:00') } as const;
   assert.deepEqual(switchButtonPressed({}, model.config, press), {});
 });
@@ -251,7 +251,7 @@ test('a press on a plant light makes no lighting switch overlay', () => {
 test('a range saved for a plant light changes nothing', () => {
   // Break: a saved range turns a plant light into a lighting switch.
   const plantA = toSwitchId('switch.plant_a');
-  const model = house(m => { m.config.switches[plantA] = { kind: 'plant light', room: roomA, hours: { follows: 'house' } }; });
+  const model = house(m => { m.config.switches[plantA] = { kind: 'plant light', room: roomA, hours: { follows: 'house' }, start: { follows: 'house' } }; });
   const saved = { kind: 'rangeSaved', switch: plantA, rule: { kind: 'bright' }, room: roomA, at: at('12:00:00') } as const;
   assert.deepEqual(rangeSaved(model.config, model.switchRanges, saved), { config: model.config, switchRanges: model.switchRanges });
 });

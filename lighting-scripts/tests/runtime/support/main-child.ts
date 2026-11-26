@@ -130,9 +130,13 @@ if (mode === 'late-catalog') {
   await until(() => fake.calls.some(call => call.service !== 'input_text.set_value'));
   await new Promise(resolve => setTimeout(resolve, 100));
 }
-for (const beat of beats) beat();
 const heartbeat = (calls: readonly ServiceCall[]) => calls.filter(call => call.target?.entity_id === 'input_text.ls_port_heartbeat')
   .map(call => String(call.data.value));
+// A beat makes its call asynchronously: wait for each fired beat's call before printing, or a slow runner prints the
+// start's beat alone (seen on CI, PR #50).
+const beatsBefore = heartbeat(fake.calls).length;
+for (const beat of beats) beat();
+if (beats.length > 0) await until(() => heartbeat(fake.calls).length > beatsBefore);
 process.stdout.write(`${JSON.stringify({ made: heartbeat(fake.calls), taken: heartbeat(fake.taken),
   others: fake.calls.filter(call => call.target?.entity_id !== 'input_text.ls_port_heartbeat').length, logged,
   bulbA: fake.calls.filter(call => call.service === 'mqtt.publish' && call.data.topic === 'zigbee2mqtt/bulb-a').length,

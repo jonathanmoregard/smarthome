@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { Config } from '../../src/domain/config.ts';
+import type { Config, PlantLight } from '../../src/domain/config.ts';
 import {
-  NO_PLANT_OVERRIDES, plantChanges, plantLightSwitched, plantOverridesReleased, plantPower, plantSwitchOffTimes, plantsAllOffSet,
+  NO_PLANT_OVERRIDES, allOffHolds, plantChanges, plantLightSwitched, plantOverridesReleased, plantPower, plantSwitchOffTimes, plantsAllOffSet,
 } from '../../src/domain/plant-lights.ts';
 import type { PlantOverrides } from '../../src/domain/plant-lights.ts';
 import type { SwitchId } from '../../src/domain/types/ids.ts';
@@ -12,9 +12,10 @@ import { toInstant, toMinutes, toPlantHours, toRoomId, toSwitchId, toTimeOfDay }
 import { syntheticHouse } from './fixtures/synthetic-house.ts';
 
 /**
- * Plant lights: each is on from its room's day start for its hours, and a hand
- * switch or the all-off hold keeps it as set until its next day start. Only
- * `dayStarts` is shared with the schedule.
+ * Plant lights: each is on from its start for its hours (its own start when it
+ * has one, else its room's day start), and a hand switch or the all-off hold
+ * keeps it as set until its next start. Only `dayStarts` (day starts) and
+ * `fixedDayStarts` (own starts) are shared with the schedule.
  *
  * The synthetic house in UTC from Monday 2026-09-21: the day starts at 07:00
  * (09:00 at the weekend; the 26th is a Saturday). Plant hours are 12. `plantA`
@@ -30,8 +31,8 @@ type Sources = { config: Config; plantOverrides: PlantOverrides };
 function sources(change: (s: Sources) => void = () => {}): Sources {
   const config = structuredClone(syntheticHouse().config);
   config.plantHours = toPlantHours(12);
-  config.switches[plantA] = { kind: 'plant light', room: roomA, hours: { follows: 'house' } };
-  config.switches[plantHouse] = { kind: 'plant light', room: undefined, hours: { follows: 'house' } };
+  config.switches[plantA] = { kind: 'plant light', room: roomA, hours: { follows: 'house' }, start: { follows: 'house' } };
+  config.switches[plantHouse] = { kind: 'plant light', room: undefined, hours: { follows: 'house' }, start: { follows: 'house' } };
   const s: Sources = { config, plantOverrides: structuredClone(NO_PLANT_OVERRIDES) };
   change(s);
   return s;
@@ -88,7 +89,7 @@ test('0 hours is off all the time and 24 hours on all the time', () => {
 });
 test('own hours win over the default, and the default moves the rest', () => {
   // Break: the default hours override a plug's own, or a plug without its own keeps the old default.
-  const s = sources(s => { s.config.switches[plantA] = { kind: 'plant light', room: roomA, hours: { follows: 'own', own: toPlantHours(4) } }; });
+  const s = sources(s => { s.config.switches[plantA] = { kind: 'plant light', room: roomA, hours: { follows: 'own', own: toPlantHours(4) }, start: { follows: 'house' } }; });
   assert.equal(power(s, at('10:59:59')), 'on');
   assert.equal(power(s, at('11:00:00')), 'off');
   assert.equal(power(s, at('11:00:00'), plantHouse), 'on');
@@ -176,7 +177,7 @@ test('with no day start in reach a plant light is off unless its hours are 24, a
 
 test('a plant light switches off at the day start plus its hours', () => {
   // Break: the hours are added to the fade start or to now, or the house's default is read for a light with its own hours.
-  const s = sources(s => { s.config.switches[plantHouse] = { kind: 'plant light', room: undefined, hours: { follows: 'own', own: toPlantHours(4) } }; });
+  const s = sources(s => { s.config.switches[plantHouse] = { kind: 'plant light', room: undefined, hours: { follows: 'own', own: toPlantHours(4) }, start: { follows: 'house' } }; });
   assert.deepEqual(plantSwitchOffTimes(s.config, at('12:00:00')), { [plantA]: at('19:00:00'), [plantHouse]: at('11:00:00') });
 });
 test('at the weekend it counts from the weekend day start', () => {
@@ -191,8 +192,8 @@ test('a room with its own day start switches off from that', () => {
 test('a plant light with 24 hours, 0 hours or no day start has no switch-off', () => {
   // Break: 24 hours gives a time, or 0 hours gives the day start, or no day start gives the epoch plus hours.
   const s = sources();
-  s.config.switches[plantA] = { kind: 'plant light', room: roomA, hours: { follows: 'own', own: toPlantHours(24) } };
-  s.config.switches[plantHouse] = { kind: 'plant light', room: undefined, hours: { follows: 'own', own: toPlantHours(0) } };
+  s.config.switches[plantA] = { kind: 'plant light', room: roomA, hours: { follows: 'own', own: toPlantHours(24) }, start: { follows: 'house' } };
+  s.config.switches[plantHouse] = { kind: 'plant light', room: undefined, hours: { follows: 'own', own: toPlantHours(0) }, start: { follows: 'house' } };
   assert.deepEqual(plantSwitchOffTimes(s.config, at('12:00:00')), {});
   const none = sources(noDayStarts);
   assert.deepEqual(plantSwitchOffTimes(none.config, at('12:00:00')), {});
@@ -205,4 +206,75 @@ test('a switch-off that has passed stays shown until the next day start', () => 
 });
 test('no plant lights give no times', () => {
   assert.deepEqual(plantSwitchOffTimes(noPlants, at('12:00:00')), {});
+});
+
+// A plant light's own start: one time every day, in place of its room's day start.
+
+const own = (hour: number, minute: number): PlantLight['start'] => ({ follows: 'own', own: toTimeOfDay(hour, minute) });
+const ownStart = (start: PlantLight['start'], id: SwitchId = plantA) => (s: Sources): void => {
+  const placed = s.config.switches[id];
+  if (placed?.kind !== 'plant light') throw new Error('a plant light');
+  s.config.switches[id] = { ...placed, start };
+};
+
+test('an own start replaces the day start, on every day of the week', () => {
+  // Break: the room's day start is still read, or the weekend's day start is read at the weekend.
+  const s = sources(ownStart(own(6, 0)));
+  assert.equal(power(s, at('05:59:59')), 'off');
+  assert.equal(power(s, at('06:00:00')), 'on');
+  assert.equal(power(s, at('17:59:59')), 'on');
+  assert.equal(power(s, at('18:00:00')), 'off');
+  assert.equal(power(s, at('06:00:00', 26)), 'on');
+  assert.equal(power(s, at('07:00:00'), plantHouse), 'on');
+});
+test('a start that follows the house is the day start', () => {
+  // Break: a house start reads as midnight.
+  assert.equal(power(sources(ownStart({ follows: 'house' })), at('06:59:59')), 'off');
+});
+test('an own start in the evening is the one after it passes, not the day after', () => {
+  // Break: the own start is searched for only today.
+  const s = sources(ownStart(own(23, 0)));
+  assert.equal(power(s, at('22:59:59')), 'off');
+  assert.equal(power(s, at('23:00:00')), 'on');
+  assert.equal(power(s, at('04:00:00', 22)), 'on');
+  assert.equal(power(s, at('11:00:00', 22)), 'off');
+});
+test('a hand switch is released at the plug\'s own start', () => {
+  // Break: the release is at the room's day start.
+  const s = sources(s => { ownStart(own(9, 0))(s); s.plantOverrides.handSwitches[plantA] = { power: 'off', since: at('10:00:00') }; });
+  assert.equal(power(s, at('07:00:00', 22)), 'off');
+  assert.equal(power(s, at('08:59:59', 22)), 'off');
+  assert.equal(power(s, at('09:00:00', 22)), 'on');
+  assert.notEqual(plantOverridesReleased(s.plantOverrides, s.config, at('07:00:00', 22)).handSwitches[plantA], undefined);
+  assert.equal(plantOverridesReleased(s.plantOverrides, s.config, at('09:00:00', 22)).handSwitches[plantA], undefined);
+});
+test('all off is released at each plug\'s own start', () => {
+  // Break: all off is released at the room's day start, or at the first or last of the plugs' starts.
+  const s = sources(s => { ownStart(own(9, 0))(s); s.plantOverrides.allOff = { since: at('10:00:00') }; });
+  assert.equal(power(s, at('07:30:00', 22), plantHouse), 'on');
+  assert.equal(power(s, at('08:59:59', 22)), 'off');
+  assert.equal(power(s, at('09:00:00', 22)), 'on');
+  assert.notEqual(plantOverridesReleased(s.plantOverrides, s.config, at('08:59:59', 22)).allOff, undefined);
+  assert.equal(plantOverridesReleased(s.plantOverrides, s.config, at('09:00:00', 22)).allOff, undefined);
+  assert.equal(allOffHolds(s.config, at('10:00:00'), at('08:59:59', 22)), true);
+});
+test('the switch-off time is counted from the own start', () => {
+  // Break: the switch-off is counted from the room's day start.
+  const s = sources(ownStart(own(6, 0)));
+  assert.deepEqual(plantSwitchOffTimes(s.config, at('12:00:00')), { [plantA]: at('18:00:00'), [plantHouse]: at('19:00:00') });
+  assert.equal(plantSwitchOffTimes(s.config, at('05:00:00'))[plantA], at('18:00:00', 20));
+});
+test('the clock wakes at a plug\'s own next start', () => {
+  // Break: only the day start and the switch-off are listed, so the clock never wakes at the own start and a hold sticks.
+  const s = sources(ownStart(own(5, 30)));
+  assert.ok(plantChanges(s.config, at('12:00:00')).includes(at('05:30:00', 22)));
+  assert.equal(plantChanges(sources(ownStart(own(5, 30))).config, at('12:00:00')).filter(t => t === at('05:30:00', 22)).length, 1);
+});
+test('an own start moved mid-day: later than now, the timer may switch off until it; earlier, a hand switch is released', () => {
+  // Break: the own start is not the one in force at once, so a moved start waits for the next day.
+  const later = sources(s => ownStart(own(15, 0))(s));
+  assert.equal(power(later, at('12:00:00')), 'off');
+  assert.equal(power(later, at('15:00:00')), 'on');
+  const earlier = sources(s => { ownStart(own(11, 0))(s); s.plantOverrides.handSwitches[plantA] = { power: 'off', since: at('10:00:00') }; });
+  assert.equal(power(earlier, at('12:00:00')), 'on');
 });

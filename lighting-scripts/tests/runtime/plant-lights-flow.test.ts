@@ -29,7 +29,7 @@ function house(change: (model: Model) => void = () => {}): Model {
   const model = structuredClone(syntheticHouse());
   model.overlays = { blocks: {}, remotes: [], lamps: [], roomPower: {}, switches: {} };
   model.modeOverlay = { active: false };
-  model.config.switches[plantA] = { kind: 'plant light', room: roomA, hours: { follows: 'house' } };
+  model.config.switches[plantA] = { kind: 'plant light', room: roomA, hours: { follows: 'house' }, start: { follows: 'house' } };
   model.plantOverrides = structuredClone(NO_PLANT_OVERRIDES);
   change(model);
   return model;

@@ -633,7 +633,7 @@ test("the mode's entry is the one the catalog's mode names, and it is written un
 // The plant lights' overrides: `plant_hand_switches` and `plant_all_off`, written by the port only.
 
 const plantA = id.switch('switch.plant_a');
-const configWithPlantA = { ...config, switches: { ...config.switches, [plantA]: { kind: 'plant light', room: roomA, hours: { follows: 'house' } } } } as typeof config;
+const configWithPlantA = { ...config, switches: { ...config.switches, [plantA]: { kind: 'plant light', room: roomA, hours: { follows: 'house' }, start: { follows: 'house' } } } } as typeof config;
 const plantsHeld = { handSwitches: { [plantA]: { power: 'on' as const, since: at(30) } }, allOff: { since: at(40) } };
 
 test('the stored plant overrides are read', () => {
