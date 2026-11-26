@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (default) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Grow-lamp plugs labelled `plant_light` switch on at their room's day start for a set number of hours, hold a hand switch or the all-off control until the next day start, and follow nothing else of the lighting.
+**Goal:** Grow-lamp plugs labelled `plant_light` switch on at their room's day start for a set number of hours, hold a hand switch or the all-off control until the plug's next start (its own start when set, else the room's day start), and follow nothing else of the lighting.
 
 **Architecture:** A switch's kind becomes an explicit union in `Config`. `switchPower` handles lighting switches only. A new concept module, `src/domain/plant-lights.ts`, computes each plant light's power from the clock, the config and two stored overrides, and shares only a day-start lookup with `schedule.ts`. The adapter reads the label and hours helpers into `Config`, stores the overrides in `sensor.ls_overrides`, reads `input_boolean.ls_plants_all_off` into a message and mirrors it back. The reconciler and switch sends are shared and unchanged.
 
@@ -804,7 +804,7 @@ Done by the operator through the Home Assistant MCP tools, after Task 8 is pushe
 
 - [ ] **Step 6: Add a view called "Plants" to the existing dashboard**, kept the way that dashboard is kept:
   1. the default hours (`input_number.ls_plant_hours`);
-  2. one row per plug: the plug's power, its own-start switch and start time, its own-hours switch, its hours, and "switches off at": a template of today's start in force (its own start, else the day start) plus the hours in force, for the timer only;
+  2. one row per plug: the plug's power, its own-start switch and start time, its own-hours switch, its hours, and "switches off at": the port's published `plant_switch_off` attribute on `sensor.ls_overrides` for that plug (ISO time in UTC, no key when the plug has no switch-off), shown as it is, with no recomputation in HA;
   3. `input_boolean.ls_plants_all_off`.
 
 - [ ] **Step 7: Live check**
@@ -813,7 +813,7 @@ Done by the operator through the Home Assistant MCP tools, after Task 8 is pushe
   3. Switch one plug by hand in HA: it stays, and `plant_hand_switches` holds it.
   4. Switch a room off from its remote and press a mode toggle: the plugs do not move.
   5. Restart the port: no plug changes.
-  6. Next morning: each plug went on at the day start, a hand switch from the day before was released, and the plug goes off after its hours. Report the times to the owner.
+  6. Next morning: each plug went on at the day start, a hand switch from the day before was released at that plug's start (its own, else the day start), and the plug goes off after its hours. Report the times to the owner.
 
 ---
 

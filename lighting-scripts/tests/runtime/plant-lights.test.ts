@@ -12,9 +12,10 @@ import { toInstant, toMinutes, toPlantHours, toRoomId, toSwitchId, toTimeOfDay }
 import { syntheticHouse } from './fixtures/synthetic-house.ts';
 
 /**
- * Plant lights: each is on from its room's day start for its hours, and a hand
- * switch or the all-off hold keeps it as set until its next day start. Only
- * `dayStarts` is shared with the schedule.
+ * Plant lights: each is on from its start for its hours (its own start when it
+ * has one, else its room's day start), and a hand switch or the all-off hold
+ * keeps it as set until its next start. Only `dayStarts` (day starts) and
+ * `fixedDayStarts` (own starts) are shared with the schedule.
  *
  * The synthetic house in UTC from Monday 2026-09-21: the day starts at 07:00
  * (09:00 at the weekend; the 26th is a Saturday). Plant hours are 12. `plantA`
