@@ -215,6 +215,7 @@ pkgsSystem.testers.runNixOSTest {
       services.lighting-port = {
         enable = true;
         repository = "file://${origin}";
+        inherit branch;
         haTokenFile = config.age.secrets.lighting-port-ha-token.path;
         operators = [ "jonathan" ];
       };

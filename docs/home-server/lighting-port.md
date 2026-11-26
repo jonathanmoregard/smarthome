@@ -25,8 +25,7 @@ NixOS provides Node 22, the `lighting-port` user and the unit, never the code.
 The port reaches Home Assistant at `http://127.0.0.1:8123`.
 
 The service clones the checkout only when `src` does not exist, from the branch
-in `services.lighting-port.branch` (today `feature/typescript-lighting-scripts`;
-`main` once the port is merged). The service runs `npm ci --ignore-scripts` in
+in `services.lighting-port.branch` (`main`). The service runs `npm ci --ignore-scripts` in
 `lighting-scripts/` when `node_modules` is missing or `package-lock.json`
 changed, on its next start. It runs no dependency install scripts, because
 the process can read the Home Assistant token; the port's dependencies have
@@ -67,10 +66,8 @@ checkout is anywhere else, forces it there (`git checkout --force -B`):
    runs at the end of a run, in the foreground, when git finds it due. The
    follower never ends `failed`, and it is not a deploy health unit.
 5. A branch that no longer exists on origin freezes the checkout where it is,
-   and every run logs `branch <name> no longer exists on origin`. When the
-   port's pull request is merged and `feature/typescript-lighting-scripts` is
-   deleted, set `services.lighting-port.branch = "main"` in the same change
-   (or before deleting the branch); until that deploys, pushes reach nothing.
+   and every run logs `branch <name> no longer exists on origin`, until
+   `services.lighting-port.branch` names a branch that does and that deploys.
 
 ```sh
 journalctl -u lighting-port-follow -f              # what it fetched, discarded, restarted
