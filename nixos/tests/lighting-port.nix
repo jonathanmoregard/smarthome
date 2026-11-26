@@ -33,12 +33,23 @@
 #     a host whose watcher dies alone, before the unit backs off;
 #   - starting over from a fresh clone as the docs say carries the catalog
 #     and the journal into it, still the service's;
-#   - an existing checkout is never pulled or reset; `npm ci` reruns only
-#     when package-lock.json changes, and never runs lifecycle scripts;
-#   - the operator, as a member of the group, edits the env file and the
-#     checkout without sudo; git trusts the checkout only as lighting-port,
-#     which can write its .git/config; a file git rewrites when run as the
-#     docs say (sudo -u lighting-port) stays editable by the operator.
+#   - the checkout follows its branch (lighting-port-follow): a pushed
+#     commit arrives, a tracked local edit and a local branch are discarded,
+#     and .runtime (catalog, journal), node_modules and untracked files
+#     stay. The unit is restarted when the update changes what the watcher
+#     does not watch (lighting-scripts outside src/), or package-lock.json
+#     differs from what is installed; not for src/ or anything outside
+#     lighting-scripts, never while an install runs, and once per
+#     package-lock.json. A run cut off before its restart restarts on the
+#     next run; a checkout that keeps failing restarts nothing until it gets
+#     through. Git's upkeep after a fetch runs to its end instead of being
+#     killed with the run. Nothing before the clone, an unreachable origin
+#     or a stop in the middle of a fetch fails it;
+#   - `npm ci` reruns only when package-lock.json changes, and never runs
+#     lifecycle scripts;
+#   - the operator, as a member of the group, writes the env file and the
+#     catalog without sudo; git trusts the checkout only as lighting-port,
+#     which can write its .git/config.
 #
 #   nix build --no-link -L .#checks.x86_64-linux.lighting-port
 {
@@ -301,13 +312,48 @@ pkgsSystem.testers.runNixOSTest {
     def journal_since(marker):
         return f"journalctl -u lighting-port.service -o cat --no-pager --since @{marker}"
 
+    # journald reads a unit's output asynchronously: a read that is not
+    # retried syncs the journal first, so what was written is in it.
     def installs():
         return int(machine.succeed(
-            "journalctl -u lighting-port.service -o cat --no-pager | "
+            "journalctl --sync && journalctl -u lighting-port.service -o cat --no-pager | "
             "grep -cF 'lighting-port: running npm ci' || true"
         ).strip())
 
+    def follow_show(prop):
+        return machine.succeed(f"systemctl show lighting-port-follow.service -P {prop}").strip()
+
+    # One run of the follower, started by hand: its timer is stopped below, so
+    # a run never lands in the middle of a step. A oneshot, so the start
+    # returns once the run and its restart decision are over.
+    def follow():
+        machine.succeed("systemctl start lighting-port-follow.service", timeout=240)
+        # The start returns once the run is over; anything the run left
+        # behind is stopped after that.
+        machine.wait_until_succeeds(
+            "systemctl show lighting-port-follow.service -P ActiveState | grep -vx deactivating",
+            timeout=120,
+        )
+        assert follow_show("Result") == "success", follow_show("Result")
+        assert follow_show("ActiveState") == "inactive", follow_show("ActiveState")
+
+    def follow_logged(text):
+        machine.succeed(
+            "journalctl --sync && journalctl -u lighting-port-follow.service -o cat --no-pager | "
+            f"grep -F {shlex.quote(text)}"
+        )
+
+    def stop_follow_timer():
+        machine.succeed("systemctl is-active lighting-port-follow.timer")
+        machine.succeed("systemctl stop lighting-port-follow.timer")
+
     machine.wait_for_unit("multi-user.target")
+    # The follower runs from its timer, which runs from boot.
+    stop_follow_timer()
+    # Before the first clone there is nothing to follow, and that is no
+    # failure.
+    follow()
+    follow_logged("lighting-port-follow: no checkout at ${src} yet")
     machine.succeed("test \"$(stat -c '%U:%G %a' /var/lib/lighting-port)\" = 'lighting-port:lighting-port 2770'")
     machine.succeed("test \"$(stat -c '%U:%G %a' /run/agenix/lighting-port-ha-token)\" = 'lighting-port:lighting-port 400'")
 
@@ -531,6 +577,7 @@ pkgsSystem.testers.runNixOSTest {
     machine.crash()
     machine.start()
     machine.wait_for_unit("multi-user.target")
+    stop_follow_timer()
     machine.wait_until_succeeds("test -s ${scripts}/.runtime/record.json", timeout=90)
     machine.fail("test -e /run/systemd/system/lighting-port.service.d/widened.conf")
     marker = machine.succeed("date +%s").strip()
@@ -545,39 +592,338 @@ pkgsSystem.testers.runNixOSTest {
     as_operator("printf 'no\\n' > ${scripts}/.runtime/crash")
     machine.wait_until_succeeds("test -s ${scripts}/.runtime/record.json", timeout=90)
 
-    # The checkout is the operator's working copy: a local edit and a newer
-    # origin commit both survive a restart untouched. Git trusts it only as
-    # lighting-port: anyone who can write .git/config could otherwise run
-    # commands as whoever runs git there.
-    head = as_service("git -C ${src} rev-parse HEAD").strip()
-    as_operator("printf 'local edit\\n' >> ${scripts}/scripts/dev.mjs.note")
+    # The checkout follows its branch on origin, and is forced to it. This
+    # inverts what was pinned here before (an existing checkout was never
+    # pulled or reset): the server's checkout is no longer edited in place.
+    # Git trusts the checkout only as lighting-port: anyone who can write
+    # .git/config could otherwise run commands as whoever runs git there.
     machine.fail("git config --system --get-all safe.directory")
-    machine.fail("runuser -u jonathan -- git -C ${src} status --porcelain")
-    as_service("git -C ${src} status --porcelain")
-    machine.succeed(
-        "printf 'upstream\\n' > /tmp/work/upstream && "
-        "git -C /tmp/work -c user.name=t -c user.email=t@example.invalid add -A && "
-        "git -C /tmp/work -c user.name=t -c user.email=t@example.invalid commit -q -m upstream && "
-        # The origin belongs to lighting-port, and git will not push into a
-        # repository another user owns, so root takes it back for the push.
-        "chown -R root:root ${origin} && "
-        "git -C /tmp/work push -q ${origin} ${branch} && "
-        "chown -R lighting-port:lighting-port ${origin}"
-    )
+
+    def push(change, message):
+        machine.succeed(
+            f"cd /tmp/work && {change} && "
+            "git -c user.name=t -c user.email=t@example.invalid add -A && "
+            f"git -c user.name=t -c user.email=t@example.invalid commit -q -m {shlex.quote(message)} && "
+            # The origin belongs to lighting-port, and git will not push into
+            # a repository another user owns, so root takes it back for the
+            # push.
+            "chown -R root:root ${origin} && "
+            "git push -q ${origin} ${branch} && "
+            "chown -R lighting-port:lighting-port ${origin}"
+        )
+        return machine.succeed("git -C /tmp/work rev-parse HEAD").strip()
+
+    def head():
+        return as_service("git -C ${src} rev-parse HEAD").strip()
+
+    def lock_installed():
+        machine.wait_until_succeeds(
+            "test \"$(cat ${scripts}/node_modules/.lighting-port-lock.sha256)\" = "
+            "\"$(sha256sum ${scripts}/package-lock.json | cut -d' ' -f1)\"",
+            timeout=120,
+        )
+
+    # One follower run, and whether it restarted the unit. The root part
+    # logs its restart before it asks for it, within the run, so that run's
+    # journal says whether it did, however slow the stop. The stand-in
+    # watcher writes its record once, at its start: one that fills again
+    # shows the restart happened.
+    def follow_restarted():
+        started = show("ExecMainStartTimestampMonotonic")
+        machine.succeed(
+            "cp ${scripts}/.runtime/record.json /tmp/record.kept && "
+            ": > ${scripts}/.runtime/record.json"
+        )
+        follow()
+        run = machine.succeed(
+            "journalctl --sync && "
+            f"journalctl _SYSTEMD_INVOCATION_ID={follow_show('InvocationID')} -o cat --no-pager"
+        )
+        asked = "lighting-port-follow: restarting lighting-port.service for the update" in run
+        if asked:
+            machine.wait_until_succeeds("test -s ${scripts}/.runtime/record.json", timeout=90)
+            assert show("ExecMainStartTimestampMonotonic") != started
+        else:
+            assert show("ExecMainStartTimestampMonotonic") == started
+            machine.succeed("cat /tmp/record.kept > ${scripts}/.runtime/record.json")
+        return asked, run
+
+    def follow_restarts(restarted):
+        asked, run = follow_restarted()
+        assert asked == restarted, run
+
+    # A pushed commit arrives. It changes nothing the watcher does not watch
+    # (a file outside lighting-scripts, a file under src/), so the unit is
+    # not restarted. Ignored and untracked files stay.
+    as_service("printf 'kept\\n' > ${scripts}/.runtime/journal.json")
+    as_service("printf 'untracked\\n' > ${scripts}/untracked.note")
     before = installs()
-    restart_watcher()
-    assert as_service("git -C ${src} rev-parse HEAD").strip() == head
-    machine.succeed("grep -Fx 'local edit' ${scripts}/scripts/dev.mjs.note")
-    machine.succeed("test ! -e ${src}/upstream")
+    target = push(
+        "printf 'upstream\\n' > upstream && mkdir -p lighting-scripts/src && "
+        "printf 'export {};\\n' > lighting-scripts/src/port.ts",
+        "upstream",
+    )
+    follow_restarts(False)
+    assert head() == target
+    machine.succeed("grep -Fx upstream ${src}/upstream")
+    machine.succeed("grep -Fx kept ${scripts}/.runtime/journal.json")
+    machine.succeed("test -s ${scripts}/.runtime/catalog.json")
+    machine.succeed("test -L ${scripts}/node_modules/stand-in-dep")
+    machine.succeed("grep -Fx untracked ${scripts}/untracked.note")
+    follow_logged("lighting-port-follow: updating ${src} to " + target)
     assert installs() == before, "npm ci ran again with an unchanged package-lock.json"
 
-    # Git run in the checkout as the docs say (sudo -u lighting-port) leaves
-    # a file it rewrites editable by the operator, as the unit's own writes
-    # are.
-    as_operator("printf 'drift\\n' >> ${scripts}/.gitignore")
-    machine.succeed("sudo -u lighting-port git -C ${src} checkout -- lighting-scripts/.gitignore")
-    machine.succeed("test \"$(stat -c '%U:%G %a' ${scripts}/.gitignore)\" = 'lighting-port:lighting-port 660'")
-    as_operator("printf '# edited in place\\n' >> ${scripts}/.gitignore")
+    # A tracked local edit is discarded, and logged with its path, even with
+    # nothing new on origin. Under src/, it needs no restart.
+    as_service("printf 'local edit\\n' >> ${scripts}/src/port.ts")
+    follow_restarts(False)
+    machine.succeed("test \"$(cat ${scripts}/src/port.ts)\" = 'export {};'")
+    follow_logged("lighting-port-follow: discarding local edits to: lighting-scripts/src/port.ts")
+    assert head() == target
+
+    # So is a local branch with a commit of its own: the checkout goes back
+    # to the followed branch, at origin.
+    as_service(
+        "cd ${src} && git checkout -q -b elsewhere && "
+        "printf 'local commit\\n' >> lighting-scripts/src/port.ts && "
+        "git -c user.name=t -c user.email=t@example.invalid commit -q -am local"
+    )
+    follow_restarts(False)
+    assert head() == target
+    assert as_service("git -C ${src} symbolic-ref --short HEAD").strip() == "${branch}"
+
+    # A change outside src/, which the watcher does not watch, restarts the
+    # unit; with package-lock.json unchanged, npm ci does not rerun.
+    before = installs()
+    target = push("printf 'export {};\\n' > lighting-scripts/scripts/helper.mjs", "helper")
+    follow_restarts(True)
+    assert head() == target
+    follow_logged("lighting-port-follow: the update changes lighting-scripts outside src/")
+    follow_logged("lighting-port-follow: restarting lighting-port.service for the update")
+    running()
+    assert installs() == before, "npm ci ran again with an unchanged package-lock.json"
+
+    # A changed package-lock.json restarts the unit, which installs it. Once
+    # installed, the next run has nothing to do.
+    before = installs()
+    target = push(
+        "sed -i 's/\"requires\": true/\"requires\": true, \"x-pushed\": 1/' "
+        "lighting-scripts/package-lock.json",
+        "lock 1",
+    )
+    follow_restarts(True)
+    assert head() == target
+    lock_installed()
+    assert installs() == before + 1
+    follow_restarts(False)
+
+    # No stamp means an install is running (npm ci empties node_modules
+    # first), which a restart would kill: no restart, even for a new
+    # package-lock.json. A stamp that differs from package-lock.json
+    # restarts the unit, which installs it.
+    as_service(
+        "mv ${scripts}/node_modules/.lighting-port-lock.sha256 /var/lib/lighting-port/stamp.kept"
+    )
+    target = push(
+        "sed -i 's/\"x-pushed\": 1/\"x-pushed\": 2/' lighting-scripts/package-lock.json",
+        "lock 2",
+    )
+    follow_restarts(False)
+    assert head() == target
+    # The restart is owed all the same: the install may end before the
+    # checkout writes, and start the watcher from the files it replaced.
+    owed = machine.succeed("cat /var/lib/lighting-port/.follow-restart-owed").strip()
+    assert owed == "owed", f"no restart owed for a change made during an install: {owed}"
+    as_service(
+        "mv /var/lib/lighting-port/stamp.kept ${scripts}/node_modules/.lighting-port-lock.sha256"
+    )
+    before = installs()
+    follow_restarts(True)
+    follow_logged("lighting-port-follow: package-lock.json differs from what is installed")
+    lock_installed()
+    assert installs() == before + 1
+
+    # A run cut off between its update and its restart leaves its request
+    # behind, newer than the unit's start: the next run restarts the unit.
+    as_service("touch /var/lib/lighting-port/.follow-restart")
+    follow_restarts(True)
+
+    # An unreachable origin is logged and tried again next minute, never a
+    # failure, and leaves the checkout as it is.
+    machine.succeed("mv ${origin} ${origin}.away")
+    follow()
+    follow_logged("lighting-port-follow: fetching ${branch} from origin failed")
+    assert head() == target
+    machine.succeed("mv ${origin}.away ${origin}")
+
+    # Nor is a stop in the middle of a fetch (here one that takes 20 s).
+    as_service(
+        "printf '%s\\n' '[protocol \"ext\"]' 'allow = always' "
+        "'[url \"ext::${slowUploadPack} %S ${origin}\"]' 'insteadOf = file://${origin}' "
+        "> /var/lib/lighting-port/.gitconfig"
+    )
+    machine.succeed("systemctl start --no-block lighting-port-follow.service")
+    machine.wait_until_succeeds("pgrep -u lighting-port -f slow-upload-pack", timeout=30)
+    machine.succeed("systemctl stop lighting-port-follow.service", timeout=60)
+    assert follow_show("Result") == "success", follow_show("Result")
+    assert follow_show("ActiveState") == "inactive", follow_show("ActiveState")
+
+    # A run that outlasts its bound (150 s; 5 s in a copy of the script,
+    # against that 20 s fetch) is stopped by the script itself and exits 0,
+    # before systemd's start timeout would leave the unit failed.
+    follow_exec = machine.succeed(
+        "systemctl cat lighting-port-follow.service | sed -n 's/^ExecStart=//p'"
+    ).strip()
+    machine.succeed(
+        "mkdir -p /var/lib/lighting-port-widened && "
+        f"sed 's/^run_seconds=.*/run_seconds=5/' {follow_exec} > /var/lib/lighting-port-widened/follow && "
+        "chmod 555 /var/lib/lighting-port-widened/follow && "
+        "grep -qx 'run_seconds=5' /var/lib/lighting-port-widened/follow && "
+        "mkdir -p /run/systemd/system/lighting-port-follow.service.d && "
+        "printf '[Service]\\nExecStart=\\nExecStart=/var/lib/lighting-port-widened/follow\\n' "
+        "> /run/systemd/system/lighting-port-follow.service.d/bounded.conf && "
+        "systemctl daemon-reload"
+    )
+    follow()
+    follow_logged("lighting-port-follow: the run took longer than 5s; stopped it, trying again next minute")
+    machine.succeed(
+        ": > /run/systemd/system/lighting-port-follow.service.d/bounded.conf && systemctl daemon-reload"
+    )
+    as_service(": > /var/lib/lighting-port/.gitconfig")
+    follow()
+    assert head() == target
+
+    # A git lock left by a run killed outright (a power cut) is moved aside
+    # once it is older than any run, instead of failing every later run for
+    # good. A fresh one may be a git still running, and is left alone.
+    target_before = target
+    target = push("printf 'export const locked = 1;\\n' > lighting-scripts/src/port.ts", "locked")
+    as_service("touch ${src}/.git/index.lock")
+    follow()
+    assert head() == target_before
+    machine.succeed("test -e ${src}/.git/index.lock")
+    as_service("touch -d '-10 min' ${src}/.git/index.lock")
+    follow()
+    assert head() == target
+    machine.succeed("test ! -e ${src}/.git/index.lock")
+    follow_logged("lighting-port-follow: moved a stale git lock aside: .git/index.lock")
+    machine.succeed("ls /var/lib/lighting-port/.stale-git-locks/*index.lock")
+
+    # A restart request dated in the future (a clock stepped back) is never
+    # newer than a start, so it would restart the unit every minute: it is
+    # ignored, and set back.
+    as_service("touch -d '2099-01-01' /var/lib/lighting-port/.follow-restart")
+    follow_restarts(False)
+    follow_logged("lighting-port-follow: the restart request was dated in the future; setting it back")
+    follow_restarts(False)
+
+    # A followed branch gone from origin (merged and deleted) says so, and
+    # leaves the checkout as it is until the option names another branch.
+    as_service("git -C ${origin} branch -m ${branch} gone")
+    follow()
+    follow_logged("lighting-port-follow: branch ${branch} no longer exists on origin")
+    assert head() == target
+    as_service("git -C ${origin} branch -m gone ${branch}")
+    follow()
+
+    # A checkout that keeps failing (here a directory under lighting-scripts
+    # outside src/ that it cannot write; a git lock not yet stale or a full
+    # disk do the same) never restarts the unit: a restart would land it on
+    # a half-updated tree, every minute. Once the checkout gets through, the
+    # unit restarts once.
+    target_before = target
+    target = push("printf 'export const two = 2;\\n' > lighting-scripts/scripts/helper.mjs", "helper 2")
+    mode = machine.succeed("stat -c %a ${scripts}/scripts").strip()
+    machine.succeed("chmod a-w ${scripts}/scripts")
+    stuck = [follow_restarted()[0] for _ in range(3)]
+    assert stuck == [False, False, False], f"restarts while the checkout fails: {stuck}"
+    # The failed checkout still moves the branch; the file is what is stale.
+    machine.succeed("test \"$(cat ${scripts}/scripts/helper.mjs)\" = 'export {};'")
+    machine.succeed(f"chmod {mode} ${scripts}/scripts")
+    follow_restarts(True)
+    assert head() == target
+    machine.succeed("test \"$(cat ${scripts}/scripts/helper.mjs)\" = 'export const two = 2;'")
+    follow_restarts(False)
+
+    # A run cut off after its checkout, before it asked for the restart it
+    # owed, leaves it owed: the next run, with nothing new, asks for it.
+    as_service("printf 'owed\\n' > /var/lib/lighting-port/.follow-restart-owed")
+    follow_restarts(True)
+    follow_restarts(False)
+
+    # An owed restart waits while an install runs (no stamp): the unit may
+    # have started on its own, from a checkout that failed half way, and a
+    # restart would kill its npm ci. Once the install is done, it is asked.
+    as_service(
+        "printf 'owed\\n' > /var/lib/lighting-port/.follow-restart-owed && "
+        "mv ${scripts}/node_modules/.lighting-port-lock.sha256 /var/lib/lighting-port/stamp.kept"
+    )
+    follow_restarts(False)
+    follow_restarts(False)
+    as_service(
+        "mv /var/lib/lighting-port/stamp.kept ${scripts}/node_modules/.lighting-port-lock.sha256"
+    )
+    follow_restarts(True)
+    follow_restarts(False)
+
+    # Git's own upkeep after a fetch (packing loose objects once there are
+    # more than gc.auto, 6700) gets done: started in the background, it
+    # would be killed with the rest of the run the moment the oneshot ends,
+    # leave the objects loose, and start over on every run. One push brings
+    # 20000 loose objects here (as many small fetches do over time); trace2
+    # records how each git process ended.
+    as_service(
+        "mkdir -p /var/lib/lighting-port/trace2 && "
+        "printf '%s\\n' '[trace2]' 'eventTarget = /var/lib/lighting-port/trace2' "
+        "> /var/lib/lighting-port/.gitconfig && "
+        "git -C ${src} config fetch.unpackLimit 1000000"
+    )
+    push("mkdir bulk && head -c 8000000 /dev/urandom | split -b 400 -a 5 - bulk/", "bulk")
+    target = push("mv bulk /tmp/bulk.aside", "bulk gone")
+
+    # The git processes of one run that did not end on their own. trace2
+    # writes one file per process, one JSON event per line; a process that
+    # ends normally writes `atexit`, one stopped by a signal does not.
+    def git_cut_off(run):
+        as_service(
+            f"mv /var/lib/lighting-port/trace2 /var/lib/lighting-port/trace2.{run} && "
+            "mkdir /var/lib/lighting-port/trace2"
+        )
+        events = [
+            json.loads(line)
+            for line in machine.succeed(
+                f"find /var/lib/lighting-port/trace2.{run} -type f -exec cat {{}} +"
+            ).splitlines()
+            if line.strip()
+        ]
+        started = {e["sid"]: e["argv"] for e in events if e["event"] == "start"}
+        ended = {e["sid"] for e in events if e["event"] == "atexit"}
+        return [" ".join(argv) for sid, argv in started.items() if sid not in ended]
+
+    def loose_objects():
+        counts = as_service("git -C ${src} count-objects -v")
+        fields = dict(line.split(": ", 1) for line in counts.splitlines())
+        return int(fields["count"])
+
+    git_cut_off("pushes")
+    for run in range(2):
+        follow()
+        cut_off = git_cut_off(run)
+        loose = loose_objects()
+        leftovers = machine.succeed(
+            "find ${src}/.git/objects/pack -name 'tmp_*' -o -name '.tmp-*'"
+        ).split()
+        print(f"git cut off: {cut_off}; loose objects: {loose}; temporary packs: {leftovers}")
+        assert cut_off == [], f"run {run}: git processes cut off by the end of the run: {cut_off}"
+        run_log = machine.succeed(
+            "journalctl --sync && "
+            f"journalctl _SYSTEMD_INVOCATION_ID={follow_show('InvocationID')} -o cat --no-pager"
+        )
+        assert "took longer than" not in run_log, f"run {run} hit its bound: {run_log}"
+    assert head() == target
+    assert loose < 6700, f"{loose} loose objects left after two runs"
+    assert leftovers == [], leftovers
+    as_service(": > /var/lib/lighting-port/.gitconfig && git -C ${src} config --unset fetch.unpackLimit")
 
     # node_modules the service cannot rewrite (npm run as the operator with
     # umask 022) is the operator's to fix, and says so, instead of an npm ci
