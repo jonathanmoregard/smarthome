@@ -1,0 +1,19 @@
+{
+  "name": "smarthome-scripts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.18" },
+  "scripts": {
+    "check": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json && node scripts/json-edges.mjs && node scripts/domain-types.mjs && node scripts/domain-words.mjs && node scripts/item-order.mjs && node scripts/domain-imports.mjs",
+    "fix:item-order": "node scripts/item-order.mjs --fix",
+    "build": "tsc",
+    "test": "node --experimental-strip-types --test --experimental-test-isolation=none tests/runtime/*.test.ts",
+    "dev": "node scripts/dev.mjs",
+    "audit:responses": "python3 scripts/audit_response_consumers.py",
+    "e2e": "python3 tests/e2e/gate.py",
+    "verify": "npm run check && npm test && npm run e2e"
+  },
+  "dependencies": { "home-assistant-js-websocket": "9.7.1" },
+  "devDependencies": { "@types/node": "22.19.17", "typescript": "5.9.3" }
+}

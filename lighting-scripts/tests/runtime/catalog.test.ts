@@ -1,0 +1,220 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { parseCatalog, parseDeployedCatalog, emptyCatalog } from '../../src/adapter/codecs/catalog.ts';
+import type { JsonObject } from '../../src/adapter/ha-client.ts';
+import { toCatalogEffectName } from '../../src/adapter/codecs/ids.ts';
+
+/**
+ * The runtime catalog is the lighting system's registry document: it maps
+ * logical lamps to physical members, names the effect renderers, and carries
+ * the MQTT topics. It arrives as JSON from three edges (the catalog file, the
+ * HA snapshot, the parity harness RPC) and was previously traversed raw by ten
+ * domain modules, each re-validating a different subset.
+ *
+ * These tests pin the parse decisions that are NOT mechanical, because each one
+ * is a behaviour the domain depends on.
+ */
+
+const minimal: JsonObject = { members: {}, groups: {}, effects: {} };
+const PULSE = toCatalogEffectName('Pulse'), CANDLE = toCatalogEffectName('Candle');
+
+test('a non-mapping members rejects the whole catalog', () => {
+  // Break: a silent {} here makes every lamp lose its physical members, so
+  // effects_frame_plan emits nothing and the lights simply stop responding.
+  assert.throws(() => parseCatalog({ ...minimal, members: 0 }), /members must be an object/);
+  assert.throws(() => parseCatalog({ ...minimal, members: null }), /members must be an object/);
+  assert.throws(() => parseCatalog({ ...minimal, members: [] }), /members must be an object/);
+});
+
+test('a members entry that is not a list of strings rejects the catalog', () => {
+  // Break: a non-string member flows into an MQTT topic lookup and publishes
+  // to `undefined`, which silently addresses nothing.
+  assert.throws(() => parseCatalog({ ...minimal, members: { 'light.a': 'light.a_1' } }), /members/);
+  assert.throws(() => parseCatalog({ ...minimal, members: { 'light.a': [1] } }), /members/);
+  assert.deepEqual(parseCatalog({ ...minimal, members: { 'light.a': ['light.a_1'] } }).members,
+    { 'light.a': ['light.a_1'] });
+});
+
+test('an effect without a renderer is accepted, because nothing renders frames', () => {
+  // Regression, found by the parity gate on lighting-algebra/tests/test_integration.py.
+  // An earlier revision required `renderer` here. That promoted a mid-frame
+  // error into a load-time one for every catalog reader, and `ls_apply` — which
+  // never renders a frame — began failing on a real document whose
+  // `effects.Breathe` (since removed) carries no renderer: 8 failures against
+  // 20 clean reference tests. The bulbs run the effect, so no path reads a
+  // renderer at all.
+  assert.deepEqual(parseCatalog({ ...minimal, effects: { Pulse: {} } }).effects[PULSE], { channels: [] });
+  assert.deepEqual(parseCatalog({ ...minimal, effects: { Candle: { renderer: 7 } } }).effects[CANDLE], { channels: [] });
+  const parsed = parseCatalog({ ...minimal, effects: { Candle: { renderer: 'fx_candle', channels: ['brightness'] } } });
+  assert.deepEqual(parsed.effects[CANDLE], { channels: ['brightness'] });
+});
+
+test('an effect may declare no channels, and that is an empty list', () => {
+  // state-store treats a missing channel list as absence, not as an error.
+  assert.deepEqual(parseCatalog({ ...minimal, effects: { Candle: { renderer: 'fx' } } }).effects[CANDLE],
+    { channels: [] });
+});
+
+test('an absent ui_choices stays absent so the two-choice fallback still fires', () => {
+  // effects_ui_catalog publishes ['Normal Light', 'Candle'] when the catalog
+  // names no choices. An empty list would publish an empty effect_list and
+  // strip the effect picker from every HA light.
+  assert.equal(parseCatalog(minimal).ui_choices, undefined);
+  assert.deepEqual(parseCatalog({ ...minimal, ui_choices: ['Normal Light'] }).ui_choices, ['Normal Light']);
+  assert.throws(() => parseCatalog({ ...minimal, ui_choices: 'Normal Light' }), /ui_choices/);
+});
+
+test('fields no consumer raises on default to empty instead of absent', () => {
+  // Each of these is only iterated or looked up, and every consumer already
+  // treats a missing one as nothing. Collapsing absence into emptiness removes
+  // an optional the domain would otherwise re-test at each of its loops.
+  const parsed = parseCatalog(minimal);
+  assert.deepEqual(parsed.baseline_groups, {});
+  assert.deepEqual(parsed.multicast, []);
+  assert.deepEqual(parsed.topics, {});
+  assert.deepEqual(parsed.processors, {});
+  assert.deepEqual(parsed.remotes, {});
+});
+
+test('the two row arrays keep absence distinct from emptiness', () => {
+  // Break: effects_ui_sync raises `Missing runtime catalog.ui_rows` when the
+  // document names no rows, while ls_native_controls reads the same field
+  // leniently and treats absence as no rows. A [] default here would silence
+  // the first and make a catalog that forgot its UI rows publish nothing at
+  // all instead of complaining.
+  const parsed = parseCatalog(minimal);
+  assert.equal(parsed.ui_rows, undefined);
+  assert.equal(parsed.ui_discovery, undefined);
+  assert.deepEqual(parseCatalog({ ...minimal, ui_rows: [] }).ui_rows, []);
+  assert.throws(() => parseCatalog({ ...minimal, ui_rows: {} }), /ui_rows must be an array/);
+});
+
+test('the discovery rows are parsed once, at load, a malformed one passed over', () => {
+  // Closeout r2 B11. Break: ui_discovery stays raw JSON, re-read every turn by the dashboard sync.
+  const config = { unique_id: 'ep_room_a_all', name: 'Room A' };
+  const parsed = parseCatalog({ ...minimal, ui_discovery: [{ entity: 'light.ep_room_a_all', config }, { entity: 'light.no_id', config: {} }, 'x'] });
+  assert.deepEqual(parsed.ui_discovery, [{ entity: 'light.ep_room_a_all', uniqueId: 'ep_room_a_all', config }]);
+});
+
+test('multicast records are carried through unvalidated', () => {
+  // effects_group_plan filters candidate groups with `continue`: an unverified
+  // group, a missing topic or a one-member group is skipped, not rejected.
+  // Parsing those strictly here would turn a silent skip into a raise and
+  // break grouping for every catalog that contains one pending group.
+  const groups = [{ verified: false }, { topic: 7 }, { members: ['light.a'] }, 'not even a record'];
+  assert.deepEqual(parseCatalog({ ...minimal, multicast: groups }).multicast, groups);
+  // The field itself must still be a list.
+  assert.throws(() => parseCatalog({ ...minimal, multicast: {} }), /multicast must be an array/);
+});
+
+test('unknown document fields are absent from the parsed view', () => {
+  // The parsed catalog is a projection of what the lighting logic reads, not a
+  // mirror of the file. Unknown fields stay in the raw document that the
+  // name-keyed effects_catalog shim serves, so the HA and parity edges are
+  // unaffected, but they never reach domain logic.
+  // `phases` and `renderer` fed the software frame renderers, which are gone:
+  // the bulbs run every effect, so a malformed one must not fail the load.
+  const parsed = parseCatalog({ ...minimal, budget: 12, phases: { 'light.a': null }, something_new: { a: 1 } });
+  assert.ok(!Object.hasOwn(parsed, 'something_new'));
+  assert.ok(!Object.hasOwn(parsed, 'budget'));
+  assert.ok(!Object.hasOwn(parsed, 'phases'));
+});
+
+test('topic values must be strings', () => {
+  // Topics are published to; a number would reach the MQTT layer as a topic of `7`.
+  assert.throws(() => parseCatalog({ ...minimal, topics: { 'light.a_1': 7 } }), /topics/);
+  assert.deepEqual(parseCatalog({ ...minimal, topics: { 'light.a_1': 'zigbee2mqtt/a' } }).topics,
+    { 'light.a_1': 'zigbee2mqtt/a' });
+});
+
+test('a processor may omit its remote adjustment, and a present one must be a string', () => {
+  // resolution defaults the adjustment per processor name when the key is
+  // absent, so absence is legal and must stay distinguishable. The record's
+  // other document fields are not parsed because nothing reads them: captured
+  // fixtures omit `animated`, and requiring it rejected a catalog that works.
+  const absent = parseCatalog({ ...minimal, processors: { 'Normal light': {} } });
+  assert.equal(absent.processors['Normal light']?.remote_adjustment, undefined);
+  assert.deepEqual(parseCatalog({ ...minimal, processors: { 'Normal light': { animated: 'not a boolean' } } }).processors,
+    { 'Normal light': { remote_adjustment: undefined } });
+  assert.throws(() => parseCatalog({ ...minimal, processors: { Normal: { remote_adjustment: 3 } } }),
+    /remote_adjustment/);
+});
+
+test('a remote must name its device and source', () => {
+  // The engine spreads the remote record into the gesture handler's arguments.
+  assert.deepEqual(parseCatalog({ ...minimal, remotes: { studio: { device_id: 'abc', source: 'light.studio' } } }).remotes,
+    { studio: { device_id: 'abc', source: 'light.studio' } });
+  assert.throws(() => parseCatalog({ ...minimal, remotes: { studio: { source: 'light.studio' } } }), /device_id/);
+});
+
+test('a partial catalog parses, because requiring a registry is the loading edge\'s job', () => {
+  // parseDeployedCatalog, which main.ts loads with, refuses a catalog without
+  // members, groups and effects. Repeating that rule here
+  // would reject the single-script snapshots that carry only the collection
+  // under test, and buy nothing: every consumer of the parsed view iterates or
+  // looks up, so an absent collection and an empty one are the same to it.
+  assert.deepEqual(parseCatalog({}).members, {});
+  assert.deepEqual(parseCatalog({ members: { 'light.a': ['light.a_1'] } }).effects, {});
+  // A present-but-wrong collection is still an error.
+  assert.throws(() => parseCatalog({ groups: 7 }), /groups must be an object/);
+});
+
+test('a missing catalog is an explicit empty catalog, not a parse error', () => {
+  // Most scripts never read the catalog, and the unit suite drives them with
+  // snapshots that omit it. emptyCatalog() names that state so the context can
+  // hold a real Catalog rather than an optional one.
+  const empty = emptyCatalog();
+  assert.deepEqual(empty.members, {});
+  assert.deepEqual(empty.effects, {});
+  assert.equal(empty.ui_choices, undefined);
+  assert.equal(empty.ui_rows, undefined);
+});
+
+test('a non-mapping document is rejected', () => {
+  assert.throws(() => parseCatalog([]), /catalog must be an object/);
+  assert.throws(() => parseCatalog('{}'), /catalog must be an object/);
+  assert.throws(() => parseCatalog(null), /catalog must be an object/);
+});
+
+test('a bulb listed under two lamps rejects the catalog, naming the bulb and both lamps', () => {
+  // Break: accepting shared membership lets two lamps send one bulb different
+  // lights in the same dispatch; the group planner then drops the bulb's row as
+  // a conflict and the bulb gets nothing. A bulb belongs to at most one lamp.
+  assert.throws(() => parseCatalog({ ...minimal, members: { 'light.a': ['light.bulb_1'], 'light.b': ['light.b_1', 'light.bulb_1'] } }),
+    /light\.bulb_1.*light\.a.*light\.b/);
+});
+
+test('a lamp listing the same bulb twice still owns it alone', () => {
+  // The bulb still belongs to one lamp; only membership across lamps is rejected.
+  assert.deepEqual(parseCatalog({ ...minimal, members: { 'light.a': ['light.a_1', 'light.a_1'] } }).members,
+    { 'light.a': ['light.a_1', 'light.a_1'] });
+});
+
+test('a catalog remote whose source spells a dashboard or native key is refused when the catalog is parsed', () => {
+  // Break: the source stays plain text, so the catalog loads and the refusal waits for the first press.
+  for (const source of ['ui:light.studio', 'native:room:studio']) {
+    assert.throws(() => parseCatalog({ ...minimal, remotes: { studio: { device_id: 'abc', source } } }),
+      /A remote source must not begin/, source);
+  }
+});
+
+test('a deployed catalog names its members, groups and effects', () => {
+  // Break: the live process starts on a catalog with no members (moved from main.ts's own checks into the codec).
+  assert.throws(() => parseDeployedCatalog({ groups: {}, effects: {} }), /catalog\.members must be an object/);
+  assert.throws(() => parseDeployedCatalog({ members: {}, effects: {} }), /catalog\.groups must be an object/);
+  assert.deepEqual(parseDeployedCatalog({ members: {}, groups: {}, effects: {}, mode: 'evening' }).members, {});
+});
+
+test("the catalog names the house's mode, and each name Home Assistant spells from it", () => {
+  // M5 carry-over: the mode's name is the household's, so it is configuration, not code. Break: a name built in.
+  assert.deepEqual(parseCatalog({ ...minimal, mode: 'evening' }).mode, {
+    name: 'evening', script: 'ls_evening_mode', switched: 'automation.lighting_schedule_evening_mode_switch',
+    mirror: 'input_boolean.ls_evening_mode_mirror',
+  });
+  assert.equal(parseCatalog(minimal).mode, undefined);
+  for (const name of ['', 'Evening', 'evening mode', 7]) {
+    assert.throws(() => parseCatalog({ ...minimal, mode: name }), /catalog\.mode/, String(name));
+  }
+  // Break: the live process starts with no mode, and every mode press is dropped as not an input.
+  assert.throws(() => parseDeployedCatalog({ members: {}, groups: {}, effects: {} }), /catalog\.mode must be/);
+});

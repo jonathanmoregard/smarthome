@@ -1,0 +1,7 @@
+{
+  "allow": [
+    { "file": "src/domain/lamp.ts", "symbol": "lampOf", "reason": "fixture: allowed by name" },
+    { "file": "src/domain/lamp.ts", "symbol": "gone", "reason": "fixture: covers a site that no longer exists" }
+  ],
+  "ceilings": []
+}

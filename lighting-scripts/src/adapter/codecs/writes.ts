@@ -1,0 +1,323 @@
+/**
+ * What a turn writes back to Home Assistant: the Model's changes through the
+ * M1 codecs (the overrides sensor, each changed remote's helpers, each changed
+ * lamp's and plug's profile store, a block light's store saved from the dashboard), and
+ * the dashboard view's changes (each scope's block selector, the mode mirror,
+ * and the live controls' sync messages, moved from `uiMessages`), and the
+ * proxies and discovered lights Home Assistant shows otherwise (the profile
+ * editors, each row's availability, the effect list). Nothing is written when
+ * nothing changed.
+ */
+import { isDeepStrictEqual } from 'node:util';
+import type { ControlShown, DashboardView } from '../../domain/dashboard.ts';
+import { savedLampProfile } from '../../domain/profiles.ts';
+import { entriesOf } from '../../domain/types/ids.ts';
+import type { Instant } from '../../domain/types/time.ts';
+import type { EntityState, JsonObject, JsonValue } from '../ha-client.ts';
+import type { HouseView } from './house.ts';
+import { roundEven } from '../../domain/blend.ts';
+import { lampReading, proxyKelvin, proxyShowsRgb, uiProfile } from './ui-state.ts';
+import { isObject, object } from './parse.ts';
+import { uiRowsOf } from './catalog.ts';
+import type { UiRow } from './catalog.ts';
+import { blockLightStore } from './config.ts';
+import type { BlockLight } from './config.ts';
+import { decodeLampProfile, encodeLampProfile } from './lamp-profiles.ts';
+import { profileStore } from './model.ts';
+import { storeKeys } from './overlay-key.ts';
+import { encodeOverrides, encodePlantSwitchOff } from './overrides-sensor.ts';
+import { PLANTS_ALL_OFF, plantsAllOffShown } from './inputs.ts';
+import { drives } from './rooms.ts';
+import type { Share } from './rooms.ts';
+import { encodeSwitchProfile } from './switch-profiles.ts';
+import { remoteHelperEntity, remoteHelperWrites } from './remote-helpers.ts';
+import type { HelperValue } from './remote-helpers.ts';
+import { nowText } from './time-text.ts';
+import { BLOCKS } from '../../domain/types/schedule.ts';
+import type { Block } from '../../domain/types/schedule.ts';
+import type { LampProfileChange } from '../../domain/profiles.ts';
+import type { Output } from '../encode.ts';
+import type { Model } from '../../domain/update.ts';
+
+/**
+ * The overrides sensor's revision and the attributes written over its stored ones. While the old scripts write the
+ * sensor too, `basis` is its `last_updated` as read, and the write is made only over that read.
+ */
+export type SensorWrite = { entity: string; revision: string; attributes: JsonObject; basis: string | undefined };
+
+/**
+ * The port's own changes to the overrides sensor, as the outbox holds them: each one key of a mapping attribute, set
+ * from `from` (as the read it was made over held it) to `to`, or removed (`to` none). Held key by key and not as whole
+ * attributes, so a write made again is laid over the freshest read, and a key the old scripts changed since is theirs.
+ */
+export type SensorChanges = { entity: string; revision: string; changes: readonly SensorKeyChange[] };
+/** Whether Home Assistant shows every change, or someone else's newer one to its key: the write has nothing left to do. */
+export function sensorSettled(write: SensorChanges, shown: EntityState | undefined, queuedAt: Instant): boolean {
+  return write.changes.every(change => isDeepStrictEqual(mapOf(shown, change.attribute)[change.key], change.to) || superseded(change, shown, queuedAt));
+}
+
+export type SensorKeyChange = { attribute: string; key: string; from: JsonValue | undefined; to: JsonValue | undefined };
+
+/**
+ * Whether someone else changed the change's key after it was queued (the sensor updated since, and the key holds
+ * neither what the change was made over nor what it writes): it is theirs, as for a helper write a newer change is.
+ */
+function superseded(change: SensorKeyChange, shown: EntityState | undefined, queuedAt: Instant): boolean {
+  const updated = shown?.last_updated === undefined ? NaN : Date.parse(shown.last_updated) / 1000, value = mapOf(shown, change.attribute)[change.key];
+  return Number.isFinite(updated) && updated > queuedAt && !isDeepStrictEqual(value, change.from) && !isDeepStrictEqual(value, change.to);
+}
+
+/**
+ * What an output leaves in Home Assistant once taken, as the entity it writes reports it: the sensor its revision and
+ * its attributes merged over the stored ones, a remote helper its value as text or its timer's run, a store its text,
+ * a block selector its option, the mode mirror and the all-off control their power. A bulb's publish, a switch's
+ * power (only the switch's own report moves it) and an MQTT message to the dashboard leave nothing: what they reach
+ * reports back.
+ */
+export type Left = { entity: string; state: string; attributes: JsonObject | undefined };
+
+export function leftBy(output: Output): Left | undefined {
+  const text = (entity: string, state: string): Left => ({ entity, state, attributes: undefined });
+  switch (output.kind) {
+    case 'publish': case 'switch': return undefined;
+    case 'sensor': return { entity: output.write.entity, state: output.write.revision, attributes: output.write.attributes };
+    case 'helper': {
+      const value = output.write.value;
+      return text(output.write.entity, value.kind === 'timer' ? (value.running ? 'active' : 'idle') : String(value.value));
+    }
+    case 'store': return text(output.write.entity, output.write.text);
+    case 'dashboard': {
+      const write = output.write;
+      if (write.kind === 'block selector') return text(write.entity, write.option);
+      return write.kind === 'mode mirror' || write.kind === 'plants all-off' ? text(write.entity, write.on ? 'on' : 'off') : undefined;
+    }
+  }
+}
+
+/** One remote helper of a room set to a value. */
+export type HelperWrite = { entity: string; value: HelperValue };
+
+/** A store helper (a lamp's profile, or a block's light) set to its new text. */
+export type StoreWrite = { entity: string; text: string };
+
+/** A block light's store saved from the dashboard: the save written over the stored text. */
+export function configStoreWrite(light: BlockLight, change: LampProfileChange, house: HouseView): StoreWrite {
+  const entity = blockLightStore(light), found = storeText(house, entity);
+  return { entity, text: encodeLampProfile(savedLampProfile(decodeLampProfile(found), change), found) };
+}
+
+export type DashboardWrite =
+  | { kind: 'block selector'; entity: string; option: string }
+  | { kind: 'mode mirror'; entity: string; on: boolean }
+  /** The all-off control set to whether every plant light is held off. */
+  | { kind: 'plants all-off'; entity: string; on: boolean }
+  /** One retained MQTT message to a control's proxy. */
+  | { kind: 'control sync'; topic: string; payload: string }
+  /** A discovered light's config republished, retained, with the catalog's effect choices. */
+  | { kind: 'discovery'; topic: string; payload: string };
+
+/**
+ * What the proxies and the discovered lights show otherwise, moved from
+ * `uiMessages` and `effects_ui_catalog`. It covers:
+ * 1. each row's availability, from whether its source reports on or off;
+ * 2. each available profile editor's power, effect, brightness and colour,
+ *    as its source light shows them;
+ * 3. each discovered light's effect list: the catalog's choices (a light Home
+ *    Assistant does not report is left until it does).
+ *
+ * Each is compared with what Home Assistant shows, as today, so nothing is
+ * sent when the proxy already shows it. `force` (a start) sends every
+ * row's availability and every editor's channels. A live control's channels
+ * come from the dashboard view ({@link dashboardWrites}). A malformed row,
+ * or a channel a row has no topic for, is passed over.
+ */
+export function uiSyncWrites(house: HouseView, force: boolean): DashboardWrite[] {
+  const writes: DashboardWrite[] = [];
+  for (const row of uiRowsOf(house.catalog)) if (row.proxy !== undefined) writes.push(...rowSync(house, row, row.proxy, force));
+  const choices = house.catalog.ui_choices === undefined ? DEFAULT_CHOICES : house.catalog.ui_choices;
+  for (const row of house.catalog.ui_discovery === undefined ? [] : house.catalog.ui_discovery) {
+    if (house.state[row.entity] === undefined || isDeepStrictEqual(house.attr(row.entity, 'effect_list'), choices)) continue;
+    const topic = `homeassistant/light/${row.uniqueId}/config`;
+    writes.push({ kind: 'discovery', topic, payload: JSON.stringify({ ...row.config, effect_list: [...choices] }) });
+  }
+  return writes;
+}
+
+/** One row's availability and, for an available profile editor, each channel its proxy shows otherwise (today's rules). */
+function rowSync(house: HouseView, row: UiRow, proxy: string, force: boolean): DashboardWrite[] {
+  const writes: DashboardWrite[] = [];
+  const send = (channel: string, payload: string) => {
+    const topic = row.topics[channel];
+    if (topic !== undefined) writes.push({ kind: 'control sync', topic, payload });
+  };
+  const source = row.source, available = reportsPower(house.get(source));
+  if (force || available !== reportsPower(house.get(proxy))) send('availability', available ? 'online' : 'offline');
+  if (!available || row.store === undefined) return writes;
+  if (force || house.get(proxy) !== house.get(source)) send('power', house.get(source) === 'on' ? 'ON' : 'OFF');
+  const profile = uiProfile(house, row.store);
+  const effect = profile.namesEffectChannels && profile.effect !== 'Normal light' ? profile.effect : 'Normal Light';
+  if (force || house.attr(proxy, 'effect') !== effect) send('effect', effect);
+  const reading = lampReading(house, source);
+  if (reading.brightness !== undefined) {
+    const level = roundEven(reading.brightness);
+    if (force || house.attr(proxy, 'brightness') !== level) send('brightness', `${level}`);
+  }
+  if (reading.colourTemp && reading.kelvin !== undefined && reading.kelvin > 0) {
+    const mired = roundEven(1e6 / reading.kelvin), proxyKelvinShown = proxyKelvin(house, proxy);
+    const proxyMired = proxyKelvinShown > 0 ? roundEven(1e6 / proxyKelvinShown) : 0;
+    if (force || house.attr(proxy, 'color_mode') !== 'color_temp' || proxyMired !== mired) send('temperature', `${mired}`);
+  } else if (reading.rgb !== undefined) {
+    if (force || house.attr(proxy, 'color_mode') !== 'rgb' || !proxyShowsRgb(house, proxy, reading.rgb)) send('rgb', reading.rgb.text);
+  }
+  return writes;
+}
+
+export const OVERRIDES_SENSOR = 'sensor.ls_overrides';
+
+/**
+ * The all-off control set to what the dashboard view holds, when it shows the other power: the hold set from the
+ * control needs no write, the clock's release at the day start switches it off. A control that holds no power
+ * (unavailable, unknown, or none) is not written.
+ */
+export function plantsAllOffWrite(view: DashboardView, house: HouseView): DashboardWrite | undefined {
+  const shown = plantsAllOffShown(house);
+  return shown === undefined || (shown === 'on') === view.plantsAllOff ? undefined
+    : { kind: 'plants all-off', entity: PLANTS_ALL_OFF, on: view.plantsAllOff };
+}
+
+/** A source or proxy that reports on or off is available. */
+function reportsPower(state: string): boolean {
+  return state === 'on' || state === 'off';
+}
+
+/** The Model's writes: the overrides sensor's changes, each changed remote's helpers and each changed lamp or plug profile store. */
+export type ModelWrites = { sensor: SensorChanges | undefined; helpers: HelperWrite[]; stores: StoreWrite[] };
+
+/**
+ * The writes that take Home Assistant from what it holds to `after`. The
+ * sensor is written when its attributes, read with the Model written in,
+ * differ from the ones Home Assistant reports (the codec keeps every untouched entry's bytes): the write is the
+ * whole difference from that, key by key, made again each turn, so a newer one never drops what an older one still waiting held;
+ * a remote's helpers when its state changed this turn; a lamp's or a plug's
+ * store when its profile did. The overrides sensor and the remotes' helpers are written only for what `share`
+ * drives: the old scripts write the rest.
+ */
+export function modelWrites(before: Model, after: Model, house: HouseView, reported: HouseView, now: Instant, share: Share,
+  plantSwitchOff: DashboardView['plantSwitchOff']): ModelWrites {
+  const stored = reported.state[OVERRIDES_SENSOR];
+  const found: JsonObject = stored === undefined ? {} : stored.attributes;
+  const written = encodeOverrides(after, found, share, after.config, storeKeys(house.catalog));
+  // Derived from the dashboard view, so no key of its own in the Model: written when it differs, and not made up when empty and absent.
+  const switchOff = encodePlantSwitchOff(plantSwitchOff);
+  if (Object.keys(switchOff).length > 0 || found['plant_switch_off'] !== undefined) written['plant_switch_off'] = switchOff;
+  // Every attribute the codec writes is a mapping, the stored one or one it made: its keys are the changes.
+  const changes = Object.entries(written).flatMap(([attribute, value]): SensorKeyChange[] => {
+    const was = isObject(found[attribute]) ? found[attribute] : {}, now = isObject(value) ? value : {};
+    return isDeepStrictEqual(found[attribute], value) ? [] : [...new Set([...Object.keys(was), ...Object.keys(now)])].flatMap(key =>
+      isDeepStrictEqual(was[key], now[key]) ? [] : [{ attribute, key, from: was[key], to: now[key] }]);
+  });
+  const sensor = changes.length === 0 ? undefined : { entity: OVERRIDES_SENSOR, revision: nowText(now), changes };
+  const helpers = entriesOf(after.remotes).flatMap(([remote, state]): HelperWrite[] => {
+    const was = before.remotes[remote], room = after.config.remotes[remote]?.room;
+    if (was === undefined || room === undefined || !drives(share, room) || isDeepStrictEqual(was, state)) return [];
+    return remoteHelperWrites(was, state).map(({ helper, value }) => ({ entity: remoteHelperEntity(room, helper), value }));
+  });
+  const stores = entriesOf(after.lampProfiles).flatMap(([lamp, profiles]) => BLOCKS.flatMap((block): StoreWrite[] => {
+    const was = before.lampProfiles[lamp]?.[block], profile = profiles[block];
+    if (was === undefined || isDeepStrictEqual(was, profile)) return [];
+    const entity = profileStore(lamp, block);
+    return [{ entity, text: encodeLampProfile(profile, storeText(house, entity)) }];
+  }));
+  const switchStores = entriesOf(after.switchProfiles).flatMap(([plug, profiles]) => BLOCKS.flatMap((block): StoreWrite[] => {
+    const was = before.switchProfiles[plug]?.[block], profile = profiles[block];
+    if (was === undefined || isDeepStrictEqual(was, profile)) return [];
+    const entity = profileStore(plug, block);
+    return [{ entity, text: encodeSwitchProfile(profile, storeText(house, entity)) }];
+  }));
+  return { sensor, helpers, stores: [...stores, ...switchStores] };
+}
+
+/** A live control's row: its control and the proxy topic of each channel. */
+export type ControlRow = { control: string; topics: Partial<Record<string, string>> };
+
+type Channel = 'power' | 'brightness' | 'temperature' | 'rgb' | 'effect';
+
+/** What a control shows, as the proxy's channel payloads: today's `uiMessages` texts. */
+function channels(light: ControlShown): Record<Channel, string | undefined> {
+  if (light.power === 'off') return { power: 'OFF', brightness: undefined, temperature: undefined, rgb: undefined, effect: undefined };
+  const colour = light.colour;
+  return {
+    power: 'ON',
+    brightness: `${light.level}`,
+    temperature: colour !== undefined && colour.kind === 'kelvin' ? `${Math.round(1_000_000 / colour.kelvin)}` : undefined,
+    rgb: colour !== undefined && colour.kind === 'rgb' ? `${colour.rgb.red},${colour.rgb.green},${colour.rgb.blue}` : undefined,
+    effect: light.effect === undefined ? undefined : light.effect === 'Candle' ? 'Candle' : 'Normal Light',
+  };
+}
+
+/** The dashboard's effect choices when the catalog names none (today's `uiChoices`). */
+const DEFAULT_CHOICES: readonly string[] = ['Normal Light', 'Candle'];
+
+/**
+ * The sensor write the changes make now, over the sensor as Home Assistant shows it: each change still standing laid
+ * on its attribute, and, while some room is the old scripts', made only over that read.
+ */
+export function sensorWriteOver(write: SensorChanges, shown: EntityState | undefined, queuedAt: Instant, share: Share): SensorWrite {
+  const attributes: JsonObject = {};
+  for (const change of write.changes.filter(change => !superseded(change, shown, queuedAt))) {
+    const map = { ...isObject(attributes[change.attribute]) ? attributes[change.attribute] as JsonObject : mapOf(shown, change.attribute) };
+    if (change.to === undefined) delete map[change.key]; else map[change.key] = change.to;
+    attributes[change.attribute] = map;
+  }
+  return { entity: write.entity, revision: write.revision, attributes, basis: share.kind === 'house' ? undefined : shown?.last_updated };
+}
+
+/** One of the sensor's mapping attributes as Home Assistant shows it; none, or not a mapping, is empty. */
+function mapOf(shown: EntityState | undefined, attribute: string): JsonObject {
+  const value = shown?.attributes[attribute];
+  return isObject(value) ? value : {};
+}
+
+/**
+ * The dashboard's writes: each block selector and the mode mirror Home
+ * Assistant shows otherwise (a selector the house has no helper for is not
+ * written), and each live control's channels that changed since `before`, all
+ * of them when there is no `before` (a start).
+ */
+export function dashboardWrites(before: DashboardView | undefined, after: DashboardView, rows: readonly ControlRow[],
+  house: HouseView): DashboardWrite[] {
+  const writes: DashboardWrite[] = [];
+  for (const [scope, block] of entriesOf(after.blockShown)) {
+    const entity = `input_select.ls_${scope}_override`, option = blockOption(block), shown = house.state[entity];
+    if (shown !== undefined && shown.state !== option) writes.push({ kind: 'block selector', entity, option });
+  }
+  // The mode mirror: the dashboard's switch for the mode overlay, the one the catalog's mode names.
+  const mode = house.catalog.mode, mirror = mode === undefined ? undefined : house.state[mode.mirror];
+  if (mode !== undefined && mirror !== undefined && (mirror.state === 'on') !== after.modeOn) {
+    writes.push({ kind: 'mode mirror', entity: mode.mirror, on: after.modeOn });
+  }
+  for (const control of after.controls) {
+    const row = rows.find(candidate => candidate.control === control.control);
+    const was = before === undefined ? undefined : before.controls.find(earlier => earlier.control === control.control)?.light;
+    if (row === undefined) continue;
+    for (const [channel, payload] of entriesOf(channels(control.light))) {
+      const topic = row.topics[channel];
+      if (topic !== undefined && payload !== undefined && (was === undefined || channels(was)[channel] !== payload)) {
+        writes.push({ kind: 'control sync', topic, payload });
+      }
+    }
+  }
+  return writes;
+}
+
+/** The `input_select.ls_<room>_override` option label for a block: the oracle's `| capitalize`. */
+export function blockOption(block: Block): string {
+  return OPTION[block];
+}
+
+const OPTION: Record<Block, string> = { day: 'Day', cosy: 'Cosy', night: 'Night' };
+
+function storeText(house: HouseView, entity: string): string {
+  const state = house.state[entity];
+  return state === undefined ? '' : state.state;
+}

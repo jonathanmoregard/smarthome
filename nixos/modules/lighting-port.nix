@@ -502,7 +502,7 @@ in
     };
     branch = mkOption {
       type = types.str;
-      default = "feature/typescript-lighting-scripts";
+      default = "main";
       description = "Branch the checkout follows: lighting-port-follow fetches it from origin every minute and forces the checkout to it, discarding local edits to tracked files. Changing it switches the checkout to the new branch on the next run.";
     };
     homeAssistantUrl = mkOption {

@@ -1,0 +1,121 @@
+{
+  "allow": [
+    {
+      "file": "src/domain/types/ids.ts",
+      "symbol": "Id",
+      "reason": "Spec v3 3.4 row 1: the brand definition is the one place an id is a string; every id type is built from it."
+    },
+    {
+      "file": "src/domain/types/ids.ts",
+      "symbol": "entriesOf",
+      "reason": "Generic over every id: K is the record's own key type (RoomId, LampId, ...), so its bound is string."
+    },
+    {
+      "file": "src/domain/types/ranged.ts",
+      "symbol": "Ranged",
+      "reason": "Spec v3 3.4 row 1: the range definition is the one place a range type is a number; every range type is built from it."
+    },
+    {
+      "file": "src/domain/types/ranged.ts",
+      "symbol": "RangeMark",
+      "reason": "Spec v3 3.4 row 1: the range mark's name parameter, the same mark on a range that is not a number."
+    },
+    {
+      "file": "src/domain/types/range.ts",
+      "symbol": "isWithin",
+      "reason": "A range test over a plain number: it decides whether a number may become a range type."
+    },
+    {
+      "file": "src/domain/types/range.ts",
+      "symbol": "levelOrThrow",
+      "reason": "A range constructor: its input is the plain number it checks and turns into the range type."
+    },
+    {
+      "file": "src/domain/types/range.ts",
+      "symbol": "brightnessOrThrow",
+      "reason": "A range constructor: its input is the plain number it checks and turns into the range type."
+    },
+    {
+      "file": "src/domain/types/range.ts",
+      "symbol": "brightnessStepOrThrow",
+      "reason": "A range constructor: its input is the plain number it checks and turns into the range type."
+    },
+    {
+      "file": "src/domain/types/range.ts",
+      "symbol": "kelvinOrThrow",
+      "reason": "A range constructor: its input is the plain number it checks and turns into the range type."
+    },
+    {
+      "file": "src/domain/types/range.ts",
+      "symbol": "progressOrThrow",
+      "reason": "A range constructor: its input is the plain number it checks and turns into the range type."
+    },
+    {
+      "file": "src/domain/types/range.ts",
+      "symbol": "blendPositionOrThrow",
+      "reason": "A range constructor: its input is the plain number it checks and turns into the range type."
+    },
+    {
+      "file": "src/domain/types/range.ts",
+      "symbol": "plantHoursOrThrow",
+      "reason": "A range constructor: its input is the plain number it checks and turns into the range type."
+    },
+    {
+      "file": "src/domain/blend.ts",
+      "symbol": "roundEven",
+      "reason": "Python's round over a plain number: the arithmetic a level or a colour is computed in before its range constructor makes it one."
+    },
+    {
+      "file": "src/domain/types/range.ts",
+      "symbol": "minutesOrThrow",
+      "reason": "A range constructor: its input is the plain number it checks and turns into the range type."
+    },
+    {
+      "file": "src/domain/types/range.ts",
+      "symbol": "stepOrThrow",
+      "reason": "A range constructor: its input is the plain number it checks and turns into the range type."
+    },
+    {
+      "file": "src/domain/types/range.ts",
+      "symbol": "stepCountOrThrow",
+      "reason": "A range constructor: its input is the plain number it checks and turns into the range type."
+    },
+    {
+      "file": "src/domain/types/range.ts",
+      "symbol": "percentOrThrow",
+      "reason": "A range constructor: its input is the plain number it checks and turns into the range type."
+    },
+    {
+      "file": "src/domain/types/range.ts",
+      "symbol": "percentRangeOrThrow",
+      "reason": "A range constructor: its input is the plain number it checks and turns into the range type."
+    },
+    {
+      "file": "src/domain/types/range.ts",
+      "symbol": "colourChannelOrThrow",
+      "reason": "A range constructor: its input is the plain number it checks and turns into the range type."
+    },
+    {
+      "file": "src/domain/types/range.ts",
+      "symbol": "instantOrThrow",
+      "reason": "A range constructor: its input is the plain number it checks and turns into the range type."
+    },
+    {
+      "file": "src/domain/types/range.ts",
+      "symbol": "secondsOrThrow",
+      "reason": "A range constructor: its input is the plain number it checks and turns into the range type."
+    },
+    {
+      "file": "src/domain/types/range.ts",
+      "symbol": "timeOfDayOrThrow",
+      "reason": "A range constructor: its input is the plain number it checks and turns into the range type."
+    }
+  ],
+  "ceilings": [
+    {
+      "file": "src/domain/types/schedule.ts",
+      "ceiling": 1,
+      "reason": "Today's count when the guard landed (V0, 2026-11-20). A ratchet: it only falls."
+    }
+  ]
+}

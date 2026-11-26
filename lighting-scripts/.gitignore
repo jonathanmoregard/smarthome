@@ -1,0 +1,14 @@
+node_modules/
+dist/
+tasks
+.env
+.env.*
+!.env.example
+__pycache__/
+*.pyc
+.runtime/
+test-results/
+# Household captures, frozen replay state and detailed traces stay local.
+reference/
+tests/parity/migration-fixtures.json
+tests/parity/*report.json

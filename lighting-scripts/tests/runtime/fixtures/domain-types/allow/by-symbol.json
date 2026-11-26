@@ -1,0 +1,4 @@
+{
+  "allow": [{ "file": "src/domain/lamp.ts", "symbol": "lampOf", "reason": "fixture: allowed by name" }],
+  "ceilings": []
+}
